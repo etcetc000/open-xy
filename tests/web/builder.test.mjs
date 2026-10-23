@@ -25,8 +25,16 @@ test('dev server serves browser sources and rejects private paths and writes', a
     for (const path of ['/entry.mjs','/style.css','/app.mjs','/wizard.mjs','/ferret.mjs','/visuals.mjs','/audition.mjs']) {
       const response = await fetch(url+path); assert.equal(response.status,200,path);
     }
+    // Vite's client and the shared renderers load through /@fs/ on every platform.
+    const clientEnv = fileURLToPath(new URL('../../node_modules/vite/dist/client/env.mjs', import.meta.url));
+    const shared = ['display.mjs','segments.mjs','controls.mjs'].map(name =>
+      fileURLToPath(new URL('../../sdk/browser/' + name, import.meta.url)));
+    for (const file of [clientEnv, ...shared]) {
+      const path = '/@fs/' + file.replaceAll('\\', '/').replace(/^\//, '');
+      assert.equal((await fetch(url + path)).status, 200, path);
+    }
     for (const path of ['/kit.json','/.env.local','/local/inputs/os.ldr','/builder/../local/inputs/os.ldr',
-      '/%2e%2e/local/inputs/os.ldr','/@fs/C:/Users/ericx/.codex/config.toml','/vite.config.mjs','/__open-in-editor?file=README.md']) {
+      '/%2e%2e/local/inputs/os.ldr','/@fs/C:/Users/ericx/.codex/config.toml','/@fs/etc/passwd','/@fs//etc/passwd','/vite.config.mjs','/__open-in-editor?file=README.md']) {
       const response = await fetch(url+path); assert.equal(response.status,404,path);
     }
     assert.equal((await fetch(url+'/style.css',{method:'POST',body:'x'})).status,405);

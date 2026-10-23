@@ -1,13 +1,16 @@
 import {existsSync, readFileSync, readdirSync, realpathSync} from 'node:fs';
-import {basename, dirname, resolve} from 'node:path';
+import {basename, dirname, posix, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {defineConfig, loadEnv, normalizePath} from 'vite';
 import {openKit} from './builder/core.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const browserRoot = resolve(root, 'builder');
-const renderers = ['display.mjs', 'segments.mjs', 'engine.mjs', 'processor.mjs'].map(name => resolve(root, 'sdk/browser', name));
+const renderers = ['display.mjs', 'segments.mjs', 'controls.mjs', 'engine.mjs', 'processor.mjs'].map(name => resolve(root, 'sdk/browser', name));
 const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'core.mjs', 'wizard.mjs', 'ferret.mjs', 'visuals.mjs', 'audition.mjs'];
+// Vite's /@fs/ URLs: C:/x becomes /@fs/C:/x and /x becomes /@fs/x.
+const fsUrl = path => posix.join('/@fs/', normalizePath(path));
+const fsFile = url => { const path = url.slice(5); return /^[A-Za-z]:\//.test(path) ? path : '/' + path; };
 const kitKeys = new Set(['format','profile','profileSource','definitions','machines','objects','notices','stockCatalog','screenTemplate']);
 
 // Check both the supplied path and its physical destination, including a new
@@ -58,7 +61,7 @@ export default defineConfig(async ({command, mode}) => {
   const allowedFs = [...renderers, resolve(clientDir, 'env.mjs')];
   const paths = new Set(['/', '/index.html', '/kit.json', '/@vite/client', '/@vite/env',
     ...browserFiles.map(name => '/' + name),
-    ...allowedFs.map(path => '/@fs/' + normalizePath(path))]);
+    ...allowedFs.map(fsUrl)]);
   return {
     root: browserRoot,
     publicDir: false,
@@ -110,7 +113,7 @@ export default defineConfig(async ({command, mode}) => {
           if (!paths.has(path)) { res.writeHead(404); res.end(); return; }
           // Reject junctions/symlinks for authored files as well.
           const file = browserFiles.includes(path.slice(1)) ? resolve(browserRoot,path.slice(1))
-            : path.startsWith('/@fs/') ? path.slice(5) : null;
+            : path.startsWith('/@fs/') ? fsFile(path) : null;
           try {
             if (file && normalizePath(realpathSync(file)) !== normalizePath(file)) { res.writeHead(404); res.end(); return; }
           } catch { res.writeHead(404); res.end(); return; }
