@@ -39,6 +39,9 @@ patches and automation.
 
 Start with [Your first machine](docs/first-machine.md): check the prerequisites,
 create a custom C++ machine, play it in the browser and make an audible edit.
+To keep a machine in a repository of your own and submit it to the builder,
+start from the [machine template](https://github.com/etcetc000/open-xy-machine-template);
+[Pluck](https://github.com/etcetc000/open-xy-pluck) is one such machine.
 
 A machine is a folder of source: `machine.json`, which declares its kind and
 stock identity, controls in `definition.json`, and C++ for its kind: a synth's
@@ -66,8 +69,9 @@ previews, firmware builds and packaging.
 | `tools/` | Standalone scripts: the preview server, browser and firmware checkers, and compiler build and release scripts |
 | `local/` | Ignored non-firmware development outputs and tool binaries |
 
-`python sdk.py check` checks the SDK. A machine's sound tests belong to its
-maintainer; adding an instrument does not add tests or Python modules to the SDK.
+`python sdk.py check` checks the SDK; `python sdk.py test --machine <folder>`
+checks a machine, including the sound tests in its own `tests/`. Adding an
+instrument does not add tests or Python modules to the SDK.
 
 The SDK and most machines are MIT ([LICENSE](LICENSE), Open-XY contributors);
 [Braids notices](machines/macroosc/vendor/LICENSE) apply to that port.

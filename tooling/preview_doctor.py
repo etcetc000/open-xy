@@ -7,13 +7,14 @@ import sys
 import tempfile
 
 from .formats import require
+from .pipeline import NO_WINDOW
 
 
 def run(command):
     try:
         result = subprocess.run([str(value) for value in command], capture_output=True,
                                 text=True, timeout=30,
-                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                                creationflags=NO_WINDOW)
     except subprocess.TimeoutExpired as error:
         raise ValueError('Prerequisite probe timed out: ' + str(command[0])) from error
     require(result.returncode == 0, result.stdout + result.stderr)
