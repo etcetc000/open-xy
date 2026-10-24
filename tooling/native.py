@@ -26,7 +26,7 @@ from .adapters import (catalog_entry, generate_display, generate_fx_object, gene
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
-from .machines import COLLECTION, by_kind, collection, read_collection
+from .machines import COLLECTION, by_kind, collection, read_collection, tree
 from .pipeline import (PROFILE, ROOT, check_patch_boundaries, child, config, document, execute, fresh_output, host_pins, host_platform,
                        read, require_release_host, resolve_toolchain, save_json, tool_paths)
 from .startup import generate as generate_startup
@@ -73,14 +73,16 @@ def configuration(entries=None):
 
 
 def provenance(machines):
-    """Every authored, SDK and compiler-profile input; private artifacts never enter."""
-    paths = {PROFILE, LINKER, 'profiles/collection.json'}
+    """Every authored, SDK and compiler-profile input; private artifacts never enter.
+    The collection is its machines, in order: their IDs and sources below."""
+    paths = {PROFILE, LINKER}
     for folder in ('sdk/include', 'sdk/platform', 'tooling'):
         paths |= {p.relative_to(ROOT).as_posix() for p in (ROOT / folder).rglob('*')
                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md'}
     hashes = {name: sha(read(child(ROOT, name))) for name in paths}
     for m in machines:
         hashes.update({name: sha(read(path)) for name, path in m.files().items()})
+    hashes['collection'] = sha(json.dumps([m.id for m in machines]).encode('utf-8'))
     return dict(sorted(hashes.items()))
 
 
@@ -107,7 +109,7 @@ def compiler_paths(directory):
 
 def check_sources(machines):
     for m in machines:
-        for path in m.root.rglob('*'):
+        for path in tree(m.root):
             if path.suffix in ('.cpp', '.cc', '.h', '.hpp', '.inc') and 'vendor' not in path.relative_to(m.root).parts:
                 validate_source_boundary(path.read_text(encoding='utf-8'), m.source(path.relative_to(m.root).as_posix()))
 
@@ -551,9 +553,6 @@ def validate_panel(m, fragment=None):
     nodes = list(panel_root(fragment, m.source('panel.svg.fragment')).iter())
     ids = [node.get('id') for node in nodes if node.get('id')]
     require(len(ids) == len(set(ids)), 'Duplicate authored SVG ID')
-    require(m.prefix == 'local' or not any(i.startswith('local_') for i in ids),
-            f'{m.source("panel.svg.fragment")} still has local_ artwork IDs; '
-            f'rename every local_ prefix to {m.prefix}_ (docs/build.md, step 3)')
     by_id = {node.get('id'): node for node in nodes if node.get('id')}
 
     def visible(name, tags=('path', 'circle')):
@@ -617,9 +616,12 @@ def prepare_assets(catalog, profile, machines):
 
 
 def package_collection(package):
-    """The collection a package was built from, as its manifest records it."""
+    """The collection a package was built from, as its manifest records it; a package
+    that records none was built from profiles/collection.json."""
     entries = document(Path(package) / 'manifest.json').get('collection')
-    require(isinstance(entries, list) and entries, 'The package does not record its collection')
+    if entries is None:
+        return read_collection()
+    require(isinstance(entries, list) and entries, 'Invalid package collection')
     return entries
 
 
@@ -646,6 +648,7 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
         actual = {p.relative_to(package).as_posix() for p in (package / 'candidate').rglob('*') if p.is_file()}
         require(actual == {p for p in expected if p.startswith('candidate/')}, 'Unexpected deployment file')
     result = dict(target=TARGET, status='experimental-unqualified', os_sha256=sha(expected_assets['os.ldr']),
+                  machines=[m.id if m.bundled else m.source() for m in machines],
                   fresh_source_rebuild_matches=True, original_entry_preserved=True,
                   exact_edits=sum(patch_active(p, set(report['services'])) for p in profile['patches']),
                   single_shared_reservation_bytes=profile['reserved_bytes'],
@@ -659,6 +662,7 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
 def build(out, toolchain, compiler, stock_os, stock_content, entries=None):
     entries = read_collection() if entries is None else entries
     profile, machines, definitions = configuration(entries)
+    require(not any(m.contains(out) for m in machines), 'Keep build output outside every machine folder')
     stock = read(stock_os)
     require(sha(stock) == profile['stock_sha256'], 'Stock OS hash mismatch')
     catalog = read(Path(stock_content) / 'op1_factory.json')
@@ -730,6 +734,7 @@ def main(argv=None, command=None):
         tool_paths(tools[0])
         compiler_paths(tools[1])
         if command == 'compile':
+            require(not any(m.contains(args.out) for m in machines), 'Keep build output outside every machine folder')
             output = fresh_output(args.out)
             _module, report, _patches = compile_collection(output, *tools, profile, machines, definitions)
             print(json.dumps(report['sizes'], indent=2))

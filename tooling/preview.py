@@ -86,6 +86,7 @@ def build(compiler, m, out):
     """The browser audition of a collection synth (a Machine)."""
     from .native import check_sources, validate_panel
     require(m.kind == 'synth', 'Browser previews audition synths')
+    require(not m.contains(out), 'Keep preview output outside the machine folder')
     executable = shutil.which(str(compiler))
     require(executable is not None, 'Clang++ with wasm32/wasm-ld is required; run python sdk.py doctor --preview')
     compiler = Path(executable).resolve()
@@ -130,7 +131,9 @@ def preview_bundle(directory, *, require_reference=False):
     require(type(manifest['schema']) is int and manifest['schema'] == 1 and
             manifest['kind'] == 'cpp-browser-preview' and type(manifest['sample_rate']) is int and
             manifest['sample_rate'] == 44100, 'Unsupported preview contract')
-    m = machine(manifest['engine']) if manifest['root'] is None else machine_at(manifest['root'])
+    root = manifest['root']
+    require(root is None or isinstance(root, str) and Path(root).is_absolute(), 'Invalid machine folder in preview')
+    m = machine(manifest['engine']) if root is None else machine_at(root)
     require(m.id == manifest['engine'] and m.kind == 'synth', 'Browser previews audition synths')
     require(manifest['sources'] == source_hashes(m), 'Preview is stale; rebuild from current source')
     require(manifest['definition'] == m.definition and manifest['description'] == m.description,

@@ -10,6 +10,7 @@ tables and the collection.
 """
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import re
 
@@ -27,6 +28,17 @@ SDK_VERSION = (1, 0)
 # Builder card glyph: SVG path data in a 46 x 48 box, drawn as a stroke.
 ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
 COLLECTION = ROOT / 'profiles/collection.json'
+# Folders inside a machine that are never its source: version control, caches, tools.
+IGNORED = {'.git', '__pycache__', 'node_modules', '.venv'}
+
+
+def tree(root):
+    """Every file under a machine folder, in name order, without walking ignored folders."""
+    found = []
+    for folder, folders, files in os.walk(root):
+        folders[:] = sorted(f for f in folders if f not in IGNORED)
+        found += [Path(folder) / name for name in files]
+    return sorted(found)
 
 
 @dataclass(frozen=True)
@@ -68,8 +80,11 @@ class Machine:
     def files(self):
         """Every authored file, keyed as the build's provenance names it."""
         key = 'machines/' + self.id if self.bundled else 'external/' + self.id
-        return {key + '/' + p.relative_to(self.root).as_posix(): p for p in sorted(self.root.rglob('*'))
-                if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md' and '.git' not in p.parts}
+        return {key + '/' + p.relative_to(self.root).as_posix(): p for p in tree(self.root) if p.suffix != '.md'}
+
+    def contains(self, path):
+        """Whether a path lies inside this machine's folder, where build output must never go."""
+        return Path(os.path.abspath(path)).is_relative_to(self.root)
 
 
 def _relative(machine_root, value):
@@ -124,13 +139,14 @@ def machine(identity):
 
 def machine_at(root, identity=None):
     """The machine in a folder; its definition names it."""
-    root = Path(root).absolute()
+    root = Path(os.path.abspath(root))
     path = root / 'machine.json'
     require(path.is_file() and path.resolve() == path.absolute() and root.resolve() == root,
             'Unknown or redirected machine: ' + str(identity or root))
     value = json.loads(path.read_text(encoding='utf-8'))
     if identity is None:
-        identity = json.loads((root / 'definition.json').read_text(encoding='utf-8')).get('id')
+        named = json.loads((root / 'definition.json').read_text(encoding='utf-8'))
+        identity = named.get('id') if isinstance(named, dict) else None
         stock_name(identity)
     require(isinstance(value, dict) and value.get('schema') == 1 and
             set(value) <= FIELDS,

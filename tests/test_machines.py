@@ -123,6 +123,13 @@ class OutsideMachines(unittest.TestCase):
         self.assertTrue(bundled.bundled)
         self.assertEqual(bundled.source('engine.cpp'), 'machines/fm2op/engine.cpp')
         self.assertIn('machines/fm2op/engine.cpp', bundled.files())
+        # A relative path through .. names the same folder; nothing under .git is source.
+        dotted = self.folder.parent / 'elsewhere' / '..' / self.folder.name
+        self.assertEqual(machines.machine_at(dotted).root, self.folder)
+        (self.folder / '.git').mkdir()
+        (self.folder / '.git' / 'HEAD').write_text('ref', encoding='utf-8')
+        self.assertFalse(any('.git' in name for name in m.files()))
+        self.assertTrue(m.contains(self.folder / 'out') and not m.contains(self.folder.parent / 'out'))
 
     def test_collections_list_bundled_ids_and_folders(self):
         collection = Path(self.temporary.name) / 'collection.json'
