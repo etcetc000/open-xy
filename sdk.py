@@ -12,6 +12,7 @@ COMMANDS = '''Commands:
   build     Native firmware package: python sdk.py build [--machine <folder>] --help
   verify    Rebuild and compare a native package: python sdk.py verify --help
   kit       Browser builder export: python sdk.py kit --help
+  release   Catalog kit and site: python sdk.py release --help
   toolchain Install the pinned Blackfin tools: python sdk.py toolchain fetch
   doctor    Check tools: python sdk.py doctor --preview | --toolchain [<dir>]
 Preview server: python tools/serve_harness.py --preview local/preview-001'''
@@ -29,6 +30,9 @@ if __name__ == '__main__':
         raise SystemExit(main(argv))
     if command == 'test':
         from tooling.machine_test import main
+        raise SystemExit(main(argv))
+    if command == 'release':
+        from tooling.release import main
         raise SystemExit(main(argv))
     if command == 'kit':
         from tooling.browser_kit import main

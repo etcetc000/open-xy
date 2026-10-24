@@ -136,22 +136,35 @@ with no collection as a UI check and never consumes private inputs.
 ### Cloudflare deployment
 
 `wrangler.jsonc` names the site `open-xy` and binds `open-xy.com`. The site is
-static assets only, with no Worker script. With `.env.local` set as above:
+static assets only, with no Worker script. The `beta` environment is a separate
+`open-xy-beta` site at `beta.open-xy.com`, deployed from `staging`; production
+is deployed from `main`. Merge work, and catalog changes, into `staging`,
+release beta, then open a pull request from `staging` to `main` and release
+production.
 
-```sh
-npx wrangler login
-npm run test:web
-npm run deploy:cloudflare
+On the release host, after `npx wrangler login`, one command releases the
+catalog:
+
+```powershell
+python sdk.py release --stock-os <stock-1.2.0>/os.ldr --stock-content <stock-1.2.0>/content --out <builds>/release-001 --deploy beta
 ```
 
-The deploy rebuilds in release mode, fails without a valid collection, and
-uploads only the release directory.
+It fetches every published [catalog](catalog.md) machine at its pinned commit
+(confirming its tag), exports the release kit from the bundled machines plus
+those ([Export a kit](#export-a-kit), with release verification), runs the
+builder's web tests, builds the site around the kit and deploys it. It deploys
+beta only from `staging` and production only from `main`, and only when the
+checkout is exactly that branch on `origin`: no local edits, nothing unpushed or
+behind. With `--deploy`, `--dry-run` does everything except publish; without
+`--deploy` it stops after the kit. `--toolchain` and `--compiler` name the
+pinned tools when they are not in `local/toolchain`.
+`--out` must be a new folder outside every checkout; the kit and the site are
+written inside it.
 
-The `beta` environment deploys the `staging` branch to `beta.open-xy.com` as a
-separate `open-xy-beta` site. Merge work into `staging`, deploy it from a
-`staging` checkout with `npm run deploy:beta`, then open a pull request from
-`staging` to `main` and deploy production from `main`. Both commands need a
-fresh `OPEN_XY_OUT_DIR`.
+The deploy rebuilds in release mode, fails without a valid collection, and
+uploads only the release directory. `npm run deploy:beta` and
+`npm run deploy:cloudflare` remain for deploying an existing kit, with
+`.env.local` set as above and a fresh `OPEN_XY_OUT_DIR`.
 
 To add a custom domain, make its parent an
 active Cloudflare zone, then use **Workers & Pages → open-xy → Settings →
@@ -173,7 +186,10 @@ authenticated stock menu and the SDK screen template; firmware stays
 user-supplied. It is named only after every check passes.
 
 A published kit comes from the release host, after
-[release verification](build.md#release-verification). For your own machines,
+[release verification](build.md#release-verification). It holds the bundled
+machines and [catalog](catalog.md) machines fetched at their pinned commits
+(`--collection local/catalog/collection.json`), each with its repository, tag,
+commit and maintainer. For your own machines,
 add `--personal`: it runs on any pinned host, Windows or Apple-silicon macOS,
 and skips only that verification. Open the resulting `opxy-builder.html`, or
 serve it as in [web development](#web-development), to select machines,

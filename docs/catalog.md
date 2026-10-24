@@ -50,6 +50,10 @@ published machine and checks it as its own repository's CI does, and compiles
 the firmware module with the bundled machines and all published ones on the
 pinned Windows tools.
 
+Merged catalog changes reach the site with the next release
+([`sdk.py release`](builder.md#cloudflare-deployment)): beta from `staging`,
+then production from `main`.
+
 A maintainer then reviews a new machine once, in full:
 
 - It uses only the public headers: no assembly, raw addresses or platform code.
