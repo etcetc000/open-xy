@@ -199,12 +199,19 @@ def discovered():
     return [machine(path.parent.name) for path in sorted((ROOT / 'machines').glob('*/machine.json'))]
 
 
+def held():
+    """(kind, identity) of every bundled machine and every machine the catalog lists."""
+    from .catalog import held_identities
+    return [(m.kind, m.identity) for m in discovered()] + held_identities()
+
+
 def free_synth_identity():
-    """The lowest synth engine ID and page that the identity rules allow and no machine here uses."""
+    """The lowest synth engine ID and page that the identity rules allow and neither a bundled
+    machine nor the catalog holds."""
     rules = config()['identities']
-    machines = discovered()
-    engines = {m.identity.get('engine') for m in machines}
-    pages = {m.identity['page'] for m in machines}
+    identities = held()
+    engines = {identity.get('engine') for _kind, identity in identities}
+    pages = {identity['page'] for kind, identity in identities if kind == 'synth'}
     engine = next(n for n in range(1, rules['engines'])
                   if n != rules['engine_none'] and n not in rules['stock_engines'] and n not in engines)
     page = next(p for p in range(rules['page_none'] + 1, rules['pages']) if p not in pages)
@@ -231,9 +238,10 @@ def read_collection(path=COLLECTION, extra=()):
 
 
 def free_effect_identity():
-    """The lowest effect ID that the identity rules allow and no machine here uses, on the FX page."""
+    """The lowest effect ID that the identity rules allow and no bundled or catalog machine
+    holds, on the FX page."""
     rules = config()['identities']
-    used = {m.identity.get('effect') for m in discovered()}
+    used = {identity.get('effect') for _kind, identity in held()}
     free = [n for n in rules['effects'] if n not in used]
     require(free, 'Every effect ID is held: an effect needs one released by another machine')
     return {'effect': free[0], 'page': rules['effect_page']}

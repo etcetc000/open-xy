@@ -1,0 +1,55 @@
+name: Catalog
+# A catalog change fetches every published machine at its pinned commit and
+# checks it as its own repository's CI does, then compiles the firmware module
+# with the bundled machines and all of them. No stock files or device.
+on:
+  pull_request:
+    paths: ['catalog/**', '.github/workflows/catalog.yml']
+  push:
+    branches: [main, staging]
+    paths: ['catalog/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  machines:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preview and host test tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang lld
+          python -m pip install numpy==2.3.5
+      - name: Catalog entries
+        env:
+          BASE: ${{ github.base_ref }}
+        shell: bash
+        # A pull request keeps every machine's identity from its target branch.
+        run: python sdk.py catalog check ${BASE:+--base origin/$BASE}
+      - name: Fetch the pinned machines, confirming their tags, and check them
+        run: python sdk.py catalog test --tags --cxx clang++ --host-cxx g++
+  firmware:
+    # The pinned Blackfin tools run on Windows x86_64 and macOS arm64.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pinned Blackfin tools
+        run: python sdk.py toolchain fetch
+      - name: Fetch the pinned machines
+        run: python sdk.py catalog fetch
+      - name: Firmware compile with every bundled and published machine
+        run: python sdk.py compile --collection local/catalog/collection.json --out ${{ runner.temp }}/module
