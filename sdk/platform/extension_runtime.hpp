@@ -1,5 +1,6 @@
 #pragma once
 #include <opxy/extension.hpp>
+#include <opxy/recording_policy.hpp>
 
 namespace opxy { namespace platform {
 using extensions::RecordingContext;
@@ -9,8 +10,14 @@ struct ExtensionEntry {
     const char* id;
     bool record_double_tap, edit_notes;
     const extensions::Hooks* hooks;
+    bool recording_policy;
 };
 const ExtensionEntry* extension_collection(u32& count);
+const extensions::RecordingPolicy* extension_recording_policy();
+const char* recording_policy_name();
+bool recording_mode_enabled();
+void recording_mode_set(bool enabled);
+u32 recording_mode_revision();
 
 // These entry points belong only to the version adapter.
 void extensions_sync();

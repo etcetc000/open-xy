@@ -2,8 +2,10 @@
 #include <opxy/record_tap.hpp>
 #include <extension_runtime.cpp>
 #include "../../extensions/capture/extension.cpp"
+#include "../../extensions/replace/extension.cpp"
 #include <extension_collection.cpp>
 #include <ghost_capture_stock.cpp>
+#include <recording_stock.cpp>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 using namespace opxy;
@@ -97,6 +99,7 @@ void release(u32 pitch=60) { sdk_capture_note_off(0x860cf9c8,selected,pitch,1,2,
 }
 
 namespace opxy { namespace platform {
+void recording_menu_sync() {} // Menu's stock boundary has its own fixture.
 Address host_stock_address(Address address) {
     switch (address) {
         case 0x8409d2c8: return reinterpret_cast<Address>(&project_id);

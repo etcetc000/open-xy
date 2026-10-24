@@ -13,9 +13,10 @@ def collection():
             'Invalid extension collection schema')
     entries = data['extensions']
     require(isinstance(entries, list) and len(entries) <= 16, 'At most 16 extensions')
-    ids, shortcut = set(), False
+    ids, shortcut, policy = set(), False, False
     for entry in entries:
-        require(isinstance(entry, dict) and set(entry) == {'id', 'record_double_tap', 'edit_notes'},
+        require(isinstance(entry, dict) and {'id', 'record_double_tap', 'edit_notes'} <= set(entry) and
+                set(entry) <= {'id', 'record_double_tap', 'edit_notes', 'recording_policy'},
                 'Invalid extension declaration')
         name = entry['id']
         require(isinstance(name, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,31}', name), 'Invalid extension ID')
@@ -25,6 +26,9 @@ def collection():
                 'Extension claims must be booleans')
         require(not entry['record_double_tap'] or not shortcut, 'Record double-tap has multiple owners')
         shortcut |= entry['record_double_tap']
+        require(type(entry.get('recording_policy', False)) is bool, 'Recording policy claim must be boolean')
+        require(not entry.get('recording_policy') or not policy, 'Recording policy has multiple owners')
+        policy |= entry.get('recording_policy', False)
         require(not entry['edit_notes'] or entry['record_double_tap'],
                 'Note editing requires the Record double-tap claim')
         root = ROOT / 'extensions' / name
@@ -44,10 +48,11 @@ def generate_collection(folder):
     lines += ['namespace opxy { namespace platform {', 'namespace {',
               'const ExtensionEntry collection_entries[] = {']
     for entry in entries:
-        lines.append('    {"%s", %s, %s, &extensions::%s::hooks},' % (
-            entry['id'], str(entry['record_double_tap']).lower(), str(entry['edit_notes']).lower(), entry['id']))
+        lines.append('    {"%s", %s, %s, &extensions::%s::hooks, %s},' % (
+            entry['id'], str(entry['record_double_tap']).lower(), str(entry['edit_notes']).lower(), entry['id'],
+            str(entry.get('recording_policy', False)).lower()))
     # One unused sentinel also makes an empty collection standard C++11.
-    lines += ['    {nullptr, false, false, nullptr}', '};', '}',
+    lines += ['    {nullptr, false, false, nullptr, false}', '};', '}',
               'const ExtensionEntry* extension_collection(u32& count) {',
               f'    count = {len(entries)};', '    return collection_entries;', '}', '}}', '']
     target = folder / 'extension_collection.cpp'

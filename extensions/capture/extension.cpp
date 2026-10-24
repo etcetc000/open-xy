@@ -40,5 +40,5 @@ void control(const Context& context, const Control& control, const Actions& acti
     }
 }
 }
-extern const Hooks hooks = {sync, note_on, note_off, tick, activity, control};
+extern const Hooks hooks = {sync, note_on, note_off, tick, activity, control, nullptr};
 }}}

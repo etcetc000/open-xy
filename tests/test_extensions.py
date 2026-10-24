@@ -36,3 +36,14 @@ class Extensions(unittest.TestCase):
         with mock.patch.object(extensions, 'document', return_value={'schema': 1, 'extensions': []}):
             self.assertFalse(any(step.startswith('extension:') for _, _, step in native.plan([])))
             self.assertFalse(any(name.startswith('extensions/') for name in native.provenance([])))
+
+    def test_recording_policy_is_exclusive_and_typed(self):
+        valid = {'schema': 1, 'extensions': extensions.collection()}
+        data = copy.deepcopy(valid)
+        data['extensions'][0]['recording_policy'] = True
+        with mock.patch.object(extensions, 'document', return_value=data), self.assertRaisesRegex(ValueError, 'multiple owners'):
+            extensions.collection()
+        data = copy.deepcopy(valid)
+        data['extensions'][0]['recording_policy'] = 'true'
+        with mock.patch.object(extensions, 'document', return_value=data), self.assertRaisesRegex(ValueError, 'must be boolean'):
+            extensions.collection()

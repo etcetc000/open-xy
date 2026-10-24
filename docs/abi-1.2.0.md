@@ -34,6 +34,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Synth and effect controls | 3 | Lets an encoder press on an owned synth's page select an alternate parameter, which its turns then edit; scales fine turns on owned synth and send-effect pages |
 | Startup label | 1 | Shows `OPEN 0.0.1-1.2.0` at boot through the stock startup text renderer |
 | Retrospective notes | 7 | Observes live input and stock transport, then applies a double-Record capture through stock note editing and undo |
+| Recording policy | 2 | Observes successful stock insertions and selects old notes for removal before track traversal |
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
@@ -82,6 +83,23 @@ retains at most 120 notes and 20 simultaneously held notes; it is cleared
 after a successful insertion, on track/context changes and on a new playback
 start. Stop preserves the partial take. Host adapter tests use stock doubles;
 they do not establish device scheduling or timing.
+
+## Recording policy
+
+The recording policy wraps the four-argument recorder insertion call at
+`0x8d59201e` and the two-argument track-advance call at `0x8d5aa17a`. Both are
+ordinary C ABI call replacements. The adapter snapshots the active-note count
+immediately around insertion and identifies the appended payload; track is a
+byte at active-entry offset 4, with unspecified padding. Generation tags protect
+fresh notes, while active payload pointers and flag bit 1 protect held notes.
+The SDK checks both used and free lists before unlinking any selected slot.
+
+The existing GUI loop installs the recording-mode setting after validating the
+stock six-row system vector. It allocates the enlarged vector through stock,
+constructs one process-lifetime integer parameter, and preserves the original
+descriptors. A null persistence key makes the selection session-only. Unexpected
+shape, allocation/construction failure or lost ownership disables replacement.
+The menu requires no additional binary patch site.
 
 ## Startup
 

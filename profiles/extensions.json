@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "extensions": [
-    {"id": "capture", "record_double_tap": true, "edit_notes": true}
+    {"id": "capture", "record_double_tap": true, "edit_notes": true},
+    {"id": "replace", "record_double_tap": false, "edit_notes": false, "recording_policy": true}
   ]
 }

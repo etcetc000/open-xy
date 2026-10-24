@@ -2,8 +2,9 @@
 
 Extensions change controller and sequencer behavior. Machines implement sound
 and display callbacks; extensions receive selected-track context, accepted live
-notes, releases, scaled recording ticks and controls. Capture is the first
-extension, in [`extensions/capture/`](../extensions/capture/extension.cpp).
+notes, releases, scaled recording ticks and controls. The collection includes
+[capture](../extensions/capture/extension.cpp) and a
+[replace recording policy](../extensions/replace/extension.cpp).
 
 An extension is ordinary C++11 compiled into the firmware. It has no firmware
 addresses, assembly, platform conditionals or OS headers. The SDK installs each
@@ -17,14 +18,16 @@ Create `extensions/<id>/extension.cpp`. Export
 [`Hooks`](../sdk/include/opxy/extension.hpp) descriptor; unused callbacks are
 null. Put its implementation and private helpers in that directory. Add its ID
 to [`profiles/extensions.json`](../profiles/extensions.json), with
-`record_double_tap` and `edit_notes` booleans. The builder compiles the selected
+`record_double_tap` and `edit_notes` booleans, plus an optional
+`recording_policy` boolean. The builder compiles the selected
 extensions, validates their source boundary and records their sources and
 selection in package provenance. Browser kits include these linked objects.
 
 The array defines callback order. All observers receive the same immutable
 event in that order. There is no priority guessing or registration during
 playback. Duplicate IDs, multiple Record-double-tap owners and note editing
-without that claim fail the build. An empty collection is valid.
+without that claim fail the build. Only one extension can claim recording
+policy ownership. An empty collection is valid.
 
 ## Events and ownership
 
@@ -60,9 +63,40 @@ publishes once. A successful edit permits one bounded success notification.
 Calls outside that callback, from observers, after a context change, or a
 second edit within the same callback are rejected.
 
-These phases keep observation independent of pattern edits. Changing live
-recording policy or transforming note-on/off pairs requires an explicit SDK
-contract; an observer must not add its own firmware patch or write stock memory.
+## Recording policy
+
+The sole recording-policy owner supplies a
+[`RecordingPolicy`](../sdk/include/opxy/recording_policy.hpp) descriptor. It
+receives successful stock insertions as slot generations and selects old notes
+to remove before stock traverses a nonwrapping interval. The SDK supplies stock
+quantized onset coordinates, protects held-note flags and recorder pointers,
+validates the complete note list, and performs stable-slot unlinking with undo
+and publication. It never rebuilds or moves the note container.
+
+The setting appears at **COM > M1 > system > recording** with **overdub** and
+the policy's name. It defaults to overdub on every boot. Only locked live
+recording (**Record + Play**) enables the policy. A Record press clears the
+stock latch, keeping capture double-taps and momentary recording independent.
+
+Replace remembers which pass owns each newly recorded slot. An early
+quantized pickup belongs to the upcoming pass; a late quantized note belongs
+to the current pass. Old notes in traversed regions are removed even during
+silence. A held note remains protected until release. Project, pattern, track,
+length, scale, quantization, transport or recording-mode changes reset this
+ownership. Discontinuous position updates skip erasure and reset timing state.
+
+Replacement edits note events only. It preserves parameter locks and step
+components. Erasure uses stock quantized note positions; groove and generated
+component playback remain stock behavior. The host fixtures do not establish
+the audible ordering of those transformed events on a device.
+
+Capture keeps its existing ghost-history policy independently of this setting.
+Replace edits the armed destination pattern; it does not erase the capture
+cache. Capturing afterwards can therefore restore notes from earlier passes.
+
+Observers cannot change live note-on/off routing. Pattern edits and recording
+policies have explicit SDK phases; extensions must not add private firmware
+patches or write stock memory.
 
 ## Verify
 

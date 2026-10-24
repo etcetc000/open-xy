@@ -31,7 +31,7 @@ class RecordingHistory(unittest.TestCase):
         hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
         with tempfile.TemporaryDirectory(prefix='recording-history-') as folder:
             binary = Path(folder) / ('history.exe' if os.name == 'nt' else 'history')
-            if name == 'ghost_capture':
+            if name in ('ghost_capture', 'replace_recording'):
                 platform = ROOT / 'sdk/platform/opxy-1.2.0'
                 stock = (platform / 'stock.hpp').read_text()
                 stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
@@ -41,6 +41,8 @@ class RecordingHistory(unittest.TestCase):
                                           'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
                 (Path(folder) / 'stock.hpp').write_text(stock)
                 (Path(folder) / 'ghost_capture_stock.cpp').write_text((platform / 'ghost_capture_stock.cpp').read_text().replace(
+                    '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
+                (Path(folder) / 'recording_stock.cpp').write_text((platform / 'recording_stock.cpp').read_text().replace(
                     '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
                 from tooling.extensions import generate_collection
                 generate_collection(Path(folder))
@@ -64,3 +66,6 @@ class RecordingHistory(unittest.TestCase):
 
     def test_extension_observers_order_and_write_ownership(self):
         self.run_fixture('extension_runtime')
+
+    def test_replace_traversal_early_late_active_notes_and_undo(self):
+        self.run_fixture('replace_recording')

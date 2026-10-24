@@ -7,6 +7,9 @@ const ExtensionEntry* entries;
 u32 entry_count;
 bool initialized, dispatching, can_edit, edited, attempted;
 char notification[32];
+const extensions::RecordingPolicy* policy;
+bool replace_enabled;
+u32 mode_revision;
 
 bool same_text(const char* a, const char* b) {
     if (!a || !b) return false;
@@ -20,17 +23,25 @@ bool ready() {
     const ExtensionEntry* list = extension_collection(count);
     if (!list || count > 16) return false;
     bool shortcut = false;
+    const extensions::RecordingPolicy* selected_policy = nullptr;
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
         if (!entry.id || !*entry.id || !entry.hooks ||
             (entry.edit_notes && !entry.record_double_tap) ||
             (entry.record_double_tap && (!entry.hooks->control || shortcut))) return false;
         shortcut |= entry.record_double_tap;
+        if (entry.recording_policy) {
+            const extensions::RecordingPolicy* candidate = entry.hooks->recording_policy;
+            if (selected_policy || !candidate || !candidate->name || !*candidate->name ||
+                !candidate->reset || !candidate->recorded || !candidate->select) return false;
+            selected_policy = candidate;
+        }
         for (u32 j = 0; j < i; ++j)
             if (same_text(entry.id, list[j].id)) return false;
     }
     entries = list;
     entry_count = count;
+    policy = selected_policy;
     return true;
 }
 
@@ -61,6 +72,21 @@ void notify(const char* text) {
 }
 const extensions::Actions actions = {insert_notes, notify};
 }
+
+const extensions::RecordingPolicy* extension_recording_policy() { return ready() ? policy : nullptr; }
+const char* recording_policy_name() {
+    const auto* selected = extension_recording_policy();
+    return selected ? selected->name : nullptr;
+}
+bool recording_mode_enabled() { return replace_enabled && extension_recording_policy(); }
+void recording_mode_set(bool enabled) {
+    enabled = enabled && extension_recording_policy();
+    if (enabled == replace_enabled) return;
+    replace_enabled = enabled;
+    ++mode_revision;
+    if (policy) policy->reset();
+}
+u32 recording_mode_revision() { return mode_revision; }
 
 void extensions_sync() {
     if (dispatching || !ready()) return;

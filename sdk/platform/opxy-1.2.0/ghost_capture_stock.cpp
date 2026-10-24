@@ -2,6 +2,8 @@
 // Recovery calls the pattern editor, never the live/audio note dispatcher.
 #include "../extension_runtime.hpp"
 #include "stock.hpp"
+#include "recording_stock.hpp"
+#include "recording_menu.hpp"
 
 extern "C" {
 void sdk_capture_loop(opxy::u32, opxy::u32) __asm__("sdk_capture_loop");
@@ -99,6 +101,7 @@ u32 extension_write(u32 track, const RecordedNote* notes, u32 count) {
         const PatternNote payload = {note.position, note.length, note.pitch, note.velocity, 0, 0};
         const Wide result = stock<Wide(void*, const PatternNote*, i32)>(0x8d58d654)(container, &payload, radius);
         if (static_cast<i16>(result >> 32) < 0) break;
+        recording_inserted(track, static_cast<u16>(result >> 32));
         ++written;
     }
     if (written) stock<void(u32)>(0x8d585d00)(track);
@@ -113,9 +116,12 @@ using namespace opxy;
 using namespace opxy::platform;
 
 void sdk_capture_loop(u32 controller, u32 elapsed) {
+    recording_menu_sync();
+    recording_sync();
     extensions_sync();
     stock<void(u32, u32)>(0x8d5969f0)(controller, elapsed);
     extensions_sync();
+    recording_sync();
 }
 void sdk_capture_tick(u32 state, u32 delta) {
     extensions_tick(delta);
@@ -126,6 +132,7 @@ void sdk_capture_stop(u32 controller) {
     // Observe Stop even when an external Stop/Start pair arrives in one update.
     // Both stock playing flags are already clear at this call site.
     extensions_sync();
+    recording_sync();
 }
 void sdk_capture_note_on(u32 controller, u32 track, u32 note, u32 a3, u32 a4,
                         u32 velocity, u32 a6, u32 a7, u32 low, u32 high, u32 flags,
@@ -142,8 +149,9 @@ void sdk_capture_accepted(u32 track, u32 note) {
     // This call follows stock's acceptance/capacity checks, immediately before
     // its record-arm gate. Apply its ordinary-recording gates without arming it.
     if (live_input.active && live_input.track == track && live_input.pitch == note &&
-        (live_input.flags & 1) && !stock<u32()>(0x8d5b5fac)())
+        (live_input.flags & 1) && !stock<u32()>(0x8d5b5fac)()) {
         extensions_note_on(track, note, live_input.velocity);
+    }
 }
 void sdk_capture_note_off(u32 controller, u32 track, u32 note, u32 a3, u32 flags,
                          const void* event) {

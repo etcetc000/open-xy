@@ -2,6 +2,7 @@
 #include <opxy/types.hpp>
 
 namespace opxy { namespace extensions {
+struct RecordingPolicy;
 
 // Opaque project/pattern identities are only for equality, never dereferencing.
 // Positions and lengths use stock pattern ticks (480 per step at scale 1).
@@ -45,5 +46,6 @@ struct Hooks {
     void (*tick)(const Context&, const Tick&);
     void (*activity)();
     void (*control)(const Context&, const Control&, const Actions&);
+    const RecordingPolicy* recording_policy;
 };
 }}

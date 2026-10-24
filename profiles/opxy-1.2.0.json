@@ -662,6 +662,24 @@
       "call": true
     },
     {
+      "kind": "hook",
+      "address": "0x8d5aa17a",
+      "file_offset": "0x1e1552",
+      "length": 4,
+      "before": "ffe3f1fc",
+      "symbol": "sdk_recording_advance",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59201e",
+      "file_offset": "0x1c93fa",
+      "length": 4,
+      "before": "ffe376e6",
+      "symbol": "sdk_recording_insert",
+      "call": true
+    },
+    {
       "kind": "startup",
       "name": "Boot-screen version label",
       "address": "0x8c0b9114",

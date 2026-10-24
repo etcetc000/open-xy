@@ -32,9 +32,9 @@ void edit_control(const extensions::Context& context, const extensions::Control&
     actions.notify("duplicate");
     if (mode == 5) result += actions.insert_notes(context, &good, 1);
 }
-const extensions::Hooks first = {nullptr, first_note, nullptr, nullptr, nullptr, observe_control};
-const extensions::Hooks second = {nullptr, second_note, nullptr, nullptr, nullptr, edit_control};
-ExtensionEntry collection[] = {{"observer", false, false, &first}, {"writer", true, true, &second}};
+const extensions::Hooks first = {nullptr, first_note, nullptr, nullptr, nullptr, observe_control, nullptr};
+const extensions::Hooks second = {nullptr, second_note, nullptr, nullptr, nullptr, edit_control, nullptr};
+ExtensionEntry collection[] = {{"observer", false, false, &first, false}, {"writer", true, true, &second, false}};
 }
 namespace opxy { namespace platform {
 const ExtensionEntry* extension_collection(u32& count) { count = 2; return collection; }

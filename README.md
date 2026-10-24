@@ -21,6 +21,13 @@ and silence; later playing replaces nearby same-pitch notes as in stock recordin
 It holds up to 120 notes, with stock collision and pattern-capacity limits. The
 first Record tap snapshots the take; the second confirms capture.
 
+For repeated live takes, set **COM > M1 > system > recording > replace**, then
+lock live recording with **Record + Play**. Old notes are removed as the
+playhead passes, including where you play silence. New notes survive their
+current pass; held notes stay protected until released. Stop ends the take.
+The default is **overdub**, restored on reboot. Momentary Record holds retain
+stock behavior, and double-tapping Record still captures.
+
 This is an unofficial, experimental SDK. A build statically links a curated
 collection of machines into exact stock OS 1.2.0; arbitrary engine installation
 and dynamic loading are not implemented. Native code is not sandboxed, and
