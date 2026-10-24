@@ -29,7 +29,8 @@ class Validation(unittest.TestCase):
         reserved = {k: PUBLISHED[k] for k in catalog.COMMON} | {'status': 'reserved'}
         catalog.validate(document(reserved))
         catalog.validate(document(dict(PUBLISHED, status='retired')))
-        for broken in (dict(reserved, tag='v1'), {k: v for k, v in PUBLISHED.items() if k != 'commit'},
+        for broken in (dict(reserved, tag='v1'), dict(reserved, status='retired', repository=PUBLISHED['repository']),
+                       dict(reserved, status='retired', commit='xyz'), {k: v for k, v in PUBLISHED.items() if k != 'commit'},
                        dict(PUBLISHED, status='draft'), dict(PUBLISHED, extra=1)):
             with self.subTest(entry=broken), self.assertRaises(ValueError):
                 catalog.validate(document(broken))
@@ -68,7 +69,9 @@ class Changes(unittest.TestCase):
         catalog.changes([PUBLISHED], [dict(PUBLISHED, status='retired')])
         catalog.changes([], [PUBLISHED])
         for after in ([], [dict(PUBLISHED, identity=dict(engine=8, page=85))], [dict(PUBLISHED, kind='effect')],
-                      [dict(reserved)], [dict(PUBLISHED, id='other')]):
+                      [dict(reserved)], [dict(PUBLISHED, id='other')],
+                      [dict(PUBLISHED, repository='https://github.com/other/opxy-probe')],
+                      [dict(PUBLISHED, maintainer='other')]):
             with self.subTest(after=after), self.assertRaises(ValueError):
                 catalog.changes([PUBLISHED], after)
         with self.assertRaises(ValueError):
@@ -106,6 +109,18 @@ class Fetching(unittest.TestCase):
         (m.root / 'engine.cpp').write_text('// changed\n', encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'changed'):
             catalog.fetch(self.entry, self.cache)
+        # An edit git status cannot see is still a change.
+        catalog.git('checkout', '--', 'engine.cpp', cwd=m.root)
+        catalog.git('update-index', '--assume-unchanged', 'engine.cpp', cwd=m.root)
+        (m.root / 'engine.cpp').write_text('// hidden\n', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            catalog.fetch(self.entry, self.cache)
+
+    def test_an_interrupted_fetch_is_started_again(self):
+        broken = self.cache / f"probe-{self.entry['commit'][:12]}"
+        broken.mkdir(parents=True)
+        catalog.git('init', '--quiet', cwd=broken)
+        self.assertEqual(catalog.fetch(self.entry, self.cache).root, broken)
 
     def test_fetch_refuses_a_machine_that_differs_from_its_entry(self):
         for change in (dict(identity=dict(engine=8, page=85)), dict(kind='effect', identity=dict(effect=2, page=21))):
@@ -117,9 +132,9 @@ class Fetching(unittest.TestCase):
         listing = Path(self.temporary.name) / 'machines.json'
         listed = dict(self.entry, repository=PUBLISHED['repository'])  # pinned() never contacts it
         listing.write_text(json.dumps(document(listed)), encoding='utf-8')
-        self.assertTrue(catalog.pinned(m, listing))
+        self.assertTrue(catalog.pinned(m, catalog.load(listing)))
         listing.write_text(json.dumps(document(dict(listed, commit='1' * 40))), encoding='utf-8')
-        self.assertFalse(catalog.pinned(m, listing))
+        self.assertFalse(catalog.pinned(m, catalog.load(listing)))
 
 
 if __name__ == '__main__':

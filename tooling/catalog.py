@@ -16,12 +16,13 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
 from .definitions import stock_name
 from .formats import require
-from .machines import COLLECTION, check_identity, discovered, machine_at, read_collection
+from .machines import COLLECTION, check_identity, discovered, machine_at, read_collection, relative_path
 from .pipeline import NO_WINDOW, ROOT, config
 
 CATALOG = ROOT / 'catalog/machines.json'
@@ -55,8 +56,10 @@ def validate(value, bundled=None):
         status = entry.get('status')
         require(status in STATUSES, f'{name}: status is one of {", ".join(STATUSES)}')
         required = COMMON | (RELEASE if status == 'published' else set())
-        allowed = COMMON | RELEASE if status == 'retired' else required
-        require(required <= set(entry) <= allowed, f'{name}: catalog fields for a {status} machine: '
+        # A retired machine keeps its whole last release, or none of it.
+        if status == 'retired' and RELEASE & set(entry):
+            required = COMMON | RELEASE
+        require(set(entry) == required, f'{name}: catalog fields for a {status} machine: '
                 + ', '.join(sorted(required)))
         stock_name(name)
         require(name not in names, f'{name}: the ID is already {names.get(name)}')
@@ -75,9 +78,7 @@ def validate(value, bundled=None):
                     f'{name}: commit is the full SHA of the tagged commit')
             require(isinstance(entry['tag'], str) and re.fullmatch(r'[A-Za-z0-9._/-]{1,64}', entry['tag']),
                     f'{name}: invalid tag')
-            path = entry['path']
-            require(isinstance(path, str) and re.fullmatch(r'[A-Za-z0-9_./-]+', path) and
-                    '..' not in path.split('/') and not path.startswith('/'),
+            require(relative_path(entry['path']),
                     f'{name}: path is the machine folder inside the repository, such as "." or "machines/<id>"')
     return value['machines']
 
@@ -97,6 +98,11 @@ def changes(before, after):
         now = current[name]
         require(now['kind'] == entry['kind'] and now['identity'] == entry['identity'],
                 f'{name}: a published ID keeps its kind and identity; release a new machine instead')
+        # A new repository or maintainer is a handover, which a maintainer of the
+        # catalog approves on its own, never as part of an update.
+        for key in ('repository', 'maintainer'):
+            require(key not in entry or now.get(key, entry[key]) == entry[key],
+                    f'{name}: {key} changed; hand a machine over in a pull request of its own, approved by a catalog maintainer')
         require(now['status'] in MOVES[entry['status']], f"{name}: {entry['status']} cannot become {now['status']}")
 
 
@@ -104,13 +110,21 @@ def load(path=CATALOG):
     return validate(json.loads(Path(path).read_text(encoding='utf-8')))
 
 
-def held_identities(path=CATALOG):
+def held_identities(path=CATALOG, bundled=None):
     """Every identity the catalog holds, whatever its status, by kind."""
-    return [(entry['kind'], entry['identity']) for entry in load(path)]
+    entries = validate(json.loads(Path(path).read_text(encoding='utf-8')), bundled)
+    return [(entry['kind'], entry['identity']) for entry in entries]
+
+
+# Remote machine repositories are public: never ask for credentials, which would
+# wait invisibly for input, and check files out exactly as committed on every host.
+GIT_ENVIRONMENT = dict(os.environ, GIT_TERMINAL_PROMPT='0', GCM_INTERACTIVE='never')
+GIT_SETTINGS = ('-c', 'credential.helper=', '-c', 'core.autocrlf=false', '-c', 'core.eol=lf')
 
 
 def git(*arguments, cwd=None):
-    result = subprocess.run(['git', *arguments], cwd=cwd, capture_output=True, text=True, timeout=600, creationflags=NO_WINDOW)
+    result = subprocess.run(['git', *GIT_SETTINGS, *arguments], cwd=cwd, capture_output=True, text=True,
+                            timeout=600, env=GIT_ENVIRONMENT, creationflags=NO_WINDOW)
     require(result.returncode == 0, 'git ' + ' '.join(arguments[:2]) + ' failed: ' + result.stderr.strip())
     return result.stdout
 
@@ -125,34 +139,52 @@ def tag_commit(repository, tag):
 def fetch(entry, cache=CACHE):
     """One published machine's folder at exactly its catalog commit, checked against its entry."""
     folder = Path(cache) / f"{entry['id']}-{entry['commit'][:12]}"
-    if not (folder / '.git').is_dir():
-        folder.mkdir(parents=True, exist_ok=True)
-        git('init', '--quiet', cwd=folder)
-        git('fetch', '--quiet', '--depth', '1', entry['repository'], entry['commit'], cwd=folder)
-        git('-c', 'advice.detachedHead=false', 'checkout', '--quiet', 'FETCH_HEAD', cwd=folder)
-    require(git('rev-parse', 'HEAD', cwd=folder).strip() == entry['commit'],
-            f"{entry['id']}: the fetched commit differs from the catalog's")
-    require(not git('status', '--porcelain', '--ignored', cwd=folder).strip(),
-            f"{entry['id']}: the fetched folder {folder} was changed; delete it to fetch again")
+    if folder.exists() and not head(folder):
+        shutil.rmtree(folder)  # an interrupted fetch: start again
+    if not folder.exists():
+        partial = folder.with_name(folder.name + '.partial')
+        shutil.rmtree(partial, ignore_errors=True)
+        partial.mkdir(parents=True)
+        git('init', '--quiet', cwd=partial)
+        git('fetch', '--quiet', '--depth', '1', entry['repository'], entry['commit'], cwd=partial)
+        git('-c', 'advice.detachedHead=false', 'checkout', '--quiet', 'FETCH_HEAD', cwd=partial)
+        partial.rename(folder)
+    require(head(folder) == entry['commit'], f"{entry['id']}: the fetched commit differs from the catalog's")
+    require(untouched(folder), f"{entry['id']}: the fetched folder {folder} was changed; delete it to fetch again")
     m = machine_at(folder / entry['path'])
     require(m.id == entry['id'] and m.kind == entry['kind'] and m.identity == entry['identity'],
             f"{entry['id']}: the machine at the pinned commit differs from its catalog entry")
     return m
 
 
-def pinned(m, path=CATALOG):
-    """Whether a machine folder is a published catalog machine at its pinned commit, unchanged."""
-    entry = next((e for e in load(path) if e['id'] == m.id and e['status'] == 'published'), None)
+def head(folder):
+    """The commit a git folder has checked out, or None."""
+    try:
+        return git('rev-parse', '--verify', '--quiet', 'HEAD', cwd=folder).strip() or None
+    except ValueError:
+        return None
+
+
+def untouched(folder):
+    """No file differs from the commit, none is added or ignored, and none is hidden from
+    git status by assume-unchanged or skip-worktree."""
+    flags = [line[:1] for line in git('ls-files', '-v', cwd=folder).splitlines()]
+    return (not git('status', '--porcelain', '--ignored', cwd=folder).strip() and
+            all(flag == 'H' for flag in flags))
+
+
+def pinned(m, entries):
+    """Whether a machine folder is a published catalog machine (of `entries`, from load())
+    at its pinned commit, unchanged."""
+    entry = next((e for e in entries if e['id'] == m.id and e['status'] == 'published'), None)
     if entry is None:
         return False
     root = m.root
-    while root != root.parent and not (root / '.git').is_dir():
+    while root != root.parent and not (root / '.git').exists():
         root = root.parent
     try:
-        return (git('rev-parse', 'HEAD', cwd=root).strip() == entry['commit'] and
-                not git('status', '--porcelain', '--ignored', cwd=root).strip() and
-                m.root == (root / entry['path']).resolve())
-    except ValueError:
+        return head(root) == entry['commit'] and untouched(root) and m.root == (root / entry['path']).resolve()
+    except (ValueError, OSError, subprocess.SubprocessError):
         return False
 
 

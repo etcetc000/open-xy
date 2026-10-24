@@ -87,9 +87,14 @@ class Machine:
         return Path(os.path.abspath(path)).is_relative_to(self.root)
 
 
+def relative_path(value):
+    """A path inside a folder, written with forward slashes: no '..' and no root."""
+    return (isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_./-]+', value) is not None and
+            '..' not in value.split('/') and not value.startswith('/'))
+
+
 def _relative(machine_root, value):
-    require(isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_./-]+', value) and
-            '..' not in value.split('/') and not value.startswith('/'), 'Invalid machine path: ' + str(value))
+    require(relative_path(value), 'Invalid machine path: ' + str(value))
     path = (machine_root / value).resolve()
     require(path.is_relative_to(machine_root.resolve()) and path.exists(), 'Missing machine path: ' + value)
     return value
@@ -202,7 +207,8 @@ def discovered():
 def held():
     """(kind, identity) of every bundled machine and every machine the catalog lists."""
     from .catalog import held_identities
-    return [(m.kind, m.identity) for m in discovered()] + held_identities()
+    bundled = discovered()
+    return [(m.kind, m.identity) for m in bundled] + held_identities(bundled=bundled)
 
 
 def free_synth_identity():

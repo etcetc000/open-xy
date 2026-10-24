@@ -44,7 +44,8 @@ python sdk.py compile --collection local/catalog/collection.json --out <folder>
 ## Pull requests
 
 The [Catalog workflow](../.github/workflows/catalog.yml) runs on every pull
-request that changes `catalog/`. It validates the catalog, fetches each
+request that changes `catalog/` or anything published machines build against
+(the SDK, tooling, profiles, linker script or bundled machines). It validates the catalog, fetches each
 published machine and checks it as its own repository's CI does, and compiles
 the firmware module with the bundled machines and all published ones on the
 pinned Windows tools.
@@ -59,3 +60,5 @@ A maintainer then reviews a new machine once, in full:
 An update moves `tag` and `commit` and is reviewed as a diff. The workflow
 compares the catalog with the pull request's target branch: a change of `kind`
 or `identity` is refused, and a removed machine becomes `retired`, never deleted.
+A new `repository` or `maintainer` is a handover: it fails the check, and a
+catalog maintainer approves it in a pull request of its own.

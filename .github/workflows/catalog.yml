@@ -1,13 +1,14 @@
 name: Catalog
-# A catalog change fetches every published machine at its pinned commit and
-# checks it as its own repository's CI does, then compiles the firmware module
-# with the bundled machines and all of them. No stock files or device.
+# A catalog or SDK change fetches every published machine at its pinned commit
+# and checks it as its own repository's CI does, then compiles the firmware
+# module with the bundled machines and all of them. No stock files or device.
 on:
   pull_request:
-    paths: ['catalog/**', '.github/workflows/catalog.yml']
+    paths: ['catalog/**', 'sdk/**', 'tooling/**', 'linker/**', 'profiles/**', 'machines/**', 'sdk.py',
+            '.github/workflows/catalog.yml']
   push:
     branches: [main, staging]
-    paths: ['catalog/**']
+    paths: ['catalog/**', 'sdk/**', 'tooling/**', 'linker/**', 'profiles/**', 'machines/**', 'sdk.py']
   workflow_dispatch:
 permissions:
   contents: read
