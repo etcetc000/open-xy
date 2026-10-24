@@ -1,6 +1,9 @@
-// This drawing is an original screen concept, not a device UI emulator.
-// Each of the four positions shows the parameter shown[i] (its own or an alternate).
-// header holds the display's own text for each position, or '' for the value.
+import { headerSvg } from '../sdk/browser/display.mjs';
+
+// The device page: the stock four-control header above the machine's own
+// drawing, 480 x 220 as on the OP-XY. Each of the four positions shows the
+// parameter shown[i] (its own or an alternate); header holds the display's own
+// text for a position, or '' for the formatted value.
 export function renderScreen(values, view, samples = null, graphics = '', controls, shown = [0, 1, 2, 3], header = ['', '', '', '']) {
   const selected = controls;
   const title = selected.definition.name;
@@ -8,22 +11,19 @@ export function renderScreen(values, view, samples = null, graphics = '', contro
   if (view === 'waveform') {
     const points = Array.from({ length: 160 }, (_, i) => {
       const sample = samples ? samples[Math.floor(i * samples.length / 160)] : 0;
-      return `${24 + i * 432 / 159},${101 - sample * 160}`;
+      return `${24 + i * 432 / 159},${120 - sample * 160}`;
     }).join(' ');
-    drawing = `<path d="M24 101H456" stroke="#454949"/><polyline points="${points}" fill="none" stroke="white" stroke-width="1.5"/>`;
+    drawing = `<path d="M24 120H456" stroke="#454949"/><polyline points="${points}" fill="none" stroke="white" stroke-width="1.5"/>`;
   } else {
-    // Only the browser page's header/footer placement differs from stock.
     // All instrument geometry, paint and animation arrive from shared C++.
-    // The device screen (480 x 220, header above y = 20) fits between the rules.
-    drawing = graphics ? `<g transform="translate(60 20) scale(.75)">${graphics}</g>`
-      : '<text x="240" y="110" text-anchor="middle" font-size="12">Build and load the C++ preview to see the instrument.</text>';
+    drawing = graphics || '<text x="240" y="120" text-anchor="middle" font-size="12" fill="#e9eeee" font-family="monospace">Build and load the C++ preview to see the instrument.</text>';
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="224" viewBox="0 0 480 224" role="img" aria-label="${title} ${view} screen concept">
-    <rect width="480" height="224" fill="#111515"/>
-    <g font-family="monospace" fill="#e9eeee"><text x="20" y="29" font-size="19" font-weight="bold">${title}</text>
-    <text x="460" y="28" text-anchor="end" font-size="10">${view === 'routing' ? 'SIGNAL / 01' : 'SCOPE / 02'}</text>
-    <path d="M20 39H460M20 170H460" stroke="#454949"/>
+  const parameters = shown.map(slot => selected.parameters[slot]);
+  const titles = parameters.map(p => p.label.toLowerCase());
+  const shownValues = parameters.map((p, i) => header[i] || selected.displayValue(p.id, values));
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220" role="img" aria-label="${title} ${view} screen">
+    <rect width="480" height="220" fill="#000000"/>
     ${drawing}
-    ${shown.map(slot => selected.parameters[slot]).map((p, i) => `<text x="${20 + i * 115}" y="190" font-size="10" fill="#a0aaa7">${p.label.toUpperCase()}</text><text x="${20 + i * 115}" y="212" font-size="16">${header[i] || selected.displayValue(p.id, values)}</text>`).join('')}
-    </g></svg>`;
+    ${headerSvg(titles, shownValues)}
+    </svg>`;
 }

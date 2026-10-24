@@ -32,6 +32,8 @@ struct Node { i32 x, y, scale, cos, sin; u32 shade; Paint paint; };
 // A text slot: its characters, placed like a node without turning.
 struct Text { i32 x, y, scale; char chars[text_capacity]; };
 // Paths are nodes 0..Paths-1: mutable outlines of exactly Points points.
+// Without paths or text slots, their array keeps one unused element, so every
+// frame is standard C++ with the layout the renderers expect.
 // header replaces the stock value shown for each control position; an empty
 // string keeps the stock value.
 template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette>
@@ -42,9 +44,9 @@ struct Frame {
     static const u32 text_count = Texts;
     static const u32 palette_count = Palette;
     using path_type = draw::Path<Points>;
-    path_type paths[Paths];
+    path_type paths[Paths > 0 ? Paths : 1];
     Node nodes[Nodes];
-    Text texts[Texts];
+    Text texts[Texts > 0 ? Texts : 1];
     char header[page_controls][header_capacity];
 };
 struct Input {

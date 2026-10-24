@@ -37,8 +37,9 @@ inline void display_reset(DisplayState& state) { state.model = 0; }
 inline void display(DisplayState& state, const opxy::draw::Input& input, Frame& frame) {
   const opxy::i32 model = input.slots[kModelSlot];
   unsigned index = model < 0 ? 0 : ((static_cast<unsigned>(model) >> 16) * kModels) >> 15;
-  // The characters repaint only when the model changes; the layers are the
-  // segments (palette 0 and 1), then each glow layer (2 and 3, 4 and 5, 6 and 7).
+  // The characters change only with the model; the renderers skip unchanged
+  // nodes. The layers are the segments (palette 0 and 1), then each glow layer
+  // (2 and 3, 4 and 5, 6 and 7).
   if (state.model != index + 1) {
     for (unsigned layer = 0; layer < kLayers; ++layer)
       paint_segments(frame, layer * kCharacters * kSegments, models[index].masks, kCharacters, 2 * layer,

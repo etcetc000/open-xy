@@ -519,6 +519,27 @@ def check_outlines(by_id, prefix, display):
                 'Mutable outline must contain exactly M, %d L and Z, with no fill: %s' % (points - 1, name))
 
 
+def check_bindings(by_id, prefix, display):
+    """The display's nodes, text slots and outlines in the artwork; returns its palette IDs.
+    Every frame sets a bound element's whole transform, so the authored one is a
+    plain translation or none: the pose before the first frame."""
+    ids = display_ids(prefix, display)
+    count = display['nodes'] + display['texts']
+    bound, texts, palette = ids[:display['nodes']], ids[display['nodes']:count], ids[count:]
+    check_outlines(by_id, prefix, display)
+    for name in bound + texts:
+        node = by_id.get(name)
+        kind = ('text',) if name in texts else ('path', 'circle')
+        require(node is not None and node.tag in kind, 'Authored SVG is missing %s %s' % ('/'.join(kind), name))
+        require(re.fullmatch(r'(matrix\(1 0 0 1 (%s) (%s)\))?' % (NUMBER, NUMBER), node.get('transform', '')),
+                'Bound elements take transform="matrix(1 0 0 1 x y)" or none: ' + name)
+    for name in texts:
+        node = by_id[name]
+        require(not {'x', 'y'} & node.keys() and len(node.text or '') < 24,
+                'Text slots are positioned by their transform and hold at most 23 characters: ' + name)
+    return palette
+
+
 def validate_panel(m, fragment=None):
     """The authored SVG subset plus the display contract's required node bindings."""
     fragment = read(m.root / 'panel.svg.fragment') if fragment is None else fragment
@@ -542,23 +563,7 @@ def validate_panel(m, fragment=None):
         require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', by_id[name].get(k)) for k in ('fill', 'stroke')),
                 'Palette donors need #RRGGBB fill and stroke: ' + name)
 
-    display = m.definition['resources']['display']
-    ids = display_ids(m.prefix, display)
-    count = display['nodes'] + display['texts']
-    bound, texts, palette = ids[:display['nodes']], ids[display['nodes']:count], ids[count:]
-    check_outlines(by_id, m.prefix, display)
-    for name in bound + texts:
-        # Every frame sets the whole transform, so the artwork's must be a
-        # plain translation (or none): what the frame replaces.
-        node = by_id.get(name)
-        kind = ('text',) if name in texts else ('path', 'circle')
-        require(node is not None and node.tag in kind, 'Authored SVG is missing %s %s' % ('/'.join(kind), name))
-        require(re.fullmatch(r'(matrix\(1 0 0 1 (%s) (%s)\))?' % (NUMBER, NUMBER), node.get('transform', '')),
-                'Bound elements take transform="matrix(1 0 0 1 x y)" or none: ' + name)
-    for name in texts:
-        node = by_id[name]
-        require(not {'x', 'y'} & node.keys() and len(node.text or '') < 24,
-                'Text slots are positioned by their transform and hold at most 23 characters: ' + name)
+    palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
     for name in palette:
         donor(name)
     for node in nodes:

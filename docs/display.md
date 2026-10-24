@@ -94,7 +94,8 @@ Elements bind by index and the machine's symbol prefix:
 | Palette entry `i` | `<prefix>_palette_<i>`: a `path` or `circle` with explicit `#RRGGBB` fill and stroke and a stroke width; it lends them to the nodes that select it. Park entries off screen. |
 
 Every frame sets a bound element's whole transform, so its authored transform
-is `matrix(1 0 0 1 x y)` or none. Fill-and-stroke paint changes a node's fill
+is `matrix(1 0 0 1 x y)` or none: the pose before the first frame, which the
+frame then replaces. Fill-and-stroke paint changes a node's fill
 only when the artwork gives it one.
 
 Use unique IDs, explicit paint on each leaf and the expected path topology.

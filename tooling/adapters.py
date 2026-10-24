@@ -59,9 +59,10 @@ def drawing_layout(display):
     """Frame byte layout shared by the C++ frame and the browser."""
     paths, points, nodes, texts, palette = (display[k] for k in ('paths', 'points', 'nodes', 'texts', 'palette'))
     path_bytes = 4 + 8 * points
-    nodes_at = paths * path_bytes
+    # An empty path or text array keeps one unused element (draw.hpp).
+    nodes_at = max(paths, 1) * path_bytes
     texts_at = nodes_at + 28 * nodes
-    header_at = texts_at + 36 * texts
+    header_at = texts_at + 36 * max(texts, 1)
     return dict(PATHS=paths, POINTS=points, NODES=nodes, TEXTS=texts, PALETTE=palette, PATH_BYTES=path_bytes,
                 FRAME_NODES_AT=nodes_at, FRAME_TEXTS_AT=texts_at, FRAME_HEADER_AT=header_at,
                 FRAME_BYTES=header_at + 32)

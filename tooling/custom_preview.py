@@ -53,7 +53,7 @@ def custom_identity(identity):
 
 
 def metadata(files):
-    from .native import check_outlines, display_ids, panel_root
+    from .native import check_bindings, display_ids, panel_root
     from .preview import drawing_bindings
     definition = validate_definition(json.loads(files['definition.json']), 'synth')
     display = definition['resources']['display']
@@ -76,12 +76,7 @@ def metadata(files):
         if identity:
             require(identity not in elements, 'Duplicate drawing asset ID')
             elements[identity] = node
-    for i, identity in enumerate(graphics['nodes']):
-        require(identity in elements and elements[identity].tag in ({'path'} if i < graphics['paths'] else {'path', 'circle'}),
-                'Missing retained drawing node: ' + identity)
-    for identity in graphics['texts']:
-        require(identity in elements and elements[identity].tag == 'text', 'Missing drawing text slot: ' + identity)
-    check_outlines(elements, PREFIX, display)
+    check_bindings(elements, PREFIX, display)
     for identity in graphics['palette']:
         node = elements.get(identity)
         require(node is not None and node.tag in {'path', 'circle'} and

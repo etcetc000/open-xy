@@ -66,6 +66,22 @@ const attributes = new Set(['id', 'd', 'x', 'y', 'width', 'height', 'cx', 'cy', 
   'points', 'fill', 'stroke', 'stroke-width', 'stroke-linejoin', 'stroke-linecap', 'stroke-miterlimit', 'transform',
   'font-family', 'font-size', 'text-anchor']);
 
+const escape = text => String(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+// The device page's four-control header, as the SDK screen template draws it
+// (sdk/platform/opxy-1.2.0/screen.svg): a stepped grey bar 20 px tall with each
+// position's title above its value, light text on the dark half and dark text
+// on the light half. Browser fonts stand in for the device's.
+export function headerSvg(titles, values) {
+  const steps = ['#000000', '#323232', '#4B4B4B', '#646464', '#7D7D7D', '#969696', '#AFAFAF', '#CDCDCD'];
+  const bar = steps.map((fill, i) => `<rect x="${i * 60}" width="60" height="20" fill="${fill}"/>`).join('');
+  const text = [0, 1, 2, 3].map(i => {
+    const ink = i < 2 ? '#CBCBCB' : '#000000', x = 120 * i;
+    return `<text x="${x + 5}" y="10" fill="${ink}" font-size="10">${escape(titles[i] ?? '')}</text>` +
+      `<text x="${x + 65}" y="17.44" fill="${ink}" font-size="20">${escape(values[i] ?? '')}</text>`;
+  }).join('');
+  return `<g data-opxy-header="" font-family="sans-serif">${bar}${text}</g>`;
+}
+
 // The whole artwork in authored order, with the frame's nodes, text slots and
 // palette entries bound by ID, as on the device.
 export class SvgDisplay {
@@ -82,10 +98,11 @@ export class SvgDisplay {
     }
     this.points = points;
     // Frame words: paths (key, points), nodes (7 words), texts (3 words and 24
-    // bytes), then the header's four 8-byte strings.
-    this.nodesAt = paths * (1 + 2 * points);
+    // bytes), then the header's four 8-byte strings. An empty path or text
+    // array still holds one unused element, as in draw.hpp.
+    this.nodesAt = Math.max(paths, 1) * (1 + 2 * points);
     this.textsAt = this.nodesAt + 7 * nodes.length;
-    this.headerAt = this.textsAt + 9 * texts.length;
+    this.headerAt = this.textsAt + 9 * Math.max(texts.length, 1);
     this.frameWords = this.headerAt + 8;
     const ids = [...nodes, ...texts, ...palette];
     if (new Set(ids).size !== ids.length || ids.some(id => !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id))) {
@@ -134,6 +151,9 @@ export class SvgDisplay {
     if (this.paths.some(node => node.localName !== 'path')) throw new Error('Mutable asset must be a path');
     this.texts = texts.map(id => leaf(id, ['text']));
     this.keys = this.paths.map(() => 0);
+    // What each node and text slot last applied, so unchanged ones cost nothing.
+    this.applied = this.nodes.map(() => '');
+    this.shown = this.texts.map(() => '');
     // The header's text for each control position; '' keeps the stock value.
     this.header = ['', '', '', ''];
   }
@@ -159,7 +179,10 @@ export class SvgDisplay {
     }
     for (let i = 0; i < this.nodes.length; i++) {
       const offset = this.nodesAt + i * 7;
-      const [x, y, scale, cos, sin, shade, paint] = frame.subarray(offset, offset + 7);
+      const words = frame.subarray(offset, offset + 7), key = words.join();
+      if (this.applied[i] === key) continue;
+      this.applied[i] = key;
+      const [x, y, scale, cos, sin, shade, paint] = words;
       const node = this.nodes[i], a = floorQ10(scale * cos), b = floorQ10(scale * sin);
       node.setAttribute('transform',
         `matrix(${decimal(a)} ${decimal(b)} ${decimal(-b)} ${decimal(a)} ${decimal(x)} ${decimal(y)})`);
@@ -172,9 +195,12 @@ export class SvgDisplay {
     }
     for (let i = 0; i < this.texts.length; i++) {
       const offset = this.textsAt + i * 9, [x, y, scale] = frame.subarray(offset, offset + 3);
+      const content = this.text(frame, offset + 3, 24), key = `${x},${y},${scale},${content}`;
+      if (this.shown[i] === key) continue;
+      this.shown[i] = key;
       const node = this.texts[i];
       node.setAttribute('transform', `matrix(${decimal(scale)} 0 0 ${decimal(scale)} ${decimal(x)} ${decimal(y)})`);
-      node.textContent = this.text(frame, offset + 3, 24);
+      node.textContent = content;
     }
     this.header = [0, 1, 2, 3].map(i => this.text(frame, this.headerAt + 2 * i, 8));
   }
