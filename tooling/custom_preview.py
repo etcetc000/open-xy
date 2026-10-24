@@ -152,7 +152,7 @@ def scaffold(out, identity, name, kind='synth'):
         text = template.read_text(encoding='utf-8').replace('@ID@', identity).replace('@NAME@', name)
         destination = out / template.relative_to(starter).as_posix().removesuffix('.in')
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(text, encoding='utf-8')
+        destination.write_text(text, encoding='utf-8', newline='\n')
     from .machines import SDK_VERSION
     python = 'python3' if Path(sys.executable).name.startswith('python3') else 'python'
     if kind == 'effect':
@@ -160,7 +160,7 @@ def scaffold(out, identity, name, kind='synth'):
         # The send's dry level follows the Dry control (docs/api.md, effects).
         record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'effect', 'description': name,
                   'identity': stock_identity, 'dryParameter': 'dry'}
-        (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+        (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
         machine_at(out)
         print('Created local effect: ' + str(out))
         print(f'machine.json suggests effect {record["identity"]["effect"]}, free in this repository. '
@@ -179,12 +179,12 @@ def scaffold(out, identity, name, kind='synth'):
         color = '#' + f'{i * 17:02x}' * 3
         artwork.append(f'  <circle id="{entry}" cx="640" cy="0" r="1" fill="{color}" stroke="{color}" stroke-width="1"/>')
     artwork.append('</g>')
-    (out / 'panel.svg.fragment').write_text('\n'.join(artwork) + '\n', encoding='utf-8')
+    (out / 'panel.svg.fragment').write_text('\n'.join(artwork) + '\n', encoding='utf-8', newline='\n')
     # For a device build of this folder (sdk.py build --machine): an identity
     # no machine in this repository uses.
     record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'synth', 'description': name,
               'identity': stock_identity}
-    (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+    (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
     metadata(source_files(out))
     print('Created local machine: ' + str(out))
     print(f'Preview with: {python} sdk.py preview --source "{out}" --out local/my-preview-001'
