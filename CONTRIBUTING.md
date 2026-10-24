@@ -47,6 +47,12 @@ deployed to beta.open-xy.com for testing; a release is a pull request from
 `staging` to `main`, and CI rejects pull requests to `main` from any other
 branch. See [Cloudflare deployment](docs/builder.md#cloudflare-deployment).
 
+Work is tracked as issues. Each release has a milestone and a matching
+[project board](https://github.com/etcetc000/open-xy/projects) named after its
+version; maintainers assign new issues to both. Pick an open issue or open one
+before larger work, and write `Closes #<issue>` in the pull request. A release merges `staging` into `main`,
+is tagged `v<milestone>` with generated release notes, and closes its milestone.
+
 In a PR, explain the behavior, how to try it, compatibility changes and checks
 run. For a device observation, include the exact image/asset hashes and what you
 actually exercised. Build success is not a hardware timing measurement.
