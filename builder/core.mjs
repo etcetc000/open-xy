@@ -135,6 +135,18 @@ export function identities(kit, saved = null) {
   return result;
 }
 
+// Where a catalog machine comes from (tooling.browser_kit): its GitHub repository, the
+// release tag, its commit and its maintainer. Bundled machines have none.
+export function validSource(source) {
+  return source === undefined || (source !== null && typeof source === 'object' &&
+    Object.keys(source).sort().join() === 'commit,maintainer,repository,tag' &&
+    /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(source.repository) &&
+    /^[A-Za-z0-9._/-]{1,64}$/.test(source.tag) && /^[0-9a-f]{40}$/.test(source.commit) &&
+    /^[A-Za-z0-9-]{1,39}$/.test(source.maintainer));
+}
+// The machine's source at exactly the commit the kit was built from.
+export const sourceUrl = source => source.repository + '/tree/' + source.commit;
+
 // Memory every machine shares: the reservation below the relocated stock tables.
 export const moduleBytes = profile => profile.reserved_bytes - profile.table_bytes;
 const screenTemplateOk = async kit => typeof kit.screenTemplate === 'string' &&
@@ -147,6 +159,7 @@ export async function openKit(kit) {
     JSON.stringify(JSON.parse(decoder.decode(profileBytes))) === JSON.stringify(kit.profile),
     'Firmware edit profile is not the reviewed profile');
   identities(kit);
+  check(kit.machines.every(m => validSource(m.source)), 'Invalid machine source');
   // The bundled stock menu is authenticated where it is used (buildAssets).
   check(typeof kit.stockCatalog === 'string' && kit.stockCatalog.length <= 2 * 1024 ** 2, 'Missing bundled stock menu');
   check(await screenTemplateOk(kit), 'Platform screen template differs from the supported ABI');

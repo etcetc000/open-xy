@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, readObject, identities, linkKit, moduleBytes, openKit, readLdr, recoverFirmware, zipFiles, sha256} from '../builder/core.mjs';
+import {activeServices, readObject, identities, linkKit, moduleBytes, openKit, readLdr, recoverFirmware, sourceUrl, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -138,6 +138,20 @@ test('curated profile and object authentication reject modified input', async ()
   k.stockCatalog='';
   k.objects[0].sha256='0'.repeat(64); await assert.rejects(openKit(k),/hash mismatch/);
   k.profile.patches[0].after='0000000000000000'; await assert.rejects(openKit(k),/reviewed profile/);
+});
+test('a catalog machine names its GitHub repository, release and commit; bundled machines name none', async () => {
+  const source = {repository:'https://github.com/someone/opxy-probe', tag:'v1.0.0', commit:'a'.repeat(40), maintainer:'someone'};
+  assert.ok(validSource(source) && validSource(undefined));
+  assert.equal(sourceUrl(source), 'https://github.com/someone/opxy-probe/tree/' + 'a'.repeat(40));
+  for (const change of [{repository:'javascript:alert(1)'}, {repository:'https://example.com/a/b'}, {commit:'abc'},
+                        {tag:'v 1'}, {maintainer:'not a user'}, {extra:1}])
+    assert.ok(!validSource({...source, ...change}), JSON.stringify(change));
+  assert.ok(!validSource(null) && !validSource('https://github.com/a/b'));
+  const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');
+  k.objects=[]; k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.0/screen.svg',import.meta.url),'utf8');
+  k.machines[0].source = source; await openKit(k);
+  k.machines[0].source = {...source, repository:'https://evil.example/a/b'};
+  await assert.rejects(openKit(k), /Invalid machine source/);
 });
 test('malformed loader records and unsafe ZIP paths are rejected', () => {
   for(const bytes of [new Uint8Array(),new Uint8Array(16),elf()]) assert.throws(()=>readLdr(bytes));

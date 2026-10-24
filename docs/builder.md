@@ -36,7 +36,9 @@ leaves the browser.
    **Try again** goes straight to enabling the dev menu for the same computer.
 3. Select machines. Synth rows have a playable preview of their C++ sound and
    display code; each row shows its code, data and state size against the
-   memory meter.
+   memory meter. Machines from the [catalog](catalog.md) are marked
+   **Community**; their details name the maintainer and link to the exact
+   commit the site was built from. The others are bundled with Open-XY.
 4. Follow the installation guide using the remembered computer choice. Mac
    browsers with WebUSB send the files directly; Windows downloads a ZIP to
    copy with File Explorer. The OS write step on the device is still manual.

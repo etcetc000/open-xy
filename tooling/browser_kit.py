@@ -125,7 +125,7 @@ def write_builder(kit, output):
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject identities moduleBytes openKit linkKit readLdr '
-               'patchFirmware recoverFirmware presetPath buildAssets zipFiles').split()
+               'patchFirmware recoverFirmware presetPath buildAssets zipFiles sourceUrl').split()
     bundled = 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
     bundled += 'const {shownControls, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {shownControls, inputWords};\n})();\n'
