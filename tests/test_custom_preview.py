@@ -8,7 +8,9 @@ import unittest
 
 from tooling import custom_preview as custom
 from tooling.formats import sha
+from tooling.machines import machine_at
 from tooling.preview import preview_bundle
+from test_sample_services import HOST_CXX
 
 
 class CustomPreviewTests(unittest.TestCase):
@@ -50,6 +52,22 @@ class CustomPreviewTests(unittest.TestCase):
             file.write('\n// An intentional edit.\n')
         with self.assertRaisesRegex(ValueError, 'stale'):
             preview_bundle(out)
+
+    def test_starters_are_machines_whose_own_checks_pass(self):
+        folder = self.root / 'effect'
+        with redirect_stdout(io.StringIO()):
+            custom.scaffold(folder, 'drive', 'Drive', 'effect')
+        m = machine_at(folder)
+        self.assertEqual((m.kind, m.dry_parameter, m.identity['page']), ('effect', 2, 21))
+        with self.assertRaises(ValueError):
+            custom.scaffold(self.root / 'other', 'drive', 'Drive', 'player')
+        self.assertTrue((folder / 'tests/sound.cpp').is_file() and (self.source / 'tests/sound.cpp').is_file())
+        if not HOST_CXX:
+            self.skipTest('No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+        # Each starter's own sound checks pass as generated.
+        from tooling.machine_test import host_tests
+        for m in (machine_at(folder), machine_at(self.source)):
+            self.assertEqual(host_tests(m, HOST_CXX, self.root), 1)
 
     def test_scaffold_artwork_meets_the_native_rules(self):
         # One root element and outlines with the declared point count, as the firmware build requires.

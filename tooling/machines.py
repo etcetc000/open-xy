@@ -230,6 +230,13 @@ def read_collection(path=COLLECTION, extra=()):
     return entries + [{'path': str(Path(folder).resolve())} for folder in extra]
 
 
+def free_effect_identity():
+    """The lowest effect ID that the identity rules allow and no machine here uses, on the FX page."""
+    rules = config()['identities']
+    used = {m.identity.get('effect') for m in discovered()}
+    return {'effect': next(n for n in rules['effects'] if n not in used), 'page': rules['effect_page']}
+
+
 def collection(entries=None):
     """Machines in firmware order: the order sets startup, catalog and link layout.
     Entries come from read_collection; the default is profiles/collection.json."""

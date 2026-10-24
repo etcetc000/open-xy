@@ -66,7 +66,7 @@ Every machine kind keeps its controls in `definition.json` (for example
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `id` | The machine's name, equal to its folder name; also its C++ namespace |
+| `id` | The machine's name, equal to a bundled machine's folder name; also its C++ namespace |
 | `name` | Display name |
 | `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), one to eight for a sample engine or effect. Labels are at most eight letters, digits or spaces |
 | `presets` | Named maps containing exactly the declared controls; may be empty |
@@ -102,7 +102,8 @@ switches between FM ratio and depth.
 On custom synth engine pages, Shift + turn edits the same visible parameter
 at one tenth of the normal rate. Enum choices keep their ordinary stepping.
 Synth amounts and bounded positive anchor-ratio captions show one decimal
-place; amounts omit the percent suffix. A machine's text controls can override them. Custom send effects also
+place; amounts omit the percent suffix. A machine's display can replace them with
+its own [header text](display.md#frame). Custom send effects also
 use the slower Shift rate for continuous controls, with stock FX captions.
 
 A sample engine declares `voiceCapacity` (1..256) and the optional
@@ -115,7 +116,7 @@ A synth declares:
 | `voiceCapacity` | Voices the firmware may create, 1..256 |
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
-| `display` | The screen's kind and shape; see the [display API](display.md) |
+| `display` | The screen's frame budget; see the [display API](display.md) |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.

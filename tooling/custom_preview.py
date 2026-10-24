@@ -1,4 +1,4 @@
-"""Browser-only local machines with a drawing display. No native identity or firmware build."""
+"""Machine starters (sdk.py new) and browser-only previews of local synths. No firmware build."""
 import argparse
 import json
 import os
@@ -34,6 +34,8 @@ def source_files(directory):
             continue
         text = data.decode('utf-8')
         validate_source_boundary(text, name)
+        if name.startswith('tests/'):
+            continue  # host-only checks (sdk.py test): never part of a preview or firmware
         code = re.sub(r'/\*.*?\*/|//[^\n]*', '', text, flags=re.S)
         for directive in re.findall(r'^\s*#\s*(include[^\n]*)', code, re.M):
             match = re.fullmatch(r'include\s*[<"]([a-zA-Z0-9_./-]+)[>"]\s*', directive)
@@ -135,12 +137,33 @@ def authenticate(manifest, artifacts):
             sha(artifacts['engine.wasm']) == manifest['wasm_sha256'], 'Custom preview artifact identity mismatch')
 
 
-def scaffold(out, identity, name):
+# Machine kinds sdk.py new starts, each from sdk/templates/<kind>/.
+STARTERS = ('synth', 'effect')
+
+
+def scaffold(out, identity, name, kind='synth'):
+    require(kind in STARTERS, 'sdk.py new starts a ' + ' or '.join(STARTERS))
     custom_identity(identity); label(name)
     out = fresh_output(out)
-    for template in (ROOT / 'sdk/templates/machine').glob('*.in'):
+    starter = ROOT / 'sdk/templates' / kind
+    for template in sorted(starter.rglob('*.in')):
         text = template.read_text(encoding='utf-8').replace('@ID@', identity).replace('@NAME@', name)
-        (out / template.name.removesuffix('.in')).write_text(text, encoding='utf-8')
+        destination = out / template.relative_to(starter).as_posix().removesuffix('.in')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text, encoding='utf-8')
+    from .machines import SDK_VERSION
+    python = 'python3' if Path(sys.executable).name.startswith('python3') else 'python'
+    if kind == 'effect':
+        from .machines import free_effect_identity, machine_at
+        # The send's dry level follows the Dry control (docs/api.md, effects).
+        record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'effect', 'description': name,
+                  'identity': free_effect_identity(), 'dryParameter': 'dry'}
+        (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
+        machine_at(out)
+        print('Created local effect: ' + str(out))
+        print(f'machine.json suggests effect {record["identity"]["effect"]}, free in this repository. '
+              f'Effects have no browser preview; build with: {python} sdk.py compile --machine "{out}" --out <folder>')
+        return
     from .native import display_ids
     display = json.loads((out / 'definition.json').read_text(encoding='utf-8'))['resources']['display']
     ids = display_ids(identity, display)
@@ -155,14 +178,13 @@ def scaffold(out, identity, name):
         artwork.append(f'  <circle id="{entry}" cx="640" cy="0" r="1" fill="{color}" stroke="{color}" stroke-width="1"/>')
     artwork.append('</g>')
     (out / 'panel.svg.fragment').write_text('\n'.join(artwork) + '\n', encoding='utf-8')
-    from .machines import SDK_VERSION, free_synth_identity
+    from .machines import free_synth_identity
     # For a device build of this folder (sdk.py build --machine): an identity
     # no machine in this repository uses.
     record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'synth', 'description': name,
               'identity': free_synth_identity()}
     (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
     metadata(source_files(out))
-    python = 'python3' if Path(sys.executable).name.startswith('python3') else 'python'
     print('Created local machine: ' + str(out))
     print(f'Preview with: {python} sdk.py preview --source "{out}" --out local/my-preview-001'
           ' (add --cxx <clang++> if doctor --preview needed one)')
@@ -182,13 +204,14 @@ def square_outline(points, half=32):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Create a browser-only machine with portable C++ sound and display callbacks')
+    parser = argparse.ArgumentParser(description='Start a machine folder: portable C++ that previews (synths) and builds anywhere')
     parser.add_argument('--id', required=True, help='lower-case machine ID, also its stock name and artwork prefix')
     parser.add_argument('--name', required=True, help='name shown on the OP-XY')
+    parser.add_argument('--kind', choices=STARTERS, default='synth', help='machine kind to start (default: synth)')
     parser.add_argument('--out', required=True, type=Path, help='new folder for the machine source, such as local/mymachine')
     args = parser.parse_args(argv)
     try:
-        scaffold(args.out, args.id, args.name)
+        scaffold(args.out, args.id, args.name, args.kind)
         return 0
     except (ValueError, OSError, ET.ParseError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

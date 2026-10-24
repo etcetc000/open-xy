@@ -5,9 +5,10 @@ import sys
 COMMANDS = '''Commands:
   check     Contributor checks: python sdk.py check [--help]
   preview   Browser audition build: python sdk.py preview --engine fm2op --out local/preview-001
-  new       New local machine: python sdk.py new --id mymachine --name "My Machine" --out local/mymachine
+  new       Start a machine: python sdk.py new [--kind synth|effect] --id mymachine --name "My Machine" --out ../mymachine
+  test      Check machine folders anywhere: python sdk.py test --machine ../mymachine [--firmware]
   compile   Native module only: python sdk.py compile --help
-  build     Native firmware package for the curated collection: python sdk.py build --help
+  build     Native firmware package: python sdk.py build [--machine <folder>] --help
   verify    Rebuild and compare a native package: python sdk.py verify --help
   kit       Browser builder export: python sdk.py kit --help
   toolchain Install the pinned Blackfin tools: python sdk.py toolchain fetch
@@ -21,6 +22,9 @@ if __name__ == '__main__':
         raise SystemExit(main(argv, command))
     if command == 'new':
         from tooling.custom_preview import main
+        raise SystemExit(main(argv))
+    if command == 'test':
+        from tooling.machine_test import main
         raise SystemExit(main(argv))
     if command == 'kit':
         from tooling.browser_kit import main

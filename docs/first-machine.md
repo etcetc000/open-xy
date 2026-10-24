@@ -46,6 +46,12 @@ The ID follows the [machine name rule](api.md#registration-boundary): a
 lowercase letter, then up to 14 lowercase letters, digits or underscores. It
 must differ from the bundled machines.
 
+`sdk.py new` starts a synth; `--kind effect` starts a send effect instead
+(effects have no browser preview). Every starter has a sound check in
+`tests/sound.cpp`. A machine can live anywhere: to keep yours in a repository
+of its own, start from the
+[machine template](https://github.com/etcetc000/open-xy-machine-template).
+
 Open http://127.0.0.1:8917/. You should see **My Machine**, **Local authoring**,
 four controls and the **Triangle** and **Pulse** presets. Click **Enable audio**,
 then use the on-screen keys or `A W S E D F T G Y H U J K`. Start with a low
@@ -102,6 +108,12 @@ does not change your machine.
 | `display.h`, `display.cpp` | Display state and drawing callback |
 | `panel.svg.fragment` | Artwork; IDs carry the machine's ID (`<id>_panel`, `<id>_node_N`, `<id>_palette_N`) |
 | `machine.json` | Kind, SDK version and a free engine ID and page, used by a [firmware build](build.md#3-add-your-machine) of the folder |
+| `tests/sound.cpp` | The machine's own host checks; extend them as the sound grows |
+
+`python sdk.py test --machine local/mymachine` checks a machine folder the way
+a machine repository's CI does: its records and sources, a preview build and
+its `tests/*.cpp`, compiled with a host C++ compiler (`--host-cxx`, default
+`c++`). `--firmware` adds a native compile with the bundled machines.
 
 Change labels and presets directly in `definition.json`; custom previews read it
 when building, with no separate JavaScript definition generator. Parameter
