@@ -53,6 +53,7 @@ previews, firmware builds and packaging.
 - [Display API](docs/display.md): retained drawing frames and asset constraints.
 - [Build your own firmware](docs/build.md): toolchain, stock files, adding a machine, build and install.
 - [Open-XY builder](docs/builder.md): using the builder, web development and kit export.
+- [Catalog](docs/catalog.md): machines published from their own repositories, pinned by commit.
 - [Contributing](CONTRIBUTING.md): code ownership and checks.
 
 ## Repository layout
@@ -65,6 +66,7 @@ previews, firmware builds and packaging.
 | `harness/` | The local preview workbench |
 | `tooling/` | The Python behind `sdk.py`: definitions, builds, firmware container checks and packaging |
 | `profiles/`, `linker/` | The firmware profile, the machine collection and the memory layout |
+| `catalog/` | Published machines and reserved identities ([catalog](docs/catalog.md)) |
 | `tests/` | SDK contracts and infrastructure tests |
 | `tools/` | Standalone scripts: the preview server, browser and firmware checkers, and compiler build and release scripts |
 | `local/` | Ignored non-firmware development outputs and tool binaries |

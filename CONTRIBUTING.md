@@ -16,7 +16,7 @@ A machine folder holds C++ source, `definition.json` (controls, the same
 schema for every kind), `machine.json`, artwork and `tests/`. It never holds
 build scripts; a new machine is not a reason to add code to `tooling/`. A new
 callback contract or native identity still needs SDK work. New machines live
-in their own repositories and reach the builder through the catalog
+in their own repositories and reach the builder through the [catalog](docs/catalog.md)
 ([submitting a machine](https://github.com/etcetc000/open-xy-machine-template/blob/main/SUBMITTING.md));
 `machines/` holds the bundled reference machines.
 

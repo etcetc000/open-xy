@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "machines": [
+    {
+      "id": "pluck",
+      "kind": "synth",
+      "identity": {
+        "engine": 1,
+        "page": 84
+      },
+      "maintainer": "etcetc000",
+      "status": "published",
+      "repository": "https://github.com/etcetc000/open-xy-pluck",
+      "tag": "v1.0.0",
+      "commit": "ca936813d3e98c72d5c29c4d1c37dc1d9c4018b3",
+      "path": "."
+    }
+  ]
+}

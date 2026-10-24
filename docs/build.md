@@ -66,7 +66,7 @@ Every build command takes the collection:
 | --- | --- |
 | (none) | `profiles/collection.json`: the bundled machines |
 | `--machine <folder>` | Those, then the machine in `<folder>`; repeatable |
-| `--collection <file>` | The file's list: bundled IDs and `{"path": "<folder>"}` entries, relative to the file |
+| `--collection <file>` | The file's list: bundled IDs and `{"path": "<folder>"}` entries, relative to the file. `sdk.py catalog fetch` writes one with every [published machine](catalog.md) |
 
 All selected machines share 2044 KiB ([memory and limits](api.md#memory-and-limits));
 `compile` shows each machine's share. To make room, list fewer machines in your
