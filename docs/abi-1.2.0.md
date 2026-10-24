@@ -46,9 +46,11 @@ The bootloader is never modified.
 
 ## Retrospective notes
 
-The internal service in `ghost_capture.cpp` keeps a bounded current-track ghost pattern;
-`ghost_capture_stock.cpp` supplies the version-specific recording context and
-forwards stock calls. It is not a public plugin registration interface.
+The [extension runtime](extensions.md) shares these hooks among the statically
+selected extensions. `extensions/capture/` owns the bounded current-track ghost
+pattern and Record gesture; `ghost_capture_stock.cpp` supplies version-specific
+recording context, note editing and stock forwarding. Existing `sdk_capture_*`
+profile symbols remain the authenticated adapter entry points, not extension APIs.
 
 The seven hooks replace the controller-update call at `0x8c0bb698`, queued key
 dispatch at `0x8c0b6ce4`, normalized live onset/release at `0x8d59269e` and

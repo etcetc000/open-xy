@@ -1,7 +1,7 @@
 #pragma once
 #include <opxy/types.hpp>
 
-namespace opxy { namespace platform {
+namespace opxy { namespace extensions {
 
 // Observes Record without delaying or suppressing stock press/release actions.
 // A capture request happens only after two short, unmodified, completed taps.

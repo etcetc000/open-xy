@@ -56,6 +56,7 @@ sound (`engine.cpp`) and display (`display.cpp` and artwork), a sample engine's
 previews, firmware builds and packaging.
 
 - [Machine API](docs/api.md): platform rules, schemas, callbacks for each kind, buffers and ownership.
+- [Firmware extensions](docs/extensions.md): shared controller events, callback order and exclusive commands.
 - [Display API](docs/display.md): retained drawing frames and asset constraints.
 - [Build your own firmware](docs/build.md): toolchain, stock files, adding a machine, build and install.
 - [Open-XY builder](docs/builder.md): using the builder, web development and kit export.
@@ -66,6 +67,7 @@ previews, firmware builds and packaging.
 | Path | Owns |
 | --- | --- |
 | `machines/<id>/` | Machine source, definition, `machine.json` and artwork |
+| `extensions/<id>/` | Firmware behavior extensions and their private helpers |
 | `sdk/` | C++ interfaces, adapter templates and browser runners |
 | `builder/` | The Open-XY browser builder |
 | `harness/` | The local preview workbench |

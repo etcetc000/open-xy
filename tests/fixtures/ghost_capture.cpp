@@ -1,5 +1,8 @@
 // Execute the service AND the version adapter; only stock addresses are mapped.
-#include <ghost_capture.cpp>
+#include <opxy/record_tap.hpp>
+#include <extension_runtime.cpp>
+#include "../../extensions/capture/extension.cpp"
+#include <extension_collection.cpp>
 #include <ghost_capture_stock.cpp>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
@@ -11,7 +14,7 @@ u32 pattern_id = 2, track_length = 16, scale = 3, quantization = 0;
 i32 position = 0;
 u32 playing = 0, counting = 0, held_record = 0, recorder_mode = 0, recorder_alt = 0;
 u32 other_held = 0, shift = 0;
-RecordTap::Time clock_time;
+extensions::Time clock_time;
 alignas(4) unsigned char pattern_notes[0x788];
 u32 on_calls, off_calls, tick_calls, loop_calls, stop_calls, event_calls, writes, publishes, popups, resets, undos;
 u32 args[11]; const void* last_event;
@@ -30,7 +33,7 @@ i32 get_position(u32 controller, u32 t) {
 u32 scaled_delta(u32 t, u32 delta) { failed |= t != selected; return scale == 5 ? delta / 2 : delta; }
 u32 shift_down() { return shift; }
 u32 key_down(u32 key) { return other_held && key == other_held; }
-void get_clock(RecordTap::Time* out) { *out = clock_time; }
+void get_clock(extensions::Time* out) { *out = clock_time; }
 void forward_loop(u32 controller, u32 elapsed) {
     failed |= controller != 0x860cf9c8 || elapsed != 17; ++loop_calls;
 }

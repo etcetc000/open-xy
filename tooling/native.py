@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import screen, startup_label, stock_tables
+from . import extensions, screen, startup_label, stock_tables
 from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order, generate_segment_binding,
@@ -28,7 +28,7 @@ from .firmware import active_services, assemble, hook_instruction, hook_target, 
 from .formats import elf32, elf_sections, require, sha
 from .machines import by_kind, collection
 from .pipeline import (PROFILE, ROOT, check_patch_boundaries, child, config, document, execute, fresh_output, host_pins, host_platform,
-                       read, require_release_host, resolve_toolchain, save_json, tool_paths)
+                       hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
 from .startup import generate as generate_startup
 
 LINKER = 'linker/opxy-1.2.0.ld'
@@ -72,8 +72,9 @@ def configuration():
 
 def provenance(machines):
     """Every authored, SDK and compiler-profile input; private artifacts never enter."""
-    paths = {PROFILE, LINKER, 'profiles/collection.json'}
-    for folder in ('sdk/include', 'sdk/platform', 'tooling', *('machines/' + m.id for m in machines)):
+    paths = {PROFILE, LINKER, 'profiles/collection.json', extensions.PROFILE}
+    for folder in ('sdk/include', 'sdk/platform', 'tooling', *('machines/' + m.id for m in machines),
+                   *('extensions/' + entry['id'] for entry in extensions.collection())):
         paths |= {p.relative_to(ROOT).as_posix() for p in (ROOT / folder).rglob('*')
                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md'}
     return {name: sha(read(child(ROOT, name))) for name in sorted(paths)}
@@ -120,14 +121,14 @@ def compile_cxx(cxx, assembler, source, obj, includes=()):
     flags = [*CXX_FLAGS, *('-I' + str((ROOT / path).resolve()) for path in includes), '-fstack-usage']
     subprocess.run([str(cxx), *flags, '-S', Path(source).name if generated else source, '-o', str(assembly)],
                    cwd=Path(source).parent if generated else ROOT, check=True, capture_output=True, text=True,
-                   timeout=300)
+                   timeout=300, **hidden_process())
     execute([assembler, '-mcpu=bf707', '-o', obj, assembly])
     return obj
 
 
 def includes(m=None):
     """Include path for firmware-compiler units: SDK headers, then the machine's own folders."""
-    paths = ['.', 'sdk/include', 'sdk/platform/opxy-1.2.0']
+    paths = ['.', 'sdk/include', 'sdk/platform', 'sdk/platform/opxy-1.2.0']
     if m is not None:
         paths.append('machines/' + m.id)
     paths.append('sdk/platform/blackfin/freestanding')
@@ -155,6 +156,8 @@ def plan(machines, profile=None):
     services = active_services(profile or config(), (m.kind for m in machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
+    units += [(f'sdk/extension_{entry["id"]}.o', None, 'extension:' + entry['id'])
+              for entry in extensions.collection()]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
@@ -166,7 +169,8 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
-             'screen_hooks', 'synth_controls', 'synth_control_table', 'ghost_capture', 'ghost_capture_stock')
+             'screen_hooks', 'synth_controls', 'synth_control_table', 'extension_runtime',
+             'extension_collection', 'ghost_capture_stock')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -251,6 +255,12 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
+            if step.startswith('extension:'):
+                return cxx('extensions/' + step.removeprefix('extension:') + '/extension.cpp', obj)
+            if step == 'extension_runtime':
+                return cxx('sdk/platform/extension_runtime.cpp', obj)
+            if step == 'extension_collection':
+                return cxx(str(extensions.generate_collection(folder)), obj)
             if step == 'screen_order':
                 return cxx(str(generate_screen_order(folder)), obj)
             if step == 'sample_callbacks':
@@ -292,7 +302,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     link = [tools['ld'], '-T', ROOT / LINKER, '-Map=module.map', '-o', 'module.elf',
             *(f'--defsym={key}={value:#x}' for key, value in definitions.items()), *names]
     try:
-        subprocess.check_output([str(arg) for arg in link], cwd=directory, stderr=subprocess.STDOUT, text=True, timeout=120)
+        subprocess.check_output([str(arg) for arg in link], cwd=directory, stderr=subprocess.STDOUT, text=True,
+                                timeout=120, **hidden_process())
     except subprocess.CalledProcessError as error:
         overflow = re.search(r"region `MODULE' overflowed by (\d+) bytes", error.output or '')
         if not overflow and 'Module overlaps the relocated tables' not in (error.output or ''):

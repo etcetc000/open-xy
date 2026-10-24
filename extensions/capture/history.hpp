@@ -1,29 +1,11 @@
 #pragma once
-#include <opxy/types.hpp>
+#include <opxy/extension.hpp>
 
-namespace opxy { namespace platform {
+namespace opxy { namespace extensions { namespace capture {
 
 // Internal ghost pattern, independent of firmware addresses and input routing.
 // The adapter supplies stock recording positions and stock-scaled tick deltas.
 // No quantization or conversion from wall-clock time belongs in this buffer.
-struct RecordedNote {
-    i32 position;
-    u32 length;
-    u8 pitch, velocity;
-};
-
-struct RecordingContext {
-    u32 project, pattern, track, length, scale, quantization;
-    bool eligible;
-
-    bool operator==(const RecordingContext& other) const {
-        return project == other.project && pattern == other.pattern &&
-            track == other.track && length == other.length &&
-            scale == other.scale && quantization == other.quantization &&
-            eligible == other.eligible;
-    }
-};
-
 class RecordingHistory {
 public:
     // Stock's ordinary note container and active recording list limits.
@@ -107,7 +89,7 @@ public:
     // Keep input order for stock's collision/capacity policy, even when a
     // loop wrap makes recorded positions descend. A snapshot never consumes
     // history. The caller clears it only after a successful pattern commit.
-    u32 snapshot(RecordedNote* notes, u32 available) const {
+    u32 snapshot(Note* notes, u32 available) const {
         if (!notes || available < count_) return 0;
         for (u32 i = 0; i < count_; ++i) notes[i] = entries_[i].note;
         return count_;
@@ -117,7 +99,7 @@ public:
 
 private:
     struct Entry {
-        RecordedNote note;
+        Note note;
         u32 duration;
         bool held;
     };
@@ -127,4 +109,4 @@ private:
     bool playing_;
 };
 
-}}
+}}}

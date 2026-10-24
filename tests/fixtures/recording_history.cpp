@@ -1,7 +1,8 @@
-#include "recording_history.hpp"
+#include "../../extensions/capture/history.hpp"
 
 using namespace opxy;
-using namespace opxy::platform;
+using namespace opxy::extensions;
+using namespace opxy::extensions::capture;
 // Explicit checks also run in optimized and freestanding target builds.
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 
@@ -9,7 +10,7 @@ static RecordingContext context() { return {1, 2, 0, 16 * 480, 0, 0, true}; }
 
 int main() {
     RecordingHistory h;
-    RecordedNote notes[RecordingHistory::capacity];
+    Note notes[RecordingHistory::capacity];
     RecordingContext c = context();
     CHECK(!h.note_on(0, 60, 100));
     h.sync(c, true);

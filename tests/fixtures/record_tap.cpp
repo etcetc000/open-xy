@@ -1,5 +1,5 @@
-#include "record_tap.hpp"
-using opxy::platform::RecordTap;
+#include <opxy/record_tap.hpp>
+using opxy::extensions::RecordTap;
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 
 int main() {

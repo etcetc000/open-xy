@@ -40,7 +40,10 @@ class RecordingHistory(unittest.TestCase):
                     stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                           'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
                 (Path(folder) / 'stock.hpp').write_text(stock)
-                (Path(folder) / 'ghost_capture_stock.cpp').write_bytes((platform / 'ghost_capture_stock.cpp').read_bytes())
+                (Path(folder) / 'ghost_capture_stock.cpp').write_text((platform / 'ghost_capture_stock.cpp').read_text().replace(
+                    '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
+                from tooling.extensions import generate_collection
+                generate_collection(Path(folder))
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Wextra', '-Werror',
                        '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'), '-I' + str(ROOT / 'sdk/platform'),
                        '-I' + str(ROOT / 'sdk/platform/opxy-1.2.0'),
@@ -58,3 +61,6 @@ class RecordingHistory(unittest.TestCase):
 
     def test_stock_adapter_capture_forwarding_undo_and_failure(self):
         self.run_fixture('ghost_capture')
+
+    def test_extension_observers_order_and_write_ownership(self):
+        self.run_fixture('extension_runtime')
