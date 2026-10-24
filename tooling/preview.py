@@ -16,16 +16,13 @@ from .pipeline import fresh_output
 VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment', 'opxy_parameter_count',
                  'opxy_block_frames', 'opxy_sample_rate', 'opxy_output_peak_q31', 'opxy_voice_capacity',
                  'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_destroy', 'opxy_render', '__heap_base')
-DISPLAY_EXPORTS = dict(
-    drawing=tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
-                                                      'input', 'frame', 'reset', 'render', 'valid')),
-    segments=tuple('opxy_segment_' + name for name in ('input_bytes', 'frame_bytes', 'characters', 'input', 'frame',
-                                                       'render')))
+DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
+                                                            'input', 'frame', 'reset', 'render', 'valid'))
 MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
 SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
                'tooling/contributors.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
-               'sdk/host/segment_preview.cpp', 'sdk/host/display_preview.cpp', 'sdk/platform/blackfin/memory.cpp')
+               'sdk/host/display_preview.cpp', 'sdk/platform/blackfin/memory.cpp')
 SDK_FOLDERS = ('sdk/include', 'sdk/browser', 'sdk/platform/blackfin/freestanding')
 FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-exceptions', '-fno-rtti',
          '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-c++-static-destructors', '-nostdlib',
@@ -33,32 +30,28 @@ FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-excepti
 MEMORY = 524288
 
 
-def compile_preview(compiler, definition, display, out, root, sources=(), includes=()):
+def compile_preview(compiler, definition, out, root, sources=(), includes=()):
     """One WebAssembly module: the SDK voice preview, the machine's sources and its display transport."""
-    from .adapters import generate_display, generate_segment_binding, generate_voice_preview
+    from .adapters import generate_display, generate_voice_preview
     units = [generate_voice_preview(out, definition), *(root / s for s in sources),
              ROOT / 'sdk/platform/blackfin/memory.cpp']
-    if display == 'drawing':
-        generate_display(out, definition=definition)
-        units += [out / 'display_binding.cpp', ROOT / 'sdk/host/display_preview.cpp']
-    else:
-        generate_segment_binding(out, definition)
-        units.append(ROOT / 'sdk/host/segment_preview.cpp')
+    generate_display(out, definition=definition)
+    units += [out / 'display_binding.cpp', ROOT / 'sdk/host/display_preview.cpp']
     paths = [ROOT, ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', root,
              *(root / extra for extra in includes), out]
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={MEMORY}',
-               f'-Wl,--max-memory={MEMORY}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS[display])]
+               f'-Wl,--max-memory={MEMORY}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS)]
     result = subprocess.run([str(x) for x in command], capture_output=True, text=True, timeout=120,
                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
             f'\nCheck the compiler with: python sdk.py doctor --preview --cxx "{compiler}"')
-    check_runtime(out / 'engine.wasm', display)
+    check_runtime(out / 'engine.wasm')
 
 
-def check_runtime(module, graphics):
+def check_runtime(module):
     """Smoke-test host contracts without requiring a particular sound."""
-    result = subprocess.run(['node', str(ROOT / 'tools/check_preview_contract.mjs'), str(module), graphics],
+    result = subprocess.run(['node', str(ROOT / 'tools/check_preview_contract.mjs'), str(module)],
                             capture_output=True, text=True, timeout=120,
                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     require(result.returncode == 0, 'Preview contract check failed:\n' + result.stdout + result.stderr)
@@ -74,20 +67,17 @@ def source_hashes(m):
 
 
 def graphics_metadata(m):
-    from .native import drawing_ids, segment_ids
+    from .native import display_ids
     asset = sha((m.root / 'panel.svg.fragment').read_bytes())
     display = m.definition['resources']['display']
-    if m.display == 'segments':
-        ids = segment_ids(m.prefix, display)
-        return dict(kind='segments', nodes=ids['segments'], glow=ids['glow'], dials=ids['dials'],
-                    palette=ids['palette'], glowPalette=ids['glow_palette'], label=ids['label'], asset_sha256=asset)
-    return dict(drawing_bindings(drawing_ids(m.prefix, display), display), asset_sha256=asset)
+    return dict(drawing_bindings(display_ids(m.prefix, display), display), asset_sha256=asset)
 
 
 def drawing_bindings(ids, display):
-    """Browser renderer bindings: node and palette IDs, which nodes are paths, and their point count."""
-    return dict(nodes=ids[:display['nodes']], palette=ids[display['nodes']:], paths=list(range(display['paths'])),
-                points=display['points'])
+    """Browser renderer bindings: node, text and palette IDs, how many nodes are paths, and their point count."""
+    count = display['nodes'] + display['texts']
+    return dict(nodes=ids[:display['nodes']], texts=ids[display['nodes']:count], palette=ids[count:],
+                paths=display['paths'], points=display['points'])
 
 
 def build(compiler, identity, out):
@@ -101,7 +91,7 @@ def build(compiler, identity, out):
     validate_panel(m)
     before = source_hashes(m)
     out = fresh_output(out)
-    compile_preview(compiler, m.definition, m.display, out, m.root, m.sources, m.includes)
+    compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes)
     (out / 'panel.svg').write_bytes((m.root / 'panel.svg.fragment').read_bytes())
     require(source_hashes(m) == before, 'Source changed during preview build')
     version = subprocess.check_output([str(compiler), '--version'], text=True, timeout=30).splitlines()[0]

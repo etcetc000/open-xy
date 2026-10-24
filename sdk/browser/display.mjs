@@ -19,8 +19,8 @@ export class PreviewDisplay {
     const e = this.api;
     if (e.opxy_display_abi() !== 1 || e.opxy_display_input_bytes() !== INPUT_BYTES) throw new Error('Unsupported drawing ABI');
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
-    // Largest declared frame: 4 paths of 64 points and 64 nodes.
-    const frameBytes = integer(e.opxy_display_frame_bytes(), 4, 4 * 516 + 64 * 20, 'drawing frame size');
+    // Largest declared frame: 4 paths of 64 points, 256 nodes, 4 texts and the header.
+    const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 4 * 36 + 32, 'drawing frame size');
     this.memory = e.memory.buffer;
     const ranges = [
       [e.opxy_display_state(), this.stateBytes], [e.opxy_display_input(), INPUT_BYTES], [e.opxy_display_frame(), frameBytes],
@@ -56,66 +56,112 @@ export class PreviewDisplay {
 
 const SVG = 'http://www.w3.org/2000/svg';
 const decimal = word => String(Math.round(word / 1024 * 1000) / 1000);
-const attributeNames = new Set(['id', 'd', 'cx', 'cy', 'r', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-linejoin']);
+// floor(value / 1024), as the C++ floor_q10, for products inside int32.
+const floorQ10 = value => Math.floor(value / 1024);
+const decoder = new TextDecoder();
+// Elements and attributes of the authored subset the preview copies; never
+// styles, links, event handlers or unknown XML.
+const elements = new Set(['g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text']);
+const attributes = new Set(['id', 'd', 'x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2',
+  'points', 'fill', 'stroke', 'stroke-width', 'stroke-linejoin', 'stroke-linecap', 'stroke-miterlimit', 'transform',
+  'font-family', 'font-size', 'text-anchor']);
 
+const escape = text => String(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+// The device page's four-control header, as the SDK screen template draws it
+// (sdk/platform/opxy-1.2.0/screen.svg): a stepped grey bar 20 px tall with each
+// position's title above its value, light text on the dark half and dark text
+// on the light half. Browser fonts stand in for the device's.
+export function headerSvg(titles, values) {
+  const steps = ['#000000', '#323232', '#4B4B4B', '#646464', '#7D7D7D', '#969696', '#AFAFAF', '#CDCDCD'];
+  const bar = steps.map((fill, i) => `<rect x="${i * 60}" width="60" height="20" fill="${fill}"/>`).join('');
+  const text = [0, 1, 2, 3].map(i => {
+    const ink = i < 2 ? '#CBCBCB' : '#000000', x = 120 * i;
+    return `<text x="${x + 5}" y="10" fill="${ink}" font-size="10">${escape(titles[i] ?? '')}</text>` +
+      `<text x="${x + 65}" y="17.44" fill="${ink}" font-size="20">${escape(values[i] ?? '')}</text>`;
+  }).join('');
+  return `<g data-opxy-header="" font-family="sans-serif">${bar}${text}</g>`;
+}
+
+// The whole artwork in authored order, with the frame's nodes, text slots and
+// palette entries bound by ID, as on the device.
 export class SvgDisplay {
   constructor(asset, bindings) {
     if (typeof asset !== 'string' || asset.length > 65536 || /<!DOCTYPE|<!ENTITY/i.test(asset)) {
       throw new Error('Invalid drawing asset');
     }
-    const { nodes, palette, paths, points } = bindings;
-    if (!Array.isArray(paths) || paths.length < 1 || paths.length > 4 || paths.some((p, i) => p !== i) ||
-        !Number.isInteger(points) || points < 2 || points > 64 ||
-        nodes.length < paths.length || nodes.length > 64 || palette.length < 1 || palette.length > 16) {
+    const { nodes, texts, palette, paths, points } = bindings;
+    if (!Array.isArray(nodes) || !Array.isArray(texts) || !Array.isArray(palette) ||
+        !Number.isInteger(paths) || paths < 0 || paths > 4 || paths > nodes.length ||
+        !Number.isInteger(points) || (paths ? points < 2 || points > 64 : points !== 0) ||
+        nodes.length < 1 || nodes.length > 256 || texts.length > 4 || palette.length < 1 || palette.length > 16) {
       throw new Error('Unsupported retained asset bindings');
     }
     this.points = points;
-    this.frameWords = paths.length * (1 + 2 * points) + 5 * nodes.length;
-    const ids = [...bindings.nodes, ...bindings.palette];
+    // Frame words: paths (key, points), nodes (7 words), texts (3 words and 24
+    // bytes), then the header's four 8-byte strings. An empty path or text
+    // array still holds one unused element, as in draw.hpp.
+    this.nodesAt = Math.max(paths, 1) * (1 + 2 * points);
+    this.textsAt = this.nodesAt + 7 * nodes.length;
+    this.headerAt = this.textsAt + 9 * Math.max(texts.length, 1);
+    this.frameWords = this.headerAt + 8;
+    const ids = [...nodes, ...texts, ...palette];
     if (new Set(ids).size !== ids.length || ids.some(id => !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id))) {
       throw new Error('Invalid retained asset identities');
     }
     const parsed = new DOMParser().parseFromString(`<svg xmlns="${SVG}">${asset}</svg>`, 'image/svg+xml');
     if (parsed.querySelector('parsererror')) throw new Error('Malformed drawing asset');
-    const originals = new Map();
-    for (const element of parsed.querySelectorAll('[id]')) {
-      if (originals.has(element.id)) throw new Error('Duplicate drawing asset ID');
-      originals.set(element.id, element);
-    }
-    const leaf = id => {
-      const element = originals.get(id);
-      if (!element || !['path', 'circle'].includes(element.localName)) throw new Error(`Missing drawing leaf ${id}`);
+    this.root = document.createElementNS(SVG, 'g');
+    this.root.setAttribute('data-opxy-display', 'cpp');
+    const copies = new Map();
+    const copy = (source, parent) => {
+      for (const child of source.children) {
+        if (!elements.has(child.localName)) continue;
+        const node = document.createElementNS(SVG, child.localName);
+        for (const attribute of child.attributes) {
+          if (attributes.has(attribute.name)) node.setAttribute(attribute.name, attribute.value);
+        }
+        if (child.localName === 'text') node.textContent = child.textContent;
+        else copy(child, node);
+        if (child.id) {
+          if (copies.has(child.id)) throw new Error('Duplicate drawing asset ID');
+          copies.set(child.id, node);
+        }
+        parent.append(node);
+      }
+    };
+    copy(parsed.documentElement, this.root);
+    const leaf = (id, types) => {
+      const element = copies.get(id);
+      if (!element || !types.includes(element.localName)) throw new Error(`Missing drawing leaf ${id}`);
       return element;
     };
-    this.palette = bindings.palette.map(id => {
-      const element = leaf(id);
+    // A palette entry lends its fill, stroke and stroke width, as on the device.
+    this.palette = palette.map(id => {
+      const element = leaf(id, ['path', 'circle']);
       const fill = element.getAttribute('fill'), stroke = element.getAttribute('stroke');
       if (![fill, stroke].every(value => /^#[0-9a-fA-F]{6}$/.test(value))) throw new Error('Unsupported drawing paint');
       const width = Number(element.getAttribute('stroke-width'));
-      if (!(width > 0 && width <= 8)) throw new Error('Unsupported stroke width');
+      if (!(width > 0 && width <= 16)) throw new Error('Unsupported stroke width');
       return { fill, stroke, width };
     });
-    this.root = document.createElementNS(SVG, 'g');
-    this.root.setAttribute('data-opxy-display', 'cpp');
+    this.nodes = nodes.map(id => leaf(id, ['path', 'circle']));
     // The device renderer only changes a fill the artwork already has.
-    this.fillable = bindings.nodes.map(id => (leaf(id).getAttribute('fill') || 'none') !== 'none');
-    this.nodes = bindings.nodes.map(id => {
-      const original = leaf(id);
-      const element = document.createElementNS(SVG, original.localName);
-      // Never copy event handlers, links, styles or unknown XML attributes.
-      for (const attribute of original.attributes) {
-        if (attributeNames.has(attribute.name)) element.setAttribute(attribute.name, attribute.value);
-      }
-      return element;
-    });
-    // Preserve authored SVG paint order, independent of command/lookup order.
-    for (const id of originals.keys()) {
-      const index = bindings.nodes.indexOf(id);
-      if (index >= 0) this.root.append(this.nodes[index]);
-    }
-    this.paths = bindings.paths.map(index => this.nodes[index]);
+    this.fillable = this.nodes.map(node => (node.getAttribute('fill') || 'none') !== 'none');
+    this.paths = this.nodes.slice(0, paths);
     if (this.paths.some(node => node.localName !== 'path')) throw new Error('Mutable asset must be a path');
-    this.keys = paths.map(() => 0);
+    this.texts = texts.map(id => leaf(id, ['text']));
+    this.keys = this.paths.map(() => 0);
+    // What each node and text slot last applied, so unchanged ones cost nothing.
+    this.applied = this.nodes.map(() => '');
+    this.shown = this.texts.map(() => '');
+    // The header's text for each control position; '' keeps the stock value.
+    this.header = ['', '', '', ''];
+  }
+  text(frame, word, bytes) {
+    const view = new Uint8Array(frame.buffer, frame.byteOffset + word * 4, bytes);
+    const end = view.indexOf(0);
+    if (end < 0) throw new Error('Unterminated display text');
+    return decoder.decode(view.subarray(0, end));
   }
   apply(frame) {
     if (!(frame instanceof Int32Array) || frame.length !== this.frameWords) throw new Error('Invalid drawing frame buffer');
@@ -132,21 +178,31 @@ export class SvgDisplay {
       this.keys[path] = key;
     }
     for (let i = 0; i < this.nodes.length; i++) {
-      const offset = this.paths.length * stride + i * 5;
-      const [x, y, scale, shade, paint] = frame.subarray(offset, offset + 5);
-      const node = this.nodes[i];
-      node.setAttribute('transform', `matrix(${decimal(scale)} 0 0 ${decimal(scale)} ${decimal(x)} ${decimal(y)})`);
-      node.setAttribute('data-x', decimal(x));
-      node.setAttribute('data-y', decimal(y));
-      node.setAttribute('data-paint', String(paint));
+      const offset = this.nodesAt + i * 7;
+      const words = frame.subarray(offset, offset + 7), key = words.join();
+      if (this.applied[i] === key) continue;
+      this.applied[i] = key;
+      const [x, y, scale, cos, sin, shade, paint] = words;
+      const node = this.nodes[i], a = floorQ10(scale * cos), b = floorQ10(scale * sin);
+      node.setAttribute('transform',
+        `matrix(${decimal(a)} ${decimal(b)} ${decimal(-b)} ${decimal(a)} ${decimal(x)} ${decimal(y)})`);
       if (paint) {
-        const palette = this.palette[shade];
-        node.setAttribute('stroke', palette.stroke);
-        node.setAttribute('stroke-width', String(palette.width));
-        node.setAttribute('stroke-linejoin', 'round');
-        if (paint === 2 && this.fillable[i]) node.setAttribute('fill', palette.fill);
+        const entry = this.palette[shade];
+        node.setAttribute('stroke', entry.stroke);
+        node.setAttribute('stroke-width', String(entry.width));
+        if (paint === 2 && this.fillable[i]) node.setAttribute('fill', entry.fill);
       }
     }
+    for (let i = 0; i < this.texts.length; i++) {
+      const offset = this.textsAt + i * 9, [x, y, scale] = frame.subarray(offset, offset + 3);
+      const content = this.text(frame, offset + 3, 24), key = `${x},${y},${scale},${content}`;
+      if (this.shown[i] === key) continue;
+      this.shown[i] = key;
+      const node = this.texts[i];
+      node.setAttribute('transform', `matrix(${decimal(scale)} 0 0 ${decimal(scale)} ${decimal(x)} ${decimal(y)})`);
+      node.textContent = content;
+    }
+    this.header = [0, 1, 2, 3].map(i => this.text(frame, this.headerAt + 2 * i, 8));
   }
   svg() { return new XMLSerializer().serializeToString(this.root); }
 }

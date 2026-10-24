@@ -9,10 +9,10 @@ import json
 import unittest
 
 from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, generate_display, generate_screen,
-                               generate_segment_binding, generate_synth_controls, screen_bytes)
+                               generate_synth_controls, screen_bytes)
 from tooling.definitions import ROOT, control_positions, validate_definition
 from tooling.machines import machine
-from tooling.native import drawing_ids, segment_ids
+from tooling.native import display_ids
 
 
 def layout_compiler():
@@ -117,19 +117,19 @@ class Definitions(unittest.TestCase):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
                            ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
-                           ('nodes', 1), ('nodes', 65), ('palette', 0), ('palette', 17), ('kind', 'vector')):
+                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 5), ('texts', True),
+                           ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 validate_definition(changed, 'synth')
-        segments = machine('macroosc').definition
-        for key, value in (('characters', 0), ('characters', 9), ('textControls', [4]),
-                           ('textControls', [1, 0]), ('textControls', [0, 0]), ('glow', 4), ('glow', -1),
-                           ('dials', 5), ('dials', True)):
-            changed = copy.deepcopy(segments)
-            changed['resources']['display'][key] = value
-            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
-                validate_definition(changed, 'synth')
+        # A display without paths declares no points.
+        without = machine('macroosc').definition
+        validate_definition(without, 'synth')
+        changed = copy.deepcopy(without)
+        changed['resources']['display']['points'] = 2
+        with self.assertRaisesRegex(ValueError, '0 points'):
+            validate_definition(changed, 'synth')
 
     def test_every_kind_shares_the_controls_schema(self):
         for identity in ('timestretch', 'ringmod'):
@@ -195,25 +195,18 @@ class Definitions(unittest.TestCase):
     def test_renderers_generate_for_every_declared_shape(self):
         """Each shape's renderer is data for the SDK renderer: artwork IDs in binding order, and an
         object whose C++ size equals the registered size (checked by the generated static_assert)."""
-        shapes = [dict(kind='drawing', stateBytes=60, stateAlignment=4, paths=1, points=2, nodes=64, palette=1),
-                  dict(kind='drawing', stateBytes=60, stateAlignment=4, paths=4, points=64, nodes=4, palette=16),
-                  dict(kind='segments', characters=1, glow=0, dials=0, textControls=[]),
-                  dict(kind='segments', characters=8, glow=3, dials=4, textControls=[0, 1, 2, 3])]
+        shapes = [dict(stateBytes=60, stateAlignment=4, paths=1, points=2, nodes=64, texts=0, palette=1),
+                  dict(stateBytes=60, stateAlignment=4, paths=4, points=64, nodes=4, texts=4, palette=16),
+                  dict(stateBytes=60, stateAlignment=4, paths=0, points=0, nodes=256, texts=1, palette=8)]
         for display in shapes:
             definition = copy.deepcopy(machine('fm2op').definition)
             definition['resources']['display'] = display
             validate_definition(definition, 'synth')
             m = SimpleNamespace(prefix='shape', native_name='shape', definition=definition)
             with self.subTest(display=display), tempfile.TemporaryDirectory() as directory:
-                if display['kind'] == 'drawing':
-                    generate_display(directory, machine=SimpleNamespace(definition=definition, native_name='shape',
-                                                                        prefix='shape'))
-                    ids = drawing_ids('shape', display)
-                else:
-                    generate_segment_binding(directory, definition, 'shape')
-                    names = segment_ids('shape', display)
-                    ids = (names['segments'] + sum(names['glow'], []) + names['dials'] + [names['label']] +
-                           names['palette'] + sum(names['glow_palette'], []))
+                generate_display(directory, machine=SimpleNamespace(definition=definition, native_name='shape',
+                                                                    prefix='shape'))
+                ids = display_ids('shape', display)
                 source = generate_screen(directory, m)
                 text = source.read_text(encoding='utf-8')
                 self.assertEqual(re.findall(r'"(shape_[0-9a-z_]+)"', text), ids)

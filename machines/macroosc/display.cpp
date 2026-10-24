@@ -1,13 +1,13 @@
-// Shared display behavior. The SDK applies this bounded frame to retained
-// segment paths, glow, dials and inline text in the browser and the native renderer.
-#include <opxy/segments.hpp>
+// Shared display behavior. The SDK applies this bounded frame to the retained
+// segment, glow and dial nodes and the header values, in the browser and on the device.
+#include "display.h"
 #include "fm.h"
 #include "models.hpp"
+#include "segments.hpp"
 
 namespace macroosc {
 // Four characters show the model; its code replaces the first control's value,
 // and the fourth shows the FM ratio or, after a press of its encoder, the FM depth.
-using Frame = opxy::segments::Frame<4>;
 // The knobs turn 144 degrees either side of 12 o'clock, end to end of their ticks.
 const opxy::i32 kSweep = 1440;
 const unsigned kModels = sizeof(models) / sizeof(models[0]);
@@ -24,34 +24,42 @@ inline void amount(char* out, unsigned capacity, opxy::i32 value) {
   text[n++] = '.';
   text[n++] = static_cast<char>('0' + p % 10);
   text[n] = 0;
-  opxy::segments::text(out, capacity, text);
+  opxy::draw::copy(out, capacity, text);
 }
 // One decimal place; audio retains the full interpolated Q16 ratio.
 inline void ratio(char* out, unsigned capacity, unsigned q16) {
   const unsigned tenths = (q16 * 10 + 32768) >> 16;
   char text[4] = {static_cast<char>('0' + tenths / 10), '.', static_cast<char>('0' + tenths % 10), 0};
-  opxy::segments::text(out, capacity, text);
+  opxy::draw::copy(out, capacity, text);
 }
-inline void display(const opxy::segments::Input& input, Frame& frame) {
+inline void display_reset(DisplayState& state) { state.model = 0; }
+
+inline void display(DisplayState& state, const opxy::draw::Input& input, Frame& frame) {
   const opxy::i32 model = input.slots[kModelSlot];
   unsigned index = model < 0 ? 0 : ((static_cast<unsigned>(model) >> 16) * kModels) >> 15;
-  for (unsigned i = 0; i < 4; ++i)
-    frame.masks[i] = models[index].masks[i];
-  opxy::segments::text(frame.label, sizeof(frame.label), models[index].label);
-  opxy::segments::text(frame.values[0], sizeof(frame.values[0]), models[index].code);
-  amount(frame.values[1], sizeof(frame.values[1]), input.parameters[1]);
-  amount(frame.values[2], sizeof(frame.values[2]), input.parameters[2]);
+  // The characters change only with the model; the renderers skip unchanged
+  // nodes. The layers are the segments (palette 0 and 1), then each glow layer
+  // (2 and 3, 4 and 5, 6 and 7).
+  if (state.model != index + 1) {
+    for (unsigned layer = 0; layer < kLayers; ++layer)
+      paint_segments(frame, layer * kCharacters * kSegments, models[index].masks, kCharacters, 2 * layer,
+                     2 * layer + 1);
+    state.model = index + 1;
+  }
+  opxy::draw::header(frame, 0, models[index].code);
+  amount(frame.header[1], sizeof(frame.header[1]), input.parameters[1]);
+  amount(frame.header[2], sizeof(frame.header[2]), input.parameters[2]);
   if (input.shown[3] == kRatioSlot)
-    ratio(frame.values[3], sizeof(frame.values[3]), RatioQ16FromParameter(input.parameters[3]));
+    ratio(frame.header[3], sizeof(frame.header[3]), RatioQ16FromParameter(input.parameters[3]));
   else
-    amount(frame.values[3], sizeof(frame.values[3]), input.parameters[3]);
-  frame.key = index + 1;
+    amount(frame.header[3], sizeof(frame.header[3]), input.parameters[3]);
   // Knobs: Timbre and Color along the bottom; on the right, the linked pair
   // the fourth encoder switches between, each showing its own parameter: FM
   // Ratio below, stepping between ratios, and FM Depth above.
-  frame.dials[0] = opxy::segments::sweep(input.slots[kTimbreSlot], kSweep);
-  frame.dials[1] = opxy::segments::sweep(input.slots[kColorSlot], kSweep);
-  frame.dials[2] = opxy::segments::sweep(input.slots[kRatioSlot], kSweep);
-  frame.dials[3] = opxy::segments::sweep(input.slots[kDepthSlot], kSweep);
+  const unsigned slots[4] = {kTimbreSlot, kColorSlot, kRatioSlot, kDepthSlot};
+  for (unsigned i = 0; i < 4; ++i) {
+    opxy::draw::place(frame, kDialNode + i, kDialX[i], kDialY[i], opxy::draw::unit, 0, opxy::draw::keep);
+    opxy::draw::turn(frame, kDialNode + i, opxy::draw::sweep(input.slots[slots[i]], kSweep));
+  }
 }
 }  // namespace macroosc

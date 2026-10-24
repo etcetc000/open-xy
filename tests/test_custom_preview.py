@@ -60,7 +60,7 @@ class CustomPreviewTests(unittest.TestCase):
             outline = custom.square_outline(points)
             self.assertEqual(outline.count('L'), points - 1)
             self.assertTrue(outline.startswith('M') and outline.endswith(' Z') and 'e' not in outline)
-        display = {'paths': 1, 'nodes': 1, 'palette': 0, 'points': 64}
+        display = {'paths': 1, 'nodes': 1, 'texts': 0, 'palette': 0, 'points': 64}
         good = panel_root(f'<g><path id="local_node_0" d="{custom.square_outline(64)}" fill="none"/></g>'.encode(), 'test')
         check_outlines({n.get('id'): n for n in good.iter() if n.get('id')}, 'local', display)
         bad = panel_root(f'<g><path id="local_node_0" d="{custom.square_outline(4)}" fill="none"/></g>'.encode(), 'test')

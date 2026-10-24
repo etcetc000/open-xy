@@ -1,7 +1,7 @@
 # Macro Osc
 
 47 Braids oscillator models by Emilie Gillet, adapted to the SDK's explicit
-lifecycle and segment display. The [vendor license](vendor/LICENSE) and
+lifecycle and drawing display. The [vendor license](vendor/LICENSE) and
 [source provenance](vendor/VENDOR.md) remain with the port.
 
 Four encoders: **Model**, **Timbre**, **Color** and **FM Ratio**; pressing the
@@ -27,9 +27,9 @@ python sdk.py check
 
 | File | Owns |
 | --- | --- |
-| [definition.json](definition.json) | Controls, resource declarations and the segment display shape |
+| [definition.json](definition.json) | Controls, resource declarations and the display's budget |
 | [core.h](core.h), [engine.cpp](engine.cpp) | Voice/shared state, lifecycle and sound |
-| [display.cpp](display.cpp), [models.hpp](models.hpp) | Model-to-segment frame and model table |
+| [display.h](display.h), [display.cpp](display.cpp), [segments.hpp](segments.hpp), [models.hpp](models.hpp) | The frame: 14-segment characters and glow drawn with nodes, dials and header values; the model table |
 | [fm.h](fm.h) | FM ratio interpolation shared by sound and screen |
 | [pitch.h](pitch.h), [vendor/braids/resources.cc](vendor/braids/resources.cc) | 44.1 kHz pitch and Braids tables |
 | [machine.json](machine.json) | Kind, identity, builder glyph and the vendored translation units |

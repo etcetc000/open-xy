@@ -142,16 +142,13 @@
     "sharedBytes": 131332,
     "outputPeakQ31": 488570880,
     "display": {
-      "kind": "segments",
-      "characters": 4,
-      "glow": 3,
-      "dials": 4,
-      "textControls": [
-        0,
-        1,
-        2,
-        3
-      ]
+      "stateBytes": 4,
+      "stateAlignment": 4,
+      "paths": 0,
+      "points": 0,
+      "nodes": 228,
+      "texts": 0,
+      "palette": 8
     }
   }
 }

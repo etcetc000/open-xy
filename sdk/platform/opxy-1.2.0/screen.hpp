@@ -1,8 +1,8 @@
 // Stock OS 1.2.0 screen objects for SDK displays: the stock object layout,
 // helpers and the shared renderer shell. Stock calls every method-table entry
 // with the C ABI (the object in R0). Each machine's generated screen.cpp
-// includes one renderer (screen_drawing.hpp or screen_segments.hpp) once, so
-// everything here has internal linkage.
+// includes the drawing renderer (screen_drawing.hpp) once, so everything here
+// has internal linkage.
 #pragma once
 #include "opxy/types.hpp"
 #include "stock.hpp"
@@ -116,14 +116,16 @@ inline void paint(void* raw, u32 style, bool fill) {
     if (changed) invalidate(node);
 }
 
-// Replaces four of a leaf's nine matrix words through the stock setter, which
+// Replaces some of a leaf's nine matrix words through the stock setter, which
 // invalidates. A request equal to the current words is skipped.
-inline void set_words(Leaf* node, const u32 (&at)[4], const i32 (&value)[4]) {
-    if (node->matrix[at[0]] == value[0] && node->matrix[at[1]] == value[1] &&
-        node->matrix[at[2]] == value[2] && node->matrix[at[3]] == value[3]) return;
+template <u32 N>
+inline void set_words(Leaf* node, const u32 (&at)[N], const i32 (&value)[N]) {
+    bool same = true;
+    for (u32 i = 0; i < N; ++i) same = same && node->matrix[at[i]] == value[i];
+    if (same) return;
     i32 matrix[9];
     for (u32 i = 0; i < 9; ++i) matrix[i] = node->matrix[i];
-    for (u32 i = 0; i < 4; ++i) matrix[at[i]] = value[i];
+    for (u32 i = 0; i < N; ++i) matrix[at[i]] = value[i];
     set_matrix(node, matrix);
 }
 

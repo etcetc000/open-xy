@@ -106,8 +106,7 @@ does not change your machine.
 Change labels and presets directly in `definition.json`; custom previews read it
 when building, with no separate JavaScript definition generator. Parameter
 order determines the C++ control indices. See the [engine API](api.md) for
-buffer ownership and the [display API](display.md) for drawing. Local machines
-use the drawing display.
+buffer ownership and the [display API](display.md) for drawing.
 
 Keep callbacks bounded: no allocation, blocking, logging, I/O, OS headers or
 platform conditionals. The SDK supplies the adapters and memory. A custom

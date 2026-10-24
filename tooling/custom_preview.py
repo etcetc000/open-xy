@@ -15,7 +15,7 @@ from .pipeline import fresh_output
 
 KIND = 'cpp-browser-custom-preview'
 REQUIRED = {'definition.json', 'core.h', 'engine.cpp', 'display.h', 'display.cpp', 'panel.svg.fragment'}
-PREFIX = 'local'  # Artwork IDs follow the drawing convention: local_node_N and local_palette_N.
+PREFIX = 'local'  # Artwork IDs follow the drawing convention: local_node_N, local_text_N and local_palette_N.
 SUFFIXES = {'.json', '.cpp', '.h', '.hpp', '.inc', '.fragment'}
 
 
@@ -53,21 +53,22 @@ def custom_identity(identity):
 
 
 def metadata(files):
-    from .native import check_outlines, drawing_ids, panel_root
+    from .native import check_bindings, display_ids, panel_root
     from .preview import drawing_bindings
     definition = validate_definition(json.loads(files['definition.json']), 'synth')
     display = definition['resources']['display']
-    require(display['kind'] == 'drawing', 'Local machines use the drawing display')
     custom_identity(definition['id'])
-    graphics = drawing_bindings(drawing_ids(PREFIX, display), display)
+    graphics = drawing_bindings(display_ids(PREFIX, display), display)
     artwork = files['panel.svg.fragment']
     require(len(artwork) <= 65536 and not re.search(br'<!DOCTYPE|<!ENTITY', artwork, re.I), 'Invalid drawing asset')
     # The native build's rules, so a machine that previews also builds for the device.
     root = panel_root(artwork, 'panel.svg.fragment')
     elements = {}
-    allowed = {'id', 'd', 'cx', 'cy', 'r', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-linejoin'}
+    allowed = {'id', 'd', 'cx', 'cy', 'r', 'transform', 'fill', 'stroke', 'stroke-width', 'stroke-linejoin',
+               'font-family', 'font-size'}
     for node in root.iter():
-        require(node.tag in {'g', 'path', 'circle'} and set(node.attrib) <= allowed, 'Unsupported drawing element or attribute')
+        require(node.tag in {'g', 'path', 'circle', 'text'} and set(node.attrib) <= allowed,
+                'Unsupported drawing element or attribute')
         for key in ('fill', 'stroke'):
             require(key not in node.attrib or re.fullmatch(r'none|#[0-9a-fA-F]{6}', node.attrib[key]),
                     'Drawing colors must be none or six-digit hex colors')
@@ -75,10 +76,7 @@ def metadata(files):
         if identity:
             require(identity not in elements, 'Duplicate drawing asset ID')
             elements[identity] = node
-    for i, identity in enumerate(graphics['nodes']):
-        require(identity in elements and elements[identity].tag in ({'path'} if i in graphics['paths'] else {'path', 'circle'}),
-                'Missing retained drawing node: ' + identity)
-    check_outlines(elements, PREFIX, display)
+    check_bindings(elements, PREFIX, display)
     for identity in graphics['palette']:
         node = elements.get(identity)
         require(node is not None and node.tag in {'path', 'circle'} and
@@ -108,7 +106,7 @@ def build(compiler, source, out):
     require(compiler, 'Clang++ with wasm32/wasm-ld required; run python sdk.py doctor --preview')
     compiler = Path(compiler).resolve()
     out = fresh_output(out)
-    compile_preview(compiler, definition, 'drawing', out, source)
+    compile_preview(compiler, definition, out, source)
     require(source_hashes(source_files(source)) == before, 'Sources changed during preview build')
     (out / 'panel.svg').write_bytes(files['panel.svg.fragment'])
     manifest = dict(schema=1, kind=KIND, engine=definition['id'], sample_rate=44100, definition=definition,
@@ -142,10 +140,10 @@ def scaffold(out, identity, name):
     for template in (ROOT / 'sdk/templates/machine').glob('*.in'):
         text = template.read_text(encoding='utf-8').replace('@ID@', identity).replace('@NAME@', name)
         (out / template.name.removesuffix('.in')).write_text(text, encoding='utf-8')
-    from .native import drawing_ids
+    from .native import display_ids
     display = json.loads((out / 'definition.json').read_text(encoding='utf-8'))['resources']['display']
-    ids = drawing_ids(PREFIX, display)
-    nodes, palette = ids[:display['nodes']], ids[display['nodes']:]
+    ids = display_ids(PREFIX, display)
+    nodes, palette = ids[:display['nodes']], ids[display['nodes'] + display['texts']:]
     outline = square_outline(display['points'])
     artwork = [f'<g id="{PREFIX}_panel">']
     artwork += [f'  <path id="{identity}" d="{outline}" fill="none" stroke="#ffffff" stroke-width="1"/>'

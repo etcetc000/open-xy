@@ -1,7 +1,6 @@
 import * as Core from './core.mjs';
 import * as Wizard from './wizard.mjs';
 import * as Retained from '../sdk/browser/display.mjs';
-import * as Segments from '../sdk/browser/segments.mjs';
 import * as Visuals from './visuals.mjs';
 import {Audition} from './audition.mjs';
 import {shownControls} from '../sdk/browser/controls.mjs';
@@ -169,12 +168,13 @@ async function inspect(id) {
       Core.requireThat(await Core.sha256(wasm) === m.preview.sha256, 'Preview module hash mismatch');
       const compiled = await WebAssembly.compile(wasm);
       if (ticket !== previewRevision) return;
-      const segmented = m.preview.graphics.kind === 'segments';
-      const display = segmented ? new Segments.SegmentDisplay(compiled) : new Retained.PreviewDisplay(compiled);
-      const renderer = segmented ? new Segments.SegmentSvg(m.artwork, m.preview.graphics) : new Retained.SvgDisplay(m.artwork, m.preview.graphics);
+      const display = new Retained.PreviewDisplay(compiled);
+      const renderer = new Retained.SvgDisplay(m.artwork, m.preview.graphics);
       const ns = 'http://www.w3.org/2000/svg', canvas = document.createElementNS(ns, 'svg');
-      canvas.setAttribute('viewBox', '0 0 480 224'); canvas.setAttribute('aria-label', m.name + ' display preview');
-      canvas.append(renderer.root); $('art-preview').replaceChildren(canvas);
+      canvas.setAttribute('viewBox', '0 0 480 220'); canvas.setAttribute('aria-label', m.name + ' display preview');
+      // The device page: the machine's drawing under the stock four-control header.
+      const header = document.createElementNS(ns, 'g');
+      canvas.append(renderer.root, header); $('art-preview').replaceChildren(canvas);
       // Eight parameter words; each control position shows the parameter last edited there.
       const parameters = Object.assign(Array(8).fill(0), m.preview.defaults), shown = [0, 1, 2, 3];
       let serial = 0, previous = 0, handle, cancelled = false, heldNotes = 0;
@@ -201,7 +201,10 @@ async function inspect(id) {
       const reduced = matchMedia('(prefers-reduced-motion: reduce)');
       function frame(dt = 34) {
         const input = shownControls(parameters, shown);
-        renderer.apply(segmented ? display.tick(input) : display.tick(input, dt, serial, heldNotes, reduced.matches));
+        renderer.apply(display.tick(input, dt, serial, heldNotes, reduced.matches));
+        // The machine's header text, or the stock percentage of the shown parameter.
+        header.innerHTML = Retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
+          shown.map((slot, i) => renderer.header[i] || String(Math.round(parameters[slot] / 0x7fffffff * 100))));
       }
       const controls = m.controls.map((name, i) => {
         const label = node('label', name, 'preview-control'), input = node('input');
@@ -225,7 +228,7 @@ async function inspect(id) {
         }
         handle = requestAnimationFrame(animate);
       }
-      if (!segmented && !reduced.matches) handle = requestAnimationFrame(animate);
+      if (!reduced.matches) handle = requestAnimationFrame(animate);
       stopPreview = () => { cancelled = true; cancelAnimationFrame(handle); audio.destroy(); };
     } catch (error) { if (ticket === previewRevision) $('art-caption').textContent = 'Display preview unavailable: ' + error.message; }
   }

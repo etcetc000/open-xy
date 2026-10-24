@@ -40,9 +40,7 @@ class PlatformScreenTests(unittest.TestCase):
 class BrowserSubset(unittest.TestCase):
     """The browser preview copies the elements the firmware subset admits and parses its numbers alike."""
 
-    def test_segment_preview_matches_the_authored_subset(self):
-        source = (ROOT / 'sdk/browser/segments.mjs').read_text(encoding='utf-8')
+    def test_display_preview_matches_the_authored_subset(self):
+        source = (ROOT / 'sdk/browser/display.mjs').read_text(encoding='utf-8')
         elements = re.search(r"const elements = new Set\(\[([^\]]*)\]\)", source).group(1)
         self.assertEqual(set(re.findall(r"'([a-z]+)'", elements)), native.SVG_ELEMENTS)
-        pose = re.search(r"const dialPose = /\^(.*)\$/;", source).group(1)
-        self.assertEqual(pose, r'matrix\(1 0 0 1 (%s) (%s)\)' % (native.NUMBER, native.NUMBER))
