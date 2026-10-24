@@ -28,10 +28,26 @@ def run(command, **options):
     subprocess.run([str(part) for part in command], cwd=ROOT, check=True, creationflags=NO_WINDOW, **options)
 
 
-def branch():
-    result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=ROOT, capture_output=True, text=True,
-                            check=True, creationflags=NO_WINDOW)
+def git(*arguments):
+    result = subprocess.run(['git', *arguments], cwd=ROOT, capture_output=True, text=True, check=True,
+                            creationflags=NO_WINDOW)
     return result.stdout.strip()
+
+
+def branch():
+    return git('rev-parse', '--abbrev-ref', 'HEAD')
+
+
+def published(source):
+    """The checkout is exactly the reviewed branch: no local edits, nothing unpushed or behind."""
+    git('fetch', '--quiet', 'origin', source)
+    return not git('status', '--porcelain') and git('rev-parse', 'HEAD') == git('rev-parse', 'origin/' + source)
+
+
+def outside_checkouts(path):
+    """No folder above the path is a git checkout: firmware and stock content stay out of every one."""
+    path = Path(os.path.abspath(path))
+    return not any((folder / '.git').exists() for folder in (path, *path.parents))
 
 
 def main(argv=None):
@@ -44,23 +60,31 @@ def main(argv=None):
     parser.add_argument('--dry-run', action='store_true', help='build and check the deployment without publishing')
     parser.add_argument('--preview-cxx', default='clang++', help='Clang++ with wasm32/wasm-ld')
     parser.add_argument('--host-cxx', default='g++', help='host C++11 compiler for the release fixtures')
+    parser.add_argument('--toolchain', help='pinned binutils directory (default: local/toolchain/bin)')
+    parser.add_argument('--compiler', help='pinned Blackfin GCC bundle root (default: local/toolchain)')
     args = parser.parse_args(argv)
     try:
+        require(args.deploy or not args.dry_run, '--dry-run checks a deployment: name it with --deploy')
+        require(outside_checkouts(args.out), 'Keep --out outside every checkout: the kit holds firmware and stock content')
         if args.deploy and not args.dry_run:
             source, _options = TARGETS[args.deploy]
             require(branch() == source, f'Deploy {args.deploy} from {source}; this checkout is on {branch()}')
+            require(published(source), f'Deploy exactly origin/{source}: commit, push or pull first')
         out = fresh_output(args.out)
         python = sys.executable
         run([python, 'sdk.py', 'catalog', 'fetch', '--tags'])
         kit = out / 'kit'
         run([python, 'sdk.py', 'kit', '--collection', ROOT / 'local/catalog/collection.json',
              '--stock-os', args.stock_os.resolve(), '--stock-content', args.stock_content.resolve(),
-             '--preview-cxx', args.preview_cxx, '--host-cxx', args.host_cxx, '--out', kit])
+             '--preview-cxx', args.preview_cxx, '--host-cxx', args.host_cxx, '--out', kit,
+             *(['--toolchain', args.toolchain] if args.toolchain else []),
+             *(['--compiler', args.compiler] if args.compiler else [])])
         print('Release kit: ' + str(kit / 'kit.json'))
         if args.deploy:
             _source, options = TARGETS[args.deploy]
+            # The builder's own tests, then the release site built around this kit.
+            run(['npm', 'run', 'test:web'], shell=os.name == 'nt')
             environment = dict(os.environ, OPEN_XY_KIT=str(kit / 'kit.json'), OPEN_XY_OUT_DIR=str(out / 'site'))
-            run(['npm', 'run', 'test:web'], env=environment, shell=os.name == 'nt')
             run(['node', 'tools/deploy_cloudflare.mjs', *options, *(['--dry-run'] if args.dry_run else [])],
                 env=environment)
             print(('Checked, not published: ' if args.dry_run else 'Published: ') +

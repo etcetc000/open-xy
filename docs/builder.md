@@ -151,10 +151,13 @@ python sdk.py release --stock-os <stock-1.2.0>/os.ldr --stock-content <stock-1.2
 
 It fetches every published [catalog](catalog.md) machine at its pinned commit
 (confirming its tag), exports the release kit from the bundled machines plus
-those ([Export a kit](#export-a-kit), with release verification), runs the web
-tests, builds the site around the kit and deploys it. It refuses `--deploy beta`
-outside `staging` and `--deploy production` outside `main`. `--dry-run` does
-everything except publish; without `--deploy` it stops after the kit.
+those ([Export a kit](#export-a-kit), with release verification), runs the
+builder's web tests, builds the site around the kit and deploys it. It deploys
+beta only from `staging` and production only from `main`, and only when the
+checkout is exactly that branch on `origin`: no local edits, nothing unpushed or
+behind. With `--deploy`, `--dry-run` does everything except publish; without
+`--deploy` it stops after the kit. `--toolchain` and `--compiler` name the
+pinned tools when they are not in `local/toolchain`.
 `--out` must be a new folder outside every checkout; the kit and the site are
 written inside it.
 

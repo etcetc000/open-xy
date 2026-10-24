@@ -28,15 +28,22 @@ def notices(machines):
     return '\n\n'.join(texts)
 
 
-def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
-    profile, machines, definitions = native.configuration(native.package_collection(package))
-    # A published kit holds reviewed machines only: bundled ones, and catalog machines
-    # fetched at their pinned commits. A personal kit may hold any folder.
+def catalog_sources(machines, personal):
+    """The release of each catalog machine at its pinned commit, by ID. A published kit
+    holds reviewed machines only: bundled ones, and those. A personal kit may hold any folder."""
     from .catalog import load, pinned
-    sources = {e['id']: e for e in load() if e['status'] == 'published'}
-    require(personal or all(m.bundled or pinned(m) for m in machines),
+    entries = load()
+    sources = {m.id: next(e for e in entries if e['id'] == m.id) for m in machines
+               if not m.bundled and pinned(m, entries)}
+    require(personal or all(m.bundled or m.id in sources for m in machines),
             'A published kit holds the bundled machines and catalog machines at their pinned commits '
             '(sdk.py catalog fetch); build other folders into a --personal kit')
+    return sources
+
+
+def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
+    profile, machines, definitions = native.configuration(native.package_collection(package))
+    sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     owners, services = native.object_owners(machines, profile), native.object_services(machines, profile)
     kit_machines = []
@@ -45,7 +52,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                      identity=m.identity, controls=[p['label'] for p in m.definition['parameters']],
                      positions=control_positions(m.definition))
         entry['catalog'] = catalog_entry(m)
-        if not m.bundled and m.id in sources and pinned(m):
+        if m.id in sources:
             # Where a catalog machine comes from, for the builder to show.
             entry['source'] = {key: sources[m.id][key] for key in ('repository', 'tag', 'commit', 'maintainer')}
         entry['presetDefaults'] = m.preset_defaults
@@ -180,6 +187,11 @@ def main(argv=None):
         if not args.personal:
             require_release_host()
         args.toolchain, args.compiler = resolve_toolchain(args.toolchain, args.compiler)
+    except ValueError as error:
+        parser.exit(1, 'ERROR: ' + str(error) + '\n')
+    try:
+        # Refuse an unreviewed machine before the long build, not after it.
+        catalog_sources(native.configuration(native.selected_collection(args))[1], args.personal)
     except ValueError as error:
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
     out = fresh_output(args.out)
