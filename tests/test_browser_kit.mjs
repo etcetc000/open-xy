@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, readObject, identities, linkKit, moduleBytes, openKit, readLdr, recoverFirmware, sourceUrl, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {activeServices, readObject, identities, linkKit, moduleBytes, openKit, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -20,7 +20,7 @@ function elf() {
   section(4,[23,3,0,0,96,names.length,0,0,1,0]);
   return bytes;
 }
-function machine(id, engine, page) { return {id, kind:'synth', identity:{engine,page}, absent:{}}; }
+function machine(id, engine, page) { return {id, kind:'synth', identity:{engine,page}, absent:{}, origin:'bundled'}; }
 const profileBytes = readFileSync(new URL('../profiles/opxy-1.2.0.json',import.meta.url));
 function fixture() {
   const object = {...readObject(elf()), name:'a.o',owner:'a'};
@@ -139,19 +139,25 @@ test('curated profile and object authentication reject modified input', async ()
   k.objects[0].sha256='0'.repeat(64); await assert.rejects(openKit(k),/hash mismatch/);
   k.profile.patches[0].after='0000000000000000'; await assert.rejects(openKit(k),/reviewed profile/);
 });
-test('a catalog machine names its GitHub repository, release and commit; bundled machines name none', async () => {
+test('a machine says where it comes from: bundled, a catalog release, or a personal folder', async () => {
   const source = {repository:'https://github.com/someone/opxy-probe', tag:'v1.0.0', commit:'a'.repeat(40), maintainer:'someone'};
-  assert.ok(validSource(source) && validSource(undefined));
+  assert.ok(validSource(source));
   assert.equal(sourceUrl(source), 'https://github.com/someone/opxy-probe/tree/' + 'a'.repeat(40));
-  for (const change of [{repository:'javascript:alert(1)'}, {repository:'https://example.com/a/b'}, {commit:'abc'},
-                        {tag:'v 1'}, {maintainer:'not a user'}, {extra:1}])
+  assert.equal(sourceName(source), 'someone/opxy-probe');
+  for (const change of [{repository:'javascript:alert(1)'}, {repository:'https://example.com/a/b'},
+                        {repository:'https://github.com/someone/..'}, {repository:'https://github.com/someone/.'},
+                        {repository:['https://github.com/a/b']}, {commit:'abc'}, {tag:'v 1'}, {maintainer:'not a user'},
+                        {extra:1}])
     assert.ok(!validSource({...source, ...change}), JSON.stringify(change));
-  assert.ok(!validSource(null) && !validSource('https://github.com/a/b'));
+  assert.ok(!validSource(null) && !validSource(undefined) && !validSource('https://github.com/a/b'));
+  assert.ok(validOrigin({origin:'catalog', source}) && validOrigin({origin:'bundled'}) && validOrigin({origin:'personal'}));
+  for (const m of [{origin:'catalog'}, {origin:'bundled', source}, {origin:'personal', source}, {}, {origin:'community'}])
+    assert.ok(!validOrigin(m), JSON.stringify(m));
   const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');
   k.objects=[]; k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.0/screen.svg',import.meta.url),'utf8');
-  k.machines[0].source = source; await openKit(k);
+  Object.assign(k.machines[0], {origin:'catalog', source}); await openKit(k);
   k.machines[0].source = {...source, repository:'https://evil.example/a/b'};
-  await assert.rejects(openKit(k), /Invalid machine source/);
+  await assert.rejects(openKit(k), /Invalid machine origin/);
 });
 test('malformed loader records and unsafe ZIP paths are rejected', () => {
   for(const bytes of [new Uint8Array(),new Uint8Array(16),elf()]) assert.throws(()=>readLdr(bytes));

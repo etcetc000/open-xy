@@ -52,8 +52,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                      identity=m.identity, controls=[p['label'] for p in m.definition['parameters']],
                      positions=control_positions(m.definition))
         entry['catalog'] = catalog_entry(m)
+        # Where the machine comes from, for the builder to show (core.mjs validOrigin).
+        entry['origin'] = 'bundled' if m.bundled else 'catalog' if m.id in sources else 'personal'
         if m.id in sources:
-            # Where a catalog machine comes from, for the builder to show.
             entry['source'] = {key: sources[m.id][key] for key in ('repository', 'tag', 'commit', 'maintainer')}
         entry['presetDefaults'] = m.preset_defaults
         if m.icon:
@@ -125,7 +126,7 @@ def write_builder(kit, output):
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject identities moduleBytes openKit linkKit readLdr '
-               'patchFirmware recoverFirmware presetPath buildAssets zipFiles sourceUrl').split()
+               'patchFirmware recoverFirmware presetPath buildAssets zipFiles sourceUrl sourceName').split()
     bundled = 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
     bundled += 'const {shownControls, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {shownControls, inputWords};\n})();\n'

@@ -135,17 +135,21 @@ export function identities(kit, saved = null) {
   return result;
 }
 
-// Where a catalog machine comes from (tooling.browser_kit): its GitHub repository, the
-// release tag, its commit and its maintainer. Bundled machines have none.
+// Where a machine comes from (tooling.browser_kit): bundled with Open-XY, published
+// in the catalog, or a personal kit's own folder. A catalog machine's source is its
+// GitHub repository, release tag, commit and maintainer, matching tooling.catalog's patterns.
+export const ORIGINS = ['bundled', 'catalog', 'personal'];
+const RELEASE = {repository: /^https:\/\/github\.com\/[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/,
+  tag: /^[A-Za-z0-9._/-]{1,64}$/, commit: /^[0-9a-f]{40}$/, maintainer: /^[A-Za-z0-9-]{1,39}$/};
 export function validSource(source) {
-  return source === undefined || (source !== null && typeof source === 'object' &&
-    Object.keys(source).sort().join() === 'commit,maintainer,repository,tag' &&
-    /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(source.repository) &&
-    /^[A-Za-z0-9._/-]{1,64}$/.test(source.tag) && /^[0-9a-f]{40}$/.test(source.commit) &&
-    /^[A-Za-z0-9-]{1,39}$/.test(source.maintainer));
+  return source !== null && typeof source === 'object' &&
+    Object.keys(source).sort().join() === Object.keys(RELEASE).sort().join() &&
+    Object.entries(RELEASE).every(([key, pattern]) => typeof source[key] === 'string' && pattern.test(source[key]));
 }
-// The machine's source at exactly the commit the kit was built from.
+export const validOrigin = m => ORIGINS.includes(m.origin) && (m.origin === 'catalog' ? validSource(m.source) : m.source === undefined);
+// The machine's code at the commit the catalog pins, and its owner/repository name.
 export const sourceUrl = source => source.repository + '/tree/' + source.commit;
+export const sourceName = source => source.repository.slice('https://github.com/'.length);
 
 // Memory every machine shares: the reservation below the relocated stock tables.
 export const moduleBytes = profile => profile.reserved_bytes - profile.table_bytes;
@@ -159,7 +163,7 @@ export async function openKit(kit) {
     JSON.stringify(JSON.parse(decoder.decode(profileBytes))) === JSON.stringify(kit.profile),
     'Firmware edit profile is not the reviewed profile');
   identities(kit);
-  check(kit.machines.every(m => validSource(m.source)), 'Invalid machine source');
+  check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
   // The bundled stock menu is authenticated where it is used (buildAssets).
   check(typeof kit.stockCatalog === 'string' && kit.stockCatalog.length <= 2 * 1024 ** 2, 'Missing bundled stock menu');
   check(await screenTemplateOk(kit), 'Platform screen template differs from the supported ABI');

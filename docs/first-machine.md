@@ -140,7 +140,7 @@ directory, and use the SDK server rather than serving the checkout root.
    [catalog](catalog.md), tag a release and submit it, as the template's
    [submission guide](https://github.com/etcetc000/open-xy-machine-template/blob/main/SUBMITTING.md)
    describes. Published machines appear in the builder as **Community**
-   machines, linked to the exact commit the site was built from.
+   machines, linked to their code at the commit the catalog pins.
 
 ## When a command fails
 

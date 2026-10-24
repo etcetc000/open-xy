@@ -31,7 +31,12 @@ CACHE = ROOT / 'local/catalog'
 STATUSES = ('reserved', 'published', 'retired')
 COMMON = {'id', 'kind', 'identity', 'maintainer', 'status'}
 RELEASE = {'repository', 'tag', 'commit', 'path'}
-REPOSITORY = re.compile(r'https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+')
+# A release's fields; builder/core.mjs validSource checks kits with the same patterns
+# (tests/test_catalog.py compares them).
+REPOSITORY = r'https://github\.com/[A-Za-z0-9-]+/(?!\.\.?$)[A-Za-z0-9._-]+'
+TAG = r'[A-Za-z0-9._/-]{1,64}'
+COMMIT = r'[0-9a-f]{40}'
+MAINTAINER = r'[A-Za-z0-9-]{1,39}'
 
 
 def identity_key(kind, identity):
@@ -69,14 +74,14 @@ def validate(value, bundled=None):
         for key in identity_key(entry['kind'], entry['identity']):
             require(key not in held, f'{name}: {key[0]} {key[1]} is held by {held.get(key)}')
             held[key] = name
-        require(isinstance(entry['maintainer'], str) and re.fullmatch(r'[A-Za-z0-9-]{1,39}', entry['maintainer']),
+        require(isinstance(entry['maintainer'], str) and re.fullmatch(MAINTAINER, entry['maintainer']),
                 f'{name}: maintainer is a GitHub user name')
         if 'repository' in entry:
-            require(isinstance(entry['repository'], str) and REPOSITORY.fullmatch(entry['repository']),
+            require(isinstance(entry['repository'], str) and re.fullmatch(REPOSITORY, entry['repository']),
                     f'{name}: repository is https://github.com/<owner>/<repo>')
-            require(isinstance(entry['commit'], str) and re.fullmatch(r'[0-9a-f]{40}', entry['commit']),
+            require(isinstance(entry['commit'], str) and re.fullmatch(COMMIT, entry['commit']),
                     f'{name}: commit is the full SHA of the tagged commit')
-            require(isinstance(entry['tag'], str) and re.fullmatch(r'[A-Za-z0-9._/-]{1,64}', entry['tag']),
+            require(isinstance(entry['tag'], str) and re.fullmatch(TAG, entry['tag']),
                     f'{name}: invalid tag')
             require(relative_path(entry['path']),
                     f'{name}: path is the machine folder inside the repository, such as "." or "machines/<id>"')
