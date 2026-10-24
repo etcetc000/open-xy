@@ -127,6 +127,21 @@ implementation code must be included by them. Includes must name local machine
 headers or SDK `opxy/*.hpp` headers. Keep compiled output outside the source
 directory, and use the SDK server rather than serving the checkout root.
 
+## Share it
+
+1. **Your own device:** build firmware with the machine
+   (`python sdk.py build --machine <folder> ...`,
+   [building firmware](build.md#3-add-your-machine)), or export a
+   [personal kit](builder.md#export-a-kit) to use the browser builder's guide.
+2. **Its own repository:** move the folder into a repository started from the
+   [machine template](https://github.com/etcetc000/open-xy-machine-template),
+   whose CI runs `sdk.py test` and a firmware compile on every push.
+3. **The Open-XY builder:** reserve the machine's identity in the
+   [catalog](catalog.md), tag a release and submit it, as the template's
+   [submission guide](https://github.com/etcetc000/open-xy-machine-template/blob/main/SUBMITTING.md)
+   describes. Published machines appear in the builder as **Community**
+   machines, linked to their code at the commit the catalog pins.
+
 ## When a command fails
 
 | Message or symptom | Next action |

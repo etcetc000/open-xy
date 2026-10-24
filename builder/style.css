@@ -132,6 +132,9 @@ details input { max-width:100%; }
 .machine-meta { display:block; font-size:12px; color:var(--muted); margin-top:4px; }
 .machine-meta span+span { display:none; }
 .machine-meta .machine-memory { display:inline; margin-left:10px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.machine-meta .machine-origin { display:inline; margin-left:10px; font-size:10px; border:1px solid var(--line); padding:1px 6px; border-radius:4px; }
+.detail-source { font-size:12px; color:var(--muted); margin:-4px 0 12px; }
+.detail-source a { color:inherit; }
 .inspector { padding:8px 0 0; }
 .inspector-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
 .inspector-top .eyebrow { margin:0; }

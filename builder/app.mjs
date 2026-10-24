@@ -147,6 +147,12 @@ async function inspect(id) {
   inspected = id; const m = kit.machines.find(x => x.id === id);
   $('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', sample: 'Sample engine'}[m.kind];
   $('detail-name').textContent = m.name; $('detail-description').textContent = m.description;
+  // Who makes it and where its code lives: a catalog machine links to its pinned commit.
+  if (m.origin === 'catalog') {
+    const link = node('a', Core.sourceName(m.source) + ' ' + m.source.tag);
+    link.href = Core.sourceUrl(m.source); link.target = '_blank'; link.rel = 'noopener noreferrer';
+    $('detail-source').replaceChildren('Community machine by ' + m.source.maintainer + ' · ', link);
+  } else $('detail-source').textContent = m.origin === 'bundled' ? 'Bundled with Open-XY' : 'Your machine, from this kit';
   $('art-preview').replaceChildren();
   $('audition-controls').replaceChildren();
   stopAudio = () => {};
@@ -160,7 +166,8 @@ async function inspect(id) {
   const own = kit.objects.filter(o => o.owner === id).flatMap(o => o.sections.filter(s => s.group));
   facts($('machine-facts'), {'Code and data': kib(own.filter(s => s.type !== 8).reduce((n, s) => n + s.size, 0)),
     'Working memory': kib(own.filter(s => s.type === 8).reduce((n, s) => n + s.size, 0)),
-    [m.kind === 'effect' ? 'Effect ID' : 'Engine ID']: m.identity.effect ?? m.identity.engine, 'Page': m.identity.page});
+    [m.kind === 'effect' ? 'Effect ID' : 'Engine ID']: m.identity.effect ?? m.identity.engine, 'Page': m.identity.page,
+    ...(m.origin === 'catalog' ? {'Release': m.source.tag, 'Commit': m.source.commit.slice(0, 12)} : {})});
   document.querySelectorAll('.machine button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
   if (m.preview) {
     try {
@@ -251,6 +258,7 @@ function renderMachines(filter = 'all') {
     const memory = node('span', kib(ownBytes), 'machine-memory');
     memory.title = 'Code, data and working memory. Shared code is counted separately below.';
     meta.append(memory);
+    if (m.origin !== 'bundled') meta.append(node('span', m.origin === 'catalog' ? 'Community' : 'Yours', 'machine-origin'));
     button.append(meta); button.onclick = () => inspect(m.id);
     input.onchange = () => {
       selected = input.checked ? [...selected, m.id] : selected.filter(id => id !== m.id);

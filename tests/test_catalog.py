@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -38,6 +39,7 @@ class Validation(unittest.TestCase):
     def test_fields_are_checked(self):
         for change in (dict(id='Bad'), dict(id='sdk_probe'), dict(kind='player'), dict(identity=dict(engine=33, page=85)),
                        dict(maintainer='not a user'), dict(repository='https://example.com/a/b'),
+                       dict(repository='https://github.com/someone/..'),
                        dict(repository='git@github.com:a/b'), dict(commit='abc'), dict(tag='v 1'),
                        dict(path='../x'), dict(path='/x')):
             with self.subTest(change=change), self.assertRaises(ValueError):
@@ -59,6 +61,16 @@ class Validation(unittest.TestCase):
         # A synth's page is its own; an effect's ID is its own.
         effect = dict(PUBLISHED, id='fx', kind='effect', identity=dict(effect=2, page=21))
         catalog.validate(document(effect, dict(effect, id='fx2', identity=dict(effect=3, page=21))))
+
+
+class BuilderPatterns(unittest.TestCase):
+    def test_the_builder_checks_kits_with_the_catalogs_patterns(self):
+        source = (ROOT / 'builder/core.mjs').read_text(encoding='utf-8')
+        for key, pattern in (('repository', catalog.REPOSITORY), ('tag', catalog.TAG), ('commit', catalog.COMMIT),
+                             ('maintainer', catalog.MAINTAINER)):
+            found = re.search(key + r": /\^(.*?)\$/[,}]", source)
+            self.assertIsNotNone(found, key)
+            self.assertEqual(found.group(1).replace('\\/', '/'), pattern, key)
 
 
 class Changes(unittest.TestCase):
