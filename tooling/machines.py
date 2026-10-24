@@ -1,13 +1,16 @@
-"""Machine discovery: each machines/<id>/machine.json declares what the SDK builds.
+"""Machine discovery: each machine folder's machine.json declares what the SDK builds.
 
-A machine's folder name is its stock name: the engine type the device lists,
-its catalog and preset entries, its screen file and its symbol prefix.
-machine.json declares the kind, stock IDs and build inputs. Saved presets and Open-XY layouts refer to
-the name and IDs, so they never change once published; the SDK checks them against the
-stock tables and the collection.
+A machine lives in machines/<id>/ or in a folder of its own anywhere, such as
+its own repository. Its definition's id is its stock name: the engine type the
+device lists, its catalog and preset entries, its screen file and its symbol
+prefix. machine.json declares the kind, the SDK version it targets, stock IDs
+and build inputs. Saved presets and Open-XY layouts refer to the name and IDs,
+so they never change once published; the SDK checks them against the stock
+tables and the collection.
 """
 from dataclasses import dataclass
 import json
+from pathlib import Path
 import re
 
 from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, stock_name, validate_definition
@@ -15,7 +18,12 @@ from .formats import require
 from .pipeline import config
 
 KINDS = ('synth', 'sample', 'effect')
-FIELDS = {'schema', 'kind', 'description', 'identity', 'sources', 'includes', 'icon', 'presetDefaults', 'dryParameter'}
+FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'sources', 'includes', 'icon', 'presetDefaults',
+          'dryParameter'}
+# The public machine contract: headers, definition schema, artwork rules and
+# callbacks. A machine names the version it was written for; the SDK builds a
+# machine of the same major version and an equal or older minor version.
+SDK_VERSION = (1, 0)
 # Builder card glyph: SVG path data in a 46 x 48 box, drawn as a stroke.
 ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
 COLLECTION = ROOT / 'profiles/collection.json'
@@ -33,6 +41,7 @@ class Machine:
     definition: dict
     identity: dict
     preset_defaults: dict
+    root: Path = None
     icon: str = ''
     dry_parameter: int | None = None
 
@@ -46,8 +55,21 @@ class Machine:
         return self.id
 
     @property
-    def root(self):
-        return ROOT / 'machines' / self.id
+    def bundled(self):
+        """A machine of this repository's machines/ folder, rather than a folder elsewhere."""
+        return self.root == ROOT / 'machines' / self.id
+
+    def source(self, relative=''):
+        """A machine file as the build names it: machines/<id>/... for a bundled machine, so
+        rebuilds stay byte-identical, and an absolute path for a machine elsewhere."""
+        base = 'machines/' + self.id if self.bundled else self.root.as_posix()
+        return base + ('/' + relative if relative else '')
+
+    def files(self):
+        """Every authored file, keyed as the build's provenance names it."""
+        key = 'machines/' + self.id if self.bundled else 'external/' + self.id
+        return {key + '/' + p.relative_to(self.root).as_posix(): p for p in sorted(self.root.rglob('*'))
+                if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md' and '.git' not in p.parts}
 
 
 def _relative(machine_root, value):
@@ -84,15 +106,36 @@ def check_identity(rules, kind, value):
     return {slot: number, 'page': page}
 
 
+def sdk_version(text):
+    """A machine's declared SDK version, checked against this SDK."""
+    require(isinstance(text, str) and re.fullmatch(r'\d+\.\d+', text), 'machine.json needs "sdk": "<major>.<minor>"')
+    major, minor = map(int, text.split('.'))
+    current = '%d.%d' % SDK_VERSION
+    require(major == SDK_VERSION[0] and minor <= SDK_VERSION[1],
+            f'The machine targets SDK {text}; this SDK is {current} and builds {SDK_VERSION[0]}.0 to {current}')
+    return text
+
+
 def machine(identity):
+    """A bundled machine, machines/<identity>/."""
     stock_name(identity)
-    root = ROOT / 'machines' / identity
+    return machine_at(ROOT / 'machines' / identity, identity)
+
+
+def machine_at(root, identity=None):
+    """The machine in a folder; its definition names it."""
+    root = Path(root).absolute()
     path = root / 'machine.json'
-    require(path.is_file() and path.resolve() == path.absolute(), 'Unknown or redirected machine: ' + identity)
+    require(path.is_file() and path.resolve() == path.absolute() and root.resolve() == root,
+            'Unknown or redirected machine: ' + str(identity or root))
     value = json.loads(path.read_text(encoding='utf-8'))
+    if identity is None:
+        identity = json.loads((root / 'definition.json').read_text(encoding='utf-8')).get('id')
+        stock_name(identity)
     require(isinstance(value, dict) and value.get('schema') == 1 and
             set(value) <= FIELDS,
             'Unexpected machine.json fields: ' + identity)
+    sdk_version(value.get('sdk'))
     kind = value.get('kind')
     require(kind in KINDS, 'Unknown machine kind: ' + str(kind))
     require(isinstance(value.get('description'), str) and 0 < len(value['description']) <= 160,
@@ -104,6 +147,8 @@ def machine(identity):
     require(icon == '' or isinstance(icon, str) and ICON.fullmatch(icon), 'icon is SVG path data')
     definition = validate_definition(json.loads((root / 'definition.json').read_text(encoding='utf-8')), kind)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
+    require(root == ROOT / 'machines' / identity or not (ROOT / 'machines' / identity).exists(),
+            f'A machine named {identity} is bundled with the SDK; choose another ID')
     dry_parameter = None
     if 'dryParameter' in value:
         require(kind == 'effect' and isinstance(value['dryParameter'], str),
@@ -130,7 +175,7 @@ def machine(identity):
                    display=display, sources=sources, includes=includes,
                    definition=definition,
                    identity=check_identity(config()['identities'], kind, value['identity']), preset_defaults=defaults,
-                   icon=icon, dry_parameter=dry_parameter)
+                   root=root, icon=icon, dry_parameter=dry_parameter)
 
 
 def discovered():
@@ -150,13 +195,33 @@ def free_synth_identity():
     return {'engine': engine, 'page': page}
 
 
-def collection():
-    """Machines in firmware order: the order sets startup, catalog and link layout."""
-    value = json.loads(COLLECTION.read_text(encoding='utf-8'))
-    identities = value['machines']
-    require(isinstance(identities, list) and identities and len(set(identities)) == len(identities),
-            'Collection needs distinct machines')
-    machines = [machine(identity) for identity in identities]
+def read_collection(path=COLLECTION, extra=()):
+    """A collection file's entries, resolved: a bundled machine's ID, or the absolute
+    folder of a machine elsewhere ({"path": ...}, relative to the file). Folders
+    in `extra` follow them."""
+    path = Path(path)
+    value = json.loads(path.read_text(encoding='utf-8'))
+    require(isinstance(value, dict) and set(value) == {'schema', 'machines'} and value['schema'] == 1 and
+            isinstance(value['machines'], list), 'Unsupported collection file: ' + str(path))
+    entries = []
+    for entry in value['machines']:
+        if isinstance(entry, dict):
+            require(set(entry) == {'path'} and isinstance(entry['path'], str),
+                    'Collection entries are IDs or {"path": ...}')
+            entries.append({'path': str((path.parent / entry['path']).resolve())})
+        else:
+            entries.append(entry)
+    return entries + [{'path': str(Path(folder).resolve())} for folder in extra]
+
+
+def collection(entries=None):
+    """Machines in firmware order: the order sets startup, catalog and link layout.
+    Entries come from read_collection; the default is profiles/collection.json."""
+    entries = read_collection() if entries is None else entries
+    require(isinstance(entries, list) and entries, 'Collection needs machines')
+    machines = [machine_at(e['path']) if isinstance(e, dict) else machine(e) for e in entries]
+    identities = [m.id for m in machines]
+    require(len(set(identities)) == len(identities), 'Collection needs distinct machines')
     engines = [m.identity['engine'] for m in machines if 'engine' in m.identity]
     effects = [m.identity['effect'] for m in machines if 'effect' in m.identity]
     pages = [m.identity['page'] for m in machines if m.display != 'stock']

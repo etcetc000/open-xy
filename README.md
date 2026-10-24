@@ -56,7 +56,7 @@ previews, firmware builds and packaging.
 
 | Path | Owns |
 | --- | --- |
-| `machines/<id>/` | Machine source, definition, `machine.json` and artwork |
+| `machines/<id>/` | Bundled machines: source, definition, `machine.json` and artwork. A machine can also live in its own folder or repository ([build](docs/build.md#3-add-your-machine)) |
 | `sdk/` | C++ interfaces, adapter templates and browser runners |
 | `builder/` | The Open-XY browser builder |
 | `harness/` | The local preview workbench |

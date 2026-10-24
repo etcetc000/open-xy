@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "sdk": "1.0",
   "kind": "sample",
   "description": "Tempo-locked loops with cached pitch-preserving stretch and drum-pad controls.",
   "identity": {

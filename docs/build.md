@@ -53,28 +53,39 @@ is whichever folder holds `op1_factory.json`.
 ## 3. Add your machine
 
 Start from [your first machine](first-machine.md); `sdk.py new` needs no
-preview tools. Its `machine.json` holds an engine ID and page no machine in
-this repository uses. To build it for the device:
+preview tools. A machine is a folder that can live anywhere, such as its own
+repository. Its `machine.json` names the SDK version it targets (`"sdk": "1.0"`)
+and holds an engine ID and page no machine in this repository uses. Keep it, or
+give it another free [identity](api.md#identity)
+([fields](api.md#registration-boundary)). Names and IDs are saved in presets and
+projects, so they never change once published.
 
-1. Move its folder to `machines/<id>/` and rename every `local_` prefix in
-   `panel.svg.fragment` to `<id>_`.
-2. Keep its `machine.json`, or give it another free
-   [identity](api.md#identity) ([fields](api.md#registration-boundary)). Names
-   and IDs are saved in presets and projects, so they never change once
-   published.
-3. Add `<id>` to `profiles/collection.json`. All selected machines share
-   2044 KiB ([memory and limits](api.md#memory-and-limits)); `compile` shows
-   each machine's share. Remove machines you don't want to make room.
+Every build command takes the collection:
 
-`python sdk.py compile --out <folder>` then builds the module alone, without
-stock files, and prints each machine's memory use: a quick check before the
-full build. Like build outputs, keep `<folder>` outside the checkout.
+| Option | Machines built |
+| --- | --- |
+| (none) | `profiles/collection.json`: the bundled machines |
+| `--machine <folder>` | Those, then the machine in `<folder>`; repeatable |
+| `--collection <file>` | The file's list: bundled IDs and `{"path": "<folder>"}` entries, relative to the file |
+
+All selected machines share 2044 KiB ([memory and limits](api.md#memory-and-limits));
+`compile` shows each machine's share. To make room, list fewer machines in your
+own collection file.
+
+`python sdk.py compile --machine <folder> --out <out>` then builds the module
+alone, without stock files, and prints each machine's memory use: a quick check
+before the full build. Like build outputs, keep `<out>` outside the checkout.
+The SDK builds a machine whose `sdk` has its major version and an equal or
+older minor version; a machine's ID must differ from the bundled machines'.
 
 ## 4. Build
 
 ```sh
-python sdk.py build --stock-os <stock-1.2.0>/os.ldr --stock-content <stock-1.2.0>/content --out <builds>/mine-001
+python sdk.py build --machine <folder> --stock-os <stock-1.2.0>/os.ldr --stock-content <stock-1.2.0>/content --out <builds>/mine-001
 ```
+
+The package records its collection, so verifying or exporting it needs no
+collection options.
 
 Use a new `--out` folder for every build, also outside the checkout; a failed
 build leaves none behind. The build fails on any check below; on success it

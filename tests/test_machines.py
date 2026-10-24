@@ -2,6 +2,8 @@
 import copy
 import json
 from pathlib import Path
+import shutil
+import tempfile
 import unittest
 from unittest import mock
 
@@ -91,6 +93,58 @@ class Identity(unittest.TestCase):
         with mock.patch.object(Path, 'read_text',
                                lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
             self.assertIsNone(machines.machine('ringmod').dry_parameter)
+
+
+class OutsideMachines(unittest.TestCase):
+    """A machine in a folder of its own, such as its own repository."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.folder = Path(self.temporary.name).resolve() / 'opxy-fmcopy'
+        shutil.copytree(machines.ROOT / 'machines/fm2op', self.folder)
+        self.free = machines.free_synth_identity()
+        self.rename('fmcopy', self.free)
+
+    def rename(self, identity, ids, sdk='1.0'):
+        definition = json.loads((self.folder / 'definition.json').read_text(encoding='utf-8'))
+        definition['id'] = identity
+        (self.folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        record = json.loads((self.folder / 'machine.json').read_text(encoding='utf-8'))
+        record.update(identity=ids, sdk=sdk)
+        (self.folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
+
+    def test_a_folder_anywhere_is_a_machine(self):
+        m = machines.machine_at(self.folder)
+        self.assertEqual((m.id, m.root, m.bundled), ('fmcopy', self.folder, False))
+        self.assertEqual(m.source('engine.cpp'), self.folder.as_posix() + '/engine.cpp')
+        self.assertIn('external/fmcopy/engine.cpp', m.files())
+        bundled = machines.machine('fm2op')
+        self.assertTrue(bundled.bundled)
+        self.assertEqual(bundled.source('engine.cpp'), 'machines/fm2op/engine.cpp')
+        self.assertIn('machines/fm2op/engine.cpp', bundled.files())
+
+    def test_collections_list_bundled_ids_and_folders(self):
+        collection = Path(self.temporary.name) / 'collection.json'
+        collection.write_text(json.dumps({'schema': 1, 'machines': ['fm2op', {'path': 'opxy-fmcopy'}]}), encoding='utf-8')
+        entries = machines.read_collection(collection)
+        self.assertEqual(entries, ['fm2op', {'path': str(self.folder)}])
+        self.assertEqual([m.id for m in machines.collection(entries)], ['fm2op', 'fmcopy'])
+        extra = machines.read_collection(machines.COLLECTION, [self.folder])
+        self.assertEqual([m.id for m in machines.collection(extra)][-1], 'fmcopy')
+        self.rename('fmcopy', dict(self.free, engine=34))
+        with self.assertRaisesRegex(ValueError, 'Conflicting'):
+            machines.collection(entries)
+
+    def test_sdk_version_and_bundled_names_are_checked(self):
+        for version in ('0.9', '2.0', '1.1', '1', 'latest', None):
+            with self.subTest(version=version):
+                self.rename('fmcopy', self.free, version)
+                with self.assertRaises(ValueError):
+                    machines.machine_at(self.folder)
+        self.rename('fm2op', self.free)
+        with self.assertRaisesRegex(ValueError, 'bundled'):
+            machines.machine_at(self.folder)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "sdk": "1.0",
   "kind": "synth",
   "description": "Mutable Instruments Braids: a wide palette of synthesis models.",
   "icon": "M5 35V12l11 23 11-23 11 23V12",

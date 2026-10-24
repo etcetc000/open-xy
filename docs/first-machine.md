@@ -100,8 +100,8 @@ does not change your machine.
 | `definition.json` | Name, four controls, presets and declared state sizes |
 | `core.h`, `engine.cpp` | `Voice` and `Shared` state, lifecycle callbacks and the 64-sample render |
 | `display.h`, `display.cpp` | Display state and drawing callback |
-| `panel.svg.fragment` | Artwork; IDs follow the drawing convention (`local_panel`, `local_node_N`, `local_palette_N`) |
-| `machine.json` | Kind and a free engine ID and page, used once the machine joins a [firmware build](build.md#3-add-your-machine) |
+| `panel.svg.fragment` | Artwork; IDs carry the machine's ID (`<id>_panel`, `<id>_node_N`, `<id>_palette_N`) |
+| `machine.json` | Kind, SDK version and a free engine ID and page, used by a [firmware build](build.md#3-add-your-machine) of the folder |
 
 Change labels and presets directly in `definition.json`; custom previews read it
 when building, with no separate JavaScript definition generator. Parameter

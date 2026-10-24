@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "sdk": "1.0",
   "kind": "effect",
   "description": "Ring modulation from slow pulses to metallic tones, with a sine-to-square carrier.",
   "identity": {

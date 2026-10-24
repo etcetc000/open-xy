@@ -15,7 +15,6 @@ from .pipeline import fresh_output
 
 KIND = 'cpp-browser-custom-preview'
 REQUIRED = {'definition.json', 'core.h', 'engine.cpp', 'display.h', 'display.cpp', 'panel.svg.fragment'}
-PREFIX = 'local'  # Artwork IDs follow the drawing convention: local_node_N, local_text_N and local_palette_N.
 SUFFIXES = {'.json', '.cpp', '.h', '.hpp', '.inc', '.fragment'}
 
 
@@ -58,7 +57,9 @@ def metadata(files):
     definition = validate_definition(json.loads(files['definition.json']), 'synth')
     display = definition['resources']['display']
     custom_identity(definition['id'])
-    graphics = drawing_bindings(display_ids(PREFIX, display), display)
+    # Artwork IDs carry the machine's ID: <id>_node_N, <id>_text_N and <id>_palette_N.
+    prefix = definition['id']
+    graphics = drawing_bindings(display_ids(prefix, display), display)
     artwork = files['panel.svg.fragment']
     require(len(artwork) <= 65536 and not re.search(br'<!DOCTYPE|<!ENTITY', artwork, re.I), 'Invalid drawing asset')
     # The native build's rules, so a machine that previews also builds for the device.
@@ -76,7 +77,7 @@ def metadata(files):
         if identity:
             require(identity not in elements, 'Duplicate drawing asset ID')
             elements[identity] = node
-    check_bindings(elements, PREFIX, display)
+    check_bindings(elements, prefix, display)
     for identity in graphics['palette']:
         node = elements.get(identity)
         require(node is not None and node.tag in {'path', 'circle'} and
@@ -142,22 +143,23 @@ def scaffold(out, identity, name):
         (out / template.name.removesuffix('.in')).write_text(text, encoding='utf-8')
     from .native import display_ids
     display = json.loads((out / 'definition.json').read_text(encoding='utf-8'))['resources']['display']
-    ids = display_ids(PREFIX, display)
+    ids = display_ids(identity, display)
     nodes, palette = ids[:display['nodes']], ids[display['nodes'] + display['texts']:]
     outline = square_outline(display['points'])
-    artwork = [f'<g id="{PREFIX}_panel">']
-    artwork += [f'  <path id="{identity}" d="{outline}" fill="none" stroke="#ffffff" stroke-width="1"/>'
-                for identity in nodes[:display['paths']]]
-    artwork += [f'  <circle id="{identity}" cx="0" cy="0" r="2" fill="#ffffff"/>' for identity in nodes[display['paths']:]]
-    for i, identity in enumerate(palette):
+    artwork = [f'<g id="{identity}_panel">']
+    artwork += [f'  <path id="{node}" d="{outline}" fill="none" stroke="#ffffff" stroke-width="1"/>'
+                for node in nodes[:display['paths']]]
+    artwork += [f'  <circle id="{node}" cx="0" cy="0" r="2" fill="#ffffff"/>' for node in nodes[display['paths']:]]
+    for i, entry in enumerate(palette):
         color = '#' + f'{i * 17:02x}' * 3
-        artwork.append(f'  <circle id="{identity}" cx="640" cy="0" r="1" fill="{color}" stroke="{color}" stroke-width="1"/>')
+        artwork.append(f'  <circle id="{entry}" cx="640" cy="0" r="1" fill="{color}" stroke="{color}" stroke-width="1"/>')
     artwork.append('</g>')
     (out / 'panel.svg.fragment').write_text('\n'.join(artwork) + '\n', encoding='utf-8')
-    from .machines import free_synth_identity
-    # Used once the folder moves to machines/<id>/ for a device build: an identity
+    from .machines import SDK_VERSION, free_synth_identity
+    # For a device build of this folder (sdk.py build --machine): an identity
     # no machine in this repository uses.
-    record = {'schema': 1, 'kind': 'synth', 'description': name, 'identity': free_synth_identity()}
+    record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'synth', 'description': name,
+              'identity': free_synth_identity()}
     (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8')
     metadata(source_files(out))
     python = 'python3' if Path(sys.executable).name.startswith('python3') else 'python'
@@ -165,7 +167,7 @@ def scaffold(out, identity, name):
     print(f'Preview with: {python} sdk.py preview --source "{out}" --out local/my-preview-001'
           ' (add --cxx <clang++> if doctor --preview needed one)')
     print(f'machine.json suggests engine {record["identity"]["engine"]}, page {record["identity"]["page"]} '
-          'for a device build, free in this repository (docs/build.md, step 3).')
+          f'for a device build, free in this repository: {python} sdk.py build --machine "{out}" (docs/build.md, step 3).')
 
 
 def square_outline(points, half=32):
@@ -181,7 +183,7 @@ def square_outline(points, half=32):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Create a browser-only machine with portable C++ sound and display callbacks')
-    parser.add_argument('--id', required=True, help='lower-case machine ID; a device build moves the folder to machines/<id>/')
+    parser.add_argument('--id', required=True, help='lower-case machine ID, also its stock name and artwork prefix')
     parser.add_argument('--name', required=True, help='name shown on the OP-XY')
     parser.add_argument('--out', required=True, type=Path, help='new folder for the machine source, such as local/mymachine')
     args = parser.parse_args(argv)
