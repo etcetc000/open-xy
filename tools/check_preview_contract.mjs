@@ -4,14 +4,11 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {PreviewEngine} from '../sdk/browser/engine.mjs';
 import {PreviewDisplay} from '../sdk/browser/display.mjs';
-import {SegmentDisplay} from '../sdk/browser/segments.mjs';
 import {shownControls} from '../sdk/browser/controls.mjs';
 
 const module = await WebAssembly.compile(readFileSync(process.argv[2]));
-const graphics = process.argv[3];
-assert.ok(['drawing', 'segments'].includes(graphics), 'Known display contract required');
 const engine = new PreviewEngine(module, 44100, Array(8).fill(0));
-const display = graphics === 'segments' ? new SegmentDisplay(module) : new PreviewDisplay(module);
+const display = new PreviewDisplay(module);
 const memory = engine.api.memory.buffer, displayMemory = display.api.memory.buffer;
 assert.equal(engine.blockFrames, 64);
 assert.equal(engine.parameterCount, 8);
@@ -39,8 +36,7 @@ for (let corner = 0; corner < 16; ++corner) {
     }
     // Each position shows its own control, then its first alternate slot.
     const input = shownControls(controls, block & 1 ? [4, 5, 6, 7] : [0, 1, 2, 3]);
-    if (graphics === 'segments') display.tick(input);
-    else display.tick(input, 17, corner * 8 + block, 0, false);
+    display.tick(input, 17, corner * 8 + block, 0, false);
     assert.equal(engine.api.memory.buffer, memory);
     assert.equal(display.api.memory.buffer, displayMemory);
   }

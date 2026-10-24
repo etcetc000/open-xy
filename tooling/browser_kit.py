@@ -103,7 +103,6 @@ def write_builder(kit, output):
     app = read(ROOT / 'builder/app.mjs').decode('utf-8')
     imports = ("import * as Core from './core.mjs';\nimport * as Wizard from './wizard.mjs';\n"
                "import * as Retained from '../sdk/browser/display.mjs';\n"
-               "import * as Segments from '../sdk/browser/segments.mjs';\n"
                "import * as Visuals from './visuals.mjs';\n"
                "import {Audition} from './audition.mjs';\n"
                "import {shownControls} from '../sdk/browser/controls.mjs';\n"
@@ -116,9 +115,7 @@ def write_builder(kit, output):
     bundled += 'const {shownControls, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {shownControls, inputWords};\n})();\n'
     controls_import = "import { inputWords } from './controls.mjs';\n"
-    for namespace, file, classes in (
-        ('Retained', 'display.mjs', 'PreviewDisplay,SvgDisplay'),
-        ('Segments', 'segments.mjs', 'SegmentDisplay,SegmentSvg')):
+    for namespace, file, classes in (('Retained', 'display.mjs', 'PreviewDisplay,SvgDisplay'),):
         source = read(ROOT / 'sdk/browser' / file).decode('utf-8')
         require(source.count(controls_import) == 1, 'Unexpected display imports')
         bundled += 'const ' + namespace + '= (() => {\n' + source.replace(controls_import, '').replace(

@@ -63,15 +63,10 @@ RESOURCES = {
     'sample': ('voiceCapacity',),
     'effect': (),
 }
-# A synth's own screen: the machine declares its shape within these limits.
-DISPLAY_FIELDS = {
-    'drawing': ('kind', 'stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'palette'),
-    'segments': ('kind', 'characters', 'glow', 'dials', 'textControls'),
-}
-DRAWING_LIMITS = dict(paths=(1, 4), points=(2, 64), nodes=(1, 64), palette=(1, 16))
-SEGMENT_CHARACTERS = (1, 8)
-SEGMENT_GLOW = (0, 3)
-SEGMENT_DIALS = (0, 4)
+# A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
+# declares its frame's budget within these limits.
+DISPLAY_FIELDS = ('stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'texts', 'palette')
+DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 4), palette=(1, 16))
 # Analysis storage is allocated from the stock heap at runtime, which also holds
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
@@ -147,28 +142,17 @@ def validate_synth_resources(resources):
 
 
 def validate_display(display):
-    require(isinstance(display, dict) and isinstance(display.get('kind'), str) and display['kind'] in DISPLAY_FIELDS,
-            'Unknown display kind')
-    keys(display, DISPLAY_FIELDS[display['kind']], 'display')
-    if display['kind'] == 'drawing':
-        for name, (low, high) in DRAWING_LIMITS.items():
-            require(type(display[name]) is int and low <= display[name] <= high,
-                    'Drawing %s must be %d..%d' % (name, low, high))
-        require(display['paths'] <= display['nodes'], 'Each path is also a node')
-        require(type(display['stateBytes']) is int and type(display['stateAlignment']) is int and
-                4 <= display['stateBytes'] and display['stateAlignment'] in (4, 8, 16) and
-                display['stateBytes'] % display['stateAlignment'] == 0,
-                'Display state must occupy aligned whole words')
-    else:
-        low, high = SEGMENT_CHARACTERS
-        require(type(display['characters']) is int and low <= display['characters'] <= high,
-                'Segment displays have %d..%d characters' % (low, high))
-        for name, (low, high) in (('glow', SEGMENT_GLOW), ('dials', SEGMENT_DIALS)):
-            require(type(display[name]) is int and low <= display[name] <= high,
-                    'Segment display %s must be %d..%d' % (name, low, high))
-        controls = display['textControls']
-        require(isinstance(controls, list) and all(type(c) is int and 0 <= c < 4 for c in controls) and
-                controls == sorted(set(controls)), 'textControls lists distinct control indices 0..3 in order')
+    keys(display, DISPLAY_FIELDS, 'display')
+    for name, (low, high) in DISPLAY_LIMITS.items():
+        require(type(display[name]) is int and low <= display[name] <= high,
+                'Display %s must be %d..%d' % (name, low, high))
+    require((display['points'] >= 2) == (display['paths'] > 0),
+            'Paths have 2..64 points; a display without paths declares 0 points')
+    require(display['paths'] <= display['nodes'], 'Each path is also a node')
+    require(type(display['stateBytes']) is int and type(display['stateAlignment']) is int and
+            4 <= display['stateBytes'] and display['stateAlignment'] in (4, 8, 16) and
+            display['stateBytes'] % display['stateAlignment'] == 0,
+            'Display state must occupy aligned whole words')
 
 
 def validate_parameter(parameter, alternate=False):

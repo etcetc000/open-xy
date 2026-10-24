@@ -1,7 +1,6 @@
 import * as Core from './core.mjs';
 import * as Wizard from './wizard.mjs';
 import * as Retained from '../sdk/browser/display.mjs';
-import * as Segments from '../sdk/browser/segments.mjs';
 import * as Visuals from './visuals.mjs';
 import {Audition} from './audition.mjs';
 import {shownControls} from '../sdk/browser/controls.mjs';
@@ -169,9 +168,8 @@ async function inspect(id) {
       Core.requireThat(await Core.sha256(wasm) === m.preview.sha256, 'Preview module hash mismatch');
       const compiled = await WebAssembly.compile(wasm);
       if (ticket !== previewRevision) return;
-      const segmented = m.preview.graphics.kind === 'segments';
-      const display = segmented ? new Segments.SegmentDisplay(compiled) : new Retained.PreviewDisplay(compiled);
-      const renderer = segmented ? new Segments.SegmentSvg(m.artwork, m.preview.graphics) : new Retained.SvgDisplay(m.artwork, m.preview.graphics);
+      const display = new Retained.PreviewDisplay(compiled);
+      const renderer = new Retained.SvgDisplay(m.artwork, m.preview.graphics);
       const ns = 'http://www.w3.org/2000/svg', canvas = document.createElementNS(ns, 'svg');
       canvas.setAttribute('viewBox', '0 0 480 224'); canvas.setAttribute('aria-label', m.name + ' display preview');
       canvas.append(renderer.root); $('art-preview').replaceChildren(canvas);
@@ -201,7 +199,7 @@ async function inspect(id) {
       const reduced = matchMedia('(prefers-reduced-motion: reduce)');
       function frame(dt = 34) {
         const input = shownControls(parameters, shown);
-        renderer.apply(segmented ? display.tick(input) : display.tick(input, dt, serial, heldNotes, reduced.matches));
+        renderer.apply(display.tick(input, dt, serial, heldNotes, reduced.matches));
       }
       const controls = m.controls.map((name, i) => {
         const label = node('label', name, 'preview-control'), input = node('input');
@@ -225,7 +223,7 @@ async function inspect(id) {
         }
         handle = requestAnimationFrame(animate);
       }
-      if (!segmented && !reduced.matches) handle = requestAnimationFrame(animate);
+      if (!reduced.matches) handle = requestAnimationFrame(animate);
       stopPreview = () => { cancelled = true; cancelAnimationFrame(handle); audio.destroy(); };
     } catch (error) { if (ticket === previewRevision) $('art-caption').textContent = 'Display preview unavailable: ' + error.message; }
   }

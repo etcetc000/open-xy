@@ -50,8 +50,7 @@ figures. State usually dominates, since a synth's voice pool is
 | Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
-| Drawing shape | ≤ 4 paths of ≤ 64 points, ≤ 64 nodes, ≤ 16 palette entries | Fixed-size renderer object and frame |
-| Segment display | 1..8 characters, 0..3 glow layers, 0..4 dials | Fixed-size renderer object and frame |
+| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 256 nodes, ≤ 4 text slots, ≤ 16 palette entries | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
 beyond whole words and module memory. Browser previews run 8 voices in
@@ -94,7 +93,7 @@ its own slot in the eight-word vector, so `render` receives all of them and
 presets, projects and the catalog's defaults store each one. The selection is
 per track, starts on the position's own parameter and is not saved. Display
 inputs carry each position's shown value, its parameter index (`shown`) and
-every parameter's value (`slots`), so a [text control](display.md#segment-display)
+every parameter's value (`slots`), so a [header value](display.md#frame)
 can format whichever is shown while dials follow their own parameters.
 Browser previews show the parameter last edited at each position. See
 [Macro Osc](../machines/macroosc/definition.json), whose fourth encoder

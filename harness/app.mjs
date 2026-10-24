@@ -20,10 +20,7 @@ const controls = createControls(previewManifest.definition);
 const { definition, parameters, positions, defaults, presets, displayValue, makePatch, readPatch, validateParameters, q31 } = controls;
 import { renderScreen as renderBase } from './screen.mjs';
 import { PreviewDisplay, SvgDisplay } from '../sdk/browser/display.mjs';
-
-import { SegmentDisplay, SegmentSvg } from '../sdk/browser/segments.mjs';
-const segmented = previewManifest.graphics?.kind === 'segments';
-const renderScreen = (...args) => renderBase(...args, controls, segmented, shown);
+const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header);
 const $ = id => document.getElementById(id);
 const controlId = id => customPreview ? `custom-control-${parameters.findIndex(p => p.id === id)}` : id;
 // Page copy comes from the machine: its definition and machine.json description.
@@ -72,7 +69,7 @@ function draw(elapsed = 0) {
   if (display) {
     const input = shownControls(parameterWords(), shown);
     try {
-      scene.apply(segmented ? display.tick(input) : display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches));
+      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches));
     }
     catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
   }
@@ -88,9 +85,8 @@ async function loadPreview() {
   const [digest, artDigest] = await Promise.all([digestOf(bytes), digestOf(artwork)]);
   if (digest !== manifest.wasm_sha256 || artDigest !== manifest.graphics.asset_sha256) throw new Error('Preview identity mismatch.');
   const module = await WebAssembly.compile(bytes);
-  const segmented = manifest.graphics.kind === 'segments';
-  const readyDisplay = segmented ? new SegmentDisplay(module) : new PreviewDisplay(module);
-  const readyScene = new (segmented ? SegmentSvg : SvgDisplay)(new TextDecoder().decode(artwork), manifest.graphics);
+  const readyDisplay = new PreviewDisplay(module);
+  const readyScene = new SvgDisplay(new TextDecoder().decode(artwork), manifest.graphics);
   display = readyDisplay;
   scene = readyScene;
   displayBackend = { backend: 'cpp-wasm', stateBytes: display.stateBytes, frameBytes: readyDisplay.frame.byteLength, wasmSha256: digest };

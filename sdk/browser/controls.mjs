@@ -25,7 +25,7 @@ export function physicalValue(mapping, value) {
 // (the definition schema; tooling.definitions.control_positions).
 export const controlPositions = parameters => parameters.map((p, i) => p.control ?? i);
 
-// The display input (segments.hpp, draw.hpp) for the eight parameter words in
+// The display input (draw.hpp) for the eight parameter words in
 // parameter order, when shown[i] is the parameter position i shows (initially
 // its own; on the device an encoder press selects an alternate, in a preview
 // the control last edited): each position's value, the shown slots as four

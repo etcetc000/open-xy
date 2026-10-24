@@ -91,12 +91,12 @@
     "sharedBytes": 0,
     "outputPeakQ31": 268435456,
     "display": {
-      "kind": "drawing",
       "stateBytes": 60,
       "stateAlignment": 4,
       "paths": 2,
       "points": 64,
       "nodes": 28,
+      "texts": 0,
       "palette": 16
     }
   }

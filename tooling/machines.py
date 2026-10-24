@@ -114,7 +114,7 @@ def machine(identity):
         require(definition['parameters'][dry_parameter]['mapping'] ==
                 dict(kind='linear', minimum=0, maximum=1), 'dryParameter must map linearly from 0 to 1')
     # A synth draws its own screen; sample engines and effects use a stock page.
-    display = definition['resources']['display']['kind'] if kind == 'synth' else 'stock'
+    display = 'drawing' if kind == 'synth' else 'stock'
     # The native plan compiles extra translation units only into synths.
     if kind != 'synth':
         require(not sources and not includes, 'Sample engines and effects compile one fx.cpp or sample.cpp')

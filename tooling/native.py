@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 from . import screen, startup_label, stock_tables
 from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
                        generate_registration_stock, generate_sample_voice,
-                       generate_sample_callbacks, generate_screen, generate_screen_order, generate_segment_binding,
+                       generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_voice)
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
@@ -242,10 +242,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m))
 
     def display_unit(folder, m):
-        if m.display == 'drawing':
-            generate_display(folder, machine=m)
-            return folder / 'display_binding.cpp'
-        return generate_segment_binding(folder, m.definition, m.prefix)
+        generate_display(folder, machine=m)
+        return folder / 'display_binding.cpp'
 
     def build_unit(obj, m, step):
         folder = obj.parent
@@ -493,23 +491,12 @@ def check_module(directory, tools, profile, machines):
     return module, sizes, patch_profile, hooks, stack, usage
 
 
-def drawing_ids(prefix, display):
-    """Artwork IDs of a drawing display: its nodes (the first are the mutable paths), then its palette."""
+def display_ids(prefix, display):
+    """Artwork IDs of a display: its nodes (the first are the mutable paths), its
+    text slots, then its palette entries."""
     return ([f'{prefix}_node_{i}' for i in range(display['nodes'])] +
+            [f'{prefix}_text_{i}' for i in range(display['texts'])] +
             [f'{prefix}_palette_{i}' for i in range(display['palette'])])
-
-
-def segment_ids(prefix, display):
-    """Artwork IDs of a segment display: its 14-segment characters, glow layers and dials, their
-    lit/unlit palettes, and an optional label."""
-    cells = [f'{d}_{s}' for d in range(display['characters']) for s in 'abcdefghjklmnp']
-    return dict(segments=[f'{prefix}_seg_{c}' for c in cells],
-                glow=[[f'{prefix}_glow_{layer}_{c}' for c in cells] for layer in range(display['glow'])],
-                dials=[f'{prefix}_dial_{i}' for i in range(display['dials'])],
-                palette=[f'{prefix}_lit', f'{prefix}_unlit'],
-                glow_palette=[[f'{prefix}_glow_{layer}_lit', f'{prefix}_glow_{layer}_unlit']
-                              for layer in range(display['glow'])],
-                label=f'{prefix}_label')
 
 
 def panel_root(fragment, source):
@@ -523,7 +510,7 @@ def panel_root(fragment, source):
 def check_outlines(by_id, prefix, display):
     """Drawing paths are the first nodes: exactly M, (points - 1) L and Z, unfilled."""
     points = display['points']
-    for name in drawing_ids(prefix, display)[:display['paths']]:
+    for name in display_ids(prefix, display)[:display['paths']]:
         node = by_id.get(name)
         commands = re.findall(r'[A-Za-z]', node.get('d', '')) if node is not None else []
         coordinates = re.findall(NUMBER, node.get('d', '')) if node is not None else []
@@ -556,32 +543,24 @@ def validate_panel(m, fragment=None):
                 'Palette donors need #RRGGBB fill and stroke: ' + name)
 
     display = m.definition['resources']['display']
-    if m.display == 'drawing':
-        # Palette entries donate paint.
-        ids = drawing_ids(m.prefix, display)
-        bound, palette = ids[:display['nodes']], ids[display['nodes']:]
-        check_outlines(by_id, m.prefix, display)
-        for name in bound[display['paths']:]:
-            require(name in by_id and by_id[name].tag in ('path', 'circle'), 'Authored SVG is missing node ' + name)
-        for name in palette:
-            visible(name)
-    else:
-        # Segment display: the declared characters and glow layers, their lit/unlit palettes,
-        # dials and an optional label.
-        ids = segment_ids(m.prefix, display)
-        for name in ids['segments'] + [name for layer in ids['glow'] for name in layer]:
-            visible(name, ('path',))
-        for name in ids['palette'] + [name for pair in ids['glow_palette'] for name in pair]:
-            donor(name)
-        for name in ids['dials']:
-            # The renderer replaces the linear part and keeps the authored translation.
-            node = by_id.get(name)
-            require(node is not None and node.tag == 'path' and node.get('fill') not in (None, 'none') and
-                    re.fullmatch(r'matrix\(1 0 0 1 (%s) (%s)\)' % (NUMBER, NUMBER), node.get('transform', '')),
-                    'Dial must be a filled path with transform="matrix(1 0 0 1 x y)": ' + name)
-        label = by_id.get(ids['label'])
-        require(label is None or (label.tag == 'text' and (label.text or '').strip() and len(label.text) <= 15),
-                'Label must be a text node of at most 15 characters')
+    ids = display_ids(m.prefix, display)
+    count = display['nodes'] + display['texts']
+    bound, texts, palette = ids[:display['nodes']], ids[display['nodes']:count], ids[count:]
+    check_outlines(by_id, m.prefix, display)
+    for name in bound + texts:
+        # Every frame sets the whole transform, so the artwork's must be a
+        # plain translation (or none): what the frame replaces.
+        node = by_id.get(name)
+        kind = ('text',) if name in texts else ('path', 'circle')
+        require(node is not None and node.tag in kind, 'Authored SVG is missing %s %s' % ('/'.join(kind), name))
+        require(re.fullmatch(r'(matrix\(1 0 0 1 (%s) (%s)\))?' % (NUMBER, NUMBER), node.get('transform', '')),
+                'Bound elements take transform="matrix(1 0 0 1 x y)" or none: ' + name)
+    for name in texts:
+        node = by_id[name]
+        require(not {'x', 'y'} & node.keys() and len(node.text or '') < 24,
+                'Text slots are positioned by their transform and hold at most 23 characters: ' + name)
+    for name in palette:
+        donor(name)
     for node in nodes:
         for attribute in SVG_NUMERIC.intersection(node.attrib):
             value = node.attrib[attribute]

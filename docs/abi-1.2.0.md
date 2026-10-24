@@ -93,13 +93,13 @@ A synth's page is a stock screen object: 76 stock bytes, plus adapter state,
 plus an SVG asset named after the machine. The SDK screen shell
 ([`screen.hpp`](../sdk/platform/opxy-1.2.0/screen.hpp)) supplies the four
 control titles and values that stock fills in. The machine's artwork
-supplies the rest. Two display contracts exist, each sized by the machine's
-declaration (see the [display API](display.md)):
-
-- **Drawing:** mutable outlines, transformable nodes and a palette, updated
-  with Q10 coordinates and matrices.
-- **Segments:** 14-segment characters, a lit/unlit palette, one label and text
-  in place of chosen control values.
+supplies the rest. One drawing renderer
+([`screen_drawing.hpp`](../sdk/platform/opxy-1.2.0/screen_drawing.hpp)),
+sized by the machine's declaration (see the [display API](display.md)), binds
+the artwork's nodes, text slots and palette entries by ID and applies each
+frame through stock's own setters: matrix words for a node's transform, palette
+selectors for its paint, path commands rewritten in place for outlines, and
+text leaves. Nothing is created or freed.
 
 Stock paints the screen slots in ascending page order each frame, so page
 numbers are layers. The compositor's loop advance is hooked: when the selected
