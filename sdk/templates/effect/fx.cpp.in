@@ -19,16 +19,19 @@ opxy::i32 boost(opxy::i32 sample, opxy::i32 drive) {
     return x;
 }
 
-// Cubic soft clip, 1.5x - 0.5x^3: smooth up to full scale, never above it.
+// Cubic soft clip, 1.5x - 0.5x^3: smooth up to full scale and saturating
+// there, since rounding can carry the curve one step past it.
 opxy::i32 clip(opxy::i32 x) {
     const opxy::i32 cube = opxy::q31::multiply(opxy::q31::multiply(x, x), x);
-    return x - opxy::q31::half(cube - x);
+    return add(x, -opxy::q31::half(cube - x));
 }
 
-// About a 1.5 ms glide toward a new level, so control changes do not click.
+// About a 1.5 ms glide toward a new level 0..1, so control changes do not
+// click. Both are non-negative, so their difference cannot overflow; the last
+// steps move by one so the level arrives exactly.
 opxy::i32 smooth(opxy::i32 value, opxy::i32 target) {
-    const opxy::i32 difference = target - value;
-    return value + (difference > 0 ? (difference + 63) >> 6 : -((-difference + 63) >> 6));
+    const opxy::i32 difference = target - value, step = difference / 64;
+    return value + (step ? step : (difference > 0) - (difference < 0));
 }
 }
 
@@ -37,9 +40,9 @@ void initialize(State& state) { state.level = 0; }
 // Learning effect: a soft-clipping drive on the send. Add sound tests before
 // treating a modified effect as a production instrument.
 void process(State& state, opxy::Channel left, opxy::Channel right, opxy::Parameters parameters) {
-    const opxy::i32 drive = parameters[0];
+    const opxy::i32 drive = parameters[0], level = parameters[1] < 0 ? 0 : parameters[1];
     for (unsigned i = 0; i < opxy::block_frames; ++i) {
-        state.level = smooth(state.level, parameters[1]);
+        state.level = smooth(state.level, level);
         left[i] = opxy::q31::multiply(clip(boost(left[i], drive)), state.level);
         right[i] = opxy::q31::multiply(clip(boost(right[i], drive)), state.level);
     }

@@ -10,6 +10,9 @@ import xml.etree.ElementTree as ET
 
 from .formats import elf32, header, ldr, mapped_offset, require, sha
 
+# Child processes never open a console window on Windows.
+NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
 ROOT = Path(__file__).resolve().parents[1]
 MAX_FILE = 16 * 1024 * 1024
 PROFILE = 'profiles/opxy-1.2.0.json'

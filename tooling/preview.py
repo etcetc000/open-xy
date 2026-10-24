@@ -10,7 +10,7 @@ from xml.etree.ElementTree import ParseError
 from .formats import require, sha
 from .definitions import ROOT
 from .machines import machine, machine_at
-from .pipeline import fresh_output
+from .pipeline import NO_WINDOW, fresh_output
 
 
 VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment', 'opxy_parameter_count',
@@ -43,7 +43,7 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=()):
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={MEMORY}',
                f'-Wl,--max-memory={MEMORY}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS)]
     result = subprocess.run([str(x) for x in command], capture_output=True, text=True, timeout=120,
-                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                            creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
             f'\nCheck the compiler with: python sdk.py doctor --preview --cxx "{compiler}"')
     check_runtime(out / 'engine.wasm')
@@ -53,7 +53,7 @@ def check_runtime(module):
     """Smoke-test host contracts without requiring a particular sound."""
     result = subprocess.run(['node', str(ROOT / 'tools/check_preview_contract.mjs'), str(module)],
                             capture_output=True, text=True, timeout=120,
-                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                            creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview contract check failed:\n' + result.stdout + result.stderr)
     print(result.stdout.strip())
 

@@ -234,7 +234,9 @@ def free_effect_identity():
     """The lowest effect ID that the identity rules allow and no machine here uses, on the FX page."""
     rules = config()['identities']
     used = {m.identity.get('effect') for m in discovered()}
-    return {'effect': next(n for n in rules['effects'] if n not in used), 'page': rules['effect_page']}
+    free = [n for n in rules['effects'] if n not in used]
+    require(free, 'Every effect ID is held: an effect needs one released by another machine')
+    return {'effect': free[0], 'page': rules['effect_page']}
 
 
 def collection(entries=None):
