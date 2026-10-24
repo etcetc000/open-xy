@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "id": "chords",
+  "name": "Chords",
+  "parameters": [
+    {
+      "id": "strum",
+      "label": "Str",
+      "default": 0,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 63
+      },
+      "display": "percent"
+    },
+    {
+      "id": "direction",
+      "label": "Dir",
+      "default": 0,
+      "mapping": {
+        "kind": "enum",
+        "labels": [
+          "up",
+          "down",
+          "alternate",
+          "random"
+        ]
+      },
+      "display": "enum"
+    },
+    {
+      "id": "voicing",
+      "label": "Voi",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": -6,
+        "maximum": 6
+      },
+      "display": "bipolar"
+    },
+    {
+      "id": "spread",
+      "label": "Spr",
+      "default": 0,
+      "mapping": {
+        "kind": "enum",
+        "labels": [
+          "off",
+          "on"
+        ]
+      },
+      "display": "enum"
+    }
+  ],
+  "presets": {},
+  "resources": {}
+}

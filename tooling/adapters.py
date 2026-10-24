@@ -378,6 +378,40 @@ def generate_fx_object(directory, m):
                   Path(directory) / f'fx_object_{m.prefix}.cpp')
 
 
+def generate_player_object(directory, m):
+    """A player's stock object methods around its press and release, and its own page when it has one."""
+    from .native import player_page_ids
+    values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name, TYPE=m.identity['player'],
+                  PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='')
+    if m.display == 'player':
+        p = m.prefix
+        page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
+        titles = [json.dumps(parameter['label'].lower()) for parameter in m.definition['parameters']]
+        titles += ['""'] * (4 - len(titles))
+        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in player_page_ids(p)),
+                               TITLES=', '.join(titles), PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
+                               NAMESPACE=m.definition['id'], NAME=m.native_name).items():
+            page = page.replace('@' + key + '@', value)
+        values.update(PAGE=f'{p}_page_id', PAGE_READY=f'{p}_screen_ready', PAGE_UNIT=page,
+                      PAGE_DECLARATIONS='\n'.join([f'extern const char {p}_page_id[] __asm__("{p}_page_id");',
+                                                    f'int {p}_screen_register() __asm__("{p}_screen_register");',
+                                                    f'int {p}_screen_ready() __asm__("{p}_screen_ready");']))
+    return expand('player_object.cpp.in', values, Path(directory) / f'player_object_{m.prefix}.cpp')
+
+
+def generate_player_table(directory, machines):
+    """The collection's players, which the stock player hooks look up."""
+    players = [m for m in machines if m.kind == 'player']
+    declarations = [f'const opxy::platform::Player* {m.prefix}_player() __asm__("{m.prefix}_player");' for m in players]
+    rows = [f'    {{{m.prefix}_player}},' for m in players]
+    return expand('player_table.cpp.in', dict(DECLS='\n'.join(declarations), ROWS='\n'.join(rows)),
+                  Path(directory) / 'player_table.cpp')
+
+
+# Stock lists Arpeggio, Hold and Maestro (types 2..4) with catalog IDs 6..8.
+PLAYER_CATALOG_OFFSET = 4
+
+
 def stock_labels(m):
     """Control names as the stock parameter page shows them."""
     return ', '.join(json.dumps(p['label'].lower()) for p in m.definition['parameters'])
@@ -391,9 +425,10 @@ def catalog_defaults(definition):
 
 def catalog_entry(m):
     """The stock catalog text inserted for a machine, in the reviewed byte layout."""
-    if m.kind == 'effect':
+    if m.kind in ('effect', 'player'):
+        number = m.identity['effect'] if m.kind == 'effect' else m.identity['player'] + PLAYER_CATALOG_OFFSET
         return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
-                ',\n            "id": ' + str(m.identity['effect']) +
+                ',\n            "id": ' + str(number) +
                 ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }')
     return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
             ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }\n')

@@ -29,16 +29,18 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 14 | Routes controls, octave publication, assignment and waveform projection for machines declaring pad settings or drum controls |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
-| Relocated tables | 13 | Moves the engine records (63) and screen slots (128) into the last 4 KiB of the reservation |
+| Relocated tables | 22 | Moves the effect records (63), engine records (63) and screen slots (128) into the last 8 KiB of the reservation |
 | Screen order | 1 | Paints a selected owned synth page before stock overlays |
+| Players | 6 | Builds, loads, names and pages note players of the collection (see [players](#note-players)) |
 | Synth and effect controls | 3 | Lets an encoder press on an owned synth's page select an alternate parameter, which its turns then edit; scales fine turns on owned synth and send-effect pages |
 | Startup label | 1 | Shows `OPEN 0.0.1-1.2.0` at boot through the stock startup text renderer |
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
 form the profile's `samples` service: a build applies those edits, and links
-the SDK code behind them, only when it includes a sample engine. Otherwise
-their sites stay stock. Everything else must reconstruct byte for byte. Protected ranges in
+the SDK code behind them, only when it includes a sample engine. The player
+rows form the `players` service in the same way. The octave setter's hook
+forms the `octaves` service, which both use. Otherwise their sites stay stock. Everything else must reconstruct byte for byte. Protected ranges in
 [`pipeline.py`](../tooling/pipeline.py) admit only hooks into the module and
 the reviewed startup label.
 The bootloader is never modified.
@@ -70,11 +72,12 @@ and then completes the stock epilogue it replaced.
 | --- | --- | --- | --- |
 | Engines | 63 (relocated) | 33 (stock "none"), IDs stock registers | IDs above 32 exist only with the relocated tables |
 | Screen pages | 128 (relocated) | 81 (stock "none") | Sample engines show stock page 2 or 7 instead |
-| Effects | 19 (stock) | IDs stock registers | Free IDs: 1–4, 6–8, 11; all effects use page 21 |
+| Effects | 63 (relocated) | 19 (stock "none"), IDs stock registers | Free IDs: 1–4, 6–8, 11, 20–62; all effects use page 21 |
 
 Presets store the engine **name**. Projects store the engine **number**.
 Firmware without the relocated tables opens a project that uses an engine above
-32 with Prism (18) instead. Published IDs therefore never change.
+32 with Prism (18) instead. Its send-slot setter (`0x8d50e0c4`) rejects effect types
+above 18. Published IDs therefore never change.
 
 ## Synth voices
 
@@ -235,13 +238,16 @@ parameter table using stock note-start's 73-position mapping to -36..36
 semitones, separately from pitch increments, which also include absolute note
 pitch and modulation. Drum-key routing passes stock's track octave to its key
 mapper and publishes the octave in a per-track word; the octave setter also
-publishes each change. Audio maps notes with that snapshot and the same
+publishes each change (`keyboard_octaves.cpp`). Players read the same word to
+place a note on the keyboard: the lowest key, F, plays 53 + 12 × octave. Audio maps notes with that snapshot and the same
 integer mapping, without calling GUI project or pattern getters. Choke uses
 the canonical pad; the raw note minus the canonical pad is `drum_transpose`.
 
 ## Send effects
 
-Effects live in a separate 19-entry registry. Stock constructs an effect in
+Effects live in a separate registry (19 stock entries, 63 relocated). Stock
+registers send effects and the per-track filter types in it; the filter setter
+keeps the stock bound, so IDs above 18 are send effects only. Stock constructs an effect in
 place inside the FX slot's **480-byte** storage on the audio thread, calls
 `init`, then `process(left, right, parameters)` once per 64-sample block on
 in-place stereo buffers. **No destructor ever runs**, so an effect may hold no
@@ -255,3 +261,48 @@ supplies only wet audio. The generated adapter exposes the machine's declared
 `dryParameter`, or returns `INT32_MAX` when none is declared, matching stock's
 absent-object fallback. This is a source-mixer control, not a wet/dry crossfade
 inside the effect. See the [effect API](api.md#effects).
+
+## Note players
+
+Stock has three players, types 2 (Arpeggio), 3 (Hold) and 4 (Maestro), built
+by a branch tree in the factory `0x8d57de60(track, type, flag)` inside a
+64 KiB slot per track (`0x84f05610 + (track << 16)`). A pattern stores its
+player as that number at `+0x34`; projects save it byte for byte. After a
+project loads, `0x8d587418` replaces a type of 1 or any type from 5 with
+Arpeggio, keeping the eight parameters. The player page indexes a five-entry
+controller table (`0x08023b1c`) with the selected track's type, without a
+bounds check.
+
+An SDK player is a stock Maestro with three methods replaced:
+
+| Slot | Method | Player |
+| --- | --- | --- |
+| `+0x08` | Type | The player's type |
+| `+0x14` | Note-on `(object, note, 0, flag, velocity) -> taken` | The player's `press`; a plan becomes a Maestro chord record |
+| `+0x18` | Note-off `(object, note)` | The player's `release`, else stock Maestro's |
+
+Maestro holds up to eight chord records of 72 bytes from `+0x1dc`, counted at
+`+0x41c`: eight `{delay, note, velocity}` tones, their count and the root.
+Its clocked step (`+0x34`) counts each delay down and plays the tone at zero
+through the sequencer; note-off releases every played tone of the records
+whose root matches. The SDK state follows at `+0x800` in the same slot.
+
+| Site | Hook |
+| --- | --- |
+| `0x8d57de60` | Factory entry: an owned type is built by the stock factory as a Maestro without the selection flag, which would reset the track's recorded Maestro chord, then takes its methods |
+| `0x8d58742c` | Project load: an owned type skips the replacement with Arpeggio |
+| `0x8c0afca2`, `0x8c0affa6` | The two controller lookups' type query: an owned type reads Maestro's entry; any other type from 5 reads Arpeggio's |
+| `0x8d5bbf50`, `0x8d5bbfd8` | Type-to-name and name-to-type entries: the catalog and menu find an owned name |
+
+A player's own page is an SDK screen object in a relocated page slot,
+registered on the GUI role like a synth's. Stock shows the Maestro page (46,
+`chord.svg`) for a player track, through the Maestro controller that edits the
+four parameters. While page 46 is selected and the selected track's player
+object has an owned method table, the compositor hook paints the player
+page's slot in page 46's turn, in its layer, and leaves the player page's own
+turn out. The controller, input and the selected page are unchanged.
+
+The catalog appends each player to `seq_types` with ID type + 4, as stock
+numbers Arpeggio, Hold and Maestro 6..8. Firmware without the player opens
+its tracks as Arpeggio. The menu's own type query (`0x8c0afc68`) keeps the
+owned type so the catalog shows the player's name.

@@ -33,10 +33,6 @@ extern const opxy::u32 sdk_sample_machine_count __asm__("sdk_sample_machine_coun
 // The machine registered as `engine`, when its stock record and name are still
 // ours; null for stock, absent and conflicting registrations.
 const opxy::platform::SampleMachine* sdk_sample_machine(opxy::u32 engine) __asm__("sdk_sample_machine");
-// Each track's keyboard octave as last stored or looked up on the GUI
-// (drum_controls_stock.cpp); audio maps drum notes with it instead of calling
-// GUI project getters.
-extern volatile opxy::i32 sdk_sample_drum_octaves[8] __asm__("sdk_sample_drum_octaves");
 }
 
 namespace opxy { namespace platform {

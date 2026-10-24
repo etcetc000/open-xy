@@ -19,8 +19,9 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import screen, startup_label, stock_tables
-from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
-                       generate_registration_stock, generate_sample_voice,
+from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_player_object,
+                       generate_player_table, generate_registration, generate_registration_stock,
+                       generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order, generate_segment_binding,
                        generate_synth_controls, generate_voice)
 from .contributors import validate_source_boundary
@@ -34,7 +35,9 @@ from .startup import generate as generate_startup
 LINKER = 'linker/opxy-1.2.0.ld'
 TARGET = 'opxy-1.2.0'
 DEFINITIONS = dict(stock_catalog_insert=0x8d5bbaa0, stock_gui_role=0x8d5c200c, stock_sample_classify_tail=0x8d5b5b3e,
-                   stock_sample_key_tail=0x8d5878ac)
+                   stock_sample_key_tail=0x8d5878ac, stock_player_factory_tail=0x8d57de64,
+                   stock_player_load_tail=0x8d587430, stock_player_load_kept=0x8d58743a,
+                   stock_player_name_tail=0x8d5bbf54, stock_player_id_tail=0x8d5bbfdc)
 TEMPLATES = 'sdk/platform/opxy-1.2.0/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
 ALLOWED_SECTIONS = {'.text', '.rodata', '.data', '.bss'}
@@ -64,8 +67,10 @@ def configuration():
         if m.kind == 'effect':
             definitions[m.prefix + '_fx_id'] = m.identity['effect']
             definitions[m.prefix + '_fx_page_id'] = m.identity['page']
-        else:
+        elif m.kind != 'player':
             definitions[m.prefix + '_engine_id'] = m.identity['engine']
+            definitions[m.prefix + '_page_id'] = m.identity['page']
+        elif 'page' in m.identity:
             definitions[m.prefix + '_page_id'] = m.identity['page']
     return profile, machines, definitions
 
@@ -149,6 +154,8 @@ def plan(machines, profile=None):
             steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration')
         elif m.kind == 'effect':
             steps = ('registration', 'fx_object')
+        elif m.kind == 'player':
+            steps = ('player_object',)
         else:
             steps = ('registration', 'sample_voice')
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
@@ -163,15 +170,17 @@ def plan(machines, profile=None):
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
 # or .s, except the generated units and the Blackfin runtime.
 SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label',
-             'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
+             'hook', 'keyboard_octaves', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
-             'screen_hooks', 'synth_controls', 'synth_control_table')
+             'screen_hooks', 'synth_controls', 'synth_control_table', 'players', 'player_hooks', 'player_table')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'drum_display_stock'), 'samples')
+UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
+UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 
 
 def module_bytes(profile):
@@ -257,6 +266,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_sample_callbacks(folder, machines)), obj)
             if step == 'synth_control_table':
                 return cxx(str(generate_synth_controls(folder, machines)), obj)
+            if step == 'player_table':
+                return cxx(str(generate_player_table(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
@@ -265,8 +276,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(RUNTIME_CXX, obj)
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
+                pages = [x.prefix for x in by_kind(machines, 'player') if x.display == 'player']
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines])), obj)
+                                                [x.prefix for x in sample_engines], pages)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -275,7 +287,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         source = {'voice': lambda: generate_voice(folder, m), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m),
                   'registration': lambda: generate_registration(folder, m),
-                  'sample_voice': lambda: generate_sample_voice(folder, m)}[step]
+                  'sample_voice': lambda: generate_sample_voice(folder, m),
+                  'player_object': lambda: generate_player_object(folder, m)}[step]
         return cxx(str(source()), obj, m)
 
     names = []
@@ -413,7 +426,8 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
 
     bounds = {}
     for m in machines:
-        table, slot = (f'_{m.prefix}_fx_vtable', 0x10) if m.kind == 'effect' else (f'_{m.prefix}_vtable', 8)
+        table, slot = {'effect': (f'_{m.prefix}_fx_vtable', 0x10),
+                       'player': (f'_{m.prefix}_player_vtable', 0x14)}.get(m.kind, (f'_{m.prefix}_vtable', 8))
         entry = word(symbols[table]['value'] + slot)
         require(entry in body, 'Audio entry of ' + m.id + ' is not a function start')
         bounds[m.id] = depth(entry)
@@ -467,9 +481,9 @@ def check_module(directory, tools, profile, machines):
     if sizes['allocated_span_bytes'] > limit:
         raise ValueError('Machines exceed the shared module memory, ' +
                          memory_summary(usage, sizes['allocated_span_bytes'], limit))
-    slots, records = symbols['__stock_screen_slots']['value'], symbols['__stock_engine_records']['value']
-    require(slots == stock_tables.SCREEN_SLOTS and records == stock_tables.ENGINE_RECORDS and
-            records + stock_tables.ENGINE_COUNT * stock_tables.RECORD_BYTES <= low + profile['reserved_bytes'],
+    placed = [symbols['__stock_%s' % t.name.replace(' ', '_')]['value'] for t in stock_tables.TABLES]
+    require(placed == [t.address for t in stock_tables.TABLES] and
+            max(t.end for t in stock_tables.TABLES) <= low + profile['reserved_bytes'],
             'Relocated tables outside the reserved tail or overlapping the module')
     patch_profile = copy.deepcopy(profile)
     hooks = {}
@@ -491,6 +505,11 @@ def check_module(directory, tools, profile, machines):
             hooks[patch['symbol']] = symbol['value']
     check_patch_boundaries(patch_profile, len(profile['patches']))
     return module, sizes, patch_profile, hooks, stack, usage
+
+
+def player_page_ids(prefix):
+    """A player page's artwork IDs: 24 dots, then the text line."""
+    return [f'{prefix}_dot_{i}' for i in range(24)] + [f'{prefix}_text']
 
 
 def drawing_ids(prefix, display):
@@ -555,8 +574,21 @@ def validate_panel(m, fragment=None):
         require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', by_id[name].get(k)) for k in ('fill', 'stroke')),
                 'Palette donors need #RRGGBB fill and stroke: ' + name)
 
-    display = m.definition['resources']['display']
-    if m.display == 'drawing':
+    if m.display == 'player':
+        # A player page: dots that show or hide, and the line its text replaces.
+        names = player_page_ids(m.prefix)
+        translate = r'matrix\(1 0 0 1 (%s) (%s)\)' % (NUMBER, NUMBER)
+        for name in names[:-1]:
+            visible(name)
+            require(re.fullmatch(translate, by_id[name].get('transform', '')),
+                    'Player page dots need transform="matrix(1 0 0 1 x y)": ' + name)
+        line = by_id.get(names[-1])
+        require(line is not None and line.tag == 'text' and re.fullmatch(translate, line.get('transform', '')),
+                'Player page line must be a text node with transform="matrix(1 0 0 1 x y)"')
+    display = m.definition['resources'].get('display')
+    if m.display == 'player':
+        pass
+    elif m.display == 'drawing':
         # Palette entries donate paint.
         ids = drawing_ids(m.prefix, display)
         bound, palette = ids[:display['nodes']], ids[display['nodes']:]
@@ -607,7 +639,11 @@ def extend_catalog(catalog, profile, machines):
 
     The insertion offsets are bound to the exact authenticated stock catalog.
     """
-    groups = dict(engine_types=by_kind(machines, 'synth', 'sample'), fx_types=by_kind(machines, 'effect'))
+    groups = dict(engine_types=by_kind(machines, 'synth', 'sample'), fx_types=by_kind(machines, 'effect'),
+                  seq_types=by_kind(machines, 'player'))
+    inserts = profile['stock_catalog_inserts']
+    require(all(key in inserts for key, group in groups.items() if group), 'No reviewed catalog list for a machine kind')
+    groups = {key: group for key, group in groups.items() if key in inserts}
     result, base = catalog, json.loads(catalog)
     for key, at in sorted(profile['stock_catalog_inserts'].items(), key=lambda item: -item[1]):
         result = result[:at] + ''.join(catalog_entry(m) for m in groups[key]).encode('utf-8') + result[at:]

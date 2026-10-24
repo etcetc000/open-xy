@@ -24,7 +24,7 @@ def identifier(value):
 # The stock firmware's own engine and effect types (stock 1.2.0 catalog).
 STOCK_TYPES = frozenset({'sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 'hardsync', 'dissolve', 'axis',
                          'wavetable', 'simple', 'midi', 'multisampler',
-                         'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi'})
+                         'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi', 'arpeggio', 'hold', 'maestro'})
 # Symbol namespaces the SDK and firmware glue use; a machine's name prefixes its symbols.
 RESERVED_PREFIXES = ('extensions', 'sdk', 'kit', 'stock', 'local')
 # A machine's name is also its C++ namespace.
@@ -62,6 +62,7 @@ RESOURCES = {
     'synth': ('voiceBytes', 'voiceAlignment', 'voiceCapacity', 'sharedBytes', 'outputPeakQ31', 'display'),
     'sample': ('voiceCapacity',),
     'effect': (),
+    'player': (),
 }
 # A synth's own screen: the machine declares its shape within these limits.
 DISPLAY_FIELDS = {
@@ -81,8 +82,9 @@ SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS)
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
 # A synth's first four fill the four-control page; up to four more are alternates
-# (see control_positions). Sample engines and effects use one to eight.
-CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8)}
+# (see control_positions). Sample engines and effects use one to eight;
+# a player one to four, the stock Maestro page's encoders.
+CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8), 'player': (1, 4)}
 SYNTH_POSITIONS = 4
 
 

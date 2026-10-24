@@ -1,0 +1,12 @@
+// Generated: the collection's note players.
+#include "players.hpp"
+extern "C" {
+@DECLS@
+}
+
+const opxy::platform::PlayerEntry sdk_players[] = {
+@ROWS@
+    {nullptr}
+};
+// The terminating entry keeps the array nonempty.
+const opxy::u32 sdk_player_count = sizeof(sdk_players) / sizeof(sdk_players[0]) - 1;

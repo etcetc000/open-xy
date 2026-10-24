@@ -13,8 +13,8 @@
   "heap_fill_base": 2349665628,
   "heap_fill_bytes": 20971524,
   "stock_records": 999,
-  "linker_sha256": "371fec3c7f24ef759a16a8914ba0584ab7df2f948e6e1460ee4999af1e21e056",
-  "table_bytes": 4096,
+  "linker_sha256": "0040a1333d6c0dd33b2345a06c96786f1a54526550a5aa06bb962c35f5fdff9f",
+  "table_bytes": 8192,
   "identities": {
     "engines": 63,
     "engine_none": 33,
@@ -47,18 +47,97 @@
       6,
       7,
       8,
-      11
+      11,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62
     ],
-    "effect_page": 21
+    "effect_page": 21,
+    "players": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ]
   },
   "stock_catalog_inserts": {
     "fx_types": 1583,
-    "engine_types": 4435
+    "engine_types": 4435,
+    "seq_types": 2565
   },
   "screen_template_sha256": "d71b110ac905c1bcfcecc9ad94237aa72fe12c531e651f170bb5a1042547fb16",
   "services": {
     "samples": [
       "sample"
+    ],
+    "octaves": [
+      "sample",
+      "player"
+    ],
+    "players": [
+      "player"
     ]
   },
   "patches": [
@@ -241,6 +320,87 @@
       "length": 4,
       "before": "27e15100",
       "after": "27e18000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d504c26",
+      "file_offset": "0x13c002",
+      "length": 8,
+      "before": "02da6e84589f0000",
+      "after": "02da4c8d60ed0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d504c66",
+      "file_offset": "0x13c042",
+      "length": 8,
+      "before": "02da6e84589f0000",
+      "after": "02da4c8d60ed0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d504cc4",
+      "file_offset": "0x13c0a0",
+      "length": 8,
+      "before": "02da6e84589f0000",
+      "after": "02da4c8d60ed0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d50606a",
+      "file_offset": "0x13d446",
+      "length": 8,
+      "before": "08da6e84589f0000",
+      "after": "08da4c8d60ed0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d506668",
+      "file_offset": "0x13da44",
+      "length": 8,
+      "before": "01da6e84589f0000",
+      "after": "01da4c8d60ed0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d5068d8",
+      "file_offset": "0x13dcb4",
+      "length": 8,
+      "before": "08da6e84589f0000",
+      "after": "08da4c8d60ed0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record bound -> relocated table",
+      "address": "0x8d504cb4",
+      "file_offset": "0x13c090",
+      "length": 2,
+      "before": "9960",
+      "after": "f961"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record bound -> relocated table",
+      "address": "0x8d5068d0",
+      "file_offset": "0x13dcac",
+      "length": 2,
+      "before": "9960",
+      "after": "f961"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record bound -> relocated table",
+      "address": "0x8d50e0ec",
+      "file_offset": "0x1454c8",
+      "length": 2,
+      "before": "9860",
+      "after": "f861"
     },
     {
       "kind": "hook",
@@ -567,8 +727,8 @@
       "file_offset": "0x1c4da6",
       "length": 4,
       "before": "ffe37db1",
-      "symbol": "sdk_sample_octave_store",
-      "service": "samples",
+      "symbol": "sdk_octave_store",
+      "service": "octaves",
       "call": true
     },
     {
@@ -597,6 +757,66 @@
       "before": "00de5a8decb80000",
       "symbol": "sdk_synth_turn",
       "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d57de60",
+      "file_offset": "0x1b523c",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "extensions_player_build",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d58742c",
+      "file_offset": "0x1be808",
+      "length": 4,
+      "before": "48a3a80d",
+      "symbol": "extensions_player_load",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0afca2",
+      "file_offset": "0xe7062",
+      "length": 8,
+      "before": "00de578dacdf0000",
+      "symbol": "sdk_player_ui_type",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0affa6",
+      "file_offset": "0xe7366",
+      "length": 8,
+      "before": "00de578dacdf0000",
+      "symbol": "sdk_player_ui_type",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5bbf50",
+      "file_offset": "0x1f3328",
+      "length": 4,
+      "before": "00e80500",
+      "symbol": "extensions_player_name",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5bbfd8",
+      "file_offset": "0x1f33b0",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "extensions_player_id",
+      "service": "players",
+      "call": false
     },
     {
       "kind": "startup",

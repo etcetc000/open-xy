@@ -2,11 +2,12 @@
 
 Write an instrument in C++, audition it in a browser, and build it into
 firmware for an OP-XY running OS 1.2.0. The same sound and display code
-compiles to WebAssembly for previews and to Blackfin for the device. Four
+compiles to WebAssembly for previews and to Blackfin for the device. Five
 examples are included: [2op FM](machines/fm2op/README.md) and
 [Macro Osc](machines/macroosc/README.md), a port of Mutable Instruments
-Braids, are synths; [Ring Mod](machines/ringmod/README.md) is a send effect and
-[Timestretch](machines/timestretch/README.md) a sample engine.
+Braids, are synths; [Ring Mod](machines/ringmod/README.md) is a send effect,
+[Timestretch](machines/timestretch/README.md) a sample engine and
+[Chords](machines/chords/README.md) a note player.
 
 [Open-XY](docs/builder.md), the browser builder at open-xy.com, lets OP-XY
 owners pick from these machines and download firmware made from their own stock

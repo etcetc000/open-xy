@@ -98,10 +98,16 @@ int ready(const Registry& registry, const Pages& pages, const Record& r, const S
     const u32 id = value(r.id), page = value(r.page);
     if (!ids_valid(registry, pages, id, page) || !owned(record_at(registry, id), r, page)) return 0;
     if (!screen) return 1;  // The engine shows a stock page.
-    if (!*at<const volatile unsigned char>(pages.initialized) || at<char* volatile>(pages.table)[page] != screen->state)
+    return screen_ready(pages, r, *screen);
+}
+
+int screen_ready(const Pages& pages, const Record& r, const Screen& screen) {
+    const u32 page = value(r.page);
+    if (page < 1 || page >= pages.limit) return 0;
+    if (!*at<const volatile unsigned char>(pages.initialized) || at<char* volatile>(pages.table)[page] != screen.state)
         return 0;
-    const volatile u32* object = reinterpret_cast<const volatile u32*>(screen->state);
-    return identity(*screen, page) && object[2] != 0;
+    const volatile u32* object = reinterpret_cast<const volatile u32*>(screen.state);
+    return identity(screen, page) && object[2] != 0;
 }
 
 // Honors inline and heap storage without reading past the length.

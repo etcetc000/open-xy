@@ -70,6 +70,9 @@ int add_screen(const Pages&, const Record&, const Screen&);
 // 1 only while the record (and, given a screen, its loaded page) is ours.
 // Read-only: calls no stock getter, allocator, registrar or resolver.
 int ready(const Registry&, const Pages&, const Record&, const Screen*);
+// 1 while the page slot holds this screen, constructed and with its artwork
+// loaded. Read-only, like ready; only the record's page is used.
+int screen_ready(const Pages&, const Record&, const Screen&);
 // 1 when a stock string holds exactly the record's name.
 int name_matches(const Record&, const StockString*);
 }
@@ -80,6 +83,7 @@ extern "C" {
 int sdk_register_engine(const opxy::platform::Record*) __asm__("sdk_register_engine");
 int sdk_register_effect(const opxy::platform::Record*) __asm__("sdk_register_effect");
 int sdk_register_screen(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_register_screen");
+int sdk_screen_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_screen_ready");
 int sdk_engine_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_engine_ready");
 int sdk_effect_ready(const opxy::platform::Record*) __asm__("sdk_effect_ready");
 int sdk_name_matches(const opxy::platform::Record*, const void* string) __asm__("sdk_name_matches");

@@ -1,12 +1,16 @@
 // Generated: the compositor traversal hook (screen_hooks.s) over the relocated
 // screen slots (tooling/stock_tables.py). sdk_screen_owned is in the
-// collection's startup glue.
+// collection's startup glue; a service that substitutes pages (players.cpp)
+// installs sdk_screen_substitute when its page registers.
 #include "screen_order.hpp"
 
 extern "C" {
 int sdk_screen_owned(opxy::u32) __asm__("sdk_screen_owned");
 opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor*, opxy::u32) __asm__("sdk_screen_next");
+extern opxy::u32 (*sdk_screen_substitute)(opxy::u32) __asm__("sdk_screen_substitute");
 }
+
+opxy::u32 (*sdk_screen_substitute)(opxy::u32) = nullptr;
 
 namespace {
 opxy::platform::ScreenOrder<@PAGE_LIMIT@> order;
@@ -14,5 +18,7 @@ opxy::platform::ScreenOrder<@PAGE_LIMIT@> order;
 
 // selected is the page stock selected for this frame.
 opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor* cursor, opxy::u32 selected) {
-    return order.advance(*cursor, selected, sdk_screen_owned);
+    opxy::u32 (*const substitute)(opxy::u32) = sdk_screen_substitute;
+    return order.advance(*cursor, selected, cursor->page == 0 && substitute ? substitute(selected) : 0,
+                         sdk_screen_owned);
 }

@@ -98,16 +98,18 @@ class PackageVerification(unittest.TestCase):
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
         _, symbols = elf32(self.elf)
+        entry = {'effect': '_fx_factory', 'player': '_player'}
         for m in self.machines:
-            self.assertIn(m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory'), symbols)
+            self.assertIn(m.prefix + entry.get(m.kind, '_factory'), symbols)
         factories = {name for name in symbols if name.endswith('_factory')}
-        self.assertEqual(factories, {m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory')
-                                     for m in self.machines})
+        self.assertEqual(factories, {m.prefix + entry.get(m.kind, '_factory')
+                                     for m in self.machines if m.kind != 'player'})
         original = json.loads(self.catalog)
         current = json.loads((self.package / 'candidate/content/op1_factory.json').read_bytes())
-        names = [m.native_name for m in self.machines if m.kind != 'effect']
-        self.assertEqual(current['engine_types'][:-len(names)], original['engine_types'])
-        self.assertEqual([e['type'] for e in current['engine_types'][-len(names):]], names)
+        for key, kinds in (('engine_types', ('synth', 'sample')), ('fx_types', ('effect',)), ('seq_types', ('player',))):
+            names = [m.native_name for m in self.machines if m.kind in kinds]
+            self.assertEqual(current[key][:len(original[key])], original[key])
+            self.assertEqual([e['type'] for e in current[key][len(original[key]):]], names)
         displays = [m.native_name for m in self.machines if m.display != 'stock']
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}

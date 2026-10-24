@@ -2,9 +2,9 @@
 // to the function it forwards to, so stock calls it with the ordinary C ABI;
 // the press and key hooks arrive through drum_page.s and sample_hooks.s.
 // Machine policy is in the generated sample callbacks.
+#include "keyboard_octaves.hpp"
 #include "sample_machines.hpp"
 #include "stock.hpp"
-#include "barrier.hpp"
 
 extern "C" {
 opxy::u32 sdk_sample_alias(opxy::u32) __asm__("sdk_sample_alias");
@@ -14,10 +14,8 @@ opxy::u32 sdk_sample_press_engine_owned(opxy::u32, opxy::u32) __asm__("sdk_sampl
 opxy::u32 sdk_sample_region_control(opxy::u32, opxy::u32, const opxy::u32*, opxy::u32) __asm__("sdk_sample_region_control");
 opxy::u32 sdk_sample_selected_engine() __asm__("sdk_sample_selected_engine");
 opxy::u32 sdk_sample_live_pitch_kind(opxy::u32) __asm__("sdk_sample_live_pitch_kind");
-opxy::u32 sdk_sample_octave_store(opxy::u32, opxy::i32) __asm__("sdk_sample_octave_store");
 opxy::u32 sdk_sample_key(opxy::u32, opxy::u32) __asm__("sdk_sample_key");
 }
-volatile opxy::i32 sdk_sample_drum_octaves[8];
 
 namespace {
 using opxy::i32;
@@ -34,27 +32,12 @@ u32 publish(u32 key) {
     const u32 zero[3] = {0, 0, 0};
     return region_control(key, 5, zero, 0);
 }
-void publish_octave(u32 track, i32 octave) {
-    if (track >= kTracks) return;
-    sdk_sample_drum_octaves[track] = octave;
-    barrier();
-}
 }
 
 // 8c0b1e76 and the recorder's target selection, release and save completion
 // ask which engine the track uses. Owned sample engines borrow the
 // multisampler's branch; the track keeps its real engine.
 u32 sdk_sample_ui_engine(u32 track) { return sdk_sample_alias(track_engine(track)); }
-
-// 8d58d9ca: after stock clamps the octave, mirror its stored value immediately.
-// SDK IDs use stock's single-octave keyboard spacing. No engine/project getter:
-// this setter also runs while loading a project or preset. A sample lookup may
-// be cached, so it cannot be the only place that publishes octave changes.
-u32 sdk_sample_octave_store(u32 track, i32 octave) {
-    const u32 result = stock<u32(u32, i32)>(0x8d583cc4)(track, octave);
-    publish_octave(track, octave);
-    return result;
-}
 
 // Stock's drum key lookup (through sample_hooks.s): an owned drum page maps
 // the note to its canonical pad with the track octave; the GUI-side lookup has
@@ -63,7 +46,7 @@ u32 sdk_sample_octave_store(u32 track, i32 octave) {
 u32 sdk_sample_key(u32 track, u32 key) {
     if (sample_page(track_engine(track)) != 7) return kNotOwned;
     const i32 octave = stock<i32(u32)>(0x8d58da64)(track);
-    publish_octave(track, octave);
+    sdk_publish_octave(track, octave);
     return stock<u32(u32, i32)>(0x8d5b6800)(key, octave) + 53;
 }
 

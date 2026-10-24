@@ -14,7 +14,7 @@ from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, stock_name, validate_definit
 from .formats import require
 from .pipeline import config
 
-KINDS = ('synth', 'sample', 'effect')
+KINDS = ('synth', 'sample', 'effect', 'player')
 FIELDS = {'schema', 'kind', 'description', 'identity', 'sources', 'includes', 'icon', 'presetDefaults', 'dryParameter'}
 # Builder card glyph: SVG path data in a 46 x 48 box, drawn as a stroke.
 ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
@@ -63,9 +63,17 @@ def check_identity(rules, kind, value):
 
     Engines take a free entry of the relocated table, never the stock "none" value; a
     synth draws its own page above the stock "none" page, a sample engine an ID only
-    the relocated table holds and a stock sample page, an effect a free FX ID on the FX page.
+    the relocated table holds and a stock sample page, an effect a free FX ID on the FX page,
+    a player a type stock does not use, shown on its own relocated page or the stock Maestro page.
     """
     require(isinstance(value, dict), 'machine.json needs an identity')
+    if kind == 'player':
+        require(set(value) in ({'player'}, {'player', 'page'}) and all(type(v) is int for v in value.values()),
+                'Unexpected identity fields')
+        require(value['player'] in rules['players'], 'Players use a type stock leaves unused')
+        require('page' not in value or rules['page_none'] < value['page'] < rules['pages'],
+                'A player with its own page needs a relocated page')
+        return dict(value)
     slot = 'effect' if kind == 'effect' else 'engine'
     require(set(value) == {slot, 'page'}, 'Unexpected identity fields')
     number, page = value[slot], value['page']
@@ -113,11 +121,13 @@ def machine(identity):
         dry_parameter = matches[0]
         require(definition['parameters'][dry_parameter]['mapping'] ==
                 dict(kind='linear', minimum=0, maximum=1), 'dryParameter must map linearly from 0 to 1')
-    # A synth draws its own screen; sample engines and effects use a stock page.
+    # A synth draws its own screen, as may a player; sample engines and effects use a stock page.
     display = definition['resources']['display']['kind'] if kind == 'synth' else 'stock'
+    if kind == 'player' and 'page' in value['identity']:
+        display = 'player'
     # The native plan compiles extra translation units only into synths.
     if kind != 'synth':
-        require(not sources and not includes, 'Sample engines and effects compile one fx.cpp or sample.cpp')
+        require(not sources and not includes, 'Sample engines, effects and players compile one sample.cpp, fx.cpp or player.cpp')
     # Pad settings live in the stock drum page's pad records, whose fade the SDK then owns.
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
         require(value['identity']['page'] == 7, 'Pad settings and drum controls need stock page 7')
@@ -143,7 +153,7 @@ def free_synth_identity():
     rules = config()['identities']
     machines = discovered()
     engines = {m.identity.get('engine') for m in machines}
-    pages = {m.identity['page'] for m in machines}
+    pages = {m.identity['page'] for m in machines if 'page' in m.identity}
     engine = next(n for n in range(1, rules['engines'])
                   if n != rules['engine_none'] and n not in rules['stock_engines'] and n not in engines)
     page = next(p for p in range(rules['page_none'] + 1, rules['pages']) if p not in pages)
@@ -160,8 +170,9 @@ def collection():
     engines = [m.identity['engine'] for m in machines if 'engine' in m.identity]
     effects = [m.identity['effect'] for m in machines if 'effect' in m.identity]
     pages = [m.identity['page'] for m in machines if m.display != 'stock']
-    require(len(set(engines)) == len(engines) and len(set(effects)) == len(effects) and len(set(pages)) == len(pages),
-            'Conflicting engine, effect or page ID')
+    players = [m.identity['player'] for m in machines if 'player' in m.identity]
+    require(len(set(engines)) == len(engines) and len(set(effects)) == len(effects) and len(set(pages)) == len(pages)
+            and len(set(players)) == len(players), 'Conflicting engine, effect, player or page ID')
     check_analysis_budgets(machines)
     return machines
 

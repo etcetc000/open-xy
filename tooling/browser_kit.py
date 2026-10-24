@@ -46,6 +46,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog):
         # An unselected machine's startup and catalog callbacks decline.
         if m.kind == 'effect':
             entry['absent'] = {m.prefix + suffix: 'kit_absent' for suffix in ('_fx_register', '_ready')}
+        elif m.kind == 'player':
+            entry['absent'] = {m.prefix + suffix: 'kit_absent' for suffix in ('_player', '_screen_register')}
         else:
             entry['absent'] = {m.prefix + suffix: 'kit_absent' for suffix in ('_register', '_name_matches', '_ready')}
             if m.display == 'stock':
@@ -53,7 +55,10 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog):
                 entry['absent'].update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
             else:
                 entry['absent'][m.prefix + '_screen_register'] = 'kit_absent'
-        if m.display != 'stock':
+        if m.display == 'player':
+            entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
+            entry['asset'] = m.native_name + '.svg'
+        elif m.display != 'stock':
             entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
             entry['asset'] = m.native_name + '.svg'
             preview_dir = output / ('preview-' + m.id)

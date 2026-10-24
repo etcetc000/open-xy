@@ -61,14 +61,17 @@ class Services(unittest.TestCase):
         from tooling.machines import discovered
         profile = config()
         self.assertEqual(active_services(profile, ['synth', 'effect']), set())
-        self.assertEqual(active_services(profile, ['sample']), {'samples'})
+        self.assertEqual(active_services(profile, ['sample']), {'samples', 'octaves'})
+        self.assertEqual(active_services(profile, ['player']), {'players', 'octaves'})
         machines = discovered()  # every machine folder, whatever the collection selects
-        self.assertTrue(any(m.kind == 'sample' for m in machines))
+        self.assertTrue(any(m.kind == 'sample' for m in machines) and any(m.kind == 'player' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection) if m is None]
         self.assertEqual(steps(machines), list(native.SDK_UNITS))  # full collections keep the link order
-        without = [m for m in machines if m.kind != 'sample']
+        without = [m for m in machines if m.kind not in ('sample', 'player')]
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
-        self.assertEqual(set(native.object_services(machines).values()), {'samples'})
+        players = [m for m in machines if m.kind != 'sample']
+        self.assertEqual(steps(players), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) != 'samples'])
+        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'players', 'octaves'})
         self.assertEqual(native.object_services(without), {})
 
     def test_only_a_service_edit_may_stay_stock(self):
@@ -92,7 +95,7 @@ class SourceContracts(unittest.TestCase):
 
     def test_profile_is_authenticated(self):
         original = pipeline.read
-        changed = original(ROOT / pipeline.PROFILE).replace(b'"table_bytes": 4096', b'"table_bytes": 8192')
+        changed = original(ROOT / pipeline.PROFILE).replace(b'"table_bytes": 8192', b'"table_bytes": 4096')
         with mock.patch.object(pipeline, 'read', side_effect=lambda path: changed if Path(path).name.endswith(
                 '.json') else original(path)), self.assertRaisesRegex(ValueError, 'profile changed'):
             config()

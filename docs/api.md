@@ -34,9 +34,9 @@ The [firmware contract](abi-1.2.0.md) explains where each rule comes from.
 
 ## Memory and limits
 
-Every selected machine and the SDK share **one 2044 KiB module region**: code,
+Every selected machine and the SDK share **one 2040 KiB module region**: code,
 constant data and zero-initialized state together. It is the 2 MiB the
-firmware reserves from its heap, minus 4 KiB of relocated stock tables. There
+firmware reserves from its heap, minus 8 KiB of relocated stock tables. There
 is no per-machine allowance: a build that does not fit names each machine's
 share, and `sdk.py compile` and the builder's memory meter report the same
 figures. State usually dominates, since a synth's voice pool is
@@ -44,7 +44,7 @@ figures. State usually dominates, since a synth's voice pool is
 
 | Limit | Value | Why |
 | --- | --- | --- |
-| Module memory | 2044 KiB for the whole collection | Firmware heap reservation minus the relocated tables |
+| Module memory | 2040 KiB for the whole collection | Firmware heap reservation minus the relocated tables |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
 | Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |
@@ -325,6 +325,53 @@ Dry zero removes the source dry and Dry one retains it; at zero send, dry stays
 unchanged. Do not add clean audio inside `process` to implement this control.
 Without `dryParameter`, the adapter returns unity to preserve the source dry.
 
+## Players
+
+[player.hpp](../sdk/include/opxy/player.hpp) defines the note-player
+interface. A player transforms the notes a track receives, live or from the
+sequencer, before its instrument plays them. It supplies `player.cpp` with
+these functions in its namespace:
+
+```cpp
+struct State { ... };
+bool press(State& state, const opxy::player::Controls& controls, opxy::u32 note,
+           opxy::u32 velocity, opxy::player::Plan& plan);
+bool release(State& state, opxy::u32 note);
+```
+
+`press` either takes the key, filling `plan` with up to eight tones (pitch,
+velocity and a delay in player steps), or returns false so the instrument
+plays the note unchanged. A plan may be empty: a key taken as a control
+sounds nothing. When the key is released, every tone of its plan is released
+together. `release` returns true for a key `press` took without sounding, and
+false otherwise. `controls` holds the page's four encoders as Q31 0..1;
+encoder 1 moves in 64 steps, encoder 2 in four, encoder 3 continuously and
+encoder 4 between off and on.
+
+Calls are serialized and run with the sequencer, so they must be bounded and
+allocation-free. `State` is at most `opxy::player::state_bytes` (2048) with
+alignment at most 4, starts zeroed when the player is selected and holds no
+resources. A player declares one to four controls and has no browser preview.
+Put musical vectors in `machines/<id>/tests/*.cpp`; `sdk.py check` compiles and
+runs each for the host.
+
+Without a page of its own a player shows the stock Maestro page. With a `page`
+in its identity it draws its own, which replaces the Maestro page whenever the
+selected track plays it. Its `panel.svg.fragment` holds 24 dots
+(`<name>_dot_0`..`<name>_dot_23`, filled and stroked, each placed with
+`transform="matrix(1 0 0 1 x y)"`) and one text line (`<name>_text`, placed the
+same way) below the stock four-control header. The player supplies:
+
+```cpp
+void display(const State& state, const opxy::player::Controls& controls,
+             opxy::player::Display& display);
+```
+
+`display.lit` shows dot `k` when bit `k` is set; `display.text` replaces and
+centres the line; `display.values` are the header's four values under the
+definition's labels. It runs on the GUI side once per frame and may read State
+while the sequencer changes it.
+
 ## Registration boundary
 
 A machine's folder name is its stock name: the engine type the device lists,
@@ -339,9 +386,9 @@ namespace. It is a lowercase letter followed by letters, digits or `_`, at most
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `kind` | `synth`, `sample` or `effect` |
+| `kind` | `synth`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
-| `identity` | `{"engine": n, "page": p}`, or `{"effect": n, "page": 21}` for an effect; see below |
+| `identity` | `{"engine": n, "page": p}`, `{"effect": n, "page": 21}` for an effect or `{"player": n}`, optionally with `"page"`, for a player; see below |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
@@ -355,9 +402,11 @@ source dry mixer, as described under [effects](#effects).
 | --- | --- | --- |
 | `synth` | 1..62, except the stock sentinel 33 and the IDs stock registers (2–4, 6, 7, 18–20, 22, 29–32) | Its own screen: 82..127 |
 | `sample` | 34..62 | Stock sample page 2 or 7; `padSettings` requires 7 |
-| `effect` | A free stock FX ID: 1–4, 6–8 or 11 | Stock FX page 21 |
+| `effect` | 1–4, 6–8, 11 or 20..62 | Stock FX page 21 |
+| `player` | 6..31, a player type stock never uses | Optional own page: 82..127; else the stock Maestro page |
 
-IDs above 32 and pages above 81 exist only in the relocated stock tables.
+Engine IDs above 32, effect IDs above 18 and pages above 81 exist only in the
+relocated stock tables.
 Names and IDs are part of saved presets and projects, so they never change once
 published. The SDK also rejects conflicts within the collection. Generated
 adapters check record/name ownership and screen readiness before catalog

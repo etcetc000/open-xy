@@ -62,7 +62,8 @@ test('declared callbacks of unselected machines resolve to fallbacks only for SD
 test('SDK objects of a profile service link only when a selected machine uses it', () => {
   const k=fixture();
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'effect'}])],[]);
-  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])],['samples']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])].sort(),['octaves','samples']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'player'}])].sort(),['octaves','players']);
   // The service object redefines `entry`, so linking it would be a duplicate global.
   k.objects.push({...k.objects[0],name:'service.o',owner:null,service:'samples'});
   const linked=linkKit(k,['a']);

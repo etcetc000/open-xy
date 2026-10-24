@@ -146,7 +146,7 @@ async function inspect(id) {
   stopPreview();
   const ticket = ++previewRevision;
   inspected = id; const m = kit.machines.find(x => x.id === id);
-  $('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', sample: 'Sample engine'}[m.kind];
+  $('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', sample: 'Sample engine', player: 'Note player'}[m.kind];
   $('detail-name').textContent = m.name; $('detail-description').textContent = m.description;
   $('art-preview').replaceChildren();
   $('audition-controls').replaceChildren();
@@ -161,7 +161,8 @@ async function inspect(id) {
   const own = kit.objects.filter(o => o.owner === id).flatMap(o => o.sections.filter(s => s.group));
   facts($('machine-facts'), {'Code and data': kib(own.filter(s => s.type !== 8).reduce((n, s) => n + s.size, 0)),
     'Working memory': kib(own.filter(s => s.type === 8).reduce((n, s) => n + s.size, 0)),
-    [m.kind === 'effect' ? 'Effect ID' : 'Engine ID']: m.identity.effect ?? m.identity.engine, 'Page': m.identity.page});
+    ...(m.kind === 'player' ? {'Player type': m.identity.player, 'Page': m.identity.page ?? 'Stock Maestro page'} :
+      {[m.kind === 'effect' ? 'Effect ID' : 'Engine ID']: m.identity.effect ?? m.identity.engine, 'Page': m.identity.page})});
   document.querySelectorAll('.machine button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
   if (m.preview) {
     try {

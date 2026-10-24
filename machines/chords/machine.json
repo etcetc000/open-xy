@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "kind": "player",
+  "description": "Chords from one key: hold chord types and extensions on the upper octave, play roots below.",
+  "identity": {
+    "player": 6,
+    "page": 84
+  }
+}
