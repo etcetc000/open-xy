@@ -30,9 +30,13 @@ def notices(machines):
 
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
     profile, machines, definitions = native.configuration(native.package_collection(package))
-    # A published kit holds reviewed machines only; a personal kit may hold any folder.
-    require(personal or all(m.bundled for m in machines),
-            'A published kit holds the bundled machines; build folders elsewhere into a --personal kit')
+    # A published kit holds reviewed machines only: bundled ones, and catalog machines
+    # fetched at their pinned commits. A personal kit may hold any folder.
+    from .catalog import load, pinned
+    sources = {e['id']: e for e in load() if e['status'] == 'published'}
+    require(personal or all(m.bundled or pinned(m) for m in machines),
+            'A published kit holds the bundled machines and catalog machines at their pinned commits '
+            '(sdk.py catalog fetch); build other folders into a --personal kit')
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     owners, services = native.object_owners(machines, profile), native.object_services(machines, profile)
     kit_machines = []
@@ -41,6 +45,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                      identity=m.identity, controls=[p['label'] for p in m.definition['parameters']],
                      positions=control_positions(m.definition))
         entry['catalog'] = catalog_entry(m)
+        if not m.bundled and m.id in sources and pinned(m):
+            # Where a catalog machine comes from, for the builder to show.
+            entry['source'] = {key: sources[m.id][key] for key in ('repository', 'tag', 'commit', 'maintainer')}
         entry['presetDefaults'] = m.preset_defaults
         if m.icon:
             entry['icon'] = m.icon
@@ -164,6 +171,7 @@ def main(argv=None):
     parser.add_argument('--toolchain', help='pinned binutils directory (default: local/toolchain/bin)')
     parser.add_argument('--compiler', help='pinned Blackfin GCC bundle root (default: local/toolchain)')
     parser.add_argument('--preview-cxx', default='clang++', help='Clang++ with wasm32/wasm-ld')
+    parser.add_argument('--host-cxx', default='g++', help='host C++11 compiler for the release fixtures')
     parser.add_argument('--personal', action='store_true',
                         help='a kit for your own collection on any pinned host, without release verification')
     native.add_collection_arguments(parser)
@@ -183,8 +191,8 @@ def main(argv=None):
         for name in ('toolchain', 'compiler', 'stock_os', 'stock_content'):
             options += ['--' + name.replace('_', '-'), str(Path(getattr(args, name)).resolve())]
         if not args.personal:  # independent rebuild against the reference bytes
-            subprocess.run([sys.executable, str(ROOT / 'sdk.py'), 'check', '--native-package', str(package), *options],
-                           cwd=ROOT, check=True)
+            subprocess.run([sys.executable, str(ROOT / 'sdk.py'), 'check', '--native-package', str(package), *options,
+                            '--host-cxx', args.host_cxx], cwd=ROOT, check=True)
         export(package, out, tool_paths(args.toolchain), args.preview_cxx,
                stock_catalog=read(Path(args.stock_content) / 'op1_factory.json'), personal=args.personal)
         # Validate firmware and content output against the independent Python writer.
