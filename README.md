@@ -12,6 +12,15 @@ Braids, are synths; [Ring Mod](machines/ringmod/README.md) is a send effect and
 owners pick from these machines and download firmware made from their own stock
 `os.ldr`, without installing anything.
 
+Firmware builds also keep a live-note ghost pattern for the selected instrument
+track. Double-tap Record to insert the performance at its original loop
+positions; **captured** confirms insertion. Stop preserves a partial take, while
+starting playback again clears it. Changing tracks, patterns, projects, track
+length, scale or quantization clears the ghost pattern. Notes survive loop wraps
+and silence; later playing replaces nearby same-pitch notes as in stock recording.
+It holds up to 120 notes, with stock collision and pattern-capacity limits. The
+first Record tap snapshots the take; the second confirms capture.
+
 This is an unofficial, experimental SDK. A build statically links a curated
 collection of machines into exact stock OS 1.2.0; arbitrary engine installation
 and dynamic loading are not implemented. Native code is not sandboxed, and

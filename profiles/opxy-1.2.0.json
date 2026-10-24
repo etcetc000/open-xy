@@ -599,6 +599,69 @@
       "call": true
     },
     {
+      "kind": "hook",
+      "address": "0x8c0bb698",
+      "file_offset": "0xf2a58",
+      "length": 8,
+      "before": "00de598df0690000",
+      "symbol": "sdk_capture_loop",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b6ce4",
+      "file_offset": "0xee0a4",
+      "length": 12,
+      "before": "ffe3eafd00da020830400000",
+      "symbol": "sdk_capture_queued_event",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59269e",
+      "file_offset": "0x1c9a7a",
+      "length": 4,
+      "before": "00e3e909",
+      "symbol": "sdk_capture_note_on",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d592532",
+      "file_offset": "0x1c990e",
+      "length": 4,
+      "before": "00e31309",
+      "symbol": "sdk_capture_note_off",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5964d4",
+      "file_offset": "0x1cd8b0",
+      "length": 4,
+      "before": "ffe31fc5",
+      "symbol": "sdk_capture_tick",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5960f0",
+      "file_offset": "0x1cd4cc",
+      "length": 4,
+      "before": "ffe33ece",
+      "symbol": "sdk_capture_stop",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d593b7c",
+      "file_offset": "0x1caf58",
+      "length": 4,
+      "before": "01e3a811",
+      "symbol": "sdk_capture_accepted",
+      "call": true
+    },
+    {
       "kind": "startup",
       "name": "Boot-screen version label",
       "address": "0x8c0b9114",

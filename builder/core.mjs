@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = 'fb2e68b15a1a8a177dd5308d5d89d584c837903ba89d043bd011d263f0321d2c';
+export const PROFILE_SHA256 = '3224bc7405e6c80cfdb18e37e32fb4ea268603d1bad7e3585a446c4dd105280b';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -286,9 +286,11 @@ export function redirect(edit, destination) {
     return words(0xdc00, destination >>> 16, destination & 0xffff, 0, 0);
   }
   check(edit.kind === 'hook' && typeof edit.call === 'boolean', 'Not a hook');
-  if (edit.length === 8) {
-    check(edit.call, 'Eight-byte hook must be a call');
-    return words(0xde00, destination >>> 16, destination & 0xffff, 0);
+  if (edit.length === 8 || edit.length === 12) {
+    check(edit.call, 'Wide hook must be a call');
+    const after = new Uint8Array(edit.length);
+    after.set(words(0xde00, destination >>> 16, destination & 0xffff, 0));
+    return after;
   }
   const delta = destination - Number(edit.address);
   check([4, 6].includes(edit.length) && delta % 2 === 0 && delta >= -(2 ** 24) && delta < 2 ** 24, 'Hook branch out of range');
