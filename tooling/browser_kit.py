@@ -21,17 +21,18 @@ from . import native, preview, screen
 
 def notices(machines):
     texts = ['OP-XY SDK modules\n\n' + read(ROOT / 'LICENSE').decode('utf-8')]
-    for machine in machines:
-        license_file = child(ROOT / 'machines', machine['id']) / 'vendor/LICENSE'
+    for m in machines:
+        license_file = child(m.root, 'vendor/LICENSE')
         if license_file.is_file():
-            texts.append(machine['name'] + '\n\n' + read(license_file).decode('utf-8'))
+            texts.append(m.name + '\n\n' + read(license_file).decode('utf-8'))
     return '\n\n'.join(texts)
 
 
-def export(package, output, tools, preview_cxx='clang++', *, stock_catalog):
-    recipe = json.loads(read(ROOT / 'profiles/collection.json'))
-    profile, machines, definitions = native.configuration()
-    require(recipe['schema'] == 1, 'Unsupported collection')
+def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
+    profile, machines, definitions = native.configuration(native.package_collection(package))
+    # A published kit holds reviewed machines only; a personal kit may hold any folder.
+    require(personal or all(m.bundled for m in machines),
+            'A published kit holds the bundled machines; build folders elsewhere into a --personal kit')
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     owners, services = native.object_owners(machines, profile), native.object_services(machines, profile)
     kit_machines = []
@@ -57,7 +58,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog):
             entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
             entry['asset'] = m.native_name + '.svg'
             preview_dir = output / ('preview-' + m.id)
-            preview.build(preview_cxx, m.id, preview_dir)
+            preview.build(preview_cxx, m, preview_dir)
             preview.preview_bundle(preview_dir, require_reference=True)
             wasm = read(preview_dir / 'engine.wasm')
             entry['preview'] = dict(wasm=base64.b64encode(wasm).decode('ascii'), sha256=sha(wasm),
@@ -79,7 +80,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog):
         objects.append(entry)
     kit = dict(format='opxy-browser-kit/1', profile=profile,
                profileSource=base64.b64encode(read(ROOT / ('profiles/' + profile['id'] + '.json'))).decode('ascii'),
-               definitions=definitions, machines=kit_machines, objects=objects, notices=notices(kit_machines),
+               definitions=definitions, machines=kit_machines, objects=objects, notices=notices(machines),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
     kit_path = output / 'kit.json'
@@ -165,6 +166,7 @@ def main(argv=None):
     parser.add_argument('--preview-cxx', default='clang++', help='Clang++ with wasm32/wasm-ld')
     parser.add_argument('--personal', action='store_true',
                         help='a kit for your own collection on any pinned host, without release verification')
+    native.add_collection_arguments(parser)
     args = parser.parse_args(argv)
     try:
         if not args.personal:
@@ -176,7 +178,7 @@ def main(argv=None):
     try:
         package = out / 'source'
         native.build(package, Path(args.toolchain), Path(args.compiler),
-                     Path(args.stock_os), Path(args.stock_content))
+                     Path(args.stock_os), Path(args.stock_content), native.selected_collection(args))
         options = []
         for name in ('toolchain', 'compiler', 'stock_os', 'stock_content'):
             options += ['--' + name.replace('_', '-'), str(Path(getattr(args, name)).resolve())]
@@ -184,7 +186,7 @@ def main(argv=None):
             subprocess.run([sys.executable, str(ROOT / 'sdk.py'), 'check', '--native-package', str(package), *options],
                            cwd=ROOT, check=True)
         export(package, out, tool_paths(args.toolchain), args.preview_cxx,
-               stock_catalog=read(Path(args.stock_content) / 'op1_factory.json'))
+               stock_catalog=read(Path(args.stock_content) / 'op1_factory.json'), personal=args.personal)
         # Validate firmware and content output against the independent Python writer.
         for mode in ([], ['-O']):
             subprocess.run([sys.executable, *mode, str(ROOT / 'tools/check_browser_firmware.py'), str(out),

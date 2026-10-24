@@ -49,7 +49,7 @@ class PackageVerification(unittest.TestCase):
         cls.module = read(cls.package / 'analysis/module.bin')
         cls.report = document(cls.package / 'analysis/compile-report.json')
         cls.elf = read(cls.package / 'analysis/module.elf')
-        cls.patch_profile, cls.machines, _definitions = native.configuration()
+        cls.patch_profile, cls.machines, _definitions = native.configuration(native.package_collection(cls.package))
         cls.patch_profile['patches'] = cls.report['patches']
 
     def setUp(self):

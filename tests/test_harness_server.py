@@ -24,7 +24,7 @@ class HarnessServerTests(unittest.TestCase):
     def preview_fixture(self, directory):
         module = b'\0asm\x01\0\0\0'
         definition = json.loads((SOURCE / 'definition.json').read_text(encoding='utf-8'))
-        manifest = dict(schema=1, kind='cpp-browser-preview', engine='fm2op', description=FM.description,
+        manifest = dict(schema=1, kind='cpp-browser-preview', engine='fm2op', root=None, description=FM.description,
                         definition=definition, sample_rate=44100,
                         wasm_sha256=sha(module), sources=source_hashes(), compiler={}, graphics=graphics_metadata())
         (directory / 'engine.wasm').write_bytes(module)

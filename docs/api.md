@@ -326,9 +326,9 @@ Without `dryParameter`, the adapter returns unity to preserve the source dry.
 
 ## Registration boundary
 
-A machine's folder name is its stock name: the engine type the device lists,
-its catalog and preset entries, its screen file, its symbol prefix and its C++
-namespace. It is a lowercase letter followed by letters, digits or `_`, at most
+A machine's ID (`definition.json`'s `id`, and the folder name of a bundled
+machine) is its stock name: the engine type the device lists, its catalog and
+preset entries, its screen file, its symbol prefix and its C++ namespace. It is a lowercase letter followed by letters, digits or `_`, at most
 15 characters. It may not be a stock engine or effect type, a C++ keyword,
 `opxy` or `std`, or start with a reserved prefix (`extensions`, `sdk`, `kit`,
 `stock`, `local`).
@@ -338,6 +338,7 @@ namespace. It is a lowercase letter followed by letters, digits or `_`, at most
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.0 and builds 1.0 machines |
 | `kind` | `synth`, `sample` or `effect` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `identity` | `{"engine": n, "page": p}`, or `{"effect": n, "page": 21}` for an effect; see below |

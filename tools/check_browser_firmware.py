@@ -12,6 +12,7 @@ from tooling.formats import elf32, ldr, mapped_offset, require, sha
 from tooling import screen, startup_label
 from tooling.adapters import catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
+from tooling.native import configuration, package_collection
 
 
 def check_startup_label(module, symbols, base):
@@ -40,6 +41,8 @@ def main():
     directory, stock_file, content = map(lambda p: Path(p).resolve(), sys.argv[1:])
     subprocess.run(['node', str(ROOT / 'tools/check_browser_firmware.mjs'), str(directory), str(stock_file), str(content)], check=True)
     kit = json.loads((directory / 'kit.json').read_text(encoding='utf-8'))
+    # Definitions of the machines the kit was built from, wherever they live.
+    definitions = {m.id: m.definition for m in configuration(package_collection(directory / 'source'))[1]}
     stock = stock_file.read_bytes()
     require(sha(stock) == kit['profile']['stock_sha256'], 'Unexpected stock input')
     # 0x8c0c88bc measures the text using this stock width table, adding
@@ -93,7 +96,7 @@ def main():
                 name = 'content/presets/' + machine['id'] + '/default.json'
                 data = (prefix / name).read_bytes()
                 preset = json.loads(data)
-                definition = json.loads((ROOT / 'machines' / machine['id'] / 'definition.json').read_bytes())
+                definition = definitions[machine['id']]
                 defaults = catalog_defaults(definition)
                 entry = json.loads(machine['catalog'].strip().lstrip(','))
                 require(preset['type'] == entry['type'] and preset['platform'] == 'OP-XY' and
