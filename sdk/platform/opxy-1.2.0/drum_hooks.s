@@ -76,6 +76,18 @@ extensions_drum_export_gain:
     RTS;
 .size extensions_drum_export_gain, .-extensions_drum_export_gain
 
+/* 8d587560: project load's track check, R1 is already the constant 4. Stock
+ * resets a Drumline track's eight parameters to neutral offsets there; a kit
+ * that missed it kept whatever load left, zero, so every value lost 64. */
+.global extensions_drum_load_parameters
+.type extensions_drum_load_parameters, STT_FUNC
+extensions_drum_load_parameters:
+    R0 = [P1 + 0x18];
+    DRUM_ALIAS_R0
+    CC = R0 == R1;
+    RTS;
+.size extensions_drum_load_parameters, .-extensions_drum_load_parameters
+
 /* 8d593d84: note start's Drumline test (R2 = 4; CC = R0 == R2). Only that
  * branch finds the played pad's region and packs its index into the note;
  * otherwise every voice renders pad index 0. R0 keeps the real engine, which

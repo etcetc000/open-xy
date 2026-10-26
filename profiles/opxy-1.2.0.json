@@ -1129,6 +1129,16 @@
     },
     {
       "kind": "hook",
+      "address": "0x8d587560",
+      "file_offset": "0x1be93c",
+      "length": 4,
+      "before": "88a10808",
+      "symbol": "extensions_drum_load_parameters",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8c0b1fb6",
       "file_offset": "0xe9376",
       "length": 8,

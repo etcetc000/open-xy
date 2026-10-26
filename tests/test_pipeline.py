@@ -201,6 +201,17 @@ class DrumNoteStart(unittest.TestCase):
         stub = (ROOT / 'sdk/platform/opxy-1.2.0/drum_hooks.s').read_text()
         self.assertIn('extensions_drum_note_region:', stub)
 
+    def test_project_load_gives_owned_kits_neutral_track_offsets(self):
+        # Stock neutralizes a loaded Drumline track's parameters; a kit that
+        # skips it keeps zero, and every note decodes 64 below its values.
+        hooks = [p for p in config()['patches'] if p.get('address') == '0x8d587560']
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0]['symbol'], 'extensions_drum_load_parameters')
+        self.assertEqual(hooks[0]['service'], 'drums')
+        self.assertEqual(hooks[0]['before'], '88a10808')  # R0 = [P1 + 0x18]; CC = R0 == R1
+        stub = (ROOT / 'sdk/platform/opxy-1.2.0/drum_hooks.s').read_text()
+        self.assertIn('extensions_drum_load_parameters:', stub)
+
 
 if __name__ == '__main__':
     unittest.main()
