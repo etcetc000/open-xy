@@ -189,5 +189,18 @@ class SourceContracts(unittest.TestCase):
             pipeline.require_release_host()
 
 
+class DrumNoteStart(unittest.TestCase):
+    def test_note_start_packs_the_played_pad_for_owned_kits(self):
+        # Without this alias the note word carries pad index 0, so every key
+        # renders the first pad's stored values.
+        hooks = [p for p in config()['patches'] if p.get('address') == '0x8d593d84']
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0]['symbol'], 'extensions_drum_note_region')
+        self.assertEqual(hooks[0]['service'], 'drums')
+        self.assertEqual(hooks[0]['before'], '22601008')  # R2 = 4; CC = R0 == R2
+        stub = (ROOT / 'sdk/platform/opxy-1.2.0/drum_hooks.s').read_text()
+        self.assertIn('extensions_drum_note_region:', stub)
+
+
 if __name__ == '__main__':
     unittest.main()

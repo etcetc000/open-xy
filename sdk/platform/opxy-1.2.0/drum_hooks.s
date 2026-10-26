@@ -76,6 +76,23 @@ extensions_drum_export_gain:
     RTS;
 .size extensions_drum_export_gain, .-extensions_drum_export_gain
 
+/* 8d593d84: note start's Drumline test (R2 = 4; CC = R0 == R2). Only that
+ * branch finds the played pad's region and packs its index into the note;
+ * otherwise every voice renders pad index 0. R0 keeps the real engine, which
+ * the region router receives next. */
+.global extensions_drum_note_region
+.type extensions_drum_note_region, STT_FUNC
+extensions_drum_note_region:
+    HOOK_SAVE
+    CALL sdk_drum_alias;
+    [SP + 20] = R0;
+    HOOK_RESTORE
+    R2 += -4;
+    CC = R2 == 0;
+    R2 = 4;
+    RTS;
+.size extensions_drum_note_region, .-extensions_drum_note_region
+
 /* 8d58792e: local engine classification in the 24-region key lookup. Save
  * the aliased value into the saved R3 while preserving the track pointer R0,
  * index R1, and CC from stock's preceding key==0 test. */

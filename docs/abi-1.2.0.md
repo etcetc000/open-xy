@@ -382,8 +382,12 @@ inside the effect. See the [effect API](api.md#effects).
 
 An owned `drum` registration uses flag 1, its own engine ID and drawing page.
 The SDK aliases only the local Drumline classification branches to engine 4;
-stock and occupied registrations retain their behavior. Ten exact hooks cover
-the drum predicate, region lookup, editor dispatch and preset import/export.
+stock and occupied registrations retain their behavior. Eleven exact hooks cover
+the drum predicate, region lookup, note start, editor dispatch and preset
+import/export. Note start tests for Drumline at `8d593d84`; only that branch
+finds the played pad's region and packs its index into bits 16..23 of the note
+word, which `8d519c30` stores in voice `+0x5c` and the constructor turns into
+the region pointer at `+0x10`. Without the alias every note carries index 0.
 The shared sample note hook selects the Drumline payload only for owned kits.
 Drum classification checks exact engine-record ownership without requiring a
 GUI screen: the audio role registers engines but does not construct their pages.
