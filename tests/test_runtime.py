@@ -102,9 +102,12 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Unsupported runtime section'):
                 runtime.normalize_member(object_bytes(section=section, flags=flags))
 
-    def test_symbols_reject_weak_common_and_bad_names(self):
+    def test_symbols_accept_weak_and_reject_other_bindings_common_and_bad_names(self):
         original = object_bytes(['entry'])
-        for at, fmt, value in [(84, 'B', 0x22), (86, 'H', 0xfff2), (72, 'I', 0xffffffff)]:
+        weak = bytearray(original)
+        struct.pack_into('<B', weak, 84, 0x22)   # inline C++ functions and template statics
+        self.assertIn('entry', runtime.symbols(weak)[0])
+        for at, fmt, value in [(84, 'B', 0x32), (86, 'H', 0xfff2), (72, 'I', 0xffffffff)]:
             data = bytearray(original)
             struct.pack_into('<' + fmt, data, at, value)
             with self.assertRaises(ValueError):

@@ -96,7 +96,7 @@ def symbols(data):
         require(end >= offset, 'Unterminated object symbol')
         if not info >> 4 or info & 15 == 4:
             continue
-        require(info >> 4 == 1, 'Weak object symbols are unsupported')
+        require(info >> 4 in (1, 2), 'Unsupported object symbol binding')
         name = text[offset:end].decode('ascii')
         if name:
             (defined if section else undefined).add(name)
