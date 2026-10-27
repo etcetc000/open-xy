@@ -124,6 +124,10 @@ int main() {
     sdk_drum_edit(53, 5, none, 0);
     require(publications == 3 && drum_marked(record[24]) && (record[24] >> 4) == 1);
     require(!std::strcmp(sdk_drum_choke(0), "NONE"));
+    // Shift and the third and fourth encoders turn nothing.
+    sdk_drum_edit(53, 6, event, 0);
+    sdk_drum_edit(53, 7, event, 0);
+    require(publications == 3);
     require(drum_unpack(regions[0] + 1, &model, raw) && raw[5] == 28 && raw[1] == 21 && model == 0);
     require(regions[0][0] == 123456 && regions[0][5] == 987654 && record[26] == 53);
     sdk_synth_turn(0, 0, 5, 0);

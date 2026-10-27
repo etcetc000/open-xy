@@ -37,10 +37,12 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         if (next >= static_cast<i32>(machine->model_count)) next = static_cast<i32>(machine->model_count) - 1;
         if (next == model) return 0;
         model = static_cast<u8>(next);
+    } else if (control >= page_controls) {
+        // Stock maps Shift's third and fourth encoders to indices 6 and 7:
+        // their cells name the choke group, so they turn nothing.
+        return 0;
     } else {
-        // Stock maps Shift's third and fourth encoders to indices 6 and 7;
-        // they edit the shown control, whose discrete steps are already one
-        // unit a detent.
+        // The encoders' discrete steps are already one unit a detent.
         u8 shown[page_controls];
         sdk_synth_shown(track, shown);
         const u32 slot = shown[control % page_controls];

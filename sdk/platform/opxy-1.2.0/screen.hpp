@@ -141,6 +141,7 @@ struct Controls {
     i32 values[page_controls];
     i32 slots[parameter_slots];
     u32 model;   // a drum kit's selected key's model; 0 otherwise
+    bool choosing;   // a drum kit's Shift page: the cells name the model and choke group
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -177,6 +178,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     const Parameters view = {0, static_cast<u32>(reinterpret_cast<platform::Address>(words)),
                              static_cast<u32>(reinterpret_cast<platform::Address>(words + parameter_slots))};
     controls.valid = read_shown(stock_vector, controls, words);
+    controls.choosing = false;
     u8 model = 0, drum_values[8];
     const platform::DrumMachine* drum = controls.track < 8
         ? sdk_drum_machine(platform::track_engine(controls.track)) : nullptr;
@@ -210,6 +212,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
         // the titles then, so the cells read MACHINE, the model, CHOKE and
         // the group.
         const bool choosing = drum && platform::shift_held();
+        controls.choosing = choosing;
         const char* const shifted[page_controls] = {
             "MACHINE", choosing ? drum->model_name(model) : "", "CHOKE", choosing ? sdk_drum_choke(controls.track) : ""};
         for (u32 i = 0; i < page_controls; ++i) {

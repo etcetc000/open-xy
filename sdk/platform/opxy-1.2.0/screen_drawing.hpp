@@ -119,9 +119,10 @@ template <class Machine> struct Drawing {
         for (u32 p = 0; p < path_count; ++p) apply_path(o, p);
         for (u32 i = 0; i < node_count; ++i) apply_node(o, i);
         for (u32 i = 0; i < text_count; ++i) apply_text(o, i);
-        // Stock wrote every value this frame; a header string replaces its own.
+        // Stock wrote every value this frame; a header string replaces its
+        // own, except on a drum kit's Shift page, whose values stay blank.
         for (u32 i = 0; i < page_controls; ++i)
-            if (display_frame.header[i][0])
+            if (!controls.choosing && display_frame.header[i][0])
                 if (Leaf* value = text_node(o->base.values[i])) set_text(value, display_frame.header[i]);
     }
 
