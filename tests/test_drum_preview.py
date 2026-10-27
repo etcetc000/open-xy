@@ -21,8 +21,7 @@ class DrumPreviewTests(unittest.TestCase):
                 parameter['label'] = 'Alt ' + str(control)
                 parameter['control'] = control
                 definition['parameters'].append(parameter)
-            definition['resources'].update(modelCount=30, sharedBytes=700000)
-            definition['parameters'][0].update(mapping=dict(kind='enum', labels=[str(i) for i in range(30)]), display='enum')
+            definition['resources'].update(modelCount=12, sharedBytes=700000)
         return definition
 
     def test_drum_adapters_validate_model_count_without_changing_synth_defaults(self):
@@ -32,21 +31,20 @@ class DrumPreviewTests(unittest.TestCase):
             adapters.generate_voice_preview(root, definition, kind='drum')
             adapters.generate_display(root, definition=definition, kind='drum')
             self.assertIn('700000', (root / 'voice_preview.cpp').read_text())
-            definition['resources']['modelCount'] = 129
-            with self.assertRaisesRegex(ValueError, '2..128'):
+            definition['resources']['modelCount'] = 17
+            with self.assertRaisesRegex(ValueError, '2..16'):
                 adapters.generate_voice_preview(root, definition, kind='drum')
             with self.assertRaises(ValueError):
                 adapters.generate_display(root, definition=definition, kind='drum')
             adapters.generate_voice_preview(root, self.definition('synth'))
 
-    def test_drum_requires_one_model_selector_and_two_functions_per_encoder(self):
+    def test_drum_requires_a_storable_model_count_and_two_functions_per_encoder(self):
         from tooling.definitions import validate_definition
-        for mutation in ('count', 'selector', 'alternate'):
+        validate_definition(self.definition('drum'), 'drum')
+        for mutation in ('count', 'alternate'):
             definition = self.definition('drum')
             if mutation == 'count':
-                definition['resources']['modelCount'] = 29
-            elif mutation == 'selector':
-                definition['parameters'][0].update(mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')
+                definition['resources']['modelCount'] = 1
             else:
                 definition['parameters'][4]['control'] = definition['parameters'][5]['control']
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):

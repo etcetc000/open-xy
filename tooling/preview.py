@@ -15,7 +15,8 @@ from .pipeline import NO_WINDOW, fresh_output
 
 VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment', 'opxy_parameter_count',
                  'opxy_block_frames', 'opxy_sample_rate', 'opxy_output_peak_q31', 'opxy_voice_capacity',
-                 'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_destroy', 'opxy_render', '__heap_base')
+                 'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_destroy', 'opxy_render', 'opxy_preview_model',
+                 '__heap_base')
 DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
                                                             'input', 'frame', 'reset', 'render', 'valid'))
 MANIFEST_LIMIT = 65536

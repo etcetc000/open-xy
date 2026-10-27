@@ -10,6 +10,8 @@ static_assert(@SHARED_BYTES@ == 0 ? __is_empty(Shared) : sizeof(Shared) == @SHAR
 static Voice voices[8];
 static Shared shared;
 static opxy::u32 owner(Voice* voice) { return static_cast<opxy::u32>(voice - voices) + 1; }
+// A drum kit's previewed model (the harness's Shift + 1); unused by synths.
+static opxy::u32 drum_model;
 extern "C" {
 opxy::u32 opxy_preview_abi() { return 1; }
 opxy::u32 opxy_state_bytes() { return sizeof(Voice); }
@@ -23,7 +25,8 @@ Voice* opxy_voice_state(opxy::u32 index) { return index < 8 ? &voices[index] : n
 void opxy_initialize(Voice* voice) { @NAMESPACE@::initialize(*voice, shared, owner(voice)); }
 void opxy_start(Voice* voice) { @NAMESPACE@::start(*voice, shared, owner(voice)); }
 void opxy_destroy(Voice* voice) { @NAMESPACE@::destroy(*voice, shared, owner(voice)); }
+void opxy_preview_model(opxy::u32 model) { drum_model = model; }
 void opxy_render(Voice* voice, opxy::i32* output, const opxy::i32* parameters, const opxy::u32* pitch) {
-    @NAMESPACE@::render(*voice, shared, owner(voice), output, parameters, pitch);
+    @DRUM_SELECT@@NAMESPACE@::render(*voice, shared, owner(voice), output, parameters, pitch);
 }
 }

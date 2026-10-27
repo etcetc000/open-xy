@@ -140,6 +140,7 @@ struct Controls {
     u8 shown[page_controls];
     i32 values[page_controls];
     i32 slots[parameter_slots];
+    u32 model;   // a drum kit's selected key's model; 0 otherwise
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -176,10 +177,11 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     const Parameters view = {0, static_cast<u32>(reinterpret_cast<platform::Address>(words)),
                              static_cast<u32>(reinterpret_cast<platform::Address>(words + parameter_slots))};
     controls.valid = read_shown(stock_vector, controls, words);
-    u8 drum_values[8];
+    u8 model = 0, drum_values[8];
     const platform::DrumMachine* drum = controls.track < 8
         ? sdk_drum_machine(platform::track_engine(controls.track)) : nullptr;
-    if (drum && !sdk_drum_values(controls.track, drum_values)) drum = nullptr;
+    if (drum && !sdk_drum_values(controls.track, &model, drum_values)) drum = nullptr;
+    controls.model = drum ? model : 0;
     if (drum) {
         // Stock's vector holds the track parameters a held step locks: show
         // the values that step plays, as the audio adapter decodes them.
@@ -190,12 +192,10 @@ inline bool refresh_controls(Base* o, Controls& controls) {
             offsets[i] = whole ? reinterpret_cast<const i32*>(stock_vector->begin)[i] : 0;
         u8 stored[8];
         for (u32 i = 0; i < 8; ++i) stored[i] = drum_values[i];
-        platform::drum_offset(stored, whole ? offsets : nullptr, drum->model_count, drum_values);
+        platform::drum_offset(stored, whole ? offsets : nullptr, drum_values);
         controls.valid = true;
         for (u32 i = 0; i < parameter_slots; ++i) {
-            controls.slots[i] = i == 0
-                ? platform::drum_model_q31(drum_values[i], drum->model_count)
-                : drum_values[i] == 127 ? 0x7fffffff : static_cast<i32>(drum_values[i]) << 24;
+            controls.slots[i] = drum_values[i] == 127 ? 0x7fffffff : static_cast<i32>(static_cast<u32>(drum_values[i]) << 24);
             words[i] = static_cast<u32>(controls.slots[i]);
         }
         for (u32 i = 0; i < page_controls; ++i) {
@@ -205,25 +205,29 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     }
     update_controls(o, controls.track, controls.valid ? &view : stock_vector);
     if (controls.valid) {
+        // While Shift is held, the first encoder chooses the key's model, as
+        // on stock Drumline: its cell names the model instead.
+        const bool choosing = drum && platform::shift_held();
         for (u32 i = 0; i < page_controls; ++i) {
             char text[16];
             if (sdk_synth_value(controls.track, controls.shown[i], controls.values[i], text))
                 set_text(o->values[i], text);
-            if (drum) {
-                const u32 slot = controls.shown[i];
-                set_text(o->titles[i], drum->label(drum_values[0], slot));
-                if (slot == 0) set_text(o->values[i], drum->model_name(drum_values[0]));
-                else {
-                    u32 value = drum_values[slot];
-                    char digits[4];
-                    u32 n = 0;
-                    if (value >= 100) { digits[n++] = '1'; value -= 100; }
-                    if (n || value >= 10) digits[n++] = static_cast<char>('0' + value / 10);
-                    digits[n++] = static_cast<char>('0' + value % 10);
-                    digits[n] = 0;
-                    set_text(o->values[i], slot < drum->count(drum_values[0]) ? digits : "");
-                }
+            if (!drum) continue;
+            if (choosing && i == 0) {
+                set_text(o->titles[i], "MACHINE");
+                set_text(o->values[i], drum->model_name(model));
+                continue;
             }
+            const u32 slot = controls.shown[i];
+            set_text(o->titles[i], drum->label(model, slot));
+            u32 value = drum_values[slot];
+            char digits[4];
+            u32 n = 0;
+            if (value >= 100) { digits[n++] = '1'; value -= 100; }
+            if (n || value >= 10) digits[n++] = static_cast<char>('0' + value / 10);
+            digits[n++] = static_cast<char>('0' + value % 10);
+            digits[n] = 0;
+            set_text(o->values[i], slot < drum->count(model) ? digits : "");
         }
     }
     return true;

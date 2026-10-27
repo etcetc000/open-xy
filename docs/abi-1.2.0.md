@@ -425,10 +425,19 @@ increment shifted right by 16 (`8d51a850`–`8d51a854`). The SDK expands those
 the lower 16 bits are zero because stock has already quantized them.
 
 Each key's four parameter words store 60 bits that stock exports as positive
-Q15 integers and restores with a left shift of 16. The SDK packs eight 7-bit
-values into 56 bits and a four-bit format tag into the remaining bits.
-`drum_storage.hpp` validates the tag before decoding. The other region fields,
-including gain, pan and model/playmode byte, retain stock layout. Defaults
-apply when the words have no valid tag. Track modulation is applied after
-decoding. GUI edits repack and use the stock dirty/publication calls; no audio
-callback writes preset state or performs file I/O.
+Q15 integers and restores with a left shift of 16. The SDK packs the key's
+eight 7-bit controls into 56 bits and its model into the other 4. The pad's
+model byte (record `+0x18`: Drumline's instrument type in the low nibble, its
+choke group in the high one) marks the layout with type 7, which stock's
+editor skips (`8d4d69d0`) and its default kit never uses; the choke group is
+kept. On the audio side the note payload's first word is stock's reading of
+that byte, `(6 type + group)` over 66 bins (`8d5aba1c`), so type 7 is bins
+42..47. Every other saved pad field is audible (`pan`, `gain`, `tune`,
+`group`) or not exported in presets (`+0x19`), so the layout holds at most 16
+models. Unmarked pads, including the earlier tag-10 eight-value layout, use
+the key's defaults. Stock's per-key editor (`8d4d6908`, jump table at
+`8403619c`) gives controls 0..3 the four words and Shift's encoders 4..7 the
+type, `+0x14`, pan (`+0x1e`) and gain (`+0x1d`); the SDK gives Shift's first
+encoder the model and the others their shown control. Track modulation is
+applied after decoding. GUI edits repack and use the stock dirty/publication
+calls; no audio callback writes preset state or performs file I/O.

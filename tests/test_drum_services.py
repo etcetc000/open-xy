@@ -15,7 +15,7 @@ from test_sample_services import HOST_CXX, ROOT
 class DrumServices(unittest.TestCase):
     def test_generated_classification_does_not_require_gui_screen(self):
         platform = ROOT / 'sdk/platform/opxy-1.2.0'
-        machine = SimpleNamespace(kind='drum', prefix='probe', definition={'resources': {'modelCount': 30}})
+        machine = SimpleNamespace(kind='drum', prefix='probe', definition={'resources': {'modelCount': 12}})
         with tempfile.TemporaryDirectory(prefix='drum-classification-') as folder:
             folder = Path(folder)
             generated = generate_drum_callbacks(folder, [machine])

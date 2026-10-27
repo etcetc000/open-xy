@@ -60,9 +60,9 @@ const SynthControls* machine(u32 track, Track*& t) {
     t = state(track, m ? engine : 0);
     if (m) {
         const DrumMachine* drum = sdk_drum_machine(engine);
-        u8 values[opxy::parameter_slots];
-        if (drum && sdk_drum_values(track, values)) {
-            const u32 count = drum->count(values[0]);
+        u8 model, values[kDrumControlCount];
+        if (drum && sdk_drum_values(track, &model, values)) {
+            const u32 count = drum->count(model);
             // A different pad/model can have fewer parameters than the one
             // that selected this alternate. Return that position to primary.
             for (u32 i = 0; i < opxy::page_controls; ++i)
@@ -105,8 +105,8 @@ void sdk_synth_press(u32 encoder) {
         word(kInstrumentPage) == 0 && (m = machine(byte(kSelectedTrack), t))) {
         const u32 next = m->next[t->slots[encoder]];
         const DrumMachine* drum = sdk_drum_machine(m->engine());
-        u8 values[opxy::parameter_slots];
-        if (drum && (!sdk_drum_values(byte(kSelectedTrack), values) || next >= drum->count(values[0]))) return;
+        u8 model, values[kDrumControlCount];
+        if (drum && (!sdk_drum_values(byte(kSelectedTrack), &model, values) || next >= drum->count(model))) return;
         if (next < opxy::parameter_slots) t->slots[encoder] = static_cast<u8>(next);
     }
 }

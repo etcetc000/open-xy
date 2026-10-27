@@ -134,7 +134,7 @@ def validate_definition(value, kind):
     if kind in ('synth', 'drum'):
         validate_synth_resources(resources)
     if kind == 'drum':
-        require(2 <= resources['modelCount'] <= 128, 'A drum kit has 2..128 models')
+        require(2 <= resources['modelCount'] <= 16, 'A drum kit has 2..16 models')
     parameters = value['parameters']
     low, high = CONTROLS[kind]
     require(isinstance(parameters, list) and low <= len(parameters) <= high,
@@ -148,9 +148,6 @@ def validate_definition(value, kind):
     if kind == 'drum':
         require(sorted(p['control'] for p in parameters[4:]) == [0, 1, 2, 3],
                 'A drum kit has one alternate per encoder')
-        require(parameters[0]['mapping']['kind'] == 'enum' and
-                len(parameters[0]['mapping']['labels']) == resources['modelCount'],
-                'The first drum control enumerates every model')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():
         label(name); keys(preset, names, 'preset')

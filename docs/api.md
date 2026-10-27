@@ -240,34 +240,42 @@ serialized access.
 SDK 1.3 adds `"kind": "drum"`: one registered instrument with independent
 model selection and sound controls on 24 keys. It supplies the synth
 lifecycle, a drawing display, and the same resources plus `modelCount`
-(2..128). Its definition declares eight parameters. Slot zero is Model;
-slots 1..7 are model-specific controls. Each alternate uses a different
-encoder position, giving at most two functions per encoder.
+(2..16). Each key holds a model and eight controls. The definition declares
+the eight controls: slots 0..3 on the four encoders, slots 4..7 their
+alternates, one per encoder, switched by pressing it. As on stock Drumline,
+Shift and the first encoder choose the selected key's model; while Shift is
+held, the first cell names it. Shift and the other encoders edit their shown
+control.
 
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
 
 ```cpp
-void drum_defaults(opxy::u32 key, opxy::u8* values); // fill eight raw values
+void drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* controls); // a model and eight values
+void drum_select(Voice&, Shared&, opxy::u32 owner, opxy::u32 model);     // before every render
 const char* model_name(opxy::u32 model);
 const char* parameter_name(opxy::u32 model, opxy::u32 slot);
-opxy::u32 parameter_count(opxy::u32 model); // 1..8, including Model
+opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are used
 ```
 
-Keys passed to `drum_defaults` are canonical keys 53..76. Values are integers
-0..127; slot zero must be below `modelCount`. Names are static strings;
-parameter labels fit eight characters. Return an empty label for unused
-slots. The screen shows the selected key's values and labels with the track's
-offsets applied, so a held step shows the values its locks play. Encoder presses
+Keys passed to `drum_defaults` are canonical keys 53..76. Controls are
+integers 0..127; the model must be below `modelCount`. Names are static
+strings; parameter labels fit eight characters. Return an empty label for
+unused slots. The screen shows the selected key's controls and labels with
+the track's offsets applied, so a held step shows the values its locks play;
+the display's `Input::model` is the selected key's model. Encoder presses
 switch its main/alternate control; unavailable alternates return to the main
 control. Integer edits already have one-unit precision, including Shift turns.
 
-The adapter stores the eight raw values losslessly in four existing per-key
-preset words, with a format tag. Missing or untagged values use `drum_defaults`.
-The track's eight parameters are offsets, neutral at Q15 16384. The adapter
-decodes the key's values, adds the offsets and clamps before calling `render`.
-Model becomes the midpoint of its normalized enum bin. Other controls become
-`raw << 24`, with 127 mapped to `0x7fffffff`. Packed words never reach machine
+The adapter stores the model and the eight controls losslessly in four
+existing per-key preset words (eight 7 bits, the model 4), and marks the pad
+with Drumline type 7 in its model byte, keeping stock's choke group. Unmarked
+pads, including those stored by earlier 1.3 builds' eight-value layout, use
+`drum_defaults`. The track's eight parameters are offsets to the eight
+controls, neutral at Q15 16384, so step locks edit controls; the model is not
+lockable. The adapter decodes the key's values, adds the offsets and clamps,
+calls `drum_select` with the model, then `render` with each control as
+`raw << 24`, 127 mapped to `0x7fffffff`. Packed words never reach machine
 DSP. Presets and projects retain per-key settings using stock region storage.
 
 Kits use the same fixed shared-state and voice-pool rules as synths. Their

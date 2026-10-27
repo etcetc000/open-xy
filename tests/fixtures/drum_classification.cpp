@@ -11,14 +11,14 @@ extern "C" {
 extern const char probe_engine_id[] __asm__("probe_engine_id");
 int probe_record_ready() __asm__("probe_record_ready");
 int probe_ready() __asm__("probe_ready");
-void probe_drum_defaults(opxy::u32, opxy::u8*) __asm__("probe_drum_defaults");
+void probe_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) __asm__("probe_drum_defaults");
 const char* probe_drum_label(opxy::u32, opxy::u32) __asm__("probe_drum_label");
 const char* probe_drum_model_name(opxy::u32) __asm__("probe_drum_model_name");
 opxy::u32 probe_drum_count(opxy::u32) __asm__("probe_drum_count");
 extern const char probe_engine_id[] = "probe";
 int probe_record_ready() { return record_state; }
 int probe_ready() { ++screen_reads; return record_state == 1 && screen_state; }
-void probe_drum_defaults(opxy::u32, opxy::u8*) {}
+void probe_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) {}
 const char* probe_drum_label(opxy::u32, opxy::u32) { return ""; }
 const char* probe_drum_model_name(opxy::u32) { return ""; }
 opxy::u32 probe_drum_count(opxy::u32) { return 8; }

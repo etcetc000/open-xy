@@ -108,23 +108,25 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* region,
                    const opxy::i32* parameters) {
     if (Slot* slot = held(static_cast<Handle*>(self))) {
         const Handle* handle = static_cast<const Handle*>(self);
-        opxy::u8 raw[8];
-        @NAMESPACE@::drum_defaults(handle->key, raw);
-        if (region) opxy::platform::drum_unpack(region + 1, raw);
-        if (raw[0] >= @MODEL_COUNT@) @NAMESPACE@::drum_defaults(handle->key, raw);
-        // Track parameters apply after unpacking, never to the persisted words.
+        opxy::u8 model, stored[8];
+        @NAMESPACE@::drum_defaults(handle->key, &model, stored);
+        // The payload's first word carries stock's reading of the pad's model
+        // byte: only a pad the kit stored is marked.
+        if (region && opxy::platform::drum_marked_q31(region[0]))
+            opxy::platform::drum_unpack(region + 1, &model, stored);
+        if (model >= @MODEL_COUNT@) @NAMESPACE@::drum_defaults(handle->key, &model, stored);
+        // The track's eight parameters offset the eight controls after
+        // unpacking, never the persisted words; the model has no offset.
         opxy::u8 played[8];
-        opxy::platform::drum_offset(raw, parameters, @MODEL_COUNT@, played);
+        opxy::platform::drum_offset(stored, parameters, played);
         opxy::i32 live[8];
-        for (opxy::u32 i = 0; i < 8; ++i) {
-            const opxy::u32 value = played[i];
-            live[i] = i == 0 ? opxy::platform::drum_model_q31(value, @MODEL_COUNT@)
-                : value == 127 ? 0x7fffffff : static_cast<opxy::i32>(value << 24);
-        }
+        for (opxy::u32 i = 0; i < 8; ++i)
+            live[i] = played[i] == 127 ? 0x7fffffff : static_cast<opxy::i32>(static_cast<opxy::u32>(played[i]) << 24);
         // Unlike the normal synth renderer, 8d51a850..854 publishes phase
         // increments shifted right by 16. Restore the public Pitch units.
         opxy::u32 pitch[opxy::block_frames];
         for (unsigned i = 0; i < opxy::block_frames; ++i) pitch[i] = increments[i] << 16;
+        @NAMESPACE@::drum_select(slot->voice, shared, slot->owner, model);
         @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
         for (unsigned i = 0; i < opxy::block_frames; ++i)
             output[i] = opxy::q31::multiply(output[i], amplitude[i]);
@@ -151,11 +153,11 @@ const char @PREFIX@_name[] = "@NAME@";
 const char* @PREFIX@_parameter_name(opxy::u32 index) {
     return sdk_drum_title(static_cast<opxy::u32>(reinterpret_cast<__UINTPTR_TYPE__>(@PREFIX@_engine_id)), index);
 }
-void @PREFIX@_drum_defaults(opxy::u32 key, opxy::u8* values) __asm__("@PREFIX@_drum_defaults");
+void @PREFIX@_drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* controls) __asm__("@PREFIX@_drum_defaults");
 const char* @PREFIX@_drum_label(opxy::u32 model, opxy::u32 slot) __asm__("@PREFIX@_drum_label");
 const char* @PREFIX@_drum_model_name(opxy::u32 model) __asm__("@PREFIX@_drum_model_name");
 opxy::u32 @PREFIX@_drum_count(opxy::u32 model) __asm__("@PREFIX@_drum_count");
-void @PREFIX@_drum_defaults(opxy::u32 key, opxy::u8* values) { @NAMESPACE@::drum_defaults(key, values); }
+void @PREFIX@_drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* controls) { @NAMESPACE@::drum_defaults(key, model, controls); }
 const char* @PREFIX@_drum_label(opxy::u32 model, opxy::u32 slot) { return @NAMESPACE@::parameter_name(model, slot); }
 const char* @PREFIX@_drum_model_name(opxy::u32 model) { return @NAMESPACE@::model_name(model); }
 opxy::u32 @PREFIX@_drum_count(opxy::u32 model) { return @NAMESPACE@::parameter_count(model); }

@@ -1,10 +1,11 @@
 #include "drum_machines.hpp"
+#include "drum_storage.hpp"
 
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32 engine) {
     for (opxy::u32 i = 0; i < sdk_drum_machine_count; ++i) {
         const opxy::platform::DrumMachine& machine = sdk_drum_machines[i];
         if (machine.engine() == engine)
-            return machine.ready() == 1 && machine.model_count && machine.model_count <= 128 ? &machine : nullptr;
+            return machine.ready() == 1 && machine.model_count && machine.model_count <= opxy::platform::kDrumModelLimit ? &machine : nullptr;
     }
     return nullptr;
 }

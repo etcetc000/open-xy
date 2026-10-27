@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE = '''#pragma once
 #include <opxy/audio.hpp>
 extern opxy::i32 captured[8];
+extern opxy::u32 captured_model;
 extern opxy::u32 fixture_pitch[opxy::block_frames], captured_pitch[opxy::block_frames];
 extern opxy::i32 fixture_amplitude[opxy::block_frames];
 extern bool negative_output;
@@ -29,10 +30,11 @@ namespace probe {
 inline void initialize(Voice& v, Shared&, opxy::u32 id) { v.owner = id; ++initialized[id]; }
 inline void start(Voice&, Shared&, opxy::u32 id) { ++started[id]; }
 inline void destroy(Voice&, Shared&, opxy::u32 id) { ++destroyed[id]; }
-inline void drum_defaults(opxy::u32 key, opxy::u8* raw) {
-    raw[0] = key % 30;
-    for (unsigned i = 1; i < 8; ++i) raw[i] = key;
+inline void drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* raw) {
+    *model = key % 12;
+    for (unsigned i = 0; i < 8; ++i) raw[i] = key;
 }
+inline void drum_select(Voice&, Shared&, opxy::u32, opxy::u32 model) { captured_model = model; }
 inline const char* parameter_name(opxy::u32, opxy::u32) { return "parameter"; }
 inline const char* model_name(opxy::u32) { return "model"; }
 inline opxy::u32 parameter_count(opxy::u32) { return 8; }
@@ -50,6 +52,7 @@ DRIVER = r'''#include "voice.cpp"
 #include <cstdint>
 const opxy::i32* fixture_region;
 opxy::i32 captured[8];
+opxy::u32 captured_model = 99;
 opxy::u32 fixture_pitch[opxy::block_frames], captured_pitch[opxy::block_frames];
 opxy::i32 fixture_amplitude[opxy::block_frames];
 bool negative_output;
@@ -79,7 +82,9 @@ opxy::i32 rendered(unsigned id, const opxy::i32* params = offsets) {
     for (auto sample : output) if (sample != output[0]) return -2;
     return output[0] ? (output[0] + 1) / 65536 : 0;
 }
-unsigned model() { return static_cast<unsigned>((std::uint64_t(captured[0]) * 30) >> 31); }
+unsigned model() { return captured_model; }
+// Stock's payload word for a model byte of Drumline type 7: the kit's mark.
+const opxy::i32 kMarked = opxy::i32(42u * 32537631u + 16268815u);
 unsigned raw(unsigned slot) { return static_cast<unsigned>(captured[slot]) >> 24; }
 }
 int main() {
@@ -95,7 +100,7 @@ int main() {
     // Track one's octave turns raw note 53 into pad 65; defaults must use 65.
     sdk_sample_drum_octaves[1] = 1;
     note(1, 53);
-    CHECK(rendered(1) == 2 && model() == 5 && raw(7) == 65);
+    CHECK(rendered(1) == 2 && model() == 5 && raw(7) == 65 && raw(0) == 65);
     for (unsigned i = 0; i < opxy::block_frames; ++i)
         CHECK(captured_pitch[i] == fixture_pitch[i] * 65536u);
     CHECK(initialized[2] == 1 && started[2] == 1);
@@ -123,7 +128,7 @@ int main() {
     negative_output = false;
     for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
     note(0, 53);
-    CHECK(rendered(0) == 1 && model() == 23 && raw(7) == 53);
+    CHECK(rendered(0) == 1 && model() == 5 && raw(7) == 53);
     // A call through the other renderer's +8 entry must overwrite stale scratch.
     opxy::i32 silent[opxy::block_frames];
     for (auto& sample : silent) sample = -9;
@@ -133,35 +138,34 @@ int main() {
     opxy::i32 payload[8] = {};
     opxy::u8 controls[8];
     fixture_region = payload;
-    // Exercise each 7-bit value in every non-model slot and every model bin.
+    payload[0] = kMarked;
+    // Exercise each 7-bit value in every slot and every model.
     for (unsigned value = 0; value < 128; ++value) {
-        controls[0] = value % 30;
-        for (unsigned i = 1; i < 8; ++i) controls[i] = (value + i * 17) % 128;
-        CHECK(opxy::platform::drum_pack(controls, payload + 1));
-        CHECK(rendered(1) == 2 && model() == controls[0]);
-        for (unsigned i = 1; i < 8; ++i) {
+        const unsigned m = value % 12;
+        for (unsigned i = 0; i < 8; ++i) controls[i] = (value + i * 17) % 128;
+        CHECK(opxy::platform::drum_pack(m, controls, payload + 1));
+        CHECK(rendered(1) == 2 && model() == m);
+        for (unsigned i = 0; i < 8; ++i) {
             CHECK(raw(i) == controls[i]);
             CHECK(captured[i] == (controls[i] == 127 ? 0x7fffffff : opxy::i32(controls[i]) << 24));
         }
-        CHECK(rendered(1, nullptr) == 2 && model() == controls[0]);
-        for (unsigned i = 1; i < 8; ++i) CHECK(raw(i) == controls[i]);
+        CHECK(rendered(1, nullptr) == 2 && model() == m);
+        for (unsigned i = 0; i < 8; ++i) CHECK(raw(i) == controls[i]);
     }
-    controls[0] = 10;
-    for (unsigned i = 1; i < 8; ++i) controls[i] = 64;
-    CHECK(opxy::platform::drum_pack(controls, payload + 1));
-    // Offsets act on decoded controls: model remains in the requested enum bin.
-    offsets[0] = 67 << 24; offsets[1] = 0; offsets[2] = 0x7fffffff;
-    CHECK(rendered(1) == 2 && model() == 13 && raw(1) == 0 && raw(2) == 127);
-    offsets[0] = 0x7fffffff;
-    CHECK(rendered(1) == 2 && model() == 29);
-    offsets[0] = 0;
-    CHECK(rendered(1) == 2 && model() == 0);
+    for (unsigned i = 0; i < 8; ++i) controls[i] = 64;
+    CHECK(opxy::platform::drum_pack(10, controls, payload + 1));
+    // The eight offsets act on the eight decoded controls; the model has none.
+    offsets[0] = 67 << 24; offsets[1] = 0; offsets[2] = 0x7fffffff; offsets[7] = 0x40000000 - (5 << 24);
+    CHECK(rendered(1) == 2 && model() == 10 && raw(0) == 67 && raw(1) == 0 && raw(2) == 127 && raw(7) == 59);
     for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
-    // Corrupt format tag and a valid payload with an unavailable model both use pad defaults.
-    payload[4] ^= 1 << 27;
+    // An unmarked pad (stock's defaults, or the earlier eight-value layout)
+    // and a marked pad with a model the kit lacks both use the pad defaults.
+    payload[0] = opxy::i32(2u * 32537631u + 16268815u);
     CHECK(rendered(1) == 2 && model() == 5 && raw(7) == 65);
-    controls[0] = 127;
-    CHECK(opxy::platform::drum_pack(controls, payload + 1));
+    payload[0] = kMarked;
+    CHECK(opxy::platform::drum_pack(13, controls, payload + 1));
+    CHECK(rendered(1) == 2 && model() == 5 && raw(7) == 65);
+    payload[4] |= 1;   // words stock never writes
     CHECK(rendered(1) == 2 && model() == 5 && raw(7) == 65);
     fixture_region = nullptr;
     // Capacity two: the oldest note (handle one) is destroyed and goes silent.
@@ -193,7 +197,7 @@ class DrumVoices(unittest.TestCase):
         definition = copy.deepcopy(fixture('probesynth').definition)
         definition['id'] = 'probe'
         definition['resources'].update(voiceBytes=4, voiceAlignment=4, voiceCapacity=2,
-                                       sharedBytes=0, modelCount=30)
+                                       sharedBytes=0, modelCount=12)
         machine = SimpleNamespace(kind='drum', definition=definition, prefix='probe', native_name='probe')
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

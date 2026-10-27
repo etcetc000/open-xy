@@ -19,12 +19,12 @@ bool shifted, shifted_octave;
 i32 regions[24][32];
 void require(bool ok) { if (!ok) std::abort(); }
 int ready() { return ownership; }
-void defaults(u32 note, u8* values) {
-    values[0] = static_cast<u8>((note - 53) % 2);
-    for (u32 i = 1; i < 8; ++i) values[i] = static_cast<u8>(20 + i);
+void defaults(u32 note, u8* model, u8* values) {
+    *model = static_cast<u8>((note - 53) % 2);
+    for (u32 i = 0; i < 8; ++i) values[i] = static_cast<u8>(20 + i);
     values[7] = static_cast<u8>(note);
 }
-const char* label(u32 model, u32 slot) { return slot == 0 ? "model" : model == 0 ? "full" : "short"; }
+const char* label(u32 model, u32) { return model == 0 ? "full" : "short"; }
 const char* name(u32 model) { return model ? "short" : "full"; }
 u32 count(u32 model) { return model ? 3 : 8; }
 bool format(u32, i32, char*) { return false; }
@@ -95,57 +95,82 @@ int main() {
         regions[pad][5] = 987654;
         reinterpret_cast<u8*>(regions[pad])[26] = static_cast<u8>(53 + pad);
     }
+    u32 presses = 0;
     shown(0,1,2,3);
-    sdk_synth_press(1); shown(0,5,2,3);
+    sdk_synth_press(1); ++presses; shown(0,5,2,3);
     const u32 event[3] = {1000, 3, 2};
-    sdk_drum_edit(53, 1, event, 0);
-    u8 raw[8]; require(drum_unpack(regions[0] + 1, raw));
-    require(raw[5] == 28 && raw[1] == 21 && publications == 1 && dirty == 1 && last_key == 53);
+    sdk_drum_edit(53, 1, event, 0);   // the second encoder's alternate, slot 5
+    u8 model = 99, raw[8];
+    const u8* record = reinterpret_cast<const u8*>(regions[0]);
+    require(drum_marked(record[24]) && drum_unpack(regions[0] + 1, &model, raw));
+    require(model == 0 && raw[5] == 28 && raw[1] == 21 && raw[0] == 20 && raw[7] == 53);
+    require(publications == 1 && dirty == 1 && last_key == 53);
     shifted = true;
-    sdk_drum_edit(53, 5, event, 0);
-    require(drum_unpack(regions[0] + 1, raw) && raw[5] == 31 && raw[1] == 21);
-    require(regions[0][0] == 123456 && regions[0][5] == 987654);
+    sdk_drum_edit(53, 5, event, 0);   // Shift and the second encoder: the shown control too
+    require(drum_unpack(regions[0] + 1, &model, raw) && raw[5] == 31 && raw[1] == 21 && model == 0);
+    require(regions[0][0] == 123456 && regions[0][5] == 987654 && record[26] == 53);
     sdk_synth_turn(0, 0, 5, 0);
     require(turned_slot == 5);
+
+    // Shift and the first encoder choose the model, as on Drumline; the
+    // controls stay, and the shorter model returns its missing alternate.
+    const u32 one[3] = {0, 1, 0};
+    sdk_drum_edit(53, 4, one, 0);
+    require(sdk_drum_values(0, &model, raw) && model == 1 && raw[5] == 31 && publications == 3);
+    shown(0,1,2,3);
+    sdk_drum_edit(53, 4, event, 0);   // the last model is the limit
+    require(publications == 3);
     shifted = false;
 
-    key = 54; shown(0,1,2,3); // New pad's shorter model invalidates selected alternate.
-    sdk_synth_press(1); shown(0,1,2,3);
-    sdk_drum_edit(54, 3, event, 0); // A missing primary parameter stays blank/inert.
-    require(publications == 2);
+    key = 54; shown(0,1,2,3);
+    sdk_synth_press(1); ++presses; shown(0,1,2,3);   // the shorter model has no slot 5
+    sdk_drum_edit(54, 3, event, 0);   // nor a slot 3: inert
+    require(publications == 3);
     require(!std::strcmp(sdk_drum_title(34, 1), "short"));
     key = 53;
-    sdk_synth_press(1); shown(0,5,2,3);
-    const u32 one[3] = {0, 1, 0};
-    sdk_drum_edit(53, 0, one, 0); // Model changes on this pad also clear invalid alternate.
-    shown(0,1,2,3);
-    require(sdk_drum_values(0, raw) && raw[0] == 1);
-    require(publications == 3 && last_key == 53);
+    const u32 back[3] = {0, static_cast<u32>(-1), 0};
+    shifted = true;
+    sdk_drum_edit(53, 4, back, 0);
+    shifted = false;
+    require(sdk_drum_values(0, &model, raw) && model == 0 && publications == 4);
+    sdk_synth_press(1); ++presses; shown(0,5,2,3);
 
     const u32 negative[3] = {0, static_cast<u32>(-100000), 0};
-    sdk_drum_edit(53, 1, negative, 0);
-    require(sdk_drum_values(0, raw) && raw[1] == 0);
+    sdk_drum_edit(53, 0, negative, 0);   // the first encoder edits slot 0 now
+    require(sdk_drum_values(0, &model, raw) && raw[0] == 0 && model == 0);
     const u32 zero[3] = {};
     sdk_drum_edit(53, 1, zero, 0);
-    require(publications == 4 && dirty == 4);
+    require(publications == 5 && dirty == 5);
 
     // Parent note 53 can select canonical pad 65 in the other octave. GUI
     // defaults use the selected record's key, matching the audio mapper.
     shifted_octave = true;
-    require(sdk_drum_values(0, raw) && raw[0] == 0);
-    u8 expected[8]; defaults(65, expected);
-    require(!std::memcmp(raw, expected, 8));
+    u8 expected_model, expected[8];
+    defaults(65, &expected_model, expected);
+    require(sdk_drum_values(0, &model, raw) && model == expected_model && !std::memcmp(raw, expected, 8));
     // A missing record key uses the same stock mapping as playback.
     reinterpret_cast<u8*>(regions[12])[26] = 0;
-    require(sdk_drum_values(0, raw) && !std::memcmp(raw, expected, 8));
+    require(sdk_drum_values(0, &model, raw) && !std::memcmp(raw, expected, 8));
+    // A pad stored by the earlier eight-value layout (tag 10, unmarked) and a
+    // marked pad with a model the kit lacks both keep the key's defaults.
+    regions[12][1] = 0x2a000000; regions[12][2] = 0x15550000; regions[12][3] = 0x0aaa0000; regions[12][4] = 0x50550000;
+    reinterpret_cast<u8*>(regions[12])[24] = 0x22;
+    require(sdk_drum_values(0, &model, raw) && model == expected_model && !std::memcmp(raw, expected, 8));
+    const u8 seven[8] = {7, 7, 7, 7, 7, 7, 7, 7};
+    require(drum_pack(9, seven, regions[12] + 1));
+    reinterpret_cast<u8*>(regions[12])[24] = drum_mark(0x22);
+    require(sdk_drum_values(0, &model, raw) && model == expected_model && !std::memcmp(raw, expected, 8));
+    require(drum_pack(1, seven, regions[12] + 1));
+    require(sdk_drum_values(0, &model, raw) && model == 1 && !std::memcmp(raw, seven, 8));
+    require((reinterpret_cast<u8*>(regions[12])[24] >> 4) == 2);   // stock's choke group kept
     shifted_octave = false;
 
     ownership = 0;
     require(sdk_drum_edit(53, 0, one, 0) == 1234 && fallback == 1);
-    require(!sdk_drum_values(0, raw));
+    require(!sdk_drum_values(0, &model, raw));
     shown(0,1,2,3);
-    sdk_synth_press(0); shown(0,1,2,3);
-    require(clicks == 4);
+    sdk_synth_press(0); ++presses; shown(0,1,2,3);
+    require(clicks == presses);
 
     // An owned synth's enum moves a choice a detent (two when accelerated) and
     // lands on the choice's midpoint, which the machine reads as that choice.

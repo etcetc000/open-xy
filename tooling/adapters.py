@@ -59,7 +59,7 @@ def generate_drum_callbacks(directory, machines):
         p = m.prefix
         declarations += [f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
                          f'int {p}_record_ready() __asm__("{p}_record_ready");',
-                         f'void {p}_drum_defaults(opxy::u32, opxy::u8*) __asm__("{p}_drum_defaults");',
+                         f'void {p}_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_defaults");',
                          f'const char* {p}_drum_label(opxy::u32, opxy::u32) __asm__("{p}_drum_label");',
                          f'const char* {p}_drum_model_name(opxy::u32) __asm__("{p}_drum_model_name");',
                          f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");']
@@ -77,8 +77,11 @@ def generate_drum_callbacks(directory, machines):
 def generate_voice_preview(directory, definition, *, kind='synth'):
     """Browser preview voices for a synth or drum definition (curated or local)."""
     require(kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
-    return expand('voice_preview.cpp.in', voice_values(validate_definition(definition, kind)),
-                  Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
+    values = voice_values(validate_definition(definition, kind))
+    count = definition['resources'].get('modelCount', 0)
+    values['DRUM_SELECT'] = (f"{values['NAMESPACE']}::drum_select(*voice, shared, owner(voice), drum_model < {count} ? drum_model : 0);\n    "
+                             if kind == 'drum' else '')
+    return expand('voice_preview.cpp.in', values, Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
 
 
 def drawing_layout(display):
