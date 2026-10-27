@@ -252,7 +252,9 @@ lifecycle, a drawing display, and the same resources plus `modelCount`
 the eight controls: slots 0..3 on the four encoders, slots 4..7 their
 alternates, one per encoder, switched by pressing it. As on stock Drumline,
 Shift and the first encoder choose the selected key's model; while Shift is
-held, the first cell names it. Shift and the other encoders edit their shown
+held, the first cell names it. Shift and the second encoder choose the key's
+choke group, NONE or 1..3, named in the second cell; keys sharing a group cut
+each other off. Shift and the third and fourth encoders edit their shown
 control.
 
 In the machine namespace, declare these callbacks in `core.h` and implement
@@ -278,7 +280,8 @@ unnamed slot shows blank, ignores turns, and a press never selects it. Integer e
 
 The adapter stores the model and the eight controls losslessly in four
 existing per-key preset words (eight 7 bits, the model 4), and marks the pad
-with Drumline type 7 in its model byte, keeping stock's choke group. Unmarked
+with Drumline type 7 in its model byte, keeping its choke group unless one is
+chosen. Unmarked
 pads, including those stored by earlier 1.3 builds' eight-value layout, use
 `drum_defaults`. The track's eight parameters are offsets to the eight
 controls, neutral at Q15 16384, so step locks edit controls; the model is not

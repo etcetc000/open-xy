@@ -19,7 +19,17 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     if (!delta) return 0;
     if (delta > 127) delta = 127;
     if (delta < -127) delta = -127;
-    if (control == 4) {
+    unsigned char* record = static_cast<unsigned char*>(region);
+    u8 mark = drum_mark(record[24]);
+    if (control == 5) {
+        // Shift and the second encoder choose the key's choke group.
+        const i32 choice = static_cast<i32>(drum_choke(record[24]));
+        i32 next = choice + delta;
+        if (next < 0) next = 0;
+        if (next >= static_cast<i32>(kDrumChokeChoices)) next = static_cast<i32>(kDrumChokeChoices) - 1;
+        if (next == choice) return 0;
+        mark = drum_mark_choke(static_cast<u32>(next));
+    } else if (control == 4) {
         // Shift and the first encoder choose the key's model, as on stock
         // Drumline (8d4d69d0 steps its instrument type). Its controls stay.
         i32 next = static_cast<i32>(model) + delta;
@@ -28,8 +38,9 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         if (next == model) return 0;
         model = static_cast<u8>(next);
     } else {
-        // Stock maps Shift's other encoders to indices 5..7; they edit the
-        // shown control, whose discrete steps are already one unit a detent.
+        // Stock maps Shift's third and fourth encoders to indices 6 and 7;
+        // they edit the shown control, whose discrete steps are already one
+        // unit a detent.
         u8 shown[page_controls];
         sdk_synth_shown(track, shown);
         const u32 slot = shown[control % page_controls];
@@ -41,8 +52,7 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         controls[slot] = static_cast<u8>(next);
     }
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1)) return 0;
-    unsigned char* record = static_cast<unsigned char*>(region);
-    record[24] = drum_mark(record[24]);
+    record[24] = mark;
     stock<void()>(0x8d584584)();
     stock<void(u32)>(0x8d4d68c0)(key);
     return 0;

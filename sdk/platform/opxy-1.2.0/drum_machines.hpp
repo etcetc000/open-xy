@@ -30,6 +30,8 @@ opxy::u32 sdk_drum_alias(opxy::u32 engine) __asm__("sdk_drum_alias");
 // (step locks, modulation) remain separate.
 bool sdk_drum_values(opxy::u32 track, opxy::u8* model, opxy::u8* controls) __asm__("sdk_drum_values");
 const char* sdk_drum_title(opxy::u32 engine, opxy::u32 slot) __asm__("sdk_drum_title");
+// The selected key's choke group, as the Shift page names it.
+const char* sdk_drum_choke(opxy::u32 track) __asm__("sdk_drum_choke");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
 }

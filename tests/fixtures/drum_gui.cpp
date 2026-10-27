@@ -113,8 +113,18 @@ int main() {
     require(model == 0 && raw[5] == 28 && raw[1] == 21 && raw[0] == 20 && raw[7] == 53);
     require(publications == 1 && dirty == 1 && last_key == 53);
     shifted = true;
-    sdk_drum_edit(53, 5, event, 0);   // Shift and the second encoder: the shown control too
-    require(drum_unpack(regions[0] + 1, &model, raw) && raw[5] == 31 && raw[1] == 21 && model == 0);
+    // Shift and the second encoder choose the choke group: none, then 1..3.
+    // The edit above kept stock's play mode 0, gate, which reads as none.
+    require(drum_choke(record[24]) == 0 && !std::strcmp(sdk_drum_choke(0), "NONE"));
+    sdk_drum_edit(53, 5, event, 0);
+    require(publications == 2 && (record[24] >> 4) == 5 && !std::strcmp(sdk_drum_choke(0), "3"));
+    sdk_drum_edit(53, 5, event, 0);   // mute3 is the limit
+    require(publications == 2);
+    const u32 none[3] = {0, static_cast<u32>(-5), 0};
+    sdk_drum_edit(53, 5, none, 0);
+    require(publications == 3 && drum_marked(record[24]) && (record[24] >> 4) == 1);
+    require(!std::strcmp(sdk_drum_choke(0), "NONE"));
+    require(drum_unpack(regions[0] + 1, &model, raw) && raw[5] == 28 && raw[1] == 21 && model == 0);
     require(regions[0][0] == 123456 && regions[0][5] == 987654 && record[26] == 53);
     sdk_synth_turn(0, 0, 5, 0);
     require(turned_slot == 5);
@@ -122,7 +132,7 @@ int main() {
     // slot 6, is used. The fourth's alternate, slot 7, is a gap: no toggle.
     shifted = false;
     sdk_drum_edit(53, 2, event, 0);
-    require(publications == 2 && drum_unpack(regions[0] + 1, &model, raw) && raw[2] == 22);
+    require(publications == 3 && drum_unpack(regions[0] + 1, &model, raw) && raw[2] == 22);
     sdk_synth_press(3); ++presses; shown(0,5,2,3);
     sdk_synth_press(2); ++presses; shown(0,5,6,3);
     sdk_synth_press(2); ++presses; shown(0,5,2,3);
@@ -131,23 +141,23 @@ int main() {
     // controls stay, and the shorter model returns its missing alternate.
     const u32 one[3] = {0, 1, 0};
     sdk_drum_edit(53, 4, one, 0);
-    require(sdk_drum_values(0, &model, raw) && model == 1 && raw[5] == 31 && publications == 3);
+    require(sdk_drum_values(0, &model, raw) && model == 1 && raw[5] == 28 && publications == 4);
     shown(0,1,2,3);
     sdk_drum_edit(53, 4, event, 0);   // the last model is the limit
-    require(publications == 3);
+    require(publications == 4);
     shifted = false;
 
     key = 54; shown(0,1,2,3);
     sdk_synth_press(1); ++presses; shown(0,1,2,3);   // the shorter model has no slot 5
     sdk_drum_edit(54, 3, event, 0);   // nor a slot 3: inert
-    require(publications == 3);
+    require(publications == 4);
     require(!std::strcmp(sdk_drum_title(34, 1), "short"));
     key = 53;
     const u32 back[3] = {0, static_cast<u32>(-1), 0};
     shifted = true;
     sdk_drum_edit(53, 4, back, 0);
     shifted = false;
-    require(sdk_drum_values(0, &model, raw) && model == 0 && publications == 4);
+    require(sdk_drum_values(0, &model, raw) && model == 0 && publications == 5);
     sdk_synth_press(1); ++presses; shown(0,5,2,3);
 
     const u32 negative[3] = {0, static_cast<u32>(-100000), 0};
@@ -155,7 +165,7 @@ int main() {
     require(sdk_drum_values(0, &model, raw) && raw[0] == 0 && model == 0);
     const u32 zero[3] = {};
     sdk_drum_edit(53, 1, zero, 0);
-    require(publications == 5 && dirty == 5);
+    require(publications == 6 && dirty == 6);
 
     // Parent note 53 can select canonical pad 65 in the other octave. GUI
     // defaults use the selected record's key, matching the audio mapper.

@@ -430,7 +430,13 @@ eight 7-bit controls into 56 bits and its model into the other 4. The pad's
 model byte (record `+0x18`: Drumline's instrument type in the low nibble, its
 choke group in the high one) marks the layout with type 7, which stock's
 editor skips (`8d4d69d0`) and its default kit never uses; the choke group is
-kept. On the audio side the note payload's first word is stock's reading of
+kept unless Shift and the second encoder choose one. The high nibble is the
+pad's play mode, which presets name in a region's `playmode`: 0 `gate`,
+1 `oneshot` (the default, omitted), 2 `mute1`, 3 `loop`, 4 `mute2`,
+5 `mute3`. Pads sharing a mute cut each other off. Stock's default kit has BD
+and SD in `mute2`, CH, OH and RC in `mute1`, the rest `oneshot`. A preset
+names type 7 `fm slap`, and its `params` are the top halves of the four
+words. On the audio side the note payload's first word is stock's reading of
 that byte, `(6 type + group)` over 66 bins (`8d5aba1c`), so type 7 is bins
 42..47. Every other saved pad field is audible (`pan`, `gain`, `tune`,
 `group`) or not exported in presets (`+0x19`), so the layout holds at most 16

@@ -27,6 +27,22 @@ inline u8 drum_mark(u8 byte) {
     return static_cast<u8>(((group > 5 ? 0u : group) << 4) | kDrumModelMark);
 }
 inline bool drum_marked(u8 byte) { return (byte & 15u) == kDrumModelMark && (byte >> 4) <= 5; }
+
+// A key's choke group, as Shift and the second encoder offer it: none, then
+// 1..3. The high nibble is stock's play mode, as presets name it: gate 0,
+// oneshot 1, mute1 2, loop 3, mute2 4, mute3 5. Pads sharing a mute cut each
+// other off; gate and loop read as none.
+const u32 kDrumChokeChoices = 4;
+const u8 kDrumChokeGroups[kDrumChokeChoices] = {1, 2, 4, 5};
+inline u32 drum_choke(u8 byte) {
+    const u32 group = byte >> 4;
+    for (u32 i = 0; i < kDrumChokeChoices; ++i)
+        if (kDrumChokeGroups[i] == group) return i;
+    return 0;
+}
+inline u8 drum_mark_choke(u32 choice) {
+    return static_cast<u8>((kDrumChokeGroups[choice < kDrumChokeChoices ? choice : 0] << 4) | kDrumModelMark);
+}
 // The note payload's first word: stock's Q31 of the model byte, 6 type + group
 // over 66 bins (8d5aba1c). Type 7 is bins 42..47.
 inline bool drum_marked_q31(i32 word) {
