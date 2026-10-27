@@ -12,6 +12,12 @@ struct DrumMachine {
     const char* (*model_name)(u32 model);
     u32 (*count)(u32 model);
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
+    // A slot the model uses: below its count and named. An unnamed slot inside
+    // the count is a gap in the machine's own layout: blank and inert.
+    bool used(u32 model, u32 slot) const {
+        const char* name = slot < count(model) ? label(model, slot) : nullptr;
+        return name && name[0];
+    }
 };
 }}
 

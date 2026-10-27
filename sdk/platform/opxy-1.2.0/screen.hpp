@@ -227,7 +227,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
             if (n || value >= 10) digits[n++] = static_cast<char>('0' + value / 10);
             digits[n++] = static_cast<char>('0' + value % 10);
             digits[n] = 0;
-            set_text(o->values[i], slot < drum->count(model) ? digits : "");
+            set_text(o->values[i], drum->used(model, slot) ? digits : "");
         }
     }
     return true;

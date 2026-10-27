@@ -24,7 +24,8 @@ void defaults(u32 note, u8* model, u8* values) {
     for (u32 i = 0; i < 8; ++i) values[i] = static_cast<u8>(20 + i);
     values[7] = static_cast<u8>(note);
 }
-const char* label(u32 model, u32) { return model == 0 ? "full" : "short"; }
+// The full model leaves slots 2 and 7 unnamed: gaps inside its count.
+const char* label(u32 model, u32 slot) { return model ? "short" : slot == 2 || slot == 7 ? "" : "full"; }
 const char* name(u32 model) { return model ? "short" : "full"; }
 u32 count(u32 model) { return model ? 3 : 8; }
 bool format(u32, i32, char*) { return false; }
@@ -117,6 +118,14 @@ int main() {
     require(regions[0][0] == 123456 && regions[0][5] == 987654 && record[26] == 53);
     sdk_synth_turn(0, 0, 5, 0);
     require(turned_slot == 5);
+    // A gap: the third encoder's slot 2 is blank and inert; its alternate,
+    // slot 6, is used. The fourth's alternate, slot 7, is a gap: no toggle.
+    shifted = false;
+    sdk_drum_edit(53, 2, event, 0);
+    require(publications == 2 && drum_unpack(regions[0] + 1, &model, raw) && raw[2] == 22);
+    sdk_synth_press(3); ++presses; shown(0,5,2,3);
+    sdk_synth_press(2); ++presses; shown(0,5,6,3);
+    sdk_synth_press(2); ++presses; shown(0,5,2,3);
 
     // Shift and the first encoder choose the model, as on Drumline; the
     // controls stay, and the shorter model returns its missing alternate.

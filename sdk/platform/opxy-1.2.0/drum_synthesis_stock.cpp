@@ -33,7 +33,7 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         u8 shown[page_controls];
         sdk_synth_shown(track, shown);
         const u32 slot = shown[control % page_controls];
-        if (slot >= kDrumControlCount || slot >= machine->count(model)) return 0;
+        if (slot >= kDrumControlCount || !machine->used(model, slot)) return 0;
         i32 next = static_cast<i32>(controls[slot]) + delta;
         if (next < 0) next = 0;
         if (next > 127) next = 127;

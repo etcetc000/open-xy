@@ -273,7 +273,8 @@ unused slots. The screen shows the selected key's controls and labels with
 the track's offsets applied, so a held step shows the values its locks play;
 the display's `Input::model` is the selected key's model. Encoder presses
 switch its main/alternate control; unavailable alternates return to the main
-control. Integer edits already have one-unit precision, including Shift turns.
+control. A slot is available when it is below the count and named: an
+unnamed slot shows blank, ignores turns, and a press never selects it. Integer edits already have one-unit precision, including Shift turns.
 
 The adapter stores the model and the eight controls losslessly in four
 existing per-key preset words (eight 7 bits, the model 4), and marks the pad
