@@ -141,6 +141,7 @@ struct Controls {
     i32 values[page_controls];
     i32 slots[parameter_slots];
     u32 model;   // a drum kit's selected key's model; 0 otherwise
+    u32 pad;     // a drum kit's selected canonical pad, 53..76; 0 otherwise
     bool choosing;   // a drum kit's Shift page: the cells name the model and choke group
 };
 
@@ -184,6 +185,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
         ? sdk_drum_machine(platform::track_engine(controls.track)) : nullptr;
     if (drum && !sdk_drum_values(controls.track, &model, drum_values)) drum = nullptr;
     controls.model = drum ? model : 0;
+    controls.pad = drum ? sdk_drum_selected_pad(controls.track) : 0;
     if (drum) {
         // Stock's vector holds the track parameters a held step locks: show
         // the values that step plays, as the audio adapter decodes them.

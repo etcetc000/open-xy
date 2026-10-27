@@ -10,6 +10,22 @@ bool sdk_drum_values(opxy::u32 track, opxy::u8* model, opxy::u8* controls) {
     return drum_region_values(*machine, track, key, pad_region(track, key), model, controls);
 }
 
+opxy::u32 sdk_drum_selected_pad(opxy::u32 track) {
+    using namespace opxy::platform;
+    if (track >= kTracks || !sdk_drum_machine(track_engine(track))) return 0;
+    const opxy::u32 key = stock<opxy::u32(opxy::u32)>(0x8d4d7650)(track);
+    const void* region = pad_region(track, key);
+    const opxy::u32 pad = region ? drum_canonical_key(track, key, region) : 0;
+    return pad >= 53 && pad < 77 ? pad : 0;
+}
+
+opxy::u32 sdk_drum_pad(opxy::u32 track, opxy::u32 note) {
+    using namespace opxy::platform;
+    if (track >= kTracks || note >= 128) return 0;
+    const opxy::u32 pad = stock<opxy::u32(opxy::u32, opxy::u32)>(0x8d5878a8)(track, note);
+    return pad >= 53 && pad < 77 ? pad : 0;
+}
+
 const char* sdk_drum_choke(opxy::u32 track) {
     using namespace opxy::platform;
     static const char* const names[kDrumChokeChoices] = {"NONE", "1", "2", "3"};

@@ -30,6 +30,10 @@ opxy::u32 sdk_drum_alias(opxy::u32 engine) __asm__("sdk_drum_alias");
 // (step locks, modulation) remain separate.
 bool sdk_drum_values(opxy::u32 track, opxy::u8* model, opxy::u8* controls) __asm__("sdk_drum_values");
 const char* sdk_drum_title(opxy::u32 engine, opxy::u32 slot) __asm__("sdk_drum_title");
+// The selected key's canonical pad, 53..76, or 0 when the track is not an owned kit.
+opxy::u32 sdk_drum_selected_pad(opxy::u32 track) __asm__("sdk_drum_selected_pad");
+// The canonical pad a played note sounds on a track, 53..76, or 0. GUI only.
+opxy::u32 sdk_drum_pad(opxy::u32 track, opxy::u32 note) __asm__("sdk_drum_pad");
 // The selected key's choke group, as the Shift page names it.
 const char* sdk_drum_choke(opxy::u32 track) __asm__("sdk_drum_choke");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
