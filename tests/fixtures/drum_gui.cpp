@@ -192,11 +192,16 @@ int main() {
     require(drum_pack(1, seven, regions[12] + 1));
     require(sdk_drum_values(0, &model, raw) && model == 1 && !std::memcmp(raw, seven, 8));
     require((reinterpret_cast<u8*>(regions[12])[24] >> 4) == 2);   // stock's choke group kept
+    require(sdk_drum_selected_pad(0) == 65);   // the screen's pad is the audio's
+    require(sdk_drum_pad(0, 53) == 65 && sdk_drum_pad(0, 54) == 54);   // a played note's, the same way
+    require(!sdk_drum_pad(0, 30) && !sdk_drum_pad(0, 128) && !sdk_drum_pad(8, 53));
     shifted_octave = false;
+    require(sdk_drum_selected_pad(0) == 53);
 
     ownership = 0;
     require(sdk_drum_edit(53, 0, one, 0) == 1234 && fallback == 1);
     require(!sdk_drum_values(0, &model, raw));
+    require(!sdk_drum_selected_pad(0));
     shown(0,1,2,3);
     sdk_synth_press(0); ++presses; shown(0,1,2,3);
     require(clicks == presses);

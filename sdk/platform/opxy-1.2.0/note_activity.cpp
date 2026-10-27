@@ -7,6 +7,7 @@ namespace {
 // The same map paints stock's keyboard, independently of voice/envelope life.
 const opxy::u32 kNoteMap = 0x86be3f14;
 opxy::u32 releases[opxy::platform::kTracks];
+opxy::u8 pitch_releases[opxy::platform::kTracks][128];
 }
 
 extern "C" opxy::u32 sdk_note_off(opxy::u32 track, opxy::u32 note) {
@@ -15,7 +16,10 @@ extern "C" opxy::u32 sdk_note_off(opxy::u32 track, opxy::u32 note) {
     // Always delegate, including unowned engines and tracks outside the display
     // API. Preserve stock's return value and exactly one clear per call.
     const opxy::u32 result = stock<opxy::u32(opxy::u32, opxy::u32)>(0x8d5b5ea4)(track, note);
-    if (held) ++releases[track];
+    if (held) {
+        ++releases[track];
+        ++pitch_releases[track][note];
+    }
     return result;
 }
 
@@ -26,4 +30,12 @@ extern "C" void sdk_display_note_activity(opxy::u32 track, opxy::draw::Input* in
     if (track >= kTracks) return;
     for (opxy::u32 note = 0; note < 128; ++note)
         if (byte(kNoteMap + track * 128 + note)) ++input->held_notes;
+}
+
+extern "C" void sdk_note_pitches(opxy::u32 track, opxy::u8* held, opxy::u8* released) {
+    using namespace opxy::platform;
+    for (opxy::u32 note = 0; note < 128; ++note) {
+        held[note] = track < kTracks && byte(kNoteMap + track * 128 + note) ? 1 : 0;
+        released[note] = track < kTracks ? pitch_releases[track][note] : 0;
+    }
 }
