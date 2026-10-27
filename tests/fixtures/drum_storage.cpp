@@ -67,6 +67,31 @@ int main() {
         require(!drum_unpack(words, output));
     }
     for (u8 value : output) require(value == 91);
+    // A step lock is a track offset: the screen and the voice both decode it.
+    {
+        const u8 stored[8] = {5, 0, 64, 127, 10, 100, 1, 126};
+        u8 live[8];
+        drum_offset(stored, nullptr, 13, live);
+        require(std::memcmp(stored, live, 8) == 0);
+        i32 neutral[8];
+        for (i32& p : neutral) p = 0x40000000;
+        drum_offset(stored, neutral, 13, live);
+        require(std::memcmp(stored, live, 8) == 0);
+        i32 locked[8];
+        std::memcpy(locked, neutral, sizeof locked);
+        locked[2] = 0x40000000 + (10 << 24);  // +10
+        locked[4] = 0x40000000 - (3 << 24);   // -3
+        drum_offset(stored, locked, 13, live);
+        require(live[2] == 74 && live[4] == 7 && live[1] == 0 && live[3] == 127);
+        locked[0] = 0x7fffffff;  // Model clamps to the last model
+        locked[1] = 0;           // -64 clamps at zero
+        locked[7] = 0x7fffffff;  // +63 clamps at 127
+        drum_offset(stored, locked, 13, live);
+        require(live[0] == 12 && live[1] == 0 && live[7] == 127);
+        locked[0] = -1;          // Out-of-range parameters count as zero
+        drum_offset(stored, locked, 13, live);
+        require(live[0] == 0);
+    }
     require(!drum_pack(nullptr, words) && !drum_pack(controls, nullptr));
     require(!drum_unpack(nullptr, output) && !drum_unpack(baseline, nullptr));
 }

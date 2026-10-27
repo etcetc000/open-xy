@@ -181,6 +181,16 @@ inline bool refresh_controls(Base* o, Controls& controls) {
         ? sdk_drum_machine(platform::track_engine(controls.track)) : nullptr;
     if (drum && !sdk_drum_values(controls.track, drum_values)) drum = nullptr;
     if (drum) {
+        // Stock's vector holds the track parameters a held step locks: show
+        // the values that step plays, as the audio adapter decodes them.
+        i32 offsets[parameter_slots];
+        const bool whole = stock_vector && stock_vector->begin && !(stock_vector->begin & 3) &&
+                           stock_vector->end >= stock_vector->begin + 4 * parameter_slots;
+        for (u32 i = 0; i < parameter_slots; ++i)
+            offsets[i] = whole ? reinterpret_cast<const i32*>(stock_vector->begin)[i] : 0;
+        u8 stored[8];
+        for (u32 i = 0; i < 8; ++i) stored[i] = drum_values[i];
+        platform::drum_offset(stored, whole ? offsets : nullptr, drum->model_count, drum_values);
         controls.valid = true;
         for (u32 i = 0; i < parameter_slots; ++i) {
             controls.slots[i] = i == 0

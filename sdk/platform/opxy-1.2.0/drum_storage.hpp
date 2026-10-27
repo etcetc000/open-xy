@@ -16,6 +16,18 @@ inline i32 drum_model_q31(u32 model, u32 count) {
         ? static_cast<i32>((0x40000000u / count) * (2 * model + 1)) : 0;
 }
 
+// The values a note plays: each stored value plus its track parameter as an
+// offset around Q31 0.5, clamped, Model to the kit's models. Step locks and
+// modulation reach a kit only as these offsets; null parameters are neutral.
+inline void drum_offset(const u8* raw, const i32* parameters, u32 model_count, u8* live) {
+    for (u32 i = 0; i < kDrumControlCount; ++i) {
+        i32 value = raw[i];
+        if (parameters) value += static_cast<i32>((parameters[i] < 0 ? 0u : static_cast<u32>(parameters[i])) >> 24) - 64;
+        const i32 high = i == 0 ? static_cast<i32>(model_count) - 1 : 127;
+        live[i] = static_cast<u8>(value < 0 ? 0 : value > high ? high : value);
+    }
+}
+
 inline bool drum_pack(const u8* controls, i32* words) {
     if (!controls || !words) return false;
     for (u32 i = 0; i < kDrumControlCount; ++i)

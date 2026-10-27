@@ -255,7 +255,8 @@ opxy::u32 parameter_count(opxy::u32 model); // 1..8, including Model
 Keys passed to `drum_defaults` are canonical keys 53..76. Values are integers
 0..127; slot zero must be below `modelCount`. Names are static strings;
 parameter labels fit eight characters. Return an empty label for unused
-slots. The screen shows the selected key's values and labels. Encoder presses
+slots. The screen shows the selected key's values and labels with the track's
+offsets applied, so a held step shows the values its locks play. Encoder presses
 switch its main/alternate control; unavailable alternates return to the main
 control. Integer edits already have one-unit precision, including Shift turns.
 

@@ -112,17 +112,14 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* region,
         @NAMESPACE@::drum_defaults(handle->key, raw);
         if (region) opxy::platform::drum_unpack(region + 1, raw);
         if (raw[0] >= @MODEL_COUNT@) @NAMESPACE@::drum_defaults(handle->key, raw);
+        // Track parameters apply after unpacking, never to the persisted words.
+        opxy::u8 played[8];
+        opxy::platform::drum_offset(raw, parameters, @MODEL_COUNT@, played);
         opxy::i32 live[8];
         for (opxy::u32 i = 0; i < 8; ++i) {
-            opxy::i32 value = raw[i];
-            // The eight stock track parameters are offsets around Q31 0.5.
-            // Apply them after unpacking, never to the persisted packed words.
-            if (parameters) value += (parameters[i] >> 24) - 64;
-            const opxy::i32 high = i == 0 ? @MODEL_COUNT@ - 1 : 127;
-            if (value < 0) value = 0;
-            if (value > high) value = high;
+            const opxy::u32 value = played[i];
             live[i] = i == 0 ? opxy::platform::drum_model_q31(value, @MODEL_COUNT@)
-                : value == 127 ? 0x7fffffff : value << 24;
+                : value == 127 ? 0x7fffffff : static_cast<opxy::i32>(value << 24);
         }
         // Unlike the normal synth renderer, 8d51a850..854 publishes phase
         // increments shifted right by 16. Restore the public Pitch units.
