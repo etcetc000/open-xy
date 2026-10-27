@@ -208,21 +208,21 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     update_controls(o, controls.track, controls.valid ? &view : stock_vector);
     if (controls.valid) {
         // While Shift is held, the first encoder chooses the key's model, as
-        // on stock Drumline, and the second its choke group. Stock shows only
-        // the titles then, so the cells read MACHINE, the model, CHOKE and
-        // the group.
+        // on stock Drumline, and the second its choke group; the third and
+        // fourth turn nothing, so their cells are blank.
         const bool choosing = drum && platform::shift_held();
         controls.choosing = choosing;
-        const char* const shifted[page_controls] = {
-            "MACHINE", choosing ? drum->model_name(model) : "", "CHOKE", choosing ? sdk_drum_choke(controls.track) : ""};
+        const char* const titles[page_controls] = {"MACHINE", "CHOKE", "", ""};
+        const char* const values[page_controls] = {
+            choosing ? drum->model_name(model) : "", choosing ? sdk_drum_choke(controls.track) : "", "", ""};
         for (u32 i = 0; i < page_controls; ++i) {
             char text[16];
             if (sdk_synth_value(controls.track, controls.shown[i], controls.values[i], text))
                 set_text(o->values[i], text);
             if (!drum) continue;
             if (choosing) {
-                set_text(o->titles[i], shifted[i]);
-                set_text(o->values[i], "");
+                set_text(o->titles[i], titles[i]);
+                set_text(o->values[i], values[i]);
                 continue;
             }
             const u32 slot = controls.shown[i];

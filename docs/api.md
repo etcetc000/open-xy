@@ -253,9 +253,9 @@ the eight controls: slots 0..3 on the four encoders, slots 4..7 their
 alternates, one per encoder, switched by pressing it. As on stock Drumline,
 Shift and the first encoder choose the selected key's model, and Shift and
 the second encoder its choke group, NONE or 1..3; keys sharing a group cut
-each other off. While Shift is held the four cells read MACHINE, the model,
-CHOKE and the group, with their values blank; Shift and the third and fourth
-encoders turn nothing.
+each other off. While Shift is held the first encoder's cell shows MACHINE and
+the model, the second's CHOKE and the group, and the third and fourth are
+blank and turn nothing.
 
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
