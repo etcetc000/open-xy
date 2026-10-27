@@ -135,7 +135,15 @@ per track, starts on the position's own parameter and is not saved. Display
 inputs carry each position's shown value, its parameter index (`shown`) and
 every parameter's value (`slots`), so a [header value](display.md#frame)
 can format whichever is shown while dials follow their own parameters.
-Browser previews show the parameter last edited at each position. See
+Browser previews show the parameter last edited at each position.
+
+A synth may leave a slot empty yet keep later parameters at their indices
+(projects save by index): declare it
+`{"id": ..., "label": "", "default": 0, "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent", "absent": true}`,
+with no `control` and no preset entry. It belongs to no position, so no press
+selects it; an empty own slot still starts its position's cycle, so the press
+reaches the position's alternates. Its title is empty and a turn on it changes
+nothing; a machine's display can blank its value with header text `" "`. See
 [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json), whose fourth encoder
 switches between FM ratio and depth.
 

@@ -94,8 +94,9 @@ def control_positions(definition):
     The first four parameters are the positions' own; each later one names the
     position it alternates on with `control`. Pressing an encoder cycles its
     position through its own parameter, then its alternates in parameter order.
+    An absent parameter (an empty slot) belongs to no position: None.
     """
-    return [parameter.get('control', i) for i, parameter in enumerate(definition['parameters'])]
+    return [None if parameter.get('absent') else parameter.get('control', i) for i, parameter in enumerate(definition['parameters'])]
 
 
 def validate_definition(value, kind):
@@ -142,6 +143,8 @@ def validate_definition(value, kind):
     names = set()
     for i, parameter in enumerate(parameters):
         alternate = kind in ('synth', 'drum') and i >= SYNTH_POSITIONS
+        require(kind == 'synth' or not (isinstance(parameter, dict) and 'absent' in parameter),
+                'Only a synth leaves a slot absent')
         validate_parameter(parameter, alternate)
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
@@ -149,8 +152,9 @@ def validate_definition(value, kind):
         require(sorted(p['control'] for p in parameters[4:]) == [0, 1, 2, 3],
                 'A drum kit has one alternate per encoder')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
+    present = {p['id'] for p in parameters if not p.get('absent')}
     for name, preset in value['presets'].items():
-        label(name); keys(preset, names, 'preset')
+        label(name); keys(preset, present, 'preset')
         for default in preset.values(): number(default, 0, 1, 'preset value')
     return value
 
@@ -184,6 +188,15 @@ def validate_display(display):
 
 
 def validate_parameter(parameter, alternate=False):
+    if isinstance(parameter, dict) and parameter.get('absent') is not None:
+        # An empty slot that keeps later parameters at their indices: no label, no
+        # position, no presets; its encoder shows nothing and turns nothing.
+        keys(parameter, ('id', 'label', 'default', 'mapping', 'display', 'absent'), 'absent parameter')
+        require(parameter['absent'] is True and parameter['label'] == '' and parameter['default'] == 0 and
+                parameter['mapping'] == {'kind': 'linear', 'minimum': 0, 'maximum': 1} and parameter['display'] == 'percent',
+                'An absent parameter is {"absent": true, "label": "", "default": 0, linear 0..1, percent}')
+        identifier(parameter['id'])
+        return
     # A synth's parameters after the first four are alternates of one control position.
     keys(parameter, ('id', 'label', 'default', 'mapping', 'display', *(('control',) if alternate else ())), 'parameter')
     if alternate:

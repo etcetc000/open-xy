@@ -23,8 +23,9 @@ export function physicalValue(mapping, value) {
 
 // A synth's page position (encoder) for each parameter, in parameter order:
 // the first four are the positions' own, later ones name theirs in `control`
-// (the definition schema; tooling.definitions.control_positions).
-export const controlPositions = parameters => parameters.map((p, i) => p.control ?? i);
+// (the definition schema; tooling.definitions.control_positions). An absent
+// parameter (an empty slot) belongs to none: null.
+export const controlPositions = parameters => parameters.map((p, i) => p.absent ? null : p.control ?? i);
 
 // The display input (draw.hpp) for the eight parameter words in
 // parameter order, when shown[i] is the parameter position i shows (initially
@@ -103,6 +104,10 @@ export function createControls(input) {
     }
     return canonical;
   }
+  // Presets name the present controls; an absent one (an empty slot) stays 0.
+  const absent = Object.fromEntries(parameters.filter(p => p.absent).map(p => [p.id, 0]));
+  const presets = descriptor.presets &&
+    Object.fromEntries(Object.entries(descriptor.presets).map(([name, values]) => [name, { ...absent, ...values }]));
   return Object.freeze({ definition, parameters, positions: Object.freeze(controlPositions(parameters)),
-    defaults, presets: descriptor.presets, physical, displayValue, q31, validateParameters, makePatch, readPatch });
+    defaults, presets, physical, displayValue, q31, validateParameters, makePatch, readPatch });
 }

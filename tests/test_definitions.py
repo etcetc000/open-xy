@@ -180,6 +180,42 @@ class Definitions(unittest.TestCase):
         sample['parameters'][-1]['control'] = 0
         with self.assertRaisesRegex(ValueError, 'parameter fields'): validate_definition(sample, 'sample')
 
+    def absent(self, identity):
+        return dict(id=identity, label='', default=0, mapping=dict(kind='linear', minimum=0, maximum=1),
+                    display='percent', absent=True)
+
+    def test_an_absent_slot_keeps_later_indices_but_no_position_label_or_preset(self):
+        # Slots: the engine's four, an absent alternate, a real alternate on 3, and slot 3 itself absent.
+        value = copy.deepcopy(self.engine)
+        value['parameters'][3] = self.absent('none3')
+        value['parameters'] += [self.absent('none4'), self.alternate(3, 'tune')]
+        for preset in value['presets'].values():
+            preset.pop(self.engine['parameters'][3]['id'], None)
+            preset.update(tune=0)
+        validate_definition(value, 'synth')
+        self.assertEqual(control_positions(value), [0, 1, 2, None, None, 3])
+        # Position 3 starts on its absent slot and its press reaches the alternate; the absent alternate is unreachable.
+        self.assertEqual(control_cycles(value), [0, 1, 2, 5, 4, 3, 6, 7])
+        rejected = []
+        for key, bad in (('label', 'X'), ('default', 0.5), ('absent', False), ('display', 'enum')):
+            changed = copy.deepcopy(value); changed['parameters'][4][key] = bad
+            rejected.append(changed)
+        positioned = copy.deepcopy(value); positioned['parameters'][4]['control'] = 1
+        rejected.append(positioned)
+        preset = copy.deepcopy(value)
+        for p in preset['presets'].values(): p['none4'] = 0
+        rejected.append(preset)
+        for bad in rejected:
+            with self.subTest(parameter=bad['parameters'][4]), self.assertRaises(ValueError):
+                validate_definition(bad, 'synth')
+        blank = copy.deepcopy(self.engine); blank['parameters'][0]['label'] = ''
+        with self.assertRaisesRegex(ValueError, 'Control labels'): validate_definition(blank, 'synth')
+        machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+        # The table's last field: the absent slots' mask (slots 3 and 4).
+        self.assertRegex(text, r'\{gap_engine_id, gap_ready, \{0, 1, 2, 5, 4, 3, 6, 7\}, \d+, gap_format, false, \{[\d, ]+\}, 24\},')
+
     def test_control_table_owns_all_synths_and_preserves_alternates(self):
         alternates = copy.deepcopy(self.engine)
         alternates['parameters'].append(self.alternate(2))

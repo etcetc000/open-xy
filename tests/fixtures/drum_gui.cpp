@@ -44,7 +44,13 @@ void* region(u32 selected, u32 note, u32* scratch, u32 nearest) {
 void changed() { ++dirty; }
 void publish(u32 note) { ++publications; last_key = note; }
 u32 stock_edit(u32, u32, const u32*, u32) { ++fallback; return 1234; }
-u32 turn(u32, u32 selected, u32 slot, u32) { require(selected == track); turned_slot = slot; return slot; }
+// The event is a small token or, for a turn the SDK rewrote, a pointer to three words.
+i32 turned_detents = -1;
+u32 turn(u32, u32 selected, u32 slot, __UINTPTR_TYPE__ event) {
+    require(selected == track); turned_slot = slot;
+    turned_detents = event > 0xffff ? reinterpret_cast<const i32*>(event)[0] | reinterpret_cast<const i32*>(event)[1] : -1;
+    return slot;
+}
 const char* title(u32, u32) { return "stock"; }
 u32 text(u32, const char*) { return 0; }
 void shown(u32 a, u32 b, u32 c, u32 d) {
@@ -60,7 +66,7 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
 const opxy::u32 sdk_drum_machine_count = 1;
 const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, format, false, {5, 5, 5, 5, 5, 5, 5, 5}},
-    {reinterpret_cast<const char*>(35), ready, {0,1,2,3,4,5,6,7}, 0xfa, format, false, {5, 0, 64, 2, 0, 0, 0, 128}}
+    {reinterpret_cast<const char*>(35), ready, {0,1,2,3,4,5,6,7}, 0xf8, format, false, {5, 0, 64, 2, 0, 0, 0, 128}, 0x02}
 };
 const opxy::u32 sdk_synth_control_count = 2;
 }
@@ -205,5 +211,13 @@ int main() {
     require(!sdk_synth_step(0, 0, 0, up, stepped));
     engine = 36; ownership = 1;
     require(!sdk_synth_step(0, 0, 0, up, stepped));
+
+    // An absent slot (slot 1 here) turns nothing: stock gets a turn of no detents.
+    engine = 35; page = 0;
+    turned_detents = -1;
+    sdk_synth_turn(0, 0, 1, 1);
+    require(turned_slot == 1 && turned_detents == 0);
+    sdk_synth_turn(0, 0, 2, 1);
+    require(turned_slot == 2 && turned_detents == -1);
     return 0;
 }
