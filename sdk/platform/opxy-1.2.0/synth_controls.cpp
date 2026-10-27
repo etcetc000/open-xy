@@ -6,6 +6,7 @@
 #include <opxy/effect.hpp>
 #include "stock.hpp"
 #include "drum_machines.hpp"
+#include "drum_storage.hpp"
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
@@ -158,6 +159,28 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
     const SynthControls* m = (track == 14 || track == 15) && index < 4 ? owned(track_engine(track), true) : nullptr;
     if (m && m->format(index, value, caption)) text = caption;
     return stock<u32(u32, const char*)>(0x8d5ff080)(widget, text);
+}
+
+// Stock steps a control by its engine's choice count, which it knows only for
+// stock engines (8c0b2fc8); for every other engine it steps about 1% a detent,
+// so a five-way enum took twenty detents a choice. As stock's stepped controls
+// and the LFO selector do: a choice a detent, two on an accelerated turn.
+// Drum kits step their own integers (drum_synthesis_stock.cpp).
+bool sdk_synth_step(u32 track, u32 slot, opxy::i32 value, const opxy::i32* event, opxy::i32& stepped) {
+    if (!event || track >= kTracks || slot >= opxy::parameter_slots) return false;
+    const SynthControls* m = owned(track_engine(track));
+    if (!m || sdk_drum_machine(m->engine())) return false;
+    const u32 count = m->choices[slot];
+    if (count < 2 || count > 128) return false;
+    opxy::i32 delta = event[1];
+    if (delta > 8) delta = 8;
+    if (delta < -8) delta = -8;
+    opxy::i32 choice = static_cast<opxy::i32>(((value < 0 ? 0u : static_cast<u32>(value) >> 16) * count) >> 15);
+    choice += delta * (event[2] > 0 ? 2 : 1);
+    if (choice < 0) choice = 0;
+    if (choice >= static_cast<opxy::i32>(count)) choice = static_cast<opxy::i32>(count) - 1;
+    stepped = drum_model_q31(static_cast<u32>(choice), count);
+    return true;
 }
 
 bool sdk_synth_value(u32 track, u32 slot, opxy::i32 value, char* text) {

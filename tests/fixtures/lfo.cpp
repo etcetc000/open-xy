@@ -1,6 +1,7 @@
 // Exercise selection -> stored Q31 value -> audio destination with the real
 // routing code. Boundary doubles fail if the audio path asks a GUI getter.
 #include "lfo.hpp"
+#include "synth_controls.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
@@ -26,6 +27,13 @@ static bool audio;
 static i32 stored, published;
 static u32 value_reads, publications;
 static u32 telemetry_slot, telemetry_writes;
+// Synth enums step on slots 0..7 of track 3 here; every other step reaches stock.
+static u32 synth_steps;
+bool sdk_synth_step(u32 track, u32 slot, i32, const i32* event, i32& stepped) {
+    if (!event || track != 3 || slot >= 8) return false;
+    ++synth_steps; stepped = 0x12345678;
+    return true;
+}
 namespace opxy { namespace platform { namespace lfo {
 u32 gui_engine(u32 track) { require(!audio && track == expected_track); ++gui_reads; return engine; }
 u32 audio_engine(u32 track) { require(audio && track == expected_track); return engine; }
@@ -228,4 +236,13 @@ int main() {
         sdk_lfo_icon_slide(101, 102, -7000, 153, 0, 7);
         require(icon_target == -7000);
     }
+    // A synth's own control: the synth's step, never stock's; the LFO's selector
+    // on the same track keeps its own.
+    expected_track = 3; engine = 44; kind = 1; group = 0;
+    const u32 calls = delegated, steps = synth_steps;
+    require(sdk_lfo_step(3, 2, 0, up) == 0x12345678);
+    require(synth_steps == steps + 1 && delegated == calls);
+    require(static_cast<u32>(sdk_lfo_step(3, 27, 0, up)) >> 28 == 1 && synth_steps == steps + 1);
+    sdk_lfo_step(3, 9, 123, up);
+    require(delegated == calls + 1);
 }

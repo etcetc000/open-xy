@@ -1,4 +1,5 @@
 #include "lfo.hpp"
+#include "synth_controls.hpp"
 
 namespace {
 using namespace opxy;
@@ -102,6 +103,9 @@ i32 sdk_lfo_step(u32 track, u32 index, i32 value, const i32* event) {
         if (slot >= static_cast<i32>(count)) slot = count - 1;
         return static_cast<i32>((static_cast<u32>(slot) << 28) + 0x08000000u);
     }
+    // Stock calls this step for every control an encoder edits, not only the LFO's.
+    i32 stepped;
+    if (sdk_synth_step(track, index, value, event, stepped)) return stepped;
     return lfo::step(track, index, value, event);
 }
 

@@ -27,12 +27,16 @@ class Lfo(unittest.TestCase):
         for i in range(4):
             parameter = copy.deepcopy(definition['parameters'][i])
             parameter.update(id='extra' + str(i), label='Extra ' + str(i), control=(3, 3, 0, 2)[i])
+            if i == 1:
+                parameter.update(mapping={'kind': 'enum', 'labels': ['A', 'B', 'C']}, display='enum')
             definition['parameters'].append(parameter)
         machines[0] = replace(machines[0], definition=definition)
         with tempfile.TemporaryDirectory() as directory:
             table = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
             voice = generate_voice(directory, machines[0]).read_text(encoding='utf-8')
         self.assertIn('{probesynth_engine_id, probesynth_record_ready, 8, {0, 1, 2, 3, 3, 3, 0, 2}}', table)
+        # Each enum's choices, for stepping one a detent (synth_controls.cpp).
+        self.assertRegex(table, r'\{probesynth_engine_id, probesynth_ready, .*, \{0, 0, 0, 0, 0, 3, 0, 0\}\},')
         self.assertIn('{probesample_engine_id, probesample_record_ready, 3, {0, 1, 2}}', table)
         self.assertNotIn('probefx_record_ready', table)
         self.assertNotIn('sdk_synth_title_slot(', voice)

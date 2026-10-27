@@ -160,7 +160,12 @@ parameter slot and a turn edits that slot. For owned synths, Shift's indices
 4..7 map back to the same shown positions; continuous controls receive a copy
 of the turn event with its step divided by ten, keeping detents and
 acceleration. Stock consumes the event synchronously and still owns lock
-editing and publication. The selection is GUI state per track, reset when the
+editing and publication.
+Stock steps a control by its engine's choice count, which its table
+(`0x8c0b2fc8`) gives only stock engines, and otherwise by the event's amount.
+Both of its step calls already reach `sdk_lfo_step`; for an owned synth's enum
+it returns the next choice's midpoint (`sdk_synth_step`, from the definition's
+label count), one choice a detent and two when the turn is accelerated. The selection is GUI state per track, reset when the
 track's engine changes. Other pages and unowned engines retain stock routing.
 
 The auxiliary-track controller already folds Shift into positions 0..3; owned

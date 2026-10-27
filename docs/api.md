@@ -156,7 +156,9 @@ machines with more than four parameters: their saved selector values now
 address eight slots instead of four.
 
 On custom synth engine pages, Shift + turn edits the same visible parameter
-at one tenth of the normal rate. Enum choices keep their ordinary stepping.
+at one tenth of the normal rate. An enum control moves one choice a detent
+(two on an accelerated turn), Shift or not, as stock's own stepped controls do;
+other controls step about 1% a detent.
 Synth amounts and bounded positive anchor-ratio captions show one decimal
 place; amounts omit the percent suffix. A machine's display can replace them with
 its own [header text](display.md#frame). Custom send effects also

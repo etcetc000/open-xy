@@ -7,7 +7,8 @@ namespace opxy { namespace platform {
 // A synth or effect. Pressing a synth encoder moves its
 // position from slot s to next[s]; each position starts on its own slot 0..3,
 // and a slot no position reaches maps to itself. In a browser kit an
-// unselected machine's ready resolves to a function returning 0.
+// unselected machine's ready resolves to a function returning 0. `choices`
+// counts each enum control's labels (0 for the others).
 struct SynthControls {
     const char* id;  // absolute symbol: the engine or effect ID, supplied at link time
     int (*ready)();
@@ -15,6 +16,7 @@ struct SynthControls {
     u32 continuous;
     bool (*format)(u32 slot, i32 value, char* text);
     bool effect;
+    u8 choices[parameter_slots];
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // GUI-only, bounded one-decimal formatting. Caller provides 16 bytes.
@@ -31,6 +33,11 @@ extern const opxy::u32 sdk_synth_control_count __asm__("sdk_synth_control_count"
 // 0..3 unless an owned synth's encoder press selected an alternate. GUI only.
 void sdk_synth_shown(opxy::u32 track, opxy::u8* shown) __asm__("sdk_synth_shown");
 bool sdk_synth_value(opxy::u32 track, opxy::u32 slot, opxy::i32 value, char* text) __asm__("sdk_synth_value");
+// Stock's step of an owned synth's enum control (an instrument track's slot
+// 0..7) for an encoder event: the next choice's midpoint in `stepped`, or false
+// to keep stock's own step. GUI only.
+bool sdk_synth_step(opxy::u32 track, opxy::u32 slot, opxy::i32 value, const opxy::i32* event, opxy::i32& stepped)
+    __asm__("sdk_synth_step");
 // The slot shown at page position `index` while engine is the selected track's
 // owned synth, as last refreshed; other indices and engines map to themselves.
 // For stock control titles.

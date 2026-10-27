@@ -59,9 +59,10 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
 };
 const opxy::u32 sdk_drum_machine_count = 1;
 const opxy::platform::SynthControls sdk_synth_controls[] = {
-    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, format, false}
+    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, format, false, {5, 5, 5, 5, 5, 5, 5, 5}},
+    {reinterpret_cast<const char*>(35), ready, {0,1,2,3,4,5,6,7}, 0xfa, format, false, {5, 0, 64, 2, 0, 0, 0, 128}}
 };
-const opxy::u32 sdk_synth_control_count = 1;
+const opxy::u32 sdk_synth_control_count = 2;
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(Address address) {
@@ -145,5 +146,39 @@ int main() {
     shown(0,1,2,3);
     sdk_synth_press(0); shown(0,1,2,3);
     require(clicks == 4);
+
+    // An owned synth's enum moves a choice a detent (two when accelerated) and
+    // lands on the choice's midpoint, which the machine reads as that choice.
+    ownership = 1; engine = 35;
+    const i32 up[3] = {1000, 1, 0}, down[3] = {-1000, -1, 0}, fast[3] = {3000, 1, 2}, still[3] = {0, 0, 0};
+    const i32 lots[3] = {0, 0x7fffffff, 0}, fewer[3] = {0, -2147483647 - 1, 0};
+    const u32 counts[4] = {5, 64, 2, 128}, slots[4] = {0, 2, 3, 7};
+    for (u32 k = 0; k < 4; ++k) {
+        const u32 n = counts[k], slot = slots[k];
+        const auto choice = [n](i32 v) { return ((static_cast<u32>(v) >> 16) * n) >> 15; };
+        i32 value = 0, stepped = -1;
+        for (u32 c = 1; c < n; ++c) {
+            require(sdk_synth_step(0, slot, value, up, stepped) && choice(stepped) == c);
+            value = stepped;
+        }
+        require(sdk_synth_step(0, slot, value, up, stepped) && choice(stepped) == n - 1);
+        require(sdk_synth_step(0, slot, value, down, stepped) && choice(stepped) == n - 2);
+        require(sdk_synth_step(0, slot, 0, fast, stepped) && choice(stepped) == (n > 2 ? 2 : 1));
+        require(sdk_synth_step(0, slot, 0, still, stepped) && choice(stepped) == 0);
+        require(sdk_synth_step(0, slot, 0, lots, stepped) && choice(stepped) == (n > 8 ? 8 : n - 1));
+        require(sdk_synth_step(0, slot, 0x7fffffff, fewer, stepped) && choice(stepped) == (n > 8 ? n - 9 : 0));
+        require(sdk_synth_step(0, slot, -5, up, stepped) && choice(stepped) == 1);
+    }
+    i32 stepped = 0;
+    require(!sdk_synth_step(0, 1, 0, up, stepped));          // continuous: stock steps it
+    require(!sdk_synth_step(0, 0, 0, nullptr, stepped));
+    require(!sdk_synth_step(0, 8, 0, up, stepped));
+    require(!sdk_synth_step(8, 0, 0, up, stepped));
+    engine = 34;
+    require(!sdk_synth_step(0, 0, 0, up, stepped));          // a drum kit steps its own integers
+    engine = 35; ownership = 0;
+    require(!sdk_synth_step(0, 0, 0, up, stepped));
+    engine = 36; ownership = 1;
+    require(!sdk_synth_step(0, 0, 0, up, stepped));
     return 0;
 }
