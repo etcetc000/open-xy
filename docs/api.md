@@ -251,10 +251,10 @@ lifecycle, a drawing display, and the same resources plus `modelCount`
 (2..16). Each key holds a model and eight controls. The definition declares
 the eight controls: slots 0..3 on the four encoders, slots 4..7 their
 alternates, one per encoder, switched by pressing it. As on stock Drumline,
-Shift and the first encoder choose the selected key's model; while Shift is
-held, the first cell names it. Shift and the second encoder choose the key's
-choke group, NONE or 1..3, named in the second cell; keys sharing a group cut
-each other off. Shift and the third and fourth encoders edit their shown
+Shift and the first encoder choose the selected key's model, and Shift and
+the second encoder its choke group, NONE or 1..3; keys sharing a group cut
+each other off. While Shift is held the four cells read MACHINE, the model,
+CHOKE and the group. Shift and the third and fourth encoders edit their shown
 control.
 
 In the machine namespace, declare these callbacks in `core.h` and implement

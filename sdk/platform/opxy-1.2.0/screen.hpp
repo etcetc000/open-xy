@@ -206,22 +206,20 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     update_controls(o, controls.track, controls.valid ? &view : stock_vector);
     if (controls.valid) {
         // While Shift is held, the first encoder chooses the key's model, as
-        // on stock Drumline, and the second its choke group: their cells
-        // name them instead.
+        // on stock Drumline, and the second its choke group. Stock shows only
+        // the titles then, so the cells read MACHINE, the model, CHOKE and
+        // the group.
         const bool choosing = drum && platform::shift_held();
+        const char* const shifted[page_controls] = {
+            "MACHINE", choosing ? drum->model_name(model) : "", "CHOKE", choosing ? sdk_drum_choke(controls.track) : ""};
         for (u32 i = 0; i < page_controls; ++i) {
             char text[16];
             if (sdk_synth_value(controls.track, controls.shown[i], controls.values[i], text))
                 set_text(o->values[i], text);
             if (!drum) continue;
-            if (choosing && i == 0) {
-                set_text(o->titles[i], "MACHINE");
-                set_text(o->values[i], drum->model_name(model));
-                continue;
-            }
-            if (choosing && i == 1) {
-                set_text(o->titles[i], "CHOKE");
-                set_text(o->values[i], sdk_drum_choke(controls.track));
+            if (choosing) {
+                set_text(o->titles[i], shifted[i]);
+                set_text(o->values[i], "");
                 continue;
             }
             const u32 slot = controls.shown[i];
