@@ -13,7 +13,8 @@ from test_sample_services import HOST_CXX
 from machine_fixtures import fixture
 
 ROOT = Path(__file__).resolve().parents[1]
-# A machine whose voices remember their owner and render it.
+# A machine whose voices remember their owner and render it, counting the
+# lifecycle calls and any call for an owner the voice does not hold.
 CORE = '''#pragma once
 #include <opxy/audio.hpp>
 namespace probe {
@@ -22,13 +23,16 @@ struct Shared {};
 }
 '''
 ENGINE = '''#include "core.h"
-extern int destroyed[257];
+extern int initialized[257], destroyed[257], live, foreign;
 namespace probe {
-inline void initialize(Voice& voice, Shared&, opxy::u32 owner) { voice.owner = owner; ++voice.initialized; }
-inline void start(Voice& voice, Shared&, opxy::u32) { ++voice.notes; }
-inline void destroy(Voice&, Shared&, opxy::u32 owner) { ++destroyed[owner]; }
+inline void initialize(Voice& voice, Shared&, opxy::u32 owner) {
+    voice.owner = owner; ++voice.initialized; ++initialized[owner]; ++live;
+}
+inline void start(Voice& voice, Shared&, opxy::u32 owner) { foreign += voice.owner != owner; ++voice.notes; }
+inline void destroy(Voice& voice, Shared&, opxy::u32 owner) { foreign += voice.owner != owner; ++destroyed[owner]; --live; }
 inline void render(Voice& voice, Shared&, opxy::u32 owner, opxy::Output output, opxy::Parameters, opxy::Pitch) {
-    for (unsigned i = 0; i < opxy::block_frames; ++i) output[i] = static_cast<opxy::i32>(voice.owner == owner ? owner : 0);
+    foreign += voice.owner != owner;
+    for (unsigned i = 0; i < opxy::block_frames; ++i) output[i] = static_cast<opxy::i32>(owner << 16);
 }
 }
 '''

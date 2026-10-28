@@ -113,8 +113,16 @@ a note, and unchanged stock defaults for the rest (see
 [`voice.cpp.in`](../sdk/platform/opxy-1.2.1/voice.cpp.in)). It never checks
 for a missing object, so the factory gives every index a small handle. A
 machine's `voiceCapacity` voices go to handles as their notes start: a free
-voice, or the one whose note started longest ago. A handle that has lost its
-voice renders silence. One adapter serves every synth.
+voice, or the one whose note started longest ago. Stock's amplitude envelope
+for an index runs after render, so a taken voice is not cut: its old note
+renders one more block, multiplied by a ramp from 63/64 to 0, and then the
+voice is destroyed for it and initialized and started for the new note. The new
+note renders silence until then, starting at most one block (64 samples) late
+and only when it took a voice; if the old note does not render by the new
+note's second block, the voice goes over then. An old note that ends during
+the hand-over gives the voice at once. When every voice is already going to
+another note, the oldest goes at once. A handle that has lost its voice renders
+silence. One adapter serves every synth.
 Render receives 64 output words and 8 parameter words. The SDK adds the stock
 per-sample pitch increments. Output is mono Q31 peaking at most at half scale. Stock
 velocity, envelope, filter and mixing run afterwards.

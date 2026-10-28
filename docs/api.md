@@ -190,7 +190,7 @@ A synth declares:
 | Field | Required value or meaning |
 | --- | --- |
 | `voiceBytes`, `voiceAlignment` | `Voice` size (whole words) and alignment, checked against the compiled type |
-| `voiceCapacity` | Notes that sound at once, 1..256. Stock's 256 voice indices share these voices: a new note takes a free one, or the one whose note started longest ago |
+| `voiceCapacity` | Notes that sound at once, 1..256. Stock's 256 voice indices share these voices: a new note takes a free one, or the one whose note started longest ago, whose note fades out over one block before the new note starts ([synth voices](abi-1.2.1.md#synth-voices)) |
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
 | `display` | The screen's frame budget; see the [display API](display.md) |
@@ -239,9 +239,10 @@ Storage begins zeroed; `owner` is a stable nonzero voice ID, the stock voice
 index plus one. Each of the machine's `voiceCapacity` voices serves one owner at
 a time: `initialize` runs when a voice goes to an owner and establishes all
 sound state; `start` runs on each note; `destroy` releases anything the voice
-holds in `Shared`, when its note ends or another note takes the voice. A note
-whose voice was taken renders silence; no voice index ever fails, whatever the
-capacity.
+holds in `Shared`, when its note ends or another note takes the voice. A taken
+voice renders one more block for its old note, which the SDK fades to zero,
+before it goes to the new note; from then on the old note renders silence. No
+voice index ever fails, whatever the capacity.
 Callbacks run serially per voice. The browser preview's voice stealing and
 panic use the same lifecycle. The SDK adapter owns the firmware object header,
 method table and voice pool; none of that belongs in `Voice`.
