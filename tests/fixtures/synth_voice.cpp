@@ -29,17 +29,20 @@ opxy::i32 rendered(unsigned index) {
         if (word != output[0]) return -1;
     return output[0] / 65536;
 }
-// A block that fades owner's level to zero, no step larger than a 64th of it.
+// A note that fades from its level to zero over 16 blocks, smoothly: no sample
+// step larger than the raised cosine's steepest (pi / 2048 of the level).
 bool faded(unsigned index) {
-    opxy::i32 output[64];
-    block(index, output);
     const opxy::i32 level = static_cast<opxy::i32>((index + 1) << 16);
     opxy::i32 last = level;
-    for (opxy::i32 word : output) {
-        if (word > last || last - word > level / 64 + 1) return false;
-        last = word;
+    for (unsigned b = 0; b < 16; ++b) {
+        opxy::i32 output[64];
+        block(index, output);
+        for (opxy::i32 word : output) {
+            if (word > last || last - word > level / 640) return false;
+            last = word;
+        }
     }
-    return last == 0;
+    return last == 0 && rendered(index) == 0;
 }
 void start(unsigned index) { call(index, 4); }
 void end(unsigned index) { call(index, 0); }
@@ -51,7 +54,9 @@ bool paired() {
         if (initialized[i] - destroyed[i] != 0 && initialized[i] - destroyed[i] != 1) return false;
         count += initialized[i] - destroyed[i];
     }
-    return !foreign && count == live && live >= 0 && live <= 2;
+    unsigned sounding = 0;
+    for (const Slot& slot : voices) sounding += slot.owner && !slot.fading;
+    return !foreign && count == live && live >= 0 && live <= 6 && sounding <= 2;
 }
 }
 
@@ -69,47 +74,44 @@ int main() {
     // Two notes take the two voices.
     start(0); start(1);
     if (rendered(0) != 1 || rendered(1) != 2) return 4;
-    // A third note takes the voice of the note that started first. That note
-    // renders one more block, faded to zero, and then the voice goes over.
+    // A third note starts at once in a spare voice; the note that started first
+    // fades out over 16 blocks, and only then is its voice destroyed.
     start(200);
-    if (destroyed[1] || initialized[201] || !faded(0)) return 5;
-    if (destroyed[1] != 1 || rendered(0) != 0 || rendered(200) != 201 || rendered(1) != 2 || !paired()) return 13;
+    if (initialized[201] != 1 || rendered(200) != 201 || rendered(1) != 2 || destroyed[1] || !paired()) return 5;
+    if (!faded(0) || destroyed[1] != 1 || rendered(200) != 201 || !paired()) return 13;
     // A note that still holds its voice keeps it: no new initialize.
-    const unsigned before = voices[0].voice.initialized + voices[1].voice.initialized;
+    unsigned before = 0;
+    for (const Slot& slot : voices) before += slot.voice.initialized;
     start(1);
-    if (voices[0].voice.initialized + voices[1].voice.initialized != before || rendered(1) != 2) return 6;
+    unsigned after = 0;
+    for (const Slot& slot : voices) after += slot.voice.initialized;
+    if (after != before || rendered(1) != 2) return 6;
     // Ending a note frees its voice for the next one without taking another's.
     end(200);
     if (destroyed[201] != 1 || rendered(200) != 0) return 7;
     start(7);
     if (rendered(7) != 8 || rendered(1) != 2 || destroyed[2] != 0) return 8;
-    // Ending a note whose voice was taken destroys nothing again.
+    // Ending a note whose voice faded out destroys nothing again.
     end(0);
     if (destroyed[1] != 1) return 9;
-    // A new note that renders before the old one starts one block late.
+    // A fading note that ends is destroyed at once.
     start(9);
-    if (rendered(9) != 0 || !faded(1) || rendered(9) != 10 || !paired()) return 14;
-    // If the old note does not render, the new one takes the voice on its second block.
+    if (rendered(1) != -1) return 14;
+    end(1);
+    if (destroyed[2] != 1 || rendered(1) != 0 || rendered(9) != 10 || rendered(7) != 8 || !paired()) return 15;
+    // A note that starts again while it fades takes a new voice and sounds whole.
     start(11);
-    if (rendered(11) != 0 || rendered(11) != 12 || destroyed[8] != 1 || rendered(7) != 0 || !paired()) return 15;
-    // An old note that ends during the hand-over gives the voice at once.
-    start(13);
-    end(9);
-    if (destroyed[10] != 1 || rendered(13) != 14 || !paired()) return 16;
-    // A waiting note that ends leaves the voice to its old note, unfaded.
-    start(15);
-    end(15);
-    if (initialized[16] || rendered(11) != 12 || rendered(15) != 0 || !paired()) return 17;
-    // An old note that starts again during its hand-over gives the voice at
-    // once and takes another as a new note.
-    start(17);
-    start(11);
-    if (rendered(17) != 18 || !faded(13) || rendered(11) != 12 || rendered(13) != 0 || !paired()) return 18;
-    // When every voice is already going to another note, the oldest goes at once.
-    start(20); start(21); start(22);
-    if (rendered(22) != 23 || !paired()) return 19;
+    if (rendered(7) != -1) return 16;
+    start(7);
+    if (destroyed[8] != 1 || initialized[8] != 2 || rendered(7) != 8 || rendered(9) != -1 || !paired()) return 17;
+    // More taken voices within one fade than spares: the fading voice nearest
+    // its end goes to the new note at once.
+    for (unsigned i = 30; i < 36; ++i) start(i);
+    if (rendered(35) != 36 || rendered(34) != 35 || !paired()) return 18;
+    for (unsigned i = 0; i < 256; ++i) end(i);
+    if (live || !paired()) return 19;
     // A long run of notes, ends and blocks on every index never fails: a note
-    // sounds by its second block, and the lifecycle stays paired.
+    // sounds in its first block, and the lifecycle stays paired.
     unsigned seed = 1;
     for (unsigned n = 0; n < 20000; ++n) {
         seed = seed * 1103515245u + 12345u;
@@ -121,9 +123,7 @@ int main() {
             if (sound != 0 && sound != -1 && sound != static_cast<opxy::i32>(index + 1)) return 20;
         } else {
             start(index);
-            const opxy::i32 first = rendered(index);
-            if (first != 0 && first != static_cast<opxy::i32>(index + 1)) return 21;
-            if (!first && rendered(index) != static_cast<opxy::i32>(index + 1)) return 22;
+            if (rendered(index) != static_cast<opxy::i32>(index + 1)) return 21;
         }
         if (!paired()) return 23;
     }

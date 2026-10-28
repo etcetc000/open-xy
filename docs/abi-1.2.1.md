@@ -113,16 +113,17 @@ a note, and unchanged stock defaults for the rest (see
 [`voice.cpp.in`](../sdk/platform/opxy-1.2.1/voice.cpp.in)). It never checks
 for a missing object, so the factory gives every index a small handle. A
 machine's `voiceCapacity` voices go to handles as their notes start: a free
-voice, or the one whose note started longest ago. Stock's amplitude envelope
-for an index runs after render, so a taken voice is not cut: its old note
-renders one more block, multiplied by a ramp from 63/64 to 0, and then the
-voice is destroyed for it and initialized and started for the new note. The new
-note renders silence until then, starting at most one block (64 samples) late
-and only when it took a voice; if the old note does not render by the new
-note's second block, the voice goes over then. An old note that ends during
-the hand-over gives the voice at once. When every voice is already going to
-another note, the oldest goes at once. A handle that has lost its voice renders
-silence. One adapter serves every synth.
+voice. Stock's amplitude envelope for an index runs after render, so a voice is
+never cut while it sounds: below 256 voices the adapter keeps four spare voices.
+When all `voiceCapacity` voices are sounding, a new note starts at once in a
+spare, and the voice whose note started longest ago keeps rendering for its old
+note, multiplied by a raised-cosine fade over 16 blocks (1024 samples, 23.2 ms);
+then it is destroyed and becomes a spare. A note that ends while it fades is
+destroyed at once (stock has ended its sound); one that starts again takes a new
+voice. If more than four voices are taken within one fade, the fading voice
+nearest its end is cut for the new note. The pool is
+`voiceBytes × (voiceCapacity + 4)`, or `voiceBytes × 256` at 256 voices. A
+handle that has lost its voice renders silence. One adapter serves every synth.
 Render receives 64 output words and 8 parameter words. The SDK adds the stock
 per-sample pitch increments. Output is mono Q31 peaking at most at half scale. Stock
 velocity, envelope, filter and mixing run afterwards.
