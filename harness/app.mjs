@@ -38,6 +38,15 @@ if (customPreview) {
 // The parameter each control position shows: the one last edited there.
 let values = defaults(), view = VIEWS[0], octave = 3, shown = [0, 1, 2, 3];
 let visualNotes = 0, display = null, scene = null, displayBackend = null;
+// Stand-in for the track's stock amp envelope: control positions 0..1, which
+// the display receives as Q31 words. The audition's own gate ignores them.
+let envelope = { attack: 0, decay: 0.25, sustain: 1, release: 0.25 };
+const envelopeWords = () => Object.fromEntries(Object.entries(envelope).map(([stage, value]) => [stage, Math.round(value * 0x7fffffff)]));
+const validateEnvelope = next => {
+  if (!next || typeof next !== 'object' || Object.keys(next).some(stage => !Object.hasOwn(envelope, stage)) ||
+      Object.values(next).some(value => !Number.isFinite(value) || value < 0 || value > 1)) throw new Error('Invalid amp envelope');
+  return { ...envelope, ...next };
+};
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let context, processor, gain, analyser, samples, starting;
 let audioBackend = null;
@@ -60,6 +69,14 @@ for (const [i, param] of parameters.entries()) {
     update();
   });
 }
+for (const stage of Object.keys(envelope)) {
+  const label = document.createElement('label'), input = document.createElement('input');
+  label.textContent = stage;
+  input.id = `envelope-${stage}`; input.type = 'range'; input.min = '0'; input.max = '1'; input.step = '0.001';
+  input.value = String(envelope[stage]); input.setAttribute('aria-label', `Amp envelope ${stage}`);
+  input.addEventListener('input', () => { envelope = { ...envelope, [stage]: Number(input.value) }; draw(); });
+  label.append(input); $('envelope').append(label);
+}
 for (const [name, preset] of Object.entries(presets)) {
   const button = document.createElement('button');
   button.textContent = name;
@@ -70,7 +87,7 @@ function draw(elapsed = 0) {
   if (display) {
     const input = shownControls(parameterWords(), shown);
     try {
-      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity));
+      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity, envelopeWords()));
     }
     catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
   }
@@ -275,11 +292,17 @@ window.machineLab = Object.freeze({
   getPatch: () => makePatch(values, view),
   loadPatch: patch => { const p = readPatch(patch); panic(); values = p.parameters; view = p.view; update(); },
   setParameters: next => { values = validateParameters(next); update(); },
+  setEnvelope: next => {
+    envelope = validateEnvelope(next);
+    for (const [stage, value] of Object.entries(envelope)) $(`envelope-${stage}`).value = String(value);
+    draw();
+  },
   noteOn: (note, velocity = 0.8) => noteOn(`api-${note}`, note, velocity),
   noteOff: note => noteOff(`api-${note}`), panic,
   getStatus: () => ({ audio: context?.state || 'off', heldNotes: held.size, sampleRate: context?.sampleRate || null,
     audioBackend, displayBackend,
     visualNotes, noteActivity: { held_notes: display?.input[17] ?? null, note_off_serial: display?.input[18] ?? null },
+    ampEnvelope: display?.envelope ? Object.fromEntries(['attack', 'decay', 'sustain', 'release'].map((stage, i) => [stage, display.input[19 + i]])) : null,
     rms: samples ? Math.sqrt(samples.reduce((sum, x) => sum + x * x, 0) / samples.length) : 0 }),
 });
 update();

@@ -40,7 +40,8 @@ The AudioWorklet runs compiled C++ at 44.1 kHz in 64-sample blocks, with eight
 preallocated voices, a 5 ms attack and 120 ms release audition gate. Controls
 apply at the next kernel block; retrigger discards pending samples immediately.
 The preview does not emulate stock envelopes, filters, LFOs or effects, and
-cannot measure Blackfin CPU use. No firmware or device connection is required.
+cannot measure Blackfin CPU use. The workbench's amp envelope sliders feed only
+the display's [amp envelope](display.md#amp-envelope-sdk-15), not the audio. No firmware or device connection is required.
 
 ## Patch format
 
@@ -67,9 +68,10 @@ After enabling audio through the UI, `window.machineLab` provides:
 | --- | --- |
 | `getPatch()` / `loadPatch(patch)` | Export/import the same validated format |
 | `setParameters(values)` | Complete map of normalized controls |
+| `setEnvelope(stages)` | Some of `attack`, `decay`, `sustain`, `release`, each 0..1, for the display's amp envelope |
 | `noteOn(midi, velocity = 0.8)` / `noteOff(midi)` | MIDI note 0..127; velocity (0, 1] |
 | `panic()` | Stop all voices |
-| `getStatus()` | Audio state, backend identity, note counts and output RMS |
+| `getStatus()` | Audio state, backend identity, note counts, the display's amp envelope words and output RMS |
 
 The SDK-owned AudioWorklet transport accepts `{type: 'parameters', value}`
 (Q31 array), `{type: 'on', note, velocity}`, `{type: 'off', note}` and

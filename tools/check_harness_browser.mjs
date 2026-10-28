@@ -98,6 +98,14 @@ try {
   await evaluate('machineLab.panic()');
   assert.deepEqual(await evaluate('machineLab.getStatus().noteActivity'), {held_notes:0,note_off_serial:3});
   await command('Emulation.setEmulatedMedia', {features:[]});
+  // The workbench's amp envelope reaches C++ as Q31 words; invalid input changes nothing.
+  assert.deepEqual(await evaluate('machineLab.getStatus().ampEnvelope'),
+    {attack:0, decay:536870912, sustain:0x7fffffff, release:536870912});
+  await evaluate('machineLab.setEnvelope({attack:0.5})');
+  assert.equal(await evaluate('machineLab.getStatus().ampEnvelope.attack'), 1073741824);
+  assert.equal(await evaluate('document.getElementById("envelope-attack").value'), '0.5');
+  assert.equal(await evaluate('(() => { try { machineLab.setEnvelope({attack:2}); } catch { return "rejected"; } })()'), 'rejected');
+  assert.equal(await evaluate('machineLab.getStatus().ampEnvelope.attack'), 1073741824);
   for (const value of [1, 0.3, 0.301]) {
     await evaluate(`(() => { const el = document.getElementById(${JSON.stringify(firstId)}); el.value = ${value}; el.dispatchEvent(new Event('input')); })()`);
     assert.equal(await evaluate(`machineLab.getPatch().parameters[${JSON.stringify(first.id)}]`), value);

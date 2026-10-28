@@ -462,7 +462,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.4 and builds 1.0 to 1.4 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.5 and builds 1.0 to 1.5 machines |
 | `kind` | `synth`, `sample` or `effect` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `identity` | The numbers it asks for: `{"engine": n, "page": p}`, or `{"effect": n, "page": 21}` for an effect; see below |

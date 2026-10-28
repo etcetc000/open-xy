@@ -5,6 +5,7 @@
 #pragma once
 #include "screen.hpp"
 #include "note_activity.hpp"
+#include "amp_envelope.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 
@@ -123,6 +124,7 @@ template <class Machine> struct Drawing {
         display_input.track = controls.track;
         display_input.note_serial = controls.track < 8 ? note_serial(controls.track) : 0;
         sdk_display_note_activity(controls.track, &display_input);
+        platform::amp_envelope(controls.track, display_input.amp);
         display_input.reduced_motion = 0;
         binding::display_render(&display_state, &display_input, &display_frame);
         if (!binding::display_valid(&display_frame)) return;
