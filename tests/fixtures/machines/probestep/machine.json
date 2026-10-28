@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "sdk": "1.5",
+  "kind": "step",
+  "description": "Test fixture: a step component that moves the note and sets its velocity.",
+  "identity": {
+    "step": "velocity"
+  }
+}

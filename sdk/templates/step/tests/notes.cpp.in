@@ -1,0 +1,20 @@
+// The machine's own checks, compiled for the host and run by
+// python sdk.py test --machine <folder>. Extend them as the component grows.
+#include "../step.cpp"
+#include <cstdio>
+
+int main() {
+    const opxy::i32 expected[opxy::step_settings] = {48, 53, 56, 59, 60, 61, 64, 67, 72, 84};
+    @ID@::Track track = {};
+    const opxy::StepContext at = {0, 0, 16, 480};
+    for (opxy::u32 setting = 0; setting < opxy::step_settings; ++setting) {
+        opxy::StepNote note = {60, 100, 240};
+        @ID@::apply(track, at, note, setting);
+        if (note.pitch != expected[setting] || note.velocity != 100 || note.length != 240) {
+            std::printf("FAIL setting %u: pitch %d velocity %d\n", unsigned(setting), int(note.pitch), int(note.velocity));
+            return 1;
+        }
+    }
+    std::puts("PASS");
+    return 0;
+}

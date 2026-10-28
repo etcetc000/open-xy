@@ -8,6 +8,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
 | `sample` | `sample.cpp` with `Voice` state; the stock sample page is its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
 | `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
+| `step` | `step.cpp` with per-track state and its callbacks; it replaces a stock [step component](#step-components) | `python sdk.py new --kind step` (Transpose) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
 and previews it without native integration. SDK adapters own allocation,
@@ -28,6 +29,7 @@ fails the build or, for the artwork rule, halts the device's SVG parser.
 | Identity | The name follows the [identity rules](#identity) and never changes once published; a firmware's [layout](#identity) gives the numbers |
 | Sample engines | The sample is read-only and borrowed for the voice's lifetime |
 | Effects | State fits in 476 bytes and holds no resources (no destructor ever runs) |
+| Step components | Replace one stock step component; ten settings; at most 256 bytes of state per track |
 | Artwork | At most four decimal places and no exponent notation in any number; explicit paint on every leaf; no `style`, events or external references |
 
 The [firmware contract](abi-1.2.1.md) explains where each rule comes from.
@@ -472,6 +474,90 @@ Dry zero removes the source dry and Dry one retains it; at zero send, dry stays
 unchanged. Do not add clean audio inside `process` to implement this control.
 Without `dryParameter`, the adapter returns unity to preserve the source dry.
 
+## Step components
+
+A step component changes what a sequencer step plays: its notes, how many
+times it repeats or ratchets, whether it sounds, and where the playhead goes
+next. It takes over one of stock's step components: holding shift, a step and
+that component's white key adds it to the step, and the black keys choose one
+of its ten settings
+([TE's guide](https://teenage.engineering/guides/op-xy/step-components)).
+[step.hpp](../sdk/include/opxy/step.hpp) defines the interface (SDK 1.5). The
+machine's `step.cpp` holds per-track state and the callbacks its definition
+lists, in its namespace:
+
+```cpp
+struct Track { ... };   // one per track, zeroed at every reset, at most 256 bytes
+void reset(Track& track);
+bool condition(Track& track);
+void enter(Track& track, const opxy::StepContext& at, opxy::u32 setting);
+opxy::u32 trigs(Track& track, opxy::u32 setting);
+bool mute(Track& track, const opxy::StepContext& at, opxy::u32 setting);
+void apply(Track& track, const opxy::StepContext& at, opxy::StepNote& note, opxy::u32 setting);
+bool next(Track& track, const opxy::StepContext& at, opxy::u32 setting, opxy::StepNext& next);
+bool plays(Track& track, const opxy::StepContext& at, opxy::u32 setting);
+```
+
+Stock calls them for a step that has the component:
+
+| Callback | When | Does |
+| --- | --- | --- |
+| `reset` | Sequencer start, for every track; a track restart | After the adapter zeroes `Track` |
+| `enter` | The playhead enters the step, including repeats and jumps | Stock bend starts its curve; multiply picks a random count |
+| `trigs` | The step's trig | 2..8 evenly spaced trigs (stock spaces them); 0 or 1 is one trig |
+| `mute` | The step's trig | `true` plays no trig this pass |
+| `apply` | Every note the step plays | Changes `note.pitch`, `note.velocity` and `note.length` |
+| `next` | The playhead leaves the step | `next.step` arrives as the natural next step; `true` goes to `next.step` instead |
+| `condition` | Before the step's "skip component" condition | `false` ignores the condition (stock pulse and hold do while repeating) |
+| `plays` | On a condition key only: before the step's trig (skip trig), parameter locks (skip param) or other components (skip comp) | `false` skips them; without `plays` they always happen |
+
+An unlisted callback does what an empty stock component does: nothing, one
+trig, no mute, no jump, the condition applies, and nothing is skipped. `setting` is the black
+key's position: black keys 1 to 9, then 0. `at` gives the track (0..15), the
+step, the pattern's length and the note-length ticks one step spans at the
+track's speed (480 at 1/1). `note.pitch` is a MIDI note; after every component
+has run, stock folds it into 0..127 by octaves. The adapter clamps
+`note.velocity` to 0..127, and velocity 0 does not mute (use `mute`).
+`note.length` is the note's remaining length in ticks, or -1 while a key
+holds it. In `next`, clear `next.counts` on a repeat so "every Nth" conditions
+don't count the pass; components answer in stock's order (hold, pulse,
+multiply, velocity, the ramps, random, portamento, bend, tonality, jump) and
+the first `true` wins. On the three condition keys, stock's picker stores
+black key 2 as setting 2, like key 3, so a component there sees nine distinct
+settings. The callbacks run in the sequencer's real-time path:
+keep them short, with no allocation, blocking or I/O.
+
+Stock's own components fit this shape: velocity, random, portamento and
+tonality are `apply`; bend is `enter`; multiply is `enter` and `trigs`; pulse
+is `reset`, `condition` and `next` (stay on the step until its count);
+hold is pulse plus `mute` for the replays and `apply` lengthening the first
+note; the ramps are `reset` and `apply` counting notes; jump is `next`; and the
+three conditions are `plays`, counting the step's visits. Notes
+always start at their recorded time, so no callback moves a note in time, and
+none adds notes.
+
+`definition.json` holds the component's `name`, at most ten letters, digits or
+spaces, which the picker shows in lower case; its ten `settings` in black-key
+order, each two lines of at most 14 lower-case letters, digits, spaces or
+`% + . / -`, as the picker shows them; and the `callbacks` its `step.cpp`
+defines:
+
+```json
+{"schema": 1, "id": "transpose", "name": "Transpose", "callbacks": ["apply"],
+ "settings": [["octave", "down"], ["fifth", "down"], ...]}
+```
+
+`machine.json`'s `identity` names the stock component it replaces,
+`{"step": "velocity"}`; a firmware's [layout](#identity) can move it, and the
+[builder](builder.md) lets people place it on any key: `pulse`, `hold`,
+`multiply`, `velocity`, `ramp_up`, `ramp_down`, `random`, `portamento`, `bend`,
+`tonality`, `jump`, `skip_param`, `skip_component` and `skip_trig`. On a
+condition key every callback works as on the others, and `plays` decides what
+the key skips. A replaced component keeps its key's printed icon; the picker shows the
+machine's name and setting labels, and all of the stock component's behaviour
+is gone. Projects store each step's setting numbers by component, so a project
+made with another component on that key plays the same settings through this one.
+
 ## Registration boundary
 
 A machine's ID (`definition.json`'s `id`) is its stock name: the engine type the device lists, its catalog and
@@ -485,14 +571,16 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.4 and builds 1.0 to 1.4 machines |
-| `kind` | `synth`, `sample` or `effect` |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.5 and builds 1.0 to 1.5 machines |
+| `kind` | `synth`, `sample`, `effect` or `step` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
-| `identity` | The numbers it asks for: `{"engine": n, "page": p}`, or `{"effect": n, "page": 21}` for an effect; see below |
+| `identity` | The numbers it asks for: `{"engine": n, "page": p}`, or `{"effect": n, "page": 21}` for an effect; see below. A step component names the stock component it replaces, `{"step": "velocity"}` |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
+
+Step components have no `sources`, `includes`, `presets`, `presetDefaults` or numbers.
 
 An effect's optional `dryParameter` field names the control used by the stock
 source dry mixer, as described under [effects](#effects).
@@ -523,6 +611,7 @@ firmware that holds it.
 | `synth` | 34..62 | Its own screen: 82..127 |
 | `sample` | 34..62 | Stock sample page 2 or 7; `padSettings` requires 7 |
 | `effect` | 1, 8, 11, 21, 23..28 or 34..62 | Stock FX page 21 |
+| `step` | None: it names a replaceable stock component | None |
 
 Engine IDs above 32, effect IDs above 18 and pages above 81 exist only in the
 relocated stock tables.
@@ -545,6 +634,12 @@ ones. New numbers come from engines 34..62 and pages 82..127, never from the
 gaps in stock's own engine table, so ask for numbers in those ranges; a
 sample engine keeps its stock page. Macro Osc predates this and keeps
 engine 26.
+
+The layout also records the stock component each step component replaces,
+`{"step": "velocity"}`. A step component gets the layout's component while it
+is still replaceable and free, otherwise the one it asks for, otherwise the
+first free one. Unlike numbers, a dropped step component holds nothing: its
+entry stays only as a hint for when it is chosen again.
 A [project companion](projects.md) records what a project's numbers meant by
 machine ID, for firmware with another layout.
 

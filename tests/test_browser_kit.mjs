@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, chosenByDefault, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {activeServices, assignNumbers, assignSteps, chosenByDefault, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, stepSlots, stepWords, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -67,7 +67,44 @@ test('profiling defaults on; disabling it changes only the reviewed diagnostic h
   }
   const restored = off.slice(); restored.set(on.subarray(32, 48), 32);
   assert.deepEqual(restored, on);
-  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a']});
+  for (const image of [on, off])
+    assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], numbers:{a:{engine:34, page:82}}});
+});
+
+test('step components: assignment, computed words and edits only for a replaced component', async () => {
+  const slots = ['velocity', 'random', 'portamento'];
+  // tooling.machines.assign_steps gives the same (tests/test_steps.py).
+  assert.deepEqual(assignSteps(slots, null, [['a', 'velocity'], ['b', 'velocity']]), {a:'velocity', b:'random'});
+  assert.deepEqual(assignSteps(slots, {b:{step:'velocity'}}, [['a', 'velocity'], ['b', 'random']]), {b:'velocity', a:'random'});
+  assert.deepEqual(assignSteps(slots, {a:{step:'pulse'}}, [['a', 'velocity']]), {a:'velocity'});
+  assert.throws(() => assignSteps(slots.slice(0, 1), null, [['a', 'velocity'], ['b', 'velocity']]), /No free step component/);
+  const profile = JSON.parse(profileBytes);
+  assert.deepEqual(stepSlots(profile), ['pulse', 'hold', 'multiply', 'velocity', 'ramp_up', 'ramp_down', 'random',
+    'portamento', 'bend', 'tonality', 'jump', 'skip_param', 'skip_component', 'skip_trig']);
+  const methodNames = ['reset_all', 'reset_track', 'condition', 'apply', 'mute', 'enter', 'next', 'trigs'];
+  const globals = new Map([...methodNames.map((m, i) => ['s_step_' + m, 0x8d2d1000 + 4 * i]),
+    ['s_step_name', 0x8d2d2000], ['s_step_settings', 0x8d2d3000]]);
+  const [methods, name, settings] = profile.patches.filter(p => p.kind === 'step' && p.slot === 'velocity');
+  const words = bytes => Array.from({length: bytes.length / 4}, (_, i) => new DataView(bytes.buffer).getUint32(i * 4, true));
+  // tooling.steps computes the same words (tests/test_steps.py).
+  assert.deepEqual(words(stepWords(methods, 's', globals)), [0x8d2d1000, 0x8d2d1004, 0x8d2d1008, 0x8d2d100c,
+    0x8d2d1010, 0x8d582da4, 0x8d2d1014, 0x8d2d1018, 0x8d582d80, 0x8d2d101c]);
+  assert.deepEqual(words(stepWords(name, 's', globals)), [0x8d2d2000]);
+  assert.deepEqual(words(stepWords(settings, 's', globals)), Array.from({length: 20}, (_, i) => 0x8d2d3000 + 16 * i));
+  assert.throws(() => stepWords(methods, 'missing', globals), /Missing step component symbol/);
+  // In an authored image: stock until a machine replaces the component, then the module adapter.
+  const {kit, linked, stock} = await profilingFixture();
+  const at = 24, before = Buffer.from(stock.subarray(32 + at, 40 + at)).toString('hex');
+  kit.profile.patches.push({kind:'step', name:'velocity methods', address:0x1000 + at, file_offset:32 + at, length:8,
+    before, slot:'velocity', words:['apply', '0x8d582db0']});
+  const stockOnly = await patchFirmware(kit, linked, stock);
+  assert.deepEqual(stockOnly.subarray(32 + at, 40 + at), stock.subarray(32 + at, 40 + at));
+  const replaced = {...linked, services: new Set([...linked.services, 'step:velocity']), steps: {velocity: {prefix: 's'}},
+    globals: new Map([...linked.globals, ['s_step_apply', kit.profile.module_base]])};
+  const image = await patchFirmware(kit, replaced, stock);
+  assert.deepEqual(words(image.slice(32 + at, 40 + at)), [kit.profile.module_base, 0x8d582db0]);
+  replaced.globals.set('s_step_apply', kit.profile.module_base + 0x100);
+  await assert.rejects(patchFirmware(kit, replaced, stock), /Step edit outside the module/);
 });
 
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {

@@ -86,14 +86,17 @@ class Services(unittest.TestCase):
         profile = config()
         self.assertEqual(active_services(profile, ['synth', 'effect']), set())
         self.assertEqual(active_services(profile, ['sample']), {'samples'})
+        self.assertEqual(active_services(profile, ['step']), {'steps'})
         machines = [fixture(name) for name in NAMES]  # every kind, as a full collection holds
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection) if m is None]
         self.assertEqual(steps(machines), list(native.SDK_UNITS))  # full collections keep the link order
-        without = [m for m in machines if m.kind != 'sample']
+        without = [m for m in machines if m.kind not in ('sample', 'step')]
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
-        self.assertEqual(set(native.object_services(machines).values()), {'samples'})
+        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'steps'})
         self.assertEqual(native.object_services(without), {})
+        only_steps = [m for m in machines if m.kind != 'sample']
+        self.assertEqual(set(native.object_services(only_steps).values()), {'steps'})
 
     def test_only_a_service_edit_may_stay_stock(self):
         profile = copy.deepcopy(config())

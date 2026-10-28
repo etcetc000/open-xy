@@ -35,12 +35,14 @@ PROTECTED = (
 )
 
 
-PATCH_KINDS = ('heap', 'table', 'text', 'hook', 'startup')
+PATCH_KINDS = ('heap', 'table', 'text', 'hook', 'startup', 'step')
 
 
 def check_patch_boundaries(profile, count):
-    """Well-formed, non-overlapping edits; hooks are the only kind whose bytes the build computes."""
+    """Well-formed, non-overlapping edits. The build computes the bytes of hooks, the
+    startup label and step edits (tooling/steps.py) only; the others carry them."""
     from .startup_label import allowed as startup_label_allowed
+    from .steps import check_patch as check_step
     occupied = set()
     require(len(profile['patches']) == count, f'Expected {count} reviewed edit intervals')
     for patch in profile['patches']:
@@ -55,12 +57,14 @@ def check_patch_boundaries(profile, count):
                 'Invalid profiling hook')
         if 'after' in patch:
             after = bytes.fromhex(patch['after'])
-            # Optional hooks stay stock in builds that leave them out.
-            require(len(after) == len(before) and (after != before or
+            # Optional hooks, and step slots no machine replaces, stay stock in builds that leave them out.
+            require(len(after) == len(before) and (after != before or kind == 'step' or
                     (kind == 'hook' and ('service' in patch or 'profiling' in patch))),
                     'Invalid instruction edit')
         else:
-            require(kind in ('hook', 'startup'), 'Heap, table and text edits carry their reviewed bytes')
+            require(kind in ('hook', 'startup', 'step'), 'Heap, table and text edits carry their reviewed bytes')
+        if kind == 'step':
+            check_step(patch)
         if kind == 'text':
             # A stock string rewritten in place: printable text, then at least one NUL.
             for data in (before, bytes.fromhex(patch['after'])):
@@ -118,6 +122,7 @@ def config():
     profile = json.loads(data)
     require(profile['schema'] == 1 and profile['id'] == 'opxy-1.2.1', 'Incompatible profile')
     check_patch_boundaries(profile, len(profile['patches']))
+    require(all('after' not in p for p in profile['patches'] if p['kind'] == 'step'), 'Step edits are computed')
     return profile
 
 

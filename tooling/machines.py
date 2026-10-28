@@ -17,8 +17,9 @@ import re
 from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, paged, stock_name, validate_definition
 from .formats import require
 from .pipeline import config
+from .steps import slots as profile_slots
 
-KINDS = ('synth', 'sample', 'effect')
+KINDS = ('synth', 'sample', 'effect', 'step')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'sources', 'includes', 'icon', 'presetDefaults',
           'presets', 'dryParameter'}
 # The public machine contract: headers, definition schema, artwork rules and
@@ -27,8 +28,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'sources', 'includ
 # 1.1 adds display note activity; 1.2 an effect's delay buffer (resources.bufferBytes),
 # its tempo (resources.transport) and division captions; 1.3 the machine's own presets,
 # a press that switches a synth's whole page and up to 16 display text slots.
-# 1.4 adds the reusable header and partial second pages sharing unassigned controls.
-SDK_VERSION = (1, 4)
+# 1.4 adds the reusable header and partial second pages sharing unassigned controls;
+# 1.5 the step component kind.
+SDK_VERSION = (1, 5)
 # Builder card glyph: SVG path data in a 46 x 48 box, drawn as a stroke.
 ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
 # A machine's own presets (machine.json `presets`): <name>.json files the builder
@@ -147,8 +149,15 @@ def check_identity(rules, kind, value):
     Engines take a free entry of the relocated table, never the stock "none" value; a
     synth draws its own page above the stock "none" page, a sample engine an ID only
     the relocated table holds and a stock sample page, an effect a free FX ID on the FX page.
+    A step component asks for the stock step component it replaces instead.
     """
     require(isinstance(value, dict), 'machine.json needs an identity')
+    if kind == 'step':
+        # A layout may move it to another replaceable component (assign_steps).
+        slots = profile_slots(config())
+        require(set(value) == {'step'} and value['step'] in slots,
+                'A step component replaces one of the stock step components ' + ', '.join(slots))
+        return {'step': value['step']}
     slot = 'effect' if kind == 'effect' else 'engine'
     require(set(value) == {slot, 'page'}, 'Unexpected identity fields')
     number, page = value[slot], value['page']
@@ -235,7 +244,12 @@ def machine_at(root, identity=None):
     display = 'drawing' if kind == 'synth' else 'stock'
     # The native plan compiles extra translation units only into synths.
     if kind != 'synth':
-        require(not sources and not includes, 'Sample engines and effects compile one fx.cpp or sample.cpp')
+        require(not sources and not includes,
+                'Sample engines, effects and step components compile one sample.cpp, fx.cpp or step.cpp')
+    if kind == 'step':
+        require_sdk(version, (1, 5), 'A step component')
+        require(not set(value) & {'presets', 'presetDefaults', 'dryParameter'},
+                'A step component has no presets or dry control')
     # Pad settings live in the stock drum page's pad records, whose fade the SDK then owns.
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
         require(value['identity']['page'] == 7, 'Pad settings and drum controls need stock page 7')
@@ -302,12 +316,38 @@ def read_layout(path):
 
 
 def check_layout_numbers(machines, where):
-    """Layout numbers by machine ID: an engine and page, or an effect and page, each."""
+    """Layout numbers by machine ID: an engine and page, or an effect and page, each;
+    a step component's entry names the stock step component it replaces."""
     for name, identity in machines.items():
         stock_name(name)
-        require(isinstance(identity, dict) and set(identity) in ({'engine', 'page'}, {'effect', 'page'}) and
-                all(type(n) is int for n in identity.values()), f'{name}: invalid numbers in {where}')
+        require(isinstance(identity, dict) and (
+                set(identity) in ({'engine', 'page'}, {'effect', 'page'}) and
+                all(type(n) is int for n in identity.values()) or
+                set(identity) == {'step'} and isinstance(identity['step'], str)), f'{name}: invalid numbers in {where}')
     return machines
+
+
+def assign_steps(slots, layout, machines):
+    """The stock step component each step machine replaces: the one the layout gave it
+    while still replaceable and free, else the one it asks for, else the first free one.
+    Machines are (id, requested slot) in collection order. Unlike numbers, a dropped
+    machine's component is free again: projects store each step's setting by component,
+    not which machine plays it. builder/core.mjs assignSteps applies the same rules."""
+    layout = layout or {}
+    given, taken = {}, set()
+    for name, _requested in machines:
+        prior = layout.get(name, {}).get('step')
+        if prior in slots and prior not in taken:
+            given[name] = prior
+            taken.add(prior)
+    for name, requested in machines:
+        if name in given:
+            continue
+        free = [s for s in ([requested] if requested in slots else []) + list(slots) if s not in taken]
+        require(free, f'No free step component for {name}: each of {", ".join(slots)} is replaced')
+        given[name] = free[0]
+        taken.add(free[0])
+    return given
 
 
 def layout_document(numbers):
@@ -361,8 +401,16 @@ def assign_numbers(machines, layout=None, fixed=None):
     fixed = FIXED_NUMBERS if fixed is None else fixed
     for m in machines:
         require(fixed.get(m.id, m.identity) == m.identity, f'{m.id} has fixed numbers; its machine.json asks for others')
+    layout = layout or {}
+    numbered = [m for m in machines if m.kind != 'step']
     numbers = number_layout(config()['identities'], [(name, None, identity) for name, identity in fixed.items()],
-                            layout, [(m.id, m.kind, m.identity) for m in machines])
+                            {n: i for n, i in layout.items() if 'step' not in i},
+                            [(m.id, m.kind, m.identity) for m in numbered])
+    # Step components keep the layout's entries of machines left out as hints, holding nothing.
+    numbers.update({n: i for n, i in layout.items() if 'step' in i})
+    steps = assign_steps(profile_slots(config()), layout,
+                         [(m.id, m.identity['step']) for m in machines if m.kind == 'step'])
+    numbers.update({n: {'step': slot} for n, slot in steps.items()})
     assigned = [m if numbers[m.id] == m.identity else replace(m, identity=numbers[m.id], requested=m.identity)
                 for m in machines]
     return assigned, numbers

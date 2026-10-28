@@ -9,6 +9,7 @@ const paths = {
   synth: 'M2 24c8-27 13 27 21 0s13 27 21 0',
   effect: 'M3 34h10V24h10V14h10v20h10',
   sample: 'M35 14a16 16 0 1 0 0 20 M35 4v11H24',
+  step: 'M5 34h8V22h8v12h8V14h8v20h4 M5 42h36',
 };
 // Transcribed from the user's four bootloader photographs. The variable build
 // stamp is omitted; these drawings describe menus, not detected device state.

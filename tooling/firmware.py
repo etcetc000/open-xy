@@ -2,7 +2,7 @@
 import struct
 from .formats import header, ldr, mapped_offset, require, sha
 from .pipeline import check_patch_boundaries
-from . import startup_label
+from . import startup_label, steps
 
 
 def active_services(profile, kinds):
@@ -12,12 +12,14 @@ def active_services(profile, kinds):
 
 
 def patch_active(patch, services, profiling=True):
-    """Select optional service hooks and the reviewed profiling bypasses."""
+    """Select optional service hooks, the reviewed profiling bypasses and assigned step slots.
+    `services` holds a step slot's pseudo-service (steps.service) when a machine replaces it."""
     require(type(profiling) is bool, 'Profiling must be a boolean')
     require('profiling' not in patch or (patch['profiling'] is False and patch['kind'] == 'hook'),
             'Invalid profiling hook')
     return (('service' not in patch or patch['service'] in services) and
-            ('profiling' not in patch or patch['profiling'] is profiling))
+            ('profiling' not in patch or patch['profiling'] is profiling) and
+            (patch['kind'] != 'step' or steps.service(patch['slot']) in services))
 
 
 def hooks(profile):
@@ -83,7 +85,7 @@ def assemble(stock, module, profile, original_profile, edits, services, profilin
         require(all(patch[k] == original[k] for k in ('kind', 'address', 'before', 'file_offset', 'length')),
                 'Changed patch boundary')
         after = bytes.fromhex(patch['after'])
-        require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'call')),
+        require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'call', 'slot', 'words')),
                 'Changed patch policy')
         if not patch_active(original, services, profiling):
             require(patch['after'] == original['before'], 'An inactive hook changed stock')
@@ -93,6 +95,8 @@ def assemble(stock, module, profile, original_profile, edits, services, profilin
         elif original['kind'] == 'hook':
             target, call = hook_target(original, after)
             require(call == original['call'] and low <= target < low + len(module), 'Hook does not target module')
+        elif original['kind'] == 'step':
+            steps.check_after(original, after, low, low + len(module))
         else:
             require(patch['after'] == original['after'], 'Changed heap reservation or table edit')
     check_patch_boundaries(profile, edits)

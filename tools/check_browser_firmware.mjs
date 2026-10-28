@@ -2,7 +2,7 @@
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
 import assert from 'node:assert/strict';
-import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections} from '../builder/core.mjs';
+import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections, stepSlots} from '../builder/core.mjs';
 const [directory, stockFile, content] = process.argv.slice(2);
 const kit = await openKit(JSON.parse(readFileSync(resolve(directory, 'kit.json'))));
 const stock = new Uint8Array(readFileSync(stockFile));
@@ -13,11 +13,22 @@ for (const mask of checkedSelections(kit.machines)) {
   const linked = linkKit(kit, selected), target = resolve(directory, 'reference', String(mask));
   const firmware = await patchFirmware(kit, linked, stock);
   const recovered = await recoverFirmware(kit, firmware);
-  assert.deepEqual(recovered, {stock, selected});
+  assert.deepEqual(recovered, {stock, selected, numbers: linked.numbers});
   assert.deepEqual(await patchFirmware(kit, linkKit(kit, recovered.selected), recovered.stock), firmware);
   const profilingOff = await patchFirmware(kit, linked, stock, {profiling: false});
   assert.notDeepEqual(profilingOff, firmware);
-  assert.deepEqual(await recoverFirmware(kit, profilingOff), {stock, selected});
+  assert.deepEqual(await recoverFirmware(kit, profilingOff), {stock, selected, numbers: linked.numbers});
+  // A step machine moved to another stock component, an object one or a condition
+  // key, is recovered where it is.
+  const free = stepSlots(kit.profile).filter(slot => !Object.values(linked.numbers).some(n => n.step === slot));
+  for (const m of kit.machines.filter(m => selected.includes(m.id) && m.kind === 'step'))
+  for (const other of new Set([free[0], free.at(-1)].filter(Boolean))) {
+    const moved = linkKit(kit, selected, {[m.id]: {step: other}});
+    const image = await patchFirmware(kit, moved, stock);
+    assert.notDeepEqual(image, firmware);
+    const found = await recoverFirmware(kit, image);
+    assert.deepEqual([found.selected, found.numbers[m.id]], [selected, {step: other}]);
+  }
   assert.deepEqual(await patchFirmware(kit, linkKit(kit, selected), stock, {profiling: false}), profilingOff);
   writeFileSync(target + '.profiling-off.ldr', profilingOff);
   const timingHooks = kit.profile.patches.filter(edit => edit.profiling === false);

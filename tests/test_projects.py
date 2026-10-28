@@ -156,7 +156,8 @@ class FirmwareWriter(unittest.TestCase):
             machines = [fixture(name) for name in NAMES]
             source = generate_project_companion_table(directory, machines).read_text()
         ids = re.findall(r'\{"([a-z0-9]+)", ', source)
-        self.assertEqual(ids, sorted(m.id for m in machines))
+        # Step components have no numbers for a companion to record.
+        self.assertEqual(ids, sorted(m.id for m in machines if m.kind != 'step'))
         self.assertIn('{"probefx", probefx_fx_id, probefx_fx_page_id, true},', source)
 
 

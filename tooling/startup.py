@@ -17,7 +17,8 @@ def _declare(name, signature='()'):
 def render(prefixes, effects=(), stock_page=()):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard."""
-    require(1 <= len(prefixes) <= MAX_ENGINES and len(set(prefixes)) == len(prefixes),
+    # A collection of step components alone registers no engines.
+    require(len(prefixes) <= MAX_ENGINES and len(set(prefixes)) == len(prefixes),
             'Startup needs distinct engine prefixes')
     require(len(set(effects)) == len(effects) <= MAX_ENGINES and not set(effects) & set(prefixes),
             'Startup needs distinct effect prefixes')

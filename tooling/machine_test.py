@@ -63,7 +63,7 @@ def main(argv=None):
                 count = host_tests(m, host_cxx, scratch)
                 done.append(f'{count} host test{"s" * (count != 1)} passed')
                 print('PASS: ' + '; '.join(done))
-                if not args.no_cpu:
+                if not args.no_cpu and m.kind != 'step':  # a few instructions per note: no block cost
                     print(cpu.summary(m, host_cxx, scratch))
             if args.firmware:
                 command = [sys.executable, str(ROOT / 'sdk.py'), 'compile', '--out', str(scratch / 'module')]

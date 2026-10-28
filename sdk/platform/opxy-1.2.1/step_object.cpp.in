@@ -1,0 +1,111 @@
+// SDK native ABI for a step component (docs/abi-1.2.1.md#step-components).
+// Only the SDK knows stock's step component objects, their method table and
+// note record; the machine provides Track and the callbacks its definition
+// lists (opxy/step.hpp). A build points the replaced stock component's
+// methods here and its picker name and setting labels at these strings
+// (tooling/steps.py), so they keep these symbols.
+#include "step.cpp"
+#include "step_machines.hpp"
+#include "stock.hpp"
+using opxy::u8;
+using opxy::u32;
+using opxy::i32;
+extern "C" {
+void @PREFIX@_step_reset_all(const void* self) __asm__("@PREFIX@_step_reset_all");
+void @PREFIX@_step_reset_track(const void* self, u32 track) __asm__("@PREFIX@_step_reset_track");
+int @PREFIX@_step_condition(const void* self, u32 track) __asm__("@PREFIX@_step_condition");
+void @PREFIX@_step_apply(const void* self, u32 track, u32 step, const u8* settings, u32 flags, u8* note,
+                         u8* chord) __asm__("@PREFIX@_step_apply");
+int @PREFIX@_step_mute(const void* self, u32 track, u32 step, const u8* settings) __asm__("@PREFIX@_step_mute");
+void @PREFIX@_step_enter(const void* self, u32 track, u32 step, const u8* settings) __asm__("@PREFIX@_step_enter");
+int @PREFIX@_step_next(const void* self, u32 track, u32 step, i32* next, const u8* settings, u8* counts,
+                       u8* align) __asm__("@PREFIX@_step_next");
+i32 @PREFIX@_step_trigs(const void* self, u32 track, const u8* settings) __asm__("@PREFIX@_step_trigs");
+int @PREFIX@_step_plays(const void* self, u32 track, u32 step, u32 setting) __asm__("@PREFIX@_step_plays");
+extern opxy::platform::StepDescriptor @PREFIX@_step_name __asm__("@PREFIX@_step_name");
+extern const char @PREFIX@_step_settings[20][16] __asm__("@PREFIX@_step_settings");
+}
+namespace {
+using Track = @NAMESPACE@::Track;
+static_assert(sizeof(Track) <= opxy::step_track_bytes, "Track state exceeds opxy::step_track_bytes");
+Track tracks[opxy::step_tracks];
+// Stock's note record: remaining length in ticks (64-bit, -1 while held) at
+// +0x00, the MIDI note at +0x0d and the velocity at +0x0f.
+const unsigned kPitch = 0x0d, kVelocity = 0x0f;
+// Stock's track speeds as (numerator, denominator) of the step rate, by the
+// pattern's speed byte; a step spans 480 ticks at 1/1.
+const u32 kSpeeds = 0x840a0390, kSpeedCount = 16, kTicksPerStep = 480;
+
+// The object's third word is its stock component number, which indexes the
+// step's settings; a setting's low four bits are its stock number 0..9.
+inline u32 setting(const void* self, const u8* settings) {
+    return settings[static_cast<const u32*>(self)[2]] & 15;
+}
+inline opxy::StepContext context(u32 track, u32 step) {
+    // The track's current pattern: its first byte is its length, its ninth the speed.
+    const u8* pattern = opxy::platform::stock<const u8*(u32)>(0x8d586014)(track);
+    const u32 speed = pattern[8] < kSpeedCount ? pattern[8] : 3;
+    const u32 numerator = opxy::platform::word(kSpeeds + 8 * speed);
+    const u32 denominator = opxy::platform::word(kSpeeds + 8 * speed + 4);
+    opxy::StepContext at = {track, step, pattern[0] ? pattern[0] : 1u,
+                            numerator ? kTicksPerStep * denominator / numerator : kTicksPerStep};
+    return at;
+}
+}
+
+void @PREFIX@_step_reset_track(const void*, u32 track) {
+    if (track >= opxy::step_tracks) return;
+    tracks[track] = Track();
+@RESET@
+}
+void @PREFIX@_step_reset_all(const void* self) {
+    for (u32 track = 0; track < opxy::step_tracks; ++track) @PREFIX@_step_reset_track(self, track);
+}
+int @PREFIX@_step_condition(const void*, u32 track) {
+    if (track >= opxy::step_tracks) return 1;
+@CONDITION@
+}
+void @PREFIX@_step_enter(const void* self, u32 track, u32 step, const u8* settings) {
+    const u32 value = setting(self, settings);
+    if (track >= opxy::step_tracks || value >= opxy::step_settings) return;
+@ENTER@
+}
+i32 @PREFIX@_step_trigs(const void* self, u32 track, const u8* settings) {
+    const u32 value = setting(self, settings);
+    if (track >= opxy::step_tracks || value >= opxy::step_settings) return -1;
+@TRIGS@
+}
+int @PREFIX@_step_mute(const void* self, u32 track, u32 step, const u8* settings) {
+    const u32 value = setting(self, settings);
+    if (track >= opxy::step_tracks || value >= opxy::step_settings) return 0;
+@MUTE@
+}
+void @PREFIX@_step_apply(const void* self, u32 track, u32 step, const u8* settings, u32, u8* note, u8*) {
+    const u32 value = setting(self, settings);
+    if (track >= opxy::step_tracks || value >= opxy::step_settings) return;
+@APPLY@
+}
+int @PREFIX@_step_next(const void* self, u32 track, u32 step, i32* next, const u8* settings, u8* counts, u8*) {
+    const u32 value = setting(self, settings);
+    if (track >= opxy::step_tracks || value >= opxy::step_settings) return 0;
+@NEXT@
+}
+int @PREFIX@_step_plays(const void*, u32 track, u32 step, u32 value) {
+    if (track >= opxy::step_tracks || value >= opxy::step_settings) return 1;
+@PLAYS@
+}
+namespace {
+int unused() { return 0; }
+// The object's method table on a condition key (+0x00 .. +0x28), as stock's
+// component objects have; +0x00, +0x18 and +0x24 are never called.
+const void* const methods[11] = {
+    reinterpret_cast<const void*>(&unused), reinterpret_cast<const void*>(&@PREFIX@_step_reset_all),
+    reinterpret_cast<const void*>(&@PREFIX@_step_reset_track), reinterpret_cast<const void*>(&@PREFIX@_step_condition),
+    reinterpret_cast<const void*>(&@PREFIX@_step_apply), reinterpret_cast<const void*>(&@PREFIX@_step_mute),
+    reinterpret_cast<const void*>(&unused), reinterpret_cast<const void*>(&@PREFIX@_step_enter),
+    reinterpret_cast<const void*>(&@PREFIX@_step_next), reinterpret_cast<const void*>(&unused),
+    reinterpret_cast<const void*>(&@PREFIX@_step_trigs)};
+}
+// The picker's name first; on a condition key the SDK registers the object after it.
+opxy::platform::StepDescriptor @PREFIX@_step_name = {"@NAME@", methods, 0, 0, @PLAYS_POINTER@};
+const char @PREFIX@_step_settings[20][16] = {@LABELS@};

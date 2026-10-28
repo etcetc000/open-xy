@@ -1,0 +1,19 @@
+#include <opxy/step.hpp>
+
+namespace @ID@ {
+// Per-track state, zeroed at every reset; this component needs none.
+struct Track {};
+
+namespace {
+// Semitones each setting adds, in setting order (definition.json "settings").
+const opxy::i32 kIntervals[opxy::step_settings] = {-12, -7, -4, -1, 0, 1, 4, 7, 12, 24};
+}
+
+// Learning step component: moves each note by a fixed interval. Change the
+// intervals or the velocity, and the settings' labels in definition.json. Other
+// callbacks (opxy/step.hpp) repeat, mute, ratchet or jump steps; list each one
+// you define in definition.json "callbacks".
+void apply(Track&, const opxy::StepContext&, opxy::StepNote& note, opxy::u32 setting) {
+    note.pitch += kIntervals[setting];
+}
+}

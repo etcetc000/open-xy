@@ -6,6 +6,7 @@ no machines of its own; these are small, valid folders, not copies of published 
   display without paths.
 - probefx: an effect with a Dry control (dryParameter) and controls of each mapping.
 - probesample: a drum-page (page 7) sample engine declaring every optional service.
+- probestep: a step component replacing the stock velocity component.
 """
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from tooling.machines import machine_at, read_collection
 
 FOLDER = Path(__file__).resolve().parent / 'fixtures/machines'
 # Firmware order for a collection holding every kind.
-NAMES = ('probesynth', 'probesources', 'probefx', 'probesample')
+NAMES = ('probesynth', 'probesources', 'probefx', 'probesample', 'probestep')
 
 
 def fixture(name):

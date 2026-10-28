@@ -2,6 +2,7 @@ import * as Core from './core.mjs';
 import * as Wizard from './wizard.mjs';
 import * as Retained from '../sdk/browser/display.mjs';
 import * as Visuals from './visuals.mjs';
+import * as StepKeys from './steps.mjs';
 import {Audition} from './audition.mjs';
 import {editedShown, shownControls} from '../sdk/browser/controls.mjs';
 import {supportsDeviceApis} from './browser.mjs';
@@ -25,6 +26,8 @@ let kit, stock, catalog, selected = [], inspected, linked, downloadUrl, built, l
 // the layout.json in every download is the record.
 const NUMBERS_KEY = 'open-xy-machine-numbers';
 let numbers = null;
+// A step machine picked in the list, to place with the next key pressed.
+let armedStep = null;
 function rememberNumbers(value) {
   numbers = value;
   try { localStorage.setItem(NUMBERS_KEY, JSON.stringify({profile: kit.profile.id, machines: value})); } catch {}
@@ -150,6 +153,8 @@ async function acceptFirmware(file, isCurrent = () => true) {
     if (current !== ticket || !isCurrent()) return false;
     stock = recovered.stock;
     if (recovered.selected) {
+      // Its layout, including the stock components its step machines replace.
+      if (recovered.numbers) numbers = recovered.numbers;
       selected = recovered.selected; renderMachines(); recalculate();
       $('firmware-result').textContent = '✓ open-xy OS with ' +
         kit.machines.filter(m => selected.includes(m.id)).map(m => m.name).join(' + ');
@@ -191,7 +196,7 @@ function sourceLinks(source) {
 }
 function describeMachine(target, m) {
   const field = name => target.querySelector('.' + name);
-  field('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', sample: 'Sample engine'}[m.kind];
+  field('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', sample: 'Sample engine', step: 'Step component'}[m.kind];
   field('detail-name').textContent = m.name; field('detail-description').textContent = m.description;
   field('community-notice').hidden = m.origin !== 'catalog';
   // Credit the catalog's maintainer and repository, with the exact release source;
@@ -226,16 +231,21 @@ async function inspect(id) {
   stopAudio = () => {};
   if (m.preview) {
     $('art-caption').textContent = 'Audition the sound and screen. The OP–XY’s own envelopes and effects aren’t included.';
+  } else if (m.kind === 'step') {
+    $('art-preview').append(node('span', 'Step components change notes on the OP–XY; there is no sound preview.', 'art-placeholder'));
+    $('art-caption').textContent = 'Its ten settings, black keys 1 to 9 then 0. Place it on a step component key below.';
   } else {
     $('art-preview').append(node('span', 'No browser preview for this machine yet.', 'art-placeholder'));
     $('art-caption').textContent = '';
   }
-  $('controls').replaceChildren(...m.controls.map(c => node('div', c, 'control')));
+  $('controls').replaceChildren(...(m.kind === 'step' ? m.settings.map((lines, i) => node('div', `${(i + 1) % 10} · ${lines.join(' ')}`, 'control'))
+    : m.controls.map(c => node('div', c, 'control'))));
   const own = kit.objects.filter(o => o.owner === id).flatMap(o => o.sections.filter(s => s.group));
   facts($('machine-facts'), {'Code and data': kib(own.filter(s => s.type !== 8).reduce((n, s) => n + s.size, 0)),
     'Working memory': kib(own.filter(s => s.type === 8).reduce((n, s) => n + s.size, 0)),
-    // The numbers this selection gives it, or those it asks for.
-    ...(own => ({[m.kind === 'effect' ? 'Effect number' : 'Engine number']: own.effect ?? own.engine, 'Page': own.page}))(
+    // The numbers this selection gives it, or those it asks for; a step component's stock component.
+    ...(own => m.kind === 'step' ? {'Replaces': own.step.replace('_', ' ')} :
+      {[m.kind === 'effect' ? 'Effect number' : 'Engine number']: own.effect ?? own.engine, 'Page': own.page})(
       linked?.numbers?.[m.id] ?? m.identity),
     ...(m.source ? {'Release': m.source.tag, 'Commit': m.source.commit.slice(0, 12)} : {})});
   document.querySelectorAll('.machine button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
@@ -355,7 +365,8 @@ function renderMachines(filter = 'all') {
     const button = node('button'); button.dataset.id = m.id; button.setAttribute('aria-pressed', String(inspected === m.id));
     button.append(node('span', m.name, 'machine-name'), node('span', m.description, 'machine-desc'));
     const meta = node('span', undefined, 'machine-meta');
-    meta.append(node('span', {synth: 'Synth', effect: 'Effect', sample: 'Sample'}[m.kind]), node('span', m.controls.length + (m.controls.length === 1 ? ' control' : ' controls')));
+    meta.append(node('span', {synth: 'Synth', effect: 'Effect', sample: 'Sample', step: 'Step'}[m.kind]),
+      node('span', m.kind === 'step' ? '10 settings' : m.controls.length + (m.controls.length === 1 ? ' control' : ' controls')));
     const ownBytes = kit.objects.filter(o => o.owner === m.id)
       .flatMap(o => o.sections.filter(s => s.group)).reduce((total, s) => total + s.size, 0);
     const memory = node('span', kib(ownBytes), 'machine-memory');
@@ -396,7 +407,29 @@ function recalculate() {
       'Available': kib(linked.sizes.available)});
     status();
   } catch (error) { $('room-value').textContent = 'Selection cannot be built'; fail(error); }
+  renderSteps();
   ready();
+}
+// The selection's step machines on the keyboard, where this layout places them.
+function renderSteps() {
+  const placed = {};
+  for (const m of kit.machines) if (m.kind === 'step' && selected.includes(m.id) && linked?.numbers?.[m.id])
+    placed[linked.numbers[m.id].step] = m;
+  StepKeys.render($('step-keys'), {kit, slots: Core.stepSlots(kit.profile), placed, armed: armedStep,
+    arm: id => { armedStep = id; renderSteps(); },
+    place: (id, slot) => {
+      // The machine already on that key gives it up and leaves the selection.
+      const previous = placed[slot];
+      armedStep = null;
+      numbers = {...(numbers ?? {}), [id]: {step: slot}};
+      selected = [...selected.filter(x => x !== id && x !== previous?.id), id];
+      invalidate(); renderMachines(currentFilter); recalculate();
+      document.querySelector(`#step-keys [data-slot="${slot}"]`)?.focus();
+    },
+    remove: id => {
+      selected = selected.filter(x => x !== id);
+      invalidate(); renderMachines(currentFilter); recalculate();
+    }});
 }
 async function build() {
   if (machinePreview || !acknowledged) return;
@@ -433,9 +466,11 @@ for (const type of ['dragover', 'dragleave', 'drop']) drop.addEventListener(type
   e.preventDefault(); drop.dataset.drag = String(type === 'dragover');
   if (type === 'drop') acceptFirmware(e.dataTransfer.files[0]);
 });
+let currentFilter = 'all';
 document.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => {
   document.querySelectorAll('[data-filter]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-  renderMachines(b.dataset.filter);
+  currentFilter = b.dataset.filter;
+  renderMachines(currentFilter);
 });
 $('restore').onchange = async e => {
   try {

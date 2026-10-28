@@ -9,9 +9,10 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tooling.formats import elf32, ldr, mapped_offset, require, sha
-from tooling import screen, startup_label
+from tooling import screen, startup_label, steps
 from tooling.adapters import catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
+from tooling.machines import assign_steps
 from tooling.native import configuration, package_collection
 
 
@@ -77,6 +78,11 @@ def main():
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
         services = active_services(kit['profile'], (m['kind'] for m in kit['machines'] if m['id'] in result['selected']))
+        # The selection's step machines, placed as tooling.machines.assign_steps places them.
+        chosen = [m for m in kit['machines'] if m['id'] in result['selected'] and m['kind'] == 'step']
+        replaced = assign_steps(steps.slots(kit['profile']), None, [(m['id'], m['identity']['step']) for m in chosen])
+        owners = {slot: next(m for m in chosen if m['id'] == name) for name, slot in replaced.items()}
+        services |= {steps.service(slot) for slot in owners}
         modes = {}
         for profiling in (True, False):
             profile = copy.deepcopy(kit['profile'])
@@ -87,6 +93,9 @@ def main():
                     patch['after'] = hook_instruction(patch, symbols[patch['symbol']]['value']).hex()
                 elif patch['kind'] == 'startup':
                     patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
+                elif patch['kind'] == 'step':
+                    patch['after'] = steps.after(patch, owners[patch['slot']]['prefix'],
+                                                 lambda name: symbols[name]['value']).hex()
             expected = assemble(stock, module, profile, kit['profile'], len(profile['patches']), services, profiling)
             suffix = '.ldr' if profiling else '.profiling-off.ldr'
             require(expected == prefix.with_suffix(suffix).read_bytes(), 'Python/browser firmware differs: ' + suffix)
@@ -104,13 +113,15 @@ def main():
         selected = [m for m in kit['machines'] if m['id'] in result['selected']]
         catalog = json.loads((content / 'op1_factory.json').read_bytes())
         for machine in selected:
+            if machine['kind'] == 'step':
+                continue  # a step component replaces a stock component: no menu entry
             key = 'fx_types' if machine['kind'] == 'effect' else 'engine_types'
             catalog[key].append(json.loads(machine['catalog'].strip().lstrip(',')))
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
         for machine in selected:
-            if machine['kind'] != 'effect':
+            if machine['kind'] in ('synth', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'
                 data = (prefix / name).read_bytes()
                 preset = json.loads(data)

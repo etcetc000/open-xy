@@ -50,8 +50,9 @@ must differ from every [catalog](catalog.md) machine's.
 `--controls 5`, `6`, `7` or `8` when the sound needs more controls; these use
 the shared two-page header. Unused second-page columns repeat first-page
 controls with one saved value. `--kind effect` starts a four-control send effect instead
-(effects have no browser preview). Every starter has a sound check in
-`tests/sound.cpp`. `--repository` also writes README.md, AGENTS.md, LICENSE,
+(effects have no browser preview), and `--kind step` a
+[step component](api.md#step-components) that transposes notes, with a check in
+`tests/notes.cpp`. The other starters have a sound check in `tests/sound.cpp`. `--repository` also writes README.md, AGENTS.md, LICENSE,
 .gitignore and a GitHub Actions workflow beside the machine. It creates files without running
 `git init`, committing or contacting GitHub. Initialize Git in that folder when
 ready. Omit the flag to create just a machine folder in an existing repository.

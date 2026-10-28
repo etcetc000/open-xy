@@ -22,7 +22,9 @@ effect and page numbers are not the catalog's: each firmware's
 | `repository`, `tag`, `commit`, `path` | A draft or published machine's release: `https://github.com/<owner>/<repo>`, the tag, its full commit SHA, and the machine's folder in the repository (`.` at the root). A retired entry may keep them |
 
 New or changed draft/published entries also require a `cpu` record generated
-from [hardware profiling](profiling.md), for every machine kind. That guide owns
+from [hardware profiling](profiling.md), for every machine kind except step
+components, which run a few instructions per note and have no audio block to
+measure; their entries carry no `cpu`. That guide owns
 the field schema, workloads and contributor commands. Unchanged legacy entries
 may remain without a record until their next update; measurements are never
 backfilled with host estimates.

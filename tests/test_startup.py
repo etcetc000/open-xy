@@ -21,8 +21,13 @@ class Startup(unittest.TestCase):
             self.assertIn(f'__asm__("{prefix}_engine_id")', text)
         self.assertNotIn('probesample_screen_register', text)
 
+    def test_step_components_alone_register_no_engines(self):
+        text = render([])
+        self.assertNotIn('_register()', text)
+        self.assertNotIn('_name_matches(name)', text)
+
     def test_rejects_invalid_machine_lists(self):
-        for prefixes in ([], ['probesynth', 'probesynth'], ['Bad'], ['x%d' % i for i in range(MAX_ENGINES + 1)]):
+        for prefixes in (['probesynth', 'probesynth'], ['Bad'], ['x%d' % i for i in range(MAX_ENGINES + 1)]):
             with self.subTest(prefixes=prefixes[:3]), self.assertRaises(ValueError):
                 render(prefixes)
         for effects, stock_page in ((['probesynth'], ()), ((), ['other'])):

@@ -106,7 +106,37 @@ def paged(definition):
     return definition.get('press') == 'page'
 
 
+# A step component's ten settings, as the picker shows them: two short lines each.
+STEP_LINE = re.compile(r'[a-z0-9][a-z0-9 %+./-]{0,13}')
+STEP_NAME = re.compile(r'[A-Za-z][A-Za-z0-9 ]{0,9}')
+
+
+def validate_step_definition(value):
+    """A step component: its name, ten settings and the callbacks its step.cpp
+    defines (tooling/steps.py). It has no controls, presets or resources; the
+    returned definition gives them empty."""
+    from .steps import CALLBACKS, SETTINGS
+    keys(value, ('schema', 'id', 'name', 'settings', 'callbacks'), 'definition')
+    callbacks = value['callbacks']
+    require(isinstance(callbacks, list) and callbacks and len(set(callbacks)) == len(callbacks) and
+            all(c in CALLBACKS for c in callbacks),
+            'callbacks lists the step.cpp callbacks, each once, from ' + ', '.join(CALLBACKS))
+    require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
+    stock_name(value['id'])
+    require(isinstance(value['name'], str) and STEP_NAME.fullmatch(value['name']),
+            'A step component name is at most ten letters, digits or spaces: the picker shows it in lower case')
+    settings = value['settings']
+    require(isinstance(settings, list) and len(settings) == SETTINGS and
+            all(isinstance(s, list) and len(s) == 2 and all(isinstance(line, str) and STEP_LINE.fullmatch(line)
+                                                            for line in s) for s in settings),
+            'A step component has ten settings of two lines, each at most 14 lower-case letters, '
+            'digits, spaces or % + . / -')
+    return dict(value, parameters=[], presets={}, resources={})
+
+
 def validate_definition(value, kind):
+    if kind == 'step':
+        return validate_step_definition(value)
     keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *(('press',) if 'press' in value else ())),
          'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')

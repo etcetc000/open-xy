@@ -41,6 +41,12 @@ leaves the browser.
    link to the machine's code at the commit the catalog pins. Open-XY's own
    example machines from the catalog are labelled as Open-XY machines. A
    [personal kit](#export-a-kit)'s own machines are marked **Yours**.
+   When the kit has [step components](api.md#step-components), a keyboard
+   below the list shows the OP–XY's fourteen step component keys. Drag a step
+   component from the list onto one of the highlighted keys (any of
+   the fourteen), or pick it and then the key; the key's black
+   keys show its ten settings. Pressing a replaced key restores stock and
+   leaves the component out. A component placed where another was replaces it.
 4. Follow the installation guide using the remembered computer choice. Mac
    browsers with WebUSB send the files directly; Windows downloads a ZIP to
    copy with File Explorer. The OS write step on the device is still manual.
@@ -53,7 +59,7 @@ The ZIP contains:
 | `content/op1_factory.json` | Replaces the menu file |
 | `content/display/*.svg` | New screens for the selected machines; keep the stock files |
 | `content/presets/<machine>/*.json` | Each selected instrument's init preset, `default.json`, and its own [presets](api.md#presets), in the instrument's folder |
-| `layout.json`, hashes | Keep `layout.json`: it holds your machines' numbers, and loading it into the builder next time keeps them for your projects |
+| `layout.json`, hashes | Keep `layout.json`: it holds your machines' numbers and which keys your step components replace, and loading it into the builder next time keeps them for your projects |
 
 Every build shows its release at boot, `OPEN 0.0.2-1.2.1` for 0.0.2, the version in
 [`VERSION`](../VERSION) that the builder also shows under its name and records in
@@ -63,8 +69,9 @@ choose one on its sample page. Ring Mod is a send effect and has no preset.
 The builder accepts the stock OS 1.2.1 file or any Open-XY OS made from it,
 including one from an earlier release: it rebuilds the stock image by undoing
 the reviewed edits and accepts it only if it matches OS 1.2.1 exactly. An exact
-output of the same collection also restores its machine selection; for any
-other, choose the machines again (the layout still keeps their numbers).
+output of the same collection also restores its machine selection and which
+keys its step components replace; for any other, choose the machines again
+(the layout still keeps their numbers).
 Encrypted `.tfw`, unknown patches and damaged files are rejected. Projects,
 presets and samples on the device are not touched.
 

@@ -16,12 +16,13 @@ def cases(machines):
     return [dict(name=name, engine=engine, source='stock') for name, engine in STOCK] + [
         dict(name=m.id, engine=m.identity.get('engine', m.identity.get('effect')), source='sdk',
              kind=m.kind, benchmark=METHODS[m.kind][0], metric=METHODS[m.kind][1])
-        for m in machines]
+        for m in machines if m.kind in METHODS]
 
 
 def generate(directory, machines):
     declarations, rows = [], []
-    for m in machines:
+    # Step components run a few instructions per note, not an audio block: nothing to time.
+    for m in (m for m in machines if m.kind in METHODS):
         p = m.prefix
         id_symbol = p + ('_fx_id' if m.kind == 'effect' else '_engine_id')
         declarations += [f'int {p}_ready() __asm__("{p}_ready");',

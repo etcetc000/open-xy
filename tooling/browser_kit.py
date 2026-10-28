@@ -54,7 +54,11 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         entry = dict(id=m.id, name=m.name, kind=m.kind, prefix=m.prefix, description=m.description,
                      identity=m.requested or m.identity, controls=[p['label'] for p in m.definition['parameters']],
                      positions=control_positions(m.definition), pages=paged(m.definition))
-        entry['catalog'] = catalog_entry(m)
+        if m.kind == 'step':
+            # The ten settings the picker shows (core.mjs draws them on the keyboard).
+            entry['settings'] = m.definition['settings']
+        else:
+            entry['catalog'] = catalog_entry(m)
         # Where the machine comes from, for the builder to show (core.mjs validOrigin): a
         # catalog machine is Open-XY's own only when maintainers list it (catalog.OFFICIAL).
         entry['origin'] = ('personal' if m.id not in sources
@@ -68,8 +72,11 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['presets'] = m.presets
         if m.icon:
             entry['icon'] = m.icon
-        # An unselected machine's startup and catalog callbacks decline.
-        if m.kind == 'effect':
+        # An unselected machine's startup and catalog callbacks decline. Nothing in the
+        # SDK calls a step component: only its replaced stock component's edits name it.
+        if m.kind == 'step':
+            entry['absent'] = {}
+        elif m.kind == 'effect':
             entry['absent'] = {m.prefix + suffix: 'kit_absent' for suffix in ('_fx_register', '_ready')}
         else:
             entry['absent'] = {m.prefix + suffix: 'kit_absent' for suffix in ('_register', '_name_matches', '_ready', '_record_ready')}
@@ -135,13 +142,14 @@ def write_builder(kit, output):
     imports = ("import * as Core from './core.mjs';\nimport * as Wizard from './wizard.mjs';\n"
                "import * as Retained from '../sdk/browser/display.mjs';\n"
                "import * as Visuals from './visuals.mjs';\n"
+               "import * as StepKeys from './steps.mjs';\n"
                "import {Audition} from './audition.mjs';\n"
                "import {editedShown, shownControls} from '../sdk/browser/controls.mjs';\n"
                "import {supportsDeviceApis} from './browser.mjs';\n")
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes openKit linkKit readLdr '
-               'patchFirmware recoverFirmware presetFiles buildAssets zipFiles sourceUrl sourceName').split()
+               'patchFirmware recoverFirmware presetFiles buildAssets zipFiles sourceUrl sourceName stepSlots').split()
     bundled = 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
     bundled += 'const {editedShown, shownControls, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {editedShown, shownControls, inputWords};\n})();\n'
@@ -155,6 +163,8 @@ def write_builder(kit, output):
         'export ', '') + '\nreturn {Session};\n})();\n'
     bundled += 'const Visuals = (() => {\n' + read(ROOT / 'builder/visuals.mjs').decode('utf-8').replace(
         'export ', '') + '\nreturn {icon,device,fileMap,bundle,guide,reveal};\n})();\n'
+    bundled += 'const StepKeys = (() => {\n' + read(ROOT / 'builder/steps.mjs').decode('utf-8').replace(
+        'export ', '') + '\nreturn {render};\n})();\n'
     wizard = read(ROOT / 'builder/wizard.mjs').decode('utf-8')
     bundled += 'const Mtp = (() => {\n' + read(ROOT / 'builder/mtp.mjs').decode('utf-8').replace(
         'export ', '') + '\nreturn {Device,supported};\n})();\n'

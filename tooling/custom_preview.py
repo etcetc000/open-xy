@@ -142,17 +142,25 @@ def authenticate(manifest, artifacts):
 
 
 # Machine kinds sdk.py new starts, each from sdk/templates/<kind>/.
-STARTERS = ('synth', 'effect')
+STARTERS = ('synth', 'effect', 'step')
 
 
 def scaffold(out, identity, name, kind='synth', repository=False, controls=None):
     require(kind in STARTERS, 'sdk.py new starts a ' + ' or '.join(STARTERS))
     controls = 4 if controls is None else controls
     require(type(controls) is int and 4 <= controls <= 8 and (kind == 'synth' or controls == 4),
-            'Use 4 to 8 controls for a synth; effects use 4')
+            'Use 4 to 8 controls for a synth; effects use 4 and step components none')
     custom_identity(identity); label(name)
+    if kind == 'step':
+        from .definitions import STEP_NAME
+        require(STEP_NAME.fullmatch(name), 'A step component name is at most ten letters, digits or spaces')
     from .machines import free_effect_identity, free_synth_identity
-    stock_identity = free_effect_identity() if kind == 'effect' else free_synth_identity()  # before writing anything
+    from .pipeline import config
+    from .steps import slots
+    # before writing anything; a step component starts on velocity, whose stock behaviour is per note
+    stock_identity = (free_effect_identity() if kind == 'effect' else
+                      {'step': 'velocity' if 'velocity' in slots(config()) else slots(config())[0]} if kind == 'step'
+                      else free_synth_identity())
     out = fresh_output(out)
     starters = [ROOT / 'sdk/templates' / kind]
     if kind == 'synth' and controls > 4:
@@ -163,6 +171,8 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None)
                 'python ../open-xy/sdk.py preview --machine . --out ../previews/@ID@-001\n'
                 'python ../open-xy/tools/serve_harness.py --preview ../previews/@ID@-001\n```'
                 if kind == 'synth' else
+                'Step components have no browser preview. Run the host tests below, then try it on your XY\n'
+                'using the hardware workflow linked below.' if kind == 'step' else
                 'Effects have no browser preview. Run the host tests below, then audition on your XY\n'
                 'using the hardware workflow linked below.')
     for starter in starters:
@@ -189,6 +199,16 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None)
         print('Created local effect: ' + str(out))
         print(f'machine.json suggests effect {record["identity"]["effect"]}, free in this repository. '
               f'Effects have no browser preview; build with: {python} sdk.py compile --machine "{out}" --out <folder>')
+        return
+    if kind == 'step':
+        from .machines import machine_at
+        record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'step', 'description': name,
+                  'identity': stock_identity}
+        (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
+        machine_at(out)
+        print('Created local step component: ' + str(out))
+        print(f'machine.json replaces the stock {record["identity"]["step"]} component; '
+              f'build with: {python} sdk.py compile --machine "{out}" --out <folder>')
         return
     if controls > 4:
         definition_path = out / 'definition.json'

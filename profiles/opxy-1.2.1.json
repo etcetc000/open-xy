@@ -93,6 +93,9 @@
   "services": {
     "samples": [
       "sample"
+    ],
+    "steps": [
+      "step"
     ]
   },
   "patches": [
@@ -1153,6 +1156,617 @@
       "before": "fee3b16f",
       "symbol": "sdk_benchmark_run",
       "call": true
+    },
+    {
+      "kind": "step",
+      "name": "Step component pulse: methods",
+      "address": "0x840a018c",
+      "file_offset": "0x52de0",
+      "length": 40,
+      "before": "042d588dba2f588dea2c588dbc2d588db02d588da42d588d982d588d1030588d802d588d742d588d",
+      "slot": "pulse",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component pulse: picker name",
+      "address": "0x8400d4a4",
+      "file_offset": "0x1c19c",
+      "length": 4,
+      "before": "84d90084",
+      "slot": "pulse",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component pulse: setting labels",
+      "address": "0x8400d4dc",
+      "file_offset": "0x1c1d4",
+      "length": 80,
+      "before": "08da008414da008424da008434da00843cda00844cda008454da00844cda008464da00844cda008474da00844cda008484da00844cda008494da00844cda0084a4da00844cda0084b4da00844cda0084",
+      "slot": "pulse",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component hold: methods",
+      "address": "0x840a01c0",
+      "file_offset": "0x52e14",
+      "length": 40,
+      "before": "042d588dba2f588dea2c588d6a30588dd22c588da42d588d982d588d1030588d802d588d742d588d",
+      "slot": "hold",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component hold: picker name",
+      "address": "0x8400d4a8",
+      "file_offset": "0x1c1a0",
+      "length": 4,
+      "before": "8cd90084",
+      "slot": "hold",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component hold: setting labels",
+      "address": "0x8400d52c",
+      "file_offset": "0x1c224",
+      "length": 80,
+      "before": "c4da008414da0084d0da008434da0084dcda00844cda0084e8da00844cda0084f4da00844cda008400db00844cda00840cdb00844cda008418db00844cda008424db00844cda008430db00844cda0084",
+      "slot": "hold",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component multiply: methods",
+      "address": "0x840a0368",
+      "file_offset": "0x52fbc",
+      "length": 40,
+      "before": "c42b588dd42d588dc82d588dbc2d588db02d588d242b588d6c35588d8c2d588d802d588df02a588d",
+      "slot": "multiply",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component multiply: picker name",
+      "address": "0x8400d4ac",
+      "file_offset": "0x1c1a4",
+      "length": 4,
+      "before": "94d90084",
+      "slot": "multiply",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component multiply: setting labels",
+      "address": "0x8400d57c",
+      "file_offset": "0x1c274",
+      "length": 80,
+      "before": "3cdb008448db00843cdb008458db00843cdb008460db00843cdb008468db00843cdb008470db00843cdb008478db00843cdb008480db00843cdb008488db00843cdb008490db00843cdb008498db0084",
+      "slot": "multiply",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component velocity: methods",
+      "address": "0x840a0334",
+      "file_offset": "0x52f88",
+      "length": 40,
+      "before": "e02d588dd42d588dc82d588df234588de22b588da42d588d982d588d8c2d588d802d588d742d588d",
+      "slot": "velocity",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component velocity: picker name",
+      "address": "0x8400d4b0",
+      "file_offset": "0x1c1a8",
+      "length": 4,
+      "before": "a0d90084",
+      "slot": "velocity",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component velocity: setting labels",
+      "address": "0x8400d5cc",
+      "file_offset": "0x1c2c4",
+      "length": 80,
+      "before": "a0db0084b0db0084a0db0084bcdb0084a0db0084c4db0084a0db0084ccdb0084a0db0084d4db0084a0db0084dcdb0084a0db0084e4db0084a0db0084ecdb0084a0db0084f4db0084a0db0084fcdb0084",
+      "slot": "velocity",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component ramp up: methods",
+      "address": "0x840a0228",
+      "file_offset": "0x52e7c",
+      "length": 40,
+      "before": "7c2c588d642c588dc82d588d4431588db02d588da42d588d982d588d8c2d588d802d588d742d588d",
+      "slot": "ramp_up",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component ramp up: picker name",
+      "address": "0x8400d4b4",
+      "file_offset": "0x1c1ac",
+      "length": 4,
+      "before": "acd90084",
+      "slot": "ramp_up",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component ramp up: setting labels",
+      "address": "0x8400d61c",
+      "file_offset": "0x1c314",
+      "length": 80,
+      "before": "04dc008414dc008420dc008430dc00843cdc008430dc00844cdc008430dc00845cdc008430dc008404dc008430dc008420dc008414dc00843cdc008414dc00844cdc008414dc00845cdc008414dc0084",
+      "slot": "ramp_up",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component ramp down: methods",
+      "address": "0x840a0260",
+      "file_offset": "0x52eb4",
+      "length": 40,
+      "before": "7c2c588d642c588dc82d588d4431588db02d588da42d588d982d588d8c2d588d802d588d742d588d",
+      "slot": "ramp_down",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component ramp down: picker name",
+      "address": "0x8400d4b8",
+      "file_offset": "0x1c1b0",
+      "length": 4,
+      "before": "b0d90084",
+      "slot": "ramp_down",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component ramp down: setting labels",
+      "address": "0x8400d66c",
+      "file_offset": "0x1c364",
+      "length": 80,
+      "before": "04dc008414dc008420dc008430dc00843cdc008430dc00844cdc008430dc00845cdc008430dc008404dc008430dc008420dc008414dc00843cdc008414dc00844cdc008414dc00845cdc008414dc0084",
+      "slot": "ramp_down",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component random: methods",
+      "address": "0x840a01f4",
+      "file_offset": "0x52e48",
+      "length": 40,
+      "before": "e02d588dd42d588dc82d588d1631588db02d588da42d588d982d588d8c2d588d802d588d742d588d",
+      "slot": "random",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component random: picker name",
+      "address": "0x8400d4bc",
+      "file_offset": "0x1c1b4",
+      "length": 4,
+      "before": "b8d90084",
+      "slot": "random",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component random: setting labels",
+      "address": "0x8400d6bc",
+      "file_offset": "0x1c3b4",
+      "length": 80,
+      "before": "6cdc008414dc008474dc008430dc00847cdc008430dc008484dc008430dc00848cdc008430dc00846cdc008430dc008474dc008414dc00847cdc008414dc008484dc008414dc00848cdc008414dc0084",
+      "slot": "random",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component portamento: methods",
+      "address": "0x840a0300",
+      "file_offset": "0x52f54",
+      "length": 40,
+      "before": "e02d588dd42d588dc82d588d0634588db02d588da42d588d982d588d8c2d588d802d588d742d588d",
+      "slot": "portamento",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component portamento: picker name",
+      "address": "0x8400d4c0",
+      "file_offset": "0x1c1b8",
+      "length": 4,
+      "before": "c0d90084",
+      "slot": "portamento",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component portamento: setting labels",
+      "address": "0x8400d70c",
+      "file_offset": "0x1c404",
+      "length": 80,
+      "before": "c0d9008494dc0084c0d90084a4dc0084c0d90084b0dc0084c0d90084bcdc0084c0d90084c8dc0084c0d90084d4dc0084c0d90084e0dc0084c0d90084ecdc0084c0d90084f8dc0084c0d9008404dd0084",
+      "slot": "portamento",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component bend: methods",
+      "address": "0x840a0298",
+      "file_offset": "0x52eec",
+      "length": 40,
+      "before": "e02d588dd42d588dc82d588dbc2d588db02d588da42d588d2832588d8c2d588d802d588d742d588d",
+      "slot": "bend",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component bend: picker name",
+      "address": "0x8400d4c4",
+      "file_offset": "0x1c1bc",
+      "length": 4,
+      "before": "ccd90084",
+      "slot": "bend",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component bend: setting labels",
+      "address": "0x8400d75c",
+      "file_offset": "0x1c454",
+      "length": 80,
+      "before": "08dd008414dd008408dd008420dd008408dd008428dd008408dd008430dd008408dd00843cdd008408dd008444dd008408dd008450dd008408dd00845cdd008408dd008468dd008408dd008470dd0084",
+      "slot": "bend",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component tonality: methods",
+      "address": "0x840a02cc",
+      "file_offset": "0x52f20",
+      "length": 40,
+      "before": "e02d588dd42d588dc82d588d4632588db02d588da42d588d982d588d8c2d588d802d588d742d588d",
+      "slot": "tonality",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component tonality: picker name",
+      "address": "0x8400d4c8",
+      "file_offset": "0x1c1c0",
+      "length": 4,
+      "before": "d4d90084",
+      "slot": "tonality",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component tonality: setting labels",
+      "address": "0x8400d7ac",
+      "file_offset": "0x1c4a4",
+      "length": 80,
+      "before": "7cdd008488dd008490dd0084a0dd0084acdd0084b8dd0084c0dd0084acd90084c8dd0084acd90084d0dd0084acd90084d8dd0084acd90084d8dd0084b0d900847cdd0084e4dd00847cdd0084e8dd0084",
+      "slot": "tonality",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component jump: methods",
+      "address": "0x840a0158",
+      "file_offset": "0x52dac",
+      "length": 40,
+      "before": "e02d588dd42d588dc82d588dbc2d588db02d588da42d588d542d588dec2d588d802d588d742d588d",
+      "slot": "jump",
+      "words": [
+        "reset_all",
+        "reset_track",
+        "condition",
+        "apply",
+        "mute",
+        "0x8d582da4",
+        "enter",
+        "next",
+        "0x8d582d80",
+        "trigs"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component jump: picker name",
+      "address": "0x8400d4cc",
+      "file_offset": "0x1c1c4",
+      "length": 4,
+      "before": "e0d90084",
+      "slot": "jump",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component jump: setting labels",
+      "address": "0x8400d7fc",
+      "file_offset": "0x1c4f4",
+      "length": 80,
+      "before": "ecdd0084f4dd0084ecdd008400de0084ecdd008408de0084ecdd008410de0084ecdd008418de008420de00842cde008420de00843cde008448de008458de008460de008468de008470de00847cde0084",
+      "slot": "jump",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component skip param: picker name",
+      "address": "0x8400d4d0",
+      "file_offset": "0x1c1c8",
+      "length": 4,
+      "before": "e8d90084",
+      "slot": "skip_param",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component skip param: setting labels",
+      "address": "0x8400d84c",
+      "file_offset": "0x1c544",
+      "length": 80,
+      "before": "88de008494de0084a0de008494de0084a0de008494de0084b0de008494de0084c0de008494de0084d0de008494de0084e0de008494de0084f0de008494de008400df008494de008410df008494de0084",
+      "slot": "skip_param",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component skip component: picker name",
+      "address": "0x8400d4d4",
+      "file_offset": "0x1c1cc",
+      "length": 4,
+      "before": "f4d90084",
+      "slot": "skip_component",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component skip component: setting labels",
+      "address": "0x8400d89c",
+      "file_offset": "0x1c594",
+      "length": 80,
+      "before": "88de0084f4d90084a0de0084f4d90084a0de0084f4d90084b0de0084f4d90084c0de0084f4d90084d0de0084f4d90084e0de0084f4d90084f0de0084f4d9008400df0084f4d9008410df0084f4d90084",
+      "slot": "skip_component",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component skip trig: picker name",
+      "address": "0x8400d4d8",
+      "file_offset": "0x1c1d0",
+      "length": 4,
+      "before": "00da0084",
+      "slot": "skip_trig",
+      "words": [
+        "name"
+      ]
+    },
+    {
+      "kind": "step",
+      "name": "Step component skip trig: setting labels",
+      "address": "0x8400d8ec",
+      "file_offset": "0x1c5e4",
+      "length": 80,
+      "before": "88de008420df0084a0de008420df0084a0de008420df0084b0de008420df0084c0de008420df0084d0de008420df0084e0de008420df0084f0de008420df008400df008420df008410df008420df0084",
+      "slot": "skip_trig",
+      "words": [
+        "settings"
+      ]
+    },
+    {
+      "kind": "hook",
+      "name": "Step components: register step machines on condition keys after stock's components",
+      "address": "0x8d583828",
+      "file_offset": "0x1baa84",
+      "length": 4,
+      "before": "ffe3ccfe",
+      "symbol": "sdk_step_register",
+      "call": true,
+      "service": "steps"
+    },
+    {
+      "kind": "hook",
+      "name": "Step components: parameter-lock condition decision",
+      "address": "0x8d583996",
+      "file_offset": "0x1babf2",
+      "length": 4,
+      "before": "ffe301ff",
+      "symbol": "sdk_step_condition",
+      "call": true,
+      "service": "steps"
+    },
+    {
+      "kind": "hook",
+      "name": "Step components: component condition decision",
+      "address": "0x8d5839fa",
+      "file_offset": "0x1bac56",
+      "length": 4,
+      "before": "ffe3cffe",
+      "symbol": "sdk_step_condition",
+      "call": true,
+      "service": "steps"
+    },
+    {
+      "kind": "hook",
+      "name": "Step components: trig condition decision",
+      "address": "0x8d583c26",
+      "file_offset": "0x1bae82",
+      "length": 4,
+      "before": "ffe3b9fd",
+      "symbol": "sdk_step_condition",
+      "call": true,
+      "service": "steps"
     },
     {
       "kind": "startup",

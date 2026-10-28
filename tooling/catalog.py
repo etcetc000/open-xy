@@ -73,7 +73,8 @@ def validate(value):
         stock_name(name)
         require(name not in names, f'{name}: the ID is already {names.get(name)}')
         names[name] = 'listed in the catalog'
-        require(entry['kind'] in ('synth', 'sample', 'effect'), f'{name}: unknown kind')
+        require(entry['kind'] in ('synth', 'sample', 'effect', 'step'), f'{name}: unknown kind')
+        require(entry['kind'] != 'step' or 'cpu' not in entry, f'{name}: a step component has no cpu record')
         require(isinstance(entry['maintainer'], str) and re.fullmatch(MAINTAINER, entry['maintainer']),
                 f'{name}: maintainer is a GitHub user name')
         if 'repository' in entry:
@@ -101,7 +102,8 @@ def changes(before, after, allow_carried_cpu=False):
     current = {e['id']: e for e in after}
     previous = {e['id']: e for e in before}
     for entry in after:
-        if entry['status'] in ('draft', 'published') and entry != previous.get(entry['id']):
+        # Step components run a few instructions per note: there is no audio block to measure.
+        if entry['status'] in ('draft', 'published') and entry != previous.get(entry['id']) and entry['kind'] != 'step':
             require('cpu' in entry, f"{entry['id']}: new or updated submissions require hardware cpu measurements (docs/profiling.md)")
             cpu_measurement.validate(entry['cpu'], entry['kind'])
             # With a maintainer's approval, an update may carry its previous measurement over

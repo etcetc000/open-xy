@@ -38,10 +38,13 @@ version is rejected. The output differs from stock in exactly these places:
 | Project companions | 4 | Writes a [companion](projects.md) after every project save, and shows companions beside projects over MTP |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
+| Step components | 3 per replaced component (2 on a condition key), and 4 hooks with any step machine | Points a stock step component's methods at a step machine's adapter, and its picker name and ten setting labels at the machine's strings; registers condition-key machines and routes condition decisions to them |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Module | 1 record | One loader block holding the linked module |
 
-The sample rows (sample dispatch, analysis, drum-page services and recorder)
+The step component rows apply only to the components a build's step machines
+replace (see [step components](#step-components)); every other component stays
+stock. The sample rows (sample dispatch, analysis, drum-page services and recorder)
 form the profile's `samples` service: a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine. Otherwise
 their sites stay stock. Everything else must reconstruct byte for byte. Protected ranges in
@@ -509,3 +512,86 @@ supplies only wet audio. The generated adapter exposes the machine's declared
 `dryParameter`, or returns `INT32_MAX` when none is declared, matching stock's
 absent-object fallback. This is a source-mixer control, not a wet/dry crossfade
 inside the effect. See the [effect API](api.md#effects).
+
+## Step components
+
+Stock's sequencer keeps each step's components in a 16-byte record in its
+pattern: a 16-bit mask of the components on, then one byte per component whose
+low four bits are its setting, 0..9 (black keys 1..9, then 0). Pattern data is
+`0x800` bytes for 128 steps, saved in projects as is. There are 14 components,
+the white keys in order: pulse, hold, multiply, velocity, ramp up, ramp down,
+random, portamento, bend, tonality, jump and three conditions. Every byte of
+the record is used, so step machines replace components rather than add them.
+
+The first eleven components are static objects `{method table, track mask,
+component number}`, some with per-track counters after them (built at
+`0x8d5836a0`), listed in a registry of 24 (`0x850fd490`) in dispatch order:
+hold, pulse, multiply, velocity, ramp up, ramp down, random, portamento, bend,
+tonality, jump. Only the component module (`0x8d583848`–`0x8d583f3c`) calls
+them, through their method table; for a component enabled on the step:
+
+| Entry | Call | When |
+| --- | --- | --- |
+| `+0x04` | `reset_all()` | Sequencer start |
+| `+0x08` | `reset_track(track)` | A track restarts |
+| `+0x0c` | `condition(track)`: false ignores the step's "skip component" condition | Before evaluating it |
+| `+0x10` | `apply(track, step, settings, flags, note, chord)` | Every note, from the note builder; then pitch is folded into 0..127 (`0x8d583ada`) |
+| `+0x14` | `mute(track, step, settings)`: nonzero plays no trig | At the step's trig |
+| `+0x1c` | `enter(track, step, settings)` | The playhead enters the step, including repeats and jumps |
+| `+0x20` | `next(track, step, &next, settings, &counts, &align)`: nonzero moves the playhead to `next` | The playhead leaves the step; the first nonzero answer wins |
+| `+0x28` | `trigs(track, settings)`: -1 for one trig, else the count | At the step's trig; the sequencer spaces them `480/n` ticks apart |
+
+`+0x00` (name), `+0x18` and `+0x24` are never called. `settings` is the step's
+component bytes, indexed by the object's component number. `note` is stock's
+note record: remaining length in ticks at `+0x00` (64-bit, -1 while held; a
+step spans 480 ticks at speed 1/1), the MIDI note at `+0x0d` and velocity at
+`+0x0f`. A pattern's first byte is its length and its ninth its speed, an
+index into the `(numerator, denominator)` pairs at `0x840a0390`;
+`0x8d586014(track)` returns the track's current pattern. Stock pulse and hold
+answer `next` with the same step until their count, hold also mutes the
+replays and lengthens the first note, multiply answers `trigs`, bend starts
+its curve in `enter`, the ramps count notes in `apply`, and jump answers
+`next`. The conditions are decided inside the module by `0x8d583798`
+`(manager, track, step, setting byte, kind)`, kind 0 parameter locks, 1 other
+components and 2 the trig, returning nonzero to skip; it counts each step's
+visits for "every Nth".
+
+For a replaced object component a build writes three `step` edits, named in
+the profile by its `slot`:
+
+1. Its method table entries `+0x04`..`+0x28`, pointing at the machine's
+   adapter ([`step_object.cpp.in`](../sdk/platform/opxy-1.2.1/step_object.cpp.in)),
+   with the two unused entries kept as stock's no-ops.
+2. Its picker name pointer (`0x8400d4a4 + 4 * component`), pointing at the
+   machine's name.
+3. Its 20 setting-label pointers (`0x8400d4dc + 80 * component`), pointing at
+   the machine's labels.
+
+The build computes these words from the machine's symbols
+([`tooling/steps.py`](../tooling/steps.py), and `stepWords` in the builder) and
+checks that each points into the module and each literal is the reviewed stock
+no-op. The adapter keeps each machine's per-track state, reads the component
+number from the object, so one compiled machine serves any component, and
+calls the machine's callbacks; a callback the machine doesn't declare behaves
+as stock's empty component. Recovering a build reads which adapter each
+replaced component points at, then accepts the guess only by rebuilding the
+image exactly.
+
+A condition key has no object, so a build replacing one writes only its name
+and label edits. The profile's `steps` service, active in every build with a
+step machine, hooks two calls
+([`step_conditions.cpp`](../sdk/platform/opxy-1.2.1/step_conditions.cpp)):
+
+- The manager's call to register stock's eleven objects (`0x8d583828`): the SDK
+  registers them, then each condition key's step machine object, numbered as
+  that key, so stock calls its methods like any component's.
+- The three calls to the condition decision (`0x8d583996`, `0x8d5839fa`,
+  `0x8d583c26`): a replaced key asks its machine's `plays`, any other keeps
+  stock's rule.
+
+Which machine sits on a condition key is read at run time from the key's
+picker name, which points at the machine's descriptor
+([`step_machines.hpp`](../sdk/platform/opxy-1.2.1/step_machines.hpp)): the
+name, then the object. One module therefore serves any layout. Stock's picker
+stores black key 2 on these keys as setting 2 with a flag in bits 4-5, so the
+adapter passes only the low four bits.

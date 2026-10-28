@@ -193,6 +193,27 @@ details input { max-width:100%; }
 .machine-facts dd { margin:0; font-family:Consolas,monospace; }
 .inspector .machine-facts { min-height:calc(6lh + 40px); align-content:start; }
 .capacity { margin-top:32px; padding-top:24px; border-top:1px solid var(--line); }
+/* Step components: a list beside the OP–XY's fourteen white keys and the black keys above them. */
+.step-keys { margin-top:32px; padding-top:24px; border-top:1px solid var(--line); }
+.step-board { display:grid; grid-template-columns:minmax(120px,160px) minmax(0,1fr); gap:16px; align-items:start; }
+.step-palette { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
+.step-chip { width:100%; text-align:left; padding:9px 11px; border:1px solid var(--line); border-radius:7px; background:var(--soft); cursor:grab; }
+.step-chip[aria-pressed=true] { border-color:var(--accent); outline:1px solid var(--accent); }
+.step-chip-where { display:block; font:11px Consolas,monospace; color:var(--muted); }
+.step-keyboard { display:grid; gap:6px; min-width:0; }
+.step-blacks,.step-whites { display:grid; grid-template-columns:repeat(14,minmax(0,1fr)); gap:4px; }
+.step-black { grid-row:1; min-height:46px; padding:4px 3px; border-radius:5px; background:#050505; border:1px solid var(--line); display:flex; flex-direction:column; gap:2px; overflow:hidden; }
+.step-black-number { font:11px Consolas,monospace; color:var(--muted); }
+.step-black-label { font-size:10px; line-height:1.2; color:var(--ink); overflow-wrap:anywhere; }
+.step-white { min-height:92px; padding:6px 2px; border:1px solid var(--line); border-radius:5px; background:var(--panel); display:flex; flex-direction:column; justify-content:space-between; gap:4px; font-size:10px; line-height:1.2; overflow-wrap:normal; hyphens:auto; text-align:center; min-width:0; overflow:hidden; }
+.step-white:disabled { opacity:.45; cursor:default; }
+.step-white.replaceable { border-style:dashed; border-color:var(--muted); }
+.step-white.placed { background:var(--accent); color:var(--accent-ink); border-style:solid; border-color:var(--accent); }
+.step-white[data-drag=true] { outline:2px solid var(--accent); outline-offset:2px; }
+.step-stock { color:inherit; opacity:.8; }
+.step-owner { font-weight:700; }
+.step-detail { margin-top:12px; }
+@media(max-width:1050px) { .step-board { grid-template-columns:1fr; } .step-palette { grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); } }
 .capacity-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:14px; }
 .capacity-heading h2 { font-size:14px; margin:0; }
 .capacity-heading strong { font:12px Consolas,monospace; }

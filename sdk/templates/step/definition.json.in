@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "@ID@",
+  "name": "@NAME@",
+  "callbacks": ["apply"],
+  "settings": [
+    ["octave", "down"],
+    ["fifth", "down"],
+    ["third", "down"],
+    ["semitone", "down"],
+    ["transpose", "off"],
+    ["semitone", "up"],
+    ["third", "up"],
+    ["fifth", "up"],
+    ["octave", "up"],
+    ["2 octaves", "up"]
+  ]
+}

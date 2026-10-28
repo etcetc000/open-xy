@@ -6,7 +6,8 @@ object layouts, method tables, storage, registration and menu entries:
 - synth: initialize/start/destroy/render over Voice and Shared state, with a
   drawing display;
 - sample: flag-1 synth registration that receives the track's sample;
-- effect: send-FX registry object with in-place stereo processing.
+- effect: send-FX registry object with in-place stereo processing;
+- step: a replaced stock step component's per-note method and picker strings.
 """
 import json
 import math
@@ -16,6 +17,7 @@ from .benchmark import append_callback
 from .definitions import ROOT, control_positions, paged, validate_definition
 from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
+from . import steps
 
 TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
 
@@ -303,7 +305,7 @@ def generate_synth_controls(directory, machines):
     """Synth ownership, alternate selection and continuous fine controls."""
     declarations, rows, formatters, lfo_rows = [], [], [], []
     for m in machines:
-        if m.kind != 'effect':
+        if m.kind in ('synth', 'sample'):
             declarations.append(f'int {m.prefix}_record_ready() __asm__("{m.prefix}_record_ready");')
             declarations.append(f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");')
             controls = ', '.join(str(position % 4) for position in control_positions(m.definition))
@@ -362,7 +364,8 @@ def generate_project_companion_table(directory, machines):
     """Each machine's ID and its number symbols, sorted by ID as a companion lists them
     (docs/projects.md). Numbers are link-time symbols; a kit's unselected machines are 0."""
     declarations, rows = [], []
-    for m in sorted(machines, key=lambda m: m.id):
+    # Step components have no numbers: projects store each step's settings by stock component.
+    for m in sorted((m for m in machines if m.kind != 'step'), key=lambda m: m.id):
         number, page = (m.prefix + '_fx_id', m.prefix + '_fx_page_id') if m.kind == 'effect' else \
             (m.prefix + '_engine_id', m.prefix + '_page_id')
         declarations += [f'extern const char {name}[] __asm__("{name}");' for name in (number, page)]
@@ -424,3 +427,59 @@ def catalog_entry(m):
     return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
             ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }\n')
 
+
+
+def generate_step_object(directory, m):
+    """A step component's adapter: stock's component methods over the callbacks the machine
+    declares, and the strings the picker shows. An undeclared callback does what an empty
+    stock component does."""
+    ns, declared = m.definition['id'], set(m.definition['callbacks'])
+    calls = {
+        'RESET': (f'    {ns}::reset(tracks[track]);', ''),
+        'CONDITION': (f'    return {ns}::condition(tracks[track]) ? 1 : 0;', '    return 1;'),
+        'ENTER': (f'    {ns}::enter(tracks[track], context(track, step), value);', '    (void)step;'),
+        'TRIGS': (f'    const u32 count = {ns}::trigs(tracks[track], value);\n'
+                  "    // 0 or 1 is stock's single trig (-1); stock spaces up to eight evenly.\n"
+                  '    return count < 2 ? -1 : count > opxy::step_max_trigs ? i32(opxy::step_max_trigs) : i32(count);',
+                  '    return -1;'),
+        'MUTE': (f'    return {ns}::mute(tracks[track], context(track, step), value) ? 1 : 0;',
+                 '    (void)step;\n    return 0;'),
+        'APPLY': (STEP_APPLY.replace('@NS@', ns), '    (void)step; (void)note;'),
+        'NEXT': (STEP_NEXT.replace('@NS@', ns), '    (void)step; (void)next; (void)counts;\n    return 0;'),
+        'PLAYS': (f'    return {ns}::plays(tracks[track], context(track, step), value) ? 1 : 0;',
+                  '    (void)step;\n    return 1;'),
+    }
+    values = {key: call if key.lower() in declared else default for key, (call, default) in calls.items()}
+    # Without plays, a condition key never skips anything.
+    values['PLAYS_POINTER'] = f'&{m.prefix}_step_plays' if 'plays' in declared else 'nullptr'
+    lines = steps.label_lines(m.definition)
+    return expand('step_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=ns,
+                                             NAME=m.definition['name'].lower(),
+                                             LABELS=', '.join(json.dumps(line) for line in lines)),
+                  Path(directory) / f'step_object_{m.prefix}.cpp')
+
+
+# The note record's 64-bit remaining length (-1 while held) as i32 ticks, pitch folded
+# up into range and velocity clamped; stock folds pitch above 127 itself.
+STEP_APPLY = """    u32* words = reinterpret_cast<u32*>(note);
+    const i32 low = static_cast<i32>(words[0]), high = static_cast<i32>(words[1]);
+    const i32 length = high == (low >> 31) ? low : high < 0 ? -1 : 0x7fffffff;
+    opxy::StepNote view = {note[kPitch], note[kVelocity], length};
+    @NS@::apply(tracks[track], context(track, step), view, value);
+    i32 pitch = view.pitch;
+    while (pitch < 0) pitch += 12;
+    while (pitch > 255) pitch -= 12;
+    note[kPitch] = static_cast<u8>(pitch);
+    note[kVelocity] = static_cast<u8>(view.velocity < 0 ? 0 : view.velocity > 127 ? 127 : view.velocity);
+    if (view.length != length) {
+        const i32 ticks = view.length < 0 ? -1 : view.length;
+        words[0] = static_cast<u32>(ticks);
+        words[1] = ticks < 0 ? 0xffffffffu : 0u;
+    }"""
+# The natural next step arrives in *next; a true result moves the playhead there.
+STEP_NEXT = """    const opxy::StepContext at = context(track, step);
+    opxy::StepNext target = {static_cast<u32>(*next), *counts != 0};
+    if (!@NS@::next(tracks[track], at, value, target)) return 0;
+    *next = static_cast<i32>(target.step % at.length);
+    *counts = target.counts ? 1 : 0;
+    return 1;"""

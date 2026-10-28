@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "id": "probestep",
+  "name": "Probe",
+  "callbacks": ["reset", "condition", "enter", "trigs", "mute", "apply", "next", "plays"],
+  "settings": [
+    ["octave", "down"], ["down", "1"], ["repeat", "2"], ["repeat", "4"], ["probe", "off"],
+    ["up", "1"], ["ratchet", "3"], ["jump", "step 1"], ["octave", "up"], ["quiet", "longer"]
+  ]
+}

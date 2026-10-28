@@ -18,11 +18,12 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, screen, startup_label, stock_tables
+from . import benchmark, screen, startup_label, steps, stock_tables
 from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
-                       generate_synth_controls, generate_project_companion_table, generate_voice)
+                       generate_synth_controls, generate_project_companion_table, generate_step_object,
+                       generate_voice)
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
@@ -69,7 +70,7 @@ def configuration(entries=None, layout=None):
         if m.kind == 'effect':
             definitions[m.prefix + '_fx_id'] = m.identity['effect']
             definitions[m.prefix + '_fx_page_id'] = m.identity['page']
-        else:
+        elif m.kind != 'step':  # a step component replaces a stock component and has no numbers
             definitions[m.prefix + '_engine_id'] = m.identity['engine']
             definitions[m.prefix + '_page_id'] = m.identity['page']
     return profile, machines, definitions
@@ -159,6 +160,8 @@ def plan(machines, profile=None):
             steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration')
         elif m.kind == 'effect':
             steps = ('registration', 'fx_object')
+        elif m.kind == 'step':
+            steps = ('step_object',)
         else:
             steps = ('registration', 'sample_voice')
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
@@ -177,12 +180,18 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
-             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser')
+             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser', 'step_conditions')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'drum_display_stock'), 'samples')
+UNIT_SERVICES['step_conditions'] = 'steps'
+
+
+def edit_services(profile, machines):
+    """Profile services the collection uses, and a pseudo-service per replaced step component."""
+    return active_services(profile, (m.kind for m in machines)) | steps.services(machines)
 
 
 def module_bytes(profile):
@@ -292,7 +301,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         source = {'voice': lambda: generate_voice(folder, m), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
-                  'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True)}[step]
+                  'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
+                  'step_object': lambda: generate_step_object(folder, m)}[step]
         return cxx(str(source()), obj, m)
 
     names = []
@@ -326,7 +336,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   reserved_bytes=profile['reserved_bytes'],
                   module_sha256=sha(module), elf_sha256=sha(read(directory / 'module.elf')), hooks=hooks,
                   objects=object_owners(machines, profile), patches=patch_profile['patches'],
-                  services=sorted(active_services(profile, (m.kind for m in machines))), device_operations=False,
+                  services=sorted(edit_services(profile, machines)), device_operations=False,
                   hardware_tested=False, cpu_timing_measured=False)
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
@@ -442,8 +452,12 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
 
     bounds = {}
     for m in machines:
-        table, slot = (f'_{m.prefix}_fx_vtable', 0x10) if m.kind == 'effect' else (f'_{m.prefix}_vtable', 8)
-        entry = word(symbols[table]['value'] + slot)
+        if m.kind == 'step':
+            # Stock's sequencer calls the step adapter directly through the replaced component.
+            entry = symbols[f'{m.prefix}_step_apply']['value']
+        else:
+            table, slot = (f'_{m.prefix}_fx_vtable', 0x10) if m.kind == 'effect' else (f'_{m.prefix}_vtable', 8)
+            entry = word(symbols[table]['value'] + slot)
         require(entry in body, 'Audio entry of ' + m.id + ' is not a function start')
         bounds[m.id] = depth(entry)
     return bounds
@@ -504,7 +518,8 @@ def check_module(directory, tools, profile, machines, profiling=True):
     patch_profile = copy.deepcopy(profile)
     hooks = {}
     text = allocated['.text']
-    services = active_services(profile, (m.kind for m in machines))
+    services = edit_services(profile, machines)
+    replaced = steps.assigned(machines)
     for patch in patch_profile['patches']:
         if not patch_active(patch, services, profiling):
             patch['after'] = patch['before']  # inactive hooks retain stock code
@@ -519,6 +534,17 @@ def check_module(directory, tools, profile, machines, profiling=True):
             require(hook_target(patch, bytes.fromhex(patch['after'])) == (symbol['value'], patch['call']),
                     'Branch encoding mismatch')
             hooks[patch['symbol']] = symbol['value']
+        elif patch['kind'] == 'step':
+            def address(name):
+                require(name in symbols and symbols[name]['size'] > 0, 'Missing step component symbol ' + name)
+                return symbols[name]['value']
+            prefix = replaced[patch['slot']].prefix
+            apply = symbols.get(prefix + '_step_apply', {})
+            require(apply.get('type') == 2 and text['address'] <= apply['value'] and
+                    apply['value'] + apply['size'] <= text['address'] + text['size'],
+                    'A step adapter must be a bounded module function')
+            patch['after'] = steps.after(patch, prefix, address).hex()
+            steps.check_after(patch, bytes.fromhex(patch['after']), low, low + len(module))
     check_patch_boundaries(patch_profile, len(profile['patches']))
     return module, sizes, patch_profile, hooks, stack, usage
 

@@ -104,9 +104,11 @@ class CustomPreviewTests(unittest.TestCase):
         for kind in custom.STARTERS:
             with self.subTest(kind=kind), redirect_stdout(io.StringIO()):
                 plain, repo = self.root / (kind + '-plain'), self.root / (kind + '-repo')
-                custom.scaffold(plain, 'ownmachine', 'Own Machine', kind)
+                # The step picker shows at most ten characters.
+                title = 'Own Step' if kind == 'step' else 'Own Machine'
+                custom.scaffold(plain, 'ownmachine', title, kind)
                 self.assertEqual(custom.main(['--repository', '--kind', kind, '--id', 'ownmachine',
-                                              '--name', 'Own Machine', '--out', str(repo)]), 0)
+                                              '--name', title, '--out', str(repo)]), 0)
                 self.assertEqual(machine_at(repo).kind, kind)
                 # Repository setup must preserve every authored source and sound test.
                 for path in plain.rglob('*'):
@@ -130,7 +132,7 @@ class CustomPreviewTests(unittest.TestCase):
                 self.assertIn('sdk.py compile --machine machine', workflow)
                 self.assertIn('${{ runner.temp }}/module', workflow)
                 with self.assertRaisesRegex(ValueError, 'Output already exists'):
-                    custom.scaffold(repo, 'ownmachine', 'Own Machine', kind, repository=True)
+                    custom.scaffold(repo, 'ownmachine', title, kind, repository=True)
 
     def test_scaffold_artwork_meets_the_native_rules(self):
         # One root element and outlines with the declared point count, as the firmware build requires.

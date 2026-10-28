@@ -116,14 +116,26 @@ class PackageVerification(unittest.TestCase):
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
         _, symbols = elf32(self.elf)
-        for m in self.machines:
+        engines = [m for m in self.machines if m.kind != 'step']
+        for m in engines:
             self.assertIn(m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory'), symbols)
         factories = {name for name in symbols if name.endswith('_factory')}
         self.assertEqual(factories, {m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory')
-                                     for m in self.machines})
+                                     for m in engines})
+        # A step machine has no factory or menu entry: its replaced component's method points at its adapter.
+        replaced = {m.identity['step']: m for m in self.machines if m.kind == 'step'}
+        for patch in self.report['patches']:
+            if patch['kind'] == 'step':
+                word = int.from_bytes(bytes.fromhex(patch['after'])[:4], 'little')
+                if patch['slot'] not in replaced:
+                    self.assertEqual(patch['after'], patch['before'])
+                elif 'apply' in patch['words']:
+                    at = 4 * patch['words'].index('apply')
+                    word = int.from_bytes(bytes.fromhex(patch['after'])[at:at + 4], 'little')
+                    self.assertEqual(word, symbols[replaced[patch['slot']].prefix + '_step_apply']['value'])
         original = json.loads(self.catalog)
         current = json.loads((self.package / 'candidate/content/op1_factory.json').read_bytes())
-        names = [m.native_name for m in self.machines if m.kind != 'effect']
+        names = [m.native_name for m in self.machines if m.kind in ('synth', 'sample')]
         self.assertEqual(current['engine_types'][:-len(names)], original['engine_types'])
         self.assertEqual([e['type'] for e in current['engine_types'][-len(names):]], names)
         displays = [m.native_name for m in self.machines if m.display != 'stock']

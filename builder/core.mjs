@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = 'e8256c76c08f46ead6a255fbc88f5dd989890d2837fd25390980f02bfa26e07c';
+export const PROFILE_SHA256 = '04d7514bc5120e54227fa19a587537bdf993f737867517d10ce5d1b1b7da36ef';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -120,6 +120,57 @@ export function validIdentity(rules, kind, identity) {
     : kind === 'synth' && page > rules.page_none && page < rules.pages;
 }
 
+// Step components (tooling/steps.py). A step machine replaces one of the stock step
+// components the profile's step edits name, its slot; it has no numbers.
+export const stepSlots = profile => [...new Set(profile.patches.filter(p => p.kind === 'step').map(p => p.slot))];
+export const stepService = slot => 'step:' + slot;
+const validStep = (profile, identity) => identity !== null && typeof identity === 'object' &&
+  Object.keys(identity).join() === 'step' && stepSlots(profile).includes(identity.step);
+// The stock component each step machine replaces, as tooling.machines.assign_steps gives it:
+// the layout's while still replaceable and free, else the one it asks for, else the first
+// free one. Machines are [id, requested slot] in kit order.
+export function assignSteps(slots, layout, machines) {
+  const given = {}, taken = new Set();
+  for (const [name] of machines) {
+    const prior = layout?.[name]?.step;
+    if (slots.includes(prior) && !taken.has(prior)) { given[name] = prior; taken.add(prior); }
+  }
+  for (const [name, requested] of machines) {
+    if (Object.hasOwn(given, name)) continue;
+    const free = [...(slots.includes(requested) ? [requested] : []), ...slots].find(s => !taken.has(s));
+    check(free !== undefined, `No free step component for ${name}: each of ${slots.join(', ')} is replaced`);
+    given[name] = free; taken.add(free);
+  }
+  return given;
+}
+// The bytes of a step edit for the machine with this prefix: literal stock words, its
+// adapter, its name or its twenty label lines (tooling.steps.after).
+const STEP_LABEL_BYTES = 16, STEP_SETTINGS = 10;
+// Adapter methods, the name and the labels: <prefix>_step_<word> (tooling.steps.SYMBOLS).
+const STEP_SYMBOLS = Object.fromEntries(['reset_all', 'reset_track', 'condition', 'apply', 'mute', 'enter', 'next',
+  'trigs', 'name', 'settings'].map(word => [word, '_step_' + word]));
+export function stepWords(edit, prefix, globals) {
+  const words = [];
+  for (const word of edit.words) {
+    if (word === 'settings') {
+      const base = globals.get(prefix + STEP_SYMBOLS.settings);
+      check(Number.isInteger(base), 'Missing step component labels: ' + prefix);
+      for (let i = 0; i < 2 * STEP_SETTINGS; i++) words.push(base + i * STEP_LABEL_BYTES);
+    } else if (Object.hasOwn(STEP_SYMBOLS, word)) {
+      const address = globals.get(prefix + STEP_SYMBOLS[word]);
+      check(Number.isInteger(address), 'Missing step component symbol: ' + prefix + STEP_SYMBOLS[word]);
+      words.push(address);
+    } else {
+      check(/^0x[0-9a-f]{1,8}$/.test(word), 'Invalid step edit word');
+      words.push(Number(word));
+    }
+  }
+  check(words.length * 4 === edit.length, 'Step edit words must cover its bytes');
+  const bytes = new Uint8Array(edit.length);
+  words.forEach((w, i) => view(bytes).setUint32(i * 4, w, true));
+  return bytes;
+}
+
 // A kit's numbers: each machine asks for valid ones, and fixed numbers (kit.fixed,
 // tooling.machines.FIXED_NUMBERS) belong to their own machines and are never shared.
 function checkNumbers(kit) {
@@ -127,6 +178,10 @@ function checkNumbers(kit) {
   check(kit.fixed && typeof kit.fixed === 'object', 'Missing fixed machine numbers');
   check(new Set(kit.machines.map(m => m.id)).size === kit.machines.length, 'Duplicate machine');
   for (const m of kit.machines) {
+    if (m.kind === 'step') {
+      check(validStep(kit.profile, m.identity), 'A step component replaces an unknown stock component: ' + m.id);
+      continue;
+    }
     check(validIdentity(rules, m.kind, m.identity), 'Machine numbers overlap a stock slot or exceed capacity: ' + m.id);
     check(!Object.hasOwn(kit.fixed, m.id) || sameNumbers(kit.fixed[m.id], m.identity),
       'Fixed machine numbers differ: ' + m.id);
@@ -199,19 +254,29 @@ export function readLayout(kit, saved) {
     'This layout is for a different OS version.');
   const numbers = saved.format === LAYOUT_FORMAT ? saved.machines : saved.format === 'opxy-kit/1' ? saved.identities : null;
   check(numbers && typeof numbers === 'object' && !Array.isArray(numbers), 'This file is not a machine layout.');
+  // A step component's entry names the stock component it replaces.
   for (const [name, identity] of Object.entries(numbers))
     check(/^[a-z][a-z0-9_]{0,14}$/.test(name) && identity && typeof identity === 'object' &&
-      [['engine', 'page'], ['effect', 'page']].some(keys => Object.keys(identity).sort().join() === keys.sort().join()) &&
-      Object.values(identity).every(Number.isInteger), 'Invalid numbers in this layout: ' + name);
+      ([['engine', 'page'], ['effect', 'page']].some(keys => Object.keys(identity).sort().join() === keys.sort().join()) &&
+      Object.values(identity).every(Number.isInteger) ||
+      Object.keys(identity).join() === 'step' && typeof identity.step === 'string'), 'Invalid numbers in this layout: ' + name);
   const selected = saved.selected ?? null;
   check(selected === null || Array.isArray(selected) && selected.every(id => kit.machines.some(m => m.id === id)),
     'This layout lists a machine this site doesn’t have.');
   return {machines: numbers, selected};
 }
 // The kit's machines numbered for this selection, in kit order, and the layout after.
+// Step components hold no numbers; a dropped one's entry stays as a hint (assignSteps).
 export function assignNumbers(kit, selection, layout = null) {
-  return numberLayout(kit.profile.identities, Object.entries(kit.fixed).map(([id, identity]) => [id, null, identity]),
-    layout, kit.machines.filter(m => selection.includes(m.id)).map(m => [m.id, m.kind, m.identity]));
+  const chosen = kit.machines.filter(m => selection.includes(m.id));
+  const entries = Object.entries(layout ?? {});
+  const numbers = numberLayout(kit.profile.identities, Object.entries(kit.fixed).map(([id, identity]) => [id, null, identity]),
+    Object.fromEntries(entries.filter(([, identity]) => !Object.hasOwn(identity, 'step'))),
+    chosen.filter(m => m.kind !== 'step').map(m => [m.id, m.kind, m.identity]));
+  for (const [name, identity] of entries) if (Object.hasOwn(identity, 'step')) numbers[name] = {...identity};
+  const steps = assignSteps(stepSlots(kit.profile), layout, chosen.filter(m => m.kind === 'step').map(m => [m.id, m.identity.step]));
+  for (const [name, slot] of Object.entries(steps)) numbers[name] = {step: slot};
+  return numbers;
 }
 // Each machine's link-time numbers: its own when selected, else 0, which no
 // startup, catalog or control lookup matches.
@@ -219,6 +284,7 @@ function numberSymbols(kit, selection, numbers) {
   const symbols = {};
   for (const m of kit.machines) {
     const own = selection.includes(m.id) ? numbers[m.id] : null;
+    if (m.kind === 'step') continue;  // no numbers: the build's step edits name it
     if (m.kind === 'effect') Object.assign(symbols, {[m.prefix + '_fx_id']: own?.effect ?? 0, [m.prefix + '_fx_page_id']: own?.page ?? 0});
     else Object.assign(symbols, {[m.prefix + '_engine_id']: own?.engine ?? 0, [m.prefix + '_page_id']: own?.page ?? 0});
   }
@@ -295,6 +361,11 @@ export function linkKit(kit, selection, layout = null) {
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, kit.machines.filter(m => selected.has(m.id)));
+  // Each replaced stock step component activates its own edits (tooling.native.edit_services).
+  const steps = {};
+  for (const m of kit.machines) if (selected.has(m.id) && m.kind === 'step') {
+    steps[numbers[m.id].step] = m; services.add(stepService(numbers[m.id].step));
+  }
   const objects = kit.objects.filter(o => o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner));
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];
   let cursor = kit.profile.module_base, initializedEnd;
@@ -365,7 +436,7 @@ export function linkKit(kit, selection, layout = null) {
       }
     }
   }
-  return {module, globals, aliases, objects, segments, services, numbers, definitions,
+  return {module, globals, aliases, objects, segments, services, steps, numbers, definitions,
     sizes: {initialized, bss: cursor - bssStart, allocated, available: limit - allocated}};
 }
 
@@ -442,8 +513,17 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
-    if ((edit.service && !linked.services.has(edit.service)) || (edit.profiling === false && profiling)) {
-      after = before;  // inactive hooks leave the corresponding stock code unchanged
+    if ((edit.service && !linked.services.has(edit.service)) || (edit.profiling === false && profiling) ||
+        (edit.kind === 'step' && !linked.services.has(stepService(edit.slot)))) {
+      after = before;  // inactive hooks and unreplaced step components leave stock unchanged
+    } else if (edit.kind === 'step') {
+      after = stepWords(edit, linked.steps[edit.slot].prefix, linked.globals);
+      // Literal words stay stock's no-op methods; the rest point into the module.
+      edit.words.flatMap(w => w === 'settings' ? Array(2 * STEP_SETTINGS).fill(w) : [w]).forEach((word, i) => {
+        const value = view(after).getUint32(i * 4, true);
+        check(/^0x/.test(word) ? value === Number(word) : value >= low && value < low + linked.module.length,
+          'Step edit outside the module');
+      });
     } else if (['hook', 'startup'].includes(edit.kind)) {
       const destination = linked.globals.get(edit.symbol);
       check(destination >= low && destination < low + linked.module.length, 'Hook destination outside module');
@@ -501,6 +581,22 @@ function presentMachines(kit, payload) {
     return false;
   }).map(m => m.id);
 }
+// The stock step components an uploaded build's step machines replace: each replaced
+// key's picker name points at its machine's descriptor, at the address any slot
+// assignment links it to. Only a guess for the layout; recoverFirmware accepts it
+// only by rebuilding the image exactly.
+function presentSteps(kit, input, selected, layout) {
+  const machines = kit.machines.filter(m => selected.includes(m.id) && m.kind === 'step');
+  if (!machines.length) return layout;
+  const linked = linkKit(kit, selected, layout);
+  const owners = new Map(machines.map(m => [linked.globals.get(m.prefix + '_step_name'), m.id]));
+  const hints = {...(layout ?? {})};
+  for (const edit of kit.profile.patches) if (edit.kind === 'step' && edit.words.includes('name')) {
+    const word = view(input).getUint32(Number(edit.file_offset) + 4 * edit.words.indexOf('name'), true);
+    if (owners.has(word)) hints[owners.get(word)] = {step: edit.slot};
+  }
+  return hints;
+}
 const UPDATE = 'Update your OP–XY to OS 1.2.1 with teenage engineering’s updater, then copy its OS file (os.ldr) again; a .tfw update file will not work.';
 const UNSUPPORTED = 'Only OP–XY OS 1.2.1 is supported. This file is not OS 1.2.1 or an open-xy OS made from it. ' + UPDATE;
 export async function recoverFirmware(kit, input, layout = null) {
@@ -527,18 +623,21 @@ export async function recoverFirmware(kit, input, layout = null) {
     // or infer ownership from its label. SDK builds retain timing; site builds
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
+    // A rebuild's layout also places its step machines where the upload has them.
+    let rebuilt = null;
     const rebuilds = async selected => {
-      const linked = linkKit(kit, selected, layout);
+      const hints = presentSteps(kit, input, selected, layout);
+      const linked = linkKit(kit, selected, hints);
       if (!equal(linked.module, payload)) return false;
       for (const profiling of [true, false]) {
-        if (equal(await patchFirmware(kit, linked, stock, {profiling}), input)) return true;
+        if (equal(await patchFirmware(kit, linked, stock, {profiling}), input)) { rebuilt = linked.numbers; return true; }
       }
       return false;
     };
     // First the machines whose code the module holds, one link at any kit size.
     const present = presentMachines(kit, payload);
     try {
-      if (present.length && await rebuilds(present)) return {stock, selected: present};
+      if (present.length && await rebuilds(present)) return {stock, selected: present, numbers: rebuilt};
     } catch {}  // a guess that cannot link is not this kit's build
     // Small kits also try every selection: at most 1,023 deterministic links,
     // each under a millisecond. Yield between candidates so file changes and
@@ -546,7 +645,7 @@ export async function recoverFirmware(kit, input, layout = null) {
     if (kit.machines.length <= RECOVERABLE_MACHINES) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
-        if (await rebuilds(selected)) return {stock, selected};
+        if (await rebuilds(selected)) return {stock, selected, numbers: rebuilt};
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
@@ -557,7 +656,7 @@ export async function recoverFirmware(kit, input, layout = null) {
 }
 
 export function presetPath(machine) {
-  if (machine.kind === 'effect') return null;
+  if (machine.kind === 'effect' || machine.kind === 'step') return null;
   check(['synth', 'sample'].includes(machine.kind) && /^[a-z][a-z0-9_]{0,14}$/.test(machine.id),
     'Invalid preset instrument');
   return `content/presets/${machine.id}/default.json`;
@@ -624,7 +723,9 @@ export async function buildAssets(kit, selection, catalog, numbers) {
   const machines = kit.machines.filter(m => selection.includes(m.id));
   // Each machine's entry ends its stock list; the offsets are bound to the
   // authenticated stock catalog (tooling.native.extend_catalog).
-  const groups = {engine_types: machines.filter(m => m.kind !== 'effect'), fx_types: machines.filter(m => m.kind === 'effect')};
+  // Step components replace a stock component and have no menu entry.
+  const groups = {engine_types: machines.filter(m => ['synth', 'sample'].includes(m.kind)),
+    fx_types: machines.filter(m => m.kind === 'effect')};
   const inserts = Object.entries(kit.profile.stock_catalog_inserts).sort((a, b) => b[1] - a[1]);
   check(inserts.map(([key]) => key).sort().join() === Object.keys(groups).sort().join(), 'Unexpected catalog insertion points');
   let extended = catalog;

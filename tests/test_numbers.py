@@ -1,5 +1,6 @@
 """Machine numbers (engine, effect and page IDs): layouts give them, and they reach compiled
-code only through link-time symbols, so one set of objects serves any numbering."""
+code only through link-time symbols, so one set of objects serves any numbering. The stock
+step component a step machine replaces reaches only the build's computed edits."""
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -7,7 +8,8 @@ import tempfile
 import unittest
 
 from tooling.adapters import (generate_display, generate_fx_object, generate_registration, generate_sample_callbacks,
-                              generate_sample_voice, generate_screen, generate_synth_controls, generate_voice)
+                              generate_sample_voice, generate_screen, generate_step_object, generate_synth_controls,
+                              generate_voice)
 from tooling.machines import (FIXED_NUMBERS, LAYOUT_FORMAT, ROOT, by_kind, collection, layout_document, number_layout,
                               read_layout)
 from tooling.pipeline import config
@@ -19,7 +21,9 @@ def renumbered(m):
     """The same machine under other numbers. A sample engine's page is its stock page
     (sampler or drum), part of what it is, so only its engine changes."""
     identity = dict(m.identity)
-    if m.kind == 'effect':
+    if m.kind == 'step':
+        identity['step'] = 'tonality' if identity['step'] != 'tonality' else 'bend'
+    elif m.kind == 'effect':
         identity['effect'] = 11 if identity['effect'] != 11 else 8
     else:
         identity['engine'] = 62 if identity['engine'] != 62 else 61
@@ -36,7 +40,8 @@ def sources(directory, machines):
         folder.mkdir()
         steps = {'synth': (generate_voice, generate_display, generate_screen, generate_registration),
                  'effect': (generate_registration, generate_fx_object),
-                 'sample': (generate_registration, generate_sample_voice)}[m.kind]
+                 'sample': (generate_registration, generate_sample_voice),
+                 'step': (generate_step_object,)}[m.kind]
         for step in steps:
             if step is generate_display:
                 step(folder, machine=m)
@@ -54,7 +59,7 @@ def sources(directory, machines):
 class LinkTimeNumbers(unittest.TestCase):
     def test_generated_sources_do_not_depend_on_machine_numbers(self):
         machines = collection(fixture_entries())
-        self.assertEqual({m.kind for m in machines}, {'synth', 'effect', 'sample'})
+        self.assertEqual({m.kind for m in machines}, {'synth', 'effect', 'sample', 'step'})
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             before, after = sources(first, machines), sources(second, [renumbered(m) for m in machines])
         self.assertEqual(sorted(before), sorted(after))

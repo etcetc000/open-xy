@@ -60,7 +60,8 @@ Synths start with four controls and the stock header. Choose `--controls 5`,
 `6`, `7` or `8` when the sound needs more controls; these use the shared
 two-page header. Unused second-page columns repeat the same control from page 1.
 It includes source, tests, README, agent instructions, licence and CI. Use
-`--kind effect` for a send effect; omit `--repository` when adding just a machine
+`--kind effect` for a send effect or `--kind step` for a
+[step component](docs/api.md#step-components); omit `--repository` when adding just a machine
 folder to an existing repository. Follow the generated instructions through
 audition, [hardware profiling](docs/profiling.md) and
 [catalog submission](docs/catalog.md#submit-a-machine).
@@ -68,7 +69,7 @@ audition, [hardware profiling](docs/profiling.md) and
 A machine is a folder of source: `machine.json`, which declares its kind and
 the stock numbers it asks for, controls in `definition.json`, and C++ for its kind: a synth's
 sound (`engine.cpp`) and display (`display.cpp` and artwork), a sample engine's
-`sample.cpp` or an effect's `fx.cpp`. The SDK supplies adapters, storage,
+`sample.cpp`, an effect's `fx.cpp` or a step component's `step.cpp`. The SDK supplies adapters, storage,
 previews, firmware builds and packaging.
 
 - [Machine API](docs/api.md): platform rules, schemas, callbacks for each kind, buffers and ownership.
