@@ -32,7 +32,7 @@ class Advice(unittest.TestCase):
                  mock.patch.object(cpu, 'block_cost', return_value=cost * 10.0), \
                  mock.patch.object(cpu, 'reference_cost', return_value=cpu.REFERENCE_INSTRUCTIONS * 10.0):
                 line = cpu.summary(m, 'c++', '.')
-            self.assertIn(f'about {cost:,} Blackfin instructions per voice block', line)
+            self.assertIn(f'about {cost:,} instruction-equivalents per voice block', line)
             self.assertIn(ending, line)
 
 
@@ -46,7 +46,7 @@ class Benchmarks(unittest.TestCase):
             for name in ('probesynth', 'probesources', 'probefx'):
                 with self.subTest(machine=name):
                     line = cpu.summary(fixture(name), HOST_CXX, scratch)
-                    self.assertRegex(line, r'about [\d,]+ Blackfin instructions per (voice|effect) block')
+                    self.assertRegex(line, r'about [\d,]+ instruction-equivalents per (voice|effect) block')
             self.assertIsNone(cpu.block_cost(fixture('probesample'), HOST_CXX, scratch))
 
 

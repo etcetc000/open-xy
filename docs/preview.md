@@ -2,8 +2,9 @@
 
 Browser previews audition synths: their controls, alternates included, their
 sound and their own screen.
-Sample engines and effects use stock pages and stock sample or send processing,
-so they have no browser preview; they are checked by the native build.
+Sample engines, including those with drawing displays, and effects have no
+browser audition. Their machine-owned host tests and the native build check
+their callbacks; declaring a display does not add sample playback to the browser.
 
 For a new instrument, follow [Your first machine](first-machine.md). Check the
 preview toolchain with `python sdk.py doctor --preview`; custom schema-1 sources

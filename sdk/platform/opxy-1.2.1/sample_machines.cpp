@@ -5,6 +5,7 @@
 
 using opxy::u32;
 using opxy::platform::SampleMachine;
+using opxy::platform::SamplePage;
 
 extern "C" {
 u32 sdk_sample_note_route(u32) __asm__("sdk_sample_note_route");
@@ -25,10 +26,14 @@ const SampleMachine* sdk_sample_machine(u32 engine) {
 // canonical pads.
 enum NoteRoute : u32 { kStockRoute = 0, kOwnedNearest = 1, kOwnedDrumPads = 2 };
 u32 sdk_sample_note_route(u32 engine) {
-    const u32 page = opxy::platform::sample_page(engine);
-    return !page ? kStockRoute : page == 7 ? kOwnedDrumPads : kOwnedNearest;
+    const SamplePage page = opxy::platform::sample_page(engine);
+    return page == SamplePage::none ? kStockRoute : page == SamplePage::drums ? kOwnedDrumPads : kOwnedNearest;
 }
 
 // Stock's sample predicates know only stock engine IDs. Owned SDK engines
-// borrow the multisampler's (30) payload; the track keeps the real engine.
-u32 sdk_sample_alias(u32 engine) { return opxy::platform::sample_page(engine) ? 30 : engine; }
+// borrow the sampler's (2) assignment for singleSample, otherwise multisampler (30).
+// The track keeps its real engine.
+u32 sdk_sample_alias(u32 engine) {
+    const SampleMachine* m = sdk_sample_machine(engine);
+    return m ? (m->single ? 2 : 30) : engine;
+}

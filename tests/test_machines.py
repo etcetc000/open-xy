@@ -176,10 +176,10 @@ class OutsideMachines(unittest.TestCase):
         self.assertEqual((fmcopy.identity, fmcopy.requested), (self.free, dict(self.free, engine=34)))
 
     def test_sdk_version_and_fixed_names_are_checked(self):
-        for version in ('1.1', '1.2', '1.3', '1.4'):
+        for version in ('1.1', '1.2', '1.3', '1.4', '1.5'):
             self.rename('fmcopy', self.free, version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-        for version in ('0.9', '2.0', '1.5', '1', 'latest', None):
+        for version in ('0.9', '2.0', '1.6', '1', 'latest', None):
             with self.subTest(version=version):
                 self.rename('fmcopy', self.free, version)
                 with self.assertRaises(ValueError):

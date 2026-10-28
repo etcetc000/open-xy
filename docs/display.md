@@ -1,6 +1,6 @@
 # Display API
 
-A synth draws its own page. Display code runs separately from audio. Each
+A synth, or a sample engine declaring a display, draws its own page. Display code runs separately from audio. Each
 frame it fills a bounded frame, which the SDK's browser and native renderers
 apply to the machine's artwork, `panel.svg.fragment`. This is retained
 drawing: the artwork's elements are drawn by the device, and the frame moves,
@@ -16,7 +16,7 @@ patterns are the machine's own code filling nodes; see
 
 ## Declaration
 
-Each synth declares its frame's budget in `resources.display` of
+Each drawing machine declares its frame's budget in `resources.display` of
 `definition.json` and names the same shape as its C++ frame type. The SDK sizes
 the native renderer, the browser renderer and the artwork bindings from that
 declaration; a mismatch fails to compile.
@@ -54,6 +54,11 @@ or an [alternate](api.md#alternate-controls)), and `slots`, the Q31 value of
 every declared parameter by index (0 beyond the declared ones). A serial is a
 snapshot, not a queue: several note starts between frames can coalesce.
 Initializing or changing track must not fabricate a note.
+
+Sample displays can read a copied waveform overview, trim and voice activity
+through [`opxy::sample_display`](api.md#sample-engines). This supplies data for
+ordinary paths and nodes in the same frame; it adds no renderer or display
+class. Browser display previews return an unavailable sample snapshot.
 
 ### Note activity (SDK 1.1)
 

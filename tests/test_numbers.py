@@ -88,6 +88,8 @@ class Layouts(unittest.TestCase):
             document = dict(layout_document(numbers), selected=['pluck'])  # the builder adds its selection
             path.write_text(json.dumps(document), encoding='utf-8')
             self.assertEqual(read_layout(path), numbers)
+            path.write_text(json.dumps(dict(document, profile='opxy-1.2.0')), encoding='utf-8')
+            self.assertEqual(read_layout(path), numbers)
             for broken in (dict(document, format='opxy-kit/1'), dict(document, profile='opxy-9.9.9'),
                            dict(document, machines={'pluck': {'engine': '36', 'page': 84}})):
                 with self.subTest(broken=broken):

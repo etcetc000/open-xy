@@ -15,10 +15,11 @@ using opxy::u32;
 using opxy::i32;
 using opxy::PadSettings;
 using opxy::platform::SampleMachine;
+using opxy::platform::SamplePage;
 
 const SampleMachine sdk_sample_machines[] = {
 @MACHINES@
-    {nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr}
+    {nullptr, SamplePage::none, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, 0}
 };
 // The terminating entry keeps the array nonempty for a collection without sample machines.
 const u32 sdk_sample_machine_count = sizeof(sdk_sample_machines) / sizeof(sdk_sample_machines[0]) - 1;

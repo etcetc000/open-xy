@@ -160,8 +160,14 @@ def release_controls(before, after, cache=CACHE, allow=False):
         old = previous.get(entry['id'])
         if entry['status'] != 'published' or old is None or old['commit'] == entry['commit']:
             continue
-        changed, notes = control_changes(fetch(old, cache).definition['parameters'],
-                                         fetch(entry, cache).definition['parameters'])
+        previous_machine, next_machine = fetch(old, cache), fetch(entry, cache)
+        changed, notes = control_changes(previous_machine.definition['parameters'],
+                                         next_machine.definition['parameters'])
+        if previous_machine.kind == 'sample':
+            previous_mode = previous_machine.definition['resources'].get('singleSample', 0)
+            next_mode = next_machine.definition['resources'].get('singleSample', 0)
+            if previous_mode != next_mode:
+                changed.append(f'sample assignment mode changed: singleSample {previous_mode} -> {next_mode}')
         release = f"{entry['id']} {old['tag']} -> {entry['tag']}"
         report += [f'{release}: {line}' for line in changed + notes]
         refused += [f'{release}: {line}' for line in changed]

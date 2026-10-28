@@ -1,5 +1,11 @@
 // Main-thread WebAssembly drawing transport. Separate from audio scheduling.
 #include "display_binding.hpp"
+#include <opxy/sample_display.hpp>
+// Browser audio does not yet load samples. Report unavailable data explicitly.
+extern "C" bool opxy_sample_display(opxy::u32, opxy::SampleDisplay* output) {
+    if (output) *output = opxy::SampleDisplay{};
+    return false;
+}
 namespace {
 opxy::binding::DisplayState state;
 opxy::draw::Input input;

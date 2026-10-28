@@ -142,3 +142,7 @@ or `default` values are reported and allowed.
 A catalog maintainer approves a control change by adding the
 `controls-changed` label to the pull request; the workflow runs again and
 passes `--allow-control-changes`.
+
+A sample machine's `singleSample` mode also affects saved sample mappings.
+Changing it requires the same compatibility approval, even when its parameter
+indices and mappings are unchanged.

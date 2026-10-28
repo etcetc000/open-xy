@@ -73,16 +73,17 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['absent'] = {m.prefix + suffix: 'kit_absent' for suffix in ('_fx_register', '_ready')}
         else:
             entry['absent'] = {m.prefix + suffix: 'kit_absent' for suffix in ('_register', '_name_matches', '_ready', '_record_ready')}
-            if m.display == 'stock':
+            if m.kind == 'sample':
                 # The shared sample table names these; unselected, its ready check declines first.
                 entry['absent'].update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
-            else:
+            if m.display != 'stock':
                 entry['absent'][m.prefix + '_screen_register'] = 'kit_absent'
         if m.kind in ('effect', 'sample'):
             entry['absent'][m.prefix + '_benchmark'] = 'kit_absent'
         if m.display != 'stock':
             entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
             entry['asset'] = m.native_name + '.svg'
+        if m.kind == 'synth':
             preview_dir = output / ('preview-' + m.id)
             preview.build(preview_cxx, m, preview_dir)
             preview.preview_bundle(preview_dir, require_reference=True)

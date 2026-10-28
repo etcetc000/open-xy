@@ -20,7 +20,7 @@ for await (const chunk of process.stdin) input += chunk;
 const {rules, identities, redirects} = JSON.parse(input);
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 process.stdout.write(JSON.stringify({
-  identities: identities.map(([kind, identity]) => validIdentity(rules, kind, identity)),
+  identities: identities.map(([kind, identity, screen = false]) => validIdentity(rules, kind, identity, screen)),
   redirects: redirects.map(([edit, target]) => hex(redirect(edit, target))),
 }));
 """
@@ -33,9 +33,9 @@ def browser(request):
     return json.loads(result.stdout)
 
 
-def python_accepts(rules, kind, identity):
+def python_accepts(rules, kind, identity, screen=False):
     try:
-        check_identity(rules, kind, identity)
+        check_identity(rules, kind, identity, screen)
         return True
     except ValueError:
         return False
@@ -52,7 +52,8 @@ class ProfileParity(unittest.TestCase):
         cases += [('effect', {'effect': n, 'page': page}) for n in range(-1, 24) for page in (0, 2, 7, 20, 21, 22, 82)]
         cases += [('synth', {'engine': 34}), ('synth', {'engine': 34, 'page': 82, 'effect': 1}),
                   ('synth', {'engine': True, 'page': 82}), ('effect', {'engine': 11, 'page': 21})]
-        expected = [python_accepts(rules, kind, identity) for kind, identity in cases]
+        cases += [('sample', {'engine': n, 'page': page}, True) for n in span for page in span]
+        expected = [python_accepts(rules, *case) for case in cases]
         self.assertEqual(browser(dict(rules=rules, identities=cases, redirects=[]))['identities'], expected)
         self.assertTrue(any(expected) and not all(expected))
 

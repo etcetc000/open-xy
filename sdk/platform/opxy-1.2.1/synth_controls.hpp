@@ -1,11 +1,10 @@
-// Owned synth/FX controls: generated metadata for alternate selection,
-// continuous fine turns, enum steps and synth captions; GUI state lives in
-// synth_controls.cpp.
+// Owned drawing-instrument (synth/sample) and FX controls: generated metadata
+// for alternate selection, continuous fine turns, enum steps and instrument captions; GUI state lives in synth_controls.cpp.
 #pragma once
 #include <opxy/types.hpp>
 
 namespace opxy { namespace platform {
-// A synth or effect. Pressing a synth encoder moves its
+// A drawing instrument or effect. Pressing an instrument encoder moves its
 // position from slot s to next[s]; each position starts on its own slot 0..3,
 // and a slot no position reaches maps to itself. A paged synth's press moves
 // all four positions, switching between its two pages. steps[s] is an enum

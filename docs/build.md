@@ -116,6 +116,10 @@ own collection file.
 `python sdk.py compile --machine <folder> --out <out>` then builds the module
 alone, without stock files, and prints each machine's memory use: a quick check
 before the full build. Like build outputs, keep `<out>` outside the checkout.
+It also prints the [CPU planning allocation](api.md#cpu) and a warning that
+successful compilation does not qualify real-time performance. `sdk.py test`
+provides host cost estimates for supported kinds and explicitly reports
+unestimated sample-engine costs.
 The SDK builds a machine whose `sdk` has its major version and an equal or
 older minor version.
 

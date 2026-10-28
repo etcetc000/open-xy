@@ -1,6 +1,6 @@
-// Stock OS 1.2.1 instrument-track encoders for synths with alternate controls.
+// Stock OS 1.2.1 drawing-instrument encoders (synth and sample) with alternates.
 // Both hooks replace a CALL.A of a C function, so stock calls them with the C
-// ABI. A press of an owned synth's encoder selects the position's next
+// ABI. A press of an owned instrument's encoder selects the position's next
 // parameter; a turn edits the selected one, an enum one choice per detent. Everything else reaches stock as before.
 #include "synth_controls.hpp"
 #include <opxy/effect.hpp>

@@ -7,6 +7,17 @@
     ["timestretch", "sample", {"engine": 35, "page": 7}]
   ],
   "cases": [
+    {"name": "sample drawing pages are allocated independently for two machines",
+     "machines": [["orbit", "sample", {"engine": 36, "page": 84}, true], ["sliceview", "sample", {"engine": 36, "page": 84}, true]],
+     "numbers": {"orbit": {"engine": 36, "page": 84}, "sliceview": {"engine": 37, "page": 85}}},
+    {"name": "sample drawing pages keep saved numbers even when their request changes",
+     "layout": {"orbit": {"engine": 50, "page": 110}, "gone": {"engine": 51, "page": 111}},
+     "machines": [["orbit", "sample", {"engine": 36, "page": 84}, true], ["next", "sample", {"engine": 51, "page": 111}, true]],
+     "numbers": {"orbit": {"engine": 50, "page": 110}, "gone": {"engine": 51, "page": 111}, "next": {"engine": 36, "page": 84}}},
+    {"name": "a stock sample page cannot silently become a drawing page",
+     "layout": {"orbit": {"engine": 36, "page": 2}},
+     "machines": [["orbit", "sample", {"engine": 36, "page": 84}, true]],
+     "error": "page"},
     {"name": "a machine gets the free numbers it asks for",
      "machines": [["pluck", "synth", {"engine": 40, "page": 90}]],
      "numbers": {"pluck": {"engine": 40, "page": 90}}},

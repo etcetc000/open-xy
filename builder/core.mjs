@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '1054d2cbc5d79b1afa9d80684b1aa50e54a693e5a0e0cc60392e7fa83a8b9359';
+export const PROFILE_SHA256 = '4ae78446b1e52723d9d51b224ab515440850df5ce4a20f8478741c265630d833';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -109,14 +109,14 @@ export function checkedSelections(machines) {
 }
 
 // The profile's identity rules, as tooling.machines.check_identity applies them.
-export function validIdentity(rules, kind, identity) {
+export function validIdentity(rules, kind, identity, screen = false) {
   const slot = kind === 'effect' ? 'effect' : 'engine';
   if (!identity || typeof identity !== 'object' || Object.keys(identity).sort().join() !== [slot, 'page'].sort().join()) return false;
   const n = identity[slot], page = identity.page;
   if (!Number.isInteger(n) || !Number.isInteger(page)) return false;
   if (kind === 'effect') return rules.effects.includes(n) && page === rules.effect_page;
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
-  return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
+  return kind === 'sample' ? n > rules.engine_none && (screen ? page > rules.page_none && page < rules.pages : rules.sample_pages.includes(page))
     : kind === 'synth' && page > rules.page_none && page < rules.pages;
 }
 
@@ -127,7 +127,7 @@ function checkNumbers(kit) {
   check(kit.fixed && typeof kit.fixed === 'object', 'Missing fixed machine numbers');
   check(new Set(kit.machines.map(m => m.id)).size === kit.machines.length, 'Duplicate machine');
   for (const m of kit.machines) {
-    check(validIdentity(rules, m.kind, m.identity), 'Machine numbers overlap a stock slot or exceed capacity: ' + m.id);
+    check(validIdentity(rules, m.kind, m.identity, Boolean(m.asset)), 'Machine numbers overlap a stock slot or exceed capacity: ' + m.id);
     check(!Object.hasOwn(kit.fixed, m.id) || sameNumbers(kit.fixed[m.id], m.identity),
       'Fixed machine numbers differ: ' + m.id);
   }
@@ -152,7 +152,7 @@ export function occupied(rules, identity) {
   return keys;
 }
 const sameNumbers = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => a[k] === b[k]);
-// fixed and machines are [id, kind, identity] (requested, for machines); returns the layout after.
+// fixed: [id, kind, identity]; machines: [id, kind, requested, drawing=false]. Returns the layout after.
 export function numberLayout(rules, fixed, layout, machines) {
   const pools = numberPools(rules), numbers = {}, holders = new Map();
   const hold = (name, identity) => {
@@ -170,22 +170,22 @@ export function numberLayout(rules, fixed, layout, machines) {
     else if (Object.hasOwn(identity, 'effect') && !pools.effect.includes(identity.effect)) continue;
     else hold(name, identity);
   }
-  for (const [name, kind, requested] of machines) {
+  for (const [name, kind, requested, screen = false] of machines) {
     if (Object.hasOwn(numbers, name)) {
-      check(validIdentity(rules, kind, numbers[name]), `${name}: the layout gives it numbers it cannot use`);
-      check(kind !== 'sample' || numbers[name].page === requested.page,
+      check(validIdentity(rules, kind, numbers[name], screen), `${name}: the layout gives it engine/page numbers it cannot use`);
+      check(kind !== 'sample' || screen || numbers[name].page === requested.page,
         `${name} now asks for stock page ${requested.page}; the layout holds another`);
       continue;
     }
     const identity = {...requested};
-    for (const slot of kind === 'effect' ? ['effect'] : kind === 'synth' ? ['engine', 'page'] : ['engine']) {
+    for (const slot of kind === 'effect' ? ['effect'] : kind === 'synth' || screen ? ['engine', 'page'] : ['engine']) {
       const choices = [...(pools[slot].includes(requested[slot]) ? [requested[slot]] : []), ...pools[slot]];
       // An effect number is also held as an engine number (occupied).
       const keys = n => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
       identity[slot] = choices.find(n => !keys(n).some(key => holders.has(key)));
       check(identity[slot] !== undefined, `No free ${slot} number for ${name}: every one is held in this layout`);
     }
-    check(validIdentity(rules, kind, identity), `${name}: no valid numbers`);
+    check(validIdentity(rules, kind, identity, screen), `${name}: no valid numbers`);
     hold(name, identity);
   }
   return numbers;
@@ -211,7 +211,7 @@ export function readLayout(kit, saved) {
 // The kit's machines numbered for this selection, in kit order, and the layout after.
 export function assignNumbers(kit, selection, layout = null) {
   return numberLayout(kit.profile.identities, Object.entries(kit.fixed).map(([id, identity]) => [id, null, identity]),
-    layout, kit.machines.filter(m => selection.includes(m.id)).map(m => [m.id, m.kind, m.identity]));
+    layout, kit.machines.filter(m => selection.includes(m.id)).map(m => [m.id, m.kind, m.identity, Boolean(m.asset)]));
 }
 // Each machine's link-time numbers: its own when selected, else 0, which no
 // startup, catalog or control lookup matches.

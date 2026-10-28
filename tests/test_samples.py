@@ -58,8 +58,8 @@ class Generation(unittest.TestCase):
             others = [fixture('probesynth'), fixture('probefx')]
             text = adapters.generate_sample_callbacks(directory, [first, second, *others]).read_text()
         # Engine IDs are symbols the linker supplies; each machine keeps its stock page.
-        self.assertIn('{probesample_engine_id, 7, probesample_ready, probesample_sample_defaults, ', text)
-        self.assertIn('{slicer_engine_id, 2, slicer_ready, ', text)
+        self.assertIn('{probesample_engine_id, SamplePage::drums, probesample_ready, probesample_sample_defaults, ', text)
+        self.assertIn('{slicer_engine_id, SamplePage::sampler, slicer_ready, ', text)
         self.assertNotIn('probesynth', text)
         self.assertNotIn('probefx', text)
 

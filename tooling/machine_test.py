@@ -70,6 +70,7 @@ def main(argv=None):
                 for m in machines:
                     command += ['--machine', str(m.root)]
                 subprocess.run(command, check=True, cwd=ROOT, timeout=1800)
+        print(cpu.planning_notice())
         print('PASS: machine checks; no stock files or device operations.')
         return 0
     except (ValueError, OSError, KeyError, TypeError, ET.ParseError, subprocess.SubprocessError) as error:
