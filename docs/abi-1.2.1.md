@@ -254,7 +254,10 @@ handler the engine page ignores.
 both calls: while the engine page shows an owned synth with
 [alternates](api.md#alternate-controls), a press moves the position to its next
 parameter slot and a turn edits that slot. For owned synths, Shift's indices
-4..7 map back to the same shown positions; continuous controls receive a copy
+4..7 map back to the same shown positions, except an opted-in Shift selector
+whose designated position edits its original enum slot on either page. Its
+normal-turn replacement occupies that position on both pages. Other
+continuous controls receive a copy
 of the turn event with its step divided by ten, keeping detents and
 acceleration. Stock consumes the event synchronously and still owns lock
 editing and publication. The selection is GUI state per track, reset when the

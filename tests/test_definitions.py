@@ -150,6 +150,25 @@ class Definitions(unittest.TestCase):
         return dict(id=identity, label='Alt', control=control, default=0.25,
                     mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')
 
+    def test_shift_selector_is_explicit_and_keeps_saved_slots(self):
+        value = copy.deepcopy(self.engine)
+        value['press'] = 'page'
+        value['parameters'][0].update(mapping=dict(kind='enum', labels=['a', 'b']), display='enum')
+        value['parameters'].append(self.alternate(0, 'normal'))
+        for preset in value['presets'].values(): preset['normal'] = 0
+        value['shift'] = dict(parameter=value['parameters'][0]['id'], normal='normal')
+        validate_definition(value, 'synth')
+        self.assertEqual(control_cycles(value), [0, 1, 2, 3, 4, 5, 6, 7])
+        for selector in [None, {}, dict(parameter='missing', normal='normal'),
+                         dict(parameter=value['parameters'][1]['id'], normal='normal'),
+                         dict(parameter='normal', normal=value['parameters'][0]['id'])]:
+            bad = copy.deepcopy(value); bad['shift'] = selector
+            with self.subTest(selector=selector), self.assertRaises(ValueError): validate_definition(bad, 'synth')
+        bad = copy.deepcopy(value); del bad['press']
+        with self.assertRaisesRegex(ValueError, 'paged synth'): validate_definition(bad, 'synth')
+        bad = copy.deepcopy(value); bad['parameters'][0].update(mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')
+        with self.assertRaisesRegex(ValueError, 'primary enum'): validate_definition(bad, 'synth')
+
     def test_synth_alternates_name_their_control_position(self):
         value = copy.deepcopy(self.engine)
         value['parameters'] += [self.alternate(3, 'a'), self.alternate(1, 'b'), self.alternate(3, 'c')]
@@ -218,7 +237,7 @@ class Definitions(unittest.TestCase):
                     SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false)\},$', text, re.M),
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false), 0, 0\},$', text, re.M),
                          [('paged', 'true'), ('plain', 'false')])
 
     def test_an_effects_controls_after_four_alternate_on_the_send_page(self):

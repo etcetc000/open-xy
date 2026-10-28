@@ -106,8 +106,17 @@ def paged(definition):
     return definition.get('press') == 'page'
 
 
+def shift_selector(definition):
+    """Saved slots for an opt-in Shift selector and its normal-turn replacement."""
+    selector = definition.get('shift')
+    if selector is None:
+        return 0, 0
+    names = [p['id'] for p in definition['parameters']]
+    return names.index(selector['parameter']), names.index(selector['normal'])
+
+
 def validate_definition(value, kind):
-    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *(('press',) if 'press' in value else ())),
+    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *(('press',) if 'press' in value else ()), *(('shift',) if 'shift' in value else ())),
          'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
@@ -158,6 +167,17 @@ def validate_definition(value, kind):
         require(kind == 'synth' and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 len(set(alternates)) == len(alternates),
                 '"press": "page" needs five to eight synth parameters and at most one alternate per position')
+    if 'shift' in value:
+        selector = value['shift']
+        keys(selector, ('parameter', 'normal'), 'shift selector')
+        require(kind == 'synth' and paged(value), 'Shift selector needs a paged synth')
+        require(all(isinstance(selector[k], str) and selector[k] in names for k in ('parameter', 'normal')),
+                'Shift selector must name declared parameters')
+        selected, normal = shift_selector(value)
+        require(selected < SYNTH_POSITIONS and normal >= SYNTH_POSITIONS and
+                control_positions(value)[normal] == selected and
+                parameters[selected]['mapping']['kind'] == 'enum',
+                'Shift selector needs a primary enum and its alternate as normal control')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():
         label(name); keys(preset, names, 'preset')

@@ -39,8 +39,8 @@ const SynthControls* owned(u32 engine, bool effect = false) {
     return nullptr;
 }
 
-// The slot each position shows, per track, while the track keeps an owned
-// engine. Engine 0 is never a synth, so zeroed state starts on slots 0..3.
+// The slot each position shows per track. An opted-in Shift selector starts
+// on its normal replacement; all other positions start on slots 0..3.
 struct Track { u32 engine; u8 slots[opxy::page_controls]; };
 Track tracks[kTracks];
 // The same for the effects on the two send tracks, and whether an owned effect
@@ -48,12 +48,12 @@ Track tracks[kTracks];
 Track sends[2];
 bool unstored[2];
 
-Track* state(u32 track, u32 engine) {
+Track* state(u32 track, u32 engine, const SynthControls* m) {
     if (track >= kTracks) return nullptr;
     Track& t = tracks[track];
     if (t.engine != engine) {
         t.engine = engine;
-        for (u32 i = 0; i < opxy::page_controls; ++i) t.slots[i] = static_cast<u8>(i);
+        for (u32 i = 0; i < opxy::page_controls; ++i) t.slots[i] = static_cast<u8>(m && m->shift_selector() && i == m->shift_slot ? m->normal_slot : i);
     }
     return &t;
 }
@@ -64,7 +64,7 @@ const SynthControls* machine(u32 track, Track*& t) {
     if (track >= kTracks) return nullptr;
     const u32 engine = track_engine(track);
     const SynthControls* m = owned(engine);
-    t = state(track, m ? engine : 0);
+    t = state(track, m ? engine : 0, m);
     return m;
 }
 
@@ -172,14 +172,16 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     Track* t;
     // The instrument controller maps Shift's engine-page row to slots 4..7.
     // Reinterpret it as fine editing of the same visible position, including
-    // an alternate selected by a click. Other pages keep stock routing.
+    // an alternate selected by a click. An opt-in selector reserves one shifted
+    // position for its enum; the other three keep fine editing. Other pages keep stock routing.
     const bool fine_turn = index >= 4 && index < 8 && word(kInstrumentPage) == 0 && shift_held();
     const u32 original_index = index;
     if (fine_turn) index -= 4;
     const SynthControls* m = index < opxy::page_controls ? machine(track, t) : nullptr;
     if (m) {
-        index = t->slots[index];
-        if (event && (m->continuous & (1u << index)) && fine_turn) {
+        const auto edit = m->edit(index, fine_turn, t->slots);
+        index = edit.slot;
+        if (event && edit.fine) {
             // Stock consumes all three words synchronously; keep detents and
             // acceleration intact for its parameter-lock/quantized paths.
             const opxy::i32* source = reinterpret_cast<const opxy::i32*>(event);
