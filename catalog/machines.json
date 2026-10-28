@@ -237,6 +237,12 @@
         "block_percent": 2.171,
         "report": "https://github.com/meemknight/OPXY-breadboard/blob/4a5f90abd751164af85abfd850bc791df0c3ba8e/CPU_PROFILE.md"
       }
+    },
+    {
+      "id": "daath",
+      "kind": "synth",
+      "maintainer": "SammiBabe666",
+      "status": "reserved"
     }
   ]
 }
