@@ -101,6 +101,8 @@ export class PreviewDisplay {
     this.reset();
   }
   reset() { this.api.opxy_display_reset(); }
+  // GUI activity for a silent sample-page preview; no PCM or audio emulation.
+  setActivity(voices) { this.api.opxy_display_activity?.(integer(voices, 0, 256, 'preview voices')); }
   // input: shownControls(words, shown) from controls.mjs.
   tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');

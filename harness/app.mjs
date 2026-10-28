@@ -41,6 +41,7 @@ let visualNotes = 0, display = null, scene = null, displayBackend = null;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let context, processor, gain, analyser, samples, starting;
 let audioBackend = null;
+let audioAvailable = true;
 const parameterWords = () => q31(values);
 const held = new Map(), timers = new Set();
 const keys = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k'];
@@ -68,6 +69,7 @@ for (const [name, preset] of Object.entries(presets)) {
 }
 function draw(elapsed = 0) {
   if (display) {
+    if (!audioAvailable) display.setActivity(new Set(held.values()).size);
     const input = shownControls(parameterWords(), shown);
     try {
       scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity));
@@ -86,11 +88,18 @@ async function loadPreview() {
   const [digest, artDigest] = await Promise.all([digestOf(bytes), digestOf(artwork)]);
   if (digest !== manifest.wasm_sha256 || artDigest !== manifest.graphics.asset_sha256) throw new Error('Preview identity mismatch.');
   const module = await WebAssembly.compile(bytes);
+  audioAvailable = WebAssembly.Module.exports(module).some(entry => entry.name === 'opxy_render');
   const readyDisplay = new PreviewDisplay(module);
   const readyScene = new SvgDisplay(new TextDecoder().decode(artwork), manifest.graphics);
   display = readyDisplay;
   scene = readyScene;
   displayBackend = { backend: 'cpp-wasm', stateBytes: display.stateBytes, frameBytes: readyDisplay.frame.byteLength, wasmSha256: digest };
+  if (!audioAvailable) {
+    $('audio').disabled = true; $('audio').textContent = 'Display only';
+    $('monitor').disabled = true;
+    $('preview-mode').textContent = 'Interactive screen preview. Sample playback and loading run on the OP-XY.';
+    status('Screen ready. Use the keys to animate; this preview has no audio.');
+  }
   draw();
   return { manifest, digest, module };
 }
@@ -111,6 +120,7 @@ function update() {
   draw();
 }
 async function enableAudio() {
+  if (!audioAvailable) return false;
   if (starting) return starting;
   starting = (async () => {
     $('audio').disabled = true;
@@ -172,7 +182,7 @@ function paintKeys() {
 }
 function noteOn(source, note, velocity = 0.8) {
   if (!Number.isInteger(note) || note < 0 || note > 127 || !Number.isFinite(velocity) || velocity <= 0 || velocity > 1) return false;
-  if (context?.state !== 'running') { status('Enable audio first, then play a key.'); return false; }
+  if (audioAvailable && context?.state !== 'running') { status('Enable audio first, then play a key.'); return false; }
   if (held.has(source)) return false;
   const existing = [...held.values()].includes(note);
   held.set(source, note);
@@ -194,6 +204,7 @@ function noteOff(source) {
     draw();
   }
   paintKeys();
+  if (!audioAvailable) draw();
 }
 function panic() {
   for (const timer of timers) clearTimeout(timer);
@@ -243,7 +254,7 @@ function later(callback, ms) {
 }
 $('phrase').addEventListener('click', () => {
   if (timers.size) { panic(); return; }
-  if (context?.state !== 'running') { status('Enable audio first to play the phrase.'); return; }
+  if (audioAvailable && context?.state !== 'running') { status('Enable audio first to play the phrase.'); return; }
   panic(); $('phrase').textContent = 'Stop phrase';
   [0, 7, 12, 3, 10, 7, 2, 0].forEach((offset, i) => {
     later(() => noteOn(`phrase-${i}`, (octave + 1) * 12 + offset), i * 280);

@@ -245,6 +245,8 @@ async function inspect(id) {
       Core.requireThat(await Core.sha256(wasm) === m.preview.sha256, 'Preview module hash mismatch');
       const compiled = await WebAssembly.compile(wasm);
       if (ticket !== previewRevision) return;
+      const hasAudio = WebAssembly.Module.exports(compiled).some(entry => entry.name === 'opxy_render');
+      if (!hasAudio) $('art-caption').textContent = 'Interactive screen preview. Sample playback and loading run on the OP-XY.';
       const display = new Retained.PreviewDisplay(compiled);
       const renderer = new Retained.SvgDisplay(m.artwork, m.preview.graphics);
       const ns = 'http://www.w3.org/2000/svg', canvas = document.createElementNS(ns, 'svg');
@@ -268,15 +270,15 @@ async function inspect(id) {
         key.type = 'button'; key.setAttribute('aria-label', name);
         const press = () => {
           if (key.dataset.down === 'true') return;
-          key.dataset.down = 'true'; held.push(note); noteActivity.noteOn(note); trigger(); audio.play(note);
+          key.dataset.down = 'true'; held.push(note); noteActivity.noteOn(note); display.setActivity(held.length); trigger(); audio?.play(note);
         };
         const lift = () => {
           if (key.dataset.down !== 'true') return;
           key.dataset.down = 'false';
           const sounding = held.at(-1) === note;
           held.splice(held.indexOf(note), 1);
-          noteActivity.noteOff(note); frame(0);
-          if (sounding && held.length) audio.play(held.at(-1)); else audio.release(note);
+          noteActivity.noteOff(note); display.setActivity(held.length); frame(0);
+          if (sounding && held.length) audio?.play(held.at(-1)); else audio?.release(note);
         };
         key.onpointerdown = e => { e.preventDefault(); key.setPointerCapture(e.pointerId); key.focus(); press(); };
         key.onpointerup = key.onpointercancel = key.onlostpointercapture = lift;
@@ -288,17 +290,19 @@ async function inspect(id) {
       const volume = node('label', 'Volume', 'audition-volume'), level = node('input');
       level.type = 'range'; level.min = '0'; level.max = '100'; level.value = '50'; level.setAttribute('aria-label', 'Preview volume');
       volume.append(level);
-      const audio = new Audition(compiled, parameters, (playing, error) => {
+      const audio = hasAudio ? new Audition(compiled, parameters, (playing, error) => {
         if (!cancelled) frame(0);
         if (error && ticket === previewRevision) $('art-caption').textContent = 'Audio unavailable: ' + error;
-      });
+      }) : null;
+      volume.hidden = !hasAudio;
       stopAudio = () => {
         held.length = 0;
         for (const key of keyboard.children) key.dataset.down = 'false';
-        noteActivity.panic(); frame(0); audio.stop();
+        noteActivity.panic(); display.setActivity(0); if (!cancelled) frame(0); audio?.stop();
       };
-      level.oninput = () => audio.setVolume(Number(level.value) / 100);
+      level.oninput = () => audio?.setVolume(Number(level.value) / 100);
       $('audition-controls').append(keyboard, volume);
+      $('audition-controls').setAttribute('aria-label', hasAudio ? 'Sound preview' : 'Display preview');
       const reduced = matchMedia('(prefers-reduced-motion: reduce)');
       function frame(dt = 34) {
         const input = shownControls(parameters, shown);
@@ -317,14 +321,16 @@ async function inspect(id) {
         input.oninput = () => {
           parameters[i] = Math.round(Number(input.value) / 1000 * 0x7fffffff);
           shown.splice(0, 4, ...editedShown(shown, m.positions, i, m.pages));
-          frame(0); audio.setParameters(parameters);
+          frame(0); audio?.setParameters(parameters);
         };
         label.append(input); return label;
       });
       $('controls').replaceChildren(...controls);
       const trigger = () => { serial = serial + 1 >>> 0; frame(0); };
-      canvas.setAttribute('role', 'button'); canvas.setAttribute('tabindex', '0'); canvas.setAttribute('aria-label', 'Trigger ' + m.name + ' display preview');
-      canvas.onclick = trigger; canvas.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); } };
+      if (hasAudio) {
+        canvas.setAttribute('role', 'button'); canvas.setAttribute('tabindex', '0'); canvas.setAttribute('aria-label', 'Trigger ' + m.name + ' display preview');
+        canvas.onclick = trigger; canvas.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); } };
+      }
       frame(0); trigger();
       function animate(time) {
         if (cancelled) return;
@@ -334,7 +340,7 @@ async function inspect(id) {
         handle = requestAnimationFrame(animate);
       }
       if (!reduced.matches) handle = requestAnimationFrame(animate);
-      stopPreview = () => { cancelled = true; cancelAnimationFrame(handle); audio.destroy(); };
+      stopPreview = () => { cancelled = true; cancelAnimationFrame(handle); audio?.destroy(); };
     } catch (error) { if (ticket === previewRevision) $('art-caption').textContent = 'Display preview unavailable: ' + error.message; }
   }
 }

@@ -7,6 +7,20 @@ import {PreviewDisplay, outlineFaults} from '../sdk/browser/display.mjs';
 import {shownControls} from '../sdk/browser/controls.mjs';
 
 const module = await WebAssembly.compile(readFileSync(process.argv[2]));
+if (!WebAssembly.Module.exports(module).some(entry => entry.name === 'opxy_preview_abi')) {
+  const display = new PreviewDisplay(module), memory = display.memory;
+  assert.throws(() => display.api.memory.grow(1), RangeError);
+  for (let frame = 0; frame < 300; ++frame) {
+    display.setActivity(frame < 200 ? 6 : 0);
+    const controls = Array.from({length:8}, (_, i) => (frame * 7919 + i * 200000000) & 0x7fffffff);
+    display.tick(shownControls(controls, [0, 1, 2, 3]), 34, 1, 0, frame > 250);
+    assert.equal(display.api.opxy_display_valid(), 1);
+    assert.equal(display.memory, memory);
+  }
+  assert.throws(() => display.setActivity(-1), /preview voices/);
+  console.log('PASS: silent drawing preview, bounded activity, fixed memory and retained frame validation.');
+  process.exit(0);
+}
 const engine = new PreviewEngine(module, 44100, Array(8).fill(0));
 const display = new PreviewDisplay(module);
 // The declared outlines (definition.json resources.display), checked in every frame.

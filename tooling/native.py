@@ -159,6 +159,8 @@ def plan(machines, profile=None):
             steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration')
         elif m.kind == 'effect':
             steps = ('registration', 'fx_object')
+        elif m.display != 'stock':
+            steps = ('display', 'screen', 'registration', 'sample_voice')
         else:
             steps = ('registration', 'sample_voice')
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
@@ -174,15 +176,17 @@ def plan(machines, profile=None):
 # or .s, except the generated units and the Blackfin runtime.
 SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock',
              'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
+             'sample_display', 'sample_display_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
-             'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
+             'pad_assignment_stock', 'drum_page', 'sample_controls_stock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
+                               'sample_display', 'sample_display_stock',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
-                               'drum_controls_stock', 'drum_display_stock'), 'samples')
+                               'sample_controls_stock', 'drum_display_stock'), 'samples')
 
 
 def module_bytes(profile):
@@ -283,7 +287,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines])), obj)
+                                                [x.prefix for x in sample_engines if x.display == 'stock'])), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -823,6 +827,9 @@ def main(argv=None, command=None):
             for path in sorted(p for p in candidate.rglob('*') if p.is_file()):
                 print('  ' + path.relative_to(candidate).as_posix())
             print('Machine numbers: ' + str(output / 'layout.json') + ' (pass it as --layout to your next build)')
+        if command != 'verify':
+            from .cpu import native_notice
+            print(native_notice(machines))
         return 0
     except (ValueError, OSError, KeyError, ET.ParseError, subprocess.SubprocessError) as error:
         print('ERROR: ' + str(error), file=sys.stderr)

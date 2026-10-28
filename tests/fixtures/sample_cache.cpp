@@ -45,10 +45,10 @@ static int second_ready() { return second_registered; }
 // Engine IDs are absolute link-time symbols on the device; here, their values.
 static const char* engine_symbol(unsigned id) { return reinterpret_cast<const char*>(static_cast<__UINTPTR_TYPE__>(id)); }
 const opxy::platform::SampleMachine sdk_sample_machines[] = {
-    {engine_symbol(35), 7, first_ready, nullptr, nullptr, nullptr, nullptr, 2u * 1024u * 1024u,
-     fake_words, fake_begin, fake_step, fake_prepared},
-    {engine_symbol(46), 7, second_ready, nullptr, nullptr, nullptr, nullptr, 64u * 1024u,
-     fake_words, fake_begin, fake_step, fake_prepared},
+    {engine_symbol(35), opxy::platform::SamplePage::drums, first_ready, nullptr, nullptr, nullptr, nullptr, 2u * 1024u * 1024u,
+     fake_words, fake_begin, fake_step, fake_prepared, 0},
+    {engine_symbol(46), opxy::platform::SamplePage::drums, second_ready, nullptr, nullptr, nullptr, nullptr, 64u * 1024u,
+     fake_words, fake_begin, fake_step, fake_prepared, 0},
 };
 const unsigned sdk_sample_machine_count = 2;
 extern "C" const opxy::platform::SampleMachine* sdk_sample_machine(unsigned engine) {

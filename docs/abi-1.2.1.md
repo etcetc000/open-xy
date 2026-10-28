@@ -256,15 +256,25 @@ declarations retain 64-word output.
 The stock stereo PCM reader consumes packed left/right 16-bit pairs, while
 its output writes alternating 32-bit left/right words.
 
-Requirements: flag 1, an engine ID of 34–62, and page 2 or 7. The engine never
-touches the sample cache or its lock.
+Requirements: flag 1, an engine ID of 34–62, and page 2 or 7, or a relocated
+page 82–127 when the sample machine declares a drawing display. A drawing
+sample machine registers its screen before its engine and uses the shared
+control selection, captions and compositor. The engine never touches the
+sample cache or its lock.
 
 Stock's sample predicate and note-region dispatcher also have explicit engine
 ID checks. One generated table describes the collection's sample machines
 ([`sample_callbacks.cpp.in`](../sdk/platform/opxy-1.2.1/sample_callbacks.cpp.in));
 [`sample_machines.cpp`](../sdk/platform/opxy-1.2.1/sample_machines.cpp)
 admits an ID only while its registration is still ours, and an owned engine
-borrows the multisampler payload. Track and voice IDs stay unchanged. Stock,
+borrows the multisampler note payload. `singleSample` instead aliases GUI
+assignment and recorder queries to the sampler (2), assigning one sample across
+the keyboard. Drawing pages keep the real engine in the instrument controller
+and return false only at the parameter editor's sample query (`0x8d5acf44`),
+so turns edit the eight-word engine vector. Both are C ABI call replacements
+in `sample_controls_stock.cpp`; the global sample predicate and its assembly
+stub stay unchanged. The table stores page behavior, not a relocated page
+number, so layout reassignment changes no object bytes. Track and voice IDs stay unchanged. Stock,
 absent and conflicting registrations follow the original paths. The first
 sample machine in a build enables the `samples` service; further ones add no
 firmware patch sites.
@@ -297,6 +307,26 @@ prepares each such sample for every registered analysis machine, each within
 its own budget. Browser page 4 suppresses new requests: stock auditions
 replace regions while it is open. Results are released before stock frees the
 PCM object.
+
+### Sample display snapshots
+
+The GUI-only `opxy::sample_display` service resolves the selected owned
+sample region and copies a fixed 96-bin overview, trim and advisory started
+note activity. The GUI never dereferences PCM or contributor voice state.
+Eight fixed request slots publish overviews with sequence checks; sample
+eviction invalidates them before stock frees the object. Note activity uses
+stock's GUI gate getter (`0x8d5b7d10`), also used by the keyboard painter at
+`0x8d526984`. Note-on (`0x8d595838`) and note-off/all-off (`0x8d5954b2`,
+`0x8d595514`) update these gates. This counts distinct gated notes, excluding
+release tails; audio-role adapter storage is not a GUI telemetry channel.
+The region-key bridge returns zero for `singleSample`, matching stock's
+sampler path at `0x8d589258`, so changing keys cannot select another region.
+
+Changed GUI requests coalesce onto stock's file queue (`0x8d4dd728`, also
+used by the sample manager at `0x8d509d38` and `0x8d50c3ec`). The callback
+acquires a stock sample reference, computes peaks, publishes a copy and
+releases the reference. The existing load-completion hook retries requests
+whose sample was still loading. No additional firmware edit is needed.
 
 ### Pad settings and the drum page
 

@@ -58,6 +58,7 @@ def control_label(value):
 
 
 # Resources each kind declares; the SDK owns everything else about its storage.
+# A sample engine may add `display` to draw its own page instead of the stock sample page.
 RESOURCES = {
     'synth': ('voiceBytes', 'voiceAlignment', 'voiceCapacity', 'sharedBytes', 'outputPeakQ31', 'display'),
     'sample': ('voiceCapacity',),
@@ -73,8 +74,8 @@ SDK_1_2_TEXTS = 4
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
 # A sample engine's optional services: integer 0/1 flags and the analysis budget.
-SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput')
-SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS)
+SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'singleSample')
+SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS, 'display')
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 EFFECT_OPTIONS = ('bufferBytes', 'transport')
@@ -87,6 +88,12 @@ CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
 SYNTH_POSITIONS = 4
+
+
+def own_screen(value, kind):
+    """Whether a definition draws its own page: every synth, and a sample engine declaring a display."""
+    return kind == 'synth' or (kind == 'sample' and isinstance(value.get('resources'), dict) and
+                               'display' in value['resources'])
 
 
 def control_positions(definition):
@@ -131,6 +138,9 @@ def validate_definition(value, kind):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
         require(resources.get('padSettings', 0) or not resources.get('drumControls', 0),
                 'drumControls edits pad settings: it needs padSettings')
+        if 'display' in resources:
+            require(not resources.get('padSettings', 0), 'padSettings and drumControls require a stock drum page')
+            validate_display(resources['display'])
     if kind == 'effect' and 'bufferBytes' in resources:
         size = resources['bufferBytes']
         require(4 <= size <= EFFECT_BUFFER_LIMIT and size % 4 == 0,
@@ -141,12 +151,14 @@ def validate_definition(value, kind):
     if kind == 'synth':
         validate_synth_resources(resources)
     parameters = value['parameters']
-    low, high = CONTROLS[kind]
+    # A machine with its own page fills the four encoder positions; later parameters are alternates.
+    screen = own_screen(value, kind)
+    low, high = CONTROLS['synth' if screen else kind]
     require(isinstance(parameters, list) and low <= len(parameters) <= high,
             f'Control count outside {low}..{high} for this kind')
     names = set()
     for i, parameter in enumerate(parameters):
-        alternate = kind == 'synth' and i >= SYNTH_POSITIONS
+        alternate = screen and i >= SYNTH_POSITIONS
         validate_parameter(parameter, alternate)
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])

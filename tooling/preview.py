@@ -1,4 +1,4 @@
-"""Build a curated synth's browser audition module and authenticate served artifacts."""
+"""Build synth auditions or sample drawing previews and authenticate served artifacts."""
 import argparse
 import json
 from pathlib import Path
@@ -17,7 +17,7 @@ VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment',
                  'opxy_block_frames', 'opxy_sample_rate', 'opxy_output_peak_q31', 'opxy_voice_capacity',
                  'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_destroy', 'opxy_render', '__heap_base')
 DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
-                                                            'input', 'frame', 'reset', 'render', 'valid'))
+                                                            'input', 'frame', 'reset', 'render', 'valid', 'activity'))
 MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
 SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
@@ -32,18 +32,23 @@ FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-excepti
 MEMORY = 2 * 1024 * 1024
 
 
-def compile_preview(compiler, definition, out, root, sources=(), includes=()):
+def compile_preview(compiler, definition, out, root, sources=(), includes=(), machine=None):
     """One WebAssembly module: the SDK voice preview, the machine's sources and its display transport."""
     from .adapters import generate_display, generate_voice_preview
-    units = [generate_voice_preview(out, definition), *(root / s for s in sources),
-             ROOT / 'sdk/platform/blackfin/memory.cpp']
-    generate_display(out, definition=definition)
+    audio = machine is None or machine.kind == 'synth'
+    units = ([generate_voice_preview(out, definition), *(root / s for s in sources)] if audio else [])
+    units.append(ROOT / 'sdk/platform/blackfin/memory.cpp')
+    if machine is None:
+        generate_display(out, definition=definition)
+    else:
+        generate_display(out, machine=machine)
     units += [out / 'display_binding.cpp', ROOT / 'sdk/host/display_preview.cpp']
     paths = [ROOT, ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', root,
              *(root / extra for extra in includes), out]
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={MEMORY}',
-               f'-Wl,--max-memory={MEMORY}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS)]
+               f'-Wl,--max-memory={MEMORY}',
+               *('-Wl,--export=' + name for name in (VOICE_EXPORTS if audio else ()) + DISPLAY_EXPORTS)]
     result = subprocess.run([str(x) for x in command], capture_output=True, text=True, timeout=120,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
@@ -88,7 +93,8 @@ def drawing_bindings(ids, display):
 def build(compiler, m, out):
     """The browser audition of a collection synth (a Machine)."""
     from .native import check_sources, validate_panel
-    require(m.kind == 'synth', 'Browser previews audition synths')
+    require(m.kind == 'synth' or (m.kind == 'sample' and m.display != 'stock'),
+            'Browser previews need an authored drawing display; sample previews are silent')
     require(not m.contains(out), 'Keep preview output outside the machine folder')
     executable = shutil.which(str(compiler))
     require(executable is not None, 'Clang++ with wasm32/wasm-ld is required; run python sdk.py doctor --preview')
@@ -97,10 +103,11 @@ def build(compiler, m, out):
     validate_panel(m)
     before = source_hashes(m)
     out = fresh_output(out)
-    compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes)
+    compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes, machine=m)
     (out / 'panel.svg').write_bytes((m.root / 'panel.svg.fragment').read_bytes())
     require(source_hashes(m) == before, 'Source changed during preview build')
-    version = subprocess.check_output([str(compiler), '--version'], text=True, timeout=30).splitlines()[0]
+    version = subprocess.check_output([str(compiler), '--version'], text=True, timeout=30,
+                                      creationflags=NO_WINDOW).splitlines()[0]
     manifest = dict(schema=1, kind='cpp-browser-preview', engine=m.id, root=str(m.root),
                     description=m.description,
                     definition=m.definition, sample_rate=44100,
@@ -137,7 +144,8 @@ def preview_bundle(directory, *, require_reference=False):
     root = manifest['root']
     require(isinstance(root, str) and Path(root).is_absolute(), 'Invalid machine folder in preview')
     m = machine_at(root)
-    require(m.id == manifest['engine'] and m.kind == 'synth', 'Browser previews audition synths')
+    require(m.id == manifest['engine'] and m.kind in ('synth', 'sample') and m.display != 'stock',
+            'Browser previews need an authored drawing display')
     require(manifest['sources'] == source_hashes(m), 'Preview is stale; rebuild from current source')
     require(manifest['definition'] == m.definition and manifest['description'] == m.description,
             'Preview controls or description differ from the machine')
@@ -158,7 +166,7 @@ def main(argv=None):
     parser.add_argument('--cxx', default='clang++')
     parser.add_argument('--out', required=True, type=Path)
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument('--machine', type=Path, help='Synth folder with machine.json, anywhere')
+    source.add_argument('--machine', type=Path, help='Instrument folder with an authored display')
     source.add_argument('--source', type=Path, help='Local custom-machine directory')
     args = parser.parse_args(argv)
     try:

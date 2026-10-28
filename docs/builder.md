@@ -35,7 +35,9 @@ leaves the browser.
    how to power cycle, check that the menu is gone, and reinstall. After reinstalling,
    **Try again** goes straight to enabling the dev menu for the same computer.
 3. Select machines. Synth rows have a playable preview of their C++ sound and
-   display code; each row shows its code, data and state size against the
+   display code. Sample engines with authored drawing pages have an interactive,
+   silent screen preview; loading and playing samples runs on the OP-XY.
+   Each row shows its code, data and state size against the
    memory meter. Machines from the [catalog](catalog.md) are marked
    **Community** and start unselected; their details name the maintainer and
    link to the machine's code at the commit the catalog pins. Open-XY's own

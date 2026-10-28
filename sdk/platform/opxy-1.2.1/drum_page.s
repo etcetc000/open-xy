@@ -1,5 +1,5 @@
 /* Drum-page hooks whose register contract C++ cannot express. The page logic
- * is C++ in drum_controls_stock.cpp and drum_display_stock.cpp.
+ * is C++ in sample_controls_stock.cpp and drum_display_stock.cpp.
  */
 .include "sdk/platform/opxy-1.2.1/hook.inc"
 .section .text

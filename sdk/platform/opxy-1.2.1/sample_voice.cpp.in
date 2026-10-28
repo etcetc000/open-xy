@@ -4,6 +4,7 @@
 // record holds the reference. The engine sees only a validated read-only SampleView.
 #include "sample.cpp"
 #include "sample_machines.hpp"
+#include "synth_controls.hpp"
 #include "stock_sample.hpp"
 #include "sample_cache.hpp"
 #include "stock.hpp"
@@ -108,7 +109,9 @@ static int start(void* self, opxy::u32 key) {
         key, sdk_sample_drum_octaves[slot->track]) : key) : 128;
     slot->drum_transpose = keyed && @DRUM_KEYS@ ? opxy::i32(key) - opxy::i32(slot->key) : 0;
     if (slot->started) {
-        if (@CHOKE@ && keyed) active[slot->track][slot->key] = slot;
+        if (@CHOKE@ && keyed) {
+            active[slot->track][slot->key] = slot;
+        }
         @NAMESPACE@::start(slot->voice);
     }
     return 0;
@@ -173,7 +176,8 @@ static void noop() {}
 const char @PREFIX@_name[] = "@NAME@";
 const char* @PREFIX@_parameter_name(opxy::u32 index) {
     static const char* const labels[] = {@LABELS@};
-    return index < sizeof(labels) / sizeof(labels[0]) ? labels[index] : "";
+    const opxy::u32 slot = @OWN_SCREEN@ ? sdk_synth_title_slot(engine_id(), index) : index;
+    return slot < sizeof(labels) / sizeof(labels[0]) ? labels[slot] : "";
 }
 const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&destroy), reinterpret_cast<const void*>(&destroy),

@@ -44,6 +44,7 @@ class SampleServices(unittest.TestCase):
                     generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
                 # Exercise the real tempo readers and assignment bridge with
                 # host addresses standing in for stock functions and globals.
+            if name in ('sample_callbacks', 'benchmark', 'sample_routing', 'sample_display_stock'):
                 stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
                 stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
                                       'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
@@ -51,6 +52,13 @@ class SampleServices(unittest.TestCase):
                     stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                           'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
                 (Path(folder) / 'stock.hpp').write_text(stock)
+            if name == 'sample_routing':
+                # The production bridge, with only stock address resolution replaced.
+                for unit in ('sample_controls_stock.cpp', 'sample_machines.cpp'):
+                    (Path(folder) / unit).write_text((ROOT / 'sdk/platform/opxy-1.2.1' / unit).read_text())
+            if name == 'sample_display_stock':
+                unit = 'sample_display_stock.cpp'
+                (Path(folder) / unit).write_text((ROOT / 'sdk/platform/opxy-1.2.1' / unit).read_text())
             if name == 'screen_order':
                 generate_screen_order(folder)
             if name == 'startup':
@@ -68,6 +76,12 @@ class SampleServices(unittest.TestCase):
     def test_cache_lifetime_capacity_and_browser_deferral(self):
         self.run_fixture('sample_cache')
 
+    def test_sample_display_copies_peaks_and_rejects_stale_or_pending_data(self):
+        self.run_fixture('sample_display')
+
+    def test_sample_display_uses_owned_gui_region_and_reports_pending_activity(self):
+        self.run_fixture('sample_display_stock')
+
     def test_progress_never_takes_over_another_notification(self):
         self.run_fixture('sample_progress')
 
@@ -76,6 +90,9 @@ class SampleServices(unittest.TestCase):
 
     def test_callbacks_work_for_another_engine_and_preserve_stock_fields(self):
         self.run_fixture('sample_callbacks', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
+
+    def test_sample_page_and_assignment_routes_preserve_unowned_stock_paths(self):
+        self.run_fixture('sample_routing')
 
     def test_owned_primary_screen_precedes_stock_overlays(self):
         self.run_fixture('screen_order')

@@ -14,6 +14,8 @@ function port(name, fallback) {
 const endpoint = `http://127.0.0.1:${port('OPXY_CHROME_PORT', 9226)}`;
 const preview = `http://127.0.0.1:${port('OPXY_PREVIEW_PORT', 8917)}`;
 const manifest = await (await fetch(preview + '/preview/manifest.json')).json();
+const module = await WebAssembly.compile(await (await fetch(preview + '/preview/engine.wasm')).arrayBuffer());
+const hasAudio = WebAssembly.Module.exports(module).some(entry => entry.name === 'opxy_render');
 // Expectations come from the served definition; nothing here names a machine.
 const engineId = manifest.engine;
 const controls = createControls(structuredClone(manifest.definition));
@@ -69,11 +71,17 @@ try {
   for (const [i, p] of controls.parameters.entries()) {
     assert.equal(await shown(controlId(p.id, i)), controls.displayValue(p.id, controls.defaults()));
   }
+  if (hasAudio) {
   await click('audio'); await delay(700);
   assert.equal(await evaluate('machineLab.getStatus().audio'), 'running');
   assert.equal(await evaluate('document.getElementById("audio").textContent'), 'Mute audio');
+  } else {
+    assert.equal(await evaluate('document.getElementById("audio").disabled'), true);
+    assert.equal(await evaluate('document.getElementById("audio").textContent'), 'Display only');
+  }
   await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA' }); await delay(150);
   const sounding = await evaluate('machineLab.getStatus()');
+  if (hasAudio) {
   assert.equal(sounding.sampleRate, 44100);
   assert.equal(sounding.audioBackend.backend, 'cpp-wasm');
   assert.equal(sounding.audioBackend.blockFrames, 64);
@@ -82,7 +90,14 @@ try {
   assert.equal(sounding.displayBackend.wasmSha256, sounding.audioBackend.wasmSha256);
   assert.equal(sounding.audioBackend.wasmSha256,
     (await (await fetch(preview + '/preview/manifest.json')).json()).wasm_sha256);
-  assert.equal(sounding.heldNotes, 1); assert.ok(sounding.rms > 0.001);
+  assert.ok(sounding.rms > 0.001);
+  } else {
+    assert.equal(sounding.audio, 'off');
+    assert.equal(sounding.audioBackend, null);
+    assert.equal(sounding.rms, 0);
+    assert.equal(sounding.displayBackend.backend, 'cpp-wasm');
+  }
+  assert.equal(sounding.heldNotes, 1);
   assert.equal(sounding.visualNotes, 1);
   assert.deepEqual(sounding.noteActivity, {held_notes:1,note_off_serial:0});
   await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA' }); await delay(300);
@@ -147,12 +162,14 @@ try {
   const mobile = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
   writeFileSync(`${screenshots}/mobile.png`, Buffer.from(mobile.data, 'base64'));
   await evaluate('machineLab.noteOff(60); machineLab.panic()');
-  await click('audio'); await delay(100);
-  assert.equal(await evaluate('machineLab.getStatus().audio'), 'suspended');
+  if (hasAudio) {
+    await click('audio'); await delay(100);
+    assert.equal(await evaluate('machineLab.getStatus().audio'), 'suspended');
+  }
   // Missing favicon is harmless; all script, worklet and runtime errors fail.
   const relevant = errors.filter(e => !JSON.stringify(e).includes('favicon.ico'));
   assert.deepEqual(relevant, []);
-  console.log(JSON.stringify({ result: 'PASS', checks: ['AudioWorklet starts on gesture', 'keyboard makes audio and releases', 'control display', 'control mapping', 'patch/SVG download', 'patch import and rejection', 'phrase/panic', 'blur release', 'screen view', 'mobile overflow', 'mute', 'browser errors'], sounding, screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', mode: hasAudio ? 'audio' : 'silent display', checks: ['preview mode', 'keyboard press and release', 'control display', 'control mapping', 'patch/SVG download', 'patch import and rejection', 'phrase/panic', 'blur release', 'screen view', 'mobile overflow', 'browser errors'], sounding, screenshots }, null, 2));
 } finally {
   socket.close();
   await fetch(`${endpoint}/json/close/${target.id}`);

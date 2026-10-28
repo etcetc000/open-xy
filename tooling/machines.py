@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, paged, stock_name, validate_definition
+from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, own_screen, paged, stock_name, validate_definition
 from .formats import require
 from .pipeline import config
 
@@ -28,7 +28,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'sources', 'includ
 # its tempo (resources.transport) and division captions; 1.3 the machine's own presets,
 # a press that switches a synth's whole page and up to 16 display text slots.
 # 1.4 adds the reusable header and partial second pages sharing unassigned controls.
-SDK_VERSION = (1, 4)
+# 1.5 adds a sample engine's own drawing page and single-sample assignment.
+SDK_VERSION = (1, 5)
 # Builder card glyph: SVG path data in a 46 x 48 box, drawn as a stroke.
 ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
 # A machine's own presets (machine.json `presets`): <name>.json files the builder
@@ -141,12 +142,13 @@ def read_presets(root, folder, identity):
     return presets
 
 
-def check_identity(rules, kind, value):
+def check_identity(rules, kind, value, screen=False):
     """IDs a machine may claim under the profile's identity rules (the browser builder applies the same rules).
 
     Engines take a free entry of the relocated table, never the stock "none" value; a
     synth draws its own page above the stock "none" page, a sample engine an ID only
-    the relocated table holds and a stock sample page, an effect a free FX ID on the FX page.
+    the relocated table holds and a stock sample page (or a relocated page with screen=True),
+    an effect a free FX ID on the FX page.
     """
     require(isinstance(value, dict), 'machine.json needs an identity')
     slot = 'effect' if kind == 'effect' else 'engine'
@@ -160,8 +162,9 @@ def check_identity(rules, kind, value):
     require(0 < number < rules['engines'] and number != rules['engine_none'] and number not in rules['stock_engines'],
             'Engine ID outside the relocated table, the stock "none" value or registered by stock')
     if kind == 'sample':
-        require(rules['engine_none'] < number and page in rules['sample_pages'],
-                'Sample engines need a relocated-table engine ID and a stock sample page')
+        require(rules['engine_none'] < number, 'Sample engines need a relocated-table engine ID')
+        require(rules['page_none'] < page < rules['pages'] if screen else page in rules['sample_pages'],
+                'Sample engines need a relocated page with a display, otherwise a stock sample page')
     else:
         require(rules['page_none'] < page < rules['pages'], 'A machine with its own screen needs a relocated page')
     return {slot: number, 'page': page}
@@ -231,14 +234,20 @@ def machine_at(root, identity=None):
         dry_parameter = matches[0]
         require(definition['parameters'][dry_parameter]['mapping'] ==
                 dict(kind='linear', minimum=0, maximum=1), 'dryParameter must map linearly from 0 to 1')
-    # A synth draws its own screen; sample engines and effects use a stock page.
-    display = 'drawing' if kind == 'synth' else 'stock'
+    # Drawing is independent of the machine's audio kind.
+    screen = own_screen(definition, kind)
+    display = 'drawing' if screen else 'stock'
+    numbers = check_identity(config()['identities'], kind, value.get('identity'), screen)
+    if kind == 'sample' and (screen or 'singleSample' in definition['resources']):
+        require_sdk(version, (1, 5), "A sample engine's own page (resources.display) or singleSample")
+        require(not definition['resources'].get('singleSample', 0) or numbers['page'] != 7,
+                'singleSample uses stock page 2 or a drawing display, not drum page 7')
     # The native plan compiles extra translation units only into synths.
     if kind != 'synth':
         require(not sources and not includes, 'Sample engines and effects compile one fx.cpp or sample.cpp')
     # Pad settings live in the stock drum page's pad records, whose fade the SDK then owns.
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
-        require(value['identity']['page'] == 7, 'Pad settings and drum controls need stock page 7')
+        require(numbers['page'] == 7, 'Pad settings and drum controls need stock page 7')
     defaults = value.get('presetDefaults', {})
     require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
     amp = defaults.get('amp', {})
@@ -252,7 +261,7 @@ def machine_at(root, identity=None):
     return Machine(id=identity, kind=kind, name=definition['name'], description=value['description'],
                    display=display, sources=sources, includes=includes,
                    definition=definition,
-                   identity=check_identity(config()['identities'], kind, value['identity']), preset_defaults=defaults,
+                   identity=numbers, preset_defaults=defaults,
                    root=root, icon=icon, dry_parameter=dry_parameter, presets=presets)
 
 
@@ -316,8 +325,8 @@ def layout_document(numbers):
 
 def number_layout(rules, fixed, layout, machines):
     """The layout after numbering `machines`: every number `layout` held, the fixed
-    machines' and any given out now. Machines are (id, kind, requested identity), fixed
-    ones (id, kind, identity); a sample engine's stock page is its own."""
+    machines' and any given out now. Machines are (id, kind, requested identity[, drawing]), fixed
+    ones (id, kind, identity); a stock-page sample engine keeps that page."""
     pools = number_pools(rules)
     numbers, holders = {}, {}
 
@@ -338,20 +347,22 @@ def number_layout(rules, fixed, layout, machines):
             continue
         else:
             hold(name, identity)
-    for name, kind, requested in machines:
+    for entry in machines:
+        name, kind, requested = entry[:3]
+        screen = entry[3] if len(entry) == 4 else False
         if name in numbers:
-            check_identity(rules, kind, numbers[name])
-            require(kind != 'sample' or numbers[name]['page'] == requested['page'],
+            check_identity(rules, kind, numbers[name], screen)
+            require(kind != 'sample' or screen or numbers[name]['page'] == requested['page'],
                     f'{name} now asks for stock page {requested["page"]}; the layout holds another')
             continue
         identity = dict(requested)
-        for slot in ('effect',) if kind == 'effect' else ('engine', 'page') if kind == 'synth' else ('engine',):
+        for slot in ('effect',) if kind == 'effect' else ('engine', 'page') if kind == 'synth' or screen else ('engine',):
             choices = ([requested[slot]] if requested[slot] in pools[slot] else []) + pools[slot]
             # An effect number is also held as an engine number (occupied).
             keys = lambda n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
             identity[slot] = next((n for n in choices if not any(k in holders for k in keys(n))), None)
             require(identity[slot] is not None, f'No free {slot} number for {name}: every one is held in this layout')
-        hold(name, check_identity(rules, kind, identity))
+        hold(name, check_identity(rules, kind, identity, screen))
     return numbers
 
 
@@ -362,7 +373,7 @@ def assign_numbers(machines, layout=None, fixed=None):
     for m in machines:
         require(fixed.get(m.id, m.identity) == m.identity, f'{m.id} has fixed numbers; its machine.json asks for others')
     numbers = number_layout(config()['identities'], [(name, None, identity) for name, identity in fixed.items()],
-                            layout, [(m.id, m.kind, m.identity) for m in machines])
+                            layout, [(m.id, m.kind, m.identity, m.display != 'stock') for m in machines])
     assigned = [m if numbers[m.id] == m.identity else replace(m, identity=numbers[m.id], requested=m.identity)
                 for m in machines]
     return assigned, numbers

@@ -1,7 +1,7 @@
 """Check machine folders anywhere, as a machine repository's CI does.
 
 For each folder: the machine's records and sources against this SDK, a browser
-preview build of a synth, the machine's own host tests (tests/*.cpp, compiled
+preview build of an authored display, the machine's own host tests (tests/*.cpp, compiled
 against the SDK headers and run), an estimate of its CPU cost next to Open-XY's
 core machines', and optionally a native compile of every folder together. No
 stock files and no device.
@@ -41,7 +41,7 @@ def host_tests(m, host_cxx, scratch):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='sdk.py test', description=__doc__)
     parser.add_argument('--machine', type=Path, action='append', required=True, help='machine folder; repeatable')
-    parser.add_argument('--cxx', default='clang++', help='Clang++ with wasm32/wasm-ld, for synth previews')
+    parser.add_argument('--cxx', default='clang++', help='Clang++ with wasm32/wasm-ld, for drawing previews')
     parser.add_argument('--host-cxx', default='c++', help='host C++11 compiler for tests/*.cpp')
     parser.add_argument('--no-cpu', action='store_true', help='skip the CPU estimate')
     parser.add_argument('--firmware', action='store_true',
@@ -55,7 +55,7 @@ def main(argv=None):
             scratch = Path(scratch)
             for m in machines:
                 done = [f'{m.kind} {m.id} ({m.root})']
-                if m.kind == 'synth':
+                if m.display != 'stock':
                     from .preview import build
                     build(args.cxx, m, scratch / ('preview-' + m.id))
                     done.append('preview built')
@@ -70,6 +70,7 @@ def main(argv=None):
                 for m in machines:
                     command += ['--machine', str(m.root)]
                 subprocess.run(command, check=True, cwd=ROOT, timeout=1800)
+        print(cpu.planning_notice())
         print('PASS: machine checks; no stock files or device operations.')
         return 0
     except (ValueError, OSError, KeyError, TypeError, ET.ParseError, subprocess.SubprocessError) as error:

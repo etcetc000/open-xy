@@ -6,7 +6,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | Kind | C++ the machine supplies | Example |
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
-| `sample` | `sample.cpp` with `Voice` state; the stock sample page is its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
+| `sample` | `sample.cpp` with `Voice` state; a stock sample page, or with `resources.display` its own `display.cpp` and `panel.svg.fragment` (SDK 1.5) | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
 | `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
@@ -61,29 +61,41 @@ does not change the native collection's module limit or measure its footprint.
 
 The OP-XY renders every voice and effect in 64-sample blocks, 1.45 ms each, on
 one Blackfin core that also runs its own engines, sequencer and effects. A
-machine's cost adds up per sounding voice and per track that uses it. The SDK
-sets no hard limit and does not yet measure device cycles.
+machine's cost adds up per sounding note and per track that uses it. Count all
+internal oscillators, grains and layers within a note, and count release tails
+as sounding notes. Voice storage capacity is not a polyphony qualification.
+The SDK sets no hard limit and does not yet measure device cycles.
 
-`python sdk.py test` prints an estimate for synths and effects in **Blackfin
-instructions per 64-sample block**, at the machine's heaviest control setting.
+`compile`, `build` and `test` print the CPU planning allocation. At 400 MHz and
+44.1 kHz there are about 580,500 cycles per block. A target of 24 simultaneous
+sounding notes with a provisional 50% reserve for stock processing, effects,
+sequencing and other work leaves about 12,000 cycles per note/block. This is
+a design allocation, not measured stock overhead or a guarantee of 24 notes.
+
+`python sdk.py test` prints an estimate for synths and effects in **host-calibrated
+instruction-equivalents per 64-sample block**, at its heaviest tested setting.
+Sample-engine costs are explicitly reported as **UNESTIMATED**. Native compilation
+also warns that structural and memory checks do not qualify real-time CPU cost.
 It times the machine's render (or `process`) on your computer against a
 reference loop in the same run, a table oscillator through a one-pole filter
-of known Blackfin instruction count (about 590 per block), so the figure is
-about the same on any computer:
+of known Blackfin instruction count (about 590 per block). This normalization
+reduces host variation; it does not reproduce compiled Blackfin control flow,
+memory traffic or cycle costs:
 
 ```text
-CPU estimate (host-timed; not measured on the device): Karplus about 7,700 Blackfin instructions per voice block at its heaviest setting. Aim for at most 15,000; for scale, 2op FM about 14,000, Macro Osc (Braids) about 9,000
+CPU estimate (host-timed; not measured on the device): Karplus about 7,700 instruction-equivalents per voice block at its heaviest setting. Aim for at most 15,000; for scale, 2op FM about 14,000, Macro Osc (Braids) about 9,000
 ```
 
-| Per 64-sample block | Aim for at most | Likely to drop audio above | Core machines |
+| Host instruction-equivalents per 64-sample block | Review above | Strong warning above | Core machines |
 | --- | --- | --- | --- |
 | A synth voice | 15,000 | 24,000 | 2op FM about 14,000, Macro Osc (Braids) about 9,000 |
 | An effect, once per track | 30,000 | 48,000 | Ring Mod about 10,500 |
 
-Above the aim, make the machine lighter where you can; above the second limit,
-measure it on a device with many notes held across tracks. Instructions are
-not cycles: pipeline stalls add some. And the estimate understates what the
-host does fast and the Blackfin does not:
+These screening thresholds are not the 24-note cycle allocation. Test on a
+device at the intended polyphony, settings and sample layout, including effects
+and release tails. A host estimate can materially understate native cost.
+Instruction packets also differ from cycles because of pipeline and memory
+stalls. Common sources of unexpected cost include:
 
 - **Division** has no hardware instruction and costs tens of cycles on the
   device. Divide once per block, or use a table or a reciprocal.
@@ -108,7 +120,7 @@ Every machine kind keeps its controls in `definition.json` (for example
 | `schema` | 1 |
 | `id` | The machine's name; also its C++ namespace |
 | `name` | Display name |
-| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), one to eight for a sample engine or effect. Labels are at most eight letters, digits or spaces |
+| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a machine with a drawing display (see [alternate controls](#alternate-controls)), otherwise one to eight. Labels are at most eight letters, digits or spaces |
 | `presets` | Named maps containing exactly the declared controls; may be empty |
 | `resources` | What the kind declares about its storage (below) |
 
@@ -131,7 +143,7 @@ page shows labels in lower case.
 
 ### Alternate controls
 
-A synth's first four parameters belong to the four encoder positions of its
+A drawing machine's first four parameters belong to the four encoder positions of its
 page. Up to four more are alternates: each also names its position with
 `"control": 0..3`. Pressing that encoder cycles the position through its own
 parameter, then its alternates in parameter order; turning it edits the one
@@ -174,7 +186,7 @@ projects saved with older firmware, reselect LFO engine destinations on
 machines with more than four parameters: their saved selector values now
 address eight slots instead of four.
 
-On custom synth engine pages, Shift + turn edits the same visible parameter
+On custom synth and sample engine pages, Shift + turn edits the same visible parameter
 at one tenth of the normal rate. Enum choices keep their one-choice stepping.
 Synth amounts and bounded positive anchor-ratio captions show one decimal
 place; amounts omit the percent suffix. A machine's display can replace them with
@@ -184,7 +196,11 @@ except for `enum` and `division` controls.
 
 A sample engine declares `voiceCapacity`, which must be 256 (stock creates a
 voice for each of its 256 voice indices and binds each to its sample), and the
-optional [sample services](#sample-engines) it uses. An effect declares no resources (`{}`).
+optional [sample services](#sample-engines) it uses. With SDK 1.5 it may also
+declare `display`, using the same drawing callbacks and budgets as a synth.
+That page has four to eight parameters, with alternates after the first four;
+it excludes `padSettings` and `drumControls`, which require stock drum page 7.
+An effect declares no resources (`{}`).
 A synth declares:
 
 | Field | Required value or meaning |
@@ -270,6 +286,12 @@ silence. `start` runs on each note. Never retain a block or its buffers.
 
 ### Services
 
+Sample views, voice lifecycle, regions and prepared analysis are shared sample
+services. `padSettings` and `drumControls` adapt the stock drum page for instruments
+that retain its pad workflow; a custom `display` instead uses the same drawing
+and parameter-control interface as synth instruments. Playback algorithms stay
+in the machine.
+
 Each service is an optional entry in `definition.json` `resources`; omitted
 means 0. Callbacks are functions in the machine's namespace.
 
@@ -280,6 +302,32 @@ means 0. Callbacks are functions in the machine's namespace.
 | `padSettings` | 0 or 1; page 7 | The SDK saves 16 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sampleAnalysis` | Budget in bytes, 4096..2 MiB, whole words | Prepared per-sample data | `analysis_words`, `prepare_begin`, `prepare_step`, `prepared` |
+| `singleSample` | 0 or 1; SDK 1.5; page 2 or a drawing page | Assign one sample across the track's keyboard through stock sampler assignment and recording flows, instead of multisampler zones | |
+
+`singleSample` and `display` are independent. Without `singleSample`, sample
+assignment retains the existing multisampler behavior (or canonical pads on
+page 7). A drawing page edits the engine's parameter vector through stock,
+including locks, alternates and fine turns; it does not expose drum-region
+encoders. Assignment, recording and project/preset storage remain stock-owned.
+Changing an already published machine's assignment mode changes how its saved
+sample mappings are interpreted and requires a compatibility review.
+The display receives the ordinary drawing input snapshot. Sample instruments
+may additionally call the GUI-only `opxy::sample_display(track, output)` service
+from `<opxy/sample_display.hpp>`. It copies 96 min/max waveform bins, loaded
+frames/rate/channels, current trim/direction, a publication generation and the
+track's `active_notes` count from stock GUI note gates (distinct pitches,
+excluding release tails). Peaks combine both channels. The bool result reports
+waveform availability; note activity
+is available while an assigned sample's waveform is pending. Missing samples,
+unowned engines and the sample browser do not expose stale waveforms.
+
+The existing file worker computes overviews while retaining the source sample;
+the GUI requests and copies bounded snapshots without accessing PCM, allocating
+or waiting. Eviction invalidates cached data before stock frees the source.
+Snapshots are advisory, not audio synchronization or individual grain positions.
+Draw them with the same SVG paths/nodes as any other display. Hosts without a
+sample source return an unavailable snapshot; host tests can supply this C
+service with synthetic snapshots.
 
 ### Audio block
 
@@ -498,7 +546,7 @@ firmware that holds it.
 | Kind | ID | Page |
 | --- | --- | --- |
 | `synth` | 34..62 | Its own screen: 82..127 |
-| `sample` | 34..62 | Stock sample page 2 or 7; `padSettings` requires 7 |
+| `sample` | 34..62 | Stock sample page 2 or 7; `padSettings` requires 7. With `display`, its own screen: 82..127 |
 | `effect` | 1, 8, 11, 21, 23..28 or 34..62 | Stock FX page 21 |
 
 Engine IDs above 32, effect IDs above 18 and pages above 81 exist only in the
@@ -520,7 +568,7 @@ the next build so every machine keeps its numbers. A machine new to the layout
 gets the numbers it asks for when they are free, otherwise the lowest free
 ones. New numbers come from engines 34..62 and pages 82..127, never from the
 gaps in stock's own engine table, so ask for numbers in those ranges; a
-sample engine keeps its stock page. Macro Osc predates this and keeps
+sample engine without a display keeps its stock page. Macro Osc predates this and keeps
 engine 26.
 A [project companion](projects.md) records what a project's numbers meant by
 machine ID, for firmware with another layout.

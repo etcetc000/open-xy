@@ -1,11 +1,11 @@
-"""A host estimate of a machine's audio cost, in Blackfin instructions per block.
+"""A host estimate of audio cost, in calibrated instruction-equivalents per block.
 
 The OP-XY renders every voice and effect in 64-sample blocks on one Blackfin
 core, so a machine's cost per block adds up across its voices and the tracks
 using it. There is no Blackfin simulator in the SDK, so this times the
 machine's own render (or process) on the host against a reference loop timed
 in the same run, and scales by the reference's Blackfin instruction count,
-which makes the figure about the same on any computer.
+which reduces host variation without modeling target execution.
 Each control is swept from its default setting, through nine positions or
 every option of a list, and the slowest setting counts: a machine whose cost
 depends on a mode or model is judged by its heaviest one.
@@ -22,9 +22,8 @@ from .formats import require
 from .pipeline import NO_WINDOW, ROOT
 
 GUIDE = 'docs/api.md#cpu'
-# Estimated Blackfin instructions per 64-sample block: the cost to aim under, and
-# the cost above which a machine is likely to drop audio. A synth's is per voice;
-# an effect runs once per track. Host timings vary by about a tenth between runs.
+# Host screening thresholds, not cycle budgets or qualified polyphony limits.
+# A synth's cost is per voice; an effect runs once per track.
 LIMITS = {'synth': (15000, 24000), 'effect': (30000, 48000)}
 # Open-XY's core machines for scale, as this estimate measured them.
 EXAMPLES = {'synth': '2op FM about 14,000, Macro Osc (Braids) about 9,000', 'effect': 'Ring Mod about 10,500'}
@@ -215,24 +214,39 @@ def block_cost(m, host_cxx, scratch):
 
 
 def summary(m, host_cxx, scratch):
-    """One line for sdk.py test: the machine's estimated Blackfin instructions per block,
-    with the limits to stay under and Open-XY's core machines for scale."""
+    """Host estimate or explicit unavailability, with screening thresholds for scale."""
     try:
         own = block_cost(m, host_cxx, scratch)
         if own is None:
-            return f'CPU: not estimated for sample engines; keep render_sample light ({GUIDE})'
+            return (f'WARNING: {m.name}: CPU cost per sounding note is UNESTIMATED for sample engines. '
+                    f'Include every internal grain/layer and release tail; compile/test success does not qualify polyphony ({GUIDE}).')
         cost = round(own / reference_cost(host_cxx, scratch) * REFERENCE_INSTRUCTIONS, -2)
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         # Advice only: a benchmark that cannot build or run never fails the machine's checks.
         return f'CPU: not estimated ({str(error).splitlines()[0]}); --no-cpu skips it ({GUIDE})'
     aim, most = LIMITS[m.kind]
     unit = 'voice' if m.kind == 'synth' else 'effect'
-    line = (f'CPU estimate (host-timed; not measured on the device): {m.name} about {cost:,.0f} Blackfin instructions '
+    line = (f'CPU estimate (host-timed; not measured on the device): {m.name} about {cost:,.0f} instruction-equivalents '
             f'per {unit} block at its heaviest setting. Aim for at most {aim:,}; for scale, {EXAMPLES[m.kind]}')
     if cost > most:
         article = 'a voice' if unit == 'voice' else 'an effect'
-        return line + (f'. Above {most:,}: {article} this heavy may drop audio with several notes or tracks. '
+        return 'WARNING: ' + line + (f'. Above {most:,}: {article} this heavy may drop audio with several notes or tracks. '
                        f'Look for division and per-sample work that could be per block ({GUIDE})')
     if cost > aim:
-        return line + f'. Above the aim: make it lighter where you can ({GUIDE})'
+        return 'WARNING: ' + line + f'. Above the aim: make it lighter where you can ({GUIDE})'
     return line + f' ({GUIDE})'
+
+
+def planning_notice():
+    """A planning allocation, deliberately separate from host instruction-equivalents."""
+    return ('CPU planning: at 400 MHz / 44.1 kHz, a 64-frame block has about 580,500 cycles. '
+            'For 24 simultaneous sounding notes and a provisional 50% reserve for other work, '
+            'target about 12,000 cycles per note/block, INCLUDING all grains/layers and release tails. '
+            'Host instruction-equivalents are not device cycles; 24-note polyphony requires device validation.')
+
+
+def native_notice(machines):
+    samples = ', '.join(m.name for m in machines if m.kind == 'sample')
+    return (planning_notice() + '\nWARNING: Native compilation verifies structure and memory, not real-time CPU cost. '
+            'Run python sdk.py test --machine <folder> for available host estimates.' +
+            (f' Sample-engine cost is UNESTIMATED: {samples}.' if samples else ''))

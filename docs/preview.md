@@ -2,8 +2,12 @@
 
 Browser previews audition synths: their controls, alternates included, their
 sound and their own screen.
-Sample engines and effects use stock pages and stock sample or send processing,
-so they have no browser preview; they are checked by the native build.
+Sample engines with an authored drawing display have a silent, interactive
+screen preview: controls and held keys drive the same display callback and SVG
+renderer used by synths. It has no sample loading, waveform data or audio;
+sample playback and browser audition run on the OP-XY. Stock sample pages and
+effects have no browser preview. Machine-owned host tests and native builds
+check their audio callbacks.
 
 For a new instrument, follow [Your first machine](first-machine.md). Check the
 preview toolchain with `python sdk.py doctor --preview`; custom schema-1 sources
@@ -18,6 +22,10 @@ python sdk.py preview --machine ../open-xy-core-machines/machines/fm2op --out lo
 python tools/serve_harness.py --preview local/preview-001
 ```
 
+Use `--machine /path/to/machine` for an external synth or sample drawing page.
+Silent previews label the audio control **Display only**; play keys without
+enabling audio to exercise the display's note activity.
+
 Use `--cxx /path/to/clang++` if Clang is not on PATH, or `--port 8937` if the
 server port is occupied. Open http://127.0.0.1:8917/, enable audio, then play
 `A W S E D F T G Y H U J K` or the on-screen keyboard. Escape/Stop all and loss
@@ -29,8 +37,8 @@ rebuild.
 The server rejects stale sources at startup; an already running server keeps
 its selected snapshot. It serves a file allowlist, never the repository root.
 
-Every preview build runs shared ABI, fixed-memory, input-ownership,
-declared-peak, voice-lifecycle and drawing smoke checks. They do not prove
+Every preview build runs shared ABI, fixed-memory and drawing smoke checks.
+Audio previews also check input ownership, declared peak and voice lifecycle. They do not prove
 callback correctness or timing; sound correctness is the machine maintainer's
 responsibility.
 
