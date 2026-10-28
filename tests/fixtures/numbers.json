@@ -7,6 +7,17 @@
     ["timestretch", "sample", {"engine": 35, "page": 7}]
   ],
   "cases": [
+    {"name": "a sample engine's own screen gets the page it asks for",
+     "machines": [["grains", "sample", {"engine": 40, "page": 2, "screen": 90}]],
+     "numbers": {"grains": {"engine": 40, "page": 2, "screen": 90}}},
+    {"name": "a sample engine's own screen holds a page as a synth does",
+     "layout": {"pluck": {"engine": 40, "page": 90}},
+     "machines": [["grains", "sample", {"engine": 40, "page": 2, "screen": 90}]],
+     "numbers": {"pluck": {"engine": 40, "page": 90}, "grains": {"engine": 36, "page": 2, "screen": 84}}},
+    {"name": "a sample engine that gains its own screen keeps its numbers",
+     "layout": {"grains": {"engine": 40, "page": 2}},
+     "machines": [["grains", "sample", {"engine": 41, "page": 2, "screen": 90}]],
+     "numbers": {"grains": {"engine": 40, "page": 2, "screen": 90}}},
     {"name": "a machine gets the free numbers it asks for",
      "machines": [["pluck", "synth", {"engine": 40, "page": 90}]],
      "numbers": {"pluck": {"engine": 40, "page": 90}}},

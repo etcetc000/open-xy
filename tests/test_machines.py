@@ -51,6 +51,16 @@ class Identity(unittest.TestCase):
             with self.subTest(page=page), self.assertRaises(ValueError):
                 machines.check_identity(RULES, 'synth', identity('synth', page=page))
 
+    def test_a_sample_engine_on_page_2_may_ask_for_its_own_screen(self):
+        own = identity('sample', screen=90)
+        self.assertEqual(machines.check_identity(RULES, 'sample', own), own)
+        self.assertIn(('page', 90), machines.occupied(RULES, own))
+        for kind, value in (('sample', identity('sample', page=7, screen=90)), ('sample', identity('sample', screen=81)),
+                            ('sample', identity('sample', screen=128)), ('sample', identity('sample', screen=True)),
+                            ('synth', identity('synth', screen=90))):
+            with self.subTest(kind=kind, value=value), self.assertRaises(ValueError):
+                machines.check_identity(RULES, kind, value)
+
     def test_names_and_fields_are_checked(self):
         # The folder name is the stock name, so identity holds only IDs.
         for kind, value in (('synth', identity('synth', name='probe')), ('synth', identity('synth', prefix='probe')),

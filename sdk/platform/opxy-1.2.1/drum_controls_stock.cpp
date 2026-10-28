@@ -4,6 +4,7 @@
 // Machine policy is in the generated sample callbacks.
 #include "sample_machines.hpp"
 #include "stock.hpp"
+#include "synth_controls.hpp"
 #include "barrier.hpp"
 
 extern "C" {
@@ -12,6 +13,8 @@ opxy::u32 sdk_sample_edit(void*, opxy::u32, opxy::i32, opxy::u32) __asm__("sdk_s
 opxy::u32 sdk_sample_ui_engine(opxy::u32) __asm__("sdk_sample_ui_engine");
 opxy::u32 sdk_sample_press_engine_owned(opxy::u32, opxy::u32) __asm__("sdk_sample_press_engine_owned");
 opxy::u32 sdk_sample_region_control(opxy::u32, opxy::u32, const opxy::u32*, opxy::u32) __asm__("sdk_sample_region_control");
+opxy::u32 sdk_sample_page_turn(opxy::u32, opxy::u32, const opxy::u32*) __asm__("sdk_sample_page_turn");
+opxy::u32 sdk_sample_param_engine(opxy::u32) __asm__("sdk_sample_param_engine");
 opxy::u32 sdk_sample_selected_engine() __asm__("sdk_sample_selected_engine");
 opxy::u32 sdk_sample_live_pitch_kind(opxy::u32) __asm__("sdk_sample_live_pitch_kind");
 opxy::u32 sdk_sample_octave_store(opxy::u32, opxy::i32) __asm__("sdk_sample_octave_store");
@@ -24,6 +27,16 @@ using opxy::i32;
 using opxy::u32;
 using namespace opxy::platform;
 const u32 kNotOwned = 0xffffffffu;
+// The project stock's encoder handlers pass to its parameter editor (8c0b15a2).
+const u32 kProject = 0x86bd027c;
+// An owned page-2 engine drawing its own screen: its controls are in the synth
+// control table (tooling/adapters.py), and its page's encoders edit them.
+const SynthControls* own_controls(u32 id) {
+    if (sample_page(id) != 2) return nullptr;
+    for (u32 i = 0; i < sdk_synth_control_count; ++i)
+        if (sdk_synth_controls[i].engine() == id && !sdk_synth_controls[i].effect) return &sdk_synth_controls[i];
+    return nullptr;
+}
 // Stock region control: mutation for its own controls, then publication.
 u32 region_control(u32 key, u32 control, const u32* event, u32 fine) {
     return stock<u32(u32, u32, const u32*, u32)>(0x8d4dccd8)(key, control, event, fine);
@@ -41,10 +54,9 @@ void publish_octave(u32 track, i32 octave) {
 }
 }
 
-// 8c0b1316, the recorder's target selection, release and save completion, and
-// the sample page's own engine checks ask which engine the track uses. Owned
-// sample engines borrow the branch of the stock engine whose payload they take
-// (sample_machines.cpp); the track keeps its real engine. A send track's ID is
+// 8c0b1316 and the recorder's target selection, release and save completion
+// ask which engine the track uses. Owned sample engines borrow the
+// multisampler's branch; the track keeps its real engine. A send track's ID is
 // its effect's, which may equal an SDK engine's number: leave it to stock.
 u32 sdk_sample_ui_engine(u32 track) {
     const u32 id = track_engine(track);
@@ -91,6 +103,8 @@ u32 sdk_sample_live_pitch_kind(u32 id) {
 u32 sdk_sample_press_engine_owned(u32 track, u32 button) {
     if (track >= kTracks) return kNoEngine;
     const u32 id = track_engine(track);
+    // An own screen's press switches its controls' page (synth_controls.cpp), never stock's mode.
+    if (own_controls(id)) return id;
     if (!pad_settings(id)) return sdk_sample_alias(id);
     const bool shifted = shift_held();
     if (drum_controls(id) && (shifted ? button == 5 || button == 6 : button == 4 || button == 7)) {
@@ -123,6 +137,46 @@ u32 sdk_sample_region_control(u32 key, u32 control, const u32* event, u32 fine) 
         return 0;
     }
     return region_control(key, control, event, fine);
+}
+
+// 8c0b12f2: the sample page's encoder turn (object, encoder, event) first asks
+// 8d5b7c28, a mode flag taking no arguments, and returns at once when it is
+// set. On an owned page-2 engine drawing its own screen every turn edits the
+// control its position shows (an encoder press switches pages,
+// synth_controls.cpp) through stock's parameter editor, which owns stepping,
+// locks and publication, and the sample page edits nothing more. Shift turns
+// a continuous control in tenths of a step, as on a synth's page. Otherwise
+// stock asks its flag as before.
+u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
+    const u32 track = byte(kSelectedTrack);
+    const u32 id = track < kTracks ? track_engine(track) : kNoEngine;
+    const SynthControls* controls = own_controls(id);
+    // The handler reads the encoder as its low two bits; negative means none.
+    if (controls && static_cast<i32>(encoder) >= 0 && event) {
+        opxy::u8 shown[opxy::page_controls];
+        sdk_synth_shown(track, shown);
+        const u32 index = shown[encoder & 3];
+        const bool continuous = (controls->continuous >> index & 1) != 0;
+        const i32* source = reinterpret_cast<const i32*>(event);
+        const i32 fine[3] = {source[0] / 10, source[1], source[2]};
+        const bool tenths = shift_held() && continuous;
+        stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(kProject, track, index,
+            static_cast<u32>(reinterpret_cast<Address>(tenths ? fine : source)));
+        return 1;
+    }
+    (void)object;
+    return stock<u32()>(0x8d5b7c28)();
+}
+
+// 8d5acf3e: stock's parameter writer 8d5acf28 (project, track, index, value)
+// asks the track's engine only to classify it. A sample engine's value goes to
+// the live table alone, while the editor reads the saved one, so turns never
+// add up; any other engine's goes to both. An owned page-2 engine drawing its
+// own screen answers 0, which both classifiers reject, so its controls are
+// saved and played like a synth's.
+u32 sdk_sample_param_engine(u32 track) {
+    const u32 id = track_engine(track);
+    return own_controls(id) ? 0 : id;
 }
 
 u32 sdk_sample_selected_engine() {

@@ -6,7 +6,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | Kind | C++ the machine supplies | Example |
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
-| `sample` | `sample.cpp` with `Voice` state; the stock sample page is its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
+| `sample` | `sample.cpp` with `Voice` state; the stock sample page is its screen, or on page 2 optionally its own (`display.cpp` and `panel.svg.fragment`) | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
 | `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
@@ -291,6 +291,21 @@ chromatically across the keyboard, its root key playing it as recorded. On
 page 7, the drum page, it plays like the stock drum engine: 24 pads, each with
 its own sample.
 
+### Own screen
+
+A page-2 sample engine may draw its own screen over the sampler's page, as a
+synth draws its page: it declares `resources.display` in `definition.json`,
+supplies `display.cpp` and `panel.svg.fragment` ([Display API](display.md)),
+and asks for the screen's page in `machine.json`:
+`"identity": {"engine": 40, "page": 2, "screen": 90}`. The screen covers the
+sampler's page whenever a track using the engine is selected and that page is
+showing; the stock sample browser and recorder keep their own pages. The
+encoders then edit the engine's controls as on a synth's page:
+a press switches between the first four controls and the second four, Shift
+turns a continuous control in fine steps, an enum steps one choice per detent,
+and edits are saved like a synth's. The engine plays the
+sample between its outer markers; inner loop markers do not narrow it.
+
 ### Services
 
 Each service is an optional entry in `definition.json` `resources`; omitted
@@ -521,7 +536,7 @@ firmware that holds it.
 | Kind | ID | Page |
 | --- | --- | --- |
 | `synth` | 34..62 | Its own screen: 82..127 |
-| `sample` | 34..62 | Stock sample page 2 or 7; `padSettings` requires 7 |
+| `sample` | 34..62 | Stock sample page 2 or 7; `padSettings` requires 7. An [own screen](#own-screen) (page 2): `screen`, 82..127 |
 | `effect` | 1, 8, 11, 21, 23..28 or 34..62 | Stock FX page 21 |
 
 Engine IDs above 32, effect IDs above 18 and pages above 81 exist only in the
@@ -541,7 +556,8 @@ held so an old project never opens another machine. The builder and
 `sdk.py build` write the layout after each build to `layout.json`; give it to
 the next build so every machine keeps its numbers. A machine new to the layout
 gets the numbers it asks for when they are free, otherwise the lowest free
-ones. New numbers come from engines 34..62 and pages 82..127, never from the
+ones; a sample engine's screen takes a page as a synth's does, and one that
+gains a screen keeps its other numbers. New numbers come from engines 34..62 and pages 82..127, never from the
 gaps in stock's own engine table, so ask for numbers in those ranges; a
 sample engine keeps its stock page. Macro Osc predates this and keeps
 engine 26.

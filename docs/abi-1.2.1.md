@@ -31,7 +31,8 @@ version is rejected. The output differs from stock in exactly these places:
 | Drum-page services | 14 | Routes controls, octave publication, assignment and waveform projection for machines declaring pad settings or drum controls |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 22 | Moves the effect records (63), engine records (63) and screen slots (128) into the last 8 KiB of the reservation |
-| Screen order | 1 | Paints a selected owned synth page before stock overlays |
+| Screen order | 2 | Paints a selected owned synth page before stock overlays, and a page-2 sample engine's own screen right after the sampler's page it covers |
+| Sample screen controls | 2 | Routes the sampler page's encoder turns to a page-2 sample engine's own controls through stock's parameter editor, and saves those edits as a synth's |
 | Synth and effect controls | 7 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page |
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |

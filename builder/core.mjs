@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = 'e8256c76c08f46ead6a255fbc88f5dd989890d2837fd25390980f02bfa26e07c';
+export const PROFILE_SHA256 = 'ded25feb0a828bd04ba8e8dd12c23462f626fbd7b7be89684f74840b94b3b180';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -111,9 +111,15 @@ export function checkedSelections(machines) {
 // The profile's identity rules, as tooling.machines.check_identity applies them.
 export function validIdentity(rules, kind, identity) {
   const slot = kind === 'effect' ? 'effect' : 'engine';
-  if (!identity || typeof identity !== 'object' || Object.keys(identity).sort().join() !== [slot, 'page'].sort().join()) return false;
+  if (!identity || typeof identity !== 'object') return false;
+  const keys = Object.keys(identity).sort().join();
+  // A sample engine on the sampler's page may also ask for its own screen's page.
+  const screen = kind === 'sample' && keys === 'engine,page,screen';
+  if (!screen && keys !== [slot, 'page'].sort().join()) return false;
   const n = identity[slot], page = identity.page;
   if (!Number.isInteger(n) || !Number.isInteger(page)) return false;
+  if (screen && !(page === 2 && Number.isInteger(identity.screen) && identity.screen > rules.page_none &&
+    identity.screen < rules.pages)) return false;
   if (kind === 'effect') return rules.effects.includes(n) && page === rules.effect_page;
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
@@ -149,6 +155,7 @@ export function occupied(rules, identity) {
   // Stock reads a send track's effect number as its engine: no engine shares it.
   if (Object.hasOwn(identity, 'effect')) keys.push('engine ' + identity.effect);
   if (!Object.hasOwn(identity, 'effect') && !rules.sample_pages.includes(identity.page)) keys.push('page ' + identity.page);
+  if (Object.hasOwn(identity, 'screen')) keys.push('page ' + identity.screen);
   return keys;
 }
 const sameNumbers = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => a[k] === b[k]);
@@ -171,17 +178,26 @@ export function numberLayout(rules, fixed, layout, machines) {
     else hold(name, identity);
   }
   for (const [name, kind, requested] of machines) {
+    let slots = kind === 'effect' ? ['effect'] : kind === 'synth' ? ['engine', 'page'] : ['engine'], identity;
     if (Object.hasOwn(numbers, name)) {
-      check(validIdentity(rules, kind, numbers[name]), `${name}: the layout gives it numbers it cannot use`);
       check(kind !== 'sample' || numbers[name].page === requested.page,
         `${name} now asks for stock page ${requested.page}; the layout holds another`);
-      continue;
+      if (!Object.hasOwn(requested, 'screen') || Object.hasOwn(numbers[name], 'screen')) {
+        check(validIdentity(rules, kind, numbers[name]), `${name}: the layout gives it numbers it cannot use`);
+        continue;
+      }
+      // A sample engine that gains its own screen keeps its numbers and gets a page.
+      identity = {...numbers[name], screen: requested.screen};
+      slots = ['screen'];
+    } else {
+      identity = {...requested};
+      if (kind === 'sample' && Object.hasOwn(requested, 'screen')) slots.push('screen');
     }
-    const identity = {...requested};
-    for (const slot of kind === 'effect' ? ['effect'] : kind === 'synth' ? ['engine', 'page'] : ['engine']) {
-      const choices = [...(pools[slot].includes(requested[slot]) ? [requested[slot]] : []), ...pools[slot]];
-      // An effect number is also held as an engine number (occupied).
-      const keys = n => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
+    for (const slot of slots) {
+      const pool = pools[slot === 'screen' ? 'page' : slot];
+      const choices = [...(pool.includes(requested[slot]) ? [requested[slot]] : []), ...pool];
+      // An effect number is also held as an engine number (occupied); a screen holds a page.
+      const keys = n => [(slot === 'screen' ? 'page' : slot) + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
       identity[slot] = choices.find(n => !keys(n).some(key => holders.has(key)));
       check(identity[slot] !== undefined, `No free ${slot} number for ${name}: every one is held in this layout`);
     }
@@ -201,7 +217,8 @@ export function readLayout(kit, saved) {
   check(numbers && typeof numbers === 'object' && !Array.isArray(numbers), 'This file is not a machine layout.');
   for (const [name, identity] of Object.entries(numbers))
     check(/^[a-z][a-z0-9_]{0,14}$/.test(name) && identity && typeof identity === 'object' &&
-      [['engine', 'page'], ['effect', 'page']].some(keys => Object.keys(identity).sort().join() === keys.sort().join()) &&
+      [['engine', 'page'], ['effect', 'page'], ['engine', 'page', 'screen']]
+        .some(keys => Object.keys(identity).sort().join() === keys.sort().join()) &&
       Object.values(identity).every(Number.isInteger), 'Invalid numbers in this layout: ' + name);
   const selected = saved.selected ?? null;
   check(selected === null || Array.isArray(selected) && selected.every(id => kit.machines.some(m => m.id === id)),
@@ -221,6 +238,8 @@ function numberSymbols(kit, selection, numbers) {
     const own = selection.includes(m.id) ? numbers[m.id] : null;
     if (m.kind === 'effect') Object.assign(symbols, {[m.prefix + '_fx_id']: own?.effect ?? 0, [m.prefix + '_fx_page_id']: own?.page ?? 0});
     else Object.assign(symbols, {[m.prefix + '_engine_id']: own?.engine ?? 0, [m.prefix + '_page_id']: own?.page ?? 0});
+    // A sample engine's own screen.
+    if (m.kind === 'sample' && Object.hasOwn(m.identity, 'screen')) symbols[m.prefix + '_screen_page_id'] = own?.screen ?? 0;
   }
   return symbols;
 }

@@ -46,6 +46,7 @@ class SampleServices(unittest.TestCase):
                 else:
                     from tooling.benchmark import generate
                     generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
+            if name in ('sample_callbacks', 'benchmark', 'startup'):
                 # Exercise the real tempo readers and assignment bridge with
                 # host addresses standing in for stock functions and globals.
                 stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
@@ -65,7 +66,7 @@ class SampleServices(unittest.TestCase):
                 (Path(folder) / 'screen.hpp').write_bytes(
                     (ROOT / 'tests/fixtures/screen_drawing_host.hpp').read_bytes())
             if name == 'startup':
-                generate_startup(folder, ['first', 'second', 'sampled'], ['effect'], ['sampled'])
+                generate_startup(folder, ['first', 'second', 'sampled', 'drawn'], ['effect'], ['sampled', 'drawn'], ['drawn'])
             # A fixture that includes barrier.hpp supplies host_barrier for the Blackfin SSYNC.
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-D__builtin_bfin_ssync()=host_barrier()',
                        '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'),

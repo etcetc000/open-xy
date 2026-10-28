@@ -174,8 +174,17 @@ def generate_registration(directory, m):
                              f'char* {p}_screen_ctor(char*, opxy::u32) __asm__("{p}_screen_ctor");']
             objects.append(f'const opxy::platform::Screen screen = {{{p}_screen_state, {screen_bytes(m)}, '
                            f'{p}_screen_vtable, {p}_screen_asset, {p}_screen_ctor}};')
-            screen = '&screen'
-            entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
+            if m.kind == 'sample':
+                # A sample engine keeps its stock page; its own screen has a page of its
+                # own, registered and checked apart from the engine.
+                declarations.append(f'extern const char {p}_screen_page_id[] __asm__("{p}_screen_page_id");')
+                objects.append(f'const opxy::platform::Record screen_record = {{{", ".join(addresses[:4])}, '
+                               f'{p}_screen_page_id, 1}};')
+                entries[p + '_screen_register()'] = 'sdk_register_screen(&screen_record, &screen)'
+                entries[p + '_screen_ready()'] = 'sdk_screen_ready(&screen_record, &screen)'
+            else:
+                screen = '&screen'
+                entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
         entries[p + '_register()'] = 'sdk_register_engine(&record)'
         entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
@@ -249,7 +258,9 @@ def generate_sample_voice(directory, m, benchmark=False):
                   LABELS=stock_labels(m), CAPACITY=resources['voiceCapacity'],
                   ANALYSIS=resources.get('sampleAnalysis', 0), STEREO=resources.get('stereoOutput', 0),
                   CHOKE=resources.get('chokeSameKey', 0), DRUM_KEYS=int(m.identity['page'] == 7),
-                  PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0))
+                  PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0),
+                  # The drum page edits outer markers only; an engine with its own screen spans them.
+                  OUTER_MARKERS=int(bool(resources.get('drumControls', 0)) or 'display' in resources))
     path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
 
@@ -308,10 +319,16 @@ def generate_synth_controls(directory, machines):
             declarations.append(f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");')
             controls = ', '.join(str(position % 4) for position in control_positions(m.definition))
             lfo_rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_record_ready, {len(m.definition["parameters"])}, {{{controls}}}}},')
-        if m.kind not in ('synth', 'effect'):
+        # A sample engine with its own screen pages its eight controls as a paged synth does.
+        own_screen = m.kind == 'sample' and m.display != 'stock'
+        if m.kind not in ('synth', 'effect') and not own_screen:
             continue
         effect = m.kind == 'effect'
-        following = control_cycles(m.definition) or list(range(8))
+        count = len(m.definition['parameters'])
+        if own_screen:
+            following = [(i + 4) % 8 if count > 4 and (i + 4) % 8 < count else i for i in range(8)]
+        else:
+            following = control_cycles(m.definition) or list(range(8))
         continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum')
         steps = [enum_steps(p) for p in m.definition['parameters']]
         steps += [0] * (8 - len(steps))
@@ -349,7 +366,7 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-        page = not effect and paged(m.definition)
+        page = own_screen and count > 4 or (m.kind == 'synth' and paged(m.definition))
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
                     f"{'true' if effect else 'false'}, {'true' if page else 'false'}}},")

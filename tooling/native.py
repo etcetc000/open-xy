@@ -72,6 +72,8 @@ def configuration(entries=None, layout=None):
         else:
             definitions[m.prefix + '_engine_id'] = m.identity['engine']
             definitions[m.prefix + '_page_id'] = m.identity['page']
+            if 'screen' in m.identity:   # a sample engine's own screen
+                definitions[m.prefix + '_screen_page_id'] = m.identity['screen']
     return profile, machines, definitions
 
 
@@ -160,7 +162,7 @@ def plan(machines, profile=None):
         elif m.kind == 'effect':
             steps = ('registration', 'fx_object')
         else:
-            steps = ('registration', 'sample_voice')
+            steps = ('registration', 'sample_voice', *(('display', 'screen') if m.display != 'stock' else ()))
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
     services = active_services(profile or config(), (m.kind for m in machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
@@ -283,7 +285,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines])), obj)
+                                                [x.prefix for x in sample_engines],
+                                                [x.prefix for x in sample_engines if x.display != 'stock'])), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
