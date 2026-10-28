@@ -29,15 +29,21 @@ export const controlPositions = parameters => parameters.map((p, i) => p.control
 // The parameters the four positions show after editing parameter `slot`
 // (positions: controlPositions): that position shows it, or on a paged synth
 // (`"press": "page"`) every position shows the edited parameter's page.
-export function editedShown(shown, positions, slot, pages = false) {
+export function controlPages(positions, shift = null) {
+  const first = [0, 1, 2, 3], second = [...first];
+  positions.forEach((position, slot) => { if (slot >= 4) second[position] = slot; });
+  if (shift) first[shift.parameter] = second[shift.parameter] = shift.normal;
+  return [first, second];
+}
+
+export function editedShown(shown, positions, slot, pages = false, shift = null) {
+  if (shift && slot === shift.parameter) return [...shown];
   if (!pages) return shown.map((s, position) => position === positions[slot] ? slot : s);
-  // A position with no alternate edits the same saved parameter on either page.
-  // Turning that repeated control must not jump back to page 1.
-  const shared = slot < 4 && !positions.slice(4).includes(slot);
-  const second = shared ? shown.some(s => s >= 4) : slot >= 4;
-  const next = [0, 1, 2, 3];
-  positions.forEach((position, s) => { if ((s >= 4) === second) next[position] = s; });
-  return next;
+  const [first, second] = controlPages(positions, shift);
+  const shared = first.includes(slot) && second.includes(slot);
+  const alternate = shared ? shown.some((s, col) => first[col] !== second[col] && s === second[col])
+    : second.includes(slot);
+  return [...(alternate ? second : first)];
 }
 
 // The display input (draw.hpp) for the eight parameter words in
@@ -74,6 +80,9 @@ export const VIEWS = Object.freeze(['routing', 'waveform']);
 export function createControls(input) {
   const descriptor = freeze(input);
   const parameters = descriptor.parameters;
+  const shift = descriptor.shift ? Object.freeze({
+    parameter: parameters.findIndex(p => p.id === descriptor.shift.parameter),
+    normal: parameters.findIndex(p => p.id === descriptor.shift.normal) }) : null;
   const definition = freeze({ id: descriptor.id, name: descriptor.name });
   const defaults = () => Object.fromEntries(parameters.map(p => [p.id, p.default]));
   function validateParameters(value) {
@@ -117,6 +126,6 @@ export function createControls(input) {
     }
     return canonical;
   }
-  return Object.freeze({ definition, parameters, positions: Object.freeze(controlPositions(parameters)),
+  return Object.freeze({ definition, parameters, positions: Object.freeze(controlPositions(parameters)), shift,
     defaults, presets: descriptor.presets, physical, displayValue, q31, validateParameters, makePatch, readPatch });
 }

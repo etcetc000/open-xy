@@ -176,10 +176,10 @@ class OutsideMachines(unittest.TestCase):
         self.assertEqual((fmcopy.identity, fmcopy.requested), (self.free, dict(self.free, engine=34)))
 
     def test_sdk_version_and_fixed_names_are_checked(self):
-        for version in ('1.1', '1.2', '1.3', '1.4'):
+        for version in ('1.1', '1.2', '1.3', '1.4', '1.5'):
             self.rename('fmcopy', self.free, version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-        for version in ('0.9', '2.0', '1.5', '1', 'latest', None):
+        for version in ('0.9', '2.0', '1.6', '1', 'latest', None):
             with self.subTest(version=version):
                 self.rename('fmcopy', self.free, version)
                 with self.assertRaises(ValueError):
@@ -191,6 +191,21 @@ class OutsideMachines(unittest.TestCase):
         self.rename('fm2op', machines.FIXED_NUMBERS['fm2op'])
         self.assertEqual(machines.collection(machines.read_collection(None, [self.folder]))[0].identity,
                          machines.FIXED_NUMBERS['fm2op'])
+
+    def test_shift_selector_requires_sdk_1_5(self):
+        self.rename('fmcopy', self.free, '1.4')
+        path = self.folder / 'definition.json'
+        value = json.loads(path.read_text())
+        value['parameters'][0].update(mapping=dict(kind='enum', labels=['a', 'b']), display='enum')
+        value['parameters'].append(dict(id='normal', label='Normal', default=0, control=0,
+            mapping=dict(kind='linear', minimum=0, maximum=1), display='percent'))
+        for preset in value['presets'].values(): preset['normal'] = 0
+        value.update(press='page', shift=dict(parameter=value['parameters'][0]['id'], normal='normal'))
+        path.write_text(json.dumps(value))
+        with self.assertRaisesRegex(ValueError, 'needs "sdk": "1.5"'): machines.machine_at(self.folder)
+        metadata = self.folder / 'machine.json'; data = json.loads(metadata.read_text())
+        data['sdk'] = '1.5'; metadata.write_text(json.dumps(data))
+        self.assertEqual(machines.machine_at(self.folder).definition['shift'], value['shift'])
 
     def preset(self, **changes):
         value = {'engine': {'params': [0, 16384, 32767, 0, 0, 0, 0, 0], 'volume': 16384}, 'platform': 'OP-XY',

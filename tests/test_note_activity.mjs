@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NoteActivity, PreviewDisplay } from '../sdk/browser/display.mjs';
-import { editedShown, shownControls } from '../sdk/browser/controls.mjs';
+import { controlPages, editedShown, shownControls } from '../sdk/browser/controls.mjs';
 
 // Engine-independent WASM storage exercises the actual browser ABI transport.
 function unsigned(value) {
@@ -117,4 +117,14 @@ test('partial second pages repeat the same saved controls without switching page
   assert.deepEqual(editedShown([0, 1, 2, 3], drone, 4, true), [0, 4, 5, 6]);
   assert.deepEqual(editedShown([0, 4, 5, 6], drone, 0, true), [0, 4, 5, 6]);
   assert.deepEqual(editedShown([0, 4, 5, 6], drone, 3, true), [0, 1, 2, 3]);
+});
+
+
+test('shift selectors keep the normal control shared on both pages', () => {
+  const positions = [0,1,2,3,0,1,2,3], shift = {parameter:0, normal:4};
+  assert.deepEqual(controlPages(positions, shift), [[4,1,2,3], [4,5,6,7]]);
+  assert.deepEqual(editedShown([4,1,2,3], positions, 0, true, shift), [4,1,2,3]);
+  assert.deepEqual(editedShown([4,1,2,3], positions, 5, true, shift), [4,5,6,7]);
+  for (const slot of [0,4]) assert.deepEqual(editedShown([4,5,6,7], positions, slot, true, shift), [4,5,6,7]);
+  assert.deepEqual(editedShown([4,5,6,7], positions, 2, true, shift), [4,1,2,3]);
 });

@@ -6,12 +6,14 @@
 
 namespace opxy { namespace platform {
 // A synth or effect. Pressing a synth encoder moves its
-// position from slot s to next[s]; each position starts on its own slot 0..3,
+// position from slot s to next[s]; positions start on their own slots 0..3
+// except an opt-in Shift selector, whose normal_slot is shared on both pages,
 // and a slot no position reaches maps to itself. A paged synth's press moves
 // all four positions, switching between its two pages. steps[s] is an enum
 // slot's choice count (2..255; 0 for other slots and larger enums): each
 // detent moves one choice. In a browser kit an unselected machine's ready
 // resolves to a function returning 0.
+struct SynthEdit { u32 slot; bool fine; };
 struct SynthControls {
     const char* id;  // absolute symbol: the engine or effect ID, supplied at link time
     int (*ready)();
@@ -21,6 +23,13 @@ struct SynthControls {
     bool (*format)(u32 slot, i32 value, char* text);
     bool effect;
     bool page;
+    u8 shift_slot, normal_slot;  // equal disables the opt-in Shift selector
+    bool shift_selector() const { return shift_slot != normal_slot; }
+    SynthEdit edit(u32 position, bool shifted, const u8* shown) const {
+        const bool selector = shifted && shift_selector() && position == shift_slot;
+        const u32 slot = selector ? shift_slot : shown[position];
+        return {slot, shifted && !selector && (continuous & (1u << slot)) != 0};
+    }
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // GUI-only, bounded one-decimal formatting. Caller provides 16 bytes.
@@ -38,7 +47,7 @@ extern "C" {
 extern const opxy::platform::SynthControls sdk_synth_controls[] __asm__("sdk_synth_controls");
 extern const opxy::u32 sdk_synth_control_count __asm__("sdk_synth_control_count");
 // The parameter slot each of a track's four page positions edits and shows:
-// 0..3 unless an owned synth's encoder press selected an alternate. GUI only.
+// 0..3 unless a selector replaces one or a press selects an alternate. GUI only.
 void sdk_synth_shown(opxy::u32 track, opxy::u8* shown) __asm__("sdk_synth_shown");
 bool sdk_synth_value(opxy::u32 track, opxy::u32 slot, opxy::i32 value, char* text) __asm__("sdk_synth_value");
 // The slot shown at page position `index` while engine is the selected track's

@@ -55,6 +55,18 @@ class SynthSteps(unittest.TestCase):
         self.assertEqual(hook['before'], '00de0b8c68240000')
         self.assertNotIn('service', hook)
 
+    def test_shift_selector_metadata_preserves_slot_order(self):
+        definition = self.synth(enum('model', 15))
+        definition['parameters'].append(dict(id='output', label='Output', default=0,
+            display='percent', mapping=dict(kind='linear', minimum=0, maximum=1), control=0))
+        definition.update(press='page', shift=dict(parameter='model', normal='output'))
+        validate_definition(definition, 'synth')
+        machine = SimpleNamespace(kind='synth', prefix='selector', definition=definition)
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, [machine]).read_text(encoding='utf-8')
+        self.assertIn('false, true, 0, 4},', text)
+        self.assertIn('{0, 1, 2, 3, 4, 5, 6, 7}', text)
+
     @unittest.skipUnless(STOCK_OS, 'Set OPXY_TEST_STOCK_OS to the stock os.ldr')
     def test_hook_bytes_match_the_stock_os(self):
         data = Path(STOCK_OS).read_bytes()

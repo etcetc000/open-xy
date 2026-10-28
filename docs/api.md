@@ -170,6 +170,22 @@ editing a shared control keeps the current page. Use the SDK's
 emphasis and motion. `sdk.py new` supplies it by default. Macro Osc is the
 [worked reference](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json).
 
+A paged synth can reserve Shift + one encoder for an enum selector (SDK 1.5):
+
+```json
+"shift": {"parameter": "model", "normal": "output"}
+```
+
+`parameter` names one of the first four saved parameters and must be an enum.
+`normal` names its alternate at the same encoder position. Normal turns edit
+that alternate on both pages; Shift + that encoder edits the enum, one choice
+per detent. Pressing any encoder still switches the other page controls.
+Shift + the other three encoders retains fine adjustment. This changes no
+saved slot, default, automation destination or audio parameter order. Draw the
+shared normal control in both header rows, and keep the selector visible in
+the machine artwork. In a browser preview its slider is labelled `SHIFT +`;
+editing the selector or shared normal control keeps the active page.
+
 On instrument tracks, the Value, Random and Element LFOs can target every
 declared parameter of a custom synth or sample engine, including all eight
 when present. Destination names follow parameter order regardless of which
@@ -485,7 +501,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.4 and builds 1.0 to 1.4 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.5 and builds 1.0 to 1.5 machines |
 | `kind` | `synth`, `sample` or `effect` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `identity` | The numbers it asks for: `{"engine": n, "page": p}`, or `{"effect": n, "page": 21}` for an effect; see below |

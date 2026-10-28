@@ -28,7 +28,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'sources', 'includ
 # its tempo (resources.transport) and division captions; 1.3 the machine's own presets,
 # a press that switches a synth's whole page and up to 16 display text slots.
 # 1.4 adds the reusable header and partial second pages sharing unassigned controls.
-SDK_VERSION = (1, 4)
+# 1.5 adds an opt-in Shift enum selector with a shared normal-turn control.
+SDK_VERSION = (1, 5)
 # Builder card glyph: SVG path data in a 46 x 48 box, drawn as a stroke.
 ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
 # A machine's own presets (machine.json `presets`): <name>.json files the builder
@@ -209,6 +210,8 @@ def machine_at(root, identity=None):
     icon = value.get('icon', '')
     require(icon == '' or isinstance(icon, str) and ICON.fullmatch(icon), 'icon is SVG path data')
     definition = validate_definition(json.loads((root / 'definition.json').read_text(encoding='utf-8')), kind)
+    if 'shift' in definition:
+        require_sdk(version, (1, 5), 'A Shift selector')
     if 'bufferBytes' in definition['resources']:
         require_sdk(version, (1, 2), 'An effect buffer (bufferBytes)')
     if definition['resources'].get('transport'):

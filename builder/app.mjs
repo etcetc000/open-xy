@@ -3,7 +3,7 @@ import * as Wizard from './wizard.mjs';
 import * as Retained from '../sdk/browser/display.mjs';
 import * as Visuals from './visuals.mjs';
 import {Audition} from './audition.mjs';
-import {editedShown, shownControls} from '../sdk/browser/controls.mjs';
+import {controlPages, editedShown, shownControls} from '../sdk/browser/controls.mjs';
 import {supportsDeviceApis} from './browser.mjs';
 
 const $ = id => document.getElementById(id);
@@ -254,7 +254,7 @@ async function inspect(id) {
       const header = document.createElementNS(ns, 'g');
       canvas.append(header, renderer.root); $('art-preview').replaceChildren(canvas);
       // Eight parameter words; each control position shows the parameter last edited there.
-      const parameters = Object.assign(Array(8).fill(0), m.preview.defaults), shown = [0, 1, 2, 3];
+      const parameters = Object.assign(Array(8).fill(0), m.preview.defaults), shown = controlPages(m.positions, m.shift)[0];
       let serial = 0, previous = 0, handle, cancelled = false;
       const noteActivity = new Retained.NoteActivity();
       // A small keyboard from middle C: a key plays its note while held. The preview plays
@@ -316,7 +316,7 @@ async function inspect(id) {
         input.value = String(parameters[i] / 0x7fffffff * 1000); input.setAttribute('aria-label', name + ' preview');
         input.oninput = () => {
           parameters[i] = Math.round(Number(input.value) / 1000 * 0x7fffffff);
-          shown.splice(0, 4, ...editedShown(shown, m.positions, i, m.pages));
+          shown.splice(0, 4, ...editedShown(shown, m.positions, i, m.pages, m.shift));
           frame(0); audio.setParameters(parameters);
         };
         label.append(input); return label;

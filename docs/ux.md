@@ -21,8 +21,11 @@ is the reference for each of them.
 - **The OP-XY already modulates.** Its envelopes, LFOs, filter and FX have
   their own pages. An engine page holds the sound's own parameters, not
   another envelope, LFO or modulation amount.
-- **Fine turns are free.** Shift + turn already gives continuous controls finer
-  steps; don't build another.
+- **Fine turns are free.** Shift + turn gives continuous controls finer steps.
+  A paged synth may explicitly reserve one encoder's Shift gesture for an enum
+  selector (`shift` in [alternate controls](api.md#alternate-controls)); the other
+  three keep fine adjustment. Show that selector in the artwork, and its normal
+  control in both header rows.
 
 ## More than four controls
 

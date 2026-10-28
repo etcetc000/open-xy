@@ -15,9 +15,9 @@ if (customPreview) {
   document.querySelector('.badge').textContent = 'LOCAL AUTHORING';
   document.getElementById('preview-mode').textContent = 'Local authoring preview. This audition does not qualify a firmware build.';
 }
-import { createControls, editedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
+import { createControls, controlPages, editedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
 const controls = createControls(previewManifest.definition);
-const { definition, parameters, positions, defaults, presets, displayValue, makePatch, readPatch, validateParameters, q31 } = controls;
+const { definition, parameters, positions, shift, defaults, presets, displayValue, makePatch, readPatch, validateParameters, q31 } = controls;
 import { renderScreen as renderBase } from './screen.mjs';
 import { PreviewDisplay, SvgDisplay, NoteActivity } from '../sdk/browser/display.mjs';
 const noteActivity = new NoteActivity();
@@ -36,7 +36,7 @@ if (customPreview) {
   document.querySelector('.intro .lede').textContent = 'Edit your C++ sound and display, then rebuild to hear and see the change.';
 }
 // The parameter each control position shows: the one last edited there.
-let values = defaults(), view = VIEWS[0], octave = 3, shown = [0, 1, 2, 3];
+let values = defaults(), view = VIEWS[0], octave = 3, shown = controlPages(positions, shift)[0];
 let visualNotes = 0, display = null, scene = null, displayBackend = null;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let context, processor, gain, analyser, samples, starting;
@@ -52,11 +52,11 @@ for (const [i, param] of parameters.entries()) {
   const id = controlId(param.id);
   const item = document.createElement('div');
   item.className = 'control';
-  item.innerHTML = `<label for="${id}">${positions[i] + 1} / ${param.label}</label><svg class="dial" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="27"/><line id="dial-${id}" x1="30" y1="9" x2="30" y2="18"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${param.label}">`;
+  item.innerHTML = `<label for="${id}">${shift?.parameter === i ? 'SHIFT + ' : ''}${positions[i] + 1} / ${param.label}</label><svg class="dial" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="27"/><line id="dial-${id}" x1="30" y1="9" x2="30" y2="18"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${param.label}">`;
   $('controls').append(item);
   $(id).addEventListener('input', event => {
     values[param.id] = Number(event.target.value);
-    shown = editedShown(shown, positions, i, previewManifest.definition.press === 'page');
+    shown = editedShown(shown, positions, i, previewManifest.definition.press === 'page', shift);
     update();
   });
 }
@@ -269,7 +269,7 @@ $('file').addEventListener('change', async () => {
   } catch (error) { status(`Import rejected: ${error.message}`); }
   finally { $('file').value = ''; }
 });
-$('reset').addEventListener('click', () => { panic(); values = defaults(); shown = [0, 1, 2, 3]; update(); status('Controls reset'); });
+$('reset').addEventListener('click', () => { panic(); values = defaults(); shown = controlPages(positions, shift)[0]; update(); status('Controls reset'); });
 // Stable local automation surface: uses the same validation and note lifecycle as UI.
 window.machineLab = Object.freeze({
   getPatch: () => makePatch(values, view),
