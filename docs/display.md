@@ -195,6 +195,26 @@ Initialization, track changes and reduced motion snap to the selected page.
 The helper reads every `shown` position, including layouts whose first
 column is shared. It does not touch the machine's audio or parameter state.
 
+### Sample overview
+
+A sample engine's [own screen](api.md#own-screen) can draw its sample.
+[sample_overview.hpp](../sdk/include/opxy/sample_overview.hpp) gives display
+code `opxy_sample_overview()`, never null: the selected track's sample as the
+engine plays it.
+
+| Field | Contract |
+| --- | --- |
+| `assigned` | 0 while the track holds no sample: say how to load one |
+| `loaded` | 0 until every peak has been read, while the sample loads and for a few frames after |
+| `frames`, `rate` | The whole sample's length and rate; 0 until it loads |
+| `peaks` | 64 bins of equal length across the whole sample, each its largest magnitude, 0..255 |
+| `begin`, `end` | The outer markers, in frames, as the engine plays them |
+
+The SDK reads a bounded slice of the sample before each frame of the screen,
+so a long sample fills in over a few frames. Audio callbacks never call it.
+In the browser preview it stays empty unless the host writes one through the
+`opxy_display_sample` export.
+
 ## Artwork
 
 Elements bind by index and the machine's symbol prefix:

@@ -305,6 +305,8 @@ a press switches between the first four controls and the second four, Shift
 turns a continuous control in fine steps, an enum steps one choice per detent,
 and edits are saved like a synth's. The engine plays the
 sample between its outer markers; inner loop markers do not narrow it.
+Display code can draw the sample from its
+[overview](display.md#sample-overview).
 
 ### Services
 

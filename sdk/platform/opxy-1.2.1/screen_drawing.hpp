@@ -7,6 +7,8 @@
 #include "note_activity.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
+// Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
+extern "C" void sdk_sample_overview_update(opxy::u32) __asm__("sdk_sample_overview_update");
 
 namespace opxy { namespace screen { namespace {
 // One typed GUI state, input and frame; never accessed by audio callbacks.
@@ -123,6 +125,8 @@ template <class Machine> struct Drawing {
         display_input.track = controls.track;
         display_input.note_serial = controls.track < 8 ? note_serial(controls.track) : 0;
         sdk_display_note_activity(controls.track, &display_input);
+        // A sample engine's own screen reads its sample (opxy_sample_overview).
+        if (Machine::sample) sdk_sample_overview_update(controls.track);
         display_input.reduced_motion = 0;
         binding::display_render(&display_state, &display_input, &display_frame);
         if (!binding::display_valid(&display_frame)) return;

@@ -46,7 +46,7 @@ class SampleServices(unittest.TestCase):
                 else:
                     from tooling.benchmark import generate
                     generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
-            if name in ('sample_callbacks', 'benchmark', 'startup'):
+            if name in ('sample_callbacks', 'benchmark', 'startup', 'sample_overview'):
                 # Exercise the real tempo readers and assignment bridge with
                 # host addresses standing in for stock functions and globals.
                 stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
@@ -56,6 +56,9 @@ class SampleServices(unittest.TestCase):
                     stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                           'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
                 (Path(folder) / 'stock.hpp').write_text(stock)
+                if name == 'sample_overview':   # beside the host stock.hpp, which its quoted include then finds
+                    (Path(folder) / 'sample_overview.cpp').write_text(
+                        (ROOT / 'sdk/platform/opxy-1.2.1/sample_overview.cpp').read_text())
             if name == 'screen_order':
                 generate_screen_order(folder)
             if name == 'screen_drawing':
@@ -85,6 +88,9 @@ class SampleServices(unittest.TestCase):
 
     def test_saved_settings_tuning_and_trim_bounds(self):
         self.run_fixture("stock_sample")
+
+    def test_overview_reads_a_bounded_slice_a_frame_and_releases_what_it_borrows(self):
+        self.run_fixture('sample_overview')
 
     def test_callbacks_work_for_another_engine_and_preserve_stock_fields(self):
         self.run_fixture('sample_callbacks', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
