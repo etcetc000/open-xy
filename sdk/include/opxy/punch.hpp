@@ -43,6 +43,18 @@ struct Overrides {
 const u32 parameter_pan = 38;     // Q31, 0 left .. 1 right
 const u32 parameter_level = 39;   // Q31; 0 is silent
 
+// A flip-dot animation for the punch-in screen. Each frame is 40 x 18 dots,
+// row by row from the top left, one bit per dot, least significant bit first
+// (90 bytes). The screen advances one frame per refresh and loops. Make one
+// from a PNG strip with tooling/punch_animation.py.
+const u32 flipdot_columns = 40, flipdot_rows = 18, flipdot_frame_bytes = 90;
+struct Animation {
+    const u8* const* frames;
+    u32 reserved;   // 0
+    u32 count;
+};
+static_assert(sizeof(Animation) == 12, "Stock animation record");
+
 struct Effect {
     u8 key;   // 0..11: F, F#, G ... E
     // Each sequencer tick and at each note start, per targeted track.
@@ -52,6 +64,9 @@ struct Effect {
     // Per track step while the track plays; replace step to play another step
     // of the pattern instead, and return true when it did.
     bool (*step)(const Context& context, i32& step);
+    // The screen's animation while the key is held on the punch-in track's
+    // drum (low) and melodic (high) octave; null keeps stock's.
+    const Animation* animations[2];
 };
 }}
 

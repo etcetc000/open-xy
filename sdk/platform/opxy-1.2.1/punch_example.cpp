@@ -3,7 +3,9 @@
 //   F  (stock mute)    -> octave, as stock A#
 //   C# (stock cut)     -> stutter, as stock F#
 //   D# (stock cut 2)   -> step hold from the punch-in track, as stock G
+// Each shows its own flip-dot animation, drawn in punch_example/*.png.
 #include <opxy/punch.hpp>
+#include "punch_example/animations.hpp"
 
 namespace {
 using namespace opxy;
@@ -40,9 +42,9 @@ bool hold(const Context& context, i32& step) {
     return true;
 }
 
-const Effect octave_effect{0, nullptr, octave, nullptr};
-const Effect stutter_effect{8, stutter, nullptr, nullptr};
-const Effect hold_effect{10, nullptr, nullptr, hold};
+const Effect octave_effect{0, nullptr, octave, nullptr, {&rise_dots, &fall_dots}};
+const Effect stutter_effect{8, stutter, nullptr, nullptr, {&stutter_dots, &stutter_dots}};
+const Effect hold_effect{10, nullptr, nullptr, hold, {&hold_dots, &hold_dots}};
 }
 
 extern "C" const Effect* const sdk_punch_effects[] = {&octave_effect, &stutter_effect, &hold_effect};

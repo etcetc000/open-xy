@@ -1030,6 +1030,16 @@
       "call": true
     },
     {
+      "kind": "hook",
+      "name": "Punch-in FX flip-dot animation choice",
+      "address": "0x8d554bd2",
+      "file_offset": "0x18be2e",
+      "length": 4,
+      "before": "ffe387ff",
+      "symbol": "sdk_punch_animation",
+      "call": true
+    },
+    {
       "kind": "text",
       "name": "MTP path allowlist: project companion (.oxy) beside each project (.xy)",
       "address": "0x840ae494",

@@ -23,6 +23,11 @@ const u32 kStepRemap = 0x8d58c84c;     // (sequencer, track, step*) -> remapped
 const u32 kOverride = 0x8d58c5b8;      // (track, parameter, value, overrides)
 const u32 kMelodic = 0x8d587830;       // (track) -> nonzero unless a drum engine
 const u32 kBend = 0x8d58c9e4;          // () -> stock's punch-in modulation
+// The flip-dot screen picks the latest note held on the punch-in track, maps it
+// to one of 24 key positions (the drum octave's twelve, then the melodic
+// octave's) and plays that position's animation from this table.
+const u32 kAnimation = 0x8d554ae0;     // (node) -> animation record
+const u32 kAnimations = 0x8406c4c8;    // 24 animation record pointers
 const u32 kMaskOffset = 0xc;
 const u32 kGroups = 10;
 const u32 kDrumGroup = 8, kMelodicGroup = 9;
@@ -75,6 +80,7 @@ void sdk_punch_mask(void* sequencer) __asm__("sdk_punch_mask");
 void sdk_punch_track(void* sequencer, u32 track, i32 bend, void* overrides) __asm__("sdk_punch_track");
 void sdk_punch_note(void* sequencer, u32 track, u32 unused, u8* event, u32 generated) __asm__("sdk_punch_note");
 u32 sdk_punch_step(void* sequencer, u32 track, i32* step) __asm__("sdk_punch_step");
+const punch::Animation* sdk_punch_animation(void* node) __asm__("sdk_punch_animation");
 }
 
 void sdk_punch_override(u32 track, u32 parameter, i32 value, void* store) {
@@ -129,4 +135,16 @@ u32 sdk_punch_step(void* sequencer, u32 track, i32* step) {
         }))
         remapped = 1;
     return remapped;
+}
+
+// Stock's animation choice, replaced by an effect's own for the keys it owns.
+const punch::Animation* sdk_punch_animation(void* node) {
+    const punch::Animation* chosen = stock<const punch::Animation*(void*)>(kAnimation)(node);
+    for (u32 position = 0; position < 2 * kKeys; ++position) {
+        if (word(kAnimations + 4 * position) != reinterpret_cast<Address>(chosen)) continue;
+        const punch::Effect* effect = effect_for(position % kKeys);
+        const punch::Animation* own = effect ? effect->animations[position / kKeys] : nullptr;
+        return own ? own : chosen;
+    }
+    return chosen;
 }

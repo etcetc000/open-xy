@@ -41,7 +41,7 @@ version is rejected. The output differs from stock in exactly these places:
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 5 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, and shows companions beside projects over MTP |
-| Punch-in FX | 5 | Takes the keys the collection's punch-in effects own from stock's held-effect mask and runs those effects in stock's per-track, per-note and step passes, on the tracks stock targets |
+| Punch-in FX | 6 | Takes the keys the collection's punch-in effects own from stock's held-effect mask and runs those effects in stock's per-track, per-note and step passes, on the tracks stock targets; shows their flip-dot animations |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
@@ -649,6 +649,14 @@ Stock's passes, and the SDK's hooks on each
   a generated copy. The effects' `note` runs after it.
 - **Step remap** (`8d58c84c`, called by the track player at `11a0ab40`):
   rewrites the step a track plays. The effects' `step` runs after it.
+- **Flip-dot animation** (`8d554ae0`, called by the punch-in screen's dot
+  display at `8d554bd2`): picks the latest note held on the punch-in track, maps
+  it to one of 24 key positions (the drum octave's twelve keys from F, then the
+  melodic octave's) and returns that position's animation from the table at
+  `8406c4c8`, or an idle one. A record is a frame-pointer array, a zero word and
+  a frame count; each frame is 40 x 18 dots, one bit each, row by row, 90
+  bytes. The display shows one frame per refresh and loops. For a key an effect
+  owns, the SDK returns the effect's animation for that octave, if it has one.
 
 Effects follow [`opxy/punch.hpp`](../sdk/include/opxy/punch.hpp). The examples
 in [`punch_example.cpp`](../sdk/platform/opxy-1.2.1/punch_example.cpp) rebuild
