@@ -663,6 +663,24 @@
       "kind": "synth",
       "maintainer": "mmockett",
       "status": "reserved"
+    },
+    {
+      "id": "ohmonk",
+      "kind": "synth",
+      "maintainer": "hatchman",
+      "status": "published",
+      "repository": "https://github.com/hatchman/open-xy-ohmonk",
+      "tag": "v1.0.0",
+      "commit": "3bcd475411398576f07434501846bb258abbe29b",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "3bcd475411398576f07434501846bb258abbe29b",
+        "firmware_sha256": "2359dffe85fd5ceca0795fb257165776c200a3b0229ff4ea834242ed70c36282",
+        "runs": 3,
+        "block_percent": 2.644388,
+        "report": "https://github.com/hatchman/open-xy-ohmonk/releases/tag/v1.0.0"
+      }
     }
   ]
 }
