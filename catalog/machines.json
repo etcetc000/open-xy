@@ -372,6 +372,24 @@
         "runs": 3,
         "block_percent": 4.910353
       }
+    },
+    {
+      "id": "ringsxy",
+      "kind": "synth",
+      "maintainer": "Lapin",
+      "status": "published",
+      "repository": "https://github.com/Lapin/open-xy-rings-xy",
+      "tag": "v1.0.3",
+      "commit": "4ff032299746f081cef79b1fce532e5c0b38b926",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "4ff032299746f081cef79b1fce532e5c0b38b926",
+        "firmware_sha256": "4f2072776e84b7e86aa3eec73bfcb6dc740e83cadfca62fbd858717d82976f64",
+        "runs": 3,
+        "block_percent": 1.56405,
+        "report": "https://github.com/Lapin/open-xy-rings-xy/issues/2"
+      }
     }
   ]
 }
