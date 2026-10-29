@@ -232,6 +232,15 @@ side; no audio callback or cross-role publication is added. The two calls are
 authenticated profile edits. Other stock instructions and note routing remain
 unchanged. This reports stock note activity, not audio-envelope state.
 
+The amp envelope comes from stock's GUI getter `8d4d7680(track)`, which
+returns a vector of the track's parameter words 8..15, read like words 0..7 by
+the parameter getter at `8d4d72a8`
+([`amp_envelope.hpp`](../sdk/platform/opxy-1.2.1/amp_envelope.hpp)). Stock's
+envelope page (frame `8d5292bc`, layout `8d527fdc`) draws words 8..11 as the
+amp attack, decay, sustain and release, reading them through `8d4d7458(track, 8)`
+as floats; the filter envelope starts at word 32. The screen reads the first
+four words of a bounds-checked vector on instrument tracks only, and adds no hook.
+
 Stock paints the screen slots in ascending page order each frame, so page
 numbers are layers. The compositor's loop advance is hooked: when the selected
 page is an owned synth's, it is painted right after slot 0, beneath stock

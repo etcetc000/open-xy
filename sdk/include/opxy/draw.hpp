@@ -51,6 +51,10 @@ struct Frame {
     Text texts[Texts > 0 ? Texts : 1];
     char header[page_controls][header_capacity];
 };
+// The track's stock amplitude envelope as Q31 words, 0..0x7fffffff, on the
+// scale of slots: a larger attack, decay or release is a longer stage, as
+// stock's envelope page draws it. These are control positions, not times.
+struct Envelope { i32 attack, decay, sustain, release; };
 struct Input {
     i32 parameters[page_controls];
     i32 elapsed;             // Q10 seconds; the author clamps late/invalid frames.
@@ -61,13 +65,18 @@ struct Input {
     i32 slots[parameter_slots];  // Every declared parameter's value, 0 beyond the declared ones.
     u32 held_notes;          // Distinct gated MIDI pitches, 0..128; notes_unavailable if unknown.
     u32 note_off_serial;     // Gate closures, excluding duplicate releases and audio release tails.
+    Envelope amp;            // Every word envelope_unavailable if unknown.
 };
 const u32 notes_unavailable = 0xffffffffu;
-static_assert(sizeof(Input) == 76 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
+const i32 envelope_unavailable = -1;
+inline bool envelope_known(const Envelope& envelope) {
+    return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
+}
+static_assert(sizeof(Input) == 92 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
-              __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72,
-              "Drawing input layout (display.mjs)");
+              __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72 &&
+              __builtin_offsetof(Input, amp) == 76, "Drawing input layout (display.mjs)");
 static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (display.mjs)");
 
 // Store a zero-initialized NoteTracker in DisplayState. Events describe changes

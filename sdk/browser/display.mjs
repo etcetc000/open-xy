@@ -3,8 +3,10 @@
 import { inputWords } from './controls.mjs';
 
 // draw::Input: parameters[4], elapsed, track, note_serial, reduced_motion,
-// shown[4 bytes], slots[8], held_notes, note_off_serial. ABI 1 ends after slots.
-const INPUT_BYTES = 76;
+// shown[4 bytes], slots[8], held_notes, note_off_serial, amp (attack, decay,
+// sustain, release). ABI 1 ends after slots, ABI 2 after note_off_serial.
+const INPUT_BYTES = { 1: 68, 2: 76, 3: 92 };
+const ENVELOPE = ['attack', 'decay', 'sustain', 'release'];
 const integer = (value, low, high, name) => {
   if (!Number.isInteger(value) || value < low || value > high) throw new Error(`Invalid ${name}`);
   return value;
@@ -79,8 +81,9 @@ export class PreviewDisplay {
     this.api = new WebAssembly.Instance(module).exports;
     const e = this.api;
     const abi = e.opxy_display_abi(), inputBytes = e.opxy_display_input_bytes();
-    if (!(abi === 1 && inputBytes === 68 || abi === 2 && inputBytes === INPUT_BYTES)) throw new Error('Unsupported drawing ABI');
-    this.noteActivity = abi === 2;
+    if (!Object.hasOwn(INPUT_BYTES, abi) || inputBytes !== INPUT_BYTES[abi]) throw new Error('Unsupported drawing ABI');
+    this.noteActivity = abi >= 2;
+    this.envelope = abi >= 3;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
     // Largest declared frame: 4 paths of 64 points, 256 nodes, 16 texts and the header.
     const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 16 * 36 + 32, 'drawing frame size');
@@ -101,8 +104,9 @@ export class PreviewDisplay {
     this.reset();
   }
   reset() { this.api.opxy_display_reset(); }
-  // input: shownControls(words, shown) from controls.mjs.
-  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null) {
+  // input: shownControls(words, shown) from controls.mjs. amp: the track's amp
+  // envelope, {attack, decay, sustain, release} Q31 words; null when unknown.
+  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, amp = null) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -111,9 +115,11 @@ export class PreviewDisplay {
     integer(track, 0, 0xffffffff, 'track identity');
     const held = activity === null ? 0xffffffff : integer(activity.held_notes, 0, 128, 'held note count');
     const released = activity === null ? 0 : integer(activity.note_off_serial, 0, 0xffffffff, 'note-off serial');
+    const envelope = ENVELOPE.map(stage => amp === null ? 0xffffffff : integer(amp[stage], 0, 0x7fffffff, `amp ${stage}`));
     if (this.api.memory.buffer !== this.memory) throw new Error('Display memory changed');
     this.input.set([p0, p1, p2, p3, elapsed >>> 0, track, serial, Number(reducedMotion), shown, ...slots]);
     if (this.noteActivity) this.input.set([held, released], 17);
+    if (this.envelope) this.input.set(envelope, 19);
     this.api.opxy_display_render();
     if (this.api.opxy_display_valid() !== 1) throw new Error('Display emitted an invalid drawing frame');
     return this.frame;
