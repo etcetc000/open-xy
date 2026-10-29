@@ -131,7 +131,8 @@ class PackageVerification(unittest.TestCase):
         displays = [m.native_name for m in self.linked if m.display != 'stock']
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
-        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays})
+        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json', 'content/display/open-xy-arranger.svg'} |
+                         {f'content/display/{n}.svg' for n in displays})
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',

@@ -47,6 +47,8 @@ def check_patch_boundaries(profile, count):
     for patch in profile['patches']:
         kind = patch.get('kind')
         require(kind in PATCH_KINDS, 'Unknown edit kind')
+        require('encoding' not in patch or (kind == 'hook' and patch['encoding'] in ('pointer', 'absolute_jump')),
+                'Unknown hook encoding')
         start = int(patch['address'], 16)
         before = bytes.fromhex(patch['before'])
         end = start + len(before)
@@ -70,6 +72,12 @@ def check_patch_boundaries(profile, count):
         if kind == 'hook':
             require(isinstance(patch.get('symbol'), str) and patch['symbol'] and type(patch.get('call')) is bool,
                     'A hook names its module symbol and call/jump form')
+            if patch.get('encoding') == 'pointer':
+                require(patch['length'] == 4 and start % 4 == 0 and patch['call'] is False,
+                        'Invalid pointer hook')
+            if patch.get('encoding') == 'absolute_jump':
+                require(patch['length'] in (8, 10, 12) and start % 2 == 0 and patch['call'] is False,
+                        'Invalid absolute jump hook')
         # Protected code is only ever redirected into the module by a hook whose
         # destination the build verifies, or by the separately reviewed startup label.
         require(kind != 'startup' or startup_label_allowed(profile, patch), 'Unexpected startup label edit')

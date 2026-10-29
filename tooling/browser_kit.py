@@ -120,7 +120,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                extensions=extensions.metadata(native.extensions_of(machines),
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
-               screenTemplate=screen.template().decode('utf-8'))
+               screenTemplate=screen.template().decode('utf-8'),
+               arrangerSvg=read(ROOT / native.TEMPLATES / 'arranger.svg').decode('utf-8'))
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves

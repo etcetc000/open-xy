@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, redirect, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+
+test('pointer hooks validate their footprint and destination', () => {
+  const edit = {kind:'hook', encoding:'pointer', address:0x0803fdf8, length:4, call:false};
+  assert.deepEqual([...redirect(edit, 0x8d2d1234)], [0x34, 0x12, 0x2d, 0x8d]);
+  for (const change of [{call:true}, {length:8}, {address:0x0803fdfa}, {encoding:'unknown'}])
+    assert.throws(() => redirect({...edit, ...change}, 0x8d2d1234));
+  for (const target of [-2, 0x100000000, 0x8d2d1235])
+    assert.throws(() => redirect(edit, target));
+});
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {

@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '97aa5272738562e9e67604631b382f356cbca1f3f69daa837e22139d55232622';
+export const PROFILE_SHA256 = '270d1d3cf9f57be0746074df452daa1a674da36709245c2970656859c273d91b';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -527,6 +527,20 @@ export function redirect(edit, destination) {
     return words(0xdc00, destination >>> 16, destination & 0xffff, 0, 0);
   }
   check(edit.kind === 'hook' && typeof edit.call === 'boolean', 'Not a hook');
+  check(edit.encoding === undefined || ['pointer', 'absolute_jump'].includes(edit.encoding), 'Unknown hook encoding');
+  if (edit.encoding === 'pointer') {
+    check(edit.length === 4 && Number(edit.address) % 4 === 0 && edit.call === false, 'Invalid pointer hook');
+    const after = new Uint8Array(4);
+    view(after).setUint32(0, destination, true);
+    return after;
+  }
+  if (edit.encoding === 'absolute_jump') {
+    check([8, 10, 12].includes(edit.length) && Number(edit.address) % 2 === 0 && edit.call === false,
+      'Invalid absolute jump hook');
+    const after = new Uint8Array(edit.length);
+    after.set(words(0xdc00, destination >>> 16, destination & 0xffff, 0));
+    return after;
+  }
   if (edit.length === 8 || edit.length === 12) {
     check(edit.call, 'Wide hook must be a call');
     const after = new Uint8Array(edit.length);
@@ -775,6 +789,12 @@ export async function buildAssets(kit, selection, catalog, numbers) {
     expected[key] = [...base[key], ...group.map(m => JSON.parse(catalogEntry(m, numbers).trim().replace(/^,/, '')))];
   check(JSON.stringify(JSON.parse(text)) === JSON.stringify(expected), 'Unexpected catalog modification');
   const files = {'content/op1_factory.json': extended};
+  if (kit.profile.arranger_svg_sha256) {
+    check(typeof kit.arrangerSvg === 'string' &&
+      await sha256(utf8.encode(kit.arrangerSvg)) === kit.profile.arranger_svg_sha256,
+      'Arranger artwork differs from reviewed asset');
+    files['content/display/open-xy-arranger.svg'] = utf8.encode(kit.arrangerSvg);
+  }
   for (const machine of machines)
     for (const [path, preset] of Object.entries(presetFiles(machine)))
       files[path] = utf8.encode(JSON.stringify(preset, null, 2) + '\n');

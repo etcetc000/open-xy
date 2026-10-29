@@ -28,6 +28,8 @@ int second_screen_register() { calls += "second-page "; return 1; }
 int effect_fx_register() { calls += "effect "; return 1; }
 u32 stock_gui_role() { calls += "role "; return gui; }
 u32 stock_catalog_insert(void*, const void*, u32 id) { inserted = id; return 7; }
+void sdk_arranger_screen_startup() { calls += "arranger-page "; }
+int sdk_arranger_screen_owned(u32 page) { return page == 127; }
 
 static u32 catalog(const char* name, u32 id) {
     named = name; inserted = 0; calls.clear();
@@ -44,10 +46,10 @@ int main() {
     // GUI role: each own page guards only its own engine; stock pages need none.
     calls.clear();
     sdk_startup_screen();
-    require(calls == "first-page first second-page second sampled ");
+    require(calls == "first-page first second-page second sampled arranger-page ");
     calls.clear(); screens = false;
     sdk_startup_screen();
-    require(calls == "first-page second-page second sampled ");
+    require(calls == "first-page second-page second sampled arranger-page ");
 
     const u32 first = value(first_engine_id), second = value(second_engine_id);
     // Own names need their expected ID and current readiness.

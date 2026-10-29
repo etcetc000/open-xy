@@ -9,7 +9,7 @@ import subprocess
 import unittest
 
 from tooling import startup_label
-from tooling.firmware import hook_instruction, hooks
+from tooling.firmware import hook_instruction, hook_target, hooks
 from tooling.machines import check_identity, check_request
 from tooling.pipeline import ROOT, config
 
@@ -89,6 +89,74 @@ class ProfileParity(unittest.TestCase):
                                  hook_instruction(edit, target)).hex())
         self.assertEqual(browser(dict(rules=self.profile['identities'], identities=[], redirects=requests))['redirects'],
                          expected)
+
+    def test_general_continuation_allows_only_authenticated_absolute_tail(self):
+        from tooling.arranger import checked_ranges, general_row_bytes
+        symbols = {name: dict(value=value, type=2, size=0) for name, value in
+                   [('hook', 0x1000), ('sdk_hook_save', 0x1100),
+                    ('sdk_arranger_general_rows', 0x1200), ('sdk_hook_restore', 0x1300)]}
+        code = general_row_bytes(0x1000, symbols)
+        self.assertEqual(len(code), 38)
+        symbols['hook']['size'] = len(code)
+        profile = dict(module_base=0x1000, patches=[dict(symbol='hook', general_rows=True)])
+        text = dict(address=0x1000, size=len(code))
+        self.assertEqual(checked_ranges(profile, code, symbols, text), [(0x1016, 0x1026)])
+        for offset in (4, 8, 12, 20, 22, 30, 37):
+            bad = bytearray(code)
+            bad[offset] ^= 1
+            with self.assertRaises(ValueError):
+                checked_ranges(profile, bad, symbols, text)
+        symbols['hook']['size'] += 2
+        with self.assertRaises(ValueError):
+            checked_ranges(profile, code + b'\0\0', symbols, dict(address=0x1000, size=len(code)+2))
+
+    def test_pointer_redirect_preserves_full_address(self):
+        edit = dict(kind='hook', encoding='pointer', address='0x0803fdf8', length=4, call=False)
+        target = 0x8d2d1234
+        encoded = hook_instruction(edit, target)
+        self.assertEqual(encoded.hex(), '34122d8d')
+        self.assertEqual(hook_target(edit, encoded), (target, False))
+        self.assertEqual(browser(dict(rules={}, identities=[], redirects=[(edit, target)]))['redirects'],
+                         [encoded.hex()])
+        for changes in (dict(call=True), dict(length=8), dict(address='0x0803fdfa'), dict(encoding='unknown')):
+            with self.assertRaises(ValueError):
+                hook_instruction(dict(edit, **changes), target)
+            with self.assertRaises(ValueError):
+                hook_target(dict(edit, **changes), encoded)
+        with self.assertRaises(ValueError):
+            hook_instruction(edit, target + 1)
+        with self.assertRaises(ValueError):
+            hook_target(edit, b'\x01\x00\x00\x00')
+
+    def test_absolute_jump_padding_and_form_are_checked(self):
+        for length in (8, 10, 12):
+            edit = dict(kind='hook', encoding='absolute_jump', address='0x8c000000', length=length, call=False)
+            code = hook_instruction(edit, 0x8d2d1234)
+            self.assertEqual(code[:8].hex(), '00dc2d8d34120000')
+            self.assertEqual(hook_target(edit, code), (0x8d2d1234, False))
+            for at in (0, length - 1):
+                changed = bytearray(code)
+                changed[at] ^= 1
+                with self.assertRaises(ValueError):
+                    hook_target(edit, changed)
+            with self.assertRaises(ValueError):
+                hook_instruction(dict(edit, call=True), 0x8d2d1234)
+
+    def test_stock_continuations_are_verified_byte_for_byte(self):
+        from tooling.arranger import checked_ranges, trampoline_bytes
+        profile = dict(module_base=0x1000, patches=[dict(address='0x8000', before='00e80000', trampoline='stock_test')])
+        code = trampoline_bytes(profile['patches'][0])
+        symbols = dict(stock_test=dict(value=0x1000, size=len(code), type=2))
+        text = dict(address=0x1000, size=len(code))
+        self.assertEqual(checked_ranges(profile, code, symbols, text), [(0x1000, 0x1000 + len(code))])
+        for at in (0, len(code) - 1):
+            changed = bytearray(code)
+            changed[at] ^= 1
+            with self.assertRaises(ValueError):
+                checked_ranges(profile, changed, symbols, text)
+        for value in (0x1000 - len(code), 0x1002):
+            with self.assertRaises(ValueError):
+                checked_ranges(profile, code * 2, dict(stock_test=dict(value=value, size=len(code), type=2)), text)
 
 
     def test_released_open_xy_os_remains_recoverable(self):

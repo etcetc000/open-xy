@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, screen, startup_label, stock_tables
+from . import arranger, benchmark, extensions, screen, startup_label, stock_tables
 from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
@@ -205,7 +205,9 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock')
+             'extension_runtime', 'extension_collection', 'extension_stock',
+             'arranger_state', 'arranger_ui', 'arranger_transport', 'arranger_stock', 'arranger_project',
+             'arranger_bounce', 'arranger_bounce_remote', 'arranger_bounce_job', 'arranger_bounce_destination')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -364,6 +366,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
+            if step == 'arranger_stock':
+                return assemble_unit(arranger.generate(folder, profile), obj)
             if step == 'benchmark':
                 return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
             if step.startswith('extension:'):
@@ -576,9 +580,11 @@ def check_module(directory, tools, profile, machines, profiling=True):
     # The startup label thunk uses Blackfin+ absolute CALL/JUMP forms objdump
     # cannot decode; its exact bytes are checked against the stock targets.
     label = symbols[startup_label.SYMBOL]
+    verified_ranges = arranger.checked_ranges(profile, module, symbols, allocated['.text'])
+    verified_ranges.append((label['value'], label['value'] + label['size']))
     undecoded = [int(line.split(':')[0], 16) for line in disassembly.splitlines()
                  if 'ILLEGAL' in line and re.match(r'\s*[0-9a-f]+:', line)]
-    require(all(label['value'] <= at < label['value'] + label['size'] for at in undecoded) and
+    require(all(any(begin <= at < end for begin, end in verified_ranges) for at in undecoded) and
             'R_BFIN_' not in disassembly, 'Invalid or unresolved instructions')
     require(startup_label.thunk_ok(read(directory / 'module.bin'), label['value'] - profile['module_base'],
                                    label['size'], symbols['kit_startup_label_text']['value']),
@@ -738,6 +744,9 @@ def extend_catalog(catalog, profile, machines):
 def prepare_assets(catalog, profile, machines):
     require(sha(catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     outputs = {'content/op1_factory.json': extend_catalog(catalog, profile, machines)}
+    artwork = read(ROOT / TEMPLATES / 'arranger.svg')
+    require(sha(artwork) == profile['arranger_svg_sha256'], 'Arranger artwork differs from reviewed asset')
+    outputs['content/display/open-xy-arranger.svg'] = artwork
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))

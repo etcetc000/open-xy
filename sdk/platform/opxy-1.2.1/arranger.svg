@@ -1,0 +1,191 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220">
+<rect width="480" height="220" fill="#000000"/>
+<path id="lanehighlight" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#333333"/>
+<path id="bargrid0" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid1" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid2" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid3" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid4" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid5" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid6" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid7" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid8" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid9" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid10" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid11" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid12" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid13" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid14" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid15" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="bargrid16" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
+<path id="selection" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#ffffff"/>
+<text id="title" transform="matrix(1 0 0 1 12 18)" fill="#dddddd" font-family="UniversNextPro-Light" font-size="14px">VEFF'S LINEAR WORKFLOW</text>
+<text id="position" transform="matrix(1 0 0 1 260 18)" fill="#dddddd" font-family="UniversNextPro-Light" font-size="10px"></text>
+<text id="lane0" transform="matrix(1 0 0 1 3 43)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">1</text>
+<path d="M 34 48 L 470 48" fill="none" stroke="#444444" stroke-width="1"/>
+<text id="lane1" transform="matrix(1 0 0 1 3 64)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">2</text>
+<path d="M 34 69 L 470 69" fill="none" stroke="#444444" stroke-width="1"/>
+<text id="lane2" transform="matrix(1 0 0 1 3 85)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">3</text>
+<path d="M 34 90 L 470 90" fill="none" stroke="#444444" stroke-width="1"/>
+<text id="lane3" transform="matrix(1 0 0 1 3 106)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">4</text>
+<path d="M 34 111 L 470 111" fill="none" stroke="#444444" stroke-width="1"/>
+<text id="lane4" transform="matrix(1 0 0 1 3 127)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">5</text>
+<path d="M 34 132 L 470 132" fill="none" stroke="#444444" stroke-width="1"/>
+<text id="lane5" transform="matrix(1 0 0 1 3 148)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">6</text>
+<path d="M 34 153 L 470 153" fill="none" stroke="#444444" stroke-width="1"/>
+<text id="lane6" transform="matrix(1 0 0 1 3 169)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">7</text>
+<path d="M 34 174 L 470 174" fill="none" stroke="#444444" stroke-width="1"/>
+<text id="lane7" transform="matrix(1 0 0 1 3 190)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">8</text>
+<path d="M 34 195 L 470 195" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="clip0" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip1" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip2" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip3" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip4" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip5" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip6" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip7" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip8" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip9" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip10" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip11" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip12" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip13" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip14" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip15" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip16" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip17" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip18" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip19" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip20" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip21" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip22" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip23" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip24" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip25" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip26" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip27" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip28" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip29" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip30" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip31" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip32" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip33" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip34" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip35" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip36" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip37" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip38" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip39" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip40" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip41" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip42" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip43" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip44" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip45" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip46" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip47" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip48" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip49" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip50" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip51" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip52" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip53" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip54" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip55" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip56" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip57" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip58" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip59" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip60" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip61" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip62" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<path id="clip63" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
+<text id="cliplabel0" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel1" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel2" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel3" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel4" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel5" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel6" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel7" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel8" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel9" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel10" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel11" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel12" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel13" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel14" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel15" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel16" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel17" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel18" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel19" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel20" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel21" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel22" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel23" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel24" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel25" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel26" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel27" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel28" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel29" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel30" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel31" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel32" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel33" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel34" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel35" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel36" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel37" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel38" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel39" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel40" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel41" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel42" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel43" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel44" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel45" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel46" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel47" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel48" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel49" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel50" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel51" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel52" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel53" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel54" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel55" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel56" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel57" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel58" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel59" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel60" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel61" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel62" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<text id="cliplabel63" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="10px">A</text>
+<path id="loopband" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" fill="#aaaaaa"/>
+<path id="playhead" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" fill="#555555"/>
+<path id="cursor" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" fill="#ffffff"/>
+<text id="controls" transform="matrix(1 0 0 1 12 205)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="12px">E1 CURSOR  E2 ZOOM  E3 MOVE  E4 LENGTH/EDIT</text>
+<text id="feedback" transform="matrix(1 0 0 1 12 218)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="10px">PLUS ADD / MINUS DELETE</text>
+<path id="menubackground" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#000000"/>
+<path id="menuhighlight" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#333333"/>
+<text id="menurow0" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menudisabled0" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menurow1" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menudisabled1" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menurow2" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menudisabled2" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menurow3" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menudisabled3" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menurow4" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menudisabled4" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menurow5" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menudisabled5" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menurow6" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menudisabled6" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menurow7" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menudisabled7" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+</svg>
