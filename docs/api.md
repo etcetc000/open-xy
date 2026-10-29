@@ -94,7 +94,8 @@ host does fast and the Blackfin does not:
 - **Division** has no hardware instruction and costs tens of cycles on the
   device. Divide once per block, or use a table or a reciprocal.
 - **Floating point** has no hardware either. Keep audio in integers;
-  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers.
+  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
+  saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
 - **64-bit arithmetic** has no runtime helpers in the module: keep products
   within 32 bits or split them, as `q31.hpp` does.
 - **Per-sample work that changes only per block**, such as coefficients and
