@@ -859,6 +859,66 @@
       "call": true
     },
     {
+      "kind": "hook",
+      "name": "Punch-in FX mask: replaced slots leave stock's mask",
+      "address": "0x8d58e0f2",
+      "file_offset": "0x1c534e",
+      "length": 4,
+      "before": "ffe3e7f2",
+      "symbol": "sdk_punch_mask",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Punch-in FX per-note pass: SDK effect edits the note",
+      "address": "0x8d595be6",
+      "file_offset": "0x1cce42",
+      "length": 4,
+      "before": "ffe3b9b9",
+      "symbol": "sdk_punch_note",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Punch-in FX per-track pass (each tick)",
+      "address": "0x8d58cea4",
+      "file_offset": "0x1c4100",
+      "length": 4,
+      "before": "ffe3b6fd",
+      "symbol": "sdk_punch_track",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Punch-in FX per-track pass (note start)",
+      "address": "0x8d58cfe6",
+      "file_offset": "0x1c4242",
+      "length": 4,
+      "before": "ffe315fd",
+      "symbol": "sdk_punch_track",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Punch-in FX track player step remap",
+      "address": "0x11a0ab40",
+      "file_offset": "0xe1d0",
+      "length": 8,
+      "before": "00de588d4cc80000",
+      "symbol": "sdk_punch_step",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Punch-in FX flip-dot animation choice",
+      "address": "0x8d554bd2",
+      "file_offset": "0x18be2e",
+      "length": 4,
+      "before": "ffe387ff",
+      "symbol": "sdk_punch_animation",
+      "call": true
+    },
+    {
       "kind": "text",
       "name": "MTP path allowlist: project companion (.oxy) beside each project (.xy)",
       "address": "0x840ae494",
