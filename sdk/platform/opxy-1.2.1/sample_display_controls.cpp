@@ -63,10 +63,6 @@ u32 sdk_sample_display_page(void* controller) {
     }
     return stock<u32(void*)>(0x8c0b1198)(controller);
 }
-u32 sdk_sample_controller_engine(u32 track) {
-    const u32 engine = track_engine(track);
-    return track >= kTracks || sample_display_active(engine) ? engine : sdk_sample_alias(engine);
-}
 u32 sdk_sample_parameter_kind(u32 engine) {
     // The parameter bank belongs to the engine even when its stock waveform
     // is shown: live/step locks must never write stock sampler knob storage.

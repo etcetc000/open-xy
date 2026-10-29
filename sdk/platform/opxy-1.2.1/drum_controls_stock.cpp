@@ -219,3 +219,8 @@ u32 sdk_sample_multi_press(const u32* controller, u32 track, u32 button) {
     // continues its mode-bit cycle; SDK IDs finish without that mutation.
     return id;
 }
+
+u32 sdk_sample_controller_engine(u32 track) {
+    const u32 engine = track_engine(track);
+    return track >= kTracks || sample_display_active(engine) ? engine : sdk_sample_alias(engine);
+}
