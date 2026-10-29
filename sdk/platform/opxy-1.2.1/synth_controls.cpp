@@ -269,6 +269,39 @@ const char* sdk_fx_title(u32 effect, u32 index) {
     return stock<const char*(u32, u32)>(0x8d506c90)(effect, index);
 }
 
+bool sdk_send_view(u32 track, SendView* view) {
+    Track* t;
+    const SynthControls* m = send_effect(track, t);
+    if (!m) return false;
+    for (u32 slot = 0; slot < opxy::parameter_slots; ++slot) view->slots[slot] = current_value(track, slot);
+    u32 fields[shift_row::kControls] = {};
+    if (m->shift) shift_row::decode(current_value(track, shift_row::kWord), m->shift_choices, m->shift, fields);
+    for (u32 i = 0; i < shift_row::kControls; ++i) view->choices[i] = static_cast<u8>(fields[i]);
+    view->shift = m->shift && shift_held();
+    for (u32 i = 0; i < opxy::page_controls; ++i) {
+        const u32 slot = t->slots[i];
+        char* text = view->texts[i];
+        view->shown[i] = static_cast<u8>(slot);
+        view->values[i] = view->slots[slot];
+        text[0] = 0;
+        if (view->shift) {
+            view->titles[i] = i < m->shift ? m->shift_titles[i] : "";
+            if (i < m->shift) m->format(8 + i, shift_row::midpoint(fields[i], m->shift_choices[i]), text);
+            continue;
+        }
+        view->titles[i] = stock<const char*(u32, u32)>(0x8d506c90)(m->engine(), slot);
+        if (!m->format(slot, view->values[i], text)) {
+            // Stock's caption: the word as 00..99.
+            const opxy::i32 value = view->values[i];
+            const u32 n = value < 0 ? 0 : (static_cast<u32>(value) >> 8) * 100 >> 23;
+            text[0] = static_cast<char>('0' + n / 10 % 10);
+            text[1] = static_cast<char>('0' + n % 10);
+            text[2] = 0;
+        }
+    }
+    return true;
+}
+
 bool sdk_synth_value(u32 track, u32 slot, opxy::i32 value, char* text) {
     Track* t;
     const SynthControls* m = machine(track, t);

@@ -7,7 +7,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
 | `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
-| `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
+| `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.7) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
 and previews it without native integration. SDK adapters own allocation,
@@ -462,6 +462,20 @@ const opxy::u32 order = ((static_cast<opxy::u32>(parameters[8]) >> 16) * 3) >> 1
 Its `State` is then 4 bytes smaller than otherwise (the slot keeps the send's
 number). See the [firmware contract](abi-1.2.1.md#effect-pages-and-shift-rows).
 
+### Effect pages
+
+An effect may draw its own page on the send tracks (SDK 1.7): it declares
+`resources.display` and supplies `display.h`, `display.cpp` and
+`panel.svg.fragment`, exactly as a synth does ([display API](display.md)).
+Each build's layout then gives it a page from 82..127 beside its effect
+number, as it gives a synth its own. Stock shows the page an effect's
+record names on M1 of a send, so the page replaces stock's FX page there; its
+header names and captions the effect's controls, or its shift row's while
+Shift is held, and the display reads them all, the shift row too
+([input](display.md#effect-pages-sdk-17)). Effects have no browser preview
+yet. An effect that comes to draw its own page keeps its effect number and is
+given a page in its firmware's layout.
+
 ### Effect buffers
 
 An effect that needs memory beyond its state, such as a delay line, declares
@@ -571,7 +585,7 @@ build gives every machine the stock numbers projects save, an engine number
 | --- | --- | --- |
 | `synth` | Engine 34..62 | Its own, 82..127 |
 | `sample` | Engine 34..62 | Its base's: the stock sampler's or drum sampler's |
-| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen |
+| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen, or its own, 82..127 (SDK 1.7) |
 
 These numbers exist only in the relocated stock tables, so no machine shares
 one with stock. Four core machines, which the first Open-XY firmware shipped,

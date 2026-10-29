@@ -77,7 +77,8 @@ SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput')
 SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS)
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
-EFFECT_OPTIONS = ('bufferBytes', 'transport')
+# An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
+EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 EFFECT_BUFFER_LIMIT = 524288
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
@@ -143,6 +144,8 @@ def validate_definition(value, kind):
                 % EFFECT_BUFFER_LIMIT)
     if kind == 'effect':
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
+        if 'display' in resources:
+            validate_display(resources['display'])
     if kind == 'synth':
         validate_synth_resources(resources)
     parameters = value['parameters']

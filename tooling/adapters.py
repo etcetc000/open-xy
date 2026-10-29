@@ -166,19 +166,19 @@ def generate_registration(directory, m):
     declarations = [f'extern const char {symbol}[] __asm__("{symbol}");' for symbol in addresses]
     objects = [f'const opxy::platform::Record record = {{{", ".join(addresses)}, {int(m.kind == "sample")}}};']
     entries, screen = {}, 'nullptr'
+    if m.display != 'stock':
+        declarations += [f'extern char {p}_screen_state[] __asm__("{p}_screen_state");',
+                         *(f'extern const char {p}_screen_{part}[] __asm__("{p}_screen_{part}");'
+                           for part in ('vtable', 'asset')),
+                         f'char* {p}_screen_ctor(char*, opxy::u32) __asm__("{p}_screen_ctor");']
+        objects.append(f'const opxy::platform::Screen screen = {{{p}_screen_state, {screen_bytes(m)}, '
+                       f'{p}_screen_vtable, {p}_screen_asset, {p}_screen_ctor}};')
+        screen = '&screen'
+        entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
     if effect:
         entries[p + '_fx_register()'] = 'sdk_register_effect(&record)'
-        entries[p + '_ready()'] = 'sdk_effect_ready(&record)'
+        entries[p + '_ready()'] = f'sdk_effect_ready(&record, {screen})'
     else:
-        if m.display != 'stock':
-            declarations += [f'extern char {p}_screen_state[] __asm__("{p}_screen_state");',
-                             *(f'extern const char {p}_screen_{part}[] __asm__("{p}_screen_{part}");'
-                               for part in ('vtable', 'asset')),
-                             f'char* {p}_screen_ctor(char*, opxy::u32) __asm__("{p}_screen_ctor");']
-            objects.append(f'const opxy::platform::Screen screen = {{{p}_screen_state, {screen_bytes(m)}, '
-                           f'{p}_screen_vtable, {p}_screen_asset, {p}_screen_ctor}};')
-            screen = '&screen'
-            entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
         entries[p + '_register()'] = 'sdk_register_engine(&record)'
         entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
