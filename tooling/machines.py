@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, paged, stock_name, validate_definition
+from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, paged, shift_parameters, stock_name, validate_definition
 from .formats import require
 from .pipeline import config
 
@@ -32,7 +32,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.5 drops identity numbers: the layout gives every number, and a sample engine
 # names its base instead of a stock page.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
-# 1.7 lets an effect fix its source dry (dryLevel) and adds a saturating Q31 add.
+# 1.7 lets an effect page its controls, have a shift row and fix its source dry
+# (dryLevel), and adds a saturating Q31 add.
 SDK_VERSION = (1, 7)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -264,6 +265,10 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), 'A press that switches the page ("press": "page")')
         if len(definition['parameters']) < 8:
             require_sdk(version, (1, 4), 'A partially filled second page')
+    if kind == 'effect' and paged(definition):
+        require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
+    if shift_parameters(definition):
+        require_sdk(version, (1, 7), 'An effect\'s shift row ("shift")')
     if kind == 'synth' and definition['resources']['display']['texts'] > SDK_1_2_TEXTS:
         require_sdk(version, (1, 3), 'More than %d display text slots' % SDK_1_2_TEXTS)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')

@@ -21,6 +21,11 @@ struct SynthControls {
     bool (*format)(u32 slot, i32 value, char* text);
     bool effect;
     bool page;
+    // An effect's shift row (SDK 1.7, shift_row.hpp): its control count, each
+    // one's choice count, and titles; formats caption it as slots 8..11.
+    u8 shift;
+    u8 shift_choices[4];
+    const char* const* shift_titles;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // GUI-only, bounded one-decimal formatting. Caller provides 16 bytes.

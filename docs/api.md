@@ -429,7 +429,38 @@ declared controls. Do not depend on the absolute level of the send buffers.
 `State` is at most `opxy::effect_state_bytes` (476) with alignment at most 4.
 No destructor ever runs, so it holds no resources. The generated adapter
 checks both limits at compile time. Effects use the stock FX page, with any controls after the fourth as
-[alternates](#alternate-controls), and have no browser preview.
+[alternates](#alternate-controls) or a [second page](#effect-pages-and-shift-rows), and have no browser preview.
+
+### Effect pages and shift rows
+
+An effect with five to eight controls may declare `"press": "page"` (SDK 1.7),
+as a synth does: a press of any encoder on its send page switches all four
+positions between its first four controls and the rest.
+
+An effect may also declare a **shift row** (SDK 1.7): one to four enum
+controls in `"shift"` in `definition.json`, which Shift and the send page's
+four encoders choose, one choice per detent, while the page shows their names
+and choices. They suit routing and modes, such as an order or a source. All
+their choices together are at most 1,048,576 combinations; the first choice of
+each is what a new project starts with. With a shift row, Shift no longer
+turns the effect's continuous controls in fine steps.
+
+`process` then receives twelve words: the eight controls, then each shift-row
+control's chosen word, read as any enum control:
+
+```json
+"shift": [
+  {"id": "order", "label": "Order", "default": 0, "display": "enum",
+   "mapping": {"kind": "enum", "labels": ["TPES", "TEPS", "PTES"]}}
+]
+```
+
+```cpp
+const opxy::u32 order = ((static_cast<opxy::u32>(parameters[8]) >> 16) * 3) >> 15;
+```
+
+Its `State` is then 4 bytes smaller than otherwise (the slot keeps the send's
+number). See the [firmware contract](abi-1.2.1.md#effect-pages-and-shift-rows).
 
 ### Effect buffers
 

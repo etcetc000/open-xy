@@ -4,6 +4,7 @@
 // parameter; a turn edits the selected one, an enum one choice per detent. Everything else reaches stock as before.
 #include "synth_controls.hpp"
 #include <opxy/effect.hpp>
+#include "shift_row.hpp"
 #include "stock.hpp"
 
 extern "C" {
@@ -144,9 +145,13 @@ void sdk_synth_press(u32 encoder) {
             if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
         }
     } else if (controller == kAuxController && (m = send_effect(selected_track(), t))) {
-        // An owned effect's send page: the click selects the position's next parameter.
-        const u32 next = m->next[t->slots[encoder]];
-        if (next < opxy::parameter_slots) t->slots[encoder] = static_cast<u8>(next);
+        // An owned effect's send page: the click selects the position's next
+        // parameter, or every position's on a paged effect.
+        for (u32 i = 0; i < opxy::page_controls; ++i) {
+            if (i != encoder && !m->page) continue;
+            const u32 next = m->next[t->slots[i]];
+            if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
+        }
     }
 }
 
@@ -196,6 +201,19 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
 u32 sdk_effect_turn(u32 project, u32 track, u32 index, u32 event) {
     Track* t;
     const SynthControls* m = index < opxy::page_controls ? send_effect(track, t) : nullptr;
+    // With Shift, an effect's shift row: one choice per detent, packed into
+    // the send track's shift-row word through stock's set.
+    if (m && m->shift && shift_held()) {
+        if (index >= m->shift || !event) return 1;
+        const opxy::i32 delta = reinterpret_cast<const opxy::i32*>(event)[0];
+        u32 fields[shift_row::kControls];
+        shift_row::decode(current_value(track, shift_row::kWord), m->shift_choices, m->shift, fields);
+        if (delta > 0 && fields[index] + 1 < m->shift_choices[index]) ++fields[index];
+        if (delta < 0 && fields[index] > 0) --fields[index];
+        stock<void(u32, u32, u32, opxy::i32)>(0x8d5acf28)(project, track, shift_row::kWord,
+                                                          shift_row::encode(fields, m->shift_choices, m->shift));
+        return 1;
+    }
     if (m) index = t->slots[index];  // the position's shown parameter
     if (m && event && (m->continuous & (1u << index)) && shift_held()) {
         const opxy::i32* source = reinterpret_cast<const opxy::i32*>(event);
@@ -213,6 +231,15 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
     Track* t;
     const u32 track = selected_track();
     const SynthControls* m = index < opxy::page_controls ? send_effect(track, t) : nullptr;
+    if (m && m->shift && shift_held()) {
+        // While Shift is held, the shift row's choices.
+        u32 fields[shift_row::kControls];
+        shift_row::decode(current_value(track, shift_row::kWord), m->shift_choices, m->shift, fields);
+        caption[0] = 0;
+        if (index < m->shift)
+            m->format(8 + index, shift_row::midpoint(fields[index], m->shift_choices[index]), caption);
+        return stock<u32(u32, const char*)>(0x8d6011f0)(widget, caption);
+    }
     if (m) {
         // A position showing an alternate reads its current value.
         const u32 slot = t->slots[index];
@@ -237,6 +264,7 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
 const char* sdk_fx_title(u32 effect, u32 index) {
     Track* t;
     const SynthControls* m = index < opxy::page_controls ? send_effect(selected_track(), t) : nullptr;
+    if (m && m->engine() == effect && m->shift && shift_held()) return index < m->shift ? m->shift_titles[index] : "";
     if (m && m->engine() == effect) index = t->slots[index];
     return stock<const char*(u32, u32)>(0x8d506c90)(effect, index);
 }
