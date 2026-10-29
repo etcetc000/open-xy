@@ -22,7 +22,7 @@ MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
 SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
                'tooling/contributors.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
-               'sdk/host/display_preview.cpp', 'sdk/platform/blackfin/memory.cpp')
+               'sdk/host/display_preview.cpp', 'sdk/host/sample_display_stub.cpp', 'sdk/platform/blackfin/memory.cpp')
 SDK_FOLDERS = ('sdk/include', 'sdk/browser', 'sdk/platform/blackfin/freestanding')
 FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-exceptions', '-fno-rtti',
          '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-c++-static-destructors', '-nostdlib',
@@ -38,7 +38,8 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=()):
     units = [generate_voice_preview(out, definition), *(root / s for s in sources),
              ROOT / 'sdk/platform/blackfin/memory.cpp']
     generate_display(out, definition=definition)
-    units += [out / 'display_binding.cpp', ROOT / 'sdk/host/display_preview.cpp']
+    units += [out / 'display_binding.cpp', ROOT / 'sdk/host/display_preview.cpp',
+              ROOT / 'sdk/host/sample_display_stub.cpp']
     paths = [ROOT, ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', root,
              *(root / extra for extra in includes), out]
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',

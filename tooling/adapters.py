@@ -193,8 +193,12 @@ def generate_registration(directory, m):
                              f'char* {p}_screen_ctor(char*, opxy::u32) __asm__("{p}_screen_ctor");']
             objects.append(f'const opxy::platform::Screen screen = {{{p}_screen_state, {screen_bytes(m)}, '
                            f'{p}_screen_vtable, {p}_screen_asset, {p}_screen_ctor}};')
-            screen = '&screen'
-            entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
+            if m.kind == 'sample':
+                objects.append('opxy::u32 display_page;')
+                entries[p + '_screen_register()'] = 'sdk_register_sample_screen(&screen, &display_page)'
+            else:
+                screen = '&screen'
+                entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
         entries[p + '_register()'] = 'sdk_register_engine(&record)'
         entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
@@ -203,6 +207,9 @@ def generate_registration(directory, m):
     lines = [f"// Generated: {m.id}'s stock identity for the SDK's checked registration.",
              '#include "registration.hpp"', 'extern "C" {', *declarations, '}', 'namespace {', *objects, '}',
              *(f'int {signature} {{ return {call}; }}' for signature, call in entries.items())]
+    if m.kind == 'sample' and m.display != 'stock':
+        lines += [f'extern "C" opxy::u32 {p}_display_page() __asm__("{p}_display_page");',
+                  f'opxy::u32 {p}_display_page() {{ return sdk_sample_screen_page(&screen, display_page); }}']
     destination = Path(directory) / 'registration.cpp'
     destination.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
     return destination
@@ -268,7 +275,7 @@ def generate_sample_voice(directory, m, benchmark=False):
                   LABELS=stock_labels(m), CAPACITY=resources['voiceCapacity'],
                   ANALYSIS=resources.get('sampleAnalysis', 0), STEREO=resources.get('stereoOutput', 0),
                   CHOKE=resources.get('chokeSameKey', 0), DRUM_KEYS=int(m.identity['page'] == 7),
-                  PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0))
+                  VISUAL=resources.get('sampleDisplay', 0), PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0))
     path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
 
@@ -292,6 +299,9 @@ def generate_sample_callbacks(directory, machines):
                 if declared:
                     declarations.append(f'{result} {p}{suffix}({arguments}) __asm__("{p}{suffix}");')
                 fields.append(p + suffix if declared else 'nullptr')
+        if m.display != 'stock':
+            declarations.append(f'opxy::u32 {p}_display_page() __asm__("{p}_display_page");')
+        fields.append(p + '_display_page' if m.display != 'stock' else 'nullptr')
         rows.append('    {' + ', '.join(fields) + '},')
     return expand('sample_callbacks.cpp.in', dict(CALLBACK_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows)),
                   Path(directory) / 'sample_callbacks.cpp')
@@ -327,7 +337,7 @@ def generate_synth_controls(directory, machines):
             declarations.append(f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");')
             controls = ', '.join(str(position % 4) for position in control_positions(m.definition))
             lfo_rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_record_ready, {len(m.definition["parameters"])}, {{{controls}}}}},')
-        if m.kind not in ('synth', 'effect'):
+        if m.kind not in ('synth', 'effect') and m.display == 'stock':
             continue
         effect = m.kind == 'effect'
         following = control_cycles(m.definition) or list(range(8))

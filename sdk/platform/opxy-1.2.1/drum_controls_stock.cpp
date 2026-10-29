@@ -6,6 +6,7 @@
 #include "stock.hpp"
 #include "stock_sample.hpp"
 #include "barrier.hpp"
+#include "sample_display_controls.hpp"
 
 extern "C" {
 opxy::u32 sdk_sample_drum_alias(opxy::u32) __asm__("sdk_sample_drum_alias");
@@ -22,6 +23,7 @@ opxy::u32 sdk_sample_region_control(opxy::u32, opxy::u32, const opxy::u32*, opxy
 opxy::u32 sdk_sample_selected_engine() __asm__("sdk_sample_selected_engine");
 opxy::u32 sdk_sample_live_pitch_kind(opxy::u32) __asm__("sdk_sample_live_pitch_kind");
 opxy::u32 sdk_sample_octave_store(opxy::u32, opxy::i32) __asm__("sdk_sample_octave_store");
+opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_synth_turn");
 opxy::u32 sdk_sample_key(opxy::u32, opxy::u32) __asm__("sdk_sample_key");
 }
 volatile opxy::i32 sdk_sample_drum_octaves[8];
@@ -131,6 +133,7 @@ u32 sdk_sample_key(u32 track, u32 key) {
 // stepping and lock publication. Keep the real engine ID and all other
 // parameter paths unchanged; a conflicting/unowned registration stays stock.
 u32 sdk_sample_live_pitch_kind(u32 id) {
+    if (sample_display_capable(id)) return 0;
     if (drum_controls(id)) return 1;
     return stock<u32(u32)>(0x8d5b79f0)(id);
 }
@@ -142,6 +145,7 @@ u32 sdk_sample_live_pitch_kind(u32 id) {
 u32 sdk_sample_press_engine_owned(u32 track, u32 button) {
     if (track >= kTracks) return kNoEngine;
     const u32 id = track_engine(track);
+    if (sample_display_active(id)) return id;
     if (!pad_settings(id)) return sdk_sample_alias(id);
     const bool shifted = shift_held();
     if (drum_controls(id) && (shifted ? button == 5 || button == 6 : button == 4 || button == 7)) {
@@ -160,6 +164,9 @@ u32 sdk_sample_press_engine_owned(u32 track, u32 button) {
 u32 sdk_sample_region_control(u32 key, u32 control, const u32* event, u32 fine) {
     const u32 track = byte(kSelectedTrack);
     const u32 id = track < kTracks ? track_engine(track) : kNoEngine;
+    if (sample_display_active(id))
+        return sdk_synth_turn(0x86bd027c, track, control,
+                              static_cast<u32>(reinterpret_cast<Address>(event)));
     if ((control == 5 || control == 6) && pad_settings(id) && !drum_controls(id)) return 0;
     if ((control <= 3 || control == 5 || control == 6) && drum_controls(id)) {
         // Middle encoders edit the outer markers through stock's normalizer.
@@ -211,9 +218,4 @@ u32 sdk_sample_multi_press(const u32* controller, u32 track, u32 button) {
     // The original engine query must still deliver the real ID: stock ID 3
     // continues its mode-bit cycle; SDK IDs finish without that mutation.
     return id;
-}
-
-u32 sdk_sample_selected_engine() {
-    const u32 track = selected_track();
-    return track < kTracks ? track_engine(track) : kNoEngine;
 }

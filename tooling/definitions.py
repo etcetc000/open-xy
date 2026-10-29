@@ -73,8 +73,8 @@ SDK_1_2_TEXTS = 4
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
 # A sample engine's optional services: integer 0/1 flags and the analysis budget.
-SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput')
-SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS)
+SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sampleDisplay')
+SAMPLE_OPTIONS = ('sampleAnalysis', 'display', *SAMPLE_FLAGS)
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 EFFECT_OPTIONS = ('bufferBytes', 'transport')
@@ -133,6 +133,10 @@ def validate_definition(value, kind):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
         require(resources.get('padSettings', 0) or not resources.get('drumControls', 0),
                 'drumControls edits pad settings: it needs padSettings')
+    if kind == 'sample':
+        require(bool(resources.get('sampleDisplay')) == ('display' in resources),
+                'sampleDisplay and display budget must be declared together')
+        if resources.get('sampleDisplay'): validate_display(resources['display'])
     if kind == 'effect' and 'bufferBytes' in resources:
         size = resources['bufferBytes']
         require(4 <= size <= EFFECT_BUFFER_LIMIT and size % 4 == 0,
@@ -149,16 +153,16 @@ def validate_definition(value, kind):
             f'Control count outside {low}..{high} for this kind')
     names = set()
     for i, parameter in enumerate(parameters):
-        alternate = kind in ('synth', 'effect') and i >= SYNTH_POSITIONS
-        validate_parameter(parameter, alternate, required=kind == 'synth')
+        alternate = (kind in ('synth', 'effect') or resources.get('sampleDisplay')) and i >= SYNTH_POSITIONS
+        validate_parameter(parameter, alternate, required=kind == 'synth' or bool(resources.get('sampleDisplay')))
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
     # Two pages share positions with no alternate; no duplicate saved parameters.
     if 'press' in value:
         alternates = control_positions(value)[SYNTH_POSITIONS:]
-        require(kind == 'synth' and ((value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+        require((kind == 'synth' or resources.get('sampleDisplay')) and ((value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 len(set(alternates)) == len(alternates)) or
-                (value['press'] == 'action' and len(parameters) == 4)),
+                (kind == 'synth' and value['press'] == 'action' and len(parameters) == 4)),
                 'press needs page with five to eight synth parameters, or action with exactly four')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():

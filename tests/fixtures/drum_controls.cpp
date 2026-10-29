@@ -4,6 +4,11 @@
 static void host_barrier() {}
 #include <drum_controls_stock.cpp>
 
+namespace opxy { namespace platform {
+bool sample_display_capable(u32) { return false; }
+bool sample_display_active(u32) { return false; }
+}}
+opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) { std::abort(); }
 using namespace opxy::platform;
 static void check(bool value) { if (!value) std::abort(); }
 static bool ready = true;

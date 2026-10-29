@@ -5,6 +5,7 @@
 #include "synth_controls.hpp"
 #include <opxy/effect.hpp>
 #include "stock.hpp"
+#include "sample_display_controls.hpp"
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
@@ -65,6 +66,10 @@ const SynthControls* machine(u32 track, Track*& t) {
     const u32 engine = track_engine(track);
     const SynthControls* m = owned(engine);
     t = state(track, m ? engine : 0);
+    // Stock waveform mode must keep its own clicks and labels. Preserve the
+    // alternate selection for returning to the custom page. Parameter editors
+    // use editor(), independently of this GUI-only selection gate.
+    if (sample_display_capable(engine) && !sample_display_active(engine)) return nullptr;
     return m;
 }
 
@@ -116,7 +121,8 @@ void sdk_synth_shown(u32 track, u8* slots) {
 // Reads only the selection the screen shell refreshed for this frame.
 u32 sdk_synth_title_slot(u32 engine, u32 index) {
     const u32 track = byte(kSelectedTrack);
-    if (track >= kTracks || index >= opxy::page_controls || !engine || tracks[track].engine != engine) return index;
+    if (track >= kTracks || index >= opxy::page_controls || !engine || tracks[track].engine != engine ||
+        (sample_display_capable(engine) && !sample_display_active(engine))) return index;
     return tracks[track].slots[index];
 }
 

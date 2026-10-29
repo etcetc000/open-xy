@@ -265,3 +265,40 @@ replaced with this one. To bring one up to date:
   `place`, `shade` and `turn` do this for you.
 
 Then run `python sdk.py test --machine <folder>`.
+
+## Sample-engine pages and live data (SDK 1.8)
+
+A sample engine can declare `resources.sampleDisplay: 1` together with the
+same `resources.display` budget, `display.h`, `display.cpp` and
+`panel.svg.fragment` used by synths. Its `machine.json` requires `"sdk": "1.8"`.
+The stock sampler base still owns sample assignment. Optional `"press": "page"`
+switches control pages; parameters after the first four explicitly name their
+`control` position, 0..3. Synth `"press": "action"` is not a sample-engine callback.
+
+Include `<opxy/sample_display.hpp>` and implement:
+
+```cpp
+void sample_visual(const Voice& voice, opxy::SampleVisual& out);
+```
+
+The SDK calls this after rendering. Fill `out.count` (0..4) and actual
+`out.markers`: absolute source `frame`, `phase_q16` (0..65535), and up to 16 bits
+of machine-defined `flags`. This callback has the same bounded, allocation-free
+requirements as audio rendering. It must describe real voice state.
+
+GUI code calls `opxy::sample_display_snapshot(input.track, snapshot)`. A false
+result means pending or unavailable: hide old markers and waveform. A successful
+`SampleDisplaySnapshot` contains `track`, the voice lifetime `generation`, source
+`frames`, `flags`, 128 signed `minimum`/`maximum` pairs, and at most four markers.
+It represents the latest started voice, not an aggregate of polyphonic voices.
+Only draw the waveform with `sample_waveform_ready`; `sample_voice_live` describes
+whether that voice is still alive. The `sample_waveform_approximate` waveform uses
+512 distributed source frames, so brief peaks may be missed. No PCM pointer is
+exposed. Native transport copies complete generation-bound snapshots over IPC;
+updates may lag audio and stale snapshots become unavailable.
+
+Browser audio audition remains synth-only. Browser builds without a sample
+provider link `sdk/host/sample_display_stub.cpp`, which returns false. Host tests
+can link that file or supply a deterministic `sample_display_snapshot` function
+to test drawing with explicit waveform and marker fixtures. Host fixtures do
+not establish hardware timing or CPU measurements.

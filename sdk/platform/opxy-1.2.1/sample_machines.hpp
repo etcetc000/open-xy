@@ -24,6 +24,9 @@ struct SampleMachine {
     u32 (*prepare_begin)(const SampleView*, u32*, u32);
     u32 (*prepare_step)(u32, u32*);
     u32 (*prepared)(SampleAnalysis*);
+    // Optional GUI display; returns zero until its guarded screen is ready.
+    // Payload identity above remains stock page 2/7.
+    u32 (*display_page)();
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(engine_id)); }
 };
 }}

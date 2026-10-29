@@ -33,7 +33,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # names its base instead of a stock page.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
 # 1.7 adds synth note identity and saved encoder-press actions.
-SDK_VERSION = (1, 7)
+# 1.8 adds authored sample pages and copied live sample visual snapshots.
+SDK_VERSION = (1, 8)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -253,6 +254,8 @@ def machine_at(root, identity=None):
     icon = value.get('icon', '')
     require(icon == '' or isinstance(icon, str) and ICON.fullmatch(icon), 'icon is SVG path data')
     definition = validate_definition(json.loads((root / 'definition.json').read_text(encoding='utf-8')), kind)
+    if definition['resources'].get('sampleDisplay'):
+        require_sdk(version, (1, 8), 'Sample-engine drawing and live visual snapshots')
     if definition['resources'].get('noteStart') or definition.get('press') == 'action':
         require_sdk(version, (1, 7), 'Synth note identity and control actions')
     if 'bufferBytes' in definition['resources']:
@@ -279,8 +282,8 @@ def machine_at(root, identity=None):
         dry_parameter = matches[0]
         require(definition['parameters'][dry_parameter]['mapping'] ==
                 dict(kind='linear', minimum=0, maximum=1), 'dryParameter must map linearly from 0 to 1')
-    # A synth draws its own screen; sample engines and effects use a stock page.
-    display = 'drawing' if kind == 'synth' else 'stock'
+    # Synths and opted-in sample engines draw; other machines use stock pages.
+    display = 'drawing' if kind == 'synth' or definition['resources'].get('sampleDisplay') else 'stock'
     # The native plan compiles extra translation units only into synths.
     if kind != 'synth':
         require(not sources and not includes, 'Sample engines and effects compile one fx.cpp or sample.cpp')

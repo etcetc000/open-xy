@@ -14,7 +14,7 @@ def _declare(name, signature='()'):
     return f'int {name}{signature} __asm__("{name}");'
 
 
-def render(prefixes, effects=(), stock_page=()):
+def render(prefixes, effects=(), stock_page=(), sample_display=()):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard."""
     require(1 <= len(prefixes) <= MAX_ENGINES and len(set(prefixes)) == len(prefixes),
@@ -31,15 +31,21 @@ def render(prefixes, effects=(), stock_page=()):
         if prefix not in stock_page:
             declarations += [_declare(prefix + '_screen_register'),
                              f'extern const char {prefix}_page_id[] __asm__("{prefix}_page_id");']
+    require(set(sample_display) <= set(stock_page), 'Sample displays need a stock sample base')
+    for prefix in sample_display:
+        declarations += [_declare(prefix + '_screen_register'),
+                         f'opxy::u32 {prefix}_display_page() __asm__("{prefix}_display_page");']
     screens = []
     for prefix in prefixes:
         guard = '' if prefix in stock_page else f'if ({prefix}_screen_register() == 1) '
         screens.append(f'    {guard}{prefix}_register();')
+    screens += [f'    {prefix}_screen_register();' for prefix in sample_display]
     catalog = [f'    if ({prefix}_name_matches(name))\n'
                f'        return id == value({prefix}_engine_id) && {prefix}_ready() == 1 ? '
                'stock_catalog_insert(catalog, name, id) : 0;' for prefix in prefixes]
     owned = [f'    if (page == value({prefix}_page_id)) return {prefix}_ready() == 1;'
              for prefix in prefixes if prefix not in stock_page]
+    owned += [f'    if (page && page == {prefix}_display_page()) return {prefix}_ready() == 1;' for prefix in sample_display]
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned),
                   EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
@@ -52,7 +58,7 @@ def render(prefixes, effects=(), stock_page=()):
     return source
 
 
-def generate(directory, prefixes, effects=(), stock_page=()):
+def generate(directory, prefixes, effects=(), stock_page=(), sample_display=()):
     destination = Path(directory) / 'startup.cpp'
-    destination.write_text(render(prefixes, effects, stock_page), encoding='utf-8', newline='\n')
+    destination.write_text(render(prefixes, effects, stock_page, sample_display), encoding='utf-8', newline='\n')
     return destination

@@ -79,6 +79,8 @@ int name_matches(const Record&, const StockString*);
 extern "C" {
 int sdk_register_engine(const opxy::platform::Record*) __asm__("sdk_register_engine");
 int sdk_register_effect(const opxy::platform::Record*) __asm__("sdk_register_effect");
+int sdk_register_sample_screen(const opxy::platform::Screen*, opxy::u32*) __asm__("sdk_register_sample_screen");
+opxy::u32 sdk_sample_screen_page(const opxy::platform::Screen*, opxy::u32) __asm__("sdk_sample_screen_page");
 int sdk_register_screen(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_register_screen");
 int sdk_engine_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_engine_ready");
 int sdk_effect_ready(const opxy::platform::Record*) __asm__("sdk_effect_ready");

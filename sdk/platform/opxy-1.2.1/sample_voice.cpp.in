@@ -8,6 +8,9 @@
 #include "sample_cache.hpp"
 #include "stock.hpp"
 #include <opxy/transport.hpp>
+#if @VISUAL@
+#include "sample_display_telemetry.hpp"
+#endif
 extern "C" {
 void* @PREFIX@_factory(opxy::u32, opxy::u32) __asm__("@PREFIX@_factory");
 const char* @PREFIX@_parameter_name(opxy::u32) __asm__("@PREFIX@_parameter_name");
@@ -27,8 +30,14 @@ struct Slot {
     opxy::i32 pitch_cents;
     opxy::i32 drum_transpose;
     bool started;
+#if @VISUAL@
+    opxy::u32 visual_serial;
+#endif
 };
 static Slot voices[@CAPACITY@];
+#if @VISUAL@
+static opxy::u32 visual_serial;
+#endif
 static Slot* active[@CHOKE@ ? 8 : 1][@CHOKE@ ? 128 : 1];
 static void clear_owner(Slot* slot) {
     if (@CHOKE@ && slot->started && slot->track < 8 && slot->key < 128 &&
@@ -110,12 +119,19 @@ static int start(void* self, opxy::u32 key) {
     if (slot->started) {
         if (@CHOKE@ && keyed) active[slot->track][slot->key] = slot;
         @NAMESPACE@::start(slot->voice);
+#if @VISUAL@
+        if (!++visual_serial) ++visual_serial;
+        slot->visual_serial = visual_serial;
+#endif
     }
     return 0;
 }
 static int destroy(void* self) {
     Slot* slot = static_cast<Slot*>(self);
     clear_owner(slot);
+#if @VISUAL@
+    sdk_sample_visual_clear(engine_id(), slot->track, slot->visual_serial);
+#endif
     slot->started = false;
     slot->analysis = nullptr;
     return 0;
@@ -124,6 +140,10 @@ void* @PREFIX@_factory(opxy::u32 index, opxy::u32 track) {
     if (index >= @CAPACITY@) return nullptr;
     Slot* slot = &voices[index];
     clear_owner(slot);
+#if @VISUAL@
+    sdk_sample_visual_clear(engine_id(), slot->track, slot->visual_serial);
+    slot->visual_serial = 0;
+#endif
     slot->track = track < 8 ? static_cast<unsigned char>(track) : 255;
     slot->tuning = 0;
     slot->pitch_cents = 0;
@@ -142,6 +162,9 @@ void* @PREFIX@_factory(opxy::u32 index, opxy::u32 track) {
 static int render(void* self, opxy::i32* output, const opxy::i32* parameters) {
     Slot* slot = static_cast<Slot*>(self);
     if (!slot->started || (@CHOKE@ && active[slot->track][slot->key] != slot)) {
+#if @VISUAL@
+        sdk_sample_visual_clear(engine_id(), slot->track, slot->visual_serial);
+#endif
         for (unsigned i = 0; i < (@STEREO@ ? 128u : 64u); ++i) output[i] = 0;
         return 0;
     }
@@ -164,6 +187,12 @@ static int render(void* self, opxy::i32* output, const opxy::i32* parameters) {
         opxy::platform::sample_region(region, slot->frames, slot->pitch_cents, @DRUM_CONTROLS@ != 0), slot->analysis,
         settings(region), @STEREO@ ? 2u : 1u, track_transpose(slot->track), slot->drum_transpose};
     @NAMESPACE@::render_sample(slot->voice, block);
+#if @VISUAL@
+    opxy::SampleVisual visual{};
+    @NAMESPACE@::sample_visual(slot->voice, visual);
+    const opxy::SampleView sample = opxy::platform::stock_sample_view(slot->sample_object);
+    sdk_sample_visual_render(engine_id(), slot->track, slot->visual_serial, &sample, &visual);
+#endif
     return 0;
 }
 static int zero() { return 0; }

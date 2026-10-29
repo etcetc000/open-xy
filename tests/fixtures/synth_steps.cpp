@@ -6,6 +6,11 @@
 #include <cstring>
 #include <synth_controls.cpp>
 
+static bool sample_capable, sample_active;
+namespace opxy { namespace platform {
+bool sample_display_capable(u32) { return sample_capable; }
+bool sample_display_active(u32) { return sample_active; }
+}}
 namespace {
 using opxy::i32;
 using opxy::u32;
@@ -117,6 +122,14 @@ int main() {
     selected = 8; sdk_synth_press(0); selected = 2;
     sdk_synth_press(4);
     require(actions == before && writes == 1 && clicks == 7, "Action escaped ownership/page/encoder guard");
+    sample_capable = true; sample_active = false;
+    sdk_synth_press(0);
+    require(actions == before, "Waveform mode called custom control action");
+    scale = 0;
+    require(sdk_param_steps(2, 0, &scale) == 3, "Waveform mode changed parameter automation identity");
+    sample_active = true;
+    sdk_synth_press(0);
+    require(actions == before + 1, "Custom sample mode did not call action");
     std::puts("synth steps and saved actions ok");
     return 0;
 }

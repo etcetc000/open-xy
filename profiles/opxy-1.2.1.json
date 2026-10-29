@@ -495,7 +495,7 @@
       "file_offset": "0xe8552",
       "length": 8,
       "before": "00de588d1c780000",
-      "symbol": "sdk_sample_ui_engine",
+      "symbol": "sdk_sample_controller_engine",
       "service": "samples",
       "call": true
     },
@@ -1531,7 +1531,7 @@
       "file_offset": "0xee478",
       "length": 12,
       "before": "00e8030000de4d8d68b40000",
-      "symbol": "sdk_arranger_poll",
+      "symbol": "sdk_module_gui_poll",
       "call": false,
       "encoding": "absolute_jump",
       "trampoline": "stock_arranger_poll"
@@ -2211,7 +2211,7 @@
       "file_offset": "0xecf94",
       "length": 8,
       "before": "00e80000fd052832",
-      "symbol": "sdk_arranger_raw_event",
+      "symbol": "sdk_module_raw_event",
       "call": false,
       "encoding": "absolute_jump",
       "trampoline": "stock_arranger_raw_event"
@@ -2357,7 +2357,7 @@
       "file_offset": "0x1e8bf4",
       "length": 4,
       "before": "f9e30e35",
-      "symbol": "sdk_arranger_bounce_message",
+      "symbol": "sdk_module_message",
       "call": true
     },
     {
@@ -2366,7 +2366,7 @@
       "file_offset": "0xf1720",
       "length": 8,
       "before": "00de4d8dc0860000",
-      "symbol": "sdk_arranger_bounce_remote_poll",
+      "symbol": "sdk_module_remote_poll",
       "call": true
     },
     {
@@ -2385,6 +2385,25 @@
       "length": 4,
       "before": "ffe309ff",
       "symbol": "sdk_arranger_mtp_match",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8400e024",
+      "file_offset": "0x1cd18",
+      "length": 4,
+      "before": "98110b8c",
+      "symbol": "sdk_sample_display_page",
+      "call": false,
+      "encoding": "pointer"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5acf44",
+      "file_offset": "0x1e419c",
+      "length": 4,
+      "before": "00e33e55",
+      "symbol": "sdk_sample_parameter_kind",
       "call": true
     }
   ],
