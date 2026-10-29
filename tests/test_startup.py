@@ -21,6 +21,16 @@ class Startup(unittest.TestCase):
             self.assertIn(f'__asm__("{prefix}_engine_id")', text)
         self.assertNotIn('probesample_screen_register', text)
 
+    def test_aux_modules_stay_out_of_the_instrument_catalog(self):
+        # An aux module registers and gets its page like any synth; only the menu declines it.
+        text = render(['probesynth', 'probesources'], aux=['probesources'])
+        self.assertIn('if (probesources_name_matches(name)) return 0;', text)
+        self.assertIn('probesynth_ready() == 1 ? stock_catalog_insert(catalog, name, id) : 0;', text)
+        self.assertIn('if (probesources_screen_register() == 1) probesources_register();', text)
+        for aux, stock_page in ((['other'], ()), (['probesample'], ['probesample'])):
+            with self.subTest(aux=aux), self.assertRaises(ValueError):
+                render(['probesynth', 'probesample'], (), stock_page, aux)
+
     def test_rejects_invalid_machine_lists(self):
         for prefixes in ([], ['probesynth', 'probesynth'], ['Bad'], ['x%d' % i for i in range(MAX_ENGINES + 1)]):
             with self.subTest(prefixes=prefixes[:3]), self.assertRaises(ValueError):

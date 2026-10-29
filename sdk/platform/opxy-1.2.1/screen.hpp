@@ -158,6 +158,35 @@ inline bool read_shown(const Parameters* p, Controls& controls, u32 (&view)[para
     return true;
 }
 
+// An aux module's page on aux track 1..6 (tracks 8..13, aux_modules.cpp): its
+// four controls are the track's words 4..7. Stock's title and value calls name
+// the track's own stock module, so the page names and captions them itself,
+// each frame as stock does: the engine record's names, and the machine's
+// captions or stock's 00..99.
+inline bool aux_controls(Base* o, Controls& controls) {
+    const platform::SynthControls* m = sdk_aux_controls(controls.track);
+    if (!m) return false;
+    const u32 engine = m->engine();
+    const u32 words = stock<u32(u32)>(0x8d587708)(controls.track) + 0x3864 + 4 * 4;
+    for (u32 i = 0; i < parameter_slots; ++i) controls.slots[i] = 0;
+    for (u32 i = 0; i < page_controls; ++i) {
+        const i32 value = reinterpret_cast<const volatile i32*>(words)[i];
+        controls.shown[i] = static_cast<u8>(i);
+        controls.slots[i] = controls.values[i] = value;
+        set_text(o->titles[i], stock<const char*(u32, u32)>(0x8d506c4c)(engine, i));
+        char text[16];
+        if (!m->format(i, value, text)) {
+            const u32 n = value < 0 ? 0 : (static_cast<u32>(value) >> 8) * 100 >> 23;
+            text[0] = static_cast<char>('0' + n / 10 % 10);
+            text[1] = static_cast<char>('0' + n % 10);
+            text[2] = 0;
+        }
+        set_text(o->values[i], text);
+    }
+    controls.valid = true;
+    return true;
+}
+
 // The shared opening of every frame: once the artwork and all four value and
 // title nodes exist, stock updates the control titles and percentage values of
 // the shown parameters. False when there is nothing to draw yet.
@@ -166,6 +195,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     for (u32 i = 0; i < 4; ++i)
         if (!o->values[i] || !o->titles[i]) return false;
     controls.track = selected_track();
+    if (aux_controls(o, controls)) return true;
     sdk_synth_shown(controls.track, controls.shown);
     for (u32 i = 0; i < page_controls; ++i) controls.values[i] = 0;
     for (u32 i = 0; i < parameter_slots; ++i) controls.slots[i] = 0;

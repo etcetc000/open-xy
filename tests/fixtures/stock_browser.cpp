@@ -12,10 +12,12 @@ static void check(bool ok, const char* why) {
 static u32 screen_id, browser_storage[40], screen_storage[4], opens, getters;
 static detail::Delegate* active;
 static char heading_text[16];
+static i32 heading_number;
 static void* get_browser() { ++getters; return browser_storage; }
 static void* get_screen() { return screen_storage; }
 static void heading(void* screen, i32 track, const char* title) {
-    check(screen==screen_storage && track==-1,"Plain stock heading ABI");
+    check(screen==screen_storage && track>=-1 && track<=98,"Stock heading ABI");
+    heading_number=track;
     std::strcpy(heading_text,title);
 }
 static void bank(void* screen, u32 shown) {
@@ -88,7 +90,8 @@ int main() {
     check(!first.open("pick",first_labels,0,ca) && getters==0,"An unrelated stock browser is not replaced");
     screen_id=0;
     check(first.open("pick",first_labels,1,ca),"First client opens");
-    check(std::strcmp(heading_text,"pick")==0 && first.session.candidate==1,"Heading and initial selection");
+    check(std::strcmp(heading_text,"pick")==0 && heading_number==-1 && first.session.candidate==1,
+          "Heading and initial selection");
     check(!first.open("again",first_labels,0,ca) && !second.open("other",second_labels,0,cb),"Single modal owner");
     detail::Delegate* stale=active;
     active->methods->highlight(active,0,0);
@@ -122,5 +125,12 @@ int main() {
     check(std::strcmp(first.session.title,"temporary")==0 && std::strcmp(first.rows[0].name.text,"copied")==0,
           "Own string storage survives caller edits");
     a.try_reentry=false; close();
-    check(opens==5,"Rejected opens never enter stock");
+    // The first labels only, under a number as the preset browser shows a track's.
+    check(!second.open("aux",second_labels,4,0,cb) && !second.open("aux",second_labels,2,0,cb,99) &&
+          !second.open("aux",second_labels,2,0,cb,-2) && !second.open("aux",second_labels,2,2,cb,3),
+          "Count, number and initial index are bounded");
+    check(second.open("aux",second_labels,2,1,cb,3) && heading_number==3 &&
+          std::strcmp(heading_text,"aux")==0 && second.session.count==2,"Numbered heading over the first labels");
+    close();
+    check(opens==6,"Rejected opens never enter stock");
 }

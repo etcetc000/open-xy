@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = 'c2c95ee6da8f4eb7301213878267aaf869a78ec6f761df74dce946fa56472e34';
+export const PROFILE_SHA256 = '5ab4a7d4c1c33dc724d88d8e0ede24157308e3723364df37f47140f75ff11abf';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -393,12 +393,13 @@ export async function openKit(kit) {
   return {...kit, objects};
 }
 
-// Profile services a selection needs: each names the machine kinds that use it,
-// and 'extension' for any selected extension. tooling.firmware.active_services
-// applies the same rule.
+// Profile services a selection needs: each names the machine kinds, or the
+// features machines declare (kit `uses`), that use it, and 'extension' for any
+// selected extension. tooling.firmware.active_services applies the same rule.
 export function activeServices(profile, machines) {
   return new Set(Object.entries(profile.services ?? {})
-    .filter(([, kinds]) => machines.some(m => kinds.includes(m.kind))).map(([name]) => name));
+    .filter(([, users]) => machines.some(m => [m.kind, ...(m.uses ?? [])].some(u => users.includes(u))))
+    .map(([name]) => name));
 }
 
 // Extensions are linked only when named: omitting them builds none.

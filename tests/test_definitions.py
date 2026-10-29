@@ -8,9 +8,9 @@ import tempfile
 import json
 import unittest
 
-from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, generate_display, generate_screen,
-                               generate_synth_controls, screen_bytes)
-from tooling.definitions import ROOT, control_positions, paged, validate_definition
+from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, generate_aux_modules, generate_display,
+                               generate_screen, generate_synth_controls, screen_bytes)
+from tooling.definitions import ROOT, aux_module, control_positions, paged, validate_definition
 from machine_fixtures import FOLDER, fixture
 from tooling.native import display_ids
 
@@ -220,6 +220,47 @@ class Definitions(unittest.TestCase):
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false)\},$', text, re.M),
                          [('paged', 'true'), ('plain', 'false')])
+
+    def test_an_aux_module_is_a_four_control_synth_with_macro_targets(self):
+        value = copy.deepcopy(fixture('probesources').definition)
+        value['aux'] = {'macro': ['cutoff', None, 'attack', 'release']}
+        validate_definition(value, 'synth')
+        self.assertTrue(aux_module(value))
+        self.assertFalse(aux_module(self.engine))
+        validate_definition(dict(value, aux={}), 'synth')
+        rejected = [dict(value, aux={'macro': ['cutoff']}), dict(value, aux={'macro': ['volume'] * 4}),
+                    dict(value, aux={'targets': []}), dict(value, aux=True)]
+        many = copy.deepcopy(value)
+        many['presets'] = {f'p{i}': dict(value['presets']['Init']) for i in range(33)}
+        rejected.append(many)
+        long_name = copy.deepcopy(value); long_name['presets'] = {'a preset too long': value['presets']['Init']}
+        rejected.append(long_name)
+        longer = copy.deepcopy(value); longer['parameters'].append(self.alternate(0, 'p0'))
+        for preset in longer['presets'].values(): preset['p0'] = 0
+        rejected.append(longer)
+        for bad in rejected:
+            with self.subTest(aux=bad['aux'], count=len(bad['parameters']), presets=len(bad['presets'])), \
+                    self.assertRaises(ValueError):
+                validate_definition(bad, 'synth')
+        effect = copy.deepcopy(fixture('probefx').definition)
+        effect['aux'] = {}
+        with self.assertRaisesRegex(ValueError, 'aux module'): validate_definition(effect, 'effect')
+        # The table lists only aux modules, with each control's target word or -1.
+        machines = [SimpleNamespace(kind='synth', prefix='macro', native_name='macro', definition=value),
+                    SimpleNamespace(kind='synth', prefix='plain', native_name='plain', definition=self.engine)]
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_aux_modules(directory, machines).read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, \w+_page_id, \w+_ready, "(\w+)", \{([-\d, ]+)\}, (.*)\},$', text, re.M),
+                         [('macro', 'macro', '16, -1, 8, 11', '1, macro_preset_names, macro_preset_values')])
+        # Its presets, as Shift and the track's key list them: names, and Q31 words in control order.
+        self.assertIn('macro_preset_names[] = {"Init"};', text)
+        self.assertIn('macro_preset_values[][4] = {{0, 1073741824, 1395864371, 0}};', text)
+        # The always-linked control table marks only the aux module's row, which
+        # the frame's macros and its page find from a track's engine word.
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*_format, false, false(.*)\},$', text, re.M),
+                         [('macro', ', {16, -1, 8, 11}, true'), ('plain', '')])
 
     def test_an_effects_controls_after_four_alternate_on_the_send_page(self):
         # Without `control`, an effect's fifth to eighth controls alternate on positions 0..3.

@@ -19,12 +19,13 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, screen, startup_label, stock_tables
-from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
-                       generate_registration_stock, generate_sample_voice,
+from .adapters import (catalog_entry, generate_aux_modules, generate_display, generate_fx_object,
+                       generate_registration, generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_voice,
                        sample_callbacks)
 from .contributors import validate_source_boundary
+from .definitions import aux_module
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, tree
@@ -205,19 +206,29 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock')
+             'extension_runtime', 'extension_collection', 'extension_stock',
+             'aux_modules', 'aux_module_table', 'aux_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'drum_display_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
+# Aux modules run from the auxiliary controller's hooks (aux_hooks.s).
+UNIT_SERVICES.update(dict.fromkeys(('aux_modules', 'aux_module_table', 'aux_hooks'), 'aux'))
+
+
+def machine_features(m):
+    """The features a machine declares that profile services follow: 'aux' for an aux module."""
+    return ['aux'] if aux_module(m.definition) else []
 
 
 def service_users(machines):
-    """What a native build's services are chosen by: its machines' kinds, and
-    'extension' when it links extensions (native builds link all of the collection's)."""
-    return [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    """What a native build's services are chosen by: its machines' kinds and the
+    features they declare, and 'extension' when it links extensions (native builds
+    link all of the collection's)."""
+    uses = [u for m in machines for u in [m.kind, *machine_features(m)]]
+    return uses + (['extension'] if extensions_of(machines) else [])
 
 
 def module_bytes(profile):
@@ -380,6 +391,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_synth_controls(folder, machines)), obj)
             if step == 'project_companion_table':
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
+            if step == 'aux_module_table':
+                return cxx(str(generate_aux_modules(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
@@ -391,7 +404,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines])), obj)
+                                                [x.prefix for x in sample_engines],
+                                                [x.prefix for x in machines if aux_module(x.definition)])), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)

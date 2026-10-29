@@ -31,13 +31,7 @@ const u32 kSendTracks = 14;  // send tracks 14 and 15
 // The controller on top of the GUI stack, which receives key events.
 u32 top_controller_vtable() { return *stock<const u32*()>(0x8c0944b0)(); }
 
-const SynthControls* owned(u32 engine, bool effect = false) {
-    for (u32 i = 0; i < sdk_synth_control_count; ++i) {
-        const SynthControls& m = sdk_synth_controls[i];
-        if (m.engine() == engine && m.effect == effect) return m.ready() == 1 ? &m : nullptr;
-    }
-    return nullptr;
-}
+const SynthControls* owned(u32 engine, bool effect = false) { return sdk_synth_controls_of(engine, effect); }
 
 // The slot each position shows, per track, while the track keeps an owned
 // engine. Engine 0 is never a synth, so zeroed state starts on slots 0..3.
@@ -107,6 +101,14 @@ u32 shown(u32 track, u32 position) {
     Track* t;
     return position < opxy::page_controls && machine(track, t) ? t->slots[position] : position;
 }
+}
+
+const SynthControls* sdk_synth_controls_of(u32 engine, bool effect) {
+    for (u32 i = 0; i < sdk_synth_control_count; ++i) {
+        const SynthControls& m = sdk_synth_controls[i];
+        if (m.engine() == engine && m.effect == effect) return m.ready() == 1 ? &m : nullptr;
+    }
+    return nullptr;
 }
 
 void sdk_synth_shown(u32 track, u8* slots) {
@@ -247,12 +249,61 @@ bool sdk_synth_value(u32 track, u32 slot, opxy::i32 value, char* text) {
     return m && m->format(slot, value, text);
 }
 
+// Aux tracks 1..6 are stock tracks 8..13; a module's controls are words 4..7.
+const u32 kAuxFirst = 8, kAuxTracks = 6, kAuxControlWord = 4;
+
+const SynthControls* sdk_aux_controls(u32 track) {
+    if (track - kAuxFirst >= kAuxTracks) return nullptr;
+    const SynthControls* m = sdk_synth_controls_of(track_engine(track));
+    return m && m->aux ? m : nullptr;
+}
+
+namespace {
+// Per aux track: the module whose macro values were last taken, and those values.
+u32 aux_seen[kAuxTracks];
+opxy::i32 aux_applied[kAuxTracks][4];
+// Whether the build holds any aux module; -1 until the first frame asks.
+int aux_built = -1;
+
+// Once a frame: a macro control of a module on an aux track that moved sets its
+// parameter, through stock's set, on every instrument track not already holding
+// the value. A module newly seen on a track (put there, or loaded with a
+// project) only takes its controls' values, so loading never overwrites edits.
+void aux_refresh() {
+    if (aux_built < 0) {
+        aux_built = 0;
+        for (u32 i = 0; i < sdk_synth_control_count; ++i) aux_built |= sdk_synth_controls[i].aux;
+    }
+    if (!aux_built) return;
+    for (u32 a = 0; a < kAuxTracks; ++a) {
+        const u32 track = kAuxFirst + a;
+        const SynthControls* m = sdk_aux_controls(track);
+        const bool fresh = !m || aux_seen[a] != m->engine();
+        aux_seen[a] = m ? m->engine() : 0;
+        for (u32 i = 0; m && i < 4; ++i) {
+            const opxy::i32 value = current_value(track, kAuxControlWord + i);
+            if (fresh || value == aux_applied[a][i]) {
+                aux_applied[a][i] = value;
+                continue;
+            }
+            aux_applied[a][i] = value;
+            if (m->macro[i] < 0) continue;
+            const u32 target = static_cast<u32>(m->macro[i]);
+            for (u32 t = 0; t < kTracks; ++t)
+                if (stored_value(t, target) != value)
+                    stock<void(u32, u32, u32, opxy::i32)>(0x8d5acf28)(kProject, t, target, value);
+        }
+    }
+}
+}
+
 // Once a frame on the GUI: when an owned effect is new on a send, its controls
 // 5..8 that stock has not stored, through stock's set (0x8d5acf28), which
 // stores the word and sends it to the audio side (0x8d5acd9c) as it does for
 // every edit. Only then: a parameter lock may later move a current value away
 // from the stored one on purpose.
 void sdk_send_refresh() {
+    aux_refresh();
     for (u32 s = 0; s < 2; ++s) {
         Track* t;
         const u32 track = kSendTracks + s;

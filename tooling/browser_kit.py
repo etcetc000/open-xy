@@ -65,6 +65,10 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         entry = dict(id=m.id, name=m.name, kind=m.kind, prefix=m.prefix, description=m.description,
                      identity=requested, controls=[p['label'] for p in m.definition['parameters']],
                      positions=control_positions(m.definition), pages=paged(m.definition))
+        # Features beyond its kind that profile services follow (core.mjs activeServices).
+        uses = native.machine_features(m)
+        if uses:
+            entry['uses'] = uses
         entry['catalog'] = catalog_entry(m)
         # Where the machine comes from, for the builder to show (core.mjs validOrigin): a
         # catalog machine is Open-XY's own only when maintainers list it (catalog.OFFICIAL).

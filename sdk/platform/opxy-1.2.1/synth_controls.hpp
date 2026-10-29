@@ -21,6 +21,10 @@ struct SynthControls {
     bool (*format)(u32 slot, i32 value, char* text);
     bool effect;
     bool page;
+    // An aux module (definition "aux"): for each control, the instrument-track
+    // parameter word it sets on tracks 0..7, or -1. Other rows leave both 0.
+    signed char macro[4];
+    bool aux;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // GUI-only, bounded one-decimal formatting. Caller provides 16 bytes.
@@ -60,4 +64,12 @@ void sdk_send_refresh() __asm__("sdk_send_refresh");
 // The send page's title for position `index` of the effect on the selected send
 // track: the name of the slot it shows, which a press may have moved to an alternate.
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");
+// The owned synth or effect with this engine or effect ID, ready, or null.
+const opxy::platform::SynthControls* sdk_synth_controls_of(opxy::u32 engine, bool effect = false)
+    __asm__("sdk_synth_controls_of");
+// The aux module on aux track 1..6 (tracks 8..13): the owned synth with "aux"
+// whose engine ID the track's pattern holds in its engine word, which is where
+// the aux selector (aux_modules.cpp) puts it and what stock saves; else null.
+// GUI only.
+const opxy::platform::SynthControls* sdk_aux_controls(opxy::u32 track) __asm__("sdk_aux_controls");
 }

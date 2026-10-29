@@ -83,7 +83,8 @@ def main():
                 sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs')
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
-        services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
+        services = active_services(kit['profile'], [u for m in kit['machines'] if m['id'] in result['selected']
+                                                    for u in [m['kind'], *m.get('uses', ())]] +
                                    (['extension'] if result['extensions'] else []))
         modes = {}
         for profiling in (True, False):
