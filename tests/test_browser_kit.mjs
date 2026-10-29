@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, chosenByDefault, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {activeServices, assignNumbers, checkedSelections, chosenByDefault, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -302,4 +302,12 @@ test('firmware recovery rejects malformed and foreign loader layouts without pri
   await assert.rejects(recoverFirmware(kit, final), /Only OP–XY OS 1\.2\.1 is supported/);
   kit.machines = Array.from({length:11},(_,i) => machine('m'+i,34+i,82+i));
   await assert.rejects(recoverFirmware(kit, final), /Only OP–XY OS 1\.2\.1 is supported/);
+});
+
+test('the release checks the linked machines, each other machine beside the official ones, and their subsets', () => {
+  const machines = [machine('a',34,82,'official'), machine('b',35,82,'official'), machine('c',36,82), machine('d',37,82)];
+  // Everything fits: the native package links all four.
+  assert.deepEqual(checkedSelections(machines), [1, 2, 3, 7, 11, 15]);
+  // Not all at once: the native package links the official machines.
+  assert.deepEqual(checkedSelections(machines, ['a', 'b']), [1, 2, 3, 7, 11]);
 });

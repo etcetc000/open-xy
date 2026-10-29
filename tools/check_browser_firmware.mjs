@@ -8,7 +8,7 @@ const kit = await openKit(JSON.parse(readFileSync(resolve(directory, 'kit.json')
 const stock = new Uint8Array(readFileSync(stockFile));
 const catalog = new Uint8Array(readFileSync(resolve(content, 'op1_factory.json')));
 assert.deepEqual(await recoverFirmware(kit, stock), {stock, selected:null});
-for (const mask of checkedSelections(kit.machines)) {
+for (const mask of checkedSelections(kit.machines, kit.linked)) {
   const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
   const linked = linkKit(kit, selected), target = resolve(directory, 'reference', String(mask));
   const firmware = await patchFirmware(kit, linked, stock);
@@ -50,6 +50,6 @@ for (const mask of checkedSelections(kit.machines)) {
   }
 }
 // Relinking does not depend on checkbox order or mutate the object capsules.
-const all = kit.machines.map(m => m.id);
+const all = kit.linked ?? kit.machines.map(m => m.id);
 assert.deepEqual(linkKit(kit, all).module, linkKit(kit, [...all].reverse()).module);
 console.log('Browser container/assets checks: checked selections recovered in both profiling modes; altered builds recover only verified stock; foreign changes rejected.');

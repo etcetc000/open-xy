@@ -103,7 +103,10 @@ The [Catalog workflow](../.github/workflows/catalog.yml) runs on every pull
 request that changes `catalog/` or anything published machines build against
 (the SDK, tooling, profiles or linker script). It validates the catalog, fetches each
 published machine and checks it as its own repository's CI does, and compiles
-the firmware module with all of them on the pinned Windows tools.
+the firmware module with all of them on the pinned Windows tools. People choose
+which machines they install, so the catalog doesn't need to fit the module at
+once: when it doesn't, the module links Open-XY's own machines, and each other
+machine must fit beside them.
 
 Maintainers merge `main` into `staging` after each catalog merge, so both
 branches carry every entry. Merged catalog changes reach the site with the next

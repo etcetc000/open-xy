@@ -44,9 +44,13 @@ figures. State usually dominates, since a synth's voice pool is
 notes, and one spare voice serves a note that ended as another starts. The SDK
 adds 12 bytes per stock voice index (3 KiB) and 16 per voice.
 
+The limit applies to what someone installs, not to the whole catalog. When a
+collection doesn't fit at once, `sdk.py compile` links Open-XY's own machines
+and requires each other machine to fit beside them, as the builder offers it.
+
 | Limit | Value | Why |
 | --- | --- | --- |
-| Module memory | 2040 KiB for the whole collection | Firmware heap reservation minus the relocated tables |
+| Module memory | 2040 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
 | Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |

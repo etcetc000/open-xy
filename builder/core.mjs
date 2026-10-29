@@ -98,11 +98,11 @@ export function readObject(bytes) {
 
 // The selections the release checks link, as bit masks over kit.machines: every
 // combination of Open-XY's own machines, each other machine with all of those, and
-// everything together.
-export function checkedSelections(machines) {
-  const bit = i => 2 ** i, all = bit(machines.length) - 1;
+// the machines the native package links (kit.linked; all of them when they fit).
+export function checkedSelections(machines, linked = machines.map(m => m.id)) {
+  const bit = i => 2 ** i;
   const core = machines.reduce((mask, m, i) => m.origin === 'official' ? mask + bit(i) : mask, 0);
-  const masks = new Set([all]);
+  const masks = new Set([machines.reduce((mask, m, i) => linked.includes(m.id) ? mask + bit(i) : mask, 0)]);
   for (let mask = core; mask; mask = (mask - 1) & core) masks.add(mask);
   machines.forEach((m, i) => { if (!(core & bit(i))) masks.add(core + bit(i)); });
   return [...masks].sort((a, b) => a - b);
@@ -283,6 +283,9 @@ export async function openKit(kit) {
     'Firmware edit profile is not the reviewed profile');
   checkNumbers(kit);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
+  check(kit.linked === undefined || (Array.isArray(kit.linked) && kit.linked.length > 0 &&
+    new Set(kit.linked).size === kit.linked.length && kit.linked.every(id => kit.machines.some(m => m.id === id))),
+    'Invalid linked machines');
   // The bundled stock menu is authenticated where it is used (buildAssets).
   check(typeof kit.stockCatalog === 'string' && kit.stockCatalog.length <= 2 * 1024 ** 2, 'Missing bundled stock menu');
   check(await screenTemplateOk(kit), 'Platform screen template differs from the supported ABI');
