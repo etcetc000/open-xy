@@ -21,7 +21,7 @@ from .pipeline import config
 
 KINDS = ('synth', 'sample', 'effect')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources', 'includes', 'icon', 'presetDefaults',
-          'presets', 'dryParameter'}
+          'presets', 'dryParameter', 'dryLevel'}
 # The public machine contract: headers, definition schema, artwork rules and
 # callbacks. A machine names the version it was written for; the SDK builds a
 # machine of the same major version and an equal or older minor version.
@@ -32,7 +32,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.5 drops identity numbers: the layout gives every number, and a sample engine
 # names its base instead of a stock page.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
-SDK_VERSION = (1, 6)
+# 1.7 lets an effect fix its source dry (dryLevel) and adds a saturating Q31 add.
+SDK_VERSION = (1, 7)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -73,6 +74,7 @@ class Machine:
     presets: dict = None  # name -> preset document, from machine.json `presets`
     icon: str = ''
     dry_parameter: int | None = None
+    dry_level: int | None = None  # a fixed source dry, Q31 (SDK 1.7)
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
 
     # The stock name and the symbol prefix are the machine's name.
@@ -276,6 +278,15 @@ def machine_at(root, identity=None):
         dry_parameter = matches[0]
         require(definition['parameters'][dry_parameter]['mapping'] ==
                 dict(kind='linear', minimum=0, maximum=1), 'dryParameter must map linearly from 0 to 1')
+    # A fixed source dry instead: 0 takes a sent track's dry wholly into the
+    # effect at full send, as an effect inline would.
+    dry_level = None
+    if 'dryLevel' in value:
+        require_sdk(version, (1, 7), 'A fixed source dry ("dryLevel")')
+        level = value['dryLevel']
+        require(kind == 'effect' and 'dryParameter' not in value and type(level) in (int, float) and 0 <= level <= 1,
+                'dryLevel is a number from 0 to 1 on an effect without dryParameter')
+        dry_level = round(level * 0x7fffffff)
     # A synth draws its own screen; sample engines and effects use a stock page.
     display = 'drawing' if kind == 'synth' else 'stock'
     # The native plan compiles extra translation units only into synths.
@@ -299,7 +310,7 @@ def machine_at(root, identity=None):
                    display=display, sources=sources, includes=includes,
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
-                   root=root, icon=icon, dry_parameter=dry_parameter, presets=presets)
+                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets)
 
 
 # Machine numbers. Projects store a track's engine, effect and page numbers, so a

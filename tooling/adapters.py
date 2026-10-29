@@ -398,8 +398,8 @@ def generate_fx_object(directory, m, benchmark=False):
         values['OBJECT'] = '#include "stock.hpp"\n' + values['OBJECT']
     path = expand('fx_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=m.definition['id'],
                                            NAME=m.native_name, LABELS=stock_labels(m),
-                                           DRY_LEVEL='0x7fffffff' if m.dry_parameter is None else
-                                           f'parameters[{m.dry_parameter}]'),
+                                           DRY_LEVEL=f'parameters[{m.dry_parameter}]' if m.dry_parameter is not None
+                                           else f'{m.dry_level:#x}' if m.dry_level is not None else '0x7fffffff'),
                   Path(directory) / f'fx_object_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
 

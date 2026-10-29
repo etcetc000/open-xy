@@ -481,6 +481,9 @@ send weight `s` and Dry `d`, the source dry factor is `1 - s*(1-d)`. At full sen
 Dry zero removes the source dry and Dry one retains it; at zero send, dry stays
 unchanged. Do not add clean audio inside `process` to implement this control.
 Without `dryParameter`, the adapter returns unity to preserve the source dry.
+Instead, an effect may fix its Dry with `dryLevel` in `machine.json` (SDK 1.7),
+a number from 0 to 1. An effect that mixes its own dry, as a box of effects
+inline does, declares 0: at full send a track then goes wholly through it.
 
 ## Registration boundary
 

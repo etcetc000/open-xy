@@ -127,6 +127,23 @@ class Identity(unittest.TestCase):
                                lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
             self.assertIsNone(fixture('probefx').dry_parameter)
 
+    def test_dry_level_fixes_the_source_dry_instead(self):
+        real = Path.read_text
+        path = FOLDER / 'probefx/machine.json'
+        plain = {k: v for k, v in json.loads(real(path)).items() if k not in ('dryParameter', 'identity')}
+        cases = ((dict(plain, sdk='1.7', dryLevel=0), 0), (dict(plain, sdk='1.7', dryLevel=0.5), 0x40000000),
+                 (dict(plain, sdk='1.7', dryLevel=1.5), 'dryLevel'), (dict(plain, sdk='1.7', dryLevel='0'), 'dryLevel'),
+                 (dict(plain, sdk='1.7', dryLevel=0, dryParameter='dry'), 'dryLevel'),
+                 (dict(plain, sdk='1.6', dryLevel=0), '"sdk": "1.7"'))
+        for value, expected in cases:
+            with self.subTest(value=value), mock.patch.object(
+                    Path, 'read_text', lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
+                if isinstance(expected, str):
+                    with self.assertRaisesRegex(ValueError, expected):
+                        fixture('probefx')
+                else:
+                    self.assertEqual(fixture('probefx').dry_level, expected)
+
 
 class OutsideMachines(unittest.TestCase):
     """A machine in a folder of its own, such as its own repository."""
