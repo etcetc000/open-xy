@@ -224,7 +224,9 @@ are omitted.
 
 The export checks that:
 
-- selecting every machine reproduces the native `os.ldr` byte for byte;
+- selecting the machines the native package links reproduces its `os.ldr` byte for
+  byte: every machine, or Open-XY's own when the collection doesn't fit at once
+  ([memory](api.md#memory-and-limits));
 - every non-empty selection matches GNU ld, including symbols and BSS;
 - browser output matches the Python writer, with correct catalog, artwork and ZIP;
 - every output is recognized and its selection restored, and corruption inside

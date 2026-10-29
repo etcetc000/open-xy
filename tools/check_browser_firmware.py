@@ -55,14 +55,15 @@ def main():
     width = sum(widths[c - 32] + 1 for c in label)
     left = 240 - width // 2
     require(0 < width and 100 <= left and left + width <= 400, 'Startup label exceeds its drawing area')
-    # The browser links the native objects in native order, so selecting every
-    # machine reproduces the native package exactly.
-    everything = directory / 'reference' / str(2 ** len(kit['machines']) - 1)
+    # The browser links the native objects in native order, so selecting the machines
+    # the native package links (all of them when they fit) reproduces it exactly.
+    linked = kit.get('linked', [m['id'] for m in kit['machines']])
+    everything = directory / 'reference' / str(sum(2 ** i for i, m in enumerate(kit['machines']) if m['id'] in linked))
     source_profiling = json.loads((directory / 'source/manifest.json').read_bytes()).get('profiling')
     require(type(source_profiling) is bool, 'Source package profiling must be a boolean')
     source_suffix = '.ldr' if source_profiling else '.profiling-off.ldr'
     require(everything.with_suffix(source_suffix).read_bytes() == (directory / 'source/candidate/os.ldr').read_bytes(),
-            'Browser firmware for the full collection differs from the native package')
+            'Browser firmware for the linked machines differs from the native package')
     for result in json.loads((directory / 'reference/selections.json').read_text()):
         prefix = directory / 'reference' / str(result['mask'])
         sections, symbols = elf32(prefix.with_suffix('.elf').read_bytes())

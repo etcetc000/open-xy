@@ -10,7 +10,7 @@ const kit = await openKit(JSON.parse(readFileSync(kitFile, 'utf8')));
 const destination = resolve(dirname(kitFile), 'reference'); mkdirSync(destination);
 const layout = resolve('linker/opxy-1.2.1.ld');
 const results = [];
-for (const mask of checkedSelections(kit.machines)) {
+for (const mask of checkedSelections(kit.machines, kit.linked)) {
   const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
   const linked = linkKit(kit, selected), prefix = resolve(destination, String(mask));
   const definitions = [...Object.entries(linked.definitions), ...linked.aliases.entries()]
