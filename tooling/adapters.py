@@ -39,7 +39,13 @@ def voice_values(definition):
     resources = definition['resources']
     return dict(NAMESPACE=definition['id'], VOICE_BYTES=resources['voiceBytes'],
                 VOICE_ALIGNMENT=resources['voiceAlignment'], SHARED_BYTES=resources['sharedBytes'],
-                PEAK=resources['outputPeakQ31'])
+                PEAK=resources['outputPeakQ31'],
+                START_KEY=', opxy::u32 key' if resources.get('noteStart') else '',
+                CAPTURE_KEY='handle->key = key < 128 ? static_cast<opxy::u8>(key) : 128;' if resources.get('noteStart') else '',
+                NOTE_ARGUMENT=', handle->key' if resources.get('noteStart') else '',
+                PREVIEW_NOTE_ARGUMENT=', key' if resources.get('noteStart') else '',
+                PRESS_BODY=(definition['id'] + '::control_press(encoder, parameters);')
+                    if definition.get('press') == 'action' else '(void)encoder; (void)parameters;')
 
 
 def generate_voice(directory, m, sweep=False):
@@ -363,9 +369,13 @@ def generate_synth_controls(directory, machines):
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
         page = not effect and paged(m.definition)
+        press = 'nullptr'
+        if m.definition.get('press') == 'action':
+            press = m.prefix + '_control_press'
+            declarations.append(f'void {press}(opxy::u32, opxy::i32*) __asm__("{press}");')
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
-                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}}},")
+                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {press}}},")
     return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters), LFO_MACHINES='\n'.join(lfo_rows)),
                   Path(directory) / 'synth_control_table.cpp')
 

@@ -112,7 +112,7 @@ def validate_definition(value, kind):
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
-    options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else ()
+    options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else ('noteStart',)
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k != 'display'),
@@ -142,6 +142,7 @@ def validate_definition(value, kind):
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
     if kind == 'synth':
         validate_synth_resources(resources)
+        require(resources.get('noteStart', 0) in (0, 1), 'noteStart must be 0 or 1')
     parameters = value['parameters']
     low, high = CONTROLS[kind]
     require(isinstance(parameters, list) and low <= len(parameters) <= high,
@@ -155,9 +156,10 @@ def validate_definition(value, kind):
     # Two pages share positions with no alternate; no duplicate saved parameters.
     if 'press' in value:
         alternates = control_positions(value)[SYNTH_POSITIONS:]
-        require(kind == 'synth' and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
-                len(set(alternates)) == len(alternates),
-                '"press": "page" needs five to eight synth parameters and at most one alternate per position')
+        require(kind == 'synth' and ((value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+                len(set(alternates)) == len(alternates)) or
+                (value['press'] == 'action' and len(parameters) == 4)),
+                'press needs page with five to eight synth parameters, or action with exactly four')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():
         label(name); keys(preset, names, 'preset')

@@ -39,7 +39,7 @@ const opxy::u32 kVoiceIndices = 256;
 // seen: the block it last rendered in; asked: the block its note began to wait
 // for a voice; slot: its voice plus one, or 0; wants: its note started but lost
 // its wait for a voice.
-struct Handle { const void* const* vtable; opxy::u16 seen, asked; opxy::u8 slot, wants; };
+struct Handle { const void* const* vtable; opxy::u16 seen, asked; opxy::u8 slot, wants, key; };
 static_assert(sizeof(void*) != 4 || sizeof(Handle) == 12, "Handle layout");
 // owner: a voice ID, or 0 when free. born: the block its note started in,
 // since: the tick. next: the voice ID of a note waiting while this one fades.
@@ -99,7 +99,7 @@ static void begin(Slot& slot, Handle* handle, opxy::u32 now) {
     handle->slot = static_cast<opxy::u8>(&slot - voices + 1);
     handle->wants = 0;
     @NAMESPACE@::initialize(slot.voice, shared, id);
-    @NAMESPACE@::start(slot.voice, shared, id);
+    @NAMESPACE@::start(slot.voice, shared, id@NOTE_ARGUMENT@);
 }
 // Ends a voice's note; a note waiting for the voice starts in it.
 static void release(Slot& slot, opxy::u32 now) {
@@ -179,8 +179,9 @@ static void acquire(Handle* handle, opxy::u32 now, bool steal) {
 extern "C" {
 extern const void* const @PREFIX@_vtable[];
 // A note keeps its handle's voice or takes one (see acquire).
-int @PREFIX@_start(void* self) {
+int @PREFIX@_start(void* self@START_KEY@) {
     Handle* handle = static_cast<Handle*>(self);
+    @CAPTURE_KEY@
     const opxy::u32 now = sdk_voice_ticks();
     // Once the machine has stopped rendering, no block counts and sweep has not
     // run: release every ended voice before the new note takes one.
@@ -192,7 +193,7 @@ int @PREFIX@_start(void* self) {
         if (!slot->next) {
             slot->born = blocks;
             slot->since = now;
-            @NAMESPACE@::start(slot->voice, shared, owner(handle));
+            @NAMESPACE@::start(slot->voice, shared, owner(handle)@NOTE_ARGUMENT@);
             return 0;
         }
         release(*slot, now);  // its voice is fading for another note: find another
@@ -251,6 +252,8 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* parameters) 
     }
     return 0;
 }
+void @PREFIX@_control_press(opxy::u32 encoder, opxy::i32* parameters) __asm__("@PREFIX@_control_press");
+void @PREFIX@_control_press(opxy::u32 encoder, opxy::i32* parameters) { @PRESS_BODY@ }
 static int zero() { return 0; }
 static void noop() {}
 const char @PREFIX@_name[] = "@NAME@";

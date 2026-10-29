@@ -100,7 +100,7 @@ opxy::i32 current_value(u32 track, u32 slot) {
 // (8c08fad6), and a track's stored word in it: what a project saves.
 const u32 kProject = 0x86bd027c;
 opxy::i32 stored_value(u32 track, u32 slot) {
-    return *reinterpret_cast<const volatile opxy::i32*>(kProject + 0x4080 + track * 0xe8 + slot * 4);
+    return static_cast<opxy::i32>(word(kProject + 0x4080 + track * 0xe8 + slot * 4));
 }
 
 u32 shown(u32 track, u32 position) {
@@ -138,6 +138,19 @@ void sdk_synth_press(u32 encoder) {
     if (encoder >= opxy::page_controls) return;
     const u32 controller = top_controller_vtable();
     if (controller == kInstrumentController && word(kInstrumentPage) == 0 && (m = machine(byte(kSelectedTrack), t))) {
+        if (m->press) {
+            const u32 track = byte(kSelectedTrack);
+            opxy::i32 parameters[opxy::parameter_slots];
+            for (u32 i = 0; i < opxy::parameter_slots; ++i) parameters[i] = stored_value(track, i);
+            m->press(encoder, parameters);
+            // Validate the complete edit before publishing any word through stock.
+            for (u32 i = 0; i < opxy::parameter_slots; ++i)
+                if (parameters[i] < 0 || (i >= opxy::page_controls && parameters[i] != stored_value(track, i))) return;
+            for (u32 i = 0; i < opxy::parameter_slots; ++i)
+                if (parameters[i] != stored_value(track, i))
+                    stock<void(u32, u32, u32, opxy::i32)>(0x8d5acf28)(kProject, track, i, parameters[i]);
+            return;
+        }
         for (u32 i = 0; i < opxy::page_controls; ++i) {
             if (i != encoder && !m->page) continue;
             const u32 next = m->next[t->slots[i]];

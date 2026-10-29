@@ -215,6 +215,29 @@ The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
 Exceptions and allocation are not supported.
 
+## Synth note identity and saved actions
+
+SDK 1.7 synths may declare `"noteStart": 1` in `resources`. Their `start`
+callback takes a fourth argument, `opxy::u32 key`: the note identity 0..127
+passed by stock at voice start, or 128 when unavailable. It is independent of
+pitch bend and the per-sample pitch buffer. A waiting voice retains the key
+of its pending onset. Legato updates without a new stock start retain the
+original identity. Existing machines keep the three-argument callback.
+
+A four-control synth can declare `"press": "action"` and implement
+`void control_press(opxy::u32 encoder, opxy::i32* parameters)` in its engine.
+An unshifted encoder click on its owned engine page calls this on the GUI
+path with a private copy of the eight saved Q31 words. Change only slots 0..3;
+negative words or changes to unused slots reject the whole result. The SDK
+stores changed words through stock's normal parameter setter, including audio
+publication. The action edits the saved patch, not parameter locks or live LFO
+values. Multiple words use successive stock setter calls, not an atomic audio
+transaction. Audio callbacks must capture any timbre they need to retain.
+There is no additional history/undo API. The browser exposes equivalent press
+buttons; exported patches include the result. A machine cannot combine actions
+with alternate controls or page switching. These callbacks cannot perform I/O,
+allocate, block or use firmware addresses.
+
 ## Audio buffers and ownership
 
 [opxy/audio.hpp](../sdk/include/opxy/audio.hpp) defines the callback types.
@@ -494,7 +517,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.6 and builds 1.0 to 1.6 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.7 and builds 1.0 to 1.7 machines |
 | `kind` | `synth`, `sample` or `effect` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

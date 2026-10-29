@@ -79,6 +79,26 @@ for (const [i, param] of parameters.entries()) {
     update();
   });
   bindKnob($(`knob-${id}`), $(id));
+  if (previewManifest.definition.press === 'action') {
+    const button = document.createElement('button');
+    button.textContent = `Press ${param.label}`;
+    button.addEventListener('click', async () => {
+      try {
+        const { module } = await preview;
+        const api = new WebAssembly.Instance(module).exports;
+        const address = Number(api.__heap_base.value);
+        const words = new Int32Array(api.memory.buffer, address, 8);
+        const before = parameterWords();
+        words.set(before);
+        api.opxy_control_press(i, address);
+        if (words.some((word, slot) => word < 0 || (slot >= parameters.length && word !== before[slot])))
+          throw new Error('Invalid action result');
+        parameters.forEach((parameter, slot) => { values[parameter.id] = words[slot] / 0x7fffffff; });
+        update();
+      } catch (error) { status(error.message); }
+    });
+    item.append(button);
+  }
 }
 for (const [name, preset] of Object.entries(presets)) {
   const button = document.createElement('button');

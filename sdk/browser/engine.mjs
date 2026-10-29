@@ -75,7 +75,7 @@ export class PreviewEngine {
       this.api.opxy_destroy(voice.state);
       this.api.opxy_initialize(voice.state);
     }
-    this.api.opxy_start(voice.state);
+    this.api.opxy_start(voice.state, note);
     voice.pitch.fill(Math.round(440 * 2 ** ((note - 69) / 12) / this.sampleRate * 0x100000000));
     voice.active = true; voice.note = note; voice.age = ++this.clock;
     voice.velocity = velocity; voice.amplitude = 0; voice.releasing = false;

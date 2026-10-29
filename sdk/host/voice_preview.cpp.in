@@ -21,7 +21,8 @@ opxy::u32 opxy_output_peak_q31() { return @PEAK@; }
 opxy::u32 opxy_voice_capacity() { return 8; }
 Voice* opxy_voice_state(opxy::u32 index) { return index < 8 ? &voices[index] : nullptr; }
 void opxy_initialize(Voice* voice) { @NAMESPACE@::initialize(*voice, shared, owner(voice)); }
-void opxy_start(Voice* voice) { @NAMESPACE@::start(*voice, shared, owner(voice)); }
+void opxy_start(Voice* voice, opxy::u32 key) { @NAMESPACE@::start(*voice, shared, owner(voice)@PREVIEW_NOTE_ARGUMENT@); }
+void opxy_control_press(opxy::u32 encoder, opxy::i32* parameters) { @PRESS_BODY@ }
 void opxy_destroy(Voice* voice) { @NAMESPACE@::destroy(*voice, shared, owner(voice)); }
 void opxy_render(Voice* voice, opxy::i32* output, const opxy::i32* parameters, const opxy::u32* pitch) {
     @NAMESPACE@::render(*voice, shared, owner(voice), output, parameters, pitch);

@@ -21,6 +21,7 @@ struct SynthControls {
     bool (*format)(u32 slot, i32 value, char* text);
     bool effect;
     bool page;
+    void (*press)(u32 encoder, i32* parameters); // GUI only, eight saved Q31 words
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // GUI-only, bounded one-decimal formatting. Caller provides 16 bytes.
