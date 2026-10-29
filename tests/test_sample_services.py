@@ -35,7 +35,7 @@ class SampleServices(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-            if name in ('sample_callbacks', 'benchmark'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls'):
                 probe = replace(fixture('probesample'), id='probe', identity=dict(engine=46, page=7))
                 if name == 'sample_callbacks':
                     # A page-2 engine with no services beside it: it plays like the sampler.
@@ -43,10 +43,13 @@ class SampleServices(unittest.TestCase):
                     sampler = replace(plain, id='sampler', identity=dict(engine=47, page=2),
                                       definition=dict(plain.definition, resources=dict(voiceCapacity=256)))
                     generate_sample_callbacks(folder, [probe, sampler])
+                elif name == 'drum_controls':
+                    source = ROOT / 'sdk/platform/opxy-1.2.1/drum_controls_stock.cpp'
+                    (Path(folder) / source.name).write_text(source.read_text())
                 else:
                     from tooling.benchmark import generate
                     generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
-            if name in ('sample_callbacks', 'benchmark', 'startup'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'startup'):
                 # Exercise the real tempo readers and assignment bridge with
                 # host addresses standing in for stock functions and globals.
                 stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
@@ -88,6 +91,9 @@ class SampleServices(unittest.TestCase):
 
     def test_callbacks_work_for_another_engine_and_preserve_stock_fields(self):
         self.run_fixture('sample_callbacks', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
+
+    def test_pad_shortcuts_clipboard_and_multi_edit(self):
+        self.run_fixture('drum_controls', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
 
     def test_owned_primary_screen_precedes_stock_overlays(self):
         self.run_fixture('screen_order')

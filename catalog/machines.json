@@ -17,8 +17,8 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.4.0",
-      "commit": "4bc104f14856500fecc5eee72be51eb952b67942",
+      "tag": "v1.5.0",
+      "commit": "09c86cb49689223dbecad556a43034350ecdc59e",
       "path": "machines/macroosc",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
@@ -64,8 +64,8 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.3.0",
-      "commit": "ec44ae53656ca6a363908eefdc2d406b926b06e6",
+      "tag": "v1.5.0",
+      "commit": "09c86cb49689223dbecad556a43034350ecdc59e",
       "path": "machines/karplus",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
@@ -213,8 +213,8 @@
       "maintainer": "frankoooooooo",
       "status": "published",
       "repository": "https://github.com/frankoooooooo/matrixy",
-      "tag": "v1.0.1",
-      "commit": "a36ff65728f7701ccf81f0f5f572dbd0e06347b5",
+      "tag": "v1.0.2",
+      "commit": "73a21dc9fff9eba5533a6929b55f979435deaeb7",
       "path": ".",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",

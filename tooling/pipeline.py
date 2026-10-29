@@ -1,6 +1,7 @@
 """Shared local build utilities and stock firmware compatibility boundary."""
 import argparse
 import json
+import os
 from pathlib import Path
 import platform
 import re
@@ -179,7 +180,12 @@ def tool_paths(directory):
 
 
 def execute(args):
-    return subprocess.check_output([str(a) for a in args], stderr=subprocess.STDOUT, text=True, timeout=120)
+    return subprocess.check_output([str(a) for a in args], stderr=subprocess.STDOUT, text=True, timeout=120,
+                                   **hidden_process())
+
+
+def hidden_process():
+    return dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
 
 
 def fresh_output(path):

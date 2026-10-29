@@ -10,17 +10,18 @@ import unittest
 
 from tooling import startup_label
 from tooling.firmware import hook_instruction, hooks
-from tooling.machines import check_identity
+from tooling.machines import check_identity, check_request
 from tooling.pipeline import ROOT, config
 
 BROWSER = """
-import {validIdentity, redirect} from %s;
+import {validIdentity, validRequest, redirect} from %s;
 let input = '';
 for await (const chunk of process.stdin) input += chunk;
-const {rules, identities, redirects} = JSON.parse(input);
+const {rules, identities, requests = [], redirects} = JSON.parse(input);
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 process.stdout.write(JSON.stringify({
   identities: identities.map(([kind, identity]) => validIdentity(rules, kind, identity)),
+  requests: requests.map(([kind, identity]) => validRequest(rules, kind, identity)),
   redirects: redirects.map(([edit, target]) => hex(redirect(edit, target))),
 }));
 """
@@ -33,12 +34,16 @@ def browser(request):
     return json.loads(result.stdout)
 
 
-def python_accepts(rules, kind, identity):
+def python_accepts(rules, kind, identity, check=check_identity):
     try:
-        check_identity(rules, kind, identity)
+        check(rules, kind, identity)
         return True
     except ValueError:
         return False
+
+
+def python_request(rules, kind, identity):
+    return python_accepts(rules, kind, identity, check_request)
 
 
 class ProfileParity(unittest.TestCase):
@@ -58,6 +63,25 @@ class ProfileParity(unittest.TestCase):
         expected = [python_accepts(rules, kind, identity) for kind, identity in cases]
         self.assertEqual(browser(dict(rules=rules, identities=cases, redirects=[]))['identities'], expected)
         self.assertTrue(any(expected) and not all(expected))
+
+    def test_requested_numbers_agree(self):
+        # What a kit machine may ask for: valid numbers, or SDK 1.5's null where the layout gives one.
+        rules = self.profile['identities']
+        pages = (None, -1, 0, 2, 7, 21, 81, 82, 127, 128)
+        cases = [(kind, {'engine': n, 'page': page}) for kind in ('synth', 'sample')
+                 for n in (None, 0, 2, 33, 34, 36, 62, 63) for page in pages]
+        cases += [('effect', {'effect': n, 'page': page}) for n in (None, 0, 1, 8, 9) for page in pages]
+        cases += [('synth', {'engine': None}), ('sample', {'page': 7}), ('effect', {'engine': None, 'page': 21}),
+                  ('synth', None), ('sample', {'engine': None, 'page': 7, 'base': 'drumSampler'})]
+        # A sample engine forking the sampler may also leave its own screen's page to the layout.
+        cases += [(kind, {'engine': n, 'page': page, 'screen': screen}) for kind in ('synth', 'sample')
+                  for n in (None, 40) for page in (None, 2, 7) for screen in (None, 90)]
+        expected = [python_request(rules, kind, identity) for kind, identity in cases]
+        self.assertEqual(browser(dict(rules=rules, identities=[], requests=cases, redirects=[]))['requests'], expected)
+        self.assertEqual([request for request, accepted in zip(cases, expected) if accepted and None in request[1].values()],
+                         [('synth', {'engine': None, 'page': None}), ('sample', {'engine': None, 'page': 2}),
+                          ('sample', {'engine': None, 'page': 7}), ('effect', {'effect': None, 'page': 21}),
+                          ('sample', {'engine': None, 'page': 2, 'screen': None})])
 
     def test_redirect_encodings_agree(self):
         low = self.profile['module_base']

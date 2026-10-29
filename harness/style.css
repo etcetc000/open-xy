@@ -1,3 +1,219 @@
-:root{color-scheme:light;--page:#d8dcd9;--panel:#e7e9e5;--ink:#202726;--muted:#58635e;--line:#b4bcb6;--blue:#246a91;--mono:Consolas,'Courier New',monospace;--body:Arial,Helvetica,sans-serif}
-*{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--ink);font-family:var(--body)}button,input,select{font:inherit}button,select{color:inherit}button{cursor:pointer;border:1px solid var(--line);background:transparent;padding:10px 14px;border-radius:4px;transition:background .12s}button:hover{background:#cbd2cc}button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--blue);outline-offset:4px}button:disabled{cursor:wait;opacity:.6}header{padding:24px 4vw;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}.wordmark{color:inherit;text-decoration:none;font-weight:800;letter-spacing:-1px;font-size:22px}.wordmark span{font:11px var(--mono);letter-spacing:1px;margin-left:12px}.badge,.eyebrow{font:11px var(--mono);letter-spacing:1.3px}.badge{border:1px solid var(--line);padding:7px 9px;border-radius:3px}main{max-width:1320px;margin:0 auto;padding:32px 40px}.intro{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:32px}.eyebrow{margin:0 0 14px;color:var(--muted)}h1{font-family:'Arial Narrow',Arial,sans-serif;font-size:clamp(32px,3.6vw,49px);line-height:1.04;letter-spacing:-2px;margin:0;font-weight:600}.lede{font-size:14px;line-height:1.8;color:var(--muted);margin:0 0 4px}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:36px}.instrument{min-width:0;background:var(--panel);border:1px solid #b1b9b3;border-radius:12px;padding:24px;box-shadow:0 5px 0 #bbc2bc,0 15px 28px #25362c14}.instrument-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}h2{font-size:26px;letter-spacing:-1px;margin:0}h2 span{color:#7e8981;font:13px var(--mono);margin-left:8px}.primary{background:var(--blue);color:white;border-color:var(--blue);min-width:125px}.primary:hover{background:#185575}.screen-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font:11px var(--mono)}.segmented{display:flex;gap:3px}.segmented button{padding:6px 10px;font:11px var(--mono);border:0}.segmented button[aria-pressed=true]{background:#c9d1ca}.zoom-label{color:var(--muted)}select{padding:3px;background:transparent;border:0;font:11px var(--mono)}.screen-frame{padding:12px;background:#313b36;border-radius:6px;box-shadow:inset 0 2px 4px #0004;overflow:auto}#screen{max-width:960px;margin:auto}#screen svg{display:block;width:100%;height:auto}.screen-frame.native #screen{width:480px;max-width:none}.controls{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;padding:25px 0 22px}.control{text-align:center;min-width:0}.control label{display:block;font:11px var(--mono);text-transform:uppercase;letter-spacing:1px}.control output{display:block;font:14px var(--mono);margin:10px 0}.dial{width:54px;height:54px;display:block;margin:14px auto 10px;filter:drop-shadow(0 3px 2px #0002)}.dial circle{fill:#e9ece8;stroke:#a6b1a8;stroke-width:2}.dial line{stroke:#273d33;stroke-width:3;stroke-linecap:round}input[type=range]{accent-color:var(--blue);cursor:pointer;width:100%;height:18px}.playbar{border-top:1px solid var(--line);padding:16px 0 12px;display:flex;justify-content:space-between;align-items:center}.playbar button{font:11px var(--mono);padding:7px 10px}.octave{display:flex;align-items:center;gap:10px;font:11px var(--mono)}.keyboard{display:flex;height:106px;position:relative;padding:0 2px;background:#27312b;border:3px solid #27312b;border-radius:5px;touch-action:none}.key{padding:0 0 9px;border:1px solid #929e95;border-radius:0 0 3px 3px;display:flex;align-items:flex-end;justify-content:center;font:11px var(--mono);user-select:none;touch-action:none}.key.white{flex:1;background:#f1f1e8;color:#6a776c}.key.black{position:absolute;top:0;width:8%;height:63%;background:#303a33;color:#bfc8bf;z-index:1;border-color:#151c16}.key.black:nth-of-type(2){left:8.5%}.key.black:nth-of-type(4){left:21%}.key.black:nth-of-type(7){left:46%}.key.black:nth-of-type(9){left:58.5%}.key.black:nth-of-type(11){left:71%}.key.active,.key:active{background:#80b1c5!important;color:#102c3b}.instrument-bottom{display:flex;justify-content:space-between;align-items:center;font:9px var(--mono);color:var(--muted);gap:12px;margin-top:16px}.instrument-bottom label{display:flex;align-items:center;gap:8px}.instrument-bottom input{width:75px}kbd{font:inherit}.side-section{padding:20px 0 24px;border-bottom:1px solid var(--line)}.side-section:first-child{padding-top:4px}h3{font-size:21px;font-weight:500;letter-spacing:-.5px;margin:0 0 18px}.presets{display:grid;grid-template-columns:1fr 1fr;gap:8px}.presets button{padding:12px 8px;text-align:left;font-size:13px}.presets button[aria-pressed=true]{background:#344b3f;color:white;border-color:#344b3f}.hint,.notes p{font-size:12px;line-height:1.7;color:var(--muted)}.hint{margin:16px 0 0}.wide{display:flex;justify-content:space-between;width:100%;margin:8px 0;font-size:12px;text-align:left}.text-button{border:0;padding:8px 0;font-size:11px;text-decoration:underline;color:var(--muted)}.notes .eyebrow{font:11px var(--mono)}footer{display:flex;justify-content:space-between;gap:16px;font:10px var(--mono);color:var(--muted);margin:26px 0 0;padding-bottom:12px}
-@media(min-width:1500px){main{padding-top:44px}}@media(max-width:950px){main{padding:28px 24px}.workspace{grid-template-columns:minmax(0,1fr) 200px;gap:22px}.instrument{padding:18px}.lede{display:none}.controls{gap:10px}.instrument-bottom>span{max-width:160px;line-height:1.6}}@media(max-width:720px){header{padding:20px}.badge{font-size:8px;letter-spacing:0}.wordmark span{display:none}main{padding:24px 16px}.intro{margin-bottom:24px}.workspace{grid-template-columns:1fr}.instrument{padding:16px}.controls{gap:8px}.control label{font-size:9px}.control output{font-size:12px}.dial{width:44px;height:44px}.screen-frame{padding:6px}aside{display:grid;grid-template-columns:1fr 1fr;gap:20px}.side-section:first-child{padding-top:20px}.notes{grid-column:1/-1}.instrument-bottom>span{max-width:175px}.keyboard{height:100px}footer{flex-direction:column;font-size:9px}h1{font-size:36px}.screen-toolbar{font-size:10px}.playbar button{padding:7px}.octave{gap:6px}}@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+/* The OS installer's neutral palette, with a matching light workbench theme. */
+:root {
+  color-scheme:dark;
+  --page:#111; --panel:#191919; --ink:#eee; --muted:#aaa; --line:#494949;
+  --accent:#eee; --button-hover:#292929; --selected:#292929;
+  --control-line:#666; --selected-line:#777; --frame:#080808;
+  --dial-fill:#3b3b3b; --dial-edge:#808080; --dial-ink:#e5e5e5;
+  --key-bed:#111; --white-key:#e8e8e8; --white-key-ink:#555; --key-edge:#111;
+  --black-key:#222; --black-key-ink:#ccc; --black-key-edge:#000;
+  --key-active:#9a9a9a; --key-active-ink:#111;
+  --black-key-active:#666; --black-key-active-ink:#fff;
+  --mono:Consolas,'Courier New',monospace;
+  --body:Arial,Helvetica,sans-serif;
+  font:15px/1.55 var(--body);
+}
+:root[data-theme=light] {
+  color-scheme:light;
+  --page:#f2f2f2; --panel:#fff; --ink:#222; --muted:#606060; --line:#ccc;
+  --accent:#222; --button-hover:#e7e7e7; --selected:#e7e7e7;
+  --control-line:#888; --selected-line:#666;
+  --dial-fill:#ebebeb; --dial-edge:#acacac; --dial-ink:#333;
+}
+* { box-sizing:border-box; }
+*,*::before,*::after { -webkit-user-select:none; user-select:none; }
+html { scrollbar-color:var(--muted) var(--page); }
+body { margin:0; background:var(--page); color:var(--ink); font:inherit; }
+button,input,select { font:inherit; }
+button,select { color:inherit; }
+button {
+  cursor:pointer; border:1px solid var(--control-line); background:transparent;
+  padding:8px 12px; min-height:36px; border-radius:7px; font-size:13px; line-height:1.4;
+  transition:background .12s;
+}
+button:hover { background:var(--button-hover); }
+button:disabled { cursor:not-allowed; opacity:.4; }
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible {
+  outline:2px solid var(--accent); outline-offset:4px;
+}
+input { caret-color:var(--accent); }
+a { color:var(--ink); text-underline-offset:3px; }
+header {
+  padding:18px 28px; border-bottom:1px solid var(--line);
+  display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;
+}
+.wordmark {
+  flex:1; min-width:0; color:inherit; text-decoration:none;
+  font-size:24px; line-height:1.3; font-weight:400; letter-spacing:-.025em;
+}
+.theme-selector {
+  display:flex; align-items:center; gap:8px; margin-left:auto;
+  white-space:nowrap; font-size:12px; color:var(--muted);
+}
+.theme-selector select {
+  min-width:88px; padding:8px 12px; border:1px solid var(--control-line);
+  border-radius:7px; background:var(--panel); color:var(--ink); font:13px/1.4 var(--body);
+}
+main { max-width:1320px; margin:0 auto; padding:24px 28px; }
+.workspace { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:24px; }
+.instrument { min-width:0; background:var(--panel); border-radius:20px; padding:24px; }
+.instrument-top { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
+.instrument-heading { min-width:0; flex:1; }
+h1,h2 { font-weight:400; line-height:1.3; letter-spacing:-.025em; }
+h1 { font-size:28px; margin:0; }
+h2 { font-size:22px; margin:0 0 12px; }
+.lede { font-size:13px; line-height:1.5; color:var(--muted); margin:4px 0 0; }
+.audio-toggle { min-width:84px; }
+.audio-toggle[data-muted=true] { background:var(--selected); }
+.audio-toggle[data-muted=true]:hover { background:var(--button-hover); }
+.screen-toolbar {
+  display:flex; justify-content:space-between; align-items:center;
+  margin-bottom:10px; font:12px/1.4 var(--body);
+}
+.segmented { display:flex; gap:4px; }
+.segmented button { padding:6px 12px; min-height:32px; border-color:transparent; font:12px/1.4 var(--body); color:var(--muted); }
+.segmented button[aria-pressed=true] { background:var(--selected); color:var(--ink); }
+.zoom-label { color:var(--muted); }
+select { padding:4px; background:transparent; border:0; font:12px/1.4 var(--body); }
+.screen-frame { padding:8px; background:var(--frame); border:1px solid var(--line); border-radius:7px; overflow:auto; }
+#screen { max-width:960px; margin:auto; }
+#screen svg { display:block; width:100%; height:auto; }
+.screen-frame.native #screen { width:480px; max-width:none; }
+.controls { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; padding:18px 0; }
+.control { text-align:center; min-width:0; }
+.control label { display:block; font:12px/1.4 var(--body); color:var(--muted); }
+.control output { display:block; font:13px/1.4 var(--mono); font-variant-numeric:tabular-nums; margin:6px 0; }
+.dial { width:72px; height:72px; display:block; margin:8px auto 4px; cursor:ns-resize; touch-action:none; }
+.dial .dial-ring { fill:#252525; stroke:#090909; stroke-width:2; }
+.dial .dial-cap { fill:var(--dial-fill); stroke:var(--dial-edge); stroke-width:1.5; }
+.dial line { stroke:var(--dial-ink); stroke-width:3; stroke-linecap:round; }
+.dial:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:50%; }
+.dial:focus:not(:focus-visible),.key:focus:not(:focus-visible) { outline:none; }
+.dial.dragging .dial-ring { stroke:var(--accent); }
+input[type=range] { accent-color:var(--accent); cursor:pointer; width:100%; height:20px; margin:0; }
+.control input { display:block; }
+.playbar { border-top:1px solid var(--line); padding:12px 0; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.playbar button { font:12px/1.4 var(--body); min-height:32px; padding:6px 10px; }
+.octave { display:flex; align-items:center; gap:8px; font:12px/1.4 var(--mono); }
+.keyboard {
+  display:flex; height:96px; position:relative; padding:0 2px; background:var(--key-bed);
+  border:2px solid var(--key-bed); border-radius:7px; touch-action:none;
+}
+.key {
+  min-height:0; padding:0 0 8px; border:1px solid var(--key-edge); border-radius:0 0 4px 4px;
+  display:flex; align-items:flex-end; justify-content:center; font:11px/1 var(--mono); touch-action:none;
+}
+.key.white { flex:1; background:var(--white-key); color:var(--white-key-ink); }
+.key.black { position:absolute; top:0; width:8%; height:63%; background:var(--black-key); color:var(--black-key-ink); z-index:1; border-color:var(--black-key-edge); }
+.key.black:nth-of-type(2) { left:8.5%; }
+.key.black:nth-of-type(4) { left:21%; }
+.key.black:nth-of-type(7) { left:46%; }
+.key.black:nth-of-type(9) { left:58.5%; }
+.key.black:nth-of-type(11) { left:71%; }
+.key.active,.key:active { background:var(--key-active)!important; color:var(--key-active-ink); }
+.key.black.active,.key.black:active { background:var(--black-key-active)!important; color:var(--black-key-active-ink); }
+.instrument-bottom {
+  display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center;
+  font:11px/1.5 var(--body); color:var(--muted); gap:12px; margin-top:12px;
+}
+.instrument-bottom>span { white-space:nowrap; flex-shrink:0; }
+.instrument-bottom label { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12px; }
+.instrument-bottom input { width:75px; }
+kbd { font:11px/1.5 var(--mono); }
+aside { min-width:0; }
+.side-section { padding:16px 0; border-bottom:1px solid var(--line); }
+.side-section:first-child { padding-top:4px; }
+.presets { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.presets button { padding:8px 10px; text-align:left; }
+.presets button[aria-pressed=true] { background:var(--selected); color:var(--ink); border-color:var(--selected-line); }
+.hint,.notes p { font-size:12px; line-height:1.5; color:var(--muted); }
+.hint { margin:12px 0 0; }
+.notes p { margin:8px 0; }
+.wide { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; margin:8px 0; text-align:left; }
+.action-icon { width:16px; height:16px; flex:none; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+.text-button { border:0; padding:6px 0; min-height:0; font-size:12px; text-decoration:underline; text-underline-offset:3px; color:var(--muted); }
+.text-button:hover { color:var(--ink); }
+footer { display:flex; justify-content:space-between; gap:16px; font:12px/1.4 var(--body); color:var(--muted); margin:20px 0 0; padding-bottom:12px; }
+
+@media (max-width:950px) {
+  main { padding:24px; }
+  .workspace { grid-template-columns:minmax(0,1fr) 220px; gap:20px; }
+  .instrument { padding:18px; }
+  .controls { gap:10px; }
+}
+@media (max-width:720px) {
+  header { padding:20px; }
+  .wordmark { font-size:22px; }
+  main { padding:20px 16px; }
+  .workspace { grid-template-columns:1fr; gap:24px; }
+  .instrument { padding:16px; }
+  h1 { font-size:26px; }
+  .controls { gap:8px; padding:16px 0; }
+  .control label { font-size:11px; }
+  .control output { font-size:12px; }
+  .dial { width:clamp(44px,14vw,56px); height:clamp(44px,14vw,56px); margin:8px auto 4px; }
+  .screen-frame { padding:6px; }
+  .screen-toolbar { flex-wrap:wrap; gap:8px; }
+  .zoom-label { margin-left:auto; white-space:nowrap; }
+  aside { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .side-section:first-child { padding-top:16px; }
+  .notes { grid-column:1/-1; }
+  .keyboard { height:96px; }
+  .playbar { gap:8px; }
+  .playbar button { font-size:11px; padding:6px 8px; }
+  .octave { gap:6px; font-size:11px; }
+  footer { flex-direction:column; font-size:11px; }
+}
+/* Preserve the established desktop fit while adopting the installer's visual language. */
+@media (min-width:960px) and (min-height:600px) {
+  body { height:100dvh; display:grid; grid-template-rows:auto minmax(0,1fr); }
+  header { padding:10px 24px; }
+  main { width:100%; min-height:0; padding:12px 24px; display:grid; grid-template-rows:minmax(0,1fr) auto; gap:8px; }
+  .workspace { min-height:0; grid-template-columns:minmax(0,1fr) 300px; gap:24px; }
+  .instrument { min-height:0; padding:16px; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto auto clamp(64px,10vh,96px) auto; }
+  .instrument-top { margin-bottom:8px; }
+  .screen-toolbar { margin-bottom:6px; }
+  .screen-frame { min-height:0; display:flex; align-items:center; justify-content:center; }
+  #screen { height:100%; width:100%; max-width:none; display:flex; align-items:center; justify-content:center; }
+  #screen svg { height:100%; width:100%; object-fit:contain; }
+  .screen-frame.native { display:block; }
+  .screen-frame.native #screen { display:block; width:480px; height:auto; }
+  .screen-frame.native #screen svg { width:480px; height:220px; }
+  .controls { gap:12px; padding:10px 0; }
+  .dial { width:72px; height:72px; margin:6px auto; }
+  .control output { margin:4px 0; }
+  .playbar { padding:8px 0; }
+  .keyboard { height:auto; min-height:0; }
+  .instrument-bottom { margin-top:8px; }
+  aside { align-self:start; }
+  .side-section { padding:8px 0; }
+  .side-section:first-child { padding-top:0; }
+  h2 { margin-bottom:8px; }
+  .presets { gap:6px; }
+  .presets button { padding:6px 8px; min-height:32px; }
+  .hint { margin-top:8px; }
+  .notes p { margin:4px 0; }
+  .wide { padding:6px 8px; min-height:32px; margin:4px 0; }
+  .text-button { padding:4px 0; }
+  footer { margin:0; padding:0; }
+}
+@media (min-width:960px) and (min-height:600px) and (max-height:760px) {
+  .instrument { padding:12px; grid-template-rows:auto auto minmax(0,1fr) auto auto 48px auto; }
+  .instrument-top { margin-bottom:4px; }
+  .screen-toolbar { margin-bottom:4px; }
+  .segmented button { min-height:28px; padding:4px 8px; }
+  .controls { padding:6px 0; gap:16px; }
+  .dial { width:64px; height:64px; margin:4px auto; }
+  .control output { margin:3px 0; }
+  .playbar { padding:4px 0; }
+  .playbar button { min-height:30px; padding:5px 10px; }
+  .instrument-bottom { margin-top:6px; }
+  h2 { font-size:20px; }
+  .presets button,.wide { min-height:30px; padding:5px 8px; }
+}
+/* Hardware encoder shades remain tied to physical positions in either theme. */
+.control[data-control-position="1"] { --dial-fill:#484848; --dial-ink:#f0f0f0; }
+.control[data-control-position="2"] { --dial-fill:#878787; --dial-ink:#171717; }
+.control[data-control-position="3"] { --dial-fill:#bcbcbc; --dial-ink:#242424; }
+.control[data-control-position="4"] { --dial-fill:#ececec; --dial-ink:#242424; }
+@media (prefers-reduced-motion:reduce) { * { transition:none!important; } }

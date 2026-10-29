@@ -51,10 +51,17 @@ inline unsigned char pad_byte(const void* raw, u32 offset) { return static_cast<
 // nonnegative fade word: stock converts it through binary32 on project save.
 struct SavedSettings { PadSettings value; bool saved; };
 inline SavedSettings sample_settings(u32 word) {
-    const bool valid = (word & 0xff80007fu) == 0x5a800000u;
-    return SavedSettings{static_cast<PadSettings>(valid ? (word >> 7) & 65535u : 0), valid};
+    const bool legacy = (word & 0xff80007fu) == 0x5a800000u;
+    const bool extended = (word & 0xfe00007fu) == 0x5c000000u;
+    return SavedSettings{legacy ? (word >> 7) & 65535u : extended ? (word >> 7) & 262143u : 0,
+                         legacy || extended};
 }
-inline u32 sample_store_settings(PadSettings value) { return 0x5a800000u | (u32(value) << 7); }
+inline u32 sample_store_settings(PadSettings value) {
+    // Retain the original representation for existing 16-bit machines. Both
+    // tags are positive integers with seven zero low bits: binary32 is exact.
+    return value <= 65535u ? 0x5a800000u | (value << 7) :
+                            0x5c000000u | ((value & 262143u) << 7);
+}
 inline SavedSettings saved_settings(const void* raw) { return sample_settings(pad_word(raw, pad_record::kFade)); }
 inline void store_pad_settings(void* raw, PadSettings value) {
     static_cast<u32*>(raw)[pad_record::kFade] = sample_store_settings(value);

@@ -29,6 +29,7 @@ in the layer that owns the behavior:
 | A new machine | Its own repository, created with `sdk.py new --repository`; learn from the core machines |
 | Oscillator, controls, artwork, presets or lookup tables | The machine's folder |
 | Sound tests | The machine's `tests/`, run by `sdk.py test` |
+| Controller behavior, capture history and extension gestures | The extension's folder; see [extensions](docs/extensions.md) |
 | Callback contract, adapter, build, preview or packaging | SDK |
 | Firmware address map, shared memory reservation or compiler profile | Shared platform integration |
 

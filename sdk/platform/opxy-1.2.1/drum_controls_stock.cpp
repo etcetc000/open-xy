@@ -5,9 +5,16 @@
 #include "sample_machines.hpp"
 #include "stock.hpp"
 #include "synth_controls.hpp"
+#include "stock_sample.hpp"
 #include "barrier.hpp"
 
 extern "C" {
+opxy::u32 sdk_sample_drum_alias(opxy::u32) __asm__("sdk_sample_drum_alias");
+opxy::u32 sdk_sample_pad_key_engine(opxy::u32) __asm__("sdk_sample_pad_key_engine");
+opxy::u32 sdk_sample_pad_copy(opxy::u32, opxy::u32) __asm__("sdk_sample_pad_copy");
+opxy::u32 sdk_sample_pad_paste(opxy::u32, opxy::u32) __asm__("sdk_sample_pad_paste");
+opxy::u32 sdk_sample_multi_control(opxy::u32, opxy::u32, const opxy::u32*, opxy::u32) __asm__("sdk_sample_multi_control");
+opxy::u32 sdk_sample_multi_press(const opxy::u32*, opxy::u32, opxy::u32) __asm__("sdk_sample_multi_press");
 opxy::u32 sdk_sample_alias(opxy::u32) __asm__("sdk_sample_alias");
 opxy::u32 sdk_sample_edit(void*, opxy::u32, opxy::i32, opxy::u32) __asm__("sdk_sample_edit");
 opxy::u32 sdk_sample_ui_engine(opxy::u32) __asm__("sdk_sample_ui_engine");
@@ -37,6 +44,7 @@ const SynthControls* own_controls(u32 id) {
         if (sdk_synth_controls[i].engine() == id && !sdk_synth_controls[i].effect) return &sdk_synth_controls[i];
     return nullptr;
 }
+u32 clipboard_engine = kNoEngine;
 // Stock region control: mutation for its own controls, then publication.
 u32 region_control(u32 key, u32 control, const u32* event, u32 fine) {
     return stock<u32(u32, u32, const u32*, u32)>(0x8d4dccd8)(key, control, event, fine);
@@ -52,15 +60,59 @@ void publish_octave(u32 track, i32 octave) {
     sdk_sample_drum_octaves[track] = octave;
     barrier();
 }
+// The multi editor enumerates canonical pad indices; the region lookup and
+// publisher expect played notes and apply the track octave themselves.
+u32 multi_note(u32 track, u32 pad) {
+    const i32 octave = stock<i32(u32)>(0x8d58f65c)(track);
+    return stock<u32(u32, i32)>(0x8d5b89dc)(pad, octave);
+}
 }
 
-// 8c0b1316 and the recorder's target selection, release and save completion
-// ask which engine the track uses. Owned sample engines borrow the
-// multisampler's branch; the track keeps its real engine. A send track's ID is
+// 8c0b1316, the recorder's target selection, release and save completion, and
+// the sample page's own engine checks ask which engine the track uses. Owned
+// sample engines borrow the branch of the stock engine whose payload they take
+// (sample_machines.cpp); the track keeps its real engine. A send track's ID is
 // its effect's, which may equal an SDK engine's number: leave it to stock.
 u32 sdk_sample_ui_engine(u32 track) {
     const u32 id = track_engine(track);
     return track < kTracks ? sdk_sample_alias(id) : id;
+}
+
+// 8c0b2e68 / 8c0b214e: paired key-down/key-up handlers. The former enables
+// stock's held-pad actions; the latter must also recognize the engine so
+// releasing the pad clears the overlay. Stock copies the complete pad record
+// for both clipboard and slices, retaining the tagged settings word.
+u32 sdk_sample_pad_key_engine(u32 track) {
+    const u32 id = track_engine(track);
+    return track < kTracks ? sdk_sample_drum_alias(id) : id;
+}
+
+// Stock owns the clipboard's complete 128-byte region (including its path),
+// canonical destination key, cache refresh and publication. Its fade word is
+// machine-specific: never give a stock sampler the SDK's tagged payload, or
+// interpret one SDK machine's settings as another's. Both calls are GUI-only.
+u32 sdk_sample_pad_copy(u32 track, u32 key) {
+    const u32 result = stock<u32(u32, u32)>(0x8d581f34)(track, key);
+    clipboard_engine = result ? track_engine(track) : kNoEngine;
+    return result;
+}
+u32 sdk_sample_pad_paste(u32 track, u32 key) {
+    u32 (*const paste)(u32, u32) = stock<u32(u32, u32)>(0x8d581f90);
+    if (track >= kTracks || word(0x8409fa2c) != 4) return paste(track, key);
+    u32* const clipboard = at<u32>(0x8409fb1c);
+    const u32 original = clipboard[pad_record::kFade];
+    const u32 engine = track_engine(track);
+    const SampleMachine* m = sdk_sample_machine(engine);
+    const bool tagged = sample_settings(original).saved;
+    if (m && m->page == 7 && m->defaults) {
+        if (!tagged || engine != clipboard_engine)
+            clipboard[pad_record::kFade] = sample_store_settings(m->defaults());
+    } else if (tagged) {
+        clipboard[pad_record::kFade] = 0;
+    }
+    const u32 result = paste(track, key);
+    clipboard[pad_record::kFade] = original;
+    return result;
 }
 
 // 8d58f5c2: after stock clamps the octave, mirror its stored value immediately.
@@ -177,6 +229,43 @@ u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
 u32 sdk_sample_param_engine(u32 track) {
     const u32 id = track_engine(track);
     return own_controls(id) ? 0 : id;
+}
+
+// 8c094710: stock's edit-multiple controller already iterates its selection
+// mask. Its separate drum mutator otherwise edits mode/pan/fade, bypassing
+// the sample-machine callback and corrupting the settings in the fade word.
+u32 sdk_sample_multi_control(u32 key, u32 control, const u32* event, u32 fine) {
+    const u32 track = byte(kSelectedTrack);
+    const u32 id = track < kTracks ? track_engine(track) : kNoEngine;
+    if (drum_controls(id)) {
+        if (key < 53 || key >= 77 || !event) return 0;
+        return sdk_sample_region_control(multi_note(track, key - 53), control, event, fine);
+    }
+    if ((control == 5 || control == 6) && pad_settings(id)) return 0;
+    return stock<u32(u32, u32, const u32*, u32)>(0x8d4d63b0)(key, control, event, fine);
+}
+
+// 8c0949e0 (through drum_page.s): encoder click in the same controller.
+// Word two is its 24-pad
+// selection mask. Apply the same per-pad click as the ordinary sample page;
+// no stock mode-bit cycle is allowed on a machine that owns pad settings.
+u32 sdk_sample_multi_press(const u32* controller, u32 track, u32 button) {
+    const u32 id = track < kTracks ? track_engine(track) : kNoEngine;
+    if (!controller || !drum_controls(id) || button < 10 || button > 13) return id;
+    const u32 knob = button - 10;
+    const bool shifted = shift_held();
+    if (shifted ? knob != 1 && knob != 2 : knob != 0 && knob != 3) return id;
+    const u32 mask = controller[2] & 0x00ffffffu;
+    for (u32 pad = 0; pad < 24; ++pad) {
+        if (!(mask & (1u << pad))) continue;
+        const u32 note = multi_note(track, pad);
+        if (void* region = pad_region(track, note)) {
+            if (sdk_sample_edit(region, knob | 8u | (shifted ? 4u : 0u), 0, id)) publish(note);
+        }
+    }
+    // The original engine query must still deliver the real ID: stock ID 3
+    // continues its mode-bit cycle; SDK IDs finish without that mutation.
+    return id;
 }
 
 u32 sdk_sample_selected_engine() {

@@ -151,8 +151,6 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None)
     require(type(controls) is int and 4 <= controls <= 8 and (kind == 'synth' or controls == 4),
             'Use 4 to 8 controls for a synth; effects use 4')
     custom_identity(identity); label(name)
-    from .machines import free_effect_identity, free_synth_identity
-    stock_identity = free_effect_identity() if kind == 'effect' else free_synth_identity()  # before writing anything
     out = fresh_output(out)
     starters = [ROOT / 'sdk/templates' / kind]
     if kind == 'synth' and controls > 4:
@@ -183,12 +181,12 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None)
         from .machines import machine_at
         # The send's dry level follows the Dry control (docs/api.md, effects).
         record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'effect', 'description': name,
-                  'identity': stock_identity, 'dryParameter': 'dry'}
+                  'dryParameter': 'dry'}
         (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
         machine_at(out)
         print('Created local effect: ' + str(out))
-        print(f'machine.json suggests effect {record["identity"]["effect"]}, free in this repository. '
-              f'Effects have no browser preview; build with: {python} sdk.py compile --machine "{out}" --out <folder>')
+        print(f'Each build gives it an effect number. Effects have no browser preview; '
+              f'build with: {python} sdk.py compile --machine "{out}" --out <folder>')
         return
     if controls > 4:
         definition_path = out / 'definition.json'
@@ -215,17 +213,15 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None)
         artwork.append(f'  <circle id="{entry}" cx="640" cy="0" r="1" fill="{color}" stroke="{color}" stroke-width="1"/>')
     artwork.append('</g>')
     (out / 'panel.svg.fragment').write_text('\n'.join(artwork) + '\n', encoding='utf-8', newline='\n')
-    # For a device build of this folder (sdk.py build --machine): an identity
-    # no machine in this repository uses.
-    record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'synth', 'description': name,
-              'identity': stock_identity}
+    # For a device build of this folder (sdk.py build --machine), which gives its numbers.
+    record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'synth', 'description': name}
     (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
     metadata(source_files(out))
     print('Created local machine: ' + str(out))
     print(f'Preview with: {python} sdk.py preview --source "{out}" --out local/my-preview-001'
           ' (add --cxx <clang++> if doctor --preview needed one)')
-    print(f'machine.json suggests engine {record["identity"]["engine"]}, page {record["identity"]["page"]} '
-          f'for a device build, free in this repository: {python} sdk.py build --machine "{out}" (docs/build.md, step 3).')
+    print(f'Each device build gives its numbers: {python} sdk.py build --machine "{out}" '
+          '(docs/build.md, step 3).')
 
 
 def page_header_artwork(identity, first_node):

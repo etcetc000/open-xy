@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from tooling import custom_preview as custom
 from tooling.formats import sha
-from tooling.machines import machine_at
+from tooling.machines import SDK_VERSION, machine_at
 from tooling.preview import preview_bundle
 from test_sample_services import HOST_CXX
 
@@ -60,7 +60,11 @@ class CustomPreviewTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             custom.scaffold(folder, 'drive', 'Drive', 'effect', repository=True)
         m = machine_at(folder)
-        self.assertEqual((m.kind, m.dry_parameter, m.identity['page']), ('effect', 2, 21))
+        self.assertEqual((m.kind, m.dry_parameter, m.identity), ('effect', 2, {'effect': None, 'page': 21}))
+        # Starters target this SDK and name no numbers: each build gives them.
+        for record in (json.loads((f / 'machine.json').read_text()) for f in (folder, self.source)):
+            self.assertEqual(record['sdk'], '%d.%d' % SDK_VERSION)
+            self.assertNotIn('identity', record)
         with self.assertRaises(ValueError):
             custom.scaffold(self.root / 'other', 'drive', 'Drive', 'player')
         self.assertTrue((folder / 'tests/sound.cpp').is_file() and (self.source / 'tests/sound.cpp').is_file())

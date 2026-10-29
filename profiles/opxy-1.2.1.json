@@ -93,6 +93,9 @@
   "services": {
     "samples": [
       "sample"
+    ],
+    "extensions": [
+      "extension"
     ]
   },
   "patches": [
@@ -889,6 +892,15 @@
       "call": true
     },
     {
+      "kind": "hook",
+      "address": "0x8d58913e",
+      "file_offset": "0x1c039a",
+      "length": 4,
+      "before": "00e3e984",
+      "symbol": "sdk_project_load",
+      "call": true
+    },
+    {
       "kind": "text",
       "name": "MTP path allowlist: project companion (.oxy) beside each project (.xy)",
       "address": "0x840ae494",
@@ -1185,6 +1197,83 @@
       "call": true
     },
     {
+      "kind": "hook",
+      "address": "0x8c0baaf0",
+      "file_offset": "0xf1d2c",
+      "length": 8,
+      "before": "00de598db8860000",
+      "symbol": "sdk_extensions_controller_update",
+      "call": true,
+      "service": "extensions",
+      "events": ["context"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b6184",
+      "file_offset": "0xed3c0",
+      "length": 12,
+      "before": "ffe3eafd00da0208783c0000",
+      "symbol": "sdk_extensions_key_queue",
+      "call": true,
+      "service": "extensions",
+      "events": ["queued_control"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d594376",
+      "file_offset": "0x1cb5d2",
+      "length": 4,
+      "before": "00e3e109",
+      "symbol": "sdk_extensions_live_note_on",
+      "call": true,
+      "service": "extensions",
+      "events": ["input_activity", "recordable_note_on"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59420a",
+      "file_offset": "0x1cb466",
+      "length": 4,
+      "before": "00e30b09",
+      "symbol": "sdk_extensions_live_note_off",
+      "call": true,
+      "service": "extensions",
+      "events": ["selected_note_off"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59819c",
+      "file_offset": "0x1cf3f8",
+      "length": 4,
+      "before": "ffe3b7c4",
+      "symbol": "sdk_extensions_recorder_tick",
+      "call": true,
+      "service": "extensions",
+      "events": ["recording_tick"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d597db8",
+      "file_offset": "0x1cf014",
+      "length": 4,
+      "before": "ffe3d6cd",
+      "symbol": "sdk_extensions_stop",
+      "call": true,
+      "service": "extensions",
+      "events": ["context"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d595844",
+      "file_offset": "0x1ccaa0",
+      "length": 4,
+      "before": "01e38812",
+      "symbol": "sdk_extensions_note_accepted",
+      "call": true,
+      "service": "extensions",
+      "events": ["recordable_note_on"]
+    },
+    {
       "kind": "startup",
       "name": "Boot-screen version label",
       "address": "0x8c0b85dc",
@@ -1192,6 +1281,66 @@
       "length": 10,
       "before": "32e412000207ffe34bf5",
       "symbol": "kit_startup_label"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b2e68",
+      "file_offset": "0xea0a4",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_pad_key_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b214e",
+      "file_offset": "0xe938a",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_pad_key_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b31e0",
+      "file_offset": "0xea41c",
+      "length": 8,
+      "before": "00de588d341f0000",
+      "symbol": "sdk_sample_pad_copy",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b3256",
+      "file_offset": "0xea492",
+      "length": 8,
+      "before": "00de588d901f0000",
+      "symbol": "sdk_sample_pad_paste",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c094710",
+      "file_offset": "0xcb94c",
+      "length": 8,
+      "before": "00de4d8db0630000",
+      "symbol": "sdk_sample_multi_control",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0949e0",
+      "file_offset": "0xcbc1c",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_multi_press_engine",
+      "service": "samples",
+      "call": true
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

@@ -80,7 +80,7 @@ test('Mac reads and verifies the original OS, then remembers transfer mode for i
   assert.deepEqual(new Uint8Array(await (await fetch($('source-backup').href)).arrayBuffer()), bytes);
   f.wizard.clearSourceBackup(); assert.equal($('source-backup').hidden, true);
   assert.ok(!fake.state.ops.some(op => ['100b', '100c', '100d'].includes(op)));
-  f.wizard.navigate(3);
+  f.wizard.navigate(4);
   assert.equal($('download').hidden, true); assert.equal($('route-mac').hidden, false);
   $('route-mac').onclick({preventDefault() {}});
   assert.equal($('device-flow').dataset.stage, 'transfer');
@@ -114,7 +114,7 @@ test('a manual Mac copy still closes transfer apps before sending a build', t =>
   const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
   f.reachTransfer('mac'); f.click('field-kit-closed'); f.click('mtp-manual');
   f.click('Files copied · Choose files');
-  f.wizard.navigate(3); f.$('route-mac').onclick({preventDefault() {}});
+  f.wizard.navigate(4); f.$('route-mac').onclick({preventDefault() {}});
   assert.equal(f.$('device-flow').dataset.stage, 'close-field-kit');
   assert.equal(f.requests(), 0);
 });
@@ -171,7 +171,7 @@ test('post-install disable runs directly and retries without restarting setup', 
     t.after(() => { Session.prototype[name] = original; });
   }
   const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
-  f.$('source-mac').onclick(); f.wizard.navigate(3);
+  f.$('source-mac').onclick(); f.wizard.navigate(4);
   f.$('route-mac').onclick({preventDefault() {}});
   f.click('Connected and at te-boot'); f.click('menu-yes'); f.click('Dev menu is open');
   f.click('I see "mtp mode active"'); f.click('field-kit-closed'); f.click('mtp-manual');
@@ -321,8 +321,8 @@ test('installation links preview the edited steps without a build or device acce
   const $ = id => { assert.ok(elements.has(id), `Missing authored element: ${id}`); return elements.get(id); };
   let deviceRequests = 0, exits = 0;
   const listeners = new Map();
-  const pages = [1, 2, 3].map(page => Object.assign(new Element(), {dataset: {page: String(page)}}));
-  const steps = [1, 2, 3].map(step => Object.assign(new Element(), {dataset: {step: String(step)}}));
+  const pages = [1, 2, 3, 4].map(page => Object.assign(new Element(), {dataset: {page: String(page)}}));
+  const steps = [1, 2, 3, 4].map(step => Object.assign(new Element(), {dataset: {step: String(step)}}));
   const location = {hash: '#preview/mac/transfer', pathname: '/', search: ''};
   const globals = {
     document: {
@@ -330,9 +330,9 @@ test('installation links preview the edited steps without a build or device acce
       addEventListener() {},
       querySelectorAll: selector => ({'[data-icon]': [], '[data-page]': pages, '.steps button': steps}[selector] ?? []),
       querySelector: selector => {
-        const match = /^\[data-page="([123])"\]( h1)?$/.exec(selector);
+        const match = /^\[data-page="([1234])"\]( h1)?$/.exec(selector);
         assert.ok(match, `Unexpected selector: ${selector}`);
-        return match[2] ? $(['input-title', 'machines-title', 'download-title'][Number(match[1]) - 1]) : pages[Number(match[1]) - 1];
+        return match[2] ? $(['input-title', 'machines-title', 'extensions-title', 'download-title'][Number(match[1]) - 1]) : pages[Number(match[1]) - 1];
       },
     },
     window: {addEventListener: (event, listener) => listeners.set(event, listener)},
