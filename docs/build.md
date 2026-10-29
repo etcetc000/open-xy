@@ -89,11 +89,10 @@ your own copy.
 
 Start from [your first machine](first-machine.md); `sdk.py new` needs no
 preview tools. A machine is a folder that can live anywhere, such as its own
-repository. Its `machine.json` names the SDK version it targets (`"sdk": "1.0"`)
-and the engine (or effect) number and page it asks for, outside the core
-machines' fixed numbers ([identity](api.md#identity),
-[fields](api.md#registration-boundary)). Names are saved in presets and never
-change once published.
+repository. Its `machine.json` names the SDK version it targets (`"sdk": "1.5"`)
+and, for a sample engine, the stock sampler it forks; the build gives its
+numbers ([identity](api.md#identity), [fields](api.md#registration-boundary)).
+Names are saved in presets and never change once published.
 
 Projects save machine numbers, which a build takes from a layout: every package
 holds `layout.json`, the numbers its firmware has given out. Pass it to your next

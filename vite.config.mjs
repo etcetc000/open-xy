@@ -11,7 +11,7 @@ const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'core.m
 // Vite's /@fs/ URLs: C:/x becomes /@fs/C:/x and /x becomes /@fs/x.
 const fsUrl = path => posix.join('/@fs/', normalizePath(path));
 const fsFile = url => { const path = url.slice(5); return /^[A-Za-z]:\//.test(path) ? path : '/' + path; };
-const kitKeys = new Set(['format','version','profile','profileSource','definitions','fixed','machines','objects','notices','stockCatalog','screenTemplate']);
+const kitKeys = new Set(['format','version','profile','profileSource','definitions','fixed','machines','extensions','objects','notices','stockCatalog','screenTemplate']);
 
 // Check both the supplied path and its physical destination, including a new
 // directory below an existing symlink/junction. Worktrees have a .git file.

@@ -16,6 +16,16 @@ from machine_fixtures import FOLDER, NAMES, fixture, fixture_entries
 RULES = config()['identities']
 
 
+def own(name):
+    """The numbers a synth asking for none gets beside the fixed machines alone: its own places."""
+    return machines.number_layout(RULES, [(n, None, i) for n, i in machines.FIXED_NUMBERS.items()], None,
+                                  [(name, 'synth', {'engine': None, 'page': None})])[name]
+
+
+# Synth numbers no fixed machine holds, for machines that ask for numbers.
+FREE = own('free')
+
+
 def identity(kind, **changes):
     value = {'synth': dict(engine=34, page=82), 'sample': dict(engine=35, page=2),
              'effect': dict(effect=11, page=21)}[kind]
@@ -31,6 +41,8 @@ class Identity(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(machines.check_identity(RULES, kinds[name], numbers), numbers)
         self.assertEqual(machines.assign_numbers([])[1], machines.FIXED_NUMBERS)
+        # Each sample base is one of the profile's stock sample pages.
+        self.assertEqual(sorted(machines.SAMPLE_BASES.values()), RULES['sample_pages'])
         # A collection keeps its declared order; the SDK has no default collection.
         self.assertEqual([m.id for m in machines.collection(fixture_entries())], list(NAMES))
         for entries in (None, []):
@@ -134,7 +146,7 @@ class OutsideMachines(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.folder = Path(self.temporary.name).resolve() / 'opxy-fmcopy'
         shutil.copytree(FOLDER / 'probesynth', self.folder)
-        self.free = machines.free_synth_identity()
+        self.free = FREE
         self.rename('fmcopy', self.free)
 
     def rename(self, identity, ids, sdk='1.0'):
@@ -180,16 +192,20 @@ class OutsideMachines(unittest.TestCase):
             collection.write_text(json.dumps({'schema': 1, 'machines': listed}), encoding='utf-8')
             with self.subTest(listed=listed), self.assertRaisesRegex(ValueError, 'Collection entries are'):
                 machines.read_collection(collection)
-        # A machine asking for a fixed number is given the lowest free one.
+        # A machine asking for a fixed number is given its own place instead.
         self.rename('fmcopy', dict(self.free, engine=34))
         fmcopy = machines.collection(entries)[-1]
-        self.assertEqual((fmcopy.identity, fmcopy.requested), (self.free, dict(self.free, engine=34)))
+        self.assertEqual((fmcopy.identity, fmcopy.requested),
+                         (dict(self.free, engine=own('fmcopy')['engine']), dict(self.free, engine=34)))
 
     def test_sdk_version_and_fixed_names_are_checked(self):
         for version in ('1.1', '1.2', '1.3', '1.4'):
             self.rename('fmcopy', self.free, version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-        for version in ('0.9', '2.0', '1.5', '1', 'latest', None):
+        for version in ('1.5', '1.6'):
+            self.numberless(self.folder, sdk=version)
+            self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+        for version in ('0.9', '2.0', '1.7', '1', 'latest', None):
             with self.subTest(version=version):
                 self.rename('fmcopy', self.free, version)
                 with self.assertRaises(ValueError):
@@ -201,6 +217,105 @@ class OutsideMachines(unittest.TestCase):
         self.rename('fm2op', machines.FIXED_NUMBERS['fm2op'])
         self.assertEqual(machines.collection(machines.read_collection(None, [self.folder]))[0].identity,
                          machines.FIXED_NUMBERS['fm2op'])
+
+    def numberless(self, folder, **changes):
+        """A machine.json in SDK 1.5 form: no identity; `changes` adds or (None) removes fields."""
+        record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
+        record.pop('identity', None)
+        record['sdk'] = '1.5'
+        for key, value in changes.items():
+            if value is None:
+                record.pop(key, None)
+            else:
+                record[key] = value
+        (folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
+        return folder
+
+    def copy(self, name):
+        folder = self.folder.parent / name
+        shutil.copytree(FOLDER / name, folder)
+        return folder
+
+    def test_sdk_1_5_machines_name_no_numbers(self):
+        self.numberless(self.folder)
+        m = machines.machine_at(self.folder)
+        self.assertEqual(m.identity, {'engine': None, 'page': None})
+        # The build gives the machine its own places, the same each time, and records the request.
+        self.assertNotEqual(own('fmcopy'), FREE)
+        for _ in range(2):
+            built = machines.collection(machines.read_collection(None, [self.folder]))[0]
+            self.assertEqual((built.identity, built.requested), (own('fmcopy'), m.identity))
+        # A layout keeps the numbers it gave; dropped machines' stay held.
+        layout = {'fmcopy': {'engine': 50, 'page': 100}, 'gone': dict(FREE)}
+        built = machines.collection(machines.read_collection(None, [self.folder]), layout)[0]
+        self.assertEqual(built.identity, {'engine': 50, 'page': 100})
+        built = machines.collection(machines.read_collection(None, [self.folder]), {'gone': own('fmcopy')})[0]
+        self.assertEqual(built.identity, {'engine': own('fmcopy')['engine'] + 1, 'page': own('fmcopy')['page'] + 1})
+        # A machine named like one with fixed numbers gets them.
+        self.rename('fm2op', None, '1.5')
+        self.numberless(self.folder)
+        self.assertEqual(machines.collection(machines.read_collection(None, [self.folder]))[0].identity,
+                         machines.FIXED_NUMBERS['fm2op'])
+
+    def test_sdk_1_5_refuses_numbers_and_misplaced_bases(self):
+        cases = {'identity': (dict(identity=FREE), 'no identity.*"base": "sampler" or "drumSampler"'),
+                 'synth base': (dict(base='sampler'), 'Only a sample engine names a base')}
+        for case, (changes, error) in cases.items():
+            self.numberless(self.folder, **changes)
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, error):
+                machines.machine_at(self.folder)
+        effect = self.numberless(self.copy('probefx'), base='drumSampler')
+        with self.assertRaisesRegex(ValueError, 'Only a sample engine names a base'):
+            machines.machine_at(effect)
+        self.assertEqual(machines.machine_at(self.numberless(effect, base=None)).identity, {'effect': None, 'page': 21})
+        # Before 1.5 a machine lists numbers and names no base.
+        self.rename('fmcopy', self.free, '1.4')
+        record = json.loads((self.folder / 'machine.json').read_text(encoding='utf-8'))
+        (self.folder / 'machine.json').write_text(json.dumps(dict(record, base='sampler')), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'needs "sdk": "1.5"'):
+            machines.machine_at(self.folder)
+
+    def test_a_sample_engine_names_the_stock_sampler_it_forks(self):
+        folder = self.copy('probesample')
+        for base, error in ((None, 'names the stock sampler it forks'), ('piano', 'names the stock sampler'),
+                            (7, 'names the stock sampler'), (['sampler'], 'names the stock sampler'),
+                            ({'sampler': 2}, 'names the stock sampler'),
+                            ('sampler', 'Pad settings and drum controls need the drum sampler base')):
+            self.numberless(folder, base=base)
+            with self.subTest(base=base), self.assertRaisesRegex(ValueError, error):
+                machines.machine_at(folder)
+        self.numberless(folder, base='drumSampler')
+        self.assertEqual(machines.machine_at(folder).identity, {'engine': None, 'page': 7})
+        built = machines.collection(machines.read_collection(None, [folder]))[0]
+        self.assertEqual(built.identity, {'engine': 41, 'page': 7})  # its own place in the engine pool
+        # Without pad settings it may fork the keyboard sampler; a 1.4 machine still picks it by number.
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        definition['resources'].pop('padSettings')
+        definition['resources'].pop('drumControls')
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(folder, base='sampler')
+        self.assertEqual(machines.machine_at(folder).identity, {'engine': None, 'page': 2})
+        self.numberless(folder, base=None, sdk='1.4', identity={'engine': 47, 'page': 2})
+        self.assertEqual(machines.machine_at(folder).identity, {'engine': 47, 'page': 2})
+
+    def test_a_sample_engine_forking_the_sampler_may_draw_its_own_screen(self):
+        folder = self.copy('probesample')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        for name in ('padSettings', 'drumControls'):
+            definition['resources'].pop(name)
+        synth = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+        definition['resources']['display'] = synth['resources']['display']
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(folder, base='drumSampler')
+        with self.assertRaisesRegex(ValueError, 'Only a sample engine forking the sampler'):
+            machines.machine_at(folder)
+        self.numberless(folder, base='sampler')
+        m = machines.machine_at(folder)
+        self.assertEqual((m.display, m.identity), ('drawing', {'engine': None, 'page': 2, 'screen': None}))
+        # The layout gives the screen a page from its own place, as it gives a synth's.
+        numbers = machines.number_layout(RULES, [], None, [(m.id, m.kind, m.identity)])[m.id]
+        self.assertEqual(numbers['page'], 2)
+        self.assertIn(numbers['screen'], machines.number_pools(RULES)['page'])
 
     def preset(self, **changes):
         value = {'engine': {'params': [0, 16384, 32767, 0, 0, 0, 0, 0], 'volume': 16384}, 'platform': 'OP-XY',

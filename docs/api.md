@@ -6,7 +6,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | Kind | C++ the machine supplies | Example |
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
-| `sample` | `sample.cpp` with `Voice` state; the stock sample page is its screen, or on page 2 optionally its own (`display.cpp` and `panel.svg.fragment`) | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
+| `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen, or forking the sampler optionally its own (`display.cpp` and `panel.svg.fragment`) | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
 | `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
@@ -289,19 +289,19 @@ void render_sample(Voice&, const opxy::SampleBlock&);
 the SDK retains until the voice is destroyed; a view with no frames means
 silence. `start` runs on each note. Never retain a block or its buffers.
 
-The stock page an engine asks for (`identity.page`) sets how it plays. On page
-2, the sampler's page, it plays like the stock sampler: one sample, played
-chromatically across the keyboard, its root key playing it as recorded. On
-page 7, the drum page, it plays like the stock drum engine: 24 pads, each with
-its own sample.
+The stock sampler a sample engine forks (`machine.json` `base`) sets how it
+plays and which stock screen it uses. With `"base": "sampler"` it plays like
+the stock sampler: one sample, played chromatically across the keyboard, its
+root key playing it as recorded. With `"base": "drumSampler"` it plays like
+the stock drum sampler: 24 pads, each with its own sample.
 
 ### Own screen
 
-A page-2 sample engine may draw its own screen over the sampler's page, as a
-synth draws its page: it declares `resources.display` in `definition.json`,
-supplies `display.cpp` and `panel.svg.fragment` ([Display API](display.md)),
-and asks for the screen's page in `machine.json`:
-`"identity": {"engine": 40, "page": 2, "screen": 90}`. The screen covers the
+A sample engine forking the sampler (`"base": "sampler"`) may draw its own
+screen over the sampler's page, as a synth draws its page: it declares
+`resources.display` in `definition.json` and supplies `display.cpp` and
+`panel.svg.fragment` ([Display API](display.md)), and each build gives the
+screen a page as it gives a synth's ([Identity](#identity)). The screen covers the
 sampler's page whenever a track using the engine is selected and that page is
 showing; the stock sample browser and recorder keep their own pages. The
 encoders then edit the engine's controls as on a synth's page:
@@ -320,8 +320,8 @@ means 0. Callbacks are functions in the machine's namespace.
 | Resource | Value | Effect | Callbacks |
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
-| `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (page 7: the same pad, at any octave) | |
-| `padSettings` | 0 or 1; page 7 | The SDK saves 16 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
+| `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
+| `padSettings` | 0 or 1; drum sampler base | The SDK saves 16 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sampleAnalysis` | Budget in bytes, 4096..2 MiB, whole words | Prepared per-sample data | `analysis_words`, `prepare_begin`, `prepare_step`, `prepared` |
 
@@ -341,12 +341,17 @@ means 0. Callbacks are functions in the machine's namespace.
 | `settings` | The pad's saved settings, or `sample_defaults()` when it has none; 0 without `padSettings` |
 | `output_channels` | 1, or 2 with `stereoOutput` |
 | `track_transpose` | The track settings transpose, -36..36 semitones |
-| `drum_transpose` | Page 7: semitones from the note's pad to the played note (whole octaves), fixed at note start. 0 on page 2 |
+| `drum_transpose` | Drum sampler base: semitones from the note's pad to the played note (whole octaves), fixed at note start. 0 with the sampler base |
 
 Source and output channel counts are independent. Stock envelopes, mixing and
 project voice settings follow the callback.
 
 ### Pad settings
+
+`PadSettings` is an unsigned value from 0 to 262143 (18 bits), stored in a
+`u32` since SDK 1.6. The SDK reads existing 16-bit settings without changing
+their values. Machines using values above 65535 must target SDK 1.6 or later;
+firmware built with older SDKs cannot read those extended values.
 
 ```cpp
 opxy::PadSettings sample_defaults();
@@ -506,10 +511,10 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.4 and builds 1.0 to 1.4 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.6 and builds 1.0 to 1.6 machines |
 | `kind` | `synth`, `sample` or `effect` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
-| `identity` | The numbers it asks for: `{"engine": n, "page": p}`, or `{"effect": n, "page": 21}` for an effect; see below |
+| `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
@@ -539,36 +544,49 @@ firmware that holds it.
 
 ### Identity
 
-| Kind | ID | Page |
+A machine is identified by its `definition.json` `id`. Presets save that name,
+so it never changes once published. `machine.json` holds no numbers: each
+build gives every machine the stock numbers projects save, an engine number
+(an effect number for an effect) and a screen number, and keeps them.
+
+| Kind | Engine or effect number | Screen |
 | --- | --- | --- |
-| `synth` | 34..62 | Its own screen: 82..127 |
-| `sample` | 34..62 | Stock sample page 2 or 7; `padSettings` requires 7. An [own screen](#own-screen) (page 2): `screen`, 82..127 |
-| `effect` | 1, 8, 11, 21, 23..28 or 34..62 | Stock FX page 21 |
+| `synth` | Engine 34..62 | Its own, 82..127 |
+| `sample` | Engine 34..62 | Its base's: the stock sampler's or drum sampler's. An [own screen](#own-screen): its own, 82..127 |
+| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen |
 
-Engine IDs above 32, effect IDs above 18 and pages above 81 exist only in the
-relocated stock tables.
-Presets save a machine's name and projects its numbers, so a name never changes
-once published, and neither do a firmware's numbers.
-
-`identity` holds the numbers a machine asks for. Four core machines, which
-the first Open-XY firmware shipped, have fixed numbers held in every firmware
-whether it includes them or not: 2op FM 34/82, Macro Osc 26/83, Ring Mod
-effect 1 and Timestretch 35 on sample page 7 (`FIXED_NUMBERS` in
-[`tooling/machines.py`](../tooling/machines.py)). No other machine gets fixed
-numbers, since a layout may already hold any free number.
+These numbers exist only in the relocated stock tables, so no machine shares
+one with stock. Four core machines, which the first Open-XY firmware shipped,
+have fixed numbers held in every firmware whether it includes them or not
+(`FIXED_NUMBERS` in [`tooling/machines.py`](../tooling/machines.py)).
 Every other machine is numbered by the firmware's **layout**: its record of
 every number it has given out, including to machines since dropped, which stay
 held so an old project never opens another machine. The builder and
 `sdk.py build` write the layout after each build to `layout.json`; give it to
 the next build so every machine keeps its numbers. A machine new to the layout
-gets the numbers it asks for when they are free, otherwise the lowest free
-ones; a sample engine's screen takes a page as a synth's does, and one that
-gains a screen keeps its other numbers. New numbers come from engines 34..62 and pages 82..127, never from the
-gaps in stock's own engine table, so ask for numbers in those ranges; a
-sample engine keeps its stock page. Macro Osc predates this and keeps
-engine 26.
+gets numbers from its own place in each pool above, worked out from its ID
+(FNV-1a, 32-bit, of the ID's UTF-8 bytes, modulo the pool's size), or the next
+free number above it, wrapping around. Machines are numbered in ID order, never
+collection or selection order, so even a build without a layout gives a machine
+the same numbers whatever else it includes, unless another machine's place
+collides with its own: then the first by ID keeps it. Only a layout guarantees
+numbers.
+A sample engine's own screen takes a page as a synth's does, and one that
+gains a screen keeps its other numbers.
 A [project companion](projects.md) records what a project's numbers meant by
-machine ID, for firmware with another layout.
+machine ID, so Open-XY firmware with another layout opens the project with the
+same machines.
+
+Machines targeting SDK 1.4 or earlier instead list the numbers they ask for in
+`identity`, `{"engine": n, "page": p}` or `{"effect": n, "page": 21}`
+(`{"engine": n, "page": 2, "screen": s}` for a sample engine with its own
+screen), and name no `base`. A layout gives them when free, before any machine's own place,
+otherwise numbers as for any other machine;
+a sample engine's `page` 2 forks the sampler and 7 the drum sampler. Such a
+machine keeps working unchanged. To move it to `"sdk": "1.5"`, delete
+`identity` and, for a sample engine, add its `base`; a 1.5 machine with
+`identity` is refused. Its numbers in an existing `layout.json` stay its own,
+so build with the previous layout.
 
 Generated adapters check record/name ownership and screen readiness before
 catalog admission; the packager authenticates firmware and constrains writes.

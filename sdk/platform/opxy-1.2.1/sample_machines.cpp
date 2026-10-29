@@ -7,6 +7,7 @@ using opxy::u32;
 using opxy::platform::SampleMachine;
 
 extern "C" {
+u32 sdk_sample_drum_alias(u32) __asm__("sdk_sample_drum_alias");
 u32 sdk_sample_note_route(u32) __asm__("sdk_sample_note_route");
 u32 sdk_sample_alias(u32) __asm__("sdk_sample_alias");
 }
@@ -36,3 +37,8 @@ u32 sdk_sample_alias(u32 engine) {
     const u32 page = opxy::platform::sample_page(engine);
     return page == 2 ? 2 : page ? 30 : engine;
 }
+
+// Only the drum-page key handlers use this identity: stock ID 3 enables the
+// held-pad overlay, slicing and individual pad copy/paste. Audio and sample
+// loading still use the multisampler alias above. Never change the saved ID.
+u32 sdk_sample_drum_alias(u32 engine) { return opxy::platform::sample_page(engine) == 7 ? 3 : engine; }

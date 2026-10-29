@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, checkedSelections, chosenByDefault, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -67,7 +67,7 @@ test('profiling defaults on; disabling it changes only the reviewed diagnostic h
   }
   const restored = off.slice(); restored.set(on.subarray(32, 48), 32);
   assert.deepEqual(restored, on);
-  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a']});
+  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[]});
 });
 
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {
@@ -143,6 +143,39 @@ test('exact deterministic section placement and immutable input capsules', () =>
   assert.deepEqual(linkKit(k,['a']).module,linked.module);
 });
 
+test('extensions omit code/state and resolve only shared registry imports to an absent accessor', () => {
+  const k = fixture();
+  k.extensions = [{id:'capture', claims:['record_double_tap'], actions:['edit_notes']}];
+  k.definitions.kit_absent = k.profile.module_base;
+  const extension = {...readObject(elf()), name:'extension.o', owner:null, extension:'capture'};
+  extension.symbols[1].name = 'sdk_extension_capture_hooks';
+  extension.sections.push({index:5, name:'.bss', group:'bss', type:8, size:128, alignment:4});
+  const registry = k.objects[0]; registry.owner = null;
+  registry.symbols.push({name:'sdk_extension_capture_hooks', section:0, value:0, size:0, binding:1, type:0});
+  registry.relocations.push({section:1, offset:0, type:18, symbol:2, addend:0});
+  k.objects.push(extension);
+  const on = linkKit(k, ['a'], null, ['capture']), off = linkKit(k, ['a'], null, []);
+  assert.deepEqual(linkKit(k, ['a']).module, off.module);  // omitted means none
+  assert.equal(on.sizes.bss, 128); assert.equal(off.sizes.bss, 0);
+  assert.equal(off.objects.length, 1); assert.equal(on.objects.length, 2);
+  assert.notDeepEqual(on.module, off.module);
+  assert.equal(off.aliases.get('sdk_extension_capture_hooks'), k.definitions.kit_absent);
+  assert.deepEqual(linkKit(k, ['a'], null, ['capture']).module, on.module);
+  registry.owner = 'a';
+  assert.throws(() => linkKit(k, ['a'], null, []), /Unresolved import/);
+});
+
+test('extension selections preserve collection order, empty choices and exclusive gestures', () => {
+  const k = {extensions:[{id:'observer', claims:[]}, {id:'capture', claims:['record_double_tap']}, {id:'replace', claims:['record_double_tap']}]};
+  assert.deepEqual(extensionSelection(k, []), []);
+  assert.deepEqual(extensionSelection(k, ['capture','observer']), ['observer','capture']);
+  assert.throws(() => extensionSelection(k, ['capture','replace']), /record double tap/);
+  assert.deepEqual(extensionChoices(k), [[], ['observer'], ['capture'], ['observer','capture'], ['replace'], ['observer','replace']]);
+  for (const selection of [['missing'], ['capture','capture'], null, 'capture'])
+    assert.throws(() => extensionSelection(k, selection), /available extension/);
+  assert.deepEqual(extensionSelection({}), []);
+});
+
 test('declared callbacks of unselected machines resolve to fallbacks only for SDK objects', () => {
   const k=fixture(), o=k.objects[0];
   k.definitions.fallback=k.profile.module_base;
@@ -193,14 +226,16 @@ test('machine numbering cases shared with tooling.machines', () => {
 test('numbers follow the layout, not the selection order, and unselected machines link as 0', () => {
   const k=fixture(); k.machines.push(machine('b',34,82,'personal'),machine('c',34,82,'personal'));
   assert.deepEqual(assignNumbers(k,['c','b','a']),assignNumbers(k,['a','b','c']));
-  assert.deepEqual(assignNumbers(k,['a','c']).c,{engine:35,page:83});
-  // Once b has numbers, they stay held when b is dropped, and c takes the next free ones.
+  // c's own places in the pools (FNV-1a of its ID), as it asks for a's fixed numbers.
+  assert.deepEqual(assignNumbers(k,['a','c']).c,{engine:40,page:83});
+  // Once b has numbers, they stay held when b is dropped; c keeps its own, which b's do not collide with.
   const numbers=assignNumbers(k,['a','b']);
-  assert.deepEqual(assignNumbers(k,['a','c'],numbers),{...numbers,c:{engine:36,page:84}});
+  assert.deepEqual(numbers.b,{engine:57,page:121});
+  assert.deepEqual(assignNumbers(k,['a','c'],numbers),{...numbers,c:{engine:40,page:83}});
   const linked=linkKit(k,['a','c'],numbers);
   assert.deepEqual([linked.definitions.a_engine_id,linked.definitions.b_engine_id,linked.definitions.c_engine_id,
-    linked.definitions.c_page_id],[34,0,36,84]);
-  assert.deepEqual(linked.numbers.b,{engine:35,page:83});
+    linked.definitions.c_page_id],[34,0,40,83]);
+  assert.deepEqual(linked.numbers.b,{engine:57,page:121});
 });
 test('saved layouts restore numbers and selections, including older saved selections', () => {
   const k=fixture(), id=k.profile.id;
@@ -256,6 +291,26 @@ test('curated profile and object authentication reject modified input', async ()
   k.version='0.0.2';
   k.objects[0].sha256='0'.repeat(64); await assert.rejects(openKit(k),/hash mismatch/);
   k.profile.patches[0].after='0000000000000000'; await assert.rejects(openKit(k),/reviewed profile/);
+});
+test('SDK 1.5 machines ask for no numbers and the selection gives them', async () => {
+  const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');
+  k.objects=[{name:'a.o',owner:'a',bytes:Buffer.from(elf()).toString('base64'),sha256:await sha256(elf())}];
+  k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
+  // a has fixed numbers yet asks for none; a sample engine names only its base's page.
+  k.machines=[{...machine('a',null,null)},{...machine('b',null,null)},
+    {id:'d',prefix:'d',kind:'sample',identity:{engine:null,page:7},absent:{},origin:'personal'},
+    {id:'e',prefix:'e',kind:'effect',identity:{effect:null,page:21},absent:{},origin:'personal'}];
+  await openKit(k);
+  assert.deepEqual(assignNumbers(k,['a','b','d','e']),
+    {a:{engine:34,page:82},b:{engine:57,page:121},d:{engine:42,page:7},e:{effect:47,page:21}});
+  assert.deepEqual(assignNumbers(k,['b'],{b:{engine:50,page:100}}).b,{engine:50,page:100});
+  for (const identity of [{engine:null,page:82},{engine:null,page:null,base:'sampler'}]) {
+    k.machines[1].identity=identity; await assert.rejects(openKit(k),/Machine numbers/);
+  }
+  k.machines[1].identity={engine:null,page:null}; k.machines[2].identity={engine:null,page:null};
+  await assert.rejects(openKit(k),/Machine numbers/);
+  k.machines[2].identity={engine:null,page:7}; k.machines[0].identity={engine:34,page:83};
+  await assert.rejects(openKit(k),/Fixed machine numbers differ/);
 });
 test('a machine says where it comes from: a catalog release or a personal folder', async () => {
   const source = {repository:'https://github.com/someone/opxy-probe', tag:'v1.0.0', commit:'a'.repeat(40), maintainer:'someone'};

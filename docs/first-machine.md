@@ -63,10 +63,10 @@ synths, Ring Mod and Ping Pong for effects, and
 Timestretch for sample engines. Sample engines use the public sample API;
 `new` currently supplies synth and effect starters.
 
-Open http://127.0.0.1:8917/. You should see **My Machine**, **Local authoring**,
-four controls and the **Triangle** and **Pulse** presets. Click **Enable audio**,
-then use the on-screen keys or `A W S E D F T G Y H U J K`. Start with a low
-monitor gain. **Stop all** or Escape releases the notes.
+Open http://127.0.0.1:8917/. You should see **My Machine**, four controls
+and the **Triangle** and **Pulse** presets. Use the on-screen keys
+or `A W S E D F T G Y H U J K`; audio starts automatically. Start with a low
+Volume setting. **Stop all** or Escape releases the notes.
 
 **Blend** moves from triangle to pulse, **Width** changes the pulse's duty cycle,
 and **Level** changes its output level. **Motion** changes the display animation.
@@ -102,7 +102,7 @@ python tools/serve_harness.py --preview local/my-preview-002
 ```
 
 Use the same `--cxx` option on this rebuild if you selected LLVM explicitly.
-Reload the browser, enable audio and play the same key. It should sound one
+Reload the browser and play the same key. It should sound one
 octave lower. Restore the original line and build another fresh snapshot to
 undo the change. `tools/check_first_machine.py`, which CI also runs, makes this exact edit and
 checks that A4 changes from 440 Hz to 220 Hz:
@@ -122,7 +122,7 @@ does not change your machine.
 | `core.h`, `engine.cpp` | `Voice` and `Shared` state, lifecycle callbacks and the 64-sample render |
 | `display.h`, `display.cpp` | Display state and drawing callback |
 | `panel.svg.fragment` | Artwork; IDs carry the machine's ID (`<id>_panel`, `<id>_node_N`, `<id>_palette_N`) |
-| `machine.json` | Kind, SDK version and the engine number and page it asks for, used by a [firmware build](build.md#3-add-your-machine) of the folder |
+| `machine.json` | Kind and SDK version, used by a [firmware build](build.md#3-add-your-machine) of the folder, which gives the machine its numbers |
 | `tests/sound.cpp` | The machine's own host checks; extend them as the sound grows |
 
 `python sdk.py test --machine ../mymachine` checks a machine folder the way
@@ -176,7 +176,7 @@ revision. Published community machines link to their pinned source in the builde
 | Preview is stale | Rebuild after source edits, restart the server with the new output and reload |
 | Declared size differs from C++ type | Update the corresponding size/alignment in `definition.json` after changing state |
 | Peak or drawing check fails | Correct the callback or its declared contract; the build prints the failing check |
-| No sound | Enable audio, check monitor gain and Level, then play a key; the workbench status reports audio errors |
+| No sound | Unmute audio if needed, check Volume and Level, then play a key; the workbench status reports audio errors |
 | Address already in use | Stop the previous server, or pass `--port 8937` and open that port |
 
 Local authoring permits different sounds and drawings while running the shared

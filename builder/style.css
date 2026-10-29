@@ -338,7 +338,7 @@ footer details[open] { flex-basis:100%; }
 }
 @media(min-width:1000px) and (max-height:850px) { main { padding-top:16px; padding-bottom:16px; gap:16px 24px; } .main-stage { padding-top:20px; padding-bottom:20px; } .flow-body { margin:12px 0 0; } .boot-hardware { max-width:560px; } .lcd-closeup { max-width:380px; } .boot-guide figcaption { font-size:12px; } .capacity { margin-top:20px; padding-top:16px; } .machine { padding-top:9px; padding-bottom:9px; } .page-header { margin-bottom:18px; } }
 @media(max-width:1050px) { main { padding:20px; gap:20px; } .main-stage { padding:26px; } .workspace { gap:22px; grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .machine { grid-template-columns:22px 28px minmax(0,1fr); gap:8px; padding:12px 8px; } .machine-name { font-size:15px; } }
-@media(max-width:800px) { main { grid-template-columns:1fr; padding:20px 16px; gap:20px; } .sidebar { padding:0; gap:24px; } .brand span { display:inline; margin-left:14px; } .steps { grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; } .steps button { padding:12px 10px; gap:10px; font-size:13px; } .steps b { display:none; } .nav-icon { width:26px; } .main-stage { padding:26px; border-radius:14px; } .page-header .eyebrow { margin-bottom:32px; } .footer-meta { flex-basis:100%; } .footer-copy { grid-template-columns:1fr; gap:8px; } .risk-notice .eyebrow { margin-bottom:30px; } }
+@media(max-width:800px) { main { grid-template-columns:1fr; padding:20px 16px; gap:20px; } .sidebar { padding:0; gap:24px; } .brand span { display:inline; margin-left:14px; } .steps { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; } .steps button { padding:12px 10px; gap:10px; font-size:13px; } .steps b { display:none; } .nav-icon { width:26px; } .main-stage { padding:26px; border-radius:14px; } .page-header .eyebrow { margin-bottom:32px; } .footer-meta { flex-basis:100%; } .footer-copy { grid-template-columns:1fr; gap:8px; } .risk-notice .eyebrow { margin-bottom:30px; } }
 @media(max-width:560px) { :root { font-size:14px; } main { padding:16px 12px; } .brand { font-size:23px; } .brand span { display:block; margin-left:0; } .main-stage { padding:24px 16px; } h1,#flow-title { font-size:24px; } .page-header { margin-bottom:24px; } .steps button { font-size:12px; gap:8px; padding:10px 8px; } .nav-icon { width:23px; } .workspace { grid-template-columns:1fr; gap:28px; } .machine { grid-template-columns:24px 34px minmax(0,1fr); gap:14px; padding:12px; } .machine-name { font-size:17px; } .controls { gap:8px; } .capacity-heading { flex-wrap:wrap; gap:8px; } .copy-guide { grid-template-columns:1fr; gap:12px; max-width:380px; } .copy-arrow { transform:rotate(90deg); text-align:center; } .copy-tree { padding:18px; } .copy-tree h3 { margin-bottom:14px; } .instruction-list { font-size:13px; padding-left:22px; } .flow-actions { gap:8px; } .flow-actions .primary,.flow-actions .secondary { width:100%; } .flow-navigation { gap:4px; } .flow-navigation button { padding:9px 14px; font-size:12px; } .actions { flex-wrap:wrap; } .actions .primary { padding:12px 16px; } .risk-notice p,.risk-accept { font-size:13px; } .risk-notice h1 { margin-bottom:22px; } .risk-notice .eyebrow { margin-bottom:24px; } }
 
 @media(max-width:999px) { .flow-body { grid-template-columns:1fr; min-height:0; gap:22px; } .flow-copy { max-width:600px; width:100%; margin:auto; } .flow-visual { max-width:440px; } .boot-hardware { max-width:560px; } .flow-copy .flow-actions { justify-content:center; } .flow-navigation { justify-content:center; margin-left:0; } }
@@ -403,19 +403,19 @@ footer details[open] { flex-basis:100%; }
 /* Fit the machine step to a desktop window. The screen takes the remaining
    space; the list can grow without moving the memory bar or install button. */
 @media(min-width:801px) and (min-height:700px) {
-  main:has([data-page="2"]:not([hidden])) { align-items:stretch; height:100dvh; padding-top:16px; padding-bottom:16px; }
-  main:has([data-page="2"]:not([hidden])) .main-stage { min-height:0; padding-top:16px; padding-bottom:16px; }
-  #builder-workspace:has([data-page="2"]:not([hidden])) { flex:1; min-height:0; }
-  [data-page="2"]:not([hidden]) { min-height:0; }
-  [data-page="2"] .page-header { position:relative; text-align:left; margin-bottom:12px; flex:none; }
-  [data-page="2"] .page-header .eyebrow,[data-page="2"] .page-header p { display:none; }
-  [data-page="2"] .page-header h1 { font-size:24px; margin:0; }
-  [data-page="2"] .counter { position:absolute; top:0; right:0; margin:0; }
-  [data-page="2"] .workspace { flex:1; min-height:0; align-items:stretch; }
+  main:has(:is([data-page="2"],[data-page="3"]):not([hidden])) { align-items:stretch; height:100dvh; padding-top:16px; padding-bottom:16px; }
+  main:has(:is([data-page="2"],[data-page="3"]):not([hidden])) .main-stage { min-height:0; padding-top:16px; padding-bottom:16px; }
+  #builder-workspace:has(:is([data-page="2"],[data-page="3"]):not([hidden])) { flex:1; min-height:0; }
+  :is([data-page="2"],[data-page="3"]):not([hidden]) { min-height:0; }
+  :is([data-page="2"],[data-page="3"]) .page-header { position:relative; text-align:left; margin-bottom:12px; flex:none; }
+  :is([data-page="2"],[data-page="3"]) .page-header .eyebrow,:is([data-page="2"],[data-page="3"]) .page-header p { display:none; }
+  :is([data-page="2"],[data-page="3"]) .page-header h1 { font-size:24px; margin:0; }
+  :is([data-page="2"],[data-page="3"]) .counter { position:absolute; top:0; right:0; margin:0; }
+  :is([data-page="2"],[data-page="3"]) .workspace { flex:1; min-height:0; align-items:stretch; }
   /* contain:size: the list column takes the row's height, never sets it. */
-  [data-page="2"] .workspace>div { contain:size; display:flex; flex-direction:column; min-height:0; }
-  [data-page="2"] .machine-list { flex:1; height:0; min-height:0; padding-right:6px; }
-  [data-page="2"] .actions { flex:none; margin-top:12px; padding-top:8px; }
+  :is([data-page="2"],[data-page="3"]) .workspace>div { contain:size; display:flex; flex-direction:column; min-height:0; }
+  :is([data-page="2"],[data-page="3"]) .machine-list { flex:1; height:0; min-height:0; padding-right:6px; }
+  :is([data-page="2"],[data-page="3"]) .actions { flex:none; margin-top:12px; padding-top:8px; }
   .inspector { display:flex; flex-direction:column; min-height:0; padding-top:0; }
   .summary-space { flex:none; }
   .inspector-top { margin-bottom:4px; }
@@ -437,7 +437,7 @@ footer details[open] { flex-basis:100%; }
   .audition-volume input { max-width:72px; }
   .inspector>details { flex:none; position:relative; margin:0; font-size:11px; }
   .inspector>details .machine-facts { position:absolute; bottom:100%; left:0; right:0; z-index:2; padding:12px; background:var(--paper); border:1px solid var(--line); border-radius:6px; box-shadow:0 8px 24px #0009; }
-  main:has([data-page="2"]:not([hidden])) footer { flex:none; margin-top:12px; padding-top:8px; }
+  main:has(:is([data-page="2"],[data-page="3"]):not([hidden])) footer { flex:none; margin-top:12px; padding-top:8px; }
 }
 /* Compact machine rows. */
 .machine-list { --machine-row:52px; --machine-gap:4px; min-height:0; height:clamp(280px,50dvh,448px); overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-gutter:stable; }
@@ -456,3 +456,12 @@ footer details[open] { flex-basis:100%; }
 .memory-breakdown .memory-legend { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px 16px; margin:0; }
 .memory-breakdown .machine-facts { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
 .memory-breakdown .capacity-foot { margin:10px 0 0; font-size:11px; }
+
+.extension-inspector .selection-summary { margin-top:24px; padding-top:18px; border-top:1px solid var(--line); }
+#extension-details #extension-description { color:var(--ink); font-size:14px; line-height:1.45; min-height:0; margin-bottom:0; }
+#extension-details .extension-note { color:var(--muted); font-size:12px; line-height:1.4; margin-top:6px; }
+.extension-conflict { display:block; color:var(--muted); font-size:11px; margin:4px 0; }
+.extension-inspector .machine-facts { grid-template-columns:1fr; }
+.extension-inspector .machine-facts dd { text-align:left; margin-bottom:8px; }
+@media(max-width:800px) { #extensions { height:auto; max-height:40dvh; } }
+@media(max-width:560px) { .steps { grid-template-columns:repeat(2,minmax(0,1fr)); } }

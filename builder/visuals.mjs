@@ -5,6 +5,7 @@ const ns = 'http://www.w3.org/2000/svg';
 const paths = {
   firmware: 'M10 3h15l10 10v31H10z M25 3v11h10 M16 24h13 M16 31h13',
   machines: 'M5 7h12v12H5z M26 7h12v12H26z M5 28h12v12H5z M26 28h12v12H26z',
+  controls: 'M8 10h30 M8 24h30 M8 38h30 M17 5v10 M29 19v10 M20 33v10',
   install: 'M22 3v26 M13 20l9 9 9-9 M6 33v10h32V33',
   synth: 'M2 24c8-27 13 27 21 0s13 27 21 0',
   effect: 'M3 34h10V24h10V14h10v20h10',

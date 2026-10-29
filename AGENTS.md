@@ -3,7 +3,7 @@
 ## First, which task is this?
 
 - **Making a machine** (an instrument or effect, a "plugin"): it does not go in
-  this repository, which holds only the SDK and the catalog. Start with
+  this repository, which holds only the SDK, its extensions and the catalog. Start with
   `python sdk.py new --repository --id <id> --name "<Name>" --out ../<id>`
   (`--kind effect` for a send effect), then follow its generated README and
   AGENTS.md. Read the relevant core machines below as the worked examples.
@@ -17,6 +17,13 @@
   entry ([submission workflow](docs/catalog.md#submit-a-machine)). A machine that
   needs SDK changes only on `staging` targets `staging` instead. CI refuses a
   submission from a fork that changes anything else.
+- **Changing how the OP-XY behaves** (an extension: recording, controls, the
+  sequencer): it lives in this repository under `extensions/<id>/`, on a branch
+  from `origin/staging`; capture is the worked example. Read
+  [extensions](docs/extensions.md) first. Reuse or widen an existing event;
+  propose a new firmware hook only as that page describes, never beside an
+  existing hook for the same stage. Extensions never patch the firmware or name
+  stock addresses.
 - **Changing the SDK, builder or docs:** branch from `origin/staging` and open the
   pull request against `staging`. Apart from catalog entries, `main` only receives
   releases from `staging`; never base other work on it or target it.
