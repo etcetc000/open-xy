@@ -77,6 +77,11 @@ void stop(u32 address) {
     for (u32 track = 0; track < 8; ++track) reset(track_object(track));
 }
 const u8* scene_indices() { return project.data() + 0x98; }
+// Verified592998 writes latch305f only on change, then clears recorder state.
+void record_latch(u32 address, u32 enabled) {
+    require(!opxy::platform::fake_byte(recorder) && !opxy::platform::fake_byte(recorder+1), "native latch must not enter alternate recorder mode");
+    *static_cast<u8*>(fake_memory(address + 0x305f)) = static_cast<u8>(enabled);
+}
 void undo_reset(u32 address) { put(address + 0x4610, 0xffffffffu); }
 void record_note(u32 address, u32 pitch, u32 track, u32 velocity) {
     ++callback_depth;
@@ -174,6 +179,7 @@ void* fake_address(u32 address) {
     case 0x8d597d00: return reinterpret_cast<void*>(stop);
     case 0x8d593c9c: return reinterpret_cast<void*>(record_note);
     case 0x8d5904e2: return reinterpret_cast<void*>(record_off);
+    case 0x8d592998: return reinterpret_cast<void*>(record_latch);
     case 0x8d591948: return reinterpret_cast<void*>(undo_reset);
     case 0x8d5841e4: return reinterpret_cast<void*>(scene_indices);
     }
@@ -412,6 +418,47 @@ int main() {
     sdk_arranger_bounce_end();
     require(sdk_arranger_audio_model().position() == 15 && !opxy::platform::fake_byte(controller + 0x305d),
         "cancel restores stopped state without changing project mutes");
+    // Native note admission requires held REC or latched REC. REC+Play must
+    // snapshot the gesture before its asynchronous Start consumes the command.
+    model = opxy::arranger::Model{};
+    require(model.insert({0,1,0,480,0,480}) >= 0 && model.setLoop(true,0,480), "overdub loop uses clip B while scene stays A");
+    model.seek(0); sdk_arranger_publish(true,true);
+    role=1; requested_pattern=0xffffffffu;
+    require(sdk_arranger_request_record(0,0xffffffffu), "arm selected lane");
+    *static_cast<u8*>(fake_memory(controller+0x3060))=1;
+    require(sdk_arranger_request_start(0,false,true), "REC+Play captures held intent");
+    *static_cast<u8*>(fake_memory(controller+0x3060))=0; // physical release before dispatch
+    role=0;sdk_arranger_dispatch(controller,1,0);
+    require(opxy::platform::fake_byte(controller+0x305f)==1, "REC+Play remains latched after physical release");
+    const u32 overdub_before=recorded;
+    for(u32 lap=0;lap<2;++lap) {
+        if(opxy::platform::fake_byte(controller+0x305f)) sdk_arranger_record_note(controller,60+lap,0,100);
+        sdk_arranger_dispatch(controller,480,0);
+    }
+    require(recorded==overdub_before+2&&opxy::platform::fake_byte(controller+0x305f), "record admission persists across successive loop passes");
+    require(project[0x98]==0 && get(controller+0x4614)==1, "loop overdub and undo bind clip B without changing scene A");
+    // A second native REC press calls592998(controller,0); its physical release
+    // leaves both admission flags off. A loop boundary must not relatch it.
+    record_latch(controller,0);
+    sdk_arranger_dispatch(controller,480,0);
+    require(!opxy::platform::fake_byte(controller+0x305f), "REC cancellation survives loop boundary");
+    require(sdk_arranger_request_start(0,false,true), "rearm before plain Play test");
+    sdk_arranger_dispatch(controller,1,0);
+    require(sdk_arranger_request_start(0,false), "plain Play ends recording");
+    sdk_arranger_dispatch(controller,1,0);
+    require(!opxy::platform::fake_byte(controller+0x305f), "plain Play cannot arm recording unintentionally");
+    const u32 before_rejected_start = starts;
+    *static_cast<u8*>(fake_memory(recorder+1))=1;
+    require(sdk_arranger_request_start(0,false,true), "REC command queued before mode check");
+    sdk_arranger_dispatch(controller,0,0);
+    require(!opxy::platform::fake_byte(controller+0x305f) && starts == before_rejected_start, "alternate recorder mode rejects queued latch and start");
+    *static_cast<u8*>(fake_memory(recorder+1))=0;
+    require(sdk_arranger_request_start(0,false,true), "REC+Play queued before Stop");
+    record_latch(controller,0); stop(controller);
+    require(sdk_arranger_request_seek(0), "Stop supersedes unconsumed recording start");
+    sdk_arranger_dispatch(controller,1,0);
+    require(!opxy::platform::fake_byte(controller+0x305f)&&!opxy::platform::fake_byte(controller+0x305d), "Stop prevents pending REC+Play from rearming or restarting");
+
     const u32 before_project_change = sdk_arranger_audio_model().position();
     require(sdk_arranger_request_start(456, false), "old-project command accepted before swap");
     ++generation;
@@ -431,4 +478,5 @@ int main() {
     require(bounce_callbacks == callbacks_before_replacement + 1 && stops == stops_before_replacement,
         "project replacement acknowledges bounce cancellation without stopping the new project");
     return 0;
+
 }

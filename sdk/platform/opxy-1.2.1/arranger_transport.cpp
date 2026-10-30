@@ -108,7 +108,7 @@ TrackSelection selected[8];
 bool force_seek;
 bool was_active;
 alignas(4) volatile u32 transport_sequence;
-volatile u32 transport_position, transport_generation, transport_action;
+volatile u32 transport_position, transport_generation, transport_action, transport_record;
 u32 transport_handled;
 bool prepare_track(u32 object, u32 track);
 struct RecordEvent { u32 generation, controller, track, pitch, velocity, pattern, action; };
@@ -136,27 +136,35 @@ u32 advance_timeline(u32 delta) {
 
 // A single GUI producer may replace an unconsumed command. Audio never spins
 // waiting for a producer: an interrupted publication is retried next callback.
-u32 consume_transport_command(u32 old_position) {
+u32 consume_transport_command(u32 old_position, u32 controller) {
     using opxy::platform::barrier;
     const u32 sequence = transport_sequence;
     if ((sequence & 1u) || sequence == transport_handled) return 3;
     barrier();
-    const u32 position = transport_position, generation = transport_generation, action = transport_action;
+    const u32 position = transport_position, generation = transport_generation, action = transport_action, record = transport_record;
     barrier();
     if (sequence != transport_sequence) return 3;
     transport_handled = sequence;
     if (!sdk_arranger_audio_active() || !project_matches() || generation != project_generation()) return 3;
+    // Recheck at consumption: alternate recorder mode makes59025c rebuild notes.
+    // In normal mode its byte+1 test returns immediately, with no external calls.
+    if (action < 2 && (opxy::platform::byte(recorder) || opxy::platform::byte(recorder + 1))) return 3;
+    // Native Play with REC held calls592998(controller,1); our cursor-start
+    // replaces that handler, so preserve its persistent recording latch here.
+    // A plain Play ends latched recording; a seek leaves stock Stop's state alone.
+    if (action < 2) opxy::platform::stock<void(u32,u32)>(0x8d592998)(controller, record);
     sdk_arranger_audio_seek(action == 1 ? old_position : position);
     return action;
 }
 
-bool publish_transport_command(u32 position, u32 action) {
+bool publish_transport_command(u32 position, u32 action, bool record = false) {
     using opxy::platform::barrier;
     ++transport_sequence;
     barrier();
     transport_position = position;
     transport_generation = project_generation();
     transport_action = action;
+    transport_record = record ? 1u : 0u;
     barrier();
     ++transport_sequence;
     return true;
@@ -448,7 +456,7 @@ extern "C" void sdk_arranger_dispatch(u32 controller, u32 delta, u32 flag) {
     }
     record_owner = 1;
     if (bounce_active) transport_handled = transport_sequence;
-    const u32 action = consume_transport_command(before_publish);
+    const u32 action = consume_transport_command(before_publish, controller);
     if (action < 3) {
         const bool playing = byte(controller + 0x305d) || byte(controller + 0x305e);
         if (!action || (action == 1 && !playing)) sdk_arranger_start(controller);
@@ -685,8 +693,8 @@ extern "C" void sdk_arranger_record_changed(u32 track) {
     ++*at<u32>(0x840a0530);
 }
 
-bool sdk_arranger_request_start(u32 position, bool resume) {
-    return publish_transport_command(position, resume ? 1 : 0);
+bool sdk_arranger_request_start(u32 position, bool resume, bool record_held) {
+    return publish_transport_command(position, resume ? 1 : 0, record_held);
 }
 bool sdk_arranger_request_seek(u32 position) { return publish_transport_command(position, 2); }
 bool sdk_arranger_request_record(u32 track, u32 pattern) {
@@ -703,7 +711,7 @@ extern "C" void sdk_arranger_start(u32 controller) {
     const u32 stopped_position = sdk_arranger_audio_model().position();
     sdk_arranger_consume();
     const bool active = sdk_arranger_audio_active() && project_matches();
-    consume_transport_command(stopped_position);
+    consume_transport_command(stopped_position, controller);
     if (active) { record_owner = 1; prepare_sources(); }
     sdk_arranger_stock_start(controller);
     force_seek = true;

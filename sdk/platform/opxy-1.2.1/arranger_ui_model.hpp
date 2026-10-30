@@ -9,9 +9,13 @@ inline u32 arranger_shift_time(u32 value, i32 delta, u32 step) {
     return delta < 0 ? (value > amount ? value - amount : 0) :
         (amount > 0xffffffffu - value ? 0xffffffffu : value + amount);
 }
-inline u32 arranger_zoom(u32 ticks, i32 delta) {
-    // Eight equal-ratio steps per doubling, from one through 64 bars.
+inline u32 arranger_zoom(u32 ticks, i32 delta, u32 minimum = 7680) {
+    // Eight equal-ratio steps per doubling; piano can zoom below one bar.
     static const u32 widths[] = {
+        480, 523, 570, 622, 678, 740, 807, 880,
+        960, 1046, 1141, 1244, 1357, 1480, 1614, 1760,
+        1920, 2093, 2283, 2489, 2715, 2961, 3229, 3521,
+        3840, 4187, 4566, 4979, 5430, 5922, 6458, 7042,
         7680, 8375, 9133, 9960, 10861, 11844, 12916, 14085,
         15360, 16750, 18266, 19919, 21722, 23688, 25832, 28170,
         30720, 33500, 36532, 39839, 43445, 47377, 51665, 56341,
@@ -19,12 +23,14 @@ inline u32 arranger_zoom(u32 ticks, i32 delta) {
         122880, 134002, 146130, 159356, 173779, 189507, 206659, 225363,
         245760, 268003, 292260, 318711, 347557, 379014, 413317, 450726, 491520
     };
-    i32 index = 0;
-    while (index < 48 && widths[index] < ticks) ++index;
-    if (delta > 48) delta = 48;
-    if (delta < -48) delta = -48;
+    i32 first = 0;
+    while (first < 80 && widths[first] < minimum) ++first;
+    i32 index = first;
+    while (index < 80 && widths[index] < ticks) ++index;
+    if (delta > 80) delta = 80;
+    if (delta < -80) delta = -80;
     index -= delta;
-    return widths[index < 0 ? 0 : index > 48 ? 48 : index];
+    return widths[index < first ? first : index > 80 ? 80 : index];
 }
 inline u32 arranger_zoom_anchor(u32 relative, u32 before, u32 after) {
     if (before == after) return relative;
@@ -68,7 +74,10 @@ inline u32 arranger_bar_spacing(u32 window) {
 }
 inline u32 arranger_resize_length(u32 length, i32 delta, u32 step) {
     const u32 adjusted = arranger_shift_time(length, delta, step);
-    return adjusted < 7680 ? 7680 : adjusted;
+    const u32 minimum = step > 1 ? step : 1;
+    // Switching back to a coarse grid must not enlarge an already shorter clip.
+    const u32 floor = length && length < minimum ? length : minimum;
+    return adjusted < floor ? floor : adjusted;
 }
 struct ArrangerStopSequence {
     bool stopped;

@@ -50,6 +50,10 @@ int main() {
     stop.cancel();
     require(!stop.release() && !stop.pending, "project restore consumes old gesture without stopping new project");
     require(stop.begin() && stop.release(), "next stop works after cancelled gesture");
+    require(arranger_zoom(7680,1,480)==7042 && arranger_zoom(7042,-1,480)==7680,
+        "piano zoom crosses the one-bar boundary in both directions");
+    require(arranger_zoom(480,128,480)==480 && arranger_zoom(491520,-128,480)==491520,
+        "piano zoom remains bounded without reducing the maximum view");
     u32 width = 7680;
     for (u32 i = 0; i < 48; ++i) {
         const u32 next = arranger_zoom(width, -1);
@@ -83,9 +87,18 @@ int main() {
         arranger_boundary(boundaries,7,123,1)==123, "boundary navigation clamps and ignores other lanes");
     require(arranger_bar_spacing(7680)==7680 && arranger_bar_spacing(491520)==30720,
         "grid thins to four bars only at widest zoom");
-    require(arranger_resize_length(7680,-128,480)==7680 && arranger_resize_length(7680,-1,1)==7680 &&
-        arranger_resize_length(480,1,480)==7680 && arranger_resize_length(7680,1,480)==8160,
-        "E4 length never drops below a bar in grid or fine mode");
+    require(arranger_resize_length(7680,-12,480)==1920 && arranger_resize_length(7680,-128,480)==480,
+        "E4 supports quarter-bar clips and clamps shrinking to one grid step");
+    require(arranger_resize_length(480,-1000,1)==1 && arranger_resize_length(1,-1,1)==1 &&
+        arranger_resize_length(0,-1,0)==1, "fine edits never create a zero-length clip");
+    require(arranger_resize_length(120,-1,480)==120 && arranger_resize_length(120,0,480)==120 &&
+        arranger_resize_length(480,1,480)==960 && arranger_resize_length(7680,1,480)==8160,
+        "coarse edits preserve already-short clips and normal growth");
+    arranger::Model short_clip;
+    const i32 short_slot = short_clip.insert(arranger::Clip{0,0,0,7680,0,7680});
+    require(short_slot >= 0 && short_clip.resize(short_slot, arranger_resize_length(7680,-12,480)) &&
+        short_clip.clip(short_slot)->length == 1920 && short_clip.clip(short_slot)->source_length == 7680,
+        "shortening changes the timeline window without destroying its source phrase");
     ArrangerBounceChoice bounce = {};
     require(!bounce.accept(), "closed bounce cannot confirm");
     bounce.begin();

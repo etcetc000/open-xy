@@ -17,7 +17,7 @@ turn off Linear playback.
 
 ### Understand the screen
 
-- **Header:** `VEFF'S LINEAR WORKFLOW` identifies the timeline.
+- **Header:** `Linear by Veff` identifies the timeline.
 - **Tracks:** keys **1–8** select a track and highlight its lane.
 - **Edit cursor:** the position where you add clips or start playback.
 - **Playhead:** the current playback position, separate from the edit cursor.
@@ -82,16 +82,19 @@ sampler type; destination selection and replacement confirmation still follow.
 ## 2. Make your first phrase
 
 1. Choose a track with **1–8** and move the cursor with **E1**.
-2. Press **+** to create an empty clip. Its new source has 16 steps at 1× speed.
-3. Turn **E4** to set the clip length; ordinary length edits have a one-bar minimum.
+2. With transport stopped and recording disarmed, press **+** to create an empty clip. Its new source has 16 steps at 1× speed.
+3. Turn **E4** to set the clip length; the minimum is one grid step, or one tick in fine mode.
 4. Click **E4** to open the stock keyboard/step editor and enter notes.
 5. Release held editing keys, then press **Arrange** to return to the timeline.
 6. Press **Play** to hear the arrangement from the edit cursor.
 7. Press **Shift + 5** to loop the selected clip.
 8. Press **Stop + +** to place a shared duplicate immediately after it.
 
-For live recording, select the track and use **Rec + Play**. Notes go into the
-source of the clip currently playing on that track. Gaps do not receive notes.
+For live recording, select the track and hold **Rec** while pressing **Play**.
+Release both buttons: recording remains armed across loop wraps, and notes go
+into the source of the clip currently playing on that track. Press **Rec** to
+leave recording, **Stop** to stop, or **Play** without Rec to leave recording
+and restart from the cursor. Gaps do not receive notes.
 When recording from the stock note editor, the playing source must match the
 source being edited. **Shift + Rec is unavailable** in this version.
 
@@ -144,7 +147,7 @@ move to its end, press Shift + 8, then enable looping with Shift + 6 if needed.
 | Stop + + | Duplicate the clip immediately after itself |
 | E3 | Move the whole clip; the cursor follows |
 | Shift + E3 | Move the clip with fine adjustment |
-| E4 | Change length, with a one-bar minimum |
+| E4 | Change length, down to one grid step |
 | Shift + E4 | Fine length adjustment |
 | Shift + 3 / 4 | Undo / redo a timeline edit |
 
@@ -181,7 +184,10 @@ Click **E4** on a selected clip to open its source in the stock editor. Press
 
 Press **Shift + click E4** to open the selected source in piano roll. It shows
 eight pitches at a time and scrolls as the pitch cursor moves beyond them.
-The note under the time/pitch cursor is selected automatically.
+It opens around the first stored note, including its time and pitch, and shows
+the total note count. `OUTSIDE VIEW` means the source has notes outside the
+current viewport. The heading is **PIANO ROLL**; the note under the time/pitch
+cursor is selected automatically.
 
 **Stop playback and disarm REC before changing notes.** You can browse during
 playback, but leave piano roll to record. Piano roll edits the source pattern,
@@ -191,12 +197,12 @@ including notes shared by other instances; use Make Unique first if necessary.
 | --- | --- |
 | E1 | Move the time cursor |
 | Click E1 | Toggle GRID / FINE |
-| E2 | Move the pitch cursor and scroll the pitch range |
+| E2 | Zoom time around the cursor, down to one sequencer step |
+| E3 | Transpose the selected note; in a gap, move the pitch cursor |
+| E4 | Change selected note length using GRID / FINE |
 | 1–8 | Select one of the eight visible pitches |
-| Shift + E2 | Zoom time |
-| E3 | Move the selected note in time |
-| E4 | Transpose the selected note |
-| Shift + E3 | Change note length |
+| Shift + E1 | Move the selected note in time, one tick per step |
+| Shift + E3 | Move the pitch cursor and scroll without transposing |
 | Shift + E4 | Change velocity, from 1 to 127 |
 | + | Add a note at the cursor |
 | − | Delete the selected note |
@@ -229,9 +235,10 @@ Unique copies the whole source pattern, not just the visible slice.
 | Shift + Stop + E3 | Shift source contents inside the clip, keeping both edges fixed |
 
 Left trim changes how much of the phrase is exposed. Shifting the contents
-changes which part of the source plays inside the existing time range. Split
-and trim can create clips shorter than the one-bar minimum used by ordinary E4
-length edits.
+changes which part of the source plays inside the existing time range. E4 can
+shorten a clip below one bar, including to one quarter of a bar. Fine length
+edits allow one tick; switching back to the grid does not enlarge an already
+shorter clip. A clip can never have zero length.
 
 ### Move or paste onto another track
 

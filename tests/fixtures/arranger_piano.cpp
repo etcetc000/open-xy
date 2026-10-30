@@ -18,10 +18,15 @@ int main() {
     source[0]=16;u8* c=source+0x457c;for(u32 i=0;i<120;++i)put(c,i*16+2,i==119?-1:i+1);
     put(c,0x782,-1);put(c,0x784,-1); PianoEditor editor(insert);editor.bind(source,1,1);require(editor.valid());
     i32 a=-1,b=-1,d=-1;PianoNote n={480,240,60,100,0,0}; require(editor.add(n,a));n.position=0;require(editor.add(n,b));n.position=960;require(editor.add(n,d));require(editor.count()==3);
+    PianoNote first{}; require(editor.first(first)); require(first.position == 0);
+    // A source outside the old C4/first-bar view still exposes its actual first note.
+    require(editor.note(b, first)); first.pitch = 84; require(editor.update(b, first));
+    require(editor.first(first) && first.pitch == 84 && first.position == 0);
+    first.pitch = 60; require(editor.update(b, first));
     require(editor.hit(500,60)==a);require(editor.hit(750,60)==-1);
     require(editor.note(a,n));n.position=1200;require(editor.update(a,n,1));require(editor.valid());require(editor.hit(1200,60)==a);
     n.position=1440;require(editor.update(a,n,1));require(editor.undo());require(editor.hit(480,60)==a);require(editor.redo());require(editor.hit(1440,60)==a);
-    require(editor.erase(b));require(editor.erase(a));require(editor.erase(d));require(editor.valid() && editor.count()==0);require(editor.undo());require(editor.count()==1);
+    require(editor.erase(b));require(editor.erase(a));require(editor.erase(d));require(editor.valid() && editor.count()==0); require(!editor.first(first));require(editor.undo());require(editor.count()==1);
     require(editor.note(d,n));require(!editor.update(d,n));require(editor.canRedo());require(editor.redo());
     editor.bind(source,1,2);require(!editor.canUndo());
     for(u32 i=0;i<120;++i){n.position=i*40;n.duration=20;require(editor.add(n,a));}require(editor.count()==120);require(!editor.add(n,b));require(editor.valid());

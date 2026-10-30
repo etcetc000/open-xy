@@ -37,6 +37,10 @@ public:
         return ticks * 1680u / scaleRaw();
     }
     u32 count() const { return valid() ? word(data(), 0x786) : 0; }
+    bool first(PianoNote& out) const {
+        if (!valid() || !word(data(), 0x786)) return false;
+        read(data(), static_cast<u32>(link(data(), 0x782)), out); return true;
+    }
     bool note(u32 index, PianoNote& out) const {
         if (!valid() || !active(data(), index)) return false;
         read(data(), index, out); return true;

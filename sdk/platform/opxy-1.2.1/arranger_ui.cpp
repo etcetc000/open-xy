@@ -13,6 +13,7 @@
 #include "arranger_bounce_destination.hpp"
 #include "arranger_project.hpp"
 #include "screen.hpp"
+#include "arranger_pending_add.hpp"
 
 extern "C" {
 extern const char arranger_screen_slots[] __asm__("__stock_screen_slots");
@@ -125,6 +126,7 @@ i32 piano_insert(void* container, const platform::PianoNote* note) {
 }
 platform::PianoEditor piano(piano_insert);
 bool piano_view;
+platform::ArrangerPendingAdd pending_add{};
 u32 piano_project, piano_generation, piano_slot, piano_track, piano_pattern;
 u32 piano_time, piano_pitch = 60, piano_low = 56, piano_start, piano_window = 7680;
 i32 piano_selected = -1;
@@ -256,8 +258,19 @@ void open_piano() {
     piano.reset(); history.breakGroup();
     piano_project = project; piano_generation = generation; piano_slot = static_cast<u32>(selected_slot);
     piano_track = c->track; piano_pattern = c->pattern; piano_time = 0;
-    piano_window = 7680; piano_start = 0; piano_view = true; piano_select();
-    announce("PIANO: E1 TIME E2 PITCH / ARRANGE EXIT");
+    // Start on actual source notes, not a fixed C4 viewport that can look empty.
+    platform::PianoNote first;
+    piano_pitch = 60;
+    if (piano.first(first)) {
+        piano_time = first.position > 0 ? static_cast<u32>(first.position) : 0;
+        if (piano_time >= piano.span()) piano_time = piano.span() - 1;
+        piano_pitch = first.pitch;
+    }
+    piano_low = piano_pitch > 3 ? piano_pitch - 3 : 0;
+    if (piano_low > 120) piano_low = 120;
+    piano_window = 7680; piano_start = piano_time / piano_window * piano_window;
+    piano_view = true; piano_select();
+    announce("E1 CURSOR E2 ZOOM E3 PITCH E4 LENGTH");
 }
 void piano_key(u32 key, bool shifted) {
     piano.breakGroup();
@@ -281,16 +294,22 @@ void piano_key(u32 key, bool shifted) {
 }
 void piano_encoder(u32 encoder, i32 delta) {
     if (!delta || !piano_source()) return;
-    const u32 index = encoder % 4, step = fine_grid ? 1 : 480;
+    const u32 index = encoder % 4;
     const bool shifted = encoder >= 4 || platform::shift_held();
+    const u32 step = fine_grid || shifted ? 1 : 480;
     if (index < 2) piano.breakGroup();
-    if (index == 0) {
+    if (index == 0 && !shifted) {
         piano_time = platform::arranger_cursor_time(piano_time, delta, step);
         if (piano_time >= piano.span()) piano_time = piano.span() - 1;
         piano_select();
-    } else if (index == 1 && shifted) {
-        piano_window = platform::arranger_zoom(piano_window, delta > 0 ? 1 : -1);
     } else if (index == 1) {
+        const u32 next = platform::arranger_zoom(piano_window, delta > 0 ? 1 : -1, 480);
+        const u32 relative = piano_time >= piano_start ? piano_time - piano_start : 0;
+        const u32 scaled = platform::arranger_zoom_anchor(relative, piano_window, next);
+        piano_start = piano_time > scaled ? piano_time - scaled : 0;
+        piano_window = next;
+    } else if (index == 2 && (shifted || piano_selected < 0)) {
+        // In a gap E3 moves the pitch cursor, so + can insert on any row.
         piano_pitch = platform::arranger_shift_time(piano_pitch, delta, 1);
         if (piano_pitch > 127) piano_pitch = 127;
         piano_select();
@@ -298,19 +317,19 @@ void piano_encoder(u32 encoder, i32 delta) {
         if (!piano_editable() || piano_selected < 0) return;
         platform::PianoNote n;
         if (!piano.note(static_cast<u32>(piano_selected), n)) return;
-        if (index == 2 && shifted) {
+        if (index == 0) {
+            const u32 time = platform::arranger_shift_time(n.position < 0 ? 0 : static_cast<u32>(n.position), delta, step);
+            n.position = static_cast<i32>(time < piano.span() ? time : piano.span() - 1);
+        } else if (index == 2) {
+            const u32 pitch = platform::arranger_shift_time(n.pitch, delta, 1);
+            n.pitch = static_cast<u8>(pitch > 127 ? 127 : pitch);
+        } else if (shifted) {
+            const u32 velocity = platform::arranger_shift_time(n.velocity, delta, 1);
+            n.velocity = static_cast<u8>(velocity < 1 ? 1 : velocity > 127 ? 127 : velocity);
+        } else {
             n.duration = platform::arranger_shift_time(n.duration, delta, step);
             if (!n.duration) n.duration = 1;
             if (n.duration > piano.span()) n.duration = piano.span();
-        } else if (index == 3 && shifted) {
-            u32 v = platform::arranger_shift_time(n.velocity, delta, 1);
-            n.velocity = static_cast<u8>(v < 1 ? 1 : v > 127 ? 127 : v);
-        } else if (index == 2) {
-            u32 position = platform::arranger_shift_time(n.position < 0 ? 0 : static_cast<u32>(n.position), delta, step);
-            n.position = static_cast<i32>(position < piano.span() ? position : piano.span() - 1);
-        } else {
-            const u32 pitch = platform::arranger_shift_time(n.pitch, delta, 1);
-            n.pitch = static_cast<u8>(pitch > 127 ? 127 : pitch);
         }
         if (piano.update(static_cast<u32>(piano_selected), n, 1u + static_cast<u32>(piano_selected) * 8u + index + (shifted ? 4u : 0u))) {
             piano_time = n.position < 0 ? 0 : static_cast<u32>(n.position); piano_pitch = n.pitch; piano_changed(true);
@@ -334,21 +353,38 @@ bool commit_edit(bool changed, const char* success) {
     return true;
 }
 
+platform::ArrangerAddContext add_context() {
+    return {platform::word(0x840a0524), stock<u32()>(0x8d584224)(), ui_track, cursor, selected_pattern, selected_slot};
+}
+bool add_permitted() {
+    return view_active() && !piano_view && !menu_open && !menu_tool && !bounce_choice.open &&
+        !platform::byte(platform::kPlaying) && !platform::byte(platform::kPlaying + 1) &&
+        !platform::byte(platform::kPlaying + 2) && !platform::byte(platform::kPlaying + 3) &&
+        !sdk_arranger_record_status() && !sdk_arranger_bounce_busy();
+}
 void add_clip() {
+    if (!pending_add.enqueue(add_context(), add_permitted())) announce("ADD REQUIRES STOPPED TIMELINE");
+}
+void process_pending_add() {
+    if (!pending_add.pending) return;
+    platform::ArrangerAddContext request;
+    if (!pending_add.take(add_context(), add_permitted() && sdk_arranger_project_edit_ready(), request)) {
+        announce("ADD CANCELLED: CONTEXT CHANGED"); return;
+    }
     arranger::Model& model = sdk_arranger_model();
-    sdk_arranger_project_poll();
-    if (!sdk_arranger_project_edit_ready()) { announce("PROJECT BUSY"); return; }
-    u8* project = reinterpret_cast<u8*>(platform::word(0x840a0524));
-    u32 source = selected_pattern;
-    if (!platform::arranger_pattern_source(project, ui_track, source, false)) source = 0;
+    u8* project = reinterpret_cast<u8*>(request.project);
+    u32 source = request.pattern;
+    if (!platform::arranger_pattern_source(project, request.track, source, false)) source = 0;
     begin_history();
-    const i32 slot = platform::arranger_add_empty_clip(model, project, ui_track, cursor, source,
+    const i32 slot = platform::arranger_add_empty_clip(model, project, request.track, request.cursor, source,
         stock<void(u8*)>(0x8d5844d0));
     if (commit_edit(slot >= 0, "ADDED EMPTY CLIP")) select_clip(false);
-
 }
 
 void timeline_key(u32 key, bool shifted) {
+    // The raw key path only captures a request; lifecycle checks and mutation
+    // run on the next GUI poll, outside stock key dispatch.
+    if (key == 54 && !shifted && !stop_gesture.pending) { add_clip(); return; }
     sdk_arranger_project_poll();
     if (!sdk_arranger_project_edit_ready() || !view_active()) { announce("PROJECT BUSY"); return; }
     arranger::Model& model = sdk_arranger_model();
@@ -541,8 +577,10 @@ void rectangle(PathNode* node, u32 x, u32 y, u32 width, u32 height) {
 
 void text_position(Leaf* node, u32 x, u32 y, bool visible) {
     const u32 at[6] = {0, 1, 3, 4, 6, 7};
-    const i32 scale = visible ? 1024 : 0;
-    const i32 values[6] = {scale, 0, 0, scale, static_cast<i32>(x * 1024), static_cast<i32>(y * 1024)};
+    // Stock text geometry requires a nonsingular matrix. Zero scale at (0,0)
+    // can leave glyph fragments over the title; park hidden leaves offscreen.
+    const i32 values[6] = {1024, 0, 0, 1024,
+        static_cast<i32>((visible ? x : 640) * 1024), static_cast<i32>((visible ? y : 320) * 1024)};
     set_words(node, at, values);
 }
 
@@ -555,7 +593,7 @@ bool render_piano(Object* o) {
     if (piano_pitch >= piano_low + 8) piano_low = piano_pitch - 7;
     if (piano_time < piano_start || piano_time - piano_start >= piano_window)
         piano_start = piano_time / piano_window * piano_window;
-    set_text(o->title, "PIANO");
+    set_text(o->title, "PIANO ROLL");
     const char* names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     for (u32 row = 0; row < 8; ++row) {
         const u32 pitch = piano_low + 7 - row;
@@ -600,18 +638,20 @@ bool render_piano(Object* o) {
         if (phase >= piano_start && phase - piano_start < piano_window)
             rectangle(o->playhead, 36 + (phase - piano_start) * 432 / piano_window, 27, 2, 169);
     }
-    char status[80]; char* end = append(status, "T"); end = number(end, piano_track + 1);
+    char status[128]; char* end = append(status, "T"); end = number(end, piano_track + 1);
     end = append(end, " "); *end++ = static_cast<char>('A' + piano_pattern); *end = 0;
     end = append(end, " @"); end = number(end, piano_time);
     end = append(end, " N"); end = number(end, piano_pitch);
-    set_text(o->controls, platform::shift_held() ? "E2 ZOOM / E3 LENGTH / E4 VELOCITY / 3 UNDO 4 REDO" :
-        "E1 TIME / E2 PITCH / E3 MOVE / E4 TRANSPOSE");
+    end = append(end, " NOTES "); end = number(end, piano.count());
+    set_text(o->controls, platform::shift_held() ? "E1 MOVE / E2 ZOOM / E3 PITCH CURSOR / E4 VELOCITY" :
+        "E1 CURSOR / E2 ZOOM / E3 NOTE UP-DOWN / E4 LENGTH");
     platform::PianoNote selected;
     if (piano_selected >= 0 && piano.note(static_cast<u32>(piano_selected), selected)) {
         end = append(end, " LEN "); end = number(end, selected.duration); end = append(end, " VEL ");
         end = number(end, selected.velocity); end = append(end, fine_grid ? " FINE" : " GRID");
     } else end = append(end, fine_grid ? " FINE / + ADD" : " GRID / + ADD");
-    if (total > visible_clips) { end = append(end, " SHOW64/"); number(end, total); }
+    if (!total && piano.count()) append(end, " OUTSIDE VIEW");
+    else if (total > visible_clips) { end = append(end, " SHOW64/"); number(end, total); }
     set_text(o->feedback, status);
     render_toast(o); o->shown_position = 0xffffffffu;
     draw(&o->base); return true;
@@ -651,6 +691,7 @@ void render_menu(Object* o) {
 void hide_menu(Object* o) {
     rectangle(o->menu_background, 0, 0, 0, 0); rectangle(o->menu_highlight, 0, 0, 0, 0);
     for (u32 row = 0; row < 8; ++row) {
+        set_text(o->menu_rows[row], ""); set_text(o->menu_disabled[row], "");
         text_position(o->menu_rows[row], 0, 0, false); text_position(o->menu_disabled[row], 0, 0, false);
     }
 }
@@ -706,7 +747,7 @@ struct Renderer {
         if (menu_open) { render_menu(o); return; }
         hide_menu(o);
         if (piano_view && render_piano(o)) return;
-        set_text(o->title, "VEFF'S LINEAR WORKFLOW");
+        set_text(o->title, "Linear by Veff");
         for (u32 i = 0; i < 8; ++i) { char label[4]; decimal(label, i + 1); set_text(o->lanes[i], label); }
         const arranger::Model& model = menu_tool ? menu_preview : sdk_arranger_model();
         const u32 position = sdk_arranger_playback_position();
@@ -811,7 +852,7 @@ bool registered() {
 }
 
 bool consume_play(bool shifted) {
-    if (!sdk_arranger_request_start(cursor, shifted)) {
+    if (!sdk_arranger_request_start(cursor, shifted, held(50))) {
         announce("TRANSPORT BUSY"); swallowed_release[51] = true; return true;
     }
     // Audio owns both stopped starts and playing restarts. Forwarding stock
@@ -1186,6 +1227,7 @@ void sdk_arranger_poll() {
     sdk_arranger_project_poll();
     sdk_arranger_publish_poll();
     sdk_arranger_bounce_poll();
+    process_pending_add();
     if (!view_active() || piano_view || sdk_arranger_bounce_busy() || bounce_choice.open) {
         menu_open = false; menu_tool = 0; menu_gesture.cancel();
     } else if (arrange_owned && menu_gesture.poll(ui_now())) open_menu();
@@ -1202,6 +1244,7 @@ void sdk_arranger_poll() {
 }
 
 void sdk_arranger_project_restored(bool enabled, u32 track) {
+    pending_add.cancel();
     bounce_choice.open = bounce_choice.confirmed = false;
     const bool was_editing = editing;
     editing = exit_edit_pending = false;

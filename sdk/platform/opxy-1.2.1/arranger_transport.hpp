@@ -2,7 +2,7 @@
 #include <opxy/types.hpp>
 
 // GUI producer. Audio applies the latest command; consume the corresponding key.
-extern "C" bool sdk_arranger_request_start(opxy::u32 position, bool resume)
+extern "C" bool sdk_arranger_request_start(opxy::u32 position, bool resume, bool record_held = false)
     __asm__("sdk_arranger_request_start");
 extern "C" bool sdk_arranger_request_seek(opxy::u32 position)
     __asm__("sdk_arranger_request_seek");
