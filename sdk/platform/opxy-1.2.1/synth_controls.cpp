@@ -243,7 +243,9 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
         caption[0] = 0;
         if (index < m->shift)
             m->format(8 + index, shift_row::midpoint(fields[index], m->shift_choices[index]), caption);
-        return stock<u32(u32, const char*)>(0x8d6011f0)(widget, caption);
+        // Stock ignores this call's result, so answer zero, not the text call's own.
+        stock<u32(u32, const char*)>(0x8d6011f0)(widget, caption);
+        return 0;
     }
     if (m) {
         // A position showing an alternate reads its current value.
