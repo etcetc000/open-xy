@@ -77,7 +77,7 @@ required checks and private fixtures cannot be skipped.
 Work is tracked as issues. Each release has a milestone and a matching
 [project board](https://github.com/etcetc000/open-xy/projects) named after its
 version; maintainers assign new issues to both. Pick an open issue or open one
-before larger work, and write `Closes #<issue>` in the pull request. A release merges `staging` into `main`,
+before larger work, and write `Closes #<issue>` in the pull request. A release merges `staging`, or a `release/<version>` branch cut from it when staging carries later work, into `main`,
 is tagged `v<milestone>` with generated release notes, and closes its milestone.
 
 In a PR, explain the behavior, how to try it, compatibility changes and checks

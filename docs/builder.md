@@ -166,7 +166,8 @@ with no collection as a UI check and never consumes private inputs.
 static assets only, with no Worker script. The `beta` environment is a separate
 `open-xy-beta` site at `beta.open-xy.com`, deployed from `staging`; production
 is deployed from `main`. Merge work into `staging`, release beta, then open a
-pull request from `staging` to `main` and release production. Catalog changes
+pull request from `staging` (or a `release/<version>` branch cut from it) to `main` and release
+production. Catalog changes
 merge into `main` (then `main` into `staging`), so a new machine can reach
 production without an SDK release.
 

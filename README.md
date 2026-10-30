@@ -17,7 +17,7 @@ own stock `os.ldr`, without installing anything.
 
 **Contributing? Start feature branches from `staging` and open pull requests
 against `staging`.** It is the development branch; `main` receives reviewed
-releases from `staging`, and machine submissions (catalog-only PRs) go to `main`. See the [contributor workflow](CONTRIBUTING.md#branch-workflow).
+releases from `staging` or a `release/<version>` branch cut from it, and machine submissions (catalog-only PRs) go to `main`. See the [contributor workflow](CONTRIBUTING.md#branch-workflow).
 
 With Retrospective capture enabled, firmware keeps a live-note ghost pattern for
 the selected instrument track. Double-tap Record to insert the performance at

@@ -23,19 +23,20 @@ jobs:
         with:
           fetch-depth: 0
       - name: Release source
-        # Contributions go to staging; main takes the staging release PR and
-        # catalog-only changes, which maintainers then merge from main into staging.
+        # Contributions go to staging; main takes a release PR, from staging or
+        # from a release branch (release/<version>) cut from it, and catalog-only
+        # changes, which maintainers then merge from main into staging.
         if: github.event_name == 'pull_request' && github.base_ref == 'main'
         env:
           HEAD_REF: ${{ github.head_ref }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          if [ "$HEAD_REF" = staging ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
+          if { [ "$HEAD_REF" = staging ] || [[ "$HEAD_REF" == release/* ]]; } && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then
             exit 0
           fi
           changed=$(git diff --name-only origin/main...HEAD)
           if [ -z "$changed" ] || grep -vqxE 'catalog/(machines|extensions)\.json' <<<"$changed"; then
-            echo "::error::Only catalog/machines.json and catalog/extensions.json changes and the staging release merge into main; open other pull requests against staging. Changed: $(echo $changed)"
+            echo "::error::Only catalog/machines.json and catalog/extensions.json changes and release merges (staging or release/<version>) go into main; open other pull requests against staging. Changed: $(echo $changed)"
             exit 1
           fi
       - uses: actions/setup-python@v5
