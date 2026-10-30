@@ -1,0 +1,217 @@
+{
+    "filter_types": [
+        {
+            "type": "z lowpass",
+            "id": 9,
+            "default_params": [16384, 6553, 16384, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "svf",
+            "id": 10,
+            "default_params": [16384, 6553, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "ladder",
+            "id": 16,
+            "default_params": [16384, 6553, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "z hipass",
+            "id": 17,
+            "default_params": [16384, 6553, 16384, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "dynamic",
+            "id": 18,
+            "default_params": [0, 4096, 6000, 32767, 0, 0, 0, 0]
+        }
+    ],
+	"fx_types": [
+        {
+            "type": "delay",
+            "id": 0,
+            "default_params": [21504, 16384, 16384, 32767, 0, 0, 0, 0]
+        },
+        {
+            "type": "reverb",
+            "id": 5,
+            "default_params": [17000, 0, 17000, 32767, 0, 0, 0, 0]
+        },
+        {
+            "type": "chorus",
+            "id": 12,
+            "default_params": [19660, 16384, 16384, 16384, 0, 0, 0, 0]
+        },
+        {
+            "type": "phaser",
+            "id": 13,
+            "default_params": [10000, 20000, 10000, 16400, 0, 0, 0, 0]
+        },
+        {
+            "type": "dist",
+            "id": 14,
+            "default_params": [2000, 32767, 16384, 32767, 0, 0, 0, 0]
+        },
+        {
+            "type": "lofi",
+            "id": 15,
+            "default_params": [16384, 24000, 20000, 32767, 0, 0, 0, 0]
+        }
+    ],
+	"lfo_types": [
+		{
+			"type": "tremolo",
+			"id": 0,
+			"default_params": [14848,16384,19000,16384,0,0,0,0]
+		},
+		{
+			"type": "value",
+			"id": 1,
+			"default_params": [8704,19000,2000,2000,0,0,0,0]
+		},
+		{
+			"type": "random",
+			"id": 2,
+			"default_params": [9168,5024,2000,24000,0,0,0,0]
+		},
+		{
+			"type": "element",
+			"id": 3,
+			"default_params": [19024,19000,2000,0,0,0,0,0]
+		},
+        {
+            "type": "duck",
+            "id": 6,
+            "default_params": [0,22937,16384,16384,32767,0,0,0]
+        }
+	],
+    "seq_types": [
+        {
+            "type": "arpeggio",
+            "id": 6,
+            "default_params": [8000, 0, 0, 0, 8000, 0, 0, 0]
+        },
+        {
+            "type": "hold",
+            "synth_only": true,
+            "id": 7,
+            "default_params": [8000, 0, 0, 0, 8000, 0, 0, 0]
+        },
+        {
+            "type": "maestro",
+            "id": 8,
+            "default_params": [0, 0, 0, 0, 0, 0, 0, 0]
+        }
+    ],
+	"seq_types_old": [
+        {
+            "type": "punchcard",
+            "id": 0
+        },
+        {
+            "type": "chord",
+            "id": 1
+        },
+        {
+            "type": "endless",
+            "id": 2
+        },
+        {
+            "type": "finger",
+            "id": 4,
+            "default_params": [8000, 0, 0, 0, 0, 0, 0, 0]
+        }
+	],
+	"engine_types": [
+        {
+            "type": "sampler",
+            "default_params": [0,0,2917,974,7167,0,2592,4607]
+        },
+        {
+            "type": "drum",
+            "default_params": [0,0,2917,974,7167,0,2592,4607]
+        },
+        {
+            "type": "drumline",
+            "default_params": [16384,16384,16384,16384,16384,16384,16384,16384]
+        },
+        {
+            "type": "organ",
+            "default_params": [13293, 17685, 26995, 3066, 0, 0, 0, 0]
+        },
+        {
+            "type": "epiano",
+            "default_params": [6553, 0, 0, 8192, 0, 0, 0, 0]
+        },
+        {
+            "type": "prism",
+            "default_params": [16704, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "hardsync",
+            "default_params": [16704, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "dissolve",
+            "default_params": [16704, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "axis",
+            "default_params": [16704, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "wavetable",
+            "default_params": [0, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "simple",
+            "default_params": [32767, 0, 6000, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "midi",
+            "default_params": [0, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "multisampler",
+            "default_params": [0,0,2917,974,7167,0,2592,4607]
+        }
+	],
+    "engine_types_old": [
+        {
+            "type": "fm",
+            "default_params": [20000, 4500, 3000, 18000, 15000, 0, 100, 1500]
+        },
+        {
+            "type": "blit",
+            "default_params": [13293, 17685, 26995, 3066, 0, 0, 0, 0]
+        },
+        {
+            "type": "fmedit",
+            "default_params": [16704, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "oldorgan",
+            "default_params": [13293, 17685, 26995, 3066, 0, 0, 0, 0]
+        },
+        {
+            "type": "fold",
+            "default_params": [0, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "spiral",
+            "default_params": [18000, 18000, 18000, 19000, 0, 0, 0, 0]
+        },
+        {
+            "type": "fmbass",
+            "default_params": [16704, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "fmlead",
+            "default_params": [16704, 0, 0, 0, 0, 0, 0, 0]
+        },
+        {
+            "type": "triad",
+            "default_params": [0, 0, 0, 0, 0, 0, 0, 0]
+        }
+    ]
+}

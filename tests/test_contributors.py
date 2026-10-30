@@ -5,19 +5,26 @@ from pathlib import Path
 from tooling.adapters import generate_voice
 
 from tooling.contributors import validate_source_boundary
-from tooling.machines import discovered, machine
 from tooling.native import check_sources
+from machine_fixtures import NAMES, fixture
 
 
 class ContributorBoundary(unittest.TestCase):
     def test_voice_adapter_includes_only_the_machine_and_sdk(self):
         with tempfile.TemporaryDirectory() as directory:
-            source = generate_voice(directory, machine('fm2op')).read_text(encoding='utf-8')
+            source = generate_voice(directory, fixture('probesynth')).read_text(encoding='utf-8')
         self.assertEqual(re.findall(r'#include "([^"]+)"', source), ['core.h', 'engine.cpp', 'stock.hpp', 'synth_controls.hpp'])
-        self.assertIn('fm2op::render(slot->voice, shared, owner(slot), output, parameters, increments);', source)
+        self.assertIn('probesynth::render(slot->voice, shared, slot->owner, output, controls, increments);', source)
+        self.assertIn('const opxy::i32* controls = parameters;', source)
+        self.assertNotIn('sdk_benchmark', source)
+        # A sweep build's voices take the swept controls while their own machine is under test.
+        with tempfile.TemporaryDirectory() as directory:
+            swept = generate_voice(directory, fixture('probesynth'), sweep=True).read_text(encoding='utf-8')
+        self.assertIn('sdk_benchmark_engine == probesynth_engine_id', swept)
+        self.assertIn('const opxy::i32* controls = swept ? swept : parameters;', swept)
 
     def test_machines_have_no_platform_branches(self):
-        check_sources(discovered())
+        check_sources([fixture(name) for name in NAMES])
 
     def test_platform_specific_code_is_rejected(self):
         for source in ('#ifdef _WIN32\n#endif', '#if 1\n#endif',

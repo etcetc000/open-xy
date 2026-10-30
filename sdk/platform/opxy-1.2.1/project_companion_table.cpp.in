@@ -1,0 +1,10 @@
+// Generated: this collection's machines for project companions, sorted by ID.
+#include "project_companion.hpp"
+extern "C" {
+@DECLARATIONS@
+}
+
+const opxy::platform::CompanionMachine sdk_companion_machines[] = {
+@MACHINES@
+    {nullptr, nullptr, nullptr, false}
+};

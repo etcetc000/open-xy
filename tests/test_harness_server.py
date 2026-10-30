@@ -8,10 +8,10 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from tooling.formats import sha
-from tooling.machines import machine
+from machine_fixtures import fixture
 from tooling import preview
 from tooling.preview import preview_bundle
-FM = machine('fm2op')
+FM = fixture('probesynth')
 SOURCE = FM.root
 source_hashes = lambda: preview.source_hashes(FM)
 graphics_metadata = lambda: preview.graphics_metadata(FM)
@@ -24,8 +24,8 @@ class HarnessServerTests(unittest.TestCase):
     def preview_fixture(self, directory):
         module = b'\0asm\x01\0\0\0'
         definition = json.loads((SOURCE / 'definition.json').read_text(encoding='utf-8'))
-        manifest = dict(schema=1, kind='cpp-browser-preview', engine='fm2op', description=FM.description,
-                        definition=definition, sample_rate=44100,
+        manifest = dict(schema=1, kind='cpp-browser-preview', engine=FM.id, root=str(SOURCE),
+                        description=FM.description, definition=definition, sample_rate=44100,
                         wasm_sha256=sha(module), sources=source_hashes(), compiler={}, graphics=graphics_metadata())
         (directory / 'engine.wasm').write_bytes(module)
         (directory / 'panel.svg').write_bytes((SOURCE / 'panel.svg.fragment').read_bytes())
@@ -40,7 +40,7 @@ class HarnessServerTests(unittest.TestCase):
     def test_private_and_traversal_paths_are_not_served(self):
         for url in ['/local/inputs/os.ldr', '/.git/config', '/harness/../local/inputs/os.ldr',
                     '/harness/%2e%2e/local/inputs/os.ldr', '/harness/%252e%252e/local/',
-                    '/machines/fm2op/../../profiles/opxy-1.2.0.json',
+                    '/sdk/include/../../profiles/opxy-1.2.1.json',
                     '/harness/..%5clocal%5cinputs%5cos.ldr', '/README.md', '/tools/serve_harness.py']:
             with self.subTest(url=url):
                 self.assertIsNone(server.resolve_public_path(url))
@@ -52,7 +52,7 @@ class HarnessServerTests(unittest.TestCase):
             directory = Path(temporary).resolve()
             manifest = self.preview_fixture(directory)
             self.assertEqual(set(preview_bundle(directory)), {'/preview/manifest.json', '/preview/engine.wasm', '/preview/panel.svg'})
-            manifest['sources']['machines/fm2op/engine.cpp'] = '0' * 64
+            manifest['sources']['external/probesynth/engine.cpp'] = '0' * 64
             (directory / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'stale'): preview_bundle(directory)
             manifest = self.preview_fixture(directory)
@@ -65,6 +65,13 @@ class HarnessServerTests(unittest.TestCase):
             manifest['files'] = {'/private': '../private.ldr'}
             (directory / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'fields'): preview_bundle(directory)
+            # Every machine is a folder of its own: a preview names it by its absolute path.
+            for root in (None, 'probesynth'):
+                manifest = self.preview_fixture(directory)
+                manifest['root'] = root
+                (directory / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+                with self.subTest(root=root), self.assertRaisesRegex(ValueError, 'machine folder'):
+                    preview_bundle(directory)
 
     def test_server_exposes_only_verified_snapshot_with_wasm_mime_and_csp(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -97,7 +104,7 @@ class HarnessServerTests(unittest.TestCase):
             directory = Path(temporary).resolve()
             manifest = self.preview_fixture(directory)
             self.assertEqual(len(preview_bundle(directory, require_reference=True)), 3)
-            manifest['sources']['machines/fm2op/engine.cpp'] = '0' * 64
+            manifest['sources']['external/probesynth/engine.cpp'] = '0' * 64
             (directory / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'stale'):
                 preview_bundle(directory)

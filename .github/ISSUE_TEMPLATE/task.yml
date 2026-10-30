@@ -1,0 +1,16 @@
+name: Task
+description: Planned work for an upcoming release.
+labels: [task]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should change and why.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: How a reviewer can tell the task is finished.

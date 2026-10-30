@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "sdk": "1.1",
+  "kind": "sample",
+  "description": "Test fixture: a drum-page sample player declaring every optional sample service.",
+  "identity": {
+    "engine": 47,
+    "page": 7
+  },
+  "presetDefaults": {
+    "amp": {
+      "decay": 0,
+      "release": 32767
+    }
+  }
+}

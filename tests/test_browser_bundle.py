@@ -26,7 +26,7 @@ class BrowserBundleTests(unittest.TestCase):
             self.assertEqual(kit['notices'], 'Test')
             # The offline page must not depend on external visual modules.
             self.assertIn('const Visuals = (() => {', html)
-            self.assertIn('const {presetPath, sha256} = Core;', html)
+            self.assertIn('const {presetFiles, sha256} = Core;', html)
             self.assertNotRegex(html, r"import \* as \w+ from")
 
     def test_modified_menu_cannot_produce_an_export(self):

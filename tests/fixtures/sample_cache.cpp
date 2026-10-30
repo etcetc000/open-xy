@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <vector>
 extern "C" void host_barrier();
-#include "../../sdk/platform/opxy-1.2.0/sample_cache.cpp"
+#include "../../sdk/platform/opxy-1.2.1/sample_cache.cpp"
 
 static unsigned analysis_words(const opxy::SampleView& sample) {
     return 4 + ((sample.frames + 31) / 32) * sample.channels;
@@ -42,16 +42,18 @@ static unsigned fake_prepared(opxy::SampleAnalysis* out) {
 static bool second_registered;
 static int first_ready() { return 1; }
 static int second_ready() { return second_registered; }
+// Engine IDs are absolute link-time symbols on the device; here, their values.
+static const char* engine_symbol(unsigned id) { return reinterpret_cast<const char*>(static_cast<__UINTPTR_TYPE__>(id)); }
 const opxy::platform::SampleMachine sdk_sample_machines[] = {
-    {35, 7, first_ready, nullptr, nullptr, nullptr, nullptr, 2u * 1024u * 1024u,
+    {engine_symbol(35), 7, first_ready, nullptr, nullptr, nullptr, nullptr, 2u * 1024u * 1024u,
      fake_words, fake_begin, fake_step, fake_prepared},
-    {46, 7, second_ready, nullptr, nullptr, nullptr, nullptr, 64u * 1024u,
+    {engine_symbol(46), 7, second_ready, nullptr, nullptr, nullptr, nullptr, 64u * 1024u,
      fake_words, fake_begin, fake_step, fake_prepared},
 };
 const unsigned sdk_sample_machine_count = 2;
 extern "C" const opxy::platform::SampleMachine* sdk_sample_machine(unsigned engine) {
     for (const auto& m : sdk_sample_machines)
-        if (m.engine == engine) return m.ready() == 1 ? &m : nullptr;
+        if (m.engine() == engine) return m.ready() == 1 ? &m : nullptr;
     return nullptr;
 }
 

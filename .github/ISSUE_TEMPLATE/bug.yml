@@ -1,0 +1,33 @@
+name: Bug
+description: Something in the builder, SDK or a machine does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Commands, builder steps or the machine and preset involved.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Site (open-xy.com or beta.open-xy.com), branch or commit, and OP-XY OS version.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: >-
+        Browser, operating system and relevant output. For a device observation,
+        include the image and asset hashes. Keep firmware, stock content and
+        private logs out of the issue.

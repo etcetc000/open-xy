@@ -1,4 +1,4 @@
-"""Note players: generated adapters, catalog entries, identities and each player's own vectors."""
+"""Player ABI and integration contracts; musical tests live with each player."""
 from dataclasses import replace
 import json
 import os
@@ -6,144 +6,118 @@ from pathlib import Path
 import struct
 import subprocess
 import tempfile
+import shutil
 import unittest
 
-from tooling import adapters
+from tooling import adapters, native
 from tooling.formats import ldr, mapped_offset
-from tooling.pipeline import read
-from tooling.machines import check_identity, discovered, machine
-from tooling.native import extend_catalog, validate_panel
-from tooling.startup import render
+from tooling.machines import machine_at, assign_numbers, number_layout
 from tooling.pipeline import config
 from test_sample_services import HOST_CXX
 
 ROOT = Path(__file__).resolve().parents[1]
-MAESTRO_VTABLE = 0x8409c3d8
-REPLACED = {2, 5, 6}  # type, note-on, note-off
+PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 
 
-def players():
-    return [m for m in discovered() if m.kind == 'player']
+def vtable():
+    source = (PLATFORM / 'player_object.cpp.in').read_text(encoding='utf-8')
+    start = source.index('_player_vtable[16] = {')
+    body = source[start:source.index('};', start)].split('{', 1)[1]
+    return [entry.strip() for entry in body.split(',') if entry.strip()]
 
 
-def template_vtable():
-    text = (ROOT / 'sdk/platform/opxy-1.2.0/player_object.cpp.in').read_text(encoding='utf-8')
-    body = text[text.index('_player_vtable[16] = {'):text.index('};', text.index('_player_vtable[16] = {'))]
-    entries = [part.strip() for part in body.split('{', 1)[1].split(',') if part.strip()]
-    return entries
+class PlayerContracts(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk='1.7', kind='player',
+                                                               description='Player contract fixture.')))
+        definition = dict(schema=1, id='probeplayer', name='Player', resources={}, presets={},
+                          parameters=[dict(id='p'+str(i), label='P'+str(i), default=0,
+                                           mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')
+                                      for i in range(4)])
+        (self.root / 'definition.json').write_text(json.dumps(definition))
+        self.machine = assign_numbers([machine_at(self.root)])[0][0]
 
-
-class Generation(unittest.TestCase):
-    def test_object_adapter_keeps_maestro_except_three_methods(self):
-        entries = template_vtable()
-        self.assertEqual(len(entries), 16)
-        for i, entry in enumerate(entries):
-            self.assertEqual(i in REPLACED, '0x' not in entry, entry)
-        m = machine('chords')
-        with tempfile.TemporaryDirectory() as directory:
-            text = adapters.generate_player_object(directory, m).read_text(encoding='utf-8')
-        # The type is the chords_player_id symbol, which the linker supplies.
-        self.assertIn('return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(chords_player_id));', text)
-        self.assertIn('"chords"', text)
-        self.assertNotIn('@', text)
-
-    def test_object_adapter_does_not_depend_on_the_player_numbers(self):
-        m = machine('chords')
-        other = replace(m, identity=dict(player=31 if m.identity['player'] != 31 else 30, page=127))
-        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
-            self.assertEqual(adapters.generate_player_object(first, m).read_bytes(),
-                             adapters.generate_player_object(second, other).read_bytes())
-
-    def test_table_lists_only_players(self):
-        with tempfile.TemporaryDirectory() as directory:
-            text = adapters.generate_player_table(directory, discovered()).read_text(encoding='utf-8')
-        for m in discovered():
-            self.assertEqual(m.prefix + '_player()' in text, m.kind == 'player')
-
-    def test_catalog_entry_joins_seq_types_with_stock_numbering(self):
-        catalog = (b'{\n\t"engine_types": [\n        {\n            "type": "a",\n            "default_params": [0]\n        }\n    ],\n'
-                   b'\t"seq_types": [\n        {\n            "type": "maestro",\n            "id": 8,\n'
-                   b'            "default_params": [0, 0, 0, 0, 0, 0, 0, 0]\n        }\n    ],\n\t"x": 1\n}\n')
-        ends = {key: catalog.index(b'\n    ]', catalog.index(key)) for key in (b'"engine_types"', b'"seq_types"')}
-        profile = dict(stock_catalog_inserts={'engine_types': ends[b'"engine_types"'], 'seq_types': ends[b'"seq_types"']})
-        m = machine('chords')
-        parsed = json.loads(extend_catalog(catalog, profile, [m]))
-        entry = parsed['seq_types'][-1]
-        self.assertEqual((entry['type'], entry['id']), ('chords', m.identity['player'] + 4))
-        self.assertEqual(entry['default_params'], adapters.catalog_defaults(m.definition))
-        with self.assertRaisesRegex(ValueError, 'catalog list'):
-            extend_catalog(catalog, dict(stock_catalog_inserts={'engine_types': ends[b'"engine_types"']}), [m])
-
-
-class Identity(unittest.TestCase):
-    def test_player_types_avoid_stock_values(self):
+    def test_layout_keeps_player_types_and_shares_page_pool(self):
+        m = self.machine
         rules = config()['identities']
-        self.assertEqual(check_identity(rules, 'player', {'player': 6}), {'player': 6})
-        self.assertEqual(check_identity(rules, 'player', {'player': 6, 'page': 84}), {'player': 6, 'page': 84})
-        for value in ({'player': 4}, {'player': 5}, {'player': 32}, {'player': 6, 'page': 46}, {'player': 6, 'page': 81},
-                      {'player': 6, 'page': 128}, {'engine': 6}, {'player': 6, 'page': 84, 'engine': 1}):
-            with self.subTest(value=value), self.assertRaises(ValueError):
-                check_identity(rules, 'player', value)
+        self.assertIn(m.identity['player'], rules['players'])
+        requested = dict(player=None, page=None)
+        layout = {m.id: m.identity}
+        numbered = number_layout(rules, [], layout, [(m.id, 'player', requested), ('other', 'player', requested)])
+        self.assertEqual(numbered[m.id], m.identity)
+        self.assertNotEqual(numbered['other']['player'], m.identity['player'])
+        self.assertNotEqual(numbered['other']['page'], m.identity['page'])
+        for invalid in (0, 1, 2, 3, 4, 5, 32):
+            with self.assertRaises(ValueError):
+                number_layout(rules, [], {m.id: dict(player=invalid, page=90)}, [(m.id, 'player', requested)])
 
+    def test_adapter_is_independent_of_numbers_and_binds_output_keyboard(self):
+        m = self.machine
+        other = replace(m, identity=dict(player=31, page=255))
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            first = adapters.generate_player_object(a, m).read_text(encoding='utf-8')
+            self.assertEqual(first, adapters.generate_player_object(b, other).read_text(encoding='utf-8'))
+        self.assertNotIn('@', first)
+        self.assertIn('probeplayer_key_127', first)
+        self.assertIn('probeplayer_played_127', first)
+        self.assertIn('player_output(object, shown)', first)
+        self.assertEqual(len(vtable()), 16)
+        for i, entry in enumerate(vtable()):
+            self.assertEqual('0x' not in entry, i in {2, 5, 6})
 
-class Page(unittest.TestCase):
-    def test_page_unit_registers_and_binds_the_artwork(self):
-        m = machine('chords')
-        self.assertEqual(m.display, 'player')
-        with tempfile.TemporaryDirectory() as directory:
-            text = adapters.generate_player_object(directory, m).read_text(encoding='utf-8')
-        self.assertNotIn('@', text)
-        self.assertIn('int chords_screen_register()', text)
-        self.assertIn('"chords_dot_23",', text)
-        self.assertIn('"chords_text",', text)
-        self.assertIn('{"str", "dir", "voi", "spr"}', text)
-        self.assertIn('chords_player_vtable, chords_page_id, chords_screen_ready}', text)
+    def test_catalog_player_is_not_an_instrument(self):
+        profile = config()
+        catalog = (native.STOCK_CONTENT / 'op1_factory.json').read_bytes()
+        before = json.loads(catalog)
+        after = json.loads(native.extend_catalog(catalog, profile, [self.machine]))
+        self.assertEqual(after['engine_types'], before['engine_types'])
+        self.assertEqual(after['fx_types'], before['fx_types'])
+        self.assertEqual(after['seq_types'][-1]['id'], self.machine.identity['player'] + 4)
+        self.assertEqual(after['seq_types'][-1]['type'], 'probeplayer')
 
-    def test_startup_registers_player_pages_on_the_gui_role(self):
-        source = render(['synth'], [], [], ['chords'])
-        screen = source[source.index('void sdk_startup_screen()'):source.index('// The stock catalog')]
-        self.assertIn('chords_screen_register();', screen)
-        with self.assertRaises(ValueError):
-            render(['chords'], [], [], ['chords'])
+    def test_player_code_and_octave_hook_are_selection_gated(self):
+        m = self.machine
+        from tooling.firmware import active_services
+        profile = config()
+        self.assertEqual(active_services(profile, ['player']), {'players', 'octaves'})
+        self.assertEqual(active_services(profile, ['synth']), set())
+        self.assertEqual(native.absent_symbols(m), {'probeplayer_player': 'kit_absent',
+                                                   'probeplayer_screen_register': 'kit_absent'})
+        self.assertEqual([step for _, machine, step in native.plan([m]) if machine], ['player_object'])
 
-    def test_artwork_needs_every_dot_and_the_line(self):
-        m = machine('chords')
-        fragment = (m.root / 'panel.svg.fragment').read_bytes()
-        validate_panel(m, fragment)
-        for broken in (fragment.replace(b'id="chords_dot_23"', b'id="chords_dot_x"'),
-                       fragment.replace(b'id="chords_text"', b'id="chords_line"'),
-                       fragment.replace(b'<circle id="chords_dot_0" transform="matrix(1 0 0 1', b'<circle id="chords_dot_0" transform="matrix(2 0 0 1')):
-            with self.subTest(), self.assertRaises(ValueError):
-                validate_panel(m, broken)
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_activity_and_keyboard_range(self):
+        binary = self.root / ('activity.exe' if os.name == 'nt' else 'activity')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
+                        '-I'+str(PLATFORM), str(ROOT/'tests/fixtures/player_activity.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
 
-
-@unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
-class Vectors(unittest.TestCase):
-    def test_each_player_passes_its_own_vectors(self):
-        for m in players():
-            for source in sorted((m.root / 'tests').glob('*.cpp')):
-                with self.subTest(player=m.id, source=source.name), tempfile.TemporaryDirectory() as folder:
-                    binary = Path(folder) / ('vectors.exe' if os.name == 'nt' else 'vectors')
-                    hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-                    command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(ROOT / 'sdk/include'),
-                               str(source), '-o', str(binary)]
-                    result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_real_renderer_keeps_header_and_fits_output_notes(self):
+        shutil.copy(PLATFORM / 'screen_player.hpp', self.root)
+        shutil.copy(ROOT / 'tests/fixtures/screen_player_host.hpp', self.root / 'screen.hpp')
+        binary = self.root / ('screen.exe' if os.name == 'nt' else 'screen')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(self.root),
+                        '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/screen_player.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
 
 
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
-class Stock(unittest.TestCase):
-    def test_kept_methods_are_stock_maestro(self):
-        stock = read(Path(os.environ['OPXY_TEST_STOCK_OS']))
-        blocks = ldr(stock)
-        at = mapped_offset(blocks, MAESTRO_VTABLE, 64)
-        words = struct.unpack('<16I', stock[at:at + 64])
-        for i, entry in enumerate(template_vtable()):
-            if i not in REPLACED:
-                self.assertEqual(int(entry.split('(')[1].rstrip(')'), 16), words[i], i)
-
-
-if __name__ == '__main__':
-    unittest.main()
+class StockPlayer(unittest.TestCase):
+    def test_kept_methods_are_authenticated_stock_maestro(self):
+        from tooling.formats import sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        at = mapped_offset(ldr(data), 0x8409f6d0, 64)
+        words = struct.unpack('<16I', data[at:at+64])
+        for i, entry in enumerate(vtable()):
+            if i not in {2, 5, 6}:
+                self.assertEqual(int(entry.split('(')[1].rstrip(')'), 16), words[i])

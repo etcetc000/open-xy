@@ -1,0 +1,1437 @@
+{
+  "schema": 1,
+  "id": "opxy-1.2.1",
+  "firmware_version": "1.2.1+0",
+  "cpu": "bf707",
+  "stock_sha256": "60358afdaa9b58ed40411602f6d5d4e1e3e02553ff2da7e25038e71dd002b52f",
+  "stock_bytes": 2373336,
+  "stock_catalog_sha256": "36d14444dcc12cac8f33784c4d0e96079cfa0b5042ac9edfe31d34cc9b303ff0",
+  "stock_svg_sha256": "449251eb0f33f451316d839c061d88d06d96962e8f3bbbb7c38e6f7119d9f052",
+  "bootloader_reference_sha256": "139459f2a8b7bbe5cd9432d4870a758f4e9e9d7e875ebb10701144b73f40f75d",
+  "module_base": 2368537472,
+  "reserved_bytes": 2097152,
+  "heap_fill_base": 2349663104,
+  "heap_fill_bytes": 20971520,
+  "stock_records": 984,
+  "linker_sha256": "5f1e26c9d592459035519a905e2305c92165600e6626ba0ddd5bc360d4effd69",
+  "table_bytes": 16384,
+  "identities": {
+    "engines": 256,
+    "engine_none": 33,
+    "stock_engines": [
+      2,
+      3,
+      4,
+      6,
+      7,
+      18,
+      19,
+      20,
+      22,
+      29,
+      30,
+      31,
+      32
+    ],
+    "pages": 256,
+    "page_none": 81,
+    "sample_pages": [
+      2,
+      7
+    ],
+    "effects": [
+      1,
+      8,
+      11,
+      21,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62
+    ],
+    "effect_page": 21,
+    "players": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ]
+  },
+  "layout_profiles": [
+    "opxy-1.2.0"
+  ],
+  "stock_catalog_inserts": {
+    "fx_types": 1583,
+    "engine_types": 4435,
+    "seq_types": 2565
+  },
+  "screen_template_sha256": "d71b110ac905c1bcfcecc9ad94237aa72fe12c531e651f170bb5a1042547fb16",
+  "services": {
+    "samples": [
+      "sample"
+    ],
+    "extensions": [
+      "extension"
+    ],
+    "players": [
+      "player"
+    ],
+    "octaves": [
+      "sample",
+      "player"
+    ]
+  },
+  "patches": [
+    {
+      "kind": "heap",
+      "name": "IN-MEMORY application heap 0x1400000 -> 0x1200000 (2 MiB module reservation)",
+      "address": "0x8d4d03ba",
+      "file_offset": "0x107616",
+      "length": 8,
+      "before": "01da400100000000",
+      "after": "01da200100000000"
+    },
+    {
+      "kind": "heap",
+      "name": "IN-MEMORY application heap 0x1400000 -> 0x1200000 (2 MiB module reservation)",
+      "address": "0x8d4d03d4",
+      "file_offset": "0x107630",
+      "length": 8,
+      "before": "01da400100000000",
+      "after": "01da200100000000"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d506a02",
+      "file_offset": "0x13dc5e",
+      "length": 4,
+      "before": "c66cbb05",
+      "symbol": "extensions_synth_exit",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d523dac",
+      "file_offset": "0x15b008",
+      "length": 4,
+      "before": "01e80000",
+      "symbol": "extensions_screen_exit",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d523e08",
+      "file_offset": "0x15b064",
+      "length": 4,
+      "before": "01e80000",
+      "symbol": "extensions_screen_exit",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e0bf6",
+      "file_offset": "0x117e52",
+      "length": 4,
+      "before": "06e399e6",
+      "symbol": "extensions_catalog_checked",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e0d98",
+      "file_offset": "0x117ff4",
+      "length": 4,
+      "before": "06e3c8e5",
+      "symbol": "extensions_catalog_checked",
+      "call": true
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY engine record base -> relocated table",
+      "address": "0x8d505292",
+      "file_offset": "0x13c4ee",
+      "length": 8,
+      "before": "02da0308fc940000",
+      "after": "02da4c8d50cf0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY engine record base -> relocated table",
+      "address": "0x8d50533e",
+      "file_offset": "0x13c59a",
+      "length": 8,
+      "before": "02da0308fc940000",
+      "after": "02da4c8d50cf0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY engine record base -> relocated table",
+      "address": "0x8d505366",
+      "file_offset": "0x13c5c2",
+      "length": 8,
+      "before": "02da0308fc940000",
+      "after": "02da4c8d50cf0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY engine record base -> relocated table",
+      "address": "0x8d50652a",
+      "file_offset": "0x13d786",
+      "length": 8,
+      "before": "08da0308fc940000",
+      "after": "08da4c8d50cf0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY engine record base -> relocated table",
+      "address": "0x8d5067e2",
+      "file_offset": "0x13da3e",
+      "length": 8,
+      "before": "00da0308fc940000",
+      "after": "00da4c8d50cf0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY engine record base -> relocated table",
+      "address": "0x8d506c74",
+      "file_offset": "0x13ded0",
+      "length": 8,
+      "before": "01da0308fc940000",
+      "after": "01da4c8d50cf0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY engine record base -> relocated table",
+      "address": "0x8d506e9e",
+      "file_offset": "0x13e0fa",
+      "length": 8,
+      "before": "08da0308fc940000",
+      "after": "08da4c8d50cf0000"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d505356",
+      "file_offset": "0x13c5b2",
+      "length": 4,
+      "before": "09618808",
+      "symbol": "sdk_engine_bound",
+      "call": true
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY engine record count -> relocated table",
+      "address": "0x8d5067dc",
+      "file_offset": "0x13da38",
+      "length": 4,
+      "before": "22e13006",
+      "after": "22e10030"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY screen slot base -> relocated table",
+      "address": "0x8d520792",
+      "file_offset": "0x1579ee",
+      "length": 8,
+      "before": "00daeb8428320000",
+      "after": "00da4c8d50ff0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY screen slot base -> relocated table",
+      "address": "0x8d5207c8",
+      "file_offset": "0x157a24",
+      "length": 8,
+      "before": "00daeb8428320000",
+      "after": "00da4c8d50ff0000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY screen slot count -> relocated table",
+      "address": "0x8d5208be",
+      "file_offset": "0x157b1a",
+      "length": 4,
+      "before": "27e15100",
+      "after": "27e10001"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY screen slot count -> relocated table",
+      "address": "0x8d520d3e",
+      "file_offset": "0x157f9a",
+      "length": 4,
+      "before": "27e15100",
+      "after": "27e10001"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d505276",
+      "file_offset": "0x13c4d2",
+      "length": 8,
+      "before": "02da03086c910000",
+      "after": "02da4c8d80c30000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d5052b6",
+      "file_offset": "0x13c512",
+      "length": 8,
+      "before": "02da03086c910000",
+      "after": "02da4c8d80c30000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d505314",
+      "file_offset": "0x13c570",
+      "length": 8,
+      "before": "02da03086c910000",
+      "after": "02da4c8d80c30000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d5066ba",
+      "file_offset": "0x13d916",
+      "length": 8,
+      "before": "08da03086c910000",
+      "after": "08da4c8d80c30000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d506cb8",
+      "file_offset": "0x13df14",
+      "length": 8,
+      "before": "01da03086c910000",
+      "after": "01da4c8d80c30000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record base -> relocated table",
+      "address": "0x8d506f28",
+      "file_offset": "0x13e184",
+      "length": 8,
+      "before": "08da03086c910000",
+      "after": "08da4c8d80c30000"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record bound -> relocated table",
+      "address": "0x8d505304",
+      "file_offset": "0x13c560",
+      "length": 2,
+      "before": "9960",
+      "after": "f961"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record bound -> relocated table",
+      "address": "0x8d506f20",
+      "file_offset": "0x13e17c",
+      "length": 2,
+      "before": "9960",
+      "after": "f961"
+    },
+    {
+      "kind": "table",
+      "name": "IN-MEMORY effect record bound -> relocated table",
+      "address": "0x8d50e768",
+      "file_offset": "0x1459c4",
+      "length": 2,
+      "before": "9860",
+      "after": "f861"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5214c2",
+      "file_offset": "0x15871e",
+      "length": 8,
+      "before": "0f6420e151008708",
+      "symbol": "sdk_screen_advance",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5b79c0",
+      "file_offset": "0x1eec18",
+      "length": 6,
+      "before": "980d00e80000",
+      "symbol": "extensions_sample_classify",
+      "service": "samples",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5ad670",
+      "file_offset": "0x1e48c8",
+      "length": 4,
+      "before": "f5602f08",
+      "symbol": "extensions_sample_note_region",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d50bc58",
+      "file_offset": "0x142eb4",
+      "length": 4,
+      "before": "ffe3ece2",
+      "symbol": "sdk_sample_cache_destroy",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d51ea08",
+      "file_offset": "0x155c64",
+      "length": 4,
+      "before": "00e3f614",
+      "symbol": "sdk_sample_progress_frame",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4daf7e",
+      "file_offset": "0x1121da",
+      "length": 8,
+      "before": "00d80384d0930000",
+      "symbol": "sdk_sample_cache_snapshot",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4da57c",
+      "file_offset": "0x1117d8",
+      "length": 4,
+      "before": "abe46400",
+      "symbol": "sdk_sample_cache_ipc_priority",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4daa06",
+      "file_offset": "0x111c62",
+      "length": 4,
+      "before": "01e3f786",
+      "symbol": "sdk_sample_cache_gui_add",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4d8544",
+      "file_offset": "0x10f7a0",
+      "length": 4,
+      "before": "01e35899",
+      "symbol": "sdk_sample_cache_audio_add",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4da9be",
+      "file_offset": "0x111c1a",
+      "length": 4,
+      "before": "01e3c779",
+      "symbol": "sdk_sample_cache_reset",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4d84d8",
+      "file_offset": "0x10f734",
+      "length": 4,
+      "before": "01e33a8c",
+      "symbol": "sdk_sample_cache_reset",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d50c59c",
+      "file_offset": "0x1437f8",
+      "length": 4,
+      "before": "ffe382fb",
+      "symbol": "sdk_sample_cache_worker",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4da9b2",
+      "file_offset": "0x111c0e",
+      "length": 4,
+      "before": "ffe38bff",
+      "symbol": "sdk_sample_cache_send",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b1316",
+      "file_offset": "0xe8552",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b1666",
+      "file_offset": "0xe88a2",
+      "length": 8,
+      "before": "00de4d8dd8cc0000",
+      "symbol": "sdk_sample_region_control",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b2730",
+      "file_offset": "0xe996c",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_press_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a22fe",
+      "file_offset": "0xd953a",
+      "length": 8,
+      "before": "00de4f8d36d40000",
+      "symbol": "sdk_sample_assignment_frames",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a4400",
+      "file_offset": "0xdb63c",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a450a",
+      "file_offset": "0xdb746",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a4e36",
+      "file_offset": "0xdc072",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a4f56",
+      "file_offset": "0xdc192",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a5138",
+      "file_offset": "0xdc374",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c090d64",
+      "file_offset": "0xc7fa0",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a2c6c",
+      "file_offset": "0xd9ea8",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a2dea",
+      "file_offset": "0xda026",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a2f0c",
+      "file_offset": "0xda148",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a3012",
+      "file_offset": "0xda24e",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a33b6",
+      "file_offset": "0xda5f2",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a33ca",
+      "file_offset": "0xda606",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a4df2",
+      "file_offset": "0xdc02e",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5686f0",
+      "file_offset": "0x19f94c",
+      "length": 4,
+      "before": "00e396f8",
+      "symbol": "sdk_sample_ui_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a4440",
+      "file_offset": "0xdb67c",
+      "length": 8,
+      "before": "00de588d8c9b0000",
+      "symbol": "sdk_sample_record_region",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a23f4",
+      "file_offset": "0xd9630",
+      "length": 8,
+      "before": "00de588d8c9b0000",
+      "symbol": "sdk_sample_assign_region",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d589c40",
+      "file_offset": "0x1c0e9c",
+      "length": 8,
+      "before": "00de0204d80f0000",
+      "symbol": "sdk_sample_assign_fade",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d589210",
+      "file_offset": "0x1c046c",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "extensions_sample_key",
+      "service": "samples",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5353a6",
+      "file_offset": "0x16c602",
+      "length": 4,
+      "before": "ffe32df6",
+      "symbol": "sdk_sample_drum_display",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d535222",
+      "file_offset": "0x16c47e",
+      "length": 4,
+      "before": "fde3890e",
+      "symbol": "sdk_sample_drum_range",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5355ac",
+      "file_offset": "0x16c808",
+      "length": 4,
+      "before": "48a1404d",
+      "symbol": "sdk_sample_drum_fade",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a1bd6",
+      "file_offset": "0xd8e12",
+      "length": 8,
+      "before": "0dda010808f40000",
+      "symbol": "sdk_sample_pending_retry",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a1bbc",
+      "file_offset": "0xd8df8",
+      "length": 8,
+      "before": "0cda010824f40000",
+      "symbol": "sdk_sample_active_retry",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5ad3aa",
+      "file_offset": "0x1e4602",
+      "length": 4,
+      "before": "00e32353",
+      "symbol": "sdk_sample_live_pitch_kind",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d58f5c2",
+      "file_offset": "0x1c681e",
+      "length": 4,
+      "before": "ffe3bdb0",
+      "symbol": "sdk_octave_store",
+      "service": "octaves",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b5b72",
+      "file_offset": "0xecdae",
+      "length": 8,
+      "before": "00de518dfcf10000",
+      "symbol": "sdk_synth_press",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c08fade",
+      "file_offset": "0xc6d1a",
+      "length": 8,
+      "before": "00de5a8dbcd50000",
+      "symbol": "sdk_effect_turn",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b15aa",
+      "file_offset": "0xe87e6",
+      "length": 8,
+      "before": "00de5a8dbcd50000",
+      "symbol": "sdk_synth_turn",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4eed56",
+      "file_offset": "0x125fb2",
+      "length": 4,
+      "before": "ffe3c0fe",
+      "symbol": "sdk_preset_type",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5ad306",
+      "file_offset": "0x1e455e",
+      "length": 8,
+      "before": "00de0b8c68240000",
+      "symbol": "sdk_param_steps",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d53b636",
+      "file_offset": "0x172892",
+      "length": 4,
+      "before": "06e3dd2d",
+      "symbol": "sdk_fx_value",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Send page titles follow alternate selection",
+      "address": "0x8d53b642",
+      "file_offset": "0x17289e",
+      "length": 4,
+      "before": "fee3275b",
+      "symbol": "sdk_fx_title",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5954b2",
+      "file_offset": "0x1cc70e",
+      "length": 4,
+      "before": "01e33d14",
+      "symbol": "sdk_note_off",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d595514",
+      "file_offset": "0x1cc770",
+      "length": 4,
+      "before": "01e30c14",
+      "symbol": "sdk_note_off",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d585eda",
+      "file_offset": "0x1bd136",
+      "length": 4,
+      "before": "00e3cd98",
+      "symbol": "sdk_project_save",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d58913e",
+      "file_offset": "0x1c039a",
+      "length": 4,
+      "before": "00e3e984",
+      "symbol": "sdk_project_load",
+      "call": true
+    },
+    {
+      "kind": "text",
+      "name": "MTP path allowlist: project companion (.oxy) beside each project (.xy)",
+      "address": "0x840ae494",
+      "file_offset": "0x5ca04",
+      "length": 28,
+      "before": "5e2f70726f6a656374732f776f726b73706163655c2e787924000000",
+      "after": "5e2f70726f6a656374732f776f726b73706163655c2e6f3f78792400"
+    },
+    {
+      "kind": "text",
+      "name": "MTP path allowlist: project companion (.oxy) beside each project (.xy)",
+      "address": "0x840ae4b0",
+      "file_offset": "0x5ca20",
+      "length": 64,
+      "before": "5e2f70726f6a656374732f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e78792400",
+      "after": "5e2f70726f6a656374732f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e6f3f78792400"
+    },
+    {
+      "kind": "text",
+      "name": "MTP path allowlist: project companion (.oxy) beside each project (.xy)",
+      "address": "0x840ae4f0",
+      "file_offset": "0x5ca60",
+      "length": 88,
+      "before": "5e2f70726f6a656374732f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e78792400",
+      "after": "5e2f70726f6a656374732f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e6f3f78792400"
+    },
+    {
+      "kind": "hook",
+      "address": "0x11a09322",
+      "file_offset": "0xc9b2",
+      "length": 8,
+      "before": "08da0308c04f0000",
+      "symbol": "sdk_profile_voice_start",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x11a0963a",
+      "file_offset": "0xccca",
+      "length": 8,
+      "before": "09da0308c04f0000",
+      "symbol": "sdk_profile_osc_start",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x11a0966c",
+      "file_offset": "0xccfc",
+      "length": 8,
+      "before": "08da0308c04f0000",
+      "symbol": "sdk_profile_osc_end",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x11a097be",
+      "file_offset": "0xce4e",
+      "length": 8,
+      "before": "5db9c56f30009631",
+      "symbol": "sdk_profile_filter_start",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x11a0985c",
+      "file_offset": "0xceec",
+      "length": 8,
+      "before": "59b9300096318f31",
+      "symbol": "sdk_profile_filter_end",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x11a09ac4",
+      "file_offset": "0xd154",
+      "length": 8,
+      "before": "59b9300096318f31",
+      "symbol": "sdk_profile_voice_end",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d51b288",
+      "file_offset": "0x1524e4",
+      "length": 8,
+      "before": "08da0308c04f0000",
+      "symbol": "sdk_profile_alt_voice_start",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d51b52a",
+      "file_offset": "0x152786",
+      "length": 8,
+      "before": "09da0308c04f0000",
+      "symbol": "sdk_profile_alt_osc_start",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d51b55c",
+      "file_offset": "0x1527b8",
+      "length": 8,
+      "before": "08da0308c04f0000",
+      "symbol": "sdk_profile_alt_osc_end",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d51b78e",
+      "file_offset": "0x1529ea",
+      "length": 8,
+      "before": "300096318f314000",
+      "symbol": "sdk_profile_alt_voice_end",
+      "call": true,
+      "profiling": false
+    },
+    {
+      "kind": "hook",
+      "name": "LFO destination range on Element selector initialization",
+      "address": "0x8d53f828",
+      "file_offset": "0x176a84",
+      "length": 4,
+      "before": "fce380bb",
+      "symbol": "sdk_lfo_range",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO destination range on Element page",
+      "address": "0x8d53fb18",
+      "file_offset": "0x176d74",
+      "length": 4,
+      "before": "fce308ba",
+      "symbol": "sdk_lfo_range",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO destination range on Random page",
+      "address": "0x8d540afa",
+      "file_offset": "0x177d56",
+      "length": 4,
+      "before": "fce317b2",
+      "symbol": "sdk_lfo_range",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO destination range on Value page",
+      "address": "0x8d543280",
+      "file_offset": "0x17a4dc",
+      "length": 4,
+      "before": "fce3549e",
+      "symbol": "sdk_lfo_range",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO destination stepping in parameter locks",
+      "address": "0x8d5ad4ba",
+      "file_offset": "0x1e4712",
+      "length": 4,
+      "before": "ffe317ff",
+      "symbol": "sdk_lfo_step",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO destination stepping in live controls",
+      "address": "0x8d5ad59e",
+      "file_offset": "0x1e47f6",
+      "length": 4,
+      "before": "ffe3a5fe",
+      "symbol": "sdk_lfo_step",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO engine destination audio routing",
+      "address": "0x11a04260",
+      "file_offset": "0x78f0",
+      "length": 8,
+      "before": "00de518dc48e0000",
+      "symbol": "sdk_lfo_audio",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Synth engine page titles follow alternate selection",
+      "address": "0x8d5466f6",
+      "file_offset": "0x17d952",
+      "length": 4,
+      "before": "fee3ab02",
+      "symbol": "sdk_synth_title",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO Element destination knob icons",
+      "address": "0x8d54023e",
+      "file_offset": "0x17749a",
+      "length": 4,
+      "before": "06e36b0f",
+      "symbol": "sdk_lfo_element_icon",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO Random destination knob icons",
+      "address": "0x8d541736",
+      "file_offset": "0x178992",
+      "length": 4,
+      "before": "06e3ef04",
+      "symbol": "sdk_lfo_random_icon",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO Value destination knob icons",
+      "address": "0x8d543d92",
+      "file_offset": "0x17afee",
+      "length": 4,
+      "before": "05e3c1f1",
+      "symbol": "sdk_lfo_value_icon",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO Element extra destination icon visibility",
+      "address": "0x8d53ffb0",
+      "file_offset": "0x17720c",
+      "length": 4,
+      "before": "fce3ecbf",
+      "symbol": "sdk_lfo_element_name",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO Element initial knob icon offset",
+      "address": "0x8d53f888",
+      "file_offset": "0x176ae4",
+      "length": 8,
+      "before": "504f79c20820b14f",
+      "symbol": "sdk_lfo_element_initial_icon",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO destination encoder click cycle",
+      "address": "0x8c0b2d54",
+      "file_offset": "0xe9f90",
+      "length": 8,
+      "before": "00de5a8d28cf0000",
+      "symbol": "sdk_lfo_cycle",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO Random effective destination label",
+      "address": "0x8d54107e",
+      "file_offset": "0x1782da",
+      "length": 4,
+      "before": "fce385b7",
+      "symbol": "sdk_lfo_label",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "LFO Value effective destination label",
+      "address": "0x8d543970",
+      "file_offset": "0x17abcc",
+      "length": 4,
+      "before": "fce30ca3",
+      "symbol": "sdk_lfo_label",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5aec5a",
+      "file_offset": "0x1e5eb2",
+      "length": 4,
+      "before": "fee3b16f",
+      "symbol": "sdk_benchmark_run",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0baaf0",
+      "file_offset": "0xf1d2c",
+      "length": 8,
+      "before": "00de598db8860000",
+      "symbol": "sdk_extensions_controller_update",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "context"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b6184",
+      "file_offset": "0xed3c0",
+      "length": 12,
+      "before": "ffe3eafd00da0208783c0000",
+      "symbol": "sdk_extensions_key_queue",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "queued_control"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d594376",
+      "file_offset": "0x1cb5d2",
+      "length": 4,
+      "before": "00e3e109",
+      "symbol": "sdk_extensions_live_note_on",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "input_activity",
+        "recordable_note_on"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59420a",
+      "file_offset": "0x1cb466",
+      "length": 4,
+      "before": "00e30b09",
+      "symbol": "sdk_extensions_live_note_off",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "selected_note_off"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59819c",
+      "file_offset": "0x1cf3f8",
+      "length": 4,
+      "before": "ffe3b7c4",
+      "symbol": "sdk_extensions_recorder_tick",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "recording_tick"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d597db8",
+      "file_offset": "0x1cf014",
+      "length": 4,
+      "before": "ffe3d6cd",
+      "symbol": "sdk_extensions_stop",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "context"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d595844",
+      "file_offset": "0x1ccaa0",
+      "length": 4,
+      "before": "01e38812",
+      "symbol": "sdk_extensions_note_accepted",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "recordable_note_on"
+      ]
+    },
+    {
+      "kind": "startup",
+      "name": "Boot-screen version label",
+      "address": "0x8c0b85dc",
+      "file_offset": "0xef818",
+      "length": 10,
+      "before": "32e412000207ffe34bf5",
+      "symbol": "kit_startup_label"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b2e68",
+      "file_offset": "0xea0a4",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_pad_key_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b214e",
+      "file_offset": "0xe938a",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_pad_key_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b31e0",
+      "file_offset": "0xea41c",
+      "length": 8,
+      "before": "00de588d341f0000",
+      "symbol": "sdk_sample_pad_copy",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b3256",
+      "file_offset": "0xea492",
+      "length": 8,
+      "before": "00de588d901f0000",
+      "symbol": "sdk_sample_pad_paste",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c094710",
+      "file_offset": "0xcb94c",
+      "length": 8,
+      "before": "00de4d8db0630000",
+      "symbol": "sdk_sample_multi_control",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0949e0",
+      "file_offset": "0xcbc1c",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_sample_multi_press_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d57ee6c",
+      "file_offset": "0x1b60c8",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "extensions_player_build",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d588d94",
+      "file_offset": "0x1bfff0",
+      "length": 4,
+      "before": "48a3a80d",
+      "symbol": "extensions_player_load",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0af13a",
+      "file_offset": "0xe6376",
+      "length": 8,
+      "before": "00de578db8ef0000",
+      "symbol": "sdk_player_ui_type",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0af43e",
+      "file_offset": "0xe667a",
+      "length": 8,
+      "before": "00de578db8ef0000",
+      "symbol": "sdk_player_ui_type",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5bddd8",
+      "file_offset": "0x1f5030",
+      "length": 4,
+      "before": "00e80500",
+      "symbol": "extensions_player_name",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5bde60",
+      "file_offset": "0x1f50b8",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "extensions_player_id",
+      "service": "players",
+      "call": false
+    }
+  ],
+  "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"
+}

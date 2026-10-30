@@ -1,0 +1,110 @@
+// Generated for one collection: its sample machines as one table, and the
+// stock-page bridge to their callbacks. Authored callbacks only see SDK values.
+#include "sample_machines.hpp"
+#include "stock_sample.hpp"
+#include "stock.hpp"
+extern "C" {
+@CALLBACK_DECLS@
+opxy::u32 sdk_sample_selected_engine() __asm__("sdk_sample_selected_engine");
+opxy::u32 sdk_sample_edit(void*, opxy::u32, opxy::i32, opxy::u32) __asm__("sdk_sample_edit");
+const opxy::DrumPanel* sdk_sample_drum_view(const void*, void*, const opxy::i32*) __asm__("sdk_sample_drum_view");
+opxy::u32 sdk_sample_assignment(opxy::u32, opxy::u32, opxy::u32, const opxy::u32*, opxy::u32, bool)
+    __asm__("sdk_sample_assignment");
+}
+using opxy::u32;
+using opxy::i32;
+using opxy::PadSettings;
+using opxy::platform::SampleMachine;
+
+const SampleMachine sdk_sample_machines[] = {
+@MACHINES@
+    {nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr}
+};
+// The terminating entry keeps the array nonempty for a collection without sample machines.
+const u32 sdk_sample_machine_count = sizeof(sdk_sample_machines) / sizeof(sdk_sample_machines[0]) - 1;
+
+namespace {
+// The owned machine on engine with pad settings, or null.
+const SampleMachine* pad_machine(u32 engine) {
+    const SampleMachine* m = sdk_sample_machine(engine);
+    return m && m->assign ? m : nullptr;
+}
+// The owned machine on engine with drum-page controls, or null.
+const SampleMachine* drum_machine(u32 engine) {
+    const SampleMachine* m = sdk_sample_machine(engine);
+    return m && m->control ? m : nullptr;
+}
+PadSettings settings(const SampleMachine* m, const void* raw) {
+    const opxy::platform::SavedSettings saved = opxy::platform::saved_settings(raw);
+    return saved.saved ? saved.value : m->defaults();
+}
+u32 track_engine(u32 track) {
+    return track < opxy::platform::kTracks ? opxy::platform::track_engine(track) : opxy::platform::kNoEngine;
+}
+// GUI-only display scratch. Stock paints a copy, never a mutated saved region.
+opxy::DrumPanel current_panel;
+}
+extern "C" u32 sdk_sample_edit(void* raw, u32 index, i32 direction, u32 engine) {
+    if (!raw || index >= 32) return 0;
+    const bool held = (index & 16) != 0;
+    index &= 15;
+    const SampleMachine* m = drum_machine(engine);
+    if (!m) return 0;
+    if (index == 0 || index == 8) {
+        const i32 cents = opxy::platform::sample_gui_region(raw).pitch_cents;
+        const i32 delta = direction < 0 ? -10 : direction > 0 ? 10 : 0;
+        opxy::platform::sample_gui_pitch(raw, index == 8 ? 0 : cents + delta);
+        return 1;
+    }
+    PadSettings value = settings(m, raw);
+    const opxy::DrumControl event{index & 3, direction, (index & 8) != 0, (index & 4) != 0, held};
+    m->control(&value, &event);
+    opxy::platform::store_pad_settings(raw, value);
+    return 1;
+}
+extern "C" const opxy::DrumPanel* sdk_sample_drum_view(const void* raw, void* shadow, const i32* parameters) {
+    const SampleMachine* m = drum_machine(sdk_sample_selected_engine());
+    current_panel = opxy::DrumPanel{};
+    if (!raw || !shadow || !m) return nullptr;
+    const opxy::SampleRegion region = opxy::platform::sample_gui_region(raw);
+    current_panel.reverse = region.reverse;
+    current_panel.level = 0x7fffffff;
+    m->panel(settings(m, raw), &region, parameters, &current_panel);
+    // Saved pad pitch is at most an octave either way, as the voice plays it.
+    const i32 saved = region.pitch_cents;
+    current_panel.pitch_cents += saved < -1200 ? -1200 : saved > 1200 ? 1200 : saved;
+    current_panel.shifted[0][15] = current_panel.shifted[1][15] = 0;
+    for (u32 i = 0; i < 8; ++i) static_cast<u32*>(shadow)[i] = static_cast<const u32*>(raw)[i];
+    using namespace opxy::platform::pad_record;
+    unsigned char* bytes = static_cast<unsigned char*>(shadow);
+    i32 cents = current_panel.pitch_cents;
+    if (cents < -2400) cents = -2400;
+    if (cents > 2400) cents = 2400;
+    // The drum painter adds signed fine cents to (root - 60) * 100.
+    // This display copy differs from the sampler's inverse tuning metadata.
+    const i32 root = 60 + (cents + 2400) / 100 - 24;
+    bytes[kRoot] = static_cast<unsigned char>(root);
+    bytes[kFine] = static_cast<unsigned char>(cents - (root - 60) * 100);
+    bytes[kMode] = static_cast<unsigned char>((bytes[kMode] & ~kModeBits) | (current_panel.repeat ? 3u : 1u));
+    bytes[kFlags] = static_cast<unsigned char>(current_panel.reverse ? bytes[kFlags] | kReverse : bytes[kFlags] & ~kReverse);
+    static_cast<u32*>(shadow)[kFade] = 0;
+    return &current_panel;
+}
+// Stock's region initializer for an owned pad: the machine combines the saved
+// settings of a pad being replaced with the new sample's metadata. frames is
+// the loaded count; path is the worker's stock string, or null when it could
+// not be verified for this job or the sample is a recording.
+extern "C" u32 sdk_sample_assignment(u32 track, u32 frames, u32 rate, const u32* path, u32 previous,
+                                     bool recorded) {
+    const SampleMachine* m = pad_machine(track_engine(track));
+    if (!m) return opxy::platform::sample_store_settings(0);
+    const opxy::platform::SavedSettings saved = opxy::platform::sample_settings(previous);
+    opxy::SampleAssignment input{nullptr, 0, frames < opxy::platform::kLoaderFrames ? frames : opxy::platform::kLoaderFrames, rate,
+                                 opxy::platform::project_bpm_x10(),
+                                 saved.saved, saved.saved ? saved.value : m->defaults(), recorded};
+    if (path && path[5] && path[5] <= 1024 && path[5] <= path[6]) {
+        input.filename = path[6] < 16 ? reinterpret_cast<const char*>(path + 1) : reinterpret_cast<const char*>(path[1]);
+        input.filename_bytes = path[5];
+    }
+    return opxy::platform::sample_store_settings(m->assign(&input));
+}

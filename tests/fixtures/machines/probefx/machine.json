@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "sdk": "1.1",
+  "kind": "effect",
+  "description": "Test fixture: a soft-clipping send effect with a Dry control.",
+  "identity": {
+    "effect": 21,
+    "page": 21
+  },
+  "dryParameter": "dry"
+}

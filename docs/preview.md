@@ -10,17 +10,24 @@ preview toolchain with `python sdk.py doctor --preview`; custom schema-1 sources
 build with `python sdk.py preview --source /path/to/machine --out local/custom-001`.
 Custom sources always use local authoring checks and cannot qualify a collection.
 
-Build a selected example, then serve its authenticated snapshot:
+Build a machine folder, such as one of the [core machines](https://github.com/etcetc000/open-xy-core-machines) cloned
+beside this repository, then serve its authenticated snapshot:
 
 ```sh
-python sdk.py preview --engine fm2op --out local/preview-001
+python sdk.py preview --machine ../open-xy-core-machines/machines/fm2op --out local/preview-001
 python tools/serve_harness.py --preview local/preview-001
 ```
 
 Use `--cxx /path/to/clang++` if Clang is not on PATH, or `--port 8937` if the
-server port is occupied. Open http://127.0.0.1:8917/, enable audio, then play
-`A W S E D F T G Y H U J K` or the on-screen keyboard. Escape/Stop all and loss
-of window focus release notes. Monitor gain is separate from engine parameters.
+server port is occupied. Open http://127.0.0.1:8917/ and play
+`A W S E D F T G Y H U J K`, use the on-screen keyboard, or click **Play phrase**.
+The first play action enables audio automatically. Escape/Stop all and loss
+of window focus release notes. Drag knobs up or down to adjust their values;
+hold Shift for finer movement. The sliders beneath them edit the same values.
+Focused knobs also accept arrow keys, Page Up/Down and Home/End.
+Volume controls preview playback separately from engine parameters.
+**Mute** / **Unmute** silences or restores output without changing Volume or
+stopping playback. Muting before the first key or phrase keeps that playback silent.
 
 To change sound or display, edit the C++, rebuild into a fresh directory,
 restart the server and reload. Edit `definition.json` for controls, then
@@ -60,7 +67,7 @@ project; exported SVG is a single frame, not executable display code.
 
 ## Local automation
 
-After enabling audio through the UI, `window.machineLab` provides:
+After playing a key or phrase, `window.machineLab` provides:
 
 | Method | Input/result |
 | --- | --- |
@@ -68,7 +75,7 @@ After enabling audio through the UI, `window.machineLab` provides:
 | `setParameters(values)` | Complete map of normalized controls |
 | `noteOn(midi, velocity = 0.8)` / `noteOff(midi)` | MIDI note 0..127; velocity (0, 1] |
 | `panic()` | Stop all voices |
-| `getStatus()` | Audio state, backend identity, note counts and output RMS |
+| `getStatus()` | Audio and mute states, backend identity, note counts and output RMS |
 
 The SDK-owned AudioWorklet transport accepts `{type: 'parameters', value}`
 (Q31 array), `{type: 'on', note, velocity}`, `{type: 'off', note}` and

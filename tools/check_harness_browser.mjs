@@ -66,13 +66,25 @@ try {
   }
   assert.ok(await evaluate('Boolean(window.machineLab?.getStatus().displayBackend)'), JSON.stringify(errors));
   assert.equal(await evaluate('machineLab.getStatus().audio'), 'off');
+  assert.equal(await evaluate('document.getElementById("audio").textContent'), 'Mute');
+  await click('audio');
+  assert.equal(await evaluate('machineLab.getStatus().muted'), true);
+  assert.equal(await evaluate('machineLab.getStatus().audio'), 'off');
+  await click('audio');
+  assert.equal(await evaluate('machineLab.getStatus().muted'), false);
+  assert.equal(await evaluate('machineLab.getStatus().audio'), 'off');
   for (const [i, p] of controls.parameters.entries()) {
     assert.equal(await shown(controlId(p.id, i)), controls.displayValue(p.id, controls.defaults()));
   }
-  await click('audio'); await delay(700);
+  // The first keyboard gesture must initialize audio and preserve its held note.
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA' });
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (await evaluate('machineLab.getStatus().audio === "running" && machineLab.getStatus().heldNotes === 1')) break;
+    await delay(100);
+  }
+  await delay(150);
   assert.equal(await evaluate('machineLab.getStatus().audio'), 'running');
-  assert.equal(await evaluate('document.getElementById("audio").textContent'), 'Mute audio');
-  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA' }); await delay(150);
+  assert.equal(await evaluate('document.getElementById("audio").textContent'), 'Mute');
   const sounding = await evaluate('machineLab.getStatus()');
   assert.equal(sounding.sampleRate, 44100);
   assert.equal(sounding.audioBackend.backend, 'cpp-wasm');
@@ -84,9 +96,20 @@ try {
     (await (await fetch(preview + '/preview/manifest.json')).json()).wasm_sha256);
   assert.equal(sounding.heldNotes, 1); assert.ok(sounding.rms > 0.001);
   assert.equal(sounding.visualNotes, 1);
+  assert.deepEqual(sounding.noteActivity, {held_notes:1,note_off_serial:0});
   await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA' }); await delay(300);
   assert.equal(await evaluate('machineLab.getStatus().heldNotes'), 0);
   assert.ok(await evaluate('machineLab.getStatus().rms < 0.000001'));
+  assert.deepEqual(await evaluate('machineLab.getStatus().noteActivity'), {held_notes:0,note_off_serial:1});
+  // Gate snapshots reach C++ immediately, including while motion is reduced.
+  await command('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+  await evaluate('machineLab.noteOn(60); machineLab.noteOn(64); machineLab.noteOff(60)');
+  assert.deepEqual(await evaluate('machineLab.getStatus().noteActivity'), {held_notes:1,note_off_serial:2});
+  await evaluate('machineLab.noteOff(60)');
+  assert.deepEqual(await evaluate('machineLab.getStatus().noteActivity'), {held_notes:1,note_off_serial:2});
+  await evaluate('machineLab.panic()');
+  assert.deepEqual(await evaluate('machineLab.getStatus().noteActivity'), {held_notes:0,note_off_serial:3});
+  await command('Emulation.setEmulatedMedia', {features:[]});
   for (const value of [1, 0.3, 0.301]) {
     await evaluate(`(() => { const el = document.getElementById(${JSON.stringify(firstId)}); el.value = ${value}; el.dispatchEvent(new Event('input')); })()`);
     assert.equal(await evaluate(`machineLab.getPatch().parameters[${JSON.stringify(first.id)}]`), value);
@@ -102,7 +125,7 @@ try {
   }
   const savedPatch = JSON.parse(readFileSync(`${screenshots}/${engineId}.patch.json`, 'utf8'));
   assert.deepEqual(savedPatch, await evaluate('machineLab.getPatch()'));
-  assert.match(readFileSync(`${screenshots}/${engineId}.screen.svg`, 'utf8'), /width="480" height="224"/);
+  assert.match(readFileSync(`${screenshots}/${engineId}.screen.svg`, 'utf8'), /width="480" height="220"/);
   await click('reset');
   const dom = await command('DOM.getDocument');
   const fileInput = await command('DOM.querySelector', { nodeId: dom.root.nodeId, selector: '#file' });
@@ -137,7 +160,34 @@ try {
   writeFileSync(`${screenshots}/mobile.png`, Buffer.from(mobile.data, 'base64'));
   await evaluate('machineLab.noteOff(60); machineLab.panic()');
   await click('audio'); await delay(100);
-  assert.equal(await evaluate('machineLab.getStatus().audio'), 'suspended');
+  assert.equal(await evaluate('machineLab.getStatus().audio'), 'running');
+  assert.equal(await evaluate('machineLab.getStatus().muted'), true);
+  assert.equal(await evaluate('machineLab.getStatus().rms'), 0);
+  assert.equal(await evaluate('document.getElementById("audio").textContent'), 'Unmute');
+  // A fresh page must also start the phrase with a single click.
+  await command('Page.navigate', { url: preview + '/' });
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (await evaluate('Boolean(window.machineLab?.getStatus().displayBackend) && machineLab.getStatus().audio === "off"')) break;
+    await delay(100);
+  }
+  assert.equal(await evaluate('machineLab.getStatus().audio'), 'off');
+  await click('audio'); // Explicit mute must survive automatic startup.
+  assert.equal(await evaluate('machineLab.getStatus().muted'), true);
+  await click('phrase');
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (await evaluate('machineLab.getStatus().audio === "running" && document.getElementById("phrase").textContent === "Stop phrase"')) break;
+    await delay(100);
+  }
+  assert.equal(await evaluate('machineLab.getStatus().audio'), 'running');
+  assert.equal(await evaluate('document.getElementById("phrase").textContent'), 'Stop phrase');
+  assert.equal(await evaluate('machineLab.getStatus().muted'), true);
+  assert.equal(await evaluate('machineLab.getStatus().rms'), 0);
+  assert.equal(await evaluate('document.getElementById("audio").textContent'), 'Unmute');
+  await click('panic');
+  assert.equal(await evaluate('machineLab.getStatus().heldNotes'), 0);
+  await click('audio');
+  assert.equal(await evaluate('machineLab.getStatus().muted'), false);
+  assert.equal(await evaluate('machineLab.getStatus().audio'), 'running');
   // Missing favicon is harmless; all script, worklet and runtime errors fail.
   const relevant = errors.filter(e => !JSON.stringify(e).includes('favicon.ico'));
   assert.deepEqual(relevant, []);

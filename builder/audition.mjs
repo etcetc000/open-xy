@@ -11,6 +11,8 @@ export class Audition {
   constructor(module, parameters, onState) {
     this.module = module; this.parameters = [...parameters]; this.onState = onState;
     this.volume = 0.5; this.revision = 0; this.disposed = false; this.playing = false;
+    // The note a key holds, from its press: a release during audio setup still ends it.
+    this.held = null;
   }
   async start() {
     const context = this.context = new AudioContext({sampleRate:44100, latencyHint:'interactive'});
@@ -43,6 +45,7 @@ export class Audition {
   async play(note) {
     if (this.disposed) return;
     const revision = ++this.revision;
+    this.held = note;
     try {
       // Create/resume during the click gesture, before asynchronous worklet setup.
       this.starting ??= this.start();
@@ -54,6 +57,7 @@ export class Audition {
       this.gain.gain.value = this.volume;
       this.processor.port.postMessage({type:'on', note, velocity:0.8});
       this.playing = true; this.onState(true);
+      if (this.held !== note) this.processor.port.postMessage({type:'off', note});
     } catch (error) {
       if (this.disposed || revision !== this.revision) return;
       this.stop();
@@ -62,6 +66,11 @@ export class Audition {
       this.context = this.processor = this.gain = this.starting = null;
       this.onState(false, error.message);
     }
+  }
+  // A key let go: the note fades over the preview engine's short release.
+  release(note) {
+    if (this.held === note) this.held = null;
+    if (this.playing) this.processor?.port.postMessage({type:'off', note});
   }
   stop() {
     this.revision++; this.playing = false;

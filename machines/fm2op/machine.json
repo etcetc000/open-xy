@@ -1,9 +1,0 @@
-{
-  "schema": 1,
-  "kind": "synth",
-  "description": "Two oscillators, from soft bells to tangled metallic tones.",
-  "identity": {
-    "engine": 34,
-    "page": 82
-  }
-}

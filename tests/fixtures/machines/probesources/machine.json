@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "sdk": "1.1",
+  "kind": "synth",
+  "description": "Test fixture: a synth with an extra translation unit, an include folder and a display without paths.",
+  "icon": "M5 35V12l11 23 11-23 11 23V12",
+  "identity": {
+    "engine": 45,
+    "page": 93
+  },
+  "sources": [
+    "lib/wave.cpp"
+  ],
+  "includes": [
+    "lib"
+  ]
+}

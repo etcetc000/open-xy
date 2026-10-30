@@ -1,10 +1,22 @@
 import argparse
+import ast
 import tempfile
 from pathlib import Path
 import unittest
 
 from tooling.checks import FIXTURES, fixture_environment, run_suite
 from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class Sources(unittest.TestCase):
+    def test_sdk_checks_use_require_never_assert(self):
+        # python -O strips assert, and checks run once, under normal Python.
+        files = [ROOT / 'sdk.py', *(ROOT / 'tooling').rglob('*.py'), *(ROOT / 'tools').glob('*.py')]
+        found = [f'{path.relative_to(ROOT)}:{node.lineno}' for path in files
+                 for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))) if isinstance(node, ast.Assert)]
+        self.assertEqual(found, [], 'use tooling.formats.require instead of assert')
 
 
 class CheckRunnerTests(unittest.TestCase):

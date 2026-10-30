@@ -1,10 +1,10 @@
 // SDK ABI fixture: exercise dispatch through the actual generated method table.
-#include "fx_object_ringmod.cpp"
+#include "fx_object_probefx.cpp"
 
 int main() {
-    if (ringmod_fx_factory(nullptr)) return 1;
+    if (probefx_fx_factory(nullptr)) return 1;
     Object storage = {};
-    Object* object = static_cast<Object*>(ringmod_fx_factory(&storage));
+    Object* object = static_cast<Object*>(probefx_fx_factory(&storage));
     if (object != &storage || object->state.initialized) return 2;
     const void* const* table = object->vtable;
     typedef void (*Init)(void*, opxy::u32);

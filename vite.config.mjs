@@ -6,12 +6,12 @@ import {openKit} from './builder/core.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const browserRoot = resolve(root, 'builder');
-const renderers = ['controls.mjs', 'display.mjs', 'segments.mjs', 'engine.mjs', 'processor.mjs'].map(name => resolve(root, 'sdk/browser', name));
+const renderers = ['controls.mjs', 'display.mjs', 'engine.mjs', 'processor.mjs'].map(name => resolve(root, 'sdk/browser', name));
 const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs'];
 // Vite's /@fs/ URLs: C:/x becomes /@fs/C:/x and /x becomes /@fs/x.
 const fsUrl = path => posix.join('/@fs/', normalizePath(path));
 const fsFile = url => { const path = url.slice(5); return /^[A-Za-z]:\//.test(path) ? path : '/' + path; };
-const kitKeys = new Set(['format','profile','profileSource','definitions','machines','objects','notices','stockCatalog','screenTemplate']);
+const kitKeys = new Set(['format','version','profile','profileSource','definitions','fixed','linked','machines','extensions','objects','notices','stockCatalog','screenTemplate']);
 
 // Check both the supplied path and its physical destination, including a new
 // directory below an existing symlink/junction. Worktrees have a .git file.

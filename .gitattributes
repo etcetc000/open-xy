@@ -3,9 +3,6 @@
 linker/*.ld -text whitespace=cr-at-eol
 # Qualified profiles and descriptors retain their exact byte hashes.
 profiles/*.json -text whitespace=cr-at-eol
-machines/*/machine.json -text whitespace=cr-at-eol
-machines/*/definition.json -text whitespace=cr-at-eol
+profiles/*/content/*.json -text whitespace=cr-at-eol
 # Unified diffs require a space prefix on empty context lines.
 tools/gcc/patches/**/*.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
-# Preserve licensed upstream files byte-for-byte, including their whitespace.
-machines/macroosc/vendor/** -text -whitespace

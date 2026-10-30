@@ -2,12 +2,21 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
-static unsigned selected = 46, edits;
+// The probe's engine ID: on the device the linker supplies the symbol's value;
+// here it is the address of a definition, the same on every use.
+extern "C" { const char probe_engine_id[1] __asm__("probe_engine_id") = {}; }
+static const unsigned kProbe = static_cast<unsigned>(reinterpret_cast<opxy::platform::Address>(probe_engine_id));
+// A second machine, on page 2 (the sampler's page).
+extern "C" { const char sampler_engine_id[1] __asm__("sampler_engine_id") = {}; }
+static const unsigned kSampler = static_cast<unsigned>(reinterpret_cast<opxy::platform::Address>(sampler_engine_id));
+extern "C" unsigned sdk_sample_alias(unsigned) __asm__("sdk_sample_alias");
+static unsigned selected = kProbe, edits;
 extern "C" unsigned sdk_sample_note_route(unsigned) __asm__("sdk_sample_note_route");
 static bool owned = true;
 static opxy::DrumControl received;
 extern "C" unsigned sdk_sample_selected_engine() { return selected; }
 extern "C" int probe_ready() { return owned; }
+extern "C" int sampler_ready() { return owned; }
 // The probe also declares analysis; its callbacks are not exercised here.
 extern "C" unsigned probe_analysis_words(const opxy::SampleView*) { return 0; }
 extern "C" unsigned probe_prepare_begin(const opxy::SampleView*, unsigned*, unsigned) { return 0; }
@@ -34,10 +43,10 @@ static opxy::u16 project[2] = {1230, 0xffff};
 static bool project_present = true;
 static opxy::u32 audio_tempo = 0x42f00000u; // Cached audio tempo: 120 BPM.
 static const volatile opxy::u16* project_data() { return project_present ? project : nullptr; }
-static unsigned assignment_engine(unsigned track) { check(track == 0); return 46; }
+static unsigned assignment_engine(unsigned track) { check(track == 0); return kProbe; }
 opxy::platform::Address opxy::platform::host_stock_address(Address address) {
-    if (address == 0x8d5827b0) return reinterpret_cast<Address>(&project_data);
-    if (address == 0x8d585eb4) return reinterpret_cast<Address>(&assignment_engine);
+    if (address == 0x8d584210) return reinterpret_cast<Address>(&project_data);
+    if (address == 0x8d58781c) return reinterpret_cast<Address>(&assignment_engine);
     if (address == kAudioBpm) return reinterpret_cast<Address>(&audio_tempo);
     std::abort();
 }
@@ -60,12 +69,15 @@ int main() {
     check(assigned.bpm_x10 == 0 && assigned.recorded && !assigned.replacing);
     project_present = true;
     const opxy::SampleAssignment replacement{"095_loop.wav", 12, 1234, 48000, 1200, true, 0xabcd, false};
-    check(sdk_sample_machine(46)->assign(&replacement) == 1234 && assigned.replacing &&
+    check(sdk_sample_machine(kProbe)->assign(&replacement) == 1234 && assigned.replacing &&
           assigned.previous == 0xabcd && assigned.filename == replacement.filename &&
           assigned.filename_bytes == 12 && assigned.rate == 48000 && !assigned.recorded);
-    check(sdk_sample_machine(46)->defaults() == 77);
+    check(sdk_sample_machine(kProbe)->defaults() == 77);
     // The probe's drum page skips stock's nearest-region test; other engines stay stock's.
-    check(sdk_sample_note_route(46) == 2 && sdk_sample_note_route(18) == 0);
+    check(sdk_sample_note_route(kProbe) == 2 && sdk_sample_note_route(18) == 0);
+    // The page-2 engine takes the sampler's payload and route; the drum page the multisampler's.
+    check(sdk_sample_note_route(kSampler) == 3 && sdk_sample_alias(kSampler) == 2);
+    check(sdk_sample_alias(kProbe) == 30 && sdk_sample_alias(18) == 18);
     unsigned raw[8] = {1000, 0, 1000, 0, 1000, 0, 60, 0};
     auto* bytes = reinterpret_cast<unsigned char*>(raw);
     // An unassigned, zero-initialized pad has neutral tuning. Painting must
@@ -77,7 +89,7 @@ int main() {
     check(empty_panel && empty_panel->pitch_cents == 0);
     check(reinterpret_cast<unsigned char*>(shadow)[24] == 60);
     check(std::memcmp(empty, original_empty, sizeof(empty)) == 0);
-    check(sdk_sample_edit(empty, 0, 1, 46) == 1);
+    check(sdk_sample_edit(empty, 0, 1, kProbe) == 1);
     empty_panel = sdk_sample_drum_view(empty, shadow, nullptr);
     check(empty_panel && empty_panel->pitch_cents == 10);
     // A root saved by another engine shows the octave the voice plays, not +24.
@@ -101,11 +113,11 @@ int main() {
         if ((index & 15) == 0 || (index & 15) == 8) continue; // SDK-owned pad pitch/reset.
         raw[5] = opxy::platform::sample_store_settings(123);
         unsigned before[8]; std::memcpy(before, raw, sizeof(raw));
-        check(sdk_sample_edit(raw, index, -4, 46) == 1);
+        check(sdk_sample_edit(raw, index, -4, kProbe) == 1);
         check(opxy::platform::sample_settings(raw[5]).value == 124);
         // A pad without saved settings starts from the machine's defaults.
         raw[5] = 0;
-        check(sdk_sample_edit(raw, index, -4, 46) == 1 && opxy::platform::sample_settings(raw[5]).value == 78);
+        check(sdk_sample_edit(raw, index, -4, kProbe) == 1 && opxy::platform::sample_settings(raw[5]).value == 78);
         raw[5] = opxy::platform::sample_store_settings(124);
         check(received.knob == (index & 3) && received.shifted == bool(index & 4) &&
               received.pressed == bool(index & 8) && received.held == bool(index & 16) && received.direction == -4);
@@ -118,21 +130,21 @@ int main() {
         opxy::platform::sample_gui_pitch(raw, 0);
         for (int step = 1; step <= 140; ++step) {
             unsigned before[8]; std::memcpy(before, raw, sizeof(raw));
-            check(sdk_sample_edit(raw, 0, direction * 7, 46) == 1);
+            check(sdk_sample_edit(raw, 0, direction * 7, kProbe) == 1);
             check(opxy::platform::sample_gui_region(raw).pitch_cents == direction * (step > 120 ? 1200 : step * 10));
             auto* old_bytes = reinterpret_cast<unsigned char*>(before);
             old_bytes[24] = bytes[24]; old_bytes[28] = bytes[28];
             check(std::memcmp(before, raw, sizeof(raw)) == 0 && edits == pitch_edits);
         }
-        check(sdk_sample_edit(raw, 8, 0, 46) == 1);
+        check(sdk_sample_edit(raw, 8, 0, kProbe) == 1);
         check(opxy::platform::sample_gui_region(raw).pitch_cents == 0);
     }
     // Active-track edits remain valid when the renderer still caches a stock
     // track. Conversely its cached custom track cannot authorize a stock edit.
     selected = 3;
-    check(sdk_sample_edit(raw, 0, 1, 46) == 1);
+    check(sdk_sample_edit(raw, 0, 1, kProbe) == 1);
     opxy::platform::sample_gui_pitch(raw, 310);
-    selected = 46;
+    selected = kProbe;
     const unsigned saved = raw[5], count = edits;
     check(sdk_sample_edit(raw, 0, 1, 3) == 0 && raw[5] == saved && edits == count);
     for (unsigned value = 0; value <= 2400; value += 37) {
@@ -151,11 +163,11 @@ int main() {
         check(std::memcmp(raw, original, sizeof(raw)) == 0);
     }
     for (unsigned pass = 0; pass < 2; ++pass) {
-        selected = pass ? 3 : 46; owned = pass != 0;
+        selected = pass ? 3 : kProbe; owned = pass != 0;
         const unsigned before = raw[5], count = edits;
         check(sdk_sample_edit(raw, 0, 1, selected) == 0 && raw[5] == before && edits == count);
     }
-    check(!sdk_sample_edit(nullptr, 0, 1, 46));
-    selected = 46; owned = true;
-    check(!sdk_sample_edit(raw, 32, 1, 46));
+    check(!sdk_sample_edit(nullptr, 0, 1, kProbe));
+    selected = kProbe; owned = true;
+    check(!sdk_sample_edit(raw, 32, 1, kProbe));
 }

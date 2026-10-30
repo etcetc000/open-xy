@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "sdk": "1.1",
+  "kind": "synth",
+  "description": "Test fixture: a small drawing synth with its own panel.",
+  "identity": {
+    "engine": 44,
+    "page": 92
+  }
+}

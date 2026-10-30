@@ -1,8 +1,0 @@
-#pragma once
-#include <opxy/draw.hpp>
-
-namespace @ID@ {
-// Matches resources.display in definition.json: paths, points, nodes, palette.
-using Frame = opxy::draw::Frame<2, 64, 2, 16>;
-struct DisplayState { opxy::u32 phase; };
-}

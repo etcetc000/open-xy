@@ -1,0 +1,41 @@
+#include "core.h"
+#include <opxy/q31.hpp>
+
+namespace @ID@ {
+// Callbacks run serially per voice; owner is a stable nonzero voice ID.
+inline void initialize(Voice& voice, Shared&, opxy::u32) { voice.phase = 0; voice.filtered = 0; }
+inline void start(Voice& voice, Shared&, opxy::u32) { voice.phase = 0; voice.filtered = 0; }
+inline void destroy(Voice&, Shared&, opxy::u32) {}
+
+// Learning oscillator: triangle/pulse blend. Add band-limiting and sound tests
+// before treating a modified oscillator as a production instrument.
+inline void render(Voice& voice, Shared&, opxy::u32, opxy::Output output,
+                   opxy::Parameters parameters, opxy::Pitch pitch) {
+    const opxy::i32 half = 0x40000000;  // 0.5 in Q31: half-scale output
+    const opxy::i32 blend = parameters[0];
+    // Width 0..1 sets the pulse's duty cycle from 25% to 75% of the 32-bit phase.
+    const opxy::u32 width = 0x40000000u + static_cast<opxy::u32>(parameters[1]);
+    for (unsigned i = 0; i < opxy::block_frames; ++i) {
+        opxy::u32 folded = voice.phase & 0x7fffffffu;
+        if (voice.phase & 0x80000000u) folded = 0x7fffffffu - folded;
+        const opxy::i32 triangle = static_cast<opxy::i32>(folded) - half;
+        const opxy::i32 pulse = voice.phase < width ? half : -half;
+        const opxy::i32 mixed = opxy::q31::multiply(triangle, 0x7fffffff - blend)
+                             + opxy::q31::multiply(pulse, blend);
+        // Page 2 is four simple teaching processors, all bypassed at zero.
+        // Keep the signal in Q15 and within half scale throughout the chain.
+        opxy::i32 sample = mixed >> 16;
+        const opxy::i32 gain = @CONTROLS@ > 4 ? 1 + (parameters[4] >> 28) : 1;  // Drive: 1..8
+        sample *= gain;
+        sample = sample < -16384 ? -16384 : sample > 16384 ? 16384 : sample;
+        const unsigned bits = @CONTROLS@ > 5 ? static_cast<unsigned>(parameters[5] >> 16) * 10 >> 15 : 0;
+        sample = (sample >> bits) * (1 << bits);  // Crush: discard up to 9 low bits
+        const opxy::i32 positive = sample < 0 ? -sample : sample;
+        if (@CONTROLS@ > 6) sample += ((positive - sample) * (parameters[6] >> 16)) >> 15;
+        const opxy::i32 smoothing = @CONTROLS@ > 7 ? (parameters[7] >> 16) * 31 >> 5 : 0;
+        voice.filtered = sample + (((voice.filtered - sample) * smoothing) >> 15);
+        output[i] = opxy::q31::multiply(voice.filtered * 65536, parameters[2]);
+        voice.phase += pitch[i];
+    }
+}
+}

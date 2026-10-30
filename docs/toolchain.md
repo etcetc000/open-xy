@@ -34,6 +34,15 @@ The `0002` patch only lets the compiler itself build on a Windows host.
 with the host fixes in `tools/gcc/patches/macos`: the bundled zlib on current
 SDKs, Apple silicon host hooks, and a disassembler sign extension that assumed
 a 32-bit `long`.
+[`tools/gcc/build-linux.sh`](../tools/gcc/build-linux.sh) builds both on Linux
+x86_64 inside the container defined by
+[`tools/gcc/linux.Dockerfile`](../tools/gcc/linux.Dockerfile), a Debian
+bookworm image whose packages come from one snapshot.debian.org date. It
+applies `0001` and the macOS disassembler fix, which every 64-bit host needs,
+and links gmp, mpfr, mpc and the C++ runtime statically, so the tools need
+only glibc 2.36 or later. The container fixes the source and install paths, so
+a rebuild reproduces the pinned files wherever the checkouts live
+([build steps](build.md#on-linux)).
 
 ## Hosts
 
@@ -41,10 +50,11 @@ a 32-bit `long`.
 | --- | --- | --- |
 | `windows-x86_64` (release) | `build-gcc.sh` | Reference module bytes |
 | `darwin-arm64` | `build-macos.sh` | Valid module; not byte-identical to the reference |
+| `linux-x86_64` | `build-linux.sh` | Valid module; not byte-identical to the reference |
 
 GCC 8 sorts with the host C library's `qsort`, which orders equal elements
 differently on each host, so some units get a different but equally valid
-instruction order. The binutils produce identical bytes on both hosts.
+instruction order. The binutils produce identical bytes on Windows and macOS.
 Published browser kits therefore come only from the release host named in
 [`profiles/toolchains.json`](../profiles/toolchains.json); `sdk.py kit` refuses
 on any other host.
@@ -53,7 +63,8 @@ Every tool file is hash-checked before it runs. Source and install paths are
 compiled into the tools, so a rebuild matches its pins only at the same paths.
 A host's `build` record in `profiles/toolchains.json`, where present, names the
 script, source and output paths and host tools its pins were built with; `build-macos.sh`
-refuses other Homebrew versions. A rebuilt tool gets a new reviewed entry and
+refuses other Homebrew versions and `build-linux.sh` other Debian package
+versions. A rebuilt tool gets a new reviewed entry and
 a new `TOOLCHAINS_SHA256`; never relax a hash to admit it.
 
 ## Release downloads
@@ -63,9 +74,10 @@ hash and every pinned file, and installs it in `local/toolchain`. Native
 commands use that folder when `--toolchain` and `--compiler` are omitted.
 `--archive <zip>` installs an archive downloaded by hand. The archive URL and
 hash are part of the host's reviewed pins (`download` in
-`profiles/toolchains.json`).
+`profiles/toolchains.json`). `linux-x86_64` has no release archive yet: build
+its tools into `local/toolchain` ([on Linux](build.md#on-linux)).
 
-Each pinned host's tools are published as assets of this repository's
+Each downloadable host's tools are published as assets of this repository's
 `toolchain-1` GitHub release:
 
 | Asset | Contents |

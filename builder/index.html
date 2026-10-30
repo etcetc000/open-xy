@@ -10,12 +10,14 @@
 <body>
 <main>
   <aside class="sidebar">
-  <header class="masthead"><div class="brand">open-xy <span>OS builder</span></div></header>
+  <header class="masthead"><div class="brand">open-xy <span>OS builder</span><span id="builder-version" class="brand-version"></span></div></header>
   <nav class="steps" id="phase-nav" hidden aria-label="Build progress">
     <button data-step="1" aria-current="step"><span class="nav-icon" data-icon="firmware"></span><span><b>01</b>OS</span></button>
     <button data-step="2" disabled><span class="nav-icon" data-icon="machines"></span><span><b>02</b>Machines</span></button>
-    <button data-step="3" disabled><span class="nav-icon" data-icon="install"></span><span><b>03</b>Install</span></button>
+    <button data-step="3" disabled><span class="nav-icon" data-icon="controls"></span><span><b>03</b>Extensions</span></button>
+    <button data-step="4" disabled><span class="nav-icon" data-icon="install"></span><span><b>04</b>Install</span></button>
   </nav>
+  <a class="source-link" href="https://github.com/etcetc000/open-xy" target="_blank" rel="noopener noreferrer">Source</a>
   </aside>
   <div class="main-stage">
   <section id="browser-gate" class="panel browser-notice" aria-labelledby="browser-notice-title">
@@ -41,12 +43,29 @@
   <div id="builder-workspace" hidden inert>
   <p id="status" role="status" aria-live="polite">Loading machines…</p>
   <section data-page="1" class="input-page" aria-labelledby="input-title">
-    <div class="page-header"><div><span class="eyebrow">Step 1 of 3 · OS</span><h1 id="input-title" class="sr-only" tabindex="-1">Choose OS</h1></div></div>
+    <div class="page-header"><div><span class="eyebrow">Step 1 of 4 · OS</span><h1 id="input-title" class="sr-only" tabindex="-1">Choose OS</h1></div></div>
     <!-- Step 1 screens share the guide's layout: the OP–XY on the left, the step on the right. -->
-    <section id="computer-choice" class="panel flow-shell step-screen" aria-labelledby="computer-title">
+    <!-- The OS version comes first: an open-xy OS made from an older OS is not 1.2.1. -->
+    <section id="os-version" class="panel flow-shell step-screen" aria-labelledby="os-version-title">
+      <div class="flow-body"><div class="flow-visual" data-device-art></div><div class="flow-copy">
+        <h2 id="os-version-title" tabindex="-1">Is your OP–XY on OS 1.2.1?</h2>
+        <p>open-xy builds only from teenage engineering’s OS 1.2.1. An open-xy OS made from an older OS does not count: if your OP–XY shows OPEN at startup, it must end in 1.2.1.</p>
+        <div class="flow-actions"><button id="os-version-yes" class="primary">Yes, it’s on 1.2.1</button><button id="os-version-no" class="secondary">No, or I’m not sure</button></div>
+      </div></div>
+    </section>
+    <section id="os-update" class="panel flow-shell step-screen" aria-labelledby="os-update-title" hidden>
+      <div class="flow-body"><div class="flow-visual" data-device-art></div><div class="flow-copy">
+        <h2 id="os-update-title" tabindex="-1">Install OS 1.2.1 first.</h2>
+        <p>Install it with teenage engineering’s updater, as for any OS update. It keeps your projects and replaces an open-xy OS.</p>
+        <p><a href="https://teenage.engineering/_software/op-xy/opxy_firmware_1_2_1.tfw" target="_blank" rel="noopener noreferrer">Download official OS 1.2.1 (.tfw)</a> · <a href="https://teenage.engineering/guides/op-xy/te-boot" target="_blank" rel="noopener noreferrer">Official installation guide</a></p>
+        <div class="flow-actions"><button id="os-update-done" class="primary">It’s on 1.2.1 now</button></div>
+        <div class="flow-navigation"><button id="os-update-back" class="text-button">← Back</button></div>
+      </div></div>
+    </section>
+    <section id="computer-choice" class="panel flow-shell step-screen" aria-labelledby="computer-title" hidden>
       <div class="flow-body"><div class="flow-visual" data-device-art></div><div class="flow-copy">
         <h2 id="computer-title" tabindex="-1">Which computer are you using?</h2>
-        <p>open-xy supports only OP–XY OS 1.2.0. Update your OP–XY to 1.2.0 before you start, then choose your computer so we can show the right file transfer steps.</p>
+        <p>Choose your computer so we can show the right file transfer steps.</p>
         <div class="flow-actions"><button id="source-mac" class="primary">Mac</button><button id="source-windows" class="secondary">Windows</button></div>
       </div></div>
     </section>
@@ -63,37 +82,48 @@
     <div class="flow-body"><div class="flow-visual" data-device-art></div><div class="flow-copy file-panel">
     <h2 id="files-title" tabindex="-1">Choose your OS file.</h2>
     <label class="drop" id="firmware-drop"><span class="file-icon" data-icon="firmware" aria-hidden="true"></span><strong>Choose OS</strong><span>or drop os.ldr here</span><input id="firmware" type="file" accept=".ldr" aria-label="Choose OS"></label>
-    <p id="firmware-result" class="file-result" role="status" aria-live="polite">OP–XY OS 1.2.0 · original or open-xy</p>
+    <p id="firmware-result" class="file-result" role="status" aria-live="polite">OP–XY OS 1.2.1 · original or open-xy</p>
     <button id="firmware-replace" class="file-button" hidden>Choose a different OS file</button>
     <a id="source-backup" class="file-button" download="os.ldr" hidden>Save a backup of the original OS</a>
     <p id="files-note" class="os-note"><strong>This is not the .tfw update file teenage engineering hosts on its site.</strong> It is the OS file, os.ldr, that your OP–XY keeps on itself. Copy it from your device.</p>
-    <details><summary>Load a saved selection</summary><input id="restore" type="file" accept=".json" aria-label="Load a saved selection"></details>
+    <details><summary>Load your layout.json</summary><input id="restore" type="file" accept=".json" aria-label="Load your layout.json: your machines keep their numbers"></details>
     </div></div>
     </section>
     <div id="file-actions" class="actions flow-shell" hidden><button id="files-back" class="secondary">← Back</button><button id="choose" class="primary" disabled>Choose machines <span aria-hidden="true">→</span></button></div>
   </section>
   <section data-page="2" hidden aria-labelledby="machines-title">
-    <div class="page-header"><div><span class="eyebrow">Step 2 of 3 · Choose machines</span><h1 id="machines-title" tabindex="-1">Choose machines</h1><p>Select the instruments and effects to install.</p></div><span id="selection-count" class="counter">0 selected</span></div>
+    <div class="page-header"><div><span class="eyebrow">Step 2 of 4 · Choose machines</span><h1 id="machines-title" tabindex="-1">Choose machines</h1><p>Select the instruments and effects to install.</p></div><span id="selection-count" class="counter">0 selected</span></div>
     <div class="workspace">
-      <div><div class="filters" role="group" aria-label="Filter machines"><button data-filter="all" aria-pressed="true">All</button><button data-filter="synth" aria-pressed="false">Synths</button><button data-filter="effect" aria-pressed="false">Effects</button><button data-filter="sample" aria-pressed="false">Samplers</button><button data-filter="player" aria-pressed="false">Players</button></div><div id="machines" class="machine-list"></div><section class="capacity" aria-label="Memory"><div class="capacity-heading"><h2>Memory usage</h2><strong id="room-value">Choose a machine</strong></div><div id="memory-map" class="memory-map" role="img" aria-label="Memory used by each machine"></div><div id="memory-legend" class="memory-legend"></div><details class="memory-more"><summary>Memory details</summary><div class="capacity-foot"><span>2040 KiB for machines; CPU load is not measured</span></div><dl id="capacity-details" class="machine-facts"></dl></details></section></div>
-      <aside class="inspector" aria-label="Machine details"><div class="inspector-top"><span id="detail-kind" class="eyebrow">Synth</span><span class="tag">Experimental</span></div><h2 id="detail-name"></h2><p id="detail-description"></p><div id="art-preview" class="art-preview"></div><p id="art-caption" class="caption"></p><div id="controls" class="controls"></div><div id="audition-controls" class="audition-controls" aria-label="Sound preview"></div><details><summary>Machine details</summary><dl class="machine-facts" id="machine-facts"></dl></details></aside>
+      <div><div class="filters" role="group" aria-label="Filter machines"><button data-filter="all" aria-pressed="true">All</button><button data-filter="synth" aria-pressed="false">Synths</button><button data-filter="effect" aria-pressed="false">Effects</button><button data-filter="sample" aria-pressed="false">Samplers</button><button data-filter="player" aria-pressed="false">Players</button></div><div id="machines" class="machine-list"></div><div id="machine-capacity-host"><section id="selection-capacity" class="capacity" aria-label="Memory"><div class="capacity-heading"><h2>Memory usage</h2><strong id="room-value">Choose a machine</strong></div><div class="memory-bar" tabindex="0" aria-describedby="memory-breakdown"><div id="memory-map" class="memory-map" role="img" aria-label="Memory used by each machine"></div><div id="memory-breakdown" class="memory-breakdown" role="tooltip"><div id="memory-legend" class="memory-legend"></div><dl id="capacity-details" class="machine-facts"></dl><p id="capacity-foot" class="capacity-foot">CPU load is not measured</p></div></div></section></div></div>
+      <aside class="inspector" aria-label="Machine details"><div class="summary-space"><div id="machine-summary"><div class="inspector-top"><span id="detail-kind" class="eyebrow detail-kind">Synth</span><span class="tag">Experimental</span></div><h2 id="detail-name" class="detail-name"></h2><p id="detail-description" class="detail-description"></p><p id="detail-source" class="detail-source"></p><p id="community-notice" class="community-notice" hidden>Community machines aren’t officially supported by the Open-XY SDK. Use at your own risk; instability or unexpected audio may occur.</p></div></div><div class="preview-space"><div id="art-preview" class="art-preview"></div></div><p id="art-caption" class="caption"></p><div id="controls" class="controls"></div><div id="audition-controls" class="audition-controls" aria-label="Sound preview"></div><details><summary>Machine details</summary><dl class="machine-facts" id="machine-facts"></dl></details></aside>
     </div>
 
-    <div class="actions"><button data-step="1" class="secondary">← OS</button><button id="build" class="primary" disabled>Install firmware <span aria-hidden="true">→</span></button></div>
+    <div class="actions"><button data-step="1" class="secondary">← OS</button><button id="choose-extensions" class="primary" disabled>Choose extensions <span aria-hidden="true">→</span></button></div>
   </section>
-  <section data-page="3" class="download-page" hidden aria-labelledby="download-title">
-    <div class="page-header"><div><span class="eyebrow">Step 3 of 3 · Install</span><h1 id="download-title" tabindex="-1">Install</h1><p id="download-summary"></p></div></div>
+  <section data-page="3" hidden aria-labelledby="extensions-title">
+    <div class="page-header"><div><span class="eyebrow">Step 3 of 4 · Extensions</span><h1 id="extensions-title" tabindex="-1">Choose extensions</h1><p>Add optional features to how your OP–XY works. Leave them off to keep your current workflow.</p></div><span id="extension-count" class="counter">None selected</span></div>
+    <div class="workspace extension-workspace">
+      <div><div id="extensions" class="machine-list"></div><p id="extensions-empty" hidden>No extensions are available in this collection. Continue with your selected machines.</p><div id="extension-capacity-host"></div></div>
+      <aside class="inspector extension-inspector" aria-label="Extension details">
+        <div id="extension-details"><div class="inspector-top"><span class="eyebrow">Extension</span><span class="tag">Experimental</span></div><h2 id="extension-name"></h2><p id="extension-description" class="detail-description"></p><p id="extension-note" class="extension-note"></p></div>
+        <section class="selection-summary" aria-label="Your firmware"><h3>Your firmware</h3><dl id="build-selection" class="machine-facts"></dl><p id="extension-memory" class="caption" role="status"></p></section>
+      </aside>
+    </div>
+    <div class="actions"><button data-step="2" class="secondary">← Machines</button><button id="build" class="primary" disabled>Build firmware <span aria-hidden="true">→</span></button></div>
+  </section>
+  <section data-page="4" class="download-page" hidden aria-labelledby="download-title">
+    <div class="page-header"><div><span class="eyebrow">Step 4 of 4 · Install</span><h1 id="download-title" tabindex="-1">Install</h1><p id="download-summary"></p></div></div>
     <div id="download-overview" class="download-overview flow-shell">
-    <div class="download-card"><div id="bundle-art"></div><h2>Ready to install</h2>
+    <div class="download-card"><div id="bundle-art" tabindex="0" role="region" aria-label="Build ZIP contents"></div><h2>Ready to install</h2>
       <div id="route-choice" class="route-choice"><p id="route-title">Which computer will you install from?</p><div class="route-options">
         <button type="button" id="route-mac" class="route-option"><strong>Mac <span aria-hidden="true">→</span></strong><span id="route-mac-note"></span></button>
         <a id="download" class="route-option" download="open-xy.zip"><strong>Windows <span aria-hidden="true">↓</span></strong><span>Downloads the ZIP. Copy it with File Explorer.</span></a>
       </div><button id="route-change" class="text-button" hidden>Change computer</button></div></div>
     <p class="qualification">Checks passed. This combination hasn’t been tested on a device, so CPU load and recovery aren’t guaranteed.</p>
-    <details><summary>What was checked</summary><ul><li>Your OS file matched OP–XY OS 1.2.0 exactly</li><li>Only the reviewed changes were made, and the machines fit their memory</li><li>The original OS can be rebuilt from the new one</li></ul><p id="output-hash" class="hash"></p></details>
+    <details><summary>What was checked</summary><ul><li>Your OS file matched OP–XY OS 1.2.1 exactly</li><li>Only the reviewed changes were made, and the machines fit their memory</li><li>The original OS can be rebuilt from the new one</li></ul><p id="output-hash" class="hash"></p></details>
     </div>
     <div id="install-flow-host" class="flow-shell"></div>
-    <div id="download-actions" class="actions flow-shell"><button data-step="2" class="secondary">← Change machines</button><button id="save-layout" class="secondary">Save selection</button></div>
+    <div id="download-actions" class="actions flow-shell"><button data-step="3" class="secondary">← Change selection</button><button id="save-layout" class="secondary">Save layout</button></div>
   </section>
   </div>
   <footer>
@@ -115,12 +145,12 @@
   <p id="flow-detail"></p>
   <ol id="flow-instructions" class="instruction-list" hidden></ol>
   <div id="recovery-downloads" hidden>
-    <p><a href="https://teenage.engineering/_software/op-xy/opxy_firmware_1_2_0.tfw" target="_blank" rel="noopener noreferrer">Download official OS 1.2.0 (.tfw)</a> · <a href="https://teenage.engineering/guides/op-xy/te-boot" target="_blank" rel="noopener noreferrer">Official installation guide</a></p>
+    <p><a href="https://teenage.engineering/_software/op-xy/opxy_firmware_1_2_1.tfw" target="_blank" rel="noopener noreferrer">Download official OS 1.2.1 (.tfw)</a> · <a href="https://teenage.engineering/guides/op-xy/te-boot" target="_blank" rel="noopener noreferrer">Official installation guide</a></p>
     <button id="recovery-disable-again" class="secondary">Dev menu still visible · Disable again</button>
   </div>
   <aside id="flow-missing-os" class="install-reminder" aria-labelledby="missing-os-title" hidden>
     <h3 id="missing-os-title">Can't connect to MTP, or can't find os.ldr?</h3>
-    <p>On rare occasions, a factory reset or initialization can leave your OP–XY without the original os.ldr file. Disable the dev menu, reinstall OS 1.2.0 with the dev menu disabled, then try again.</p>
+    <p>On rare occasions, a factory reset or initialization can leave your OP–XY without the original os.ldr file. Disable the dev menu, reinstall OS 1.2.1 with the dev menu disabled, then try again.</p>
     <button id="missing-os-help" class="primary">The OS file is missing · Help me recover it</button>
   </aside>
   <aside id="flow-copy-reminder" class="install-reminder" aria-labelledby="copy-reminder-title" hidden>

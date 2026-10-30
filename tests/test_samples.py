@@ -6,14 +6,15 @@ import unittest
 from dataclasses import replace
 
 from tooling import adapters
-from tooling.machines import check_analysis_budgets, machine
+from tooling.machines import check_analysis_budgets
 from tooling.definitions import validate_definition
 from tooling import firmware
+from machine_fixtures import fixture
 
 
 class Generation(unittest.TestCase):
     def test_optional_services_are_explicit_integer_flags(self):
-        definition = copy.deepcopy(machine('timestretch').definition)
+        definition = copy.deepcopy(fixture('probesample').definition)
         for key in ('sampleAnalysis', 'chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput'):
             for value in (True, -1, 2, '1', None):
                 invalid = copy.deepcopy(definition)
@@ -34,30 +35,33 @@ class Generation(unittest.TestCase):
 
     def test_analysis_budgets_share_one_collection_limit(self):
         def analyzing(name, budget):
-            definition = copy.deepcopy(machine('timestretch').definition)
+            definition = copy.deepcopy(fixture('probesample').definition)
             definition['resources']['sampleAnalysis'] = budget
-            return replace(machine('timestretch'), id=name, definition=definition)
+            return replace(fixture('probesample'), id=name, definition=definition)
         check_analysis_budgets([analyzing('one', 1 << 20), analyzing('two', 1 << 20)])
         with self.assertRaisesRegex(ValueError, 'analysis budgets'):
             check_analysis_budgets([analyzing('one', 1 << 20), analyzing('two', (1 << 20) + 4)])
 
     def test_absolute_calls_reject_invalid_width_opcode_padding_and_alignment(self):
-        for target in (0, 0x8d450d60, 0xfffffffe):
+        for target in (0, 0x8d450380, 0xfffffffe):
             self.assertEqual(firmware.absolute_target(firmware.absolute_call(target)), target)
         for target in (-2, 1, 0x100000000):
             with self.assertRaises(ValueError): firmware.absolute_call(target)
-        valid = firmware.absolute_call(0x8d450d60)
+        valid = firmware.absolute_call(0x8d450380)
         for bad in (valid[:-1], valid + b'\0', b'\1' + valid[1:], valid[:4] + b'\x61' + valid[5:], valid[:-1] + b'\1'):
             with self.assertRaises(ValueError): firmware.absolute_target(bad)
 
-    def test_dispatch_table_is_generated_for_arbitrary_sample_identities(self):
-        first = machine('timestretch')
+    def test_dispatch_table_is_generated_for_any_sample_machines(self):
+        first = fixture('probesample')
         second = replace(first, id='slicer', identity=dict(engine=46, page=2))
         with tempfile.TemporaryDirectory() as directory:
-            text = adapters.generate_sample_callbacks(directory, [first, second, machine('fm2op')]).read_text()
-        self.assertIn('{35, 7, timestretch_ready, ', text)
-        self.assertIn('{46, 2, slicer_ready, ', text)
-        self.assertNotIn('fm2op', text)
+            others = [fixture('probesynth'), fixture('probefx')]
+            text = adapters.generate_sample_callbacks(directory, [first, second, *others]).read_text()
+        # Engine IDs are symbols the linker supplies; each machine keeps its stock page.
+        self.assertIn('{probesample_engine_id, 7, probesample_ready, probesample_sample_defaults, ', text)
+        self.assertIn('{slicer_engine_id, 2, slicer_ready, ', text)
+        self.assertNotIn('probesynth', text)
+        self.assertNotIn('probefx', text)
 
     def test_empty_collection_dispatch_remains_stock(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -65,20 +69,20 @@ class Generation(unittest.TestCase):
         self.assertNotIn('_ready', text)
 
     def test_engine_units_expand_every_placeholder(self):
-        m = replace(machine('timestretch'), identity=dict(engine=46, page=2))
+        m = replace(fixture('probesample'), identity=dict(engine=46, page=2))
         with tempfile.TemporaryDirectory() as directory:
             self.assertNotIn('@', adapters.generate_sample_voice(directory, m).read_text(encoding='utf-8'))
 
     def test_registration_uses_flag_one_and_the_stock_page(self):
         with tempfile.TemporaryDirectory() as directory:
-            text = adapters.generate_registration(directory, machine('timestretch')).read_text(encoding='utf-8')
-        self.assertIn('timestretch_engine_id, timestretch_page_id, 1};', text)
-        self.assertIn('int timestretch_ready() { return sdk_engine_ready(&record, nullptr); }', text)
+            text = adapters.generate_registration(directory, fixture('probesample')).read_text(encoding='utf-8')
+        self.assertIn('probesample_engine_id, probesample_page_id, 1};', text)
+        self.assertIn('int probesample_ready() { return sdk_engine_ready(&record, nullptr); }', text)
         self.assertNotIn('screen', text)
 
     def test_catalog_entry_and_stock_page_startup(self):
-        entry = json.loads(adapters.catalog_entry(machine('timestretch')).strip().lstrip(','))
-        self.assertEqual(entry['type'], 'timestretch')
+        entry = json.loads(adapters.catalog_entry(fixture('probesample')).strip().lstrip(','))
+        self.assertEqual(entry['type'], 'probesample')
 
 
 if __name__ == '__main__':

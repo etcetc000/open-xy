@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "probesample",
+  "name": "Probe Sample",
+  "parameters": [
+    {"id": "pitch", "label": "pitch", "default": 0.5,
+     "mapping": {"kind": "linear", "minimum": -12, "maximum": 12}, "display": "semitones"},
+    {"id": "play", "label": "play", "default": 0,
+     "mapping": {"kind": "enum", "labels": ["loop", "once"]}, "display": "enum"},
+    {"id": "volume", "label": "volume", "default": 1,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"}
+  ],
+  "presets": {},
+  "resources": {
+    "voiceCapacity": 256,
+    "sampleAnalysis": 65536,
+    "chokeSameKey": 1,
+    "padSettings": 1,
+    "drumControls": 1,
+    "stereoOutput": 1
+  }
+}

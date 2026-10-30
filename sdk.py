@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""OP-XY SDK commands. Local builds and checks only; no device operations."""
+"""OP-XY SDK commands: local builds/checks and explicitly requested hardware profiling."""
 import sys
 
 COMMANDS = '''Commands:
+  profile   Hardware machine measurements: python sdk.py profile --help
   check     Contributor checks: python sdk.py check [--help]
-  preview   Browser audition build: python sdk.py preview --engine fm2op --out local/preview-001
-  new       New local machine: python sdk.py new --id mymachine --name "My Machine" --out local/mymachine
+  preview   Browser audition build: python sdk.py preview --machine ../mymachine --out local/preview-001
+  new       Start a machine repository: python sdk.py new --repository [--kind synth|effect] [--controls 4..8] --id mymachine --name "My Machine" --out ../mymachine
+  test      Check machine and extension folders anywhere: python sdk.py test --machine ../mymachine | --extension ../myextension [--firmware]
+  catalog   Published machines and extensions: python sdk.py catalog check | fetch | test [--tags]
+  project   Project companions: python sdk.py project write --layout layout.json song.xy | check song.xy
   compile   Native module only: python sdk.py compile --help
-  build     Native firmware package for the curated collection: python sdk.py build --help
+  build     Native firmware package: python sdk.py build [--machine <folder>] --help
   verify    Rebuild and compare a native package: python sdk.py verify --help
   kit       Browser builder export: python sdk.py kit --help
+  release   Catalog kit and site: python sdk.py release --help
   toolchain Install the pinned Blackfin tools: python sdk.py toolchain fetch
+  device    Copy a build to a connected OP-XY (Windows): python sdk.py device push <build>/candidate | list | pull
   doctor    Check tools: python sdk.py doctor --preview | --toolchain [<dir>]
 Preview server: python tools/serve_harness.py --preview local/preview-001'''
 
@@ -19,8 +25,23 @@ if __name__ == '__main__':
     if command in ('compile', 'build', 'verify'):
         from tooling.native import main
         raise SystemExit(main(argv, command))
+    if command == 'profile':
+        from tools.benchmark import main
+        raise SystemExit(main(argv))
     if command == 'new':
         from tooling.custom_preview import main
+        raise SystemExit(main(argv))
+    if command == 'catalog':
+        from tooling.catalog import main
+        raise SystemExit(main(argv))
+    if command == 'project':
+        from tooling.projects import main
+        raise SystemExit(main(argv))
+    if command == 'test':
+        from tooling.machine_test import main
+        raise SystemExit(main(argv))
+    if command == 'release':
+        from tooling.release import main
         raise SystemExit(main(argv))
     if command == 'kit':
         from tooling.browser_kit import main
@@ -30,6 +51,9 @@ if __name__ == '__main__':
         raise SystemExit(main(argv))
     if command == 'toolchain':
         from tooling.toolchain import main
+        raise SystemExit(main(argv))
+    if command == 'device':
+        from tooling.device import main
         raise SystemExit(main(argv))
     if command == 'check':
         from tooling.checks import main

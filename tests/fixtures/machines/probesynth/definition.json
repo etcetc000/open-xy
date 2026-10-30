@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "probesynth",
+  "name": "Probe Synth",
+  "parameters": [
+    {"id": "shape", "label": "Shape", "default": 0.3333333333333333,
+     "mapping": {"kind": "anchors", "values": [0, 0.25, 0.5, 1]}, "display": "percent"},
+    {"id": "width", "label": "Width", "default": 0.5,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"},
+    {"id": "level", "label": "Level", "default": 0.65,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"},
+    {"id": "motion", "label": "Motion", "default": 0.5,
+     "mapping": {"kind": "exponential", "minimum": 20, "maximum": 4000}, "display": "duration"}
+  ],
+  "presets": {
+    "Triangle": {"shape": 0, "width": 0.5, "level": 0.65, "motion": 0.5},
+    "Pulse": {"shape": 1, "width": 0.5, "level": 0.5, "motion": 0.5}
+  },
+  "resources": {
+    "voiceBytes": 4, "voiceAlignment": 4, "voiceCapacity": 8, "sharedBytes": 0,
+    "outputPeakQ31": 1073741824,
+    "display": {"stateBytes": 4, "stateAlignment": 4, "paths": 2, "points": 64, "nodes": 2, "texts": 0, "palette": 16}
+  }
+}

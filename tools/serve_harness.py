@@ -15,11 +15,10 @@ ALLOWED = {
     '/sdk/browser/engine.mjs': 'sdk/browser/engine.mjs',
     '/sdk/browser/processor.mjs': 'sdk/browser/processor.mjs',
     '/sdk/browser/display.mjs': 'sdk/browser/display.mjs',
-    '/sdk/browser/segments.mjs': 'sdk/browser/segments.mjs',
     '/': 'harness/index.html',
     '/harness/': 'harness/index.html',
     **{f'/harness/{name}': f'harness/{name}' for name in
-       ('index.html', 'style.css', 'app.mjs', 'screen.mjs', 'processor.mjs')},
+       ('index.html', 'style.css', 'theme.mjs', 'knobs.mjs', 'audio-activation.mjs', 'audio-output.mjs', 'app.mjs', 'screen.mjs', 'processor.mjs')},
 }
 MIME = {'.html': 'text/html', '.css': 'text/css', '.mjs': 'text/javascript'}
 

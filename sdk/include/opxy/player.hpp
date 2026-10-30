@@ -50,5 +50,9 @@ struct Display {
     u32 lit;
     char text[32];
     char values[4][8];
+    // Filled by the SDK after display(): emitted notes across all held chords,
+    // including strum timing, voicing and spread. Four words cover MIDI 0..127.
+    u32 played[4];
+    u32 lowest_key;
 };
 }}

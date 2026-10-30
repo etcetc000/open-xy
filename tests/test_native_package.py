@@ -49,7 +49,9 @@ class PackageVerification(unittest.TestCase):
         cls.module = read(cls.package / 'analysis/module.bin')
         cls.report = document(cls.package / 'analysis/compile-report.json')
         cls.elf = read(cls.package / 'analysis/module.elf')
-        cls.patch_profile, cls.machines, _definitions = native.configuration()
+        cls.patch_profile, cls.machines, _definitions = native.configuration(native.package_collection(cls.package))
+        # A collection larger than the module links only what fits (native.linked_machines).
+        cls.linked = native.linked_in(cls.machines, cls.report)
         cls.patch_profile['patches'] = cls.report['patches']
 
     def setUp(self):
@@ -77,6 +79,24 @@ class PackageVerification(unittest.TestCase):
         self.assertTrue(result['fresh_source_rebuild_matches'])
         self.assertFalse(result['hardware_tested'])
 
+    def test_profiling_mode_is_part_of_verified_provenance(self):
+        path = self.copy / 'manifest.json'
+        manifest = document(path)
+        original = manifest['profiling']
+        for value in (not original, None, 0, 1, 'off'):
+            with self.subTest(profiling=value):
+                manifest['profiling'] = value
+                save_json(path, manifest)
+                with self.assertRaises(ValueError):
+                    self.verify()
+
+    def test_profiling_hooks_match_mode_and_stay_in_platform_unit(self):
+        symbols, _undefined = object_symbols(read(self.package / 'analysis/sdk/profiling.o'))
+        for edit in self.report['patches']:
+            if edit.get('profiling') is False:
+                self.assertIn(edit['symbol'], symbols)
+                self.assertEqual(edit['after'] == edit['before'], self.report['profiling'])
+
     def test_service_hooks_live_in_their_units_and_only_their_users_reach_them(self):
         services = native.object_services(self.machines)
         kinds = {m.id: m.kind for m in self.machines}
@@ -98,26 +118,24 @@ class PackageVerification(unittest.TestCase):
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
         _, symbols = elf32(self.elf)
-        entry = {'effect': '_fx_factory', 'player': '_player'}
-        for m in self.machines:
-            self.assertIn(m.prefix + entry.get(m.kind, '_factory'), symbols)
+        for m in self.linked:
+            self.assertIn(m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory'), symbols)
         factories = {name for name in symbols if name.endswith('_factory')}
-        self.assertEqual(factories, {m.prefix + entry.get(m.kind, '_factory')
-                                     for m in self.machines if m.kind != 'player'})
+        self.assertEqual(factories, {m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory')
+                                     for m in self.linked})
         original = json.loads(self.catalog)
         current = json.loads((self.package / 'candidate/content/op1_factory.json').read_bytes())
-        for key, kinds in (('engine_types', ('synth', 'sample')), ('fx_types', ('effect',)), ('seq_types', ('player',))):
-            names = [m.native_name for m in self.machines if m.kind in kinds]
-            self.assertEqual(current[key][:len(original[key])], original[key])
-            self.assertEqual([e['type'] for e in current[key][len(original[key]):]], names)
-        displays = [m.native_name for m in self.machines if m.display != 'stock']
+        names = [m.native_name for m in self.linked if m.kind != 'effect']
+        self.assertEqual(current['engine_types'][:-len(names)], original['engine_types'])
+        self.assertEqual([e['type'] for e in current['engine_types'][-len(names):]], names)
+        displays = [m.native_name for m in self.linked if m.display != 'stock']
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
         self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays})
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',
-                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.machines if m.display != 'stock')]
+                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock')]
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name

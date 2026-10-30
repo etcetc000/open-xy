@@ -1,0 +1,23 @@
+name: Machine proposal
+description: Propose a new engine or effect, or a change to an existing one.
+labels: [area:machine, enhancement]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: [Engine, Effect, Change to an existing machine]
+    validations:
+      required: true
+  - type: textarea
+    id: sound
+    attributes:
+      label: Sound and controls
+      description: What it does and which controls it exposes.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: References, prior art, or whether you plan to build it yourself.

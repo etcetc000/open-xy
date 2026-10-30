@@ -3,19 +3,20 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {PreviewEngine} from '../sdk/browser/engine.mjs';
-import {PreviewDisplay} from '../sdk/browser/display.mjs';
-import {SegmentDisplay} from '../sdk/browser/segments.mjs';
+import {PreviewDisplay, outlineFaults} from '../sdk/browser/display.mjs';
 import {shownControls} from '../sdk/browser/controls.mjs';
 
 const module = await WebAssembly.compile(readFileSync(process.argv[2]));
-const graphics = process.argv[3];
-assert.ok(['drawing', 'segments'].includes(graphics), 'Known display contract required');
 const engine = new PreviewEngine(module, 44100, Array(8).fill(0));
-const display = graphics === 'segments' ? new SegmentDisplay(module) : new PreviewDisplay(module);
+const display = new PreviewDisplay(module);
+// The declared outlines (definition.json resources.display), checked in every frame.
+const [paths, points] = process.argv.slice(3, 5).map(Number);
+const outlines = new Set();
 const memory = engine.api.memory.buffer, displayMemory = display.api.memory.buffer;
 assert.equal(engine.blockFrames, 64);
 assert.equal(engine.parameterCount, 8);
-assert.ok(memory.byteLength <= 1024 * 1024, 'Preview memory limit');
+assert.equal(memory.byteLength, 2 * 1024 * 1024, 'Fixed preview memory allowance');
+assert.equal(displayMemory.byteLength, memory.byteLength, 'Display uses the same allowance');
 assert.throws(() => engine.api.memory.grow(1), RangeError);
 assert.throws(() => display.api.memory.grow(1), RangeError);
 assert.equal(engine.api.opxy_voice_state(engine.voices.length), 0, 'Factory bound');
@@ -39,8 +40,8 @@ for (let corner = 0; corner < 16; ++corner) {
     }
     // Each position shows its own control, then its first alternate slot.
     const input = shownControls(controls, block & 1 ? [4, 5, 6, 7] : [0, 1, 2, 3]);
-    if (graphics === 'segments') display.tick(input);
-    else display.tick(input, 17, corner * 8 + block, 0, false);
+    const frame = display.tick(input, 17, corner * 8 + block, 0, false);
+    for (const fault of outlineFaults(frame, paths || 0, points || 0)) outlines.add(fault);
     assert.equal(engine.api.memory.buffer, memory);
     assert.equal(display.api.memory.buffer, displayMemory);
   }
@@ -51,5 +52,10 @@ for (let corner = 0; corner < 16; ++corner) {
   assert.ok(release.subarray(6000).every(value => value === 0), 'Release ends in silence');
   engine.noteOn(60); engine.render(samples); engine.panic(); engine.render(samples);
   assert.ok(samples.every(value => value === 0), 'Panic clears voices');
+}
+// A warning, not a failure, while published machines still draw such outlines.
+for (const fault of outlines) {
+  console.log(`WARNING: display ${fault}; the OP-XY draws streaks from it. ` +
+              'Draw a line as a thin closed ribbon with distinct points (docs/display.md#artwork).');
 }
 console.log('PASS: preview ABI, fixed memory, controls/pitch ownership, peak bounds, lifecycle and drawing smoke checks.');

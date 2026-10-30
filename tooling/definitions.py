@@ -21,7 +21,7 @@ def identifier(value):
     require(isinstance(value, str) and re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', value), 'Invalid identifier')
 
 
-# The stock firmware's own engine and effect types (stock 1.2.0 catalog).
+# The stock firmware's own engine and effect types (stock 1.2.1 catalog).
 STOCK_TYPES = frozenset({'sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 'hardsync', 'dissolve', 'axis',
                          'wavetable', 'simple', 'midi', 'multisampler',
                          'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi', 'arpeggio', 'hold', 'maestro'})
@@ -64,27 +64,30 @@ RESOURCES = {
     'effect': (),
     'player': (),
 }
-# A synth's own screen: the machine declares its shape within these limits.
-DISPLAY_FIELDS = {
-    'drawing': ('kind', 'stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'palette'),
-    'segments': ('kind', 'characters', 'glow', 'dials', 'textControls'),
-}
-DRAWING_LIMITS = dict(paths=(1, 4), points=(2, 64), nodes=(1, 64), palette=(1, 16))
-SEGMENT_CHARACTERS = (1, 8)
-SEGMENT_GLOW = (0, 3)
-SEGMENT_DIALS = (0, 4)
+# A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
+# declares its frame's budget within these limits.
+DISPLAY_FIELDS = ('stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'texts', 'palette')
+DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 16), palette=(1, 16))
+# More text slots than this need SDK 1.3 (tooling.machines).
+SDK_1_2_TEXTS = 4
 # Analysis storage is allocated from the stock heap at runtime, which also holds
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
 # A sample engine's optional services: integer 0/1 flags and the analysis budget.
 SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput')
 SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS)
-DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum')
+# An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
+# 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
+EFFECT_OPTIONS = ('bufferBytes', 'transport')
+EFFECT_BUFFER_LIMIT = 524288
+DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
 # A synth's first four fill the four-control page; up to four more are alternates
-# (see control_positions). Sample engines and effects use one to eight;
-# a player one to four, the stock Maestro page's encoders.
-CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8), 'player': (1, 4)}
+# (see control_positions). Sample engines and effects use one to eight; an
+# effect's after the first four are alternates on the send page.
+CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8), 'player': (4, 4)}
+# Stock voice indices: a voice object for each, 0..255.
+STOCK_VOICES = 256
 SYNTH_POSITIONS = 4
 
 
@@ -92,23 +95,37 @@ def control_positions(definition):
     """The synth page position (encoder) that edits each parameter, in parameter order.
 
     The first four parameters are the positions' own; each later one names the
-    position it alternates on with `control`. Pressing an encoder cycles its
-    position through its own parameter, then its alternates in parameter order.
+    position it alternates on with `control`, which an effect may leave out to
+    alternate on position i - 4. Pressing an encoder cycles its position through
+    its own parameter, then its alternates in parameter order.
     """
-    return [parameter.get('control', i) for i, parameter in enumerate(definition['parameters'])]
+    return [parameter.get('control', i % SYNTH_POSITIONS) for i, parameter in enumerate(definition['parameters'])]
+
+
+def paged(definition):
+    """Whether a press switches the synth's whole page (`"press": "page"`, SDK 1.3)."""
+    return definition.get('press') == 'page'
 
 
 def validate_definition(value, kind):
-    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources'), 'definition')
+    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *(('press',) if 'press' in value else ())),
+         'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
-    optional = tuple(k for k in SAMPLE_OPTIONS if kind == 'sample' and isinstance(resources, dict) and k in resources)
+    options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else ()
+    optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k != 'display'),
             'Numeric resource requirements must be integers')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
+    # Stock creates a voice object for every index 0..255 and never checks for a
+    # missing one. Synth voices are shared out to notes as they start (voice.cpp.in);
+    # a sample engine's voice is bound to its sample when created, so it needs all 256.
+    if kind == 'sample':
+        require(resources['voiceCapacity'] == STOCK_VOICES,
+                'A sample engine needs voiceCapacity 256: stock creates a voice for every one of its 256 indices')
     if kind == 'sample':
         heap = resources.get('sampleAnalysis', 0)
         require(type(heap) is int and (heap == 0 or (4096 <= heap <= ANALYSIS_HEAP_LIMIT and heap % 4 == 0)),
@@ -117,6 +134,13 @@ def validate_definition(value, kind):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
         require(resources.get('padSettings', 0) or not resources.get('drumControls', 0),
                 'drumControls edits pad settings: it needs padSettings')
+    if kind == 'effect' and 'bufferBytes' in resources:
+        size = resources['bufferBytes']
+        require(4 <= size <= EFFECT_BUFFER_LIMIT and size % 4 == 0,
+                'bufferBytes is whole words, at most %d: the per-send scratch memory stock gives an effect'
+                % EFFECT_BUFFER_LIMIT)
+    if kind == 'effect':
+        require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
     if kind == 'synth':
         validate_synth_resources(resources)
     parameters = value['parameters']
@@ -125,10 +149,16 @@ def validate_definition(value, kind):
             f'Control count outside {low}..{high} for this kind')
     names = set()
     for i, parameter in enumerate(parameters):
-        alternate = kind == 'synth' and i >= SYNTH_POSITIONS
-        validate_parameter(parameter, alternate)
+        alternate = kind in ('synth', 'effect') and i >= SYNTH_POSITIONS
+        validate_parameter(parameter, alternate, required=kind == 'synth')
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
+    # Two pages share positions with no alternate; no duplicate saved parameters.
+    if 'press' in value:
+        alternates = control_positions(value)[SYNTH_POSITIONS:]
+        require(kind == 'synth' and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+                len(set(alternates)) == len(alternates),
+                '"press": "page" needs five to eight synth parameters and at most one alternate per position')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():
         label(name); keys(preset, names, 'preset')
@@ -149,39 +179,34 @@ def validate_synth_resources(resources):
 
 
 def validate_display(display):
-    require(isinstance(display, dict) and isinstance(display.get('kind'), str) and display['kind'] in DISPLAY_FIELDS,
-            'Unknown display kind')
-    keys(display, DISPLAY_FIELDS[display['kind']], 'display')
-    if display['kind'] == 'drawing':
-        for name, (low, high) in DRAWING_LIMITS.items():
-            require(type(display[name]) is int and low <= display[name] <= high,
-                    'Drawing %s must be %d..%d' % (name, low, high))
-        require(display['paths'] <= display['nodes'], 'Each path is also a node')
-        require(type(display['stateBytes']) is int and type(display['stateAlignment']) is int and
-                4 <= display['stateBytes'] and display['stateAlignment'] in (4, 8, 16) and
-                display['stateBytes'] % display['stateAlignment'] == 0,
-                'Display state must occupy aligned whole words')
-    else:
-        low, high = SEGMENT_CHARACTERS
-        require(type(display['characters']) is int and low <= display['characters'] <= high,
-                'Segment displays have %d..%d characters' % (low, high))
-        for name, (low, high) in (('glow', SEGMENT_GLOW), ('dials', SEGMENT_DIALS)):
-            require(type(display[name]) is int and low <= display[name] <= high,
-                    'Segment display %s must be %d..%d' % (name, low, high))
-        controls = display['textControls']
-        require(isinstance(controls, list) and all(type(c) is int and 0 <= c < 4 for c in controls) and
-                controls == sorted(set(controls)), 'textControls lists distinct control indices 0..3 in order')
+    require(not (isinstance(display, dict) and 'kind' in display),
+            'This display uses a contract from before SDK 1.0: see docs/display.md#migrating-from-before-sdk-10')
+    keys(display, DISPLAY_FIELDS, 'display')
+    for name, (low, high) in DISPLAY_LIMITS.items():
+        require(type(display[name]) is int and low <= display[name] <= high,
+                'Display %s must be %d..%d' % (name, low, high))
+    require((display['points'] >= 2) == (display['paths'] > 0),
+            'Paths have 2..64 points; a display without paths declares 0 points')
+    require(display['paths'] <= display['nodes'], 'Each path is also a node')
+    require(type(display['stateBytes']) is int and type(display['stateAlignment']) is int and
+            4 <= display['stateBytes'] and display['stateAlignment'] in (4, 8, 16) and
+            display['stateBytes'] % display['stateAlignment'] == 0,
+            'Display state must occupy aligned whole words')
 
 
-def validate_parameter(parameter, alternate=False):
-    # A synth's parameters after the first four are alternates of one control position.
-    keys(parameter, ('id', 'label', 'default', 'mapping', 'display', *(('control',) if alternate else ())), 'parameter')
-    if alternate:
+def validate_parameter(parameter, alternate=False, required=True):
+    # A synth's or effect's parameters after the first four are alternates of one
+    # control position, which a synth's must name.
+    named = alternate and (required or 'control' in parameter)
+    keys(parameter, ('id', 'label', 'default', 'mapping', 'display', *(('control',) if named else ())), 'parameter')
+    if named:
         require(type(parameter['control']) is int and 0 <= parameter['control'] < SYNTH_POSITIONS,
                 'An alternate parameter names its control position 0..3')
     identifier(parameter['id']); control_label(parameter['label'])
     number(parameter['default'], 0, 1, 'normalized default')
     require(parameter['display'] in DISPLAY_FORMATS, 'Unsupported display format')
+    require(parameter['display'] != 'division' or parameter['mapping'] == {'kind': 'linear', 'minimum': 0, 'maximum': 1},
+            'A division control maps linearly from 0 to 1')
     mapping = parameter['mapping']
     require(isinstance(mapping, dict), 'Invalid mapping')
     kind = mapping.get('kind')

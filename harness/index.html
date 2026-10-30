@@ -1,26 +1,25 @@
 <!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Machine workbench</title><link rel="stylesheet" href="/harness/style.css"></head>
+<html lang="en" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Open-XY Machine Workbench</title><script src="/harness/theme.mjs"></script><link rel="stylesheet" href="/harness/style.css"></head>
 <body>
-<header><a class="wordmark" href="/">OP–XY <span>WORKBENCH</span></a><span class="badge">CURATED PREVIEW</span></header>
+<header><a class="wordmark" href="/">Open-XY Machine Workbench</a><label class="theme-selector" for="theme">Theme <select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label></header>
 <main>
-  <section class="intro"><div><p class="eyebrow">MACHINE WORKBENCH</p><h1>Machine</h1></div><p class="lede">Shape a sound, play it, refine the screen.</p></section>
   <div class="workspace">
     <section class="instrument" aria-label="Instrument">
-      <div class="instrument-top"><h2>Machine <span>/ 01</span></h2><button id="audio" class="primary">Enable audio</button></div>
+      <div class="instrument-top"><div class="instrument-heading"><h1>Machine</h1><p class="lede" id="machine-description">Shape a sound, play it, refine the screen.</p></div><button id="audio" class="audio-toggle" type="button" aria-label="Mute audio" data-muted="false">Mute</button></div>
       <div class="screen-toolbar"><div class="segmented" aria-label="Screen view"><button id="routing" aria-pressed="true">Routing</button><button id="waveform" aria-pressed="false">Waveform</button></div><label class="zoom-label">Preview <select id="zoom"><option value="fit">Fit</option><option value="native">1× pixels</option></select></label></div>
       <div class="screen-frame" id="frame"><div id="screen"></div></div>
       <div id="controls" class="controls"></div>
       <div class="playbar"><div class="octave"><button id="octave-down" aria-label="Octave down">−</button><span id="octave-label">C3–C4</span><button id="octave-up" aria-label="Octave up">+</button></div><div><button id="phrase">Play phrase</button><button id="panic">Stop all</button></div></div>
       <div id="keyboard" class="keyboard" aria-label="Playable keyboard"></div>
-      <div class="instrument-bottom"><span>PLAY WITH <kbd>A W S E D F T G Y H U J K</kbd></span><label>Monitor <input id="monitor" type="range" min="0" max="1" value="0.65" step="0.01" aria-label="Monitor volume"></label></div>
+      <div class="instrument-bottom"><label>Volume <input id="monitor" type="range" min="0" max="1" value="0.65" step="0.01" aria-label="Volume"></label></div>
     </section>
     <aside>
-      <section class="side-section"><p class="eyebrow">START SOMEWHERE</p><h3>Presets</h3><div id="presets" class="presets"></div><p class="hint">The audition applies its own simple amplitude gate after the engine.</p></section>
-      <section class="side-section"><p class="eyebrow">KEEP AN ITERATION</p><h3>Your patch, portable.</h3><button id="export" class="wide">Export patch <span>↗</span></button><button id="import" class="wide">Import patch <span>↙</span></button><input id="file" type="file" accept=".json,application/json" hidden><button id="svg" class="wide">Export screen SVG <span>↗</span></button><button id="reset" class="text-button">Reset controls</button></section>
-      <section class="side-section notes"><p class="eyebrow">MODEL BOUNDARY</p><p id="preview-mode">Shared C++ sound and display. Device fonts, filters, envelopes and CPU timing still need hardware qualification.</p><p>Patch exports preserve every control. Rebuild the preview after changing the engine or display.</p></section>
+      <section class="side-section"><h2>Presets</h2><div id="presets" class="presets"></div><p class="hint">The audition applies its own simple amplitude gate after the engine.</p></section>
+      <section class="side-section"><h2>Patches</h2><button id="export" class="wide">Export patch <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v5h14v-5"/></svg></button><button id="import" class="wide">Import patch <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m-4 4 4-4 4 4M5 16v5h14v-5"/></svg></button><input id="file" type="file" accept=".json,application/json" hidden><button id="svg" class="wide">Export screen SVG <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v5h14v-5"/></svg></button><button id="reset" class="text-button">Reset controls</button></section>
+      <section class="side-section notes"><h2>Preview Limitations</h2><p id="preview-mode">Shared C++ sound and display. Device fonts, filters, envelopes and CPU timing still need hardware qualification.</p><p>Patch exports preserve every control. Rebuild the preview after changing the engine or display.</p></section>
     </aside>
   </div>
-  <footer><span id="status" role="status" aria-live="polite">Audio off · enable to play</span><span>480 × 224 SCREEN STUDY / LOCAL ONLY</span></footer>
+  <footer><span id="status" role="status" aria-live="polite">Play a key or phrase to start audio</span></footer>
 </main><script type="module" src="/harness/app.mjs"></script>
 </body></html>

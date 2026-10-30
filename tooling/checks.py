@@ -79,10 +79,9 @@ def main(argv=None):
                 [sys.executable, ROOT / 'sdk.py', 'verify', '--stock-os', args.stock_os.resolve(),
                  '--stock-content', args.stock_content.resolve(), '--package', args.native_package.resolve(),
                  '--toolchain', args.toolchain.resolve(), '--compiler', args.compiler.resolve()])
-        for optimized in (False, True):
-            command = [sys.executable, *(['-O'] if optimized else []), '-m',
-                       'tooling.checks', '_suite', *(['--require-all'] if native else [])]
-            run('Python checks' + (' (assertions disabled)' if optimized else ''), command)
+        # One pass: SDK code checks with require(), never assert (test_checks), so
+        # python -O would run the same checks again.
+        run('Python checks', [sys.executable, '-m', 'tooling.checks', '_suite', *(['--require-all'] if native else [])])
         print('\nPASS: ' + ('native package verified; all fixture tests required.' if native else
                            'public source checks; private tests explicitly skipped.'))
         print('Host checks only: device timing, behavior and recovery are not covered.')

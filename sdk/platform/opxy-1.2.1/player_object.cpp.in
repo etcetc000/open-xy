@@ -1,0 +1,53 @@
+// SDK native ABI for a note player. Only the SDK knows the stock player object
+// and its method table; the player provides State, press and release
+// (opxy/player.hpp). The object is a stock Maestro whose type, note-on and
+// note-off methods are the player's (players.cpp); its other methods, the
+// clocked step that plays chord records among them, stay stock.
+#include "player.cpp"
+#include "players.hpp"
+#include "stock.hpp"
+extern "C" {
+const opxy::platform::Player* @PREFIX@_player() __asm__("@PREFIX@_player");
+// The stock type: an absolute symbol the linker supplies.
+extern const char @PREFIX@_player_id[] __asm__("@PREFIX@_player_id");
+@PAGE_DECLARATIONS@
+}
+using State = @NAMESPACE@::State;
+static_assert(sizeof(State) <= opxy::player::state_bytes, "Player state exceeds the SDK state area");
+static_assert(alignof(State) <= opxy::player::state_alignment, "Player state alignment exceeds the SDK state area");
+namespace {
+using opxy::u32;
+State& state(void* object) { return *static_cast<State*>(opxy::platform::player_state(object)); }
+}
+extern "C" {
+extern const void* const @PREFIX@_player_vtable[16];
+// +0x08: the stock player type.
+static u32 type(void*) { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(@PREFIX@_player_id)); }
+// +0x14: note-on (object, note, 0, flag, velocity) from the sequencer, live
+// or played back. Returning 1 takes the note; 0 lets the instrument play it.
+static u32 press(void* object, u32 note, u32, u32, u32 velocity) {
+    opxy::player::Plan plan;
+    if (!@NAMESPACE@::press(state(object), opxy::platform::player_controls(object), note, velocity, plan)) return 0;
+    opxy::platform::play_plan(object, note, plan);
+    return 1;
+}
+// +0x18: note-off (object, note). Stock Maestro releases the chord whose root it is.
+static void release(void* object, u32 note) {
+    if (!@NAMESPACE@::release(state(object), note))
+        opxy::platform::stock<void(void*, u32)>(opxy::platform::kMaestroRelease)(object, note);
+}
+// Stock Maestro's method table (8409f6d0) with +0x08, +0x14 and +0x18 replaced.
+const void* const @PREFIX@_player_vtable[16] = {
+    reinterpret_cast<const void*>(0x8d57d7b4), reinterpret_cast<const void*>(0x8d57d834),
+    reinterpret_cast<const void*>(&type), reinterpret_cast<const void*>(0x8d57d4a4),
+    reinterpret_cast<const void*>(0x8d57d3d8), reinterpret_cast<const void*>(&press),
+    reinterpret_cast<const void*>(&release), reinterpret_cast<const void*>(0x8d57d9a2),
+    reinterpret_cast<const void*>(0x8d57d408), reinterpret_cast<const void*>(0x8d57d3e4),
+    reinterpret_cast<const void*>(0x8d57d414), reinterpret_cast<const void*>(0x8d57d464),
+    reinterpret_cast<const void*>(0x8d57d3fc), reinterpret_cast<const void*>(0x8d57d8cc),
+    reinterpret_cast<const void*>(0x8d57d3cc), reinterpret_cast<const void*>(0x8d57d3c0)
+};
+}
+static const opxy::platform::Player player = {@PREFIX@_player_id, "@NAME@", @PREFIX@_player_vtable, @PAGE@, @PAGE_READY@};
+const opxy::platform::Player* @PREFIX@_player() { return &player; }
+@PAGE_UNIT@

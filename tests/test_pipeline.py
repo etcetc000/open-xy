@@ -55,23 +55,51 @@ class Formats(unittest.TestCase):
 
 
 class Services(unittest.TestCase):
+    def test_profiling_policy_is_strict_and_independent_of_services(self):
+        from tooling.firmware import patch_active
+        profile = config()
+        timing = [p for p in profile['patches'] if p.get('profiling') is False]
+        self.assertEqual(len(timing), 10)
+        for p in timing:
+            self.assertFalse(patch_active(p, {'samples', 'octaves'}))
+            self.assertTrue(patch_active(p, set(), False))
+            tagged = dict(p, service='samples')
+            self.assertFalse(patch_active(tagged, set(), False))
+            self.assertTrue(patch_active(tagged, {'samples'}, False))
+        for invalid in (None, 0, 1, 'off', 'on'):
+            with self.subTest(value=invalid), self.assertRaises(ValueError):
+                patch_active(timing[0], set(), invalid)
+        for invalid in (None, 0, 1, True, 'off'):
+            bad = copy.deepcopy(profile)
+            next(p for p in bad['patches'] if 'profiling' in p)['profiling'] = invalid
+            with self.subTest(value=invalid), self.assertRaises(ValueError):
+                check_patch_boundaries(bad, len(bad['patches']))
+        bad = copy.deepcopy(profile)
+        bad['patches'][0]['profiling'] = False  # fixed edits may never be optional
+        with self.assertRaises(ValueError):
+            check_patch_boundaries(bad, len(bad['patches']))
+
     def test_only_machines_that_use_a_service_link_and_patch_it(self):
         from tooling import native
         from tooling.firmware import active_services
-        from tooling.machines import discovered
+        from machine_fixtures import NAMES, fixture
         profile = config()
         self.assertEqual(active_services(profile, ['synth', 'effect']), set())
         self.assertEqual(active_services(profile, ['sample']), {'samples', 'octaves'})
-        self.assertEqual(active_services(profile, ['player']), {'players', 'octaves'})
-        machines = discovered()  # every machine folder, whatever the collection selects
-        self.assertTrue(any(m.kind == 'sample' for m in machines) and any(m.kind == 'player' for m in machines))
-        steps = lambda selection: [step for _name, m, step in native.plan(selection) if m is None]
-        self.assertEqual(steps(machines), list(native.SDK_UNITS))  # full collections keep the link order
-        without = [m for m in machines if m.kind not in ('sample', 'player')]
+        self.assertEqual(active_services(profile, ['synth', 'extension']), {'extensions'})
+        from tooling.extensions import extension_at
+        from tooling.pipeline import ROOT
+        probe = extension_at(ROOT / 'tests/fixtures/extension_probe')
+        # Every kind and an extension, as a full collection holds.
+        machines = native.Collection([fixture(name) for name in NAMES], [probe])
+        self.assertTrue(any(m.kind == 'sample' for m in machines))
+        steps = lambda selection: [step for _name, m, step in native.plan(selection)
+                                   if m is None and not step.startswith('extension:')]
+        self.assertEqual(steps(machines), [u for u in native.SDK_UNITS
+                                          if native.UNIT_SERVICES.get(u) != 'players'])
+        without = [m for m in machines if m.kind != 'sample']  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
-        players = [m for m in machines if m.kind != 'sample']
-        self.assertEqual(steps(players), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) != 'samples'])
-        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'players', 'octaves'})
+        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'extensions'})
         self.assertEqual(native.object_services(without), {})
 
     def test_only_a_service_edit_may_stay_stock(self):
@@ -91,11 +119,11 @@ class Services(unittest.TestCase):
 class SourceContracts(unittest.TestCase):
     def test_linker_layout_is_the_reviewed_one(self):
         profile = config()
-        self.assertEqual(sha((ROOT / 'linker/opxy-1.2.0.ld').read_bytes()), profile['linker_sha256'])
+        self.assertEqual(sha((ROOT / 'linker/opxy-1.2.1.ld').read_bytes()), profile['linker_sha256'])
 
     def test_profile_is_authenticated(self):
         original = pipeline.read
-        changed = original(ROOT / pipeline.PROFILE).replace(b'"table_bytes": 8192', b'"table_bytes": 4096')
+        changed = original(ROOT / pipeline.PROFILE).replace(b'"table_bytes": 16384', b'"table_bytes": 4096')
         with mock.patch.object(pipeline, 'read', side_effect=lambda path: changed if Path(path).name.endswith(
                 '.json') else original(path)), self.assertRaisesRegex(ValueError, 'profile changed'):
             config()

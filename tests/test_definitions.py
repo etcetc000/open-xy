@@ -9,10 +9,10 @@ import json
 import unittest
 
 from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, generate_display, generate_screen,
-                               generate_segment_binding, generate_synth_controls, screen_bytes)
-from tooling.definitions import ROOT, control_positions, validate_definition
-from tooling.machines import machine
-from tooling.native import drawing_ids, segment_ids
+                               generate_synth_controls, screen_bytes)
+from tooling.definitions import ROOT, control_positions, paged, validate_definition
+from machine_fixtures import FOLDER, fixture
+from tooling.native import display_ids
 
 
 def layout_compiler():
@@ -35,10 +35,10 @@ LAYOUT_CXX = layout_compiler()
 
 class Definitions(unittest.TestCase):
     def setUp(self):
-        self.engine = json.loads((ROOT / 'machines/fm2op/definition.json').read_text(encoding='utf-8'))
+        self.engine = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
 
     def test_catalog_entries_use_the_stock_layout_and_q15_defaults(self):
-        for m in (machine('fm2op'), machine('macroosc')):
+        for m in (fixture('probesynth'), fixture('probesources')):
             text = catalog_entry(m)
             # Indented like the stock entries it follows; ends its own line.
             self.assertTrue(text.startswith(',\n        {\n            "type": ') and text.endswith('\n        }\n'))
@@ -72,7 +72,7 @@ class Definitions(unittest.TestCase):
         invalid['parameters'][0]['mapping']['kind'] = 'javascript'
         with self.assertRaisesRegex(ValueError, 'Unsupported'): validate_definition(invalid, 'synth')
         invalid = copy.deepcopy(self.engine)
-        invalid['presets']['Glass']['unknown'] = 0.5
+        invalid['presets']['Triangle']['unknown'] = 0.5
         with self.assertRaises(ValueError): validate_definition(invalid, 'synth')
         # Each linear control has one spelling.
         for mapping in (dict(kind='anchors', values=[0, 1]), dict(kind='power', maximum=1, exponent=1),
@@ -105,7 +105,7 @@ class Definitions(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'resources'):
                 validate_definition(changed, 'synth')
         changed = copy.deepcopy(self.engine)
-        changed['cppNamespace'] = 'fm2op'
+        changed['cppNamespace'] = 'probesynth'
         with self.assertRaisesRegex(ValueError, 'definition'): validate_definition(changed, 'synth')
         for name in ('delete', 'opxy'):
             changed = copy.deepcopy(self.engine)
@@ -117,31 +117,31 @@ class Definitions(unittest.TestCase):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
                            ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
-                           ('nodes', 1), ('nodes', 65), ('palette', 0), ('palette', 17), ('kind', 'vector')):
+                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 17), ('texts', True),
+                           ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 validate_definition(changed, 'synth')
-        segments = machine('macroosc').definition
-        for key, value in (('characters', 0), ('characters', 9), ('textControls', [4]),
-                           ('textControls', [1, 0]), ('textControls', [0, 0]), ('glow', 4), ('glow', -1),
-                           ('dials', 5), ('dials', True)):
-            changed = copy.deepcopy(segments)
-            changed['resources']['display'][key] = value
-            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
-                validate_definition(changed, 'synth')
+        # A display without paths declares no points.
+        without = fixture('probesources').definition
+        validate_definition(without, 'synth')
+        changed = copy.deepcopy(without)
+        changed['resources']['display']['points'] = 2
+        with self.assertRaisesRegex(ValueError, '0 points'):
+            validate_definition(changed, 'synth')
 
     def test_every_kind_shares_the_controls_schema(self):
-        for identity in ('timestretch', 'ringmod'):
-            m = machine(identity)
+        for name in ('probesample', 'probefx'):
+            m = fixture(name)
             value = copy.deepcopy(m.definition)
             value['parameters'][0]['label'] = 'Feedback amount'
-            with self.subTest(identity=identity), self.assertRaisesRegex(ValueError, 'Control labels'):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'Control labels'):
                 validate_definition(value, m.kind)
-        effect = copy.deepcopy(machine('ringmod').definition)
+        effect = copy.deepcopy(fixture('probefx').definition)
         effect['resources']['voiceCapacity'] = 8
         with self.assertRaisesRegex(ValueError, 'resources'): validate_definition(effect, 'effect')
-        sample = copy.deepcopy(machine('timestretch').definition)
+        sample = copy.deepcopy(fixture('probesample').definition)
         sample['parameters'] = []
         with self.assertRaisesRegex(ValueError, 'Control count'): validate_definition(sample, 'sample')
 
@@ -176,44 +176,97 @@ class Definitions(unittest.TestCase):
         for bad in rejected:
             with self.subTest(parameters=[p.get('control') for p in bad['parameters']]), self.assertRaises(ValueError):
                 validate_definition(bad, 'synth')
-        sample = copy.deepcopy(machine('timestretch').definition)
+        sample = copy.deepcopy(fixture('probesample').definition)
         sample['parameters'][-1]['control'] = 0
         with self.assertRaisesRegex(ValueError, 'parameter fields'): validate_definition(sample, 'sample')
+
+    def test_a_paged_synth_has_one_alternate_per_position(self):
+        value = copy.deepcopy(self.engine)
+        value['parameters'] += [self.alternate(c, 'p%d' % c) for c in (3, 0, 1, 2)]
+        for preset in value['presets'].values():
+            preset.update(p0=0, p1=0, p2=0, p3=0)
+        value['press'] = 'page'
+        validate_definition(value, 'synth')
+        self.assertTrue(paged(value))
+        self.assertEqual(control_cycles(value), [5, 6, 7, 4, 3, 0, 1, 2])
+        self.assertFalse(paged(self.engine))
+        rejected = []
+        for bad in ('next', True, None):
+            changed = copy.deepcopy(value); changed['press'] = bad
+            rejected.append(changed)
+        short = copy.deepcopy(value); del short['parameters'][-1]
+        for preset in short['presets'].values(): del preset['p2']
+        validate_definition(short, 'synth')
+        following = control_cycles(short)
+        self.assertEqual(following[:4], [5, 6, 2, 4])
+        shown = list(range(4))
+        shown = [following[s] for s in shown]
+        self.assertEqual(shown, [5, 6, 2, 4])
+        self.assertEqual([following[s] for s in shown], list(range(4)))
+        empty = copy.deepcopy(self.engine); empty['press'] = 'page'
+        rejected.append(empty)
+        twice = copy.deepcopy(value); twice['parameters'][-1]['control'] = 3
+        rejected.append(twice)
+        for bad in rejected:
+            with self.subTest(press=bad['press'], count=len(bad['parameters'])), self.assertRaises(ValueError):
+                validate_definition(bad, 'synth')
+        sample = copy.deepcopy(fixture('probesample').definition)
+        sample['press'] = 'page'
+        with self.assertRaisesRegex(ValueError, 'press'): validate_definition(sample, 'sample')
+        # The control table marks the paged synth's row.
+        machines = [SimpleNamespace(kind='synth', prefix='paged', identity=dict(engine=9), definition=value),
+                    SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false)\},$', text, re.M),
+                         [('paged', 'true'), ('plain', 'false')])
+
+    def test_an_effects_controls_after_four_alternate_on_the_send_page(self):
+        # Without `control`, an effect's fifth to eighth controls alternate on positions 0..3.
+        effect = copy.deepcopy(fixture('probefx').definition)
+        base = effect['parameters'][0]
+        effect['parameters'] = [dict(copy.deepcopy(base), id='p%d' % i, label='P%d' % i) for i in range(8)]
+        effect['presets'] = {}
+        validate_definition(effect, 'effect')
+        self.assertEqual(control_cycles(effect), [4, 5, 6, 7, 0, 1, 2, 3])
+        # One may name another position instead.
+        effect['parameters'][7]['control'] = 0
+        validate_definition(effect, 'effect')
+        self.assertEqual(control_cycles(effect), [4, 5, 6, 3, 7, 1, 2, 0])
+        machines = [SimpleNamespace(kind='effect', prefix='alts', identity=dict(effect=23), definition=effect)]
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^    \{alts_fx_id, alts_ready, \{([\d, ]+)\},', text, re.M), ['4, 5, 6, 3, 7, 1, 2, 0'])
 
     def test_control_table_owns_all_synths_and_preserves_alternates(self):
         alternates = copy.deepcopy(self.engine)
         alternates['parameters'].append(self.alternate(2))
         machines = [SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine),
                     SimpleNamespace(kind='synth', prefix='alt', identity=dict(engine=9), definition=alternates),
-                    machine('timestretch'), machine('ringmod')]
+                    fixture('probesample'), fixture('probefx')]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'^    \{(\d+), (\w+)_ready, \{([\d, ]+)\},', text, re.M),
-                         [('5', 'plain', '0, 1, 2, 3, 4, 5, 6, 7'), ('9', 'alt', '0, 1, 4, 3, 2, 5, 6, 7'),
-                          ('1', 'ringmod', '0, 1, 2, 3, 4, 5, 6, 7')])
+        # Each row names its machine's engine or effect ID symbol, which the linker supplies.
+        self.assertEqual(re.findall(r'^    \{(\w+), (\w+)_ready, \{([\d, ]+)\},', text, re.M),
+                         [('plain_engine_id', 'plain', '0, 1, 2, 3, 4, 5, 6, 7'),
+                          ('alt_engine_id', 'alt', '0, 1, 4, 3, 2, 5, 6, 7'),
+                          ('probefx_fx_id', 'probefx', '0, 1, 2, 3, 4, 5, 6, 7')])
 
     def test_renderers_generate_for_every_declared_shape(self):
         """Each shape's renderer is data for the SDK renderer: artwork IDs in binding order, and an
         object whose C++ size equals the registered size (checked by the generated static_assert)."""
-        shapes = [dict(kind='drawing', stateBytes=60, stateAlignment=4, paths=1, points=2, nodes=64, palette=1),
-                  dict(kind='drawing', stateBytes=60, stateAlignment=4, paths=4, points=64, nodes=4, palette=16),
-                  dict(kind='segments', characters=1, glow=0, dials=0, textControls=[]),
-                  dict(kind='segments', characters=8, glow=3, dials=4, textControls=[0, 1, 2, 3])]
+        shapes = [dict(stateBytes=60, stateAlignment=4, paths=1, points=2, nodes=64, texts=0, palette=1),
+                  dict(stateBytes=60, stateAlignment=4, paths=4, points=64, nodes=4, texts=4, palette=16),
+                  dict(stateBytes=60, stateAlignment=4, paths=0, points=0, nodes=256, texts=1, palette=8)]
         for display in shapes:
-            definition = copy.deepcopy(machine('fm2op').definition)
+            definition = copy.deepcopy(fixture('probesynth').definition)
             definition['resources']['display'] = display
             validate_definition(definition, 'synth')
             m = SimpleNamespace(prefix='shape', native_name='shape', definition=definition)
             with self.subTest(display=display), tempfile.TemporaryDirectory() as directory:
-                if display['kind'] == 'drawing':
-                    generate_display(directory, machine=SimpleNamespace(definition=definition, native_name='shape',
-                                                                        prefix='shape'))
-                    ids = drawing_ids('shape', display)
-                else:
-                    generate_segment_binding(directory, definition, 'shape')
-                    names = segment_ids('shape', display)
-                    ids = (names['segments'] + sum(names['glow'], []) + names['dials'] + [names['label']] +
-                           names['palette'] + sum(names['glow_palette'], []))
+                generate_display(directory, machine=SimpleNamespace(definition=definition, native_name='shape',
+                                                                    prefix='shape'))
+                ids = display_ids('shape', display)
                 source = generate_screen(directory, m)
                 text = source.read_text(encoding='utf-8')
                 self.assertEqual(re.findall(r'"(shape_[0-9a-z_]+)"', text), ids)
@@ -222,8 +275,8 @@ class Definitions(unittest.TestCase):
                     hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
                     result = subprocess.run(
                         [LAYOUT_CXX, '-m32', '-std=gnu++11', '-fsyntax-only', '-Wall', '-Werror', '-ffreestanding',
-                         *('-I' + str(ROOT / path) for path in ('sdk/include', 'sdk/platform/opxy-1.2.0',
-                                                               'machines/fm2op')), source.name],
+                         *('-I' + str(path) for path in (ROOT / 'sdk/include', ROOT / 'sdk/platform/opxy-1.2.1',
+                                                         FOLDER / 'probesynth')), source.name],
                         cwd=directory, capture_output=True, text=True, timeout=120, **hidden)
                     self.assertEqual(result.returncode, 0, result.stderr)
 

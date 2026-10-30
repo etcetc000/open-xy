@@ -4,10 +4,9 @@ import re
 
 from .definitions import ROOT
 from .formats import require
-from .stock_tables import ENGINE_SENTINEL
+from .stock_tables import EFFECT_COUNT, ENGINE_COUNT, ENGINE_SENTINEL
 
-TEMPLATE = 'sdk/platform/opxy-1.2.0/startup.cpp.in'
-MAX_ENGINES = 32
+TEMPLATE = 'sdk/platform/opxy-1.2.1/startup.cpp.in'
 
 
 def _declare(name, signature='()'):
@@ -16,11 +15,11 @@ def _declare(name, signature='()'):
 
 def render(prefixes, effects=(), stock_page=(), player_pages=()):
     """stock_page: engines that show a stock page (e.g. sample engines on the
-    sampler page); they register on the GUI role without an own-page guard.
-    player_pages: players whose own page registers on the GUI role."""
-    require(1 <= len(prefixes) <= MAX_ENGINES and len(set(prefixes)) == len(prefixes),
+    sampler page); they register on the GUI role without an own-page guard."""
+    require(prefixes or effects or player_pages, 'Startup needs at least one machine')
+    require(0 <= len(prefixes) <= ENGINE_COUNT and len(set(prefixes)) == len(prefixes),
             'Startup needs distinct engine prefixes')
-    require(len(set(effects)) == len(effects) <= MAX_ENGINES and not set(effects) & set(prefixes),
+    require(len(set(effects)) == len(effects) <= EFFECT_COUNT and not set(effects) & set(prefixes),
             'Startup needs distinct effect prefixes')
     require(set(stock_page) <= set(prefixes), 'Stock-page engines must be listed engines')
     require(len(set(player_pages)) == len(player_pages) and not set(player_pages) & (set(prefixes) | set(effects)),
@@ -48,7 +47,8 @@ def render(prefixes, effects=(), stock_page=(), player_pages=()):
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned),
                   EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
-                  SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL))
+                  SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
+                  INSTALLED='\n'.join(f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes))
     source = (ROOT / TEMPLATE).read_text(encoding='utf-8')
     for key, text in values.items():
         require(source.count('@' + key + '@') == 1, 'Startup template placeholder missing')

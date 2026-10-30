@@ -4,7 +4,7 @@ Machine code implements plain C++ callbacks. These adapters supply the stock
 object layouts, method tables, storage, registration and menu entries:
 
 - synth: initialize/start/destroy/render over Voice and Shared state, with a
-  drawing or segment display;
+  drawing display;
 - sample: flag-1 synth registration that receives the track's sample;
 - effect: send-FX registry object with in-place stereo processing.
 """
@@ -12,11 +12,12 @@ import json
 import math
 from pathlib import Path
 
-from .definitions import ROOT, control_positions, validate_definition
+from .benchmark import append_callback
+from .definitions import ROOT, control_positions, paged, validate_definition
 from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
 
-TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.0'
+TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
 
 
 def expand(template, values, destination, root=TEMPLATES):
@@ -41,10 +42,23 @@ def voice_values(definition):
                 PEAK=resources['outputPeakQ31'])
 
 
-def generate_voice(directory, m):
-    """The native machine object, method table and voice pool for a synth."""
-    values = dict(voice_values(m.definition), PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
-                  CAPACITY=m.definition['resources']['voiceCapacity'], ENGINE=m.identity['engine'])
+def generate_voice(directory, m, sweep=False):
+    """The native machine object, method table and voice pool for a synth. In a sweep
+    build (benchmark.cpp.in) its voices render with the swept controls while a sweep run
+    of this machine is active; other builds' voices never look."""
+    if sweep:
+        declarations = ('// A profiling build\'s control sweep (benchmark.cpp.in): while set for this machine\'s\n'
+                        '// engine, its voices render with these controls instead of their track\'s.\n'
+                        'extern const opxy::i32* volatile sdk_benchmark_parameters __asm__("sdk_benchmark_parameters");\n'
+                        'extern const char* volatile sdk_benchmark_engine __asm__("sdk_benchmark_engine");\n')
+        controls = (f'        const opxy::i32* swept = sdk_benchmark_engine == {m.prefix}_engine_id ? '
+                    'sdk_benchmark_parameters : nullptr;\n'
+                    '        const opxy::i32* controls = swept ? swept : parameters;\n')
+    else:
+        declarations, controls = '', '        const opxy::i32* controls = parameters;\n'
+    values = dict(voice_values(m.definition), SWEEP_DECLARATIONS=declarations, SWEEP_CONTROLS=controls,
+                  PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
+                  CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
     return expand('voice.cpp.in', values, Path(directory) / 'voice.cpp')
 
@@ -57,70 +71,26 @@ def generate_voice_preview(directory, definition):
 
 def drawing_layout(display):
     """Frame byte layout shared by the C++ frame and the browser."""
-    paths, points, nodes, palette = (display[k] for k in ('paths', 'points', 'nodes', 'palette'))
+    paths, points, nodes, texts, palette = (display[k] for k in ('paths', 'points', 'nodes', 'texts', 'palette'))
     path_bytes = 4 + 8 * points
-    return dict(PATHS=paths, POINTS=points, NODES=nodes, PALETTE=palette, PATH_BYTES=path_bytes,
-                FRAME_NODES_AT=paths * path_bytes, FRAME_BYTES=paths * path_bytes + 20 * nodes)
-
-
-def segment_layout(display):
-    """Frame byte layout shared by the C++ frame and the browser."""
-    characters = display['characters']
-    return dict(CHARACTERS=characters, LABEL_TEXT_AT=4 * characters, VALUES_AT=4 * characters + 16,
-                KEY_AT=4 * characters + 48, DIALS_AT=4 * characters + 52, FRAME_BYTES=4 * characters + 84)
+    # An empty path or text array keeps one unused element (draw.hpp).
+    nodes_at = max(paths, 1) * path_bytes
+    texts_at = nodes_at + 28 * nodes
+    header_at = texts_at + 36 * max(texts, 1)
+    return dict(PATHS=paths, POINTS=points, NODES=nodes, TEXTS=texts, PALETTE=palette, PATH_BYTES=path_bytes,
+                FRAME_NODES_AT=nodes_at, FRAME_TEXTS_AT=texts_at, FRAME_HEADER_AT=header_at,
+                FRAME_BYTES=header_at + 32)
 
 
 def screen_bytes(m):
-    """Renderer object size: the 76-byte stock screen, then the renderer's words.
-    The generated renderer asserts its C++ object has this size."""
+    """Renderer object size: the 76-byte stock screen, then the renderer's words
+    (screen_drawing.hpp). The generated renderer asserts its C++ object has this size."""
     display = m.definition['resources']['display']
-    if display['kind'] == 'drawing':
-        # Nodes, palette, frame delta, then validated geometry and applied key per path.
-        words = display['nodes'] + display['palette'] + 1 + 2 * display['paths']
-    else:
-        # Segment, glow and dial nodes, label, lit/unlit per layer, last painted key.
-        layers = 1 + display['glow']
-        words = 14 * display['characters'] * layers + display['dials'] + 1 + 2 * layers + 1
+    # Nodes; text leaves and each slot's applied 24 characters; palette; frame
+    # delta; then validated geometry and applied key per path (one word each when absent).
+    texts, paths = max(display['texts'], 1), max(display['paths'], 1)
+    words = display['nodes'] + 7 * texts + display['palette'] + 1 + 2 * paths
     return 76 + 4 * words
-
-
-def generate_segment_binding(directory, definition, prefix='local_preview'):
-    """The machine's segment callback behind a C entry point, with the frame layout pinned."""
-    validate_definition(definition, 'synth')
-    display = definition['resources']['display']
-    require(display['kind'] == 'segments', 'Not a segment display')
-    layout = segment_layout(display)
-    header = f'''// Generated by the SDK; no renderer addresses in author code.
-#pragma once
-#include "opxy/segments.hpp"
-namespace opxy {{ namespace binding {{
-typedef opxy::segments::Frame<{layout['CHARACTERS']}> SegmentFrame;
-}}}}
-extern "C" unsigned {prefix}_display_render(const opxy::segments::Input*, opxy::binding::SegmentFrame*);
-namespace opxy {{ namespace binding {{
-static inline unsigned segment_render(const segments::Input* input, SegmentFrame* frame) {{
-    return {prefix}_display_render(input, frame);
-}}
-}}}}
-'''
-    source = f'''// Generated by the SDK; no renderer addresses in author code.
-#include "segment_binding.hpp"
-#include "display.cpp"
-static_assert(sizeof(opxy::binding::SegmentFrame) == {layout['FRAME_BYTES']} &&
-              __builtin_offsetof(opxy::binding::SegmentFrame, label) == {layout['LABEL_TEXT_AT']} &&
-              __builtin_offsetof(opxy::binding::SegmentFrame, values) == {layout['VALUES_AT']} &&
-              __builtin_offsetof(opxy::binding::SegmentFrame, key) == {layout['KEY_AT']} &&
-              __builtin_offsetof(opxy::binding::SegmentFrame, dials) == {layout['DIALS_AT']},
-              "Segment frame layout differs from the declared display");
-extern "C" unsigned {prefix}_display_render(const opxy::segments::Input* input, opxy::binding::SegmentFrame* frame) {{
-    {definition['id']}::display(*input, *frame);
-    return opxy::segments::valid(*frame);
-}}
-'''
-    (Path(directory) / 'segment_binding.hpp').write_text(header, encoding='utf-8', newline='\n')
-    destination = Path(directory) / 'segment_binding.cpp'
-    destination.write_text(source, encoding='utf-8', newline='\n')
-    return destination
 
 
 def generate_display(directory, *, machine=None, definition=None):
@@ -132,9 +102,8 @@ def generate_display(directory, *, machine=None, definition=None):
         assignment = {'symbol_prefix': 'local_preview'}
     namespace, prefix = definition['id'], assignment['symbol_prefix']
     display = definition['resources']['display']
-    require(display['kind'] == 'drawing', 'Not a drawing display')
     layout = drawing_layout(display)
-    frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {PALETTE}>'.format(**layout)
+    frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**layout)
     header = f'''// Generated by the SDK; no renderer addresses in author code.
 #pragma once
 #include "display.h"
@@ -168,12 +137,16 @@ static_assert(alignof(opxy::binding::DisplayState) == opxy::binding::display_ali
 static_assert(__is_trivial(opxy::binding::DisplayState) && __is_standard_layout(opxy::binding::DisplayState),
               "Display state must be trivial standard-layout data");
 static_assert(sizeof(Frame) == {layout['FRAME_BYTES']} &&
-              sizeof(Frame::path_type) == {layout['PATH_BYTES']} && sizeof(opxy::draw::Node) == 20 &&
+              sizeof(Frame::path_type) == {layout['PATH_BYTES']} && sizeof(opxy::draw::Node) == 28 &&
               __builtin_offsetof(Frame::path_type, points) == 4 &&
               __builtin_offsetof(Frame, nodes) == {layout['FRAME_NODES_AT']} &&
+              __builtin_offsetof(Frame, texts) == {layout['FRAME_TEXTS_AT']} &&
+              __builtin_offsetof(Frame, header) == {layout['FRAME_HEADER_AT']} &&
               __builtin_offsetof(opxy::draw::Node, scale) == 8 &&
-              __builtin_offsetof(opxy::draw::Node, shade) == 12 &&
-              __builtin_offsetof(opxy::draw::Node, paint) == 16,
+              __builtin_offsetof(opxy::draw::Node, cos) == 12 &&
+              __builtin_offsetof(opxy::draw::Node, shade) == 20 &&
+              __builtin_offsetof(opxy::draw::Node, paint) == 24 &&
+              __builtin_offsetof(opxy::draw::Text, chars) == 12,
               "Drawing frame layout differs from the declared display");
 extern "C" void {prefix}_display_reset(opxy::binding::DisplayState* state, Frame* frame) {{
     {namespace}::display_reset(*state);
@@ -217,6 +190,7 @@ def generate_registration(directory, m):
             screen = '&screen'
             entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
         entries[p + '_register()'] = 'sdk_register_engine(&record)'
+        entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
         entries[p + '_ready()'] = f'sdk_engine_ready(&record, {screen})'
     declarations += [f'int {signature} __asm__("{signature.split("(")[0]}");' for signature in entries]
@@ -240,31 +214,22 @@ def generate_screen_order(directory):
 
 def generate_screen(directory, m):
     """The machine's renderer: its display shape and artwork IDs as data for the
-    SDK renderer (screen_drawing.hpp or screen_segments.hpp), and its exported
-    screen symbols. Compiled after the display binding it includes."""
-    from .native import drawing_ids, segment_ids
-    display = m.definition['resources']['display']
-    if display['kind'] == 'drawing':
-        kind, binding, shape, ids = 'Drawing', 'display_binding.hpp', '', drawing_ids(m.prefix, display)
-    else:
-        names = segment_ids(m.prefix, display)
-        kind, binding = 'Segments', 'segment_binding.hpp'
-        mask = sum(1 << i for i in display['textControls'])
-        shape = f'    enum {{ glow = {display["glow"]}, dials = {display["dials"]}, text_controls = {mask} }};\n'
-        ids = (names['segments'] + sum(names['glow'], []) + names['dials'] + [names['label']] + names['palette'] +
-               sum(names['glow_palette'], []))
+    SDK renderer (screen_drawing.hpp), and its exported screen symbols. Compiled
+    after the display binding it includes."""
+    from .native import display_ids
+    ids = display_ids(m.prefix, m.definition['resources']['display'])
     table = ''.join(f'    "{name}",\n' for name in ids)
     source = f'''// Generated by the SDK: {m.native_name}'s declared display as renderer data.
-#include "{binding}"
-#include "screen_{kind.lower()}.hpp"
+#include "display_binding.hpp"
+#include "screen_drawing.hpp"
 namespace {{
 struct Machine {{
-{shape}    static const char* const ids[{len(ids)}];
+    static const char* const ids[{len(ids)}];
 }};
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};
 }}
-OPXY_SCREEN(opxy::screen::{kind}<Machine>, "{m.prefix}", "{m.native_name}.svg", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
+OPXY_SCREEN(opxy::screen::Drawing<Machine>, "{m.prefix}", "{m.native_name}.svg", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
 '''
     destination = Path(directory) / 'screen.cpp'
     destination.write_text(source, encoding='utf-8', newline='\n')
@@ -291,15 +256,15 @@ def sample_callbacks(m):
     return [m.prefix + suffix for flag, entries in SAMPLE_SERVICES if resources.get(flag, 0) for suffix, *_ in entries]
 
 
-def generate_sample_voice(directory, m):
+def generate_sample_voice(directory, m, benchmark=False):
     resources = m.definition['resources']
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   LABELS=stock_labels(m), CAPACITY=resources['voiceCapacity'],
                   ANALYSIS=resources.get('sampleAnalysis', 0), STEREO=resources.get('stereoOutput', 0),
                   CHOKE=resources.get('chokeSameKey', 0), DRUM_KEYS=int(m.identity['page'] == 7),
-                  PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0),
-                  ENGINE=m.identity['engine'])
-    return expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
+                  PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0))
+    path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
+    return append_callback(path, m) if benchmark else path
 
 
 def generate_sample_callbacks(directory, machines):
@@ -310,7 +275,9 @@ def generate_sample_callbacks(directory, machines):
             continue
         p, resources = m.prefix, m.definition['resources']
         declarations.append(f'int {p}_ready() __asm__("{p}_ready");')
-        fields = [str(m.identity['engine']), str(m.identity['page']), p + '_ready']
+        # The engine ID is an absolute symbol the linker supplies; the stock page is the machine's own.
+        declarations.append(f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");')
+        fields = [p + '_engine_id', str(m.identity['page']), p + '_ready']
         for flag, entries in SAMPLE_SERVICES:
             declared = bool(resources.get(flag, 0))
             if flag == 'sampleAnalysis':
@@ -338,20 +305,50 @@ def control_cycles(definition):
     return following
 
 
+def enum_steps(parameter):
+    """An enum's choice count, for stock's stepped encoder edits; 0 for any other control and for an
+    enum too large for stock's step table (fewer than 256 steps)."""
+    labels = parameter['mapping'].get('labels', []) if parameter['mapping']['kind'] == 'enum' else []
+    return len(labels) if len(labels) < 256 else 0
+
+
 def generate_synth_controls(directory, machines):
     """Synth ownership, alternate selection and continuous fine controls."""
-    declarations, rows, formatters = [], [], []
+    declarations, rows, formatters, lfo_rows = [], [], [], []
     for m in machines:
+        if m.kind in ('synth', 'sample'):
+            declarations.append(f'int {m.prefix}_record_ready() __asm__("{m.prefix}_record_ready");')
+            declarations.append(f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");')
+            controls = ', '.join(str(position % 4) for position in control_positions(m.definition))
+            lfo_rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_record_ready, {len(m.definition["parameters"])}, {{{controls}}}}},')
         if m.kind not in ('synth', 'effect'):
             continue
         effect = m.kind == 'effect'
-        following = (not effect and control_cycles(m.definition)) or list(range(8))
+        following = control_cycles(m.definition) or list(range(8))
         continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum')
+        steps = [enum_steps(p) for p in m.definition['parameters']]
+        steps += [0] * (8 - len(steps))
         declarations.append(f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");')
+        # The engine or effect ID is an absolute symbol the linker supplies.
+        id_symbol = m.prefix + ('_fx_id' if effect else '_engine_id')
+        if effect:
+            declarations.append(f'extern const char {id_symbol}[] __asm__("{id_symbol}");')
         body = [f'static bool {m.prefix}_format(opxy::u32 slot, opxy::i32 value, char* text) {{', '    switch (slot) {']
         for i, p in enumerate(m.definition['parameters']):
             mapping = p['mapping']
+            # The selected choice's label, on synth and send pages alike.
             if mapping['kind'] == 'enum':
+                labels = ', '.join(json.dumps(label) for label in mapping['labels'])
+                body.extend([f'    case {i}: {{', f'        static const char* const labels[] = {{{labels}}};',
+                             f'        control_label(text, value, labels, {len(mapping["labels"])});',
+                             '        return true;', '    }'])
+                continue
+            # Stock delay's note-length names. Send pages keep stock captions
+            # for every other control.
+            if p['display'] == 'division':
+                body.extend([f'    case {i}:', '        control_division(text, value);', '        return true;'])
+                continue
+            if effect:
                 continue
             # Compact native ratio captions; unusual/signed ranges retain the
             # stock normalized display, with an extra decimal place.
@@ -365,17 +362,81 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-        rows.append(f"    {{{m.identity['effect' if effect else 'engine']}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, {m.prefix}_format, {'true' if effect else 'false'}}},")
-    return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters)),
+        page = not effect and paged(m.definition)
+        rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
+                    f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
+                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}}},")
+    return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters), LFO_MACHINES='\n'.join(lfo_rows)),
                   Path(directory) / 'synth_control_table.cpp')
 
 
-def generate_fx_object(directory, m):
-    return expand('fx_object.cpp.in', dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'],
+
+def generate_project_companion_table(directory, machines):
+    """Each machine's ID and its number symbols, sorted by ID as a companion lists them
+    (docs/projects.md). Numbers are link-time symbols; a kit's unselected machines are 0."""
+    declarations, rows = [], []
+    for m in sorted((m for m in machines if m.kind != 'player'), key=lambda m: m.id):
+        number, page = (m.prefix + '_fx_id', m.prefix + '_fx_page_id') if m.kind == 'effect' else \
+            (m.prefix + '_engine_id', m.prefix + '_page_id')
+        declarations += [f'extern const char {name}[] __asm__("{name}");' for name in (number, page)]
+        rows.append(f'    {{"{m.id}", {number}, {page}, {"true" if m.kind == "effect" else "false"}}},')
+    return expand('project_companion_table.cpp.in', dict(DECLARATIONS='\n'.join(declarations), MACHINES='\n'.join(rows)),
+                  Path(directory) / 'project_companion_table.cpp')
+
+# A send slot's stock scratch memory: scratch(slot, bytes) (0x8d50e048), as stock
+# delay and reverb use it, only for the two send slots (docs/abi-1.2.1.md).
+FX_BUFFER_INIT = '''    // Stock's per-send scratch memory, which stock delay and reverb use the same way.
+    object->buffer = slot == 14 || slot == 15
+        ? opxy::platform::stock<opxy::i32*(opxy::u32, opxy::u32)>(0x8d50e048)(slot, {bytes}u) : nullptr;'''
+
+
+def generate_fx_object(directory, m, benchmark=False):
+    resources = m.definition['resources']
+    bytes_ = resources.get('bufferBytes')
+    if bytes_ is None:
+        values = dict(OBJECT='struct Object { const void* const* vtable; State state; };\n'
+                             'static_assert(sizeof(State) <= opxy::effect_state_bytes, "Effect state exceeds the stock FX slot");',
+                      INIT='    (void)slot;', BUFFER='', RESET='')
+    else:
+        values = dict(OBJECT='struct Object { const void* const* vtable; State state; opxy::i32* buffer; };\n'
+                             'static_assert(sizeof(State) <= opxy::effect_buffered_state_bytes,\n'
+                             '              "Effect state exceeds the stock FX slot beside its buffer address");',
+                      INIT=FX_BUFFER_INIT.format(bytes=bytes_),
+                      BUFFER=f'opxy::Buffer{{object->buffer, object->buffer ? {bytes_ // 4}u : 0u}}, ',
+                      RESET='    object->buffer = nullptr;')
+    # A tempo-aware effect reads the audio clock's transport once per block.
+    values['TRANSPORT'] = 'opxy::platform::audio_transport(), ' if resources.get('transport') else ''
+    # The buffer's scratch call and the transport both use stock addresses.
+    if bytes_ is not None or resources.get('transport'):
+        values['OBJECT'] = '#include "stock.hpp"\n' + values['OBJECT']
+    path = expand('fx_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=m.definition['id'],
                                            NAME=m.native_name, LABELS=stock_labels(m),
                                            DRY_LEVEL='0x7fffffff' if m.dry_parameter is None else
                                            f'parameters[{m.dry_parameter}]'),
                   Path(directory) / f'fx_object_{m.prefix}.cpp')
+    return append_callback(path, m) if benchmark else path
+
+
+def stock_labels(m):
+    """Control names as the stock parameter page shows them."""
+    return ', '.join(json.dumps(p['label'].lower()) for p in m.definition['parameters'])
+
+
+def catalog_defaults(definition):
+    """Eight Q15 stock parameter defaults from normalized definition defaults."""
+    defaults = [math.floor(p['default'] * 32767 + 0.5) for p in definition['parameters']]
+    return defaults + [0] * (8 - len(defaults))
+
+
+def catalog_entry(m):
+    """The stock catalog text inserted for a machine, in the reviewed byte layout."""
+    if m.kind in ('effect', 'player'):
+        return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
+                ',\n            "id": ' + str(m.identity['effect'] if m.kind == 'effect' else m.identity['player'] + 4) +
+                ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }')
+    return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
+            ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }\n')
+
 
 
 def generate_player_object(directory, m):
@@ -410,26 +471,3 @@ def generate_player_table(directory, machines):
 
 # Stock lists Arpeggio, Hold and Maestro (types 2..4) with catalog IDs 6..8.
 PLAYER_CATALOG_OFFSET = 4
-
-
-def stock_labels(m):
-    """Control names as the stock parameter page shows them."""
-    return ', '.join(json.dumps(p['label'].lower()) for p in m.definition['parameters'])
-
-
-def catalog_defaults(definition):
-    """Eight Q15 stock parameter defaults from normalized definition defaults."""
-    defaults = [math.floor(p['default'] * 32767 + 0.5) for p in definition['parameters']]
-    return defaults + [0] * (8 - len(defaults))
-
-
-def catalog_entry(m):
-    """The stock catalog text inserted for a machine, in the reviewed byte layout."""
-    if m.kind in ('effect', 'player'):
-        number = m.identity['effect'] if m.kind == 'effect' else m.identity['player'] + PLAYER_CATALOG_OFFSET
-        return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
-                ',\n            "id": ' + str(number) +
-                ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }')
-    return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
-            ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }\n')
-

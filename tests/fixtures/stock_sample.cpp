@@ -1,4 +1,4 @@
-#include "../../sdk/platform/opxy-1.2.0/stock_sample.hpp"
+#include "../../sdk/platform/opxy-1.2.1/stock_sample.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -35,8 +35,10 @@ int main() {
     }
     empty[0] = 100; empty[6] = empty[7] = 0;
     check(sample_gui_region(empty).pitch_cents == 6000, "assigned sample's MIDI-zero root was replaced");
-    for (unsigned value = 0; value < 65536; ++value) {
+    for (unsigned value = 0; value < 262144; ++value) {
         const unsigned stored = sample_store_settings(value);
+        if (value < 65536)
+            check(stored == (0x5a800000u | (value << 7)), "legacy pad encoding changed");
         const float saved = float(stored) / 2147483648.0f;
         const auto restored = sample_settings(unsigned(saved * 2147483648.0f));
         check(restored.saved && restored.value == value, "pad settings lost bits through float serialization");

@@ -17,7 +17,7 @@ class PrivateFilesTests(unittest.TestCase):
         for name in ('image.LDR', 'image.tfw', 'local/report.json', 'dist/kit.json', '.env.local', 'copy.zip',
                      'machines/probe/vendor/data/table.bin'):
             self.assertIsNotNone(guard.path_problem(name), name)
-        for name in ('builder/core.mjs', 'docs/build.md', 'machines/macroosc/vendor/braids/resources.cc'):
+        for name in ('builder/core.mjs', 'docs/build.md', 'machines/probe/vendor/library/resources.cc'):
             self.assertIsNone(guard.path_problem(name), name)
 
     def test_renamed_firmware_and_archives_are_detected(self):

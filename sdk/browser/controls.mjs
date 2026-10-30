@@ -1,4 +1,5 @@
 // Shared control/patch plumbing. Descriptors are validated by the SDK generator.
+const DIVISIONS = ['1/32', '1/32 dotted', '1/16', '1/16 dotted', '1/8', '1/8 dotted', '1/4', '1/2'];
 function freeze(value) {
   if (value && typeof value === 'object') {
     for (const child of Object.values(value)) freeze(child);
@@ -25,7 +26,21 @@ export function physicalValue(mapping, value) {
 // (the definition schema; tooling.definitions.control_positions).
 export const controlPositions = parameters => parameters.map((p, i) => p.control ?? i);
 
-// The display input (segments.hpp, draw.hpp) for the eight parameter words in
+// The parameters the four positions show after editing parameter `slot`
+// (positions: controlPositions): that position shows it, or on a paged synth
+// (`"press": "page"`) every position shows the edited parameter's page.
+export function editedShown(shown, positions, slot, pages = false) {
+  if (!pages) return shown.map((s, position) => position === positions[slot] ? slot : s);
+  // A position with no alternate edits the same saved parameter on either page.
+  // Turning that repeated control must not jump back to page 1.
+  const shared = slot < 4 && !positions.slice(4).includes(slot);
+  const second = shared ? shown.some(s => s >= 4) : slot >= 4;
+  const next = [0, 1, 2, 3];
+  positions.forEach((position, s) => { if ((s >= 4) === second) next[position] = s; });
+  return next;
+}
+
+// The display input (draw.hpp) for the eight parameter words in
 // parameter order, when shown[i] is the parameter position i shows (initially
 // its own; on the device an encoder press selects an alternate, in a preview
 // the control last edited): each position's value, the shown slots as four
@@ -79,6 +94,8 @@ export function createControls(input) {
     if (parameter.display === 'bipolar') return `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`;
     if (parameter.display === 'semitones') return `${v > 0 ? '+' : ''}${v.toFixed(1)} st`;
     if (parameter.display === 'duration') return v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toFixed(2)} s`;
+    // Stock delay's note lengths, by the Q31 word >> 28 as on the device.
+    if (parameter.display === 'division') return DIVISIONS[Math.round(value[id] * 0x7fffffff) >>> 28];
     return (value[id] * 100).toFixed(1);
   }
   function q31(value) {
