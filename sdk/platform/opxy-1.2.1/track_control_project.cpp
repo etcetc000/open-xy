@@ -185,6 +185,7 @@ bool kept_machines(const Reader& r, u32 bytes, u32 crc, u32& at, u32& to) {
 }
 
 void load_kept(const char* path) {
+    sdk_control_forget();
     bool keeping = false;
     for (u32 i = 0; i < sdk_control_machine_count; ++i) keeping = keeping || sdk_control_machines[i].load;
     if (!keeping) return;  // nothing to give back: no project I/O
@@ -210,6 +211,7 @@ void load_kept(const char* path) {
 
 // After a new project: every machine that keeps data gets nothing back.
 void forget_kept() {
+    sdk_control_forget();
     for (u32 i = 0; i < sdk_control_machine_count; ++i) {
         const opxy::platform::ControlMachine& m = sdk_control_machines[i];
         if (m.load && m.ready() == 1) m.load(kept, 0);

@@ -15,6 +15,9 @@ i32 table[control::tracks * control::track_parameters];
 // Stock's base values, in each track's data block at +0x3864.
 const u32 kBlocks = 0x90000000, kBlockBytes = 0x10000;
 u32 bases[control::tracks][control::track_parameters];
+u32 second_bases[control::tracks][control::track_parameters], pattern[16];
+// Stock's current project (840a0524): a capture restores only into the project it began in.
+u32 project_word = 0xa0000000;
 u32 engines[16], ticks, writes, resets, runs, sets, edits_seen;
 control::Entry last_edit;
 u32 capture, mark;
@@ -39,12 +42,12 @@ i32& value(u32 track, u32 index) { return table[track * control::track_parameter
 
 void stock_tick() { ++ticks; }
 u32 stock_engine(u32 track) { return track < 16 ? engines[track] : 0; }
-u32 stock_track_data(u32 track) { return kBlocks + track * kBlockBytes; }
+u32 stock_track_data(u32 track) { return kBlocks + (track + pattern[track] * 16) * kBlockBytes; }
 void stock_param_set(u32 project, u32 track, u32 index, i32 v) {
     require(project == kProject && track < 16 && index < control::track_parameters, "Invalid set");
     ++sets;
     if (track >= control::tracks) return;
-    bases[track][index] = static_cast<u32>(v < 0 ? 0 : v);
+    (pattern[track] ? second_bases : bases)[track][index] = static_cast<u32>(v < 0 ? 0 : v);
     value(track, index) = v < 0 ? 0 : v;
 }
 void stock_live_set(u32 project, u32 track, u32 index, i32 v) {
@@ -62,7 +65,7 @@ i32 stock_shown(u32 project, u32 track, u32 index, u32 flag) {
 // 8d5ac910: the base value, which a stopped page shows.
 i32 stock_base(u32 project, u32 track, u32 index) {
     require(project == kProject && track < control::tracks && index < control::track_parameters, "Invalid base");
-    return static_cast<i32>(bases[track][index]);
+    return static_cast<i32>((pattern[track] ? second_bases : bases)[track][index]);
 }
 // 8d4d6f14: the GUI's selected track.
 u32 selected = 0;
@@ -143,10 +146,14 @@ opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Addre
     if (address == 0x86bd0080) return reinterpret_cast<Address>(&ticks96);
     if (address == 0x860c9b39) return reinterpret_cast<Address>(&playing[0]);
     if (address == 0x860c9b3a) return reinterpret_cast<Address>(&playing[1]);
-    if (address >= kBlocks + 0x3864 && address < kBlocks + control::tracks * kBlockBytes) {
-        const u32 track = (address - kBlocks) / kBlockBytes, at = address - kBlocks - track * kBlockBytes - 0x3864;
+    if (address == 0x840a0524) return reinterpret_cast<Address>(&project_word);
+    if (address >= kBlocks && address < kBlocks + 32 * kBlockBytes) {
+        const u32 block = (address - kBlocks) / kBlockBytes, track = block % 16;
+        const u32 offset = (address - kBlocks) % kBlockBytes;
+        if (offset == 0x18) return reinterpret_cast<Address>(&engines[track]);
+        const u32 at = offset - 0x3864;
         if (track < control::tracks && at < sizeof(bases[0]))
-            return reinterpret_cast<Address>(&bases[track][at / 4]);
+            return reinterpret_cast<Address>(&(block >= 16 ? second_bases : bases)[track][at / 4]);
     }
     std::abort();
 }
@@ -367,5 +374,50 @@ int main() {
     tick(1, "Departed copy's overlay not released");
     require(value(0, 2) == before && value(0, 1) == 500, "Departed copy not released alone");
     engines[6] = 0;
+
+    // Capture restores the edited pattern, never the newly playing one.
+    plan({}); capture = 1;
+    sdk_gui_tick();
+    bases[0][1] = 100; value(0, 1) = 100;
+    sdk_param_edit_set(kProject, 0, 1, 150);
+    pattern[0] = 1;
+    second_bases[0][1] = 700; value(0, 1) = 700;
+    capture = 0;
+    sdk_gui_tick();
+    require(bases[0][1] == 100 && second_bases[0][1] == 700 && value(0, 1) == 700,
+            "Capture restored into a different pattern");
+
+    // Both patterns may be edited in one capture and restore independently.
+    capture = 1; sdk_gui_tick();
+    sdk_param_edit_set(kProject, 0, 1, 750);
+    pattern[0] = 0; value(0, 1) = 100;
+    sdk_param_edit_set(kProject, 0, 1, 200);
+    capture = 0; sdk_gui_tick();
+    require(bases[0][1] == 100 && second_bases[0][1] == 700 && value(0, 1) == 100,
+            "Capture confused two patterns on the same track");
+
+    // A preset/external write supersedes the edit, even in the same pattern.
+    capture = 1; sdk_gui_tick();
+    sdk_param_edit_set(kProject, 0, 1, 150);
+    bases[0][1] = 900; value(0, 1) = 900;
+    capture = 0; sdk_gui_tick();
+    require(bases[0][1] == 900 && value(0, 1) == 900, "Capture overwrote a later base write");
+
+    capture = 1; sdk_gui_tick();
+    sdk_param_edit_set(kProject, 0, 1, 950);
+    bases[0][1] = 800; value(0, 1) = 800;
+    sdk_param_edit_set(kProject, 0, 1, 850);
+    capture = 0; sdk_gui_tick();
+    require(bases[0][1] == 800 && value(0, 1) == 800, "Further edits revived a superseded capture base");
+
+    // A new/load project can reuse the same buffer: discard without touching it.
+    capture = 1; sdk_gui_tick();
+    sdk_param_edit_set(kProject, 0, 1, 950);
+    plan({{0, 1, 0, 1000}}); sdk_gui_tick();
+    sdk_control_forget();
+    bases[0][1] = 1000; value(0, 1) = 1000;
+    capture = 0; plan({}); sdk_gui_tick();
+    require(bases[0][1] == 1000 && value(0, 1) == 1000 && original_count == 0,
+            "Old capture or overlay leaked into a replacement project");
     return 0;
 }

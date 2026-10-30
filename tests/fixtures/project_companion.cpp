@@ -6,6 +6,7 @@
 #include <string>
 #include <project_companion.cpp>
 #include <track_control_project.cpp>
+extern "C" void sdk_control_forget() {}
 
 extern "C" opxy::u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }
 extern "C" void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }

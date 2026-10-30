@@ -340,7 +340,10 @@ time: the one already capturing while it asks, otherwise the first track
 asking; `input.capturing` tells a copy its capture is in effect. When the
 capturing copy returns 0, or leaves its track, every parameter edited during the capture
 returns to its value from before it, so a machine can record edits without
-keeping them. Edits made while a step is held (parameter locks) and changes
+keeping them. Restoration is tied to the edited pattern, including when another
+pattern is now playing; it does not replace a subsequent external base write.
+Loading or creating a project discards outstanding edits and overlays without
+restoring them into the replacement project. Edits made while a step is held (parameter locks) and changes
 from MIDI or presets are not captured. Like the display, `control` is bounded
 and allocation-free; it is not an audio callback. Browser previews do not run
 it.
