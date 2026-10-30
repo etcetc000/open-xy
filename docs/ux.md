@@ -15,8 +15,9 @@ is the reference for each of them.
   machine by turning it, without a manual.
 - **Seen as much as heard.** A control's visual change is in proportion to
   how much it changes the sound: one with a big audible effect moves the
-  picture a lot, a subtle one moves it subtly, but always visibly. Exaggerating
-  a quiet control misleads the player about what matters.
+  picture a lot, a subtle one moves it less, but it stays easy to see while
+  it turns. Exaggerating a quiet control misleads the player about what
+  matters; hiding it leaves them guessing.
 - **One clear subject.** A screen shows one object or scene the sound acts on,
   not a dashboard of meters.
 - **Calm by default.** An idle screen is still; motion answers a note, a press
@@ -117,7 +118,10 @@ How a screen looks is the machine's own. These hold whatever it draws.
   tiny mark or a faint change of grey doesn't count.
 - **Scale motion to the sound.** Judge each control's audible effect across
   its range, by ear or by the change in level or band energy, and scale its
-  visual travel to match, keeping a small visible minimum.
+  visual travel to match, keeping a generous minimum so the quietest control
+  is still easy to see moving. Too subtle reads as broken. A shade fades
+  through the greys rather than jumping, a moving part eases through its poses
+  rather than snapping, and no control is only an on/off change in the drawing.
 - **Keep the redraw small.** The device redraws only what changed, and that
   redraw is the cost; host time per frame doesn't show it. Aim for about 20
   changed nodes a frame on average while notes sound, with a low peak, at
