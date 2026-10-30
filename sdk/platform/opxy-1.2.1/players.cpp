@@ -12,6 +12,7 @@
 #include "keyboard_octaves.hpp"
 #include "players.hpp"
 #include "player_activity.hpp"
+#include "player_plans.hpp"
 #include "registration.hpp"
 
 extern "C" {
@@ -98,17 +99,17 @@ opxy::player::Controls player_controls(void* object) {
 
 void play_plan(void* object, u32 root, const Plan& plan) {
     volatile u32& held = *reinterpret_cast<volatile u32*>(bytes(object) + kHeld);
-    if (!plan.count || plan.count > opxy::player::max_tones || held >= kMaxHeld) return;
-    ChordRecord& record = reinterpret_cast<ChordRecord*>(bytes(object) + kRecords)[held];
-    for (u32 i = 0; i < plan.count; ++i) {
-        record.tones[i].delay = plan.tones[i].delay;
-        record.tones[i].pitch = plan.tones[i].pitch;
-        record.tones[i].velocity = plan.tones[i].velocity;
-        record.tones[i].unused[0] = record.tones[i].unused[1] = 0;
-    }
-    record.count = plan.count;
-    record.root = root;
-    held = held + 1;  // publish the filled record
+    if (!plan.count) return;  // silent input must not alter an existing root
+    player_store(reinterpret_cast<ChordRecord*>(bytes(object) + kRecords), held,
+        root, plan, false, false, [object](u32 note) { stock<void(void*, u32)>(kMaestroRelease)(object, note); });
+}
+
+void update_plan(void* object, const opxy::player::Update& update) {
+    if (update.mode != opxy::player::Replace && update.mode != opxy::player::Add) return;
+    volatile u32& held = *reinterpret_cast<volatile u32*>(bytes(object) + kHeld);
+    player_store(reinterpret_cast<ChordRecord*>(bytes(object) + kRecords), held,
+        update.root, update.plan, true, update.mode == opxy::player::Add,
+        [object](u32 note) { stock<void(void*, u32)>(kMaestroRelease)(object, note); });
 }
 
 void player_output(void* object, opxy::player::Display& display) {

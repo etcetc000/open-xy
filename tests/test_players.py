@@ -67,7 +67,7 @@ class PlayerContracts(unittest.TestCase):
         self.assertIn('player_output(object, shown)', first)
         self.assertEqual(len(vtable()), 16)
         for i, entry in enumerate(vtable()):
-            self.assertEqual('0x' not in entry, i in {2, 3, 5, 6})
+            self.assertEqual('0x' not in entry, i in {2, 3, 5, 6, 7, 10})
 
     def test_catalog_player_is_not_an_instrument(self):
         profile = config()
@@ -125,6 +125,45 @@ template<class Function> Function* stock(u32) { return reinterpret_cast<Function
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_live_plan_edits_preserve_queues_and_root_ownership(self):
+        binary = self.root / ('plans.exe' if os.name == 'nt' else 'plans')
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
+                        '-I'+str(PLATFORM), str(ROOT/'tests/fixtures/player_plans.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_optional_update_and_reset_callbacks(self):
+        adapters.generate_player_object(self.root, replace(self.machine, display='stock'))
+        (self.root / 'player.cpp').write_text('''#include <opxy/player.hpp>
+namespace probeplayer {
+struct State { unsigned pending, option; };
+bool press(State& s, const opxy::player::Controls&, opxy::u32 note,
+           opxy::u32, opxy::player::Plan& plan) {
+    plan.count=0; if(note==60) s.pending=2; return true;
+}
+bool release(State& s, opxy::u32) { s.pending=1; return false; }
+bool update(State& s, const opxy::player::Controls&, opxy::player::Update& u) {
+    if(!s.pending) return false;
+    --s.pending; u.root=60; u.mode=opxy::player::Add; u.plan.count=0; return true;
+}
+void reset(State& s) { s.pending=0; }
+}
+''', encoding='utf-8')
+        (self.root / 'stock.hpp').write_text('''#include <opxy/types.hpp>
+const void* stock_address(opxy::u32);
+namespace opxy { namespace platform {
+template<class F> F* stock(u32 address) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(address))); }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('updates.exe' if os.name == 'nt' else 'updates')
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(self.root),
+                        '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_updates.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_activity_and_keyboard_range(self):
         binary = self.root / ('activity.exe' if os.name == 'nt' else 'activity')
         flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
@@ -178,5 +217,9 @@ class StockPlayer(unittest.TestCase):
         at = mapped_offset(ldr(data), 0x8409f6d0, 64)
         words = struct.unpack('<16I', data[at:at+64])
         for i, entry in enumerate(vtable()):
-            if i not in {2, 3, 5, 6}:
+            if i not in {2, 3, 5, 6, 7, 10}:
                 self.assertEqual(int(entry.split('(')[1].rstrip(')'), 16), words[i])
+        header = (PLATFORM / 'players.hpp').read_text(encoding='utf-8')
+        for index, name in ((6, 'Release'), (7, 'Reset'), (10, 'AllOff')):
+            address = int(re.search(r'kMaestro'+name+r' = (0x[0-9a-f]+)', header)[1], 16)
+            self.assertEqual(address, words[index])

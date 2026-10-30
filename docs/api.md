@@ -603,6 +603,21 @@ with its root; at most eight roots can be held. A ninth plan is dropped.
 its chord. Note callbacks do not allocate, block, log, perform I/O or draw.
 State holds no resources. Display reads are advisory while sequencing runs.
 
+For live changes to held chords, optionally implement
+`bool update(State&, const Controls&, Update&)`. After a taken press or any
+release, the SDK drains at most eight updates, stopping when it returns false.
+An update names an existing `root`, a `plan`, and mode `Replace` or `Add`.
+`Replace` releases the old tones and schedules the new plan; an empty plan
+silences that root. `Add` keeps sounding and queued tones and appends only
+new pitches, up to eight total. A change never starts a root with no current
+record. Invalid MIDI values or counts discard the update without changing
+the chord. Cleared records are immediately reusable, including at capacity.
+
+Optional `void reset(State&)` clears held inputs after stock reset or
+all-notes-off; it can preserve machine settings. Without it, the SDK zeroes
+State. Keep machine root tracking bounded to eight and clear it on root
+release and reset. These callbacks share the same restrictions as `press`.
+
 `Controls.value` contains the four Q31 parameter words. The Maestro controller
 edits them in 64 steps, four choices, continuously, and off/on, respectively.
 `lowest_key` is the track keyboard's lowest F at its current octave. Stock's

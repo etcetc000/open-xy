@@ -16,6 +16,7 @@ namespace opxy { namespace platform {
 void* player_state(void* object) { return object; }
 player::Controls player_controls(void*) { return controls; }
 void play_plan(void*, u32, const player::Plan& plan) { sounded = plan; }
+void update_plan(void*, const player::Update&) { require(false); }
 }}
 extern "C" const char probeplayer_player_id[] = "";
 

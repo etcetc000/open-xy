@@ -633,9 +633,11 @@ The `players` service adds six hooks only when a collection includes a player:
 factory construction, the project-load type guard, two controller lookups,
 and type/name conversion. The authenticated preimages and destinations are
 in the profile. The factory delegates stock types unchanged. An owned type
-uses a stock Maestro object with its type, routing mode, note-on and note-off
-methods replaced; the other twelve method pointers are checked against authenticated
+uses a stock Maestro object with its type, routing mode, note-on, note-off,
+reset and all-notes-off methods replaced; the other ten method pointers are checked against authenticated
 stock OS 1.2.1 during release verification.
+Reset and all-notes-off call their authenticated stock methods before clearing
+machine-held state through its optional reset callback.
 The routing-mode query returns zero, so machine controls cannot enable
 Maestro's special note-routing mode through its fourth encoder.
 
@@ -648,6 +650,11 @@ unchanged stock step emits zero-delay tones and decrements their delays;
 note-off removes the root's record. The GUI snapshots negative-delay tones
 from these records for the output keyboard, bounding every observed count.
 It neither calls the audio renderer nor allocates.
+Optional machine updates replace or extend existing root records after input
+events. Replacements first call the stock root-release method; additions keep
+existing attacks and queued delays. Cleared records can be reused before the
+next stock compaction step. Updates cannot revive a released root and remain
+bounded to eight records of eight tones, with at most eight updates per event.
 
 Player types use the profile's unused 6..31 range and `seq_types` catalog IDs
 are type + 4. The UI selects Maestro's controller for owned types, keeping

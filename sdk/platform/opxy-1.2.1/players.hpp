@@ -33,11 +33,15 @@ opxy::player::Controls player_controls(void* object);
 // Appends one chord record that stock plays from the next step and releases
 // with the key `root`; drops the plan when the object already holds eight.
 void play_plan(void* object, u32 root, const opxy::player::Plan& plan);
+// Changes an existing root only; a stale update cannot revive a released key.
+void update_plan(void* object, const opxy::player::Update& update);
 // GUI snapshot of notes stock has emitted and still holds.
 void player_output(void* object, opxy::player::Display& display);
 // Stock Maestro methods a player keeps.
 const u32 kMaestroVtable = 0x8409f6d0;
 const u32 kMaestroRelease = 0x8d57d744;  // +0x18 (object, note)
+const u32 kMaestroReset = 0x8d57d9a2;    // +0x1c (object)
+const u32 kMaestroAllOff = 0x8d57d414;   // +0x28 (object)
 }}
 
 extern "C" {

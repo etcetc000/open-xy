@@ -18,6 +18,19 @@ static_assert(alignof(State) <= opxy::player::state_alignment, "Player state ali
 namespace {
 using opxy::u32;
 State& state(void* object) { return *static_cast<State*>(opxy::platform::player_state(object)); }
+template<class S> auto next_update(S& s, const opxy::player::Controls& c,
+                                  opxy::player::Update& u, int) -> decltype(update(s, c, u)) {
+    return update(s, c, u);
+}
+template<class S> bool next_update(S&, const opxy::player::Controls&, opxy::player::Update&, long) { return false; }
+template<class S> auto clear_state(S& s, int) -> decltype(reset(s), void()) { reset(s); }
+template<class S> void clear_state(S& s, long) { __builtin_memset(&s, 0, sizeof s); }
+void apply_updates(void* object) {
+    const auto controls = opxy::platform::player_controls(object);
+    opxy::player::Update change;
+    for (u32 i = 0; i < 8 && next_update(state(object), controls, change, 0); ++i)
+        opxy::platform::update_plan(object, change);
+}
 }
 extern "C" {
 extern const void* const @PREFIX@_player_vtable[16];
@@ -33,21 +46,31 @@ static u32 press(void* object, u32 note, u32, u32, u32 velocity) {
     opxy::player::Plan plan;
     if (!@NAMESPACE@::press(state(object), opxy::platform::player_controls(object), note, velocity, plan)) return 0;
     opxy::platform::play_plan(object, note, plan);
+    apply_updates(object);
     return 1;
 }
 // +0x18: note-off (object, note). Stock Maestro releases the chord whose root it is.
 static void release(void* object, u32 note) {
     if (!@NAMESPACE@::release(state(object), note))
         opxy::platform::stock<void(void*, u32)>(opxy::platform::kMaestroRelease)(object, note);
+    apply_updates(object);
+}
+static void reset_player(void* object) {
+    opxy::platform::stock<void(void*)>(opxy::platform::kMaestroReset)(object);
+    clear_state(state(object), 0);
+}
+static void all_off(void* object) {
+    opxy::platform::stock<void(void*)>(opxy::platform::kMaestroAllOff)(object);
+    clear_state(state(object), 0);
 }
 // Stock Maestro's method table with type, mode, note-on and note-off replaced.
 const void* const @PREFIX@_player_vtable[16] = {
     reinterpret_cast<const void*>(0x8d57d7b4), reinterpret_cast<const void*>(0x8d57d834),
     reinterpret_cast<const void*>(&type), reinterpret_cast<const void*>(&routing_mode),
     reinterpret_cast<const void*>(0x8d57d3d8), reinterpret_cast<const void*>(&press),
-    reinterpret_cast<const void*>(&release), reinterpret_cast<const void*>(0x8d57d9a2),
+    reinterpret_cast<const void*>(&release), reinterpret_cast<const void*>(&reset_player),
     reinterpret_cast<const void*>(0x8d57d408), reinterpret_cast<const void*>(0x8d57d3e4),
-    reinterpret_cast<const void*>(0x8d57d414), reinterpret_cast<const void*>(0x8d57d464),
+    reinterpret_cast<const void*>(&all_off), reinterpret_cast<const void*>(0x8d57d464),
     reinterpret_cast<const void*>(0x8d57d3fc), reinterpret_cast<const void*>(0x8d57d8cc),
     reinterpret_cast<const void*>(0x8d57d3cc), reinterpret_cast<const void*>(0x8d57d3c0)
 };
