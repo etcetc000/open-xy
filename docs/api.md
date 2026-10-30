@@ -6,7 +6,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | Kind | C++ the machine supplies | Example |
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
-| `drum` | The synth callbacks and drawing display, plus per-key model/control callbacks ([synthesis drum kits](#synthesis-drum-kits)), from SDK 1.7 | Independent model selection on 24 keys |
+| `drum` | The synth callbacks and drawing display, plus per-key model/control callbacks ([synthesis drum kits](#synthesis-drum-kits)), from SDK 1.9 | Independent model selection on 24 keys |
 | `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
 | `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
@@ -278,7 +278,7 @@ serialized access.
 
 ## Synthesis drum kits
 
-SDK 1.7 adds `"kind": "drum"`: one registered instrument with independent
+SDK 1.9 adds `"kind": "drum"`: one registered instrument with independent
 model selection and sound controls on 24 keys. It supplies the synth
 lifecycle, a drawing display, and the same resources plus `modelCount`
 (2..16). Each key holds a model and eight controls. The definition declares
@@ -548,8 +548,8 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.7 and builds 1.0 to 1.7 machines |
-| `kind` | `synth`, `drum` (from SDK 1.7), `sample` or `effect` |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.9 and builds 1.0 to 1.9 machines |
+| `kind` | `synth`, `drum` (from SDK 1.9), `sample` or `effect` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |
