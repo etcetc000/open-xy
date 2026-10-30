@@ -39,6 +39,7 @@ struct File { u16 flags; std::string path; u32 position; };
 u32 generation = 1, pointer = 0x1000, pending = 0, dirty_count = 0, restored_count = 0;
 u32 bound = 0, selected = 0;
 u32 encoder_calls = 0, row_destructors = 0;
+u8 save_payload = 77;
 bool enabled = false, fail_read = false, fail_write = false, fail_close = false, fail_rename = false, fail_load = false;
 opxy::arranger::Model model;
 void (*during_save)() = nullptr;
@@ -88,7 +89,7 @@ int rename(const char* from, const char* to) {
     files[to] = files[from]; files.erase(from); return 0;
 }
 u32 save(const char* path) {
-    files[path] = std::vector<u8>(100, 77);
+    files[path] = std::vector<u8>(100, save_payload);
     if (during_save) during_save();
     return 1;
 }
@@ -230,6 +231,10 @@ int main() {
     require(sdk_arranger_project_load("/other.xy", 1) == 1, "replacement stock load");
     sdk_arranger_project_poll();
     require(!test::enabled && !test::model.clip(19), "abandoned candidate cannot attach to next load same buffer/generation");
+    const auto replacement_bytes = test::files["/other.xy"];
+    require(sdk_arranger_project_status() == 1 && sdk_arranger_project_save("/other.xy") == 0,
+        "unvalidated accepted replacement blocks save");
+    require(test::files["/other.xy"] == replacement_bytes, "replacement project remains unchanged on disk");
     ++test::generation;
     require(!sdk_arranger_project_changed(true, 7), "post-edit generation mismatch rejected");
     require(!test::enabled, "rejected edit resets new project state");
@@ -325,5 +330,29 @@ int main() {
     require(sdk_arranger_project_load("/workspace.xy", 1) == 1, "stock loads with malformed sidecar");
     sdk_arranger_project_poll();
     require(!sdk_arranger_project_linear() && !test::model.clip(19), "malformed mode metadata fails closed to Song");
+    require(sdk_arranger_project_status() == 1, "failed restore is visible and quarantined");
+    const auto damaged_project = test::files["/workspace.xy"];
+    const auto damaged_sidecar = test::files["/workspace.xy.oxyl"];
+    test::save_payload = 99;
+    require(sdk_arranger_project_save("/workspace.xy") == 0, "quarantine rejects before native project rewrite");
+    require(test::files["/workspace.xy"] == damaged_project && test::files["/workspace.xy.oxyl"] == damaged_sidecar,
+        "failed restore preserves both original files for recovery");
+    require(sdk_arranger_project_load("/song.xy", 1) == 1, "valid candidate before second rejected load");
+    test::fail_load = true;
+    require(sdk_arranger_project_load("/missing.xy", 1) == 0, "second load rejected before GUI stage apply");
+    test::fail_load = false;
+    sdk_arranger_project_poll();
+    require(test::model.clip(19), "rejected second load must retain first valid stage");
+    require(!sdk_arranger_project_status(), "valid load releases quarantine without reusing failed model");
+    for (u32 pass = 0; pass < 2; ++pass) {
+        test::save_payload = static_cast<u8>(80 + pass);
+        test::model.seek(300 + pass);
+        require(sdk_arranger_project_changed(true, 1), "new revision publishes snapshot");
+        require(sdk_arranger_project_save("/revised.xy") == 1, "different serialized bytes save successfully");
+        require(sdk_arranger_project_load("/revised.xy", 1) == 1, "changed-byte project roundtrip");
+        sdk_arranger_project_poll();
+        require(test::model.clip(19) && test::model.position() == 300 + pass && !sdk_arranger_project_status(),
+            "each revision binds its own serialized bytes and clips");
+    }
     return 0;
 }

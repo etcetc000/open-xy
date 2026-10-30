@@ -127,6 +127,10 @@ i32 piano_insert(void* container, const platform::PianoNote* note) {
 platform::PianoEditor piano(piano_insert);
 bool piano_view;
 platform::ArrangerPendingAdd pending_add{};
+i32 pending_add_slot = -1;
+u32 pending_add_source, pending_add_count;
+arranger::Model pending_add_before{};
+bool pending_add_uncommitted;
 u32 piano_project, piano_generation, piano_slot, piano_track, piano_pattern;
 u32 piano_time, piano_pitch = 60, piano_low = 56, piano_start, piano_window = 7680;
 i32 piano_selected = -1;
@@ -362,28 +366,82 @@ bool add_permitted() {
         !platform::byte(platform::kPlaying + 2) && !platform::byte(platform::kPlaying + 3) &&
         !sdk_arranger_record_status() && !sdk_arranger_bounce_busy();
 }
+const char* add_progress() {
+    using A = platform::ArrangerPendingAdd;
+    switch (pending_add.stage) {
+    case A::project_check: return "ADDING: PROJECT CHECK";
+    case A::history: return "ADDING: HISTORY";
+    case A::create: return "ADDING: CREATE PATTERN";
+    case A::commit: return "ADDING: COMMIT";
+    case A::select: return "ADDING: SELECT";
+    case A::draw: return "ADDING: DRAW";
+    default: return "ADDED EMPTY CLIP";
+    }
+}
 void add_clip() {
-    if (!pending_add.enqueue(add_context(), add_permitted())) announce("ADD REQUIRES STOPPED TIMELINE");
+    if (!pending_add.enqueue(add_context(), add_permitted())) { announce("ADD REQUIRES STOPPED TIMELINE"); return; }
+    pending_add_slot = -1; pending_add_source = pending_add.request.pattern; pending_add_uncommitted = false;
+    announce(add_progress());
+}
+void cancel_pending_add(const char* reason) {
+    if (pending_add_uncommitted) {
+        const bool bound = pending_add.bound(add_context());
+        u32* count = reinterpret_cast<u32*>(pending_add.request.project + 0xd7c +
+            pending_add.request.track * 0x53f44 + 0x53f40);
+        platform::arranger_cancel_added_clip(sdk_arranger_model(), pending_add_before,
+            count, pending_add_count, bound);
+        platform::barrier();
+    }
+    pending_add_uncommitted = false;
+    pending_add.cancel(); history.cancel(); announce(reason);
 }
 void process_pending_add() {
     if (!pending_add.pending) return;
-    platform::ArrangerAddContext request;
-    if (!pending_add.take(add_context(), add_permitted() && sdk_arranger_project_edit_ready(), request)) {
-        announce("ADD CANCELLED: CONTEXT CHANGED"); return;
+    using A = platform::ArrangerPendingAdd;
+    const platform::ArrangerAddContext current = add_context();
+    if (!pending_add.bound(current) || !add_permitted() ||
+        (pending_add.stage <= A::create && !pending_add.context_matches(current)) ||
+        (pending_add.stage != A::project_check && !sdk_arranger_project_edit_ready())) {
+        cancel_pending_add("ADD CANCELLED: CONTEXT CHANGED"); return;
     }
-    arranger::Model& model = sdk_arranger_model();
-    u8* project = reinterpret_cast<u8*>(request.project);
-    u32 source = request.pattern;
-    if (!platform::arranger_pattern_source(project, request.track, source, false)) source = 0;
-    begin_history();
-    const i32 slot = platform::arranger_add_empty_clip(model, project, request.track, request.cursor, source,
-        stock<void(u8*)>(0x8d5844d0));
-    if (commit_edit(slot >= 0, "ADDED EMPTY CLIP")) select_clip(false);
+    if (!pending_add.ready(ui_now()) || pending_add.draw_requested) return;
+    switch (pending_add.stage) {
+    case A::project_check:
+        sdk_arranger_project_poll();
+        if (!pending_add.pending) return;
+        if (!sdk_arranger_project_edit_ready() || !pending_add.bound(add_context())) {
+            cancel_pending_add("ADD CANCELLED: PROJECT NOT READY"); return;
+        }
+        if (!platform::arranger_pattern_source(reinterpret_cast<u8*>(pending_add.request.project),
+                pending_add.request.track, pending_add_source, false)) pending_add_source = 0;
+        break;
+    case A::history:
+        pending_add_before = sdk_arranger_model(); begin_history(); break;
+    case A::create:
+        pending_add_count = platform::word(pending_add.request.project + 0xd7c +
+            pending_add.request.track * 0x53f44 + 0x53f40);
+        pending_add_slot = platform::arranger_add_empty_clip(sdk_arranger_model(),
+            reinterpret_cast<u8*>(pending_add.request.project), pending_add.request.track,
+            pending_add.request.cursor, pending_add_source, stock<void(u8*)>(0x8d5844d0));
+        if (pending_add_slot < 0) { cancel_pending_add("ADD REJECTED: NO SPACE / SOURCE"); return; }
+        pending_add_uncommitted = true;
+        break;
+    case A::commit:
+        if (!commit_edit(pending_add_slot >= 0, "ADDED EMPTY CLIP")) {
+            cancel_pending_add("ADD COMMIT REJECTED"); return;
+        }
+        pending_add_uncommitted = false;
+        break;
+    case A::select: select_clip(false); break;
+    case A::draw: pending_add.draw_requested = true; return;
+    default: return;
+    }
+    pending_add.next(); announce(add_progress());
 }
 
 void timeline_key(u32 key, bool shifted) {
     // The raw key path only captures a request; lifecycle checks and mutation
-    // run on the next GUI poll, outside stock key dispatch.
+    // run as paint-gated stages in GUI polling, outside stock key dispatch.
     if (key == 54 && !shifted && !stop_gesture.pending) { add_clip(); return; }
     sdk_arranger_project_poll();
     if (!sdk_arranger_project_edit_ready() || !view_active()) { announce("PROJECT BUSY"); return; }
@@ -744,6 +802,11 @@ struct Renderer {
     }
     static void frame(Object* o, i32) {
         if (!active || !o->bound) return;
+        if (pending_add.pending && !pending_add.draw_requested) {
+            // Keep the cached scene until publication and selection complete.
+            set_text(o->feedback, add_progress()); set_text(o->status, add_progress());
+            draw(&o->base); pending_add.acknowledge(ui_now()); return;
+        }
         if (menu_open) { render_menu(o); return; }
         hide_menu(o);
         if (piano_view && render_piano(o)) return;
@@ -837,7 +900,13 @@ struct Renderer {
                 bounce_choice.replace ? "REPLACE BELOW - E4 NEXT / STOP CANCEL" : "FREE LANE BELOW - E4 BOUNCE / STOP CANCEL");
         }
         if (*info) set_text(o->feedback, info);
+        if (pending_add.pending) set_text(o->feedback, add_progress());
+        else if (sdk_arranger_project_status() == 1) set_text(o->feedback, "RESTORE FAILED / SAVE BLOCKED");
+        else if (sdk_arranger_project_status() == 2) set_text(o->feedback, "SAVE FAILED / CHANGES NOT SAVED");
         draw(&o->base);
+        if (pending_add.pending && pending_add.draw_requested) {
+            pending_add.cancel(); announce("ADDED EMPTY CLIP");
+        }
     }
 };
 const VTable<Renderer> vtable = {destroy<Object>, destroy<Object>,
@@ -862,6 +931,7 @@ bool consume_play(bool shifted) {
 }
 
 void press(const void* raw, bool shifted) {
+    if (pending_add.pending) return; // Stock encoder release can synthesize a click.
     const Event& event = *static_cast<const Event*>(raw);
     const u32 key = event.words[0];
     // Encoder release synthesizes a press before its matching release. A
@@ -931,6 +1001,14 @@ void sdk_arranger_raw_event(const void* raw) {
     const Event& event = *static_cast<const Event*>(raw);
     const u32 key = event.words[0];
     const bool down = event.words[1] != 0;
+    if (pending_add.pending) {
+        // New presses stay out of stock held bookkeeping. Release keys already
+        // forwarded before the operation, including audition notes and +.
+        if (key < 72 && down && !held(key)) raw_edit_gate.consume(key, true, true, false, false);
+        else if (!down && key < 72 && raw_edit_gate.blocked[key]) raw_edit_gate.consume(key, false, false, true, false);
+        else if (!down) stock_arranger_raw_event(raw);
+        return;
+    }
     // Consume new modal presses before stock held bookkeeping. Releases of
     // keys already owned by stock still flow through, avoiding stuck notes.
     if (key < 72 && raw_edit_gate.blocked[key]) {
@@ -1090,6 +1168,7 @@ void sdk_arranger_release(u32 key) {
 }
 
 void sdk_arranger_encoder(void* controller, u32 encoder, const void* raw) {
+    if (pending_add.pending) return;
     if (!active) { stock<void(void*, u32, const void*)>(0x8c095ab8)(controller, encoder, raw); return; }
     const i32 delta = static_cast<i32>(static_cast<const Event*>(raw)->words[1]);
     const i32 bounded = delta < -128 ? -128 : delta > 128 ? 128 : delta;
@@ -1163,6 +1242,7 @@ void sdk_arranger_encoder(void* controller, u32 encoder, const void* raw) {
 }
 
 void sdk_arranger_encoder_dispatch(u32 encoder, const void* event) {
+    if (pending_add.pending) return;
     if (sdk_arranger_bounce_busy()) return;
     if (menu_open || menu_tool) {
         const i32 raw_delta = static_cast<i32>(static_cast<const Event*>(event)->words[1]);
@@ -1224,10 +1304,10 @@ u32 sdk_arranger_edit_index(const u8* address) {
 
 void sdk_arranger_poll() {
     stock_arranger_poll();
+    if (pending_add.pending) { process_pending_add(); return; }
     sdk_arranger_project_poll();
     sdk_arranger_publish_poll();
     sdk_arranger_bounce_poll();
-    process_pending_add();
     if (!view_active() || piano_view || sdk_arranger_bounce_busy() || bounce_choice.open) {
         menu_open = false; menu_tool = 0; menu_gesture.cancel();
     } else if (arrange_owned && menu_gesture.poll(ui_now())) open_menu();
@@ -1244,6 +1324,7 @@ void sdk_arranger_poll() {
 }
 
 void sdk_arranger_project_restored(bool enabled, u32 track) {
+    pending_add_uncommitted = false; // Lifecycle already replaced the model; never restore old scratch.
     pending_add.cancel();
     bounce_choice.open = bounce_choice.confirmed = false;
     const bool was_editing = editing;

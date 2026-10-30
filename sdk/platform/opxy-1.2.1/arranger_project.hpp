@@ -5,6 +5,8 @@ extern "C" {
 bool sdk_arranger_project_edit_ready() __asm__("sdk_arranger_project_edit_ready");
 bool sdk_arranger_project_linear() __asm__("sdk_arranger_project_linear");
 bool sdk_arranger_project_set_linear(bool linear) __asm__("sdk_arranger_project_set_linear");
+// 0 normal, 1 failed restore (saves blocked to preserve disk pair), 2 save failed.
+opxy::u32 sdk_arranger_project_status() __asm__("sdk_arranger_project_status");
 // MTP file allowlist keeps stock paths and admits their exact arrangement companions.
 opxy::u32 sdk_arranger_mtp_match(const char* pattern, const void* path) __asm__("sdk_arranger_mtp_match");
 void sdk_arranger_general_rows(void* rows, const void* row) __asm__("sdk_arranger_general_rows");

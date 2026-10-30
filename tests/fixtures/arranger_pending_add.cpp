@@ -4,17 +4,26 @@ void require(bool value) { if (!value) std::abort(); }
 using opxy::platform::ArrangerAddContext;
 using opxy::platform::ArrangerPendingAdd;
 int main() {
+    opxy::arranger::Model model{}, before{};
+    opxy::arranger::Clip clip{0, 1, 0, 7680, 0, 7680};
+    require(model.insert(clip) >= 0);
+    opxy::u32 count = 2;
+    opxy::platform::arranger_cancel_added_clip(model, before, &count, 1, false);
+    require(model.clip(0) && count == 2); // Stale project does not touch either owner.
+    opxy::platform::arranger_cancel_added_clip(model, before, &count, 1, true);
+    require(!model.clip(0) && count == 1);
+    require(model.insert(clip) >= 0); count = 3;
+    opxy::platform::arranger_cancel_added_clip(model, before, &count, 1, true);
+    require(!model.clip(0) && count == 3); // Never shrink someone else's newer append.
     ArrangerPendingAdd queue{};
     const ArrangerAddContext initial{100, 7, 2, 7680, 1, -1};
-    ArrangerAddContext out{}, changed = initial;
+    ArrangerAddContext changed = initial;
     require(!queue.enqueue(initial, false));
     changed.project = 0; require(!queue.enqueue(changed, true));
     require(queue.enqueue(initial, true));
     changed = initial; changed.cursor = 9000;
-    require(!queue.enqueue(changed, true)); // Repeats neither duplicate nor replace.
-    require(queue.take(initial, true, out));
-    require(out.cursor == initial.cursor && out.project == initial.project);
-    require(!queue.take(initial, true, out)); // Cleared before caller mutation.
+    require(!queue.enqueue(changed, true));
+    require(queue.context_matches(initial)); // Repeat cannot replace request.
     for (unsigned field = 0; field < 6; ++field) {
         changed = initial;
         if (field == 0) ++changed.project;
@@ -23,14 +32,22 @@ int main() {
         if (field == 3) ++changed.cursor;
         if (field == 4) ++changed.pattern;
         if (field == 5) ++changed.selection;
-        require(queue.enqueue(initial, true));
-        require(!queue.take(changed, true, out));
-        require(!queue.pending);
+        require(!queue.context_matches(changed));
+        require(queue.bound(changed) == (field >= 2));
     }
+    for (unsigned stage = ArrangerPendingAdd::project_check; stage <= ArrangerPendingAdd::draw; ++stage) {
+        require(queue.stage == stage && !queue.ready(10000));
+        queue.acknowledge(1000); queue.acknowledge(1199); // Repaints do not restart delay.
+        require(!queue.ready(1199) && queue.ready(1200));
+        if (stage != ArrangerPendingAdd::draw) queue.next();
+    }
+    queue.draw_requested = true;
+    require(queue.pending); // Completion waits until normal frame returns.
+    queue.cancel();
+    require(!queue.pending && !queue.painted && !queue.draw_requested && !queue.ready(10000));
     require(queue.enqueue(initial, true));
-    require(!queue.take(initial, false, out)); // View/transport/record/bounce/readiness changed.
-    require(!queue.pending);
-    require(queue.enqueue(initial, true)); queue.cancel();
-    require(!queue.take(initial, true, out)); // Project restoration cancels even reused IDs.
-    require(queue.enqueue(initial, true)); require(queue.take(initial, true, out));
+    queue.acknowledge(0xffffff80u);
+    require(!queue.ready(0x47u) && queue.ready(0x48u)); // Clock rollover.
+    queue.cancel(); // Project restoration cancels even reused identities.
+    require(queue.enqueue(initial, true) && !queue.ready(10000));
 }

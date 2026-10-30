@@ -22,7 +22,8 @@ State published, captured, staged, decode_scratch;
 const State empty_state;
 alignas(4) volatile u32 writer_intent, reader_intent, revision, retry, stage_ready, stage_cancelled, load_busy;
 u32 published_revision, published_generation, gui_generation, captured_revision, captured_generation, staged_generation;
-bool gui_bound, gui_active, publish_pending, published_bound, staged_recovered;
+bool gui_bound, gui_active, publish_pending, published_bound, staged_recovered, staged_failed;
+alignas(4) volatile u32 protected_generation, protection_active, io_status;
 u32 observed_retry, staged_pointer, gui_pointer;
 u8 gui_track;
 Binding staged_binding;
@@ -96,15 +97,18 @@ bool measure(const char* path, Binding& binding) {
 }
 bool restore_sidecar(const char* path, const Binding& binding) {
     File* file = open(path, "rb");
+    // No verified errno API: null may mean absent or denied. Preserve stock-project
+    // compatibility; only an opened but invalid companion can prove failed recovery.
     if (!file) return false;
+    staged_failed = true; // An existing unreadable/invalid companion must survive recovery.
     const u32 n = read(buffer, sizeof buffer, file);
     const bool ended = eof(file);
     const int result = close(file);
     return ended && result == 0 && n <= max_bytes && decode(buffer, n, binding, staged, decode_scratch);
 }
 bool restore_file(const char* path) {
-    staged_recovered = false;
-    if (!paths(path) || !measure(path, staged_binding)) return false;
+    staged_recovered = false; staged_failed = false;
+    if (!paths(path) || !measure(path, staged_binding)) { staged_failed = true; return false; }
     if (restore_sidecar(sidecar, staged_binding)) return true;
     // A complete temp can survive interruption after the project save but before rename.
     staged_recovered = restore_sidecar(temporary, staged_binding);
@@ -131,6 +135,7 @@ bool write_file(const char* path) {
     return stock<int(const char*, const char*)>(0x8fed0908)(temporary, sidecar) == 0;
 }
 void apply(const State& state, u32 current) {
+    if (!gui_bound || gui_generation != current) io_status = 0;
     sdk_arranger_model() = state.model;
     gui_active = state.enabled; gui_track = state.track;
     gui_generation = current; gui_pointer = word(0x840a0524); gui_bound = true;
@@ -173,7 +178,17 @@ void sdk_arranger_project_poll() {
     }
 }
 
+u32 sdk_arranger_project_status() {
+    barrier();
+    if (protection_active && protected_generation == generation()) return 1;
+    return io_status;
+}
+
 u32 sdk_arranger_project_save(const char* path) {
+    barrier();
+    // Reject before stock changes .xy: keeping only the old sidecar would still
+    // destroy its exact-byte binding. Protection belongs to this project generation.
+    if (protection_active && protected_generation == generation()) return 0;
     if (!platform::arranger_try_lock(&operation_busy)) {
         operation_conflict = 1; ++retry;
         return stock<u32(const char*)>(0x8d585e98)(path);
@@ -183,7 +198,8 @@ u32 sdk_arranger_project_save(const char* path) {
     // 8d585e98 forwards serializer R0 unchanged after its call at 8d585eda.
     const u32 result = stock<u32(const char*)>(0x8d585e98)(path);
     if (!result || !captured_ok || operation_conflict || captured_generation != generation() ||
-        captured_revision != revision || !write_file(path)) ++retry;
+        captured_revision != revision || !write_file(path)) { ++retry; io_status = 2; }
+    else io_status = 0;
     barrier(); operation_busy = 0;
     return result;
 }
@@ -195,12 +211,20 @@ u32 sdk_arranger_project_load(const char* path, u32 commit) {
     if (stage_ready) {
         // A new accepted load must never inherit an abandoned/older candidate.
         // Keep its memory immutable until GUI acknowledges; reset the new project.
-        stage_cancelled = 1; barrier();
-        return stock<u32(const char*, u32)>(0x8d5890b0)(path, commit);
+        const u32 before = generation();
+        const u32 result = stock<u32(const char*, u32)>(0x8d5890b0)(path, commit);
+        if (result) {
+            protected_generation = before + 1; protection_active = 1;
+            stage_cancelled = 1; barrier();
+        }
+        return result;
     }
     if (!platform::arranger_try_lock(&operation_busy)) {
         operation_conflict = 1; ++retry;
-        return stock<u32(const char*, u32)>(0x8d5890b0)(path, commit);
+        const u32 before = generation();
+        const u32 result = stock<u32(const char*, u32)>(0x8d5890b0)(path, commit);
+        if (result) { protected_generation = before + 1; protection_active = 1; barrier(); }
+        return result;
     }
     operation_conflict = 0; load_busy = 1;
     const u32 before = generation();
@@ -214,6 +238,9 @@ u32 sdk_arranger_project_load(const char* path, u32 commit) {
         if (!same_file || operation_conflict) staged = empty_state;
         else if (staged_recovered) ++retry;
         staged_generation = before + 1;
+        protected_generation = staged_generation;
+        protection_active = (!same_file && staged_failed) || operation_conflict;
+        io_status = 0;
         staged_pointer = commit ? word(0x840a0524) : word(0x840a0528);
         stage_cancelled = 0; barrier(); stage_ready = 1;
     }
