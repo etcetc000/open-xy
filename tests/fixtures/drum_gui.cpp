@@ -56,7 +56,7 @@ void shown(u32 a, u32 b, u32 c, u32 d) {
 
 extern "C" {
 // Engine 37 groups its five models as two and three; engine 38 has 33, so it
-// stores slots 6 and 7 at 64 steps.
+// stores slots 6 and 7 at 64 steps, and its press pages the whole row.
 static const opxy::u8 group_sizes[] = {2, 3};
 static const char* const group_names[] = {"ONE", "TWO"};
 const opxy::platform::DrumMachine sdk_drum_machines[] = {
@@ -68,7 +68,7 @@ const opxy::u32 sdk_drum_machine_count = 3;
 const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false},
     {reinterpret_cast<const char*>(37), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false},
-    {reinterpret_cast<const char*>(38), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false}
+    {reinterpret_cast<const char*>(38), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
 };
 const opxy::u32 sdk_synth_control_count = 3;
 }
@@ -226,11 +226,12 @@ int main() {
         sdk_drum_edit(54, 7, up, 0);
         require(publications == still);
 
-        // 64 steps on slots 6 and 7: a detent moves a step, to 127 at the top,
-        // and the other slot keeps its nearest step.
+        // A paged kit: a press moves the whole row, slot 7 too though this
+        // model leaves it unnamed. 64 steps on slots 6 and 7: a detent moves
+        // a step, to 127 at the top, and the other slot keeps its nearest step.
         engine = 38; key = 55; shifted = false;
         shown(0,1,2,3);
-        sdk_synth_press(2); ++presses; shown(0,1,6,3);
+        sdk_synth_press(2); ++presses; shown(4,5,6,7);
         sdk_drum_edit(55, 2, up, 0);
         require(sdk_drum_values(0, &m, v) && m == 0 && v[6] == 28 && v[7] == 56 && v[5] == 25);
         const u32 far[3] = {0, 100, 0};
@@ -238,7 +239,7 @@ int main() {
         require(sdk_drum_values(0, &m, v) && v[6] == 127);
         sdk_drum_edit(55, 2, back5, 0);
         require(sdk_drum_values(0, &m, v) && v[6] == 116);   // step 63 less five
-        sdk_synth_press(2); ++presses; shown(0,1,2,3);
+        sdk_synth_press(0); ++presses; shown(0,1,2,3);
         engine = 34; key = 53;
     }
 

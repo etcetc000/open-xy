@@ -286,7 +286,9 @@ stores every control at 128 steps; a larger kit stores slots 6 and 7 at 64
 (0, 2, ..., 124 and 127), each turn moving a step, and its other controls at
 128. The definition declares
 the eight controls: slots 0..3 on the four encoders, slots 4..7 their
-alternates, one per encoder, switched by pressing it. As on stock Drumline,
+alternates, one per encoder, switched by pressing it; with `"press": "page"`,
+as a synth's two pages, any press switches the whole row between slots 0..3
+and 4..7, and a slot the key's model leaves unnamed shows blank. As on stock Drumline,
 Shift and the first encoder choose the selected key's model, and Shift and
 the second encoder its choke group, NONE or 1..3; keys sharing a group cut
 each other off. While Shift is held the first encoder's cell shows MACHINE and

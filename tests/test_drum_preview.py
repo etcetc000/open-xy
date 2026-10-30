@@ -24,6 +24,15 @@ class DrumPreviewTests(unittest.TestCase):
             definition['resources'].update(modelCount=12, sharedBytes=700000)
         return definition
 
+    def test_a_drum_kit_may_page_its_whole_row(self):
+        from tooling.definitions import validate_definition
+        definition = self.definition('drum')
+        definition['press'] = 'page'
+        validate_definition(definition, 'drum')
+        definition['press'] = 'slot'
+        with self.assertRaises(ValueError):
+            validate_definition(definition, 'drum')
+
     def test_model_groups_name_consecutive_models_that_add_up_to_the_kit(self):
         from tooling.definitions import validate_definition
         definition = self.definition('drum')

@@ -70,9 +70,10 @@ const SynthControls* machine(u32 track, Track*& t) {
     if (m) {
         const DrumMachine* drum = sdk_drum_machine(engine);
         u8 model, values[kDrumControlCount];
-        if (drum && sdk_drum_values(track, &model, values)) {
-            // A different pad/model may not use the alternate this position
-            // selected. Return that position to primary.
+        // A paged kit's row moves as one: a slot this key's model leaves
+        // unused shows blank. Otherwise a different pad/model may not use the
+        // alternate a position selected: return that position to primary.
+        if (drum && !m->page && sdk_drum_values(track, &model, values)) {
             for (u32 i = 0; i < opxy::page_controls; ++i)
                 if (!drum->used(model, t->slots[i])) t->slots[i] = static_cast<u8>(i);
         }
@@ -154,7 +155,7 @@ void sdk_synth_press(u32 encoder) {
         for (u32 i = 0; i < opxy::page_controls; ++i) {
             if (i != encoder && !m->page) continue;
             const u32 next = m->next[t->slots[i]];
-            if (drum && next != i && !drum->used(model, next)) continue;
+            if (drum && !m->page && next != i && !drum->used(model, next)) continue;
             if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
         }
     } else if (controller == kAuxController && (m = send_effect(selected_track(), t))) {
