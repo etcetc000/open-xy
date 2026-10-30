@@ -3,7 +3,8 @@
 // type in a five-entry table. A player of the collection is built by the stock
 // factory as a Maestro (type 4) and then takes its own method table, so the
 // stock step and release play its chords and the Maestro page and controller
-// edit its four parameters. The hooks (player_hooks.s) ask these functions:
+// edit its four parameters. Its routing mode is fixed independently of those
+// parameters. The hooks (player_hooks.s) ask these functions:
 //   factory 8d57ee6c   build an owned type
 //   load    8d588d94   keep an owned type a project stored
 //   UI      8c0af13a, 8c0af43e  index the controller table with Maestro's entry

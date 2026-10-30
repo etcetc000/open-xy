@@ -1,7 +1,7 @@
 // SDK native ABI for a note player. Only the SDK knows the stock player object
 // and its method table; the player provides State, press and release
-// (opxy/player.hpp). The object is a stock Maestro whose type, note-on and
-// note-off methods are the player's (players.cpp); its other methods, the
+// (opxy/player.hpp). Type, routing mode, note-on and note-off belong to the
+// player bridge (players.cpp); its other methods, the
 // clocked step that plays chord records among them, stay stock.
 #include "player.cpp"
 #include "players.hpp"
@@ -23,6 +23,10 @@ extern "C" {
 extern const void* const @PREFIX@_player_vtable[16];
 // +0x08: the stock player type.
 static u32 type(void*) { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(@PREFIX@_player_id)); }
+// +0x0c: stock uses this query to flag live/sequenced notes with its special
+// playback mode. Maestro reads encoder 4 here; a player's controls belong
+// only to that machine (Chords uses it for spread). Keep ordinary routing.
+static u32 routing_mode(void*) { return 0; }
 // +0x14: note-on (object, note, 0, flag, velocity) from the sequencer, live
 // or played back. Returning 1 takes the note; 0 lets the instrument play it.
 static u32 press(void* object, u32 note, u32, u32, u32 velocity) {
@@ -36,10 +40,10 @@ static void release(void* object, u32 note) {
     if (!@NAMESPACE@::release(state(object), note))
         opxy::platform::stock<void(void*, u32)>(opxy::platform::kMaestroRelease)(object, note);
 }
-// Stock Maestro's method table (8409f6d0) with +0x08, +0x14 and +0x18 replaced.
+// Stock Maestro's method table with type, mode, note-on and note-off replaced.
 const void* const @PREFIX@_player_vtable[16] = {
     reinterpret_cast<const void*>(0x8d57d7b4), reinterpret_cast<const void*>(0x8d57d834),
-    reinterpret_cast<const void*>(&type), reinterpret_cast<const void*>(0x8d57d4a4),
+    reinterpret_cast<const void*>(&type), reinterpret_cast<const void*>(&routing_mode),
     reinterpret_cast<const void*>(0x8d57d3d8), reinterpret_cast<const void*>(&press),
     reinterpret_cast<const void*>(&release), reinterpret_cast<const void*>(0x8d57d9a2),
     reinterpret_cast<const void*>(0x8d57d408), reinterpret_cast<const void*>(0x8d57d3e4),

@@ -67,7 +67,7 @@ class PlayerContracts(unittest.TestCase):
         self.assertIn('player_output(object, shown)', first)
         self.assertEqual(len(vtable()), 16)
         for i, entry in enumerate(vtable()):
-            self.assertEqual('0x' not in entry, i in {2, 5, 6})
+            self.assertEqual('0x' not in entry, i in {2, 3, 5, 6})
 
     def test_catalog_player_is_not_an_instrument(self):
         profile = config()
@@ -88,6 +88,41 @@ class PlayerContracts(unittest.TestCase):
         self.assertEqual(native.absent_symbols(m), {'probeplayer_player': 'kit_absent',
                                                    'probeplayer_screen_register': 'kit_absent'})
         self.assertEqual([step for _, machine, step in native.plan([m]) if machine], ['player_object'])
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_adapter_controls_do_not_enable_stock_playback_mode(self):
+        adapters.generate_player_object(self.root, replace(self.machine, display='stock'))
+        (self.root / 'player.cpp').write_text('''#include <opxy/player.hpp>
+namespace probeplayer {
+struct State { bool modifier; };
+bool press(State& s, const opxy::player::Controls& c, opxy::u32 note,
+           opxy::u32 velocity, opxy::player::Plan& plan) {
+    plan.count = 0;
+    if (note == 65) { s.modifier = true; return true; }
+    plan.count = 1;
+    plan.tones[0] = {static_cast<opxy::u8>(note + (c.value[3] ? 12 : 0)),
+                     static_cast<opxy::u8>(velocity), 0};
+    return true;
+}
+bool release(State& s, opxy::u32 note) {
+    if (note != 65) return false;
+    s.modifier = false; return true;
+}
+}
+''', encoding='utf-8')
+        (self.root / 'stock.hpp').write_text('''#include <opxy/types.hpp>
+void stock_release(void*, opxy::u32);
+namespace opxy { namespace platform {
+template<class Function> Function* stock(u32) { return reinterpret_cast<Function*>(&stock_release); }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('adapter.exe' if os.name == 'nt' else 'adapter')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(self.root),
+                        '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_adapter.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_activity_and_keyboard_range(self):
@@ -143,5 +178,5 @@ class StockPlayer(unittest.TestCase):
         at = mapped_offset(ldr(data), 0x8409f6d0, 64)
         words = struct.unpack('<16I', data[at:at+64])
         for i, entry in enumerate(vtable()):
-            if i not in {2, 5, 6}:
+            if i not in {2, 3, 5, 6}:
                 self.assertEqual(int(entry.split('(')[1].rstrip(')'), 16), words[i])

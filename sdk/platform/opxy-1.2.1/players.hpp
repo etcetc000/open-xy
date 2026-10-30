@@ -1,5 +1,5 @@
 // Note players: a player is a stock Maestro object whose method table
-// replaces the type, note-on and note-off methods (players.cpp). Stock's
+// replaces the type, routing mode, note-on and note-off methods (players.cpp). Stock's
 // clocked step plays the chord records note-on appends, and releases them.
 #pragma once
 #include <opxy/player.hpp>

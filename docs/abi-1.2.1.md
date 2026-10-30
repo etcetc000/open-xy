@@ -633,9 +633,11 @@ The `players` service adds six hooks only when a collection includes a player:
 factory construction, the project-load type guard, two controller lookups,
 and type/name conversion. The authenticated preimages and destinations are
 in the profile. The factory delegates stock types unchanged. An owned type
-uses a stock Maestro object with only its type, note-on and note-off methods
-replaced; the other thirteen method pointers are checked against authenticated
+uses a stock Maestro object with its type, routing mode, note-on and note-off
+methods replaced; the other twelve method pointers are checked against authenticated
 stock OS 1.2.1 during release verification.
+The routing-mode query returns zero, so machine controls cannot enable
+Maestro's special note-routing mode through its fourth encoder.
 
 The stock player object occupies one 64 KiB slot per track. The SDK reserves
 2048 bytes after the stock object for machine state. A plan appends one of
