@@ -55,8 +55,9 @@ void shown(u32 a, u32 b, u32 c, u32 d) {
 }
 
 extern "C" {
+// Every drum kit's press pages its whole row, as the generated table marks it.
 // Engine 37 groups its five models as two and three; engine 38 has 33, so it
-// stores its keys in the prefix code, and its press pages the whole row.
+// stores its keys in the prefix code.
 static const opxy::u8 group_sizes[] = {2, 3};
 static const char* const group_names[] = {"ONE", "TWO"};
 const opxy::platform::DrumMachine sdk_drum_machines[] = {
@@ -66,8 +67,8 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
 };
 const opxy::u32 sdk_drum_machine_count = 3;
 const opxy::platform::SynthControls sdk_synth_controls[] = {
-    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false},
-    {reinterpret_cast<const char*>(37), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false},
+    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+    {reinterpret_cast<const char*>(37), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(38), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
 };
 const opxy::u32 sdk_synth_control_count = 3;
@@ -105,9 +106,9 @@ int main() {
     }
     u32 presses = 0;
     shown(0,1,2,3);
-    sdk_synth_press(1); ++presses; shown(0,5,2,3);
+    sdk_synth_press(1); ++presses; shown(4,5,6,7);   // a press pages the whole row
     const u32 event[3] = {1000, 3, 2};
-    sdk_drum_edit(53, 1, event, 0);   // the second encoder's alternate, slot 5
+    sdk_drum_edit(53, 1, event, 0);   // the second encoder's second row, slot 5
     u8 model = 99, raw[8];
     const u8* record = reinterpret_cast<const u8*>(regions[0]);
     require(drum_marked(record[24]) && drum_unpack(regions[0] + 1, &model, raw));
@@ -133,17 +134,19 @@ int main() {
     require(regions[0][0] == 123456 && regions[0][5] == 987654 && record[26] == 53);
     sdk_synth_turn(0, 0, 5, 0);
     require(turned_slot == 5);
-    // A gap: the third encoder's slot 2 is blank and inert; its alternate,
-    // slot 6, is used. The fourth's alternate, slot 7, is a gap: no toggle.
+    // A gap: the third encoder's slot 2 is blank and inert; the second row
+    // pages in whole, its gap (slot 7) included.
     shifted = false;
+    sdk_synth_press(3); ++presses; shown(0,1,2,3);
     sdk_drum_edit(53, 2, event, 0);
     require(publications == 3 && drum_unpack(regions[0] + 1, &model, raw) && raw[2] == 22);
-    sdk_synth_press(3); ++presses; shown(0,5,2,3);
-    sdk_synth_press(2); ++presses; shown(0,5,6,3);
-    sdk_synth_press(2); ++presses; shown(0,5,2,3);
+    sdk_synth_press(2); ++presses; shown(4,5,6,7);
+    sdk_drum_edit(53, 3, event, 0);   // slot 7, the gap: inert
+    require(publications == 3);
+    sdk_synth_press(0); ++presses; shown(0,1,2,3);
 
     // Shift and the first encoder choose the model, as on Drumline; the
-    // controls stay, and the shorter model returns its missing alternate.
+    // controls stay.
     const u32 one[3] = {0, 1, 0};
     sdk_drum_edit(53, 4, one, 0);
     require(sdk_drum_values(0, &model, raw) && model == 1 && raw[5] == 28 && publications == 4);
@@ -153,7 +156,10 @@ int main() {
     shifted = false;
 
     key = 54; shown(0,1,2,3);
-    sdk_synth_press(1); ++presses; shown(0,1,2,3);   // the shorter model has no slot 5
+    sdk_synth_press(1); ++presses; shown(4,5,6,7);   // the shorter model's second row is blank
+    sdk_drum_edit(54, 1, event, 0);   // and inert
+    require(publications == 4);
+    sdk_synth_press(1); ++presses; shown(0,1,2,3);
     sdk_drum_edit(54, 3, event, 0);   // nor a slot 3: inert
     require(publications == 4);
     require(!std::strcmp(sdk_drum_title(34, 1), "short"));
@@ -163,7 +169,8 @@ int main() {
     sdk_drum_edit(53, 4, back, 0);
     shifted = false;
     require(sdk_drum_values(0, &model, raw) && model == 0 && publications == 5);
-    sdk_synth_press(1); ++presses; shown(0,5,2,3);
+    sdk_synth_press(1); ++presses; shown(4,5,6,7);
+    sdk_synth_press(1); ++presses; shown(0,1,2,3);
 
     const u32 negative[3] = {0, static_cast<u32>(-100000), 0};
     sdk_drum_edit(53, 0, negative, 0);   // the first encoder edits slot 0 now

@@ -176,9 +176,10 @@ def validate_definition(value, kind):
     # Two pages share positions with no alternate; no duplicate saved parameters.
     if 'press' in value:
         alternates = control_positions(value)[SYNTH_POSITIONS:]
-        require(kind in ('synth', 'drum') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+        require(kind == 'synth' and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 len(set(alternates)) == len(alternates),
-                '"press": "page" needs five to eight synth or drum parameters and at most one alternate per position')
+                '"press": "page" needs five to eight synth parameters and at most one alternate per position; '
+                "a drum kit's press always pages its row")
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():
         label(name); keys(preset, names, 'preset')

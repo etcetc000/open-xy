@@ -5,8 +5,6 @@
 #include "synth_controls.hpp"
 #include <opxy/effect.hpp>
 #include "stock.hpp"
-#include "drum_machines.hpp"
-#include "drum_storage.hpp"
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
@@ -67,17 +65,6 @@ const SynthControls* machine(u32 track, Track*& t) {
     const u32 engine = track_engine(track);
     const SynthControls* m = owned(engine);
     t = state(track, m ? engine : 0);
-    if (m) {
-        const DrumMachine* drum = sdk_drum_machine(engine);
-        u8 model, values[kDrumControlCount];
-        // A paged kit's row moves as one: a slot this key's model leaves
-        // unused shows blank. Otherwise a different pad/model may not use the
-        // alternate a position selected: return that position to primary.
-        if (drum && !m->page && sdk_drum_values(track, &model, values)) {
-            for (u32 i = 0; i < opxy::page_controls; ++i)
-                if (!drum->used(model, t->slots[i])) t->slots[i] = static_cast<u8>(i);
-        }
-    }
     return m;
 }
 
@@ -148,14 +135,11 @@ void sdk_synth_press(u32 encoder) {
     if (encoder >= opxy::page_controls) return;
     const u32 controller = top_controller_vtable();
     if (controller == kInstrumentController && word(kInstrumentPage) == 0 && (m = machine(byte(kSelectedTrack), t))) {
-        // A drum key's model may not use the next alternate: its position stays.
-        const DrumMachine* drum = sdk_drum_machine(m->engine());
-        u8 model, values[kDrumControlCount];
-        if (drum && !sdk_drum_values(byte(kSelectedTrack), &model, values)) return;
+        // A paged synth's or a drum kit's press moves the whole row; a slot the
+        // selected key's model leaves unnamed shows blank.
         for (u32 i = 0; i < opxy::page_controls; ++i) {
             if (i != encoder && !m->page) continue;
             const u32 next = m->next[t->slots[i]];
-            if (drum && !m->page && next != i && !drum->used(model, next)) continue;
             if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
         }
     } else if (controller == kAuxController && (m = send_effect(selected_track(), t))) {

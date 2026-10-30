@@ -5,9 +5,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <synth_controls.cpp>
-// This fixture has no synthesis drum kits.
-const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
-bool sdk_drum_values(opxy::u32, opxy::u8*) { return false; }
 
 namespace {
 using opxy::i32;

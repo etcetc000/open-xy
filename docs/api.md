@@ -286,10 +286,10 @@ lifecycle, a drawing display, and the same resources plus `modelCount`
 all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
 and fails a kit with more; on the device such a kit's keys play their defaults
 and turn nothing. The definition declares
-the eight controls: slots 0..3 on the four encoders, slots 4..7 their
-alternates, one per encoder, switched by pressing it; with `"press": "page"`,
-as a synth's two pages, any press switches the whole row between slots 0..3
-and 4..7, and a slot the key's model leaves unnamed shows blank. As on stock Drumline,
+the eight controls: slots 0..3 on the four encoders and slots 4..7 their
+second row, one per encoder. As a synth's two pages (`"press": "page"`), any
+press switches the whole row between slots 0..3 and 4..7, and a slot the key's
+model leaves unnamed shows blank; a drum kit declares no `press`. As on stock Drumline,
 Shift and the first encoder choose the selected key's model, and Shift and
 the second encoder its choke group, NONE or 1..3; keys sharing a group cut
 each other off. While Shift is held the first encoder's cell shows MACHINE and
@@ -325,10 +325,9 @@ grows past 16 models does not carry over the keys it saved before. Names are sta
 strings; parameter labels fit eight characters. Return an empty label for
 unused slots. The screen shows the selected key's controls and labels with
 the track's offsets applied, so a held step shows the values its locks play;
-the display's `Input::model` is the selected key's model. Encoder presses
-switch its main/alternate control; unavailable alternates return to the main
-control. A slot is available when it is below the count and named: an
-unnamed slot shows blank, ignores turns, and a press never selects it. Integer edits already have one-unit precision, including Shift turns.
+the display's `Input::model` is the selected key's model. A slot is available
+when it is below the count and named: an unnamed slot shows blank and ignores
+turns. Integer edits already have one-unit precision, including Shift turns.
 
 The adapter stores the model and the eight controls losslessly in four
 existing per-key preset words (eight 7 bits, the model 4), and marks the pad

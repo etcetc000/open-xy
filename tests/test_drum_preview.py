@@ -24,13 +24,16 @@ class DrumPreviewTests(unittest.TestCase):
             definition['resources'].update(modelCount=12, sharedBytes=700000)
         return definition
 
-    def test_a_drum_kit_may_page_its_whole_row(self):
+    def test_a_drum_kits_press_always_pages_its_whole_row(self):
         from tooling.definitions import validate_definition
+        machine = SimpleNamespace(kind='drum', prefix='kit', definition=self.definition('drum'), engine=None,
+                                  native_name='kit', id='kit')
+        with tempfile.TemporaryDirectory() as folder:
+            table = adapters.generate_synth_controls(folder, [machine]).read_text()
+        self.assertRegex(table, r'kit_format, false, true[,}]')
         definition = self.definition('drum')
-        definition['press'] = 'page'
-        validate_definition(definition, 'drum')
-        definition['press'] = 'slot'
-        with self.assertRaises(ValueError):
+        definition['press'] = 'page'   # nothing to choose
+        with self.assertRaisesRegex(ValueError, "a drum kit's press always pages its row"):
             validate_definition(definition, 'drum')
 
     def test_model_groups_name_consecutive_models_that_add_up_to_the_kit(self):
