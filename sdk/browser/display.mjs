@@ -84,8 +84,8 @@ export class PreviewDisplay {
     this.noteActivity = abi >= 2;
     this.effectRow = abi >= 3;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
-    // Largest declared frame: 4 paths of 64 points, 256 nodes, 16 texts and the header.
-    const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 16 * 36 + 32, 'drawing frame size');
+    // Largest declared frame: 4 paths of 64 points, 256 nodes, 32 texts and the header.
+    const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 32 * 36 + 32, 'drawing frame size');
     this.memory = e.memory.buffer;
     const ranges = [
       [e.opxy_display_state(), this.stateBytes], [e.opxy_display_input(), inputBytes], [e.opxy_display_frame(), frameBytes],
@@ -166,7 +166,7 @@ export class SvgDisplay {
     if (!Array.isArray(nodes) || !Array.isArray(texts) || !Array.isArray(palette) ||
         !Number.isInteger(paths) || paths < 0 || paths > 4 || paths > nodes.length ||
         !Number.isInteger(points) || (paths ? points < 2 || points > 64 : points !== 0) ||
-        nodes.length < 1 || nodes.length > 256 || texts.length > 16 || palette.length < 1 || palette.length > 16) {
+        nodes.length < 1 || nodes.length > 256 || texts.length > 32 || palette.length < 1 || palette.length > 16) {
       throw new Error('Unsupported retained asset bindings');
     }
     this.points = points;

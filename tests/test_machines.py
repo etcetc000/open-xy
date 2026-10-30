@@ -144,6 +144,26 @@ class Identity(unittest.TestCase):
                 else:
                     self.assertEqual(fixture('probefx').dry_level, expected)
 
+    def test_more_than_sixteen_text_slots_need_sdk_1_7(self):
+        real = Path.read_text
+        root = FOLDER / 'probesynth'
+        plain = {k: v for k, v in json.loads(real(root / 'machine.json')).items() if k != 'identity'}
+        definition = json.loads(real(root / 'definition.json'))
+        for version, texts, expected in (('1.6', 16, None), ('1.6', 17, '"sdk": "1.7"'), ('1.7', 32, None),
+                                         ('1.7', 33, 'Display texts must be 0..32')):
+            files = {'machine.json': json.dumps(dict(plain, sdk=version)),
+                     'definition.json': json.dumps(dict(definition, resources=dict(definition['resources'], display=dict(
+                         definition['resources']['display'], texts=texts))))}
+            with self.subTest(version=version, texts=texts), mock.patch.object(
+                    Path, 'read_text',
+                    lambda self, *a, **k: files[self.name] if self.parent == root and self.name in files
+                    else real(self, *a, **k)):
+                if expected:
+                    with self.assertRaisesRegex(ValueError, expected):
+                        machines.machine_at(root)
+                else:
+                    self.assertEqual(machines.machine_at(root).id, 'probesynth')
+
 
 class OutsideMachines(unittest.TestCase):
     """A machine in a folder of its own, such as its own repository."""
