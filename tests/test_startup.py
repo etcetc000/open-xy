@@ -6,7 +6,8 @@ import re
 import unittest
 
 from tooling.native import DEFINITIONS
-from tooling.startup import MAX_ENGINES, render
+from tooling.startup import render
+from tooling.stock_tables import EFFECT_COUNT, ENGINE_COUNT
 
 
 class Startup(unittest.TestCase):
@@ -22,12 +23,21 @@ class Startup(unittest.TestCase):
         self.assertNotIn('probesample_screen_register', text)
 
     def test_rejects_invalid_machine_lists(self):
-        for prefixes in ([], ['probesynth', 'probesynth'], ['Bad'], ['x%d' % i for i in range(MAX_ENGINES + 1)]):
+        for prefixes in ([], ['probesynth', 'probesynth'], ['Bad'], ['x%d' % i for i in range(ENGINE_COUNT + 1)]):
             with self.subTest(prefixes=prefixes[:3]), self.assertRaises(ValueError):
                 render(prefixes)
         for effects, stock_page in ((['probesynth'], ()), ((), ['other'])):
             with self.subTest(effects=effects), self.assertRaises(ValueError):
                 render(['probesynth'], effects, stock_page)
+        with self.assertRaises(ValueError):
+            render(['probesynth'], ['f%d' % i for i in range(EFFECT_COUNT + 1)])
+
+    def test_fills_the_relocated_tables(self):
+        # A collection may use every engine and effect record the firmware relocates.
+        engines, effects = ['x%d' % i for i in range(ENGINE_COUNT)], ['f%d' % i for i in range(EFFECT_COUNT)]
+        text = render(engines, effects)
+        for prefix in (engines[-1], effects[-1]):
+            self.assertIn(f'"{prefix}_', text)
 
 
 if __name__ == '__main__':

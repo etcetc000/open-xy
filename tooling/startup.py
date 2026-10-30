@@ -4,10 +4,9 @@ import re
 
 from .definitions import ROOT
 from .formats import require
-from .stock_tables import ENGINE_SENTINEL
+from .stock_tables import EFFECT_COUNT, ENGINE_COUNT, ENGINE_SENTINEL
 
 TEMPLATE = 'sdk/platform/opxy-1.2.1/startup.cpp.in'
-MAX_ENGINES = 32
 
 
 def _declare(name, signature='()'):
@@ -17,9 +16,9 @@ def _declare(name, signature='()'):
 def render(prefixes, effects=(), stock_page=()):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard."""
-    require(1 <= len(prefixes) <= MAX_ENGINES and len(set(prefixes)) == len(prefixes),
+    require(1 <= len(prefixes) <= ENGINE_COUNT and len(set(prefixes)) == len(prefixes),
             'Startup needs distinct engine prefixes')
-    require(len(set(effects)) == len(effects) <= MAX_ENGINES and not set(effects) & set(prefixes),
+    require(len(set(effects)) == len(effects) <= EFFECT_COUNT and not set(effects) & set(prefixes),
             'Startup needs distinct effect prefixes')
     require(set(stock_page) <= set(prefixes), 'Stock-page engines must be listed engines')
     for prefix in (*prefixes, *effects):

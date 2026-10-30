@@ -54,9 +54,10 @@ jobs:
           fi
       - name: Catalog entries
         env:
-          # A release (staging -> main, ci.yml) repeats no review: every entry was checked
-          # against staging when it merged there, so it compares with staging itself.
-          BASE: ${{ (github.base_ref == 'main' && github.head_ref == 'staging' && github.event.pull_request.head.repo.full_name == github.repository) && 'staging' || github.base_ref }}
+          # A release (staging or release/<version> -> main, ci.yml) repeats no review: every
+          # entry was checked against staging when it merged there, so it compares with the
+          # release's own branch.
+          BASE: ${{ (github.base_ref == 'main' && (github.head_ref == 'staging' || startsWith(github.head_ref, 'release/')) && github.event.pull_request.head.repo.full_name == github.repository) && github.head_ref || github.base_ref }}
           CONTROLS: ${{ contains(github.event.pull_request.labels.*.name, 'controls-changed') && '--allow-control-changes' || '' }}
           CPU: ${{ contains(github.event.pull_request.labels.*.name, 'cpu-carried') && '--allow-carried-cpu' || '' }}
         shell: bash
