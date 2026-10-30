@@ -197,6 +197,7 @@ const u32 kAuxControls = 8, kAuxPatterns = 16;
 const u32 kKeyOrder[] = {0, 1, 10, 11, 12, 13, 14, 15, 2, 3, 4, 5, 6, 7, 8, 9};
 
 void load_kept(const char* path) {
+    sdk_control_forget();
     bool keeping = false;
     for (u32 i = 0; i < sdk_control_machine_count; ++i)
         keeping = keeping || sdk_control_machines[i].load || sdk_control_machines[i].aux;
@@ -243,6 +244,7 @@ void load_kept(const char* path) {
 // After a new project: every machine that keeps data gets nothing back, and
 // every aux track has its stock role.
 void forget_kept() {
+    sdk_control_forget();
     for (u32 i = 0; i < sdk_control_machine_count; ++i) {
         const opxy::platform::ControlMachine& m = sdk_control_machines[i];
         if (m.load && m.ready() == 1) m.load(kept, 0);

@@ -76,7 +76,7 @@ i32 base(u32 track, u32 index) {
 
 // One overlaid parameter: the value written, stock's own value beneath it,
 // and the track of the machine whose overlay it is.
-struct Applied { u8 track, index, wanted, owner; i32 written, underlying; };
+struct Applied { u8 track, index, wanted, owner; i32 written, underlying; u32 block; };
 // Every machine's overlays together.
 const u32 kAppliedCapacity = 2 * control::overlay_capacity;
 Applied applied[kAppliedCapacity];
@@ -111,8 +111,10 @@ u32 capture_track = kNoTrack;
 bool marking[control::all_tracks];
 control::Entry pending[control::edit_capacity];
 u32 pending_count;
-control::Entry originals[kOriginals];
+struct Original { control::Entry edit; u32 block, engine; i32 last; };
+Original originals[kOriginals];
 u32 original_count;
+u32 capture_project;
 // What each track's machine passed to its display last tick.
 i32 shown_words[control::all_tracks][control::display_words];
 
@@ -146,9 +148,20 @@ Applied* find(u32 track, u32 index) {
 // Restoring a base value also makes it stock's value beneath any overlay.
 void end_capture() {
     for (u32 i = 0; i < original_count; ++i) {
-        const control::Entry& o = originals[i];
-        param_set(kProject, o.track, o.index, o.value);
-        if (Applied* a = find(o.track, o.index)) a->underlying = o.value;
+        if (capture_project != word(0x840a0524)) break;
+        const Original& original = originals[i];
+        const control::Entry& o = original.edit;
+        i32* stored = at<i32>(original.block + 0x3864 + o.index * 4);
+        // A replaced engine/preset or another writer owns its new value.
+        if (word(original.block + 0x18) != original.engine || *stored != original.last) continue;
+        if (stock<u32(u32)>(0x8d587708)(o.track) == original.block) {
+            param_set(kProject, o.track, o.index, o.value);
+            if (Applied* a = find(o.track, o.index)) a->underlying = o.value;
+        } else {
+            // Restore the pattern actually edited without publishing it into
+            // the track's new current pattern. Its edit already dirtied the project.
+            *stored = o.value;
+        }
     }
     original_count = 0;
     pending_count = 0;
@@ -242,17 +255,28 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
     turned_tick = gui_ticks;
     if (capture_track < kNoTrack && track < control::tracks && track != capture_track &&
         index < control::track_parameters) {
-        bool known = false;
+        const u32 block = stock<u32(u32)>(0x8d587708)(track);
+        Original* known = nullptr;
         for (u32 i = 0; i < original_count && !known; ++i)
-            known = originals[i].track == track && originals[i].index == index;
+            if (originals[i].edit.track == track && originals[i].edit.index == index && originals[i].block == block)
+                known = &originals[i];
+        if (known && (known->engine != track_engine(track) || base(track, index) != known->last)) {
+            // A new engine/preset or another writer replaced the captured base.
+            // Further edits now restore to that replacement, not the earlier one.
+            known->engine = track_engine(track);
+            known->edit.value = base(track, index);
+        }
         if (!known && original_count < kOriginals) {
-            control::Entry& o = originals[original_count++];
+            known = &originals[original_count++];
+            known->block = block;
+            known->engine = track_engine(track);
+            control::Entry& o = known->edit;
             o.track = static_cast<u8>(track);
             o.index = static_cast<u8>(index);
             o.reserved = 0;
             o.value = base(track, index);
-            known = true;
         }
+        if (known) known->last = value < 0 ? 0 : value;
         if (known && pending_count < control::edit_capacity) {
             control::Entry& e = pending[pending_count++];
             e.track = static_cast<u8>(track);
@@ -264,6 +288,18 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
     param_set(project, track, index, value);
 }
 
+// Called by project load/new-project handling before another GUI tick. It
+// must not dereference stock's project while deserialization is in progress.
+extern "C" void sdk_control_forget() {
+    original_count = pending_count = applied_count = wanted_count = 0;
+    capture_track = kNoTrack;
+    for (u32 t = 0; t < control::all_tracks; ++t) {
+        hosts[t] = nullptr;
+        timed[t] = marking[t] = false;
+        for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = 0;
+    }
+}
+
 extern "C" void sdk_gui_tick() {
     stock<void()>(0x8d580074)();
     ++gui_ticks;
@@ -272,11 +308,16 @@ extern "C" void sdk_gui_tick() {
     if (sdk_aux.tick) sdk_aux.tick();
 
     // A value that differs from the one written is stock's: an edit, a lock or a step.
+    u32 retained = 0;
     for (u32 i = 0; i < applied_count; ++i) {
-        const i32 value = live(applied[i].track, applied[i].index);
-        if (value != applied[i].written) applied[i].underlying = value;
-        applied[i].wanted = 0;
+        Applied a = applied[i];
+        if (a.block != stock<u32(u32)>(0x8d587708)(a.track)) continue;
+        const i32 value = live(a.track, a.index);
+        if (value != a.written) a.underlying = value;
+        a.wanted = 0;
+        applied[retained++] = a;
     }
+    applied_count = retained;
 
     // Every track's ready control machine runs, in track order:
     // each copy of a machine with its own state, except a unique machine that
@@ -348,6 +389,7 @@ extern "C" void sdk_gui_tick() {
     if (!kept) {
         if (capture_track < kNoTrack) end_capture();
         capture_track = asking;
+        capture_project = word(0x840a0524);
     }
 
     // Mark what the machines still overlay; restore and drop the rest.
@@ -370,6 +412,7 @@ extern "C" void sdk_gui_tick() {
             a = &applied[applied_count++];
             a->track = w.track;
             a->index = w.index;
+            a->block = stock<u32(u32)>(0x8d587708)(w.track);
             a->underlying = live(w.track, w.index);
         }
         a->wanted = 1;

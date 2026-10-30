@@ -57,6 +57,8 @@ extern "C" {
 extern const opxy::platform::ControlMachine sdk_control_machines[] __asm__("sdk_control_machines");
 extern const opxy::u32 sdk_control_machine_count __asm__("sdk_control_machine_count");
 void sdk_gui_tick() __asm__("sdk_gui_tick");
+// A project replacement invalidates transient edits/overlays without touching stock's buffers.
+void sdk_control_forget() __asm__("sdk_control_forget");
 // Registers the marks' screen slot on the GUI role, after the machines' screens.
 void sdk_overlay_startup() __asm__("sdk_overlay_startup");
 extern opxy::platform::AuxService sdk_aux __asm__("sdk_aux");
