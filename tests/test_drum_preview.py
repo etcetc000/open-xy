@@ -37,16 +37,17 @@ class DrumPreviewTests(unittest.TestCase):
         from tooling.definitions import validate_definition
         definition = self.definition('drum')
         definition['resources'].update(modelCount=33, modelGroups=[
-            dict(label='TRX', count=13), dict(label='EFM', count=8), dict(label='P I', count=9), dict(label='GND', count=3)])
+            dict(label='TRX', count=13), dict(label='EFM', count=8), dict(label='P-I', count=9), dict(label='GND', count=3)])
         validate_definition(definition, 'drum')
         machine = SimpleNamespace(kind='drum', prefix='kit', definition=definition)
         with tempfile.TemporaryDirectory() as folder:
             table = adapters.generate_drum_callbacks(folder, [machine]).read_text()
         self.assertIn('static const opxy::u8 kit_group_sizes[] = {13, 8, 9, 3};', table)
-        self.assertIn('kit_group_names[] = {"TRX", "EFM", "P I", "GND"};', table)
+        self.assertIn('kit_group_names[] = {"TRX", "EFM", "P-I", "GND"};', table)
         self.assertIn('kit_drum_count, 4, kit_group_sizes, kit_group_names},', table)
         for groups in ([dict(label='ALL', count=33)], [dict(label='A', count=13), dict(label='B', count=19)],
-                       [dict(label='A', count=33), dict(label='B', count=0)], [dict(label='A-B', count=30), dict(label='C', count=3)],
+                       [dict(label='A', count=33), dict(label='B', count=0)], [dict(label='A_B', count=30), dict(label='C', count=3)],
+                       [dict(label='NINE CHAR', count=30), dict(label='C', count=3)],
                        [dict(label='A', count=30), dict(label='C', count=3, extra=1)]):
             definition['resources']['modelGroups'] = groups
             with self.subTest(groups=groups), self.assertRaises(ValueError):

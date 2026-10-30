@@ -152,7 +152,9 @@ def validate_definition(value, kind):
             require(isinstance(groups, list) and 2 <= len(groups) <= 16, 'modelGroups lists 2..16 groups')
             for group in groups:
                 keys(group, ('label', 'count'), 'model group')
-                control_label(group['label'])
+                # Shown in a cell, as a model's name is: eight characters, a hyphen allowed (P-I).
+                require(isinstance(group['label'], str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 -]{0,7}', group['label']),
+                        'A model group label is at most eight letters, digits, spaces or hyphens')
                 require(type(group['count']) is int and group['count'] >= 1, 'A model group holds at least one model')
             require(sum(g['count'] for g in groups) == resources['modelCount'],
                     "modelGroups' counts add up to modelCount")
