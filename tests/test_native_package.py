@@ -132,8 +132,9 @@ class PackageVerification(unittest.TestCase):
         current = json.loads((self.package / 'candidate/content/op1_factory.json').read_bytes())
         # Machines that take over aux tracks are chosen there, not in this list.
         names = [m.native_name for m in self.linked if m.kind != 'effect' and catalog_entry(m)]
-        self.assertEqual(current['engine_types'][:-len(names)], original['engine_types'])
-        self.assertEqual([e['type'] for e in current['engine_types'][-len(names):]], names)
+        stock_count = len(original['engine_types'])
+        self.assertEqual(current['engine_types'][:stock_count], original['engine_types'])
+        self.assertEqual([e['type'] for e in current['engine_types'][stock_count:]], names)
         displays = [m.native_name for m in self.linked if m.display != 'stock']
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}

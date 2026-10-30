@@ -1614,6 +1614,28 @@
       "symbol": "extensions_sample_slice_receive",
       "service": "samples",
       "call": false
+    },
+    {
+      "kind": "hook",
+      "name": "Aux replacement owns page keys and encoder clicks",
+      "address": "0x8c08fd30",
+      "file_offset": "0xc6f6c",
+      "length": 12,
+      "before": "926982ce00c4419100003830",
+      "symbol": "sdk_aux_key_hook",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
+      "name": "Aux replacement owns encoder routing before stock page translation",
+      "address": "0x8c08fa14",
+      "file_offset": "0xc6c50",
+      "length": 8,
+      "before": "0dda0a8434050000",
+      "symbol": "sdk_aux_turn_hook",
+      "call": true,
+      "service": "aux"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

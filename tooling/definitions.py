@@ -84,7 +84,7 @@ EFFECT_BUFFER_LIMIT = 524288
 CONTROL_FIELDS = ('stateBytes', 'stateAlignment')
 # Optional: whether only one copy runs, the data kept with a project, and the
 # machine's own marks (marks.svg.fragment): capture nodes, then line nodes.
-CONTROL_OPTIONS = ('unique', 'savedBytes', 'marks', 'aux')
+CONTROL_OPTIONS = ('unique', 'savedBytes', 'marks', 'aux', 'sharedLfo')
 # The aux tracks (1-based) a machine may take over: those whose stock role the
 # SDK can keep silent (sdk/platform/opxy-1.2.1/aux_tracks.cpp).
 AUX_TRACKS = (12,)
@@ -253,6 +253,7 @@ def validate_synth_resources(resources):
                 1 <= control['savedBytes'] <= SAVED_CAPACITY,
                 f'Track control saves 1 to {SAVED_CAPACITY} bytes with a project')
         require(type(control.get('unique', False)) is bool, 'Track control unique must be true or false')
+        require(type(control.get('sharedLfo', False)) is bool, 'Track control sharedLfo must be true or false')
         require('savedBytes' not in control or control.get('unique') is True,
                 'A track control machine that keeps data with projects must be unique')
         # Track control runs on aux tracks only, so a machine that steers other

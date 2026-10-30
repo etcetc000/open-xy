@@ -4,7 +4,9 @@
 // entry is the track's stock role; each pattern holds its own choice (below).
 // While a machine holds the current pattern, its M1 page shows the machine's
 // own page, its knobs edit the machine's controls (synth_controls.cpp), track
-// control runs it there (track_control.cpp) and the stock role is kept silent. M2..M4 stay stock. Part of the control service.
+// control runs it there (track_control.cpp) and the stock role is kept silent.
+// Page keys and encoders belong to the machine; only an explicitly enabled
+// shared LFO page delegates to stock. Part of the control service.
 //
 // Stock OS 1.2.1, GUI side. The aux controller (method table 0803fb6c) serves
 // tracks 8..15; the selected track is the byte at 840a0534 and its page tab
@@ -62,6 +64,9 @@ extern "C" {
 void sdk_aux_shift_m1() __asm__("sdk_aux_shift_m1");
 opxy::u32 sdk_aux_shift_track(opxy::u32 controller, opxy::u32 track) __asm__("sdk_aux_shift_track");
 opxy::i32 sdk_aux_page() __asm__("sdk_aux_page");
+opxy::u32 sdk_aux_key(opxy::u32, const opxy::u32*) __asm__("sdk_aux_key");
+opxy::u32 sdk_aux_turn(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_aux_turn");
+opxy::u32 sdk_effect_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_effect_turn");
 const char* sdk_aux_lfo_label(opxy::u32 track, opxy::u32 slot) __asm__("sdk_aux_lfo_label");
 void sdk_cv_output(opxy::u32) __asm__("sdk_cv_output");
 void sdk_cv_gate_on(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_cv_gate_on");
@@ -186,6 +191,7 @@ void take(u32 track, u32 choice) {
     const ControlMachine* before = holder(track);
     const ControlMachine* m = choice ? &sdk_control_machines[choice - 1] : nullptr;
     if (!kept || m == before) return;
+    sdk_synth_queue_page_key(control::all_tracks, 0);
     const u32 p = current_pattern(track), bit = 1u << p;
     if (!before) {
         for (u32 i = 0; i < kControls; ++i) kept->values[p][i] = base(track, i);
@@ -495,22 +501,47 @@ void sdk_aux_shift_m1() {
 // presets; 1 when the list opened, else 0 and stock goes on (the sends' effects).
 u32 sdk_aux_shift_track(u32, u32 track) { return open_presets(track) ? 1 : 0; }
 
-// Whether the machine holding a track hides one of its pages ("hidePages").
-bool hides(const ControlMachine& m, u32 tab) {
-    for (u32 i = 0; i < sdk_synth_control_count; ++i) {
-        const SynthControls& c = sdk_synth_controls[i];
-        if (c.engine() == m.engine() && !c.effect) return c.hidden_pages >> tab & 1;
-    }
-    return false;
+// The shared LFO is the only stock page a replacement may use. The predicate
+// also gates encoder presses, before the aux controller receives them.
+bool owns_page(u32 track) {
+    const ControlMachine* m = holder(track);
+    return m && !(m->shared_lfo && word(kAuxTab) == 3);
 }
 
-// 8c08f540: the selected aux track's page on tab 0 while a machine holds it, and
-// on a tab it hides until the GUI tick sets the tab back (synth_pages.cpp); or
-// -1 for stock's.
+// 8c08f540: there is no implicit stock page fallback for a held track.
+// Tabs inherited from another track/pattern resolve to the machine's page.
 i32 sdk_aux_page() {
-    const u32 tab = word(kAuxTab);
     const ControlMachine* m = holder(byte(kSelectedTrack));
-    return m && (tab == 0 || (tab < 4 && hides(*m, tab))) ? static_cast<i32>(m->page_id()) : -1;
+    return m && !(m->shared_lfo && word(kAuxTab) == 3) ? static_cast<i32>(m->page_id()) : -1;
+}
+
+// Before stock's aux key dispatch: CV's M2 may otherwise ignore the key and
+// M3 may toggle its stock function. M2/M3 (and M4 without sharedLfo) are machine
+// actions and leave the current page alone. The callback sees the last key
+// once on its next tick. Encoder clicks have already selected alternates in
+// sdk_synth_press; consume them so CV cannot perform another action.
+// 0 delegates; 1/2 return stock's page-key/click result (0/1) from the stub.
+u32 sdk_aux_key(u32 controller, const u32* event) {
+    const u32 track = byte(kSelectedTrack);
+    const ControlMachine* m = holder(track);
+    if (!m || !event) return 0;
+    const u32 key = event[0];
+    if (key >= 6 && key <= 9) {
+        if (key == 9 && m->shared_lfo) return 0;
+        if (key == 6) stock<void(u32, u32)>(0x8c08f74c)(controller, 0);
+        sdk_synth_queue_page_key(track, key - 5);
+        return 1;
+    }
+    return key >= 10 && key <= 13 && owns_page(track) ? 2 : 0;
+}
+
+// Before stock translates a tab to CV parameter indices. The SDK editor
+// retains stepping, fine turns and locks, but stock CV's page logic never runs.
+u32 sdk_aux_turn(u32, u32 encoder, u32 event) {
+    const u32 track = byte(kSelectedTrack);
+    if (!owns_page(track)) return 0;
+    if (encoder < 8) sdk_effect_turn(kProject, track, encoder % 4, event);
+    return 1;
 }
 
 // 8d53d2a0: the name of the aux LFO's engine destination `slot` (0..3, the
@@ -520,6 +551,14 @@ i32 sdk_aux_page() {
 const char* sdk_aux_lfo_label(u32 track, u32 slot) {
     const ControlMachine* m = slot < opxy::page_controls ? holder(track) : nullptr;
     return m ? stock<const char*(u32, u32)>(0x8d506c4c)(m->engine(), slot) : nullptr;
+}
+
+// Audio-side LFO telemetry belongs to the aux service that installs its hook.
+extern "C" void sdk_lfo_aux_publish(u32 track, u32 slot, i32 wave, i32 depth) {
+    stock<void(u32, u32, i32, i32)>(0x8d4d68b8)(track, slot, wave, depth);
+    if (track != kCv) return;
+    const i32 amount = (depth >> 16) * (wave >> 16) * 2;
+    stock<u32(u32, u32)>(0x8d4d666a)(25, (0xa0000000u | kCv << 24) | (slot & 0xff) << 16 | static_cast<u32>(amount) >> 16);
 }
 
 // 8d512214, audio side: CV output, unless a machine holds the CV track.
@@ -574,4 +613,5 @@ void aux_forget() {
 void sdk_aux_startup() {
     sdk_aux = AuxService{aux_engine, aux_tick, aux_kept, aux_restore, aux_forget};
     sdk_aux_engine = aux_engine;
+    sdk_aux_owns_page = owns_page;
 }

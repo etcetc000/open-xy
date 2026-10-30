@@ -72,6 +72,7 @@ void sdk_synth_pages() __asm__("sdk_synth_pages");
 // The hidden page key (2..4 for M2..M4) last pressed on `track` while it was
 // selected, once, or 0.
 opxy::u32 sdk_synth_page_key(opxy::u32 track) __asm__("sdk_synth_page_key");
+void sdk_synth_queue_page_key(opxy::u32 track, opxy::u32 key) __asm__("sdk_synth_queue_page_key");
 // The send page's value text for position `index` of an owned effect, through
 // the hook in screen_hooks.s; every other caption reaches stock unchanged.
 opxy::u32 sdk_fx_value_text(opxy::u32 widget, const char* text, opxy::u32 index, opxy::i32 value)
@@ -87,6 +88,7 @@ void sdk_send_refresh() __asm__("sdk_send_refresh");
 // The machine holding an aux track, as its engine, or 0: set by track control's
 // aux tracks (aux_tracks.cpp) in builds that link them, null in others.
 extern opxy::u32 (*sdk_aux_engine)(opxy::u32) __asm__("sdk_aux_engine");
+extern bool (*sdk_aux_owns_page)(opxy::u32) __asm__("sdk_aux_owns_page");
 // The send page's title for position `index` of the effect on the selected send
 // track: the name of the slot it shows, which a press may have moved to an alternate.
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");

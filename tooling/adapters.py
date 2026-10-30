@@ -517,6 +517,7 @@ def generate_track_controls(directory, machines):
                              f'void {p}_control_load(const opxy::u8*, opxy::u32) __asm__("{p}_control_load");']
         callbacks = f'{p}_control_save, {p}_control_load' if saved else 'nullptr, nullptr'
         unique = 'true' if track_control(m).get('unique') else 'false'
+        shared_lfo = 'true' if track_control(m).get('sharedLfo') else 'false'
         # The aux tracks it may take over, by index; there it shows its own page
         # and starts from its defaults, as stock applies them on tracks 1-8.
         aux = sum(1 << (t - 1) for t in track_control(m).get('aux', ()))
@@ -529,7 +530,7 @@ def generate_track_controls(directory, machines):
         require(not aux or all(len(name) <= 15 for name in m.definition['presets']),
                 'A machine that takes over aux tracks names its presets in at most 15 characters')
         rows.append(f'    {{{p}_engine_id, {p}_ready, {p}_control_reset, {p}_control, "{m.id}", {saved}, {callbacks}, '
-                    f'{unique}, {aux:#x}u, {page}, {{{defaults}}}}},')
+                    f'{unique}, {aux:#x}u, {page}, {{{defaults}}}, {shared_lfo}}},')
     return expand('track_control_table.cpp.in', dict(CONTROL_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows)),
                   Path(directory) / 'track_control_table.cpp')
 

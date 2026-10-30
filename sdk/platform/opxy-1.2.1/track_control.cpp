@@ -234,15 +234,9 @@ namespace {
 const u32 kTelemetry = 0x080376e4, kHeldId = 25, kHeldTrack = 11, kHeldTag = 0xa0000000u | kHeldTrack << 24;
 }
 
-extern "C" void sdk_lfo_aux_publish(u32 track, u32 slot, i32 wave, i32 depth) {
-    stock<void(u32, u32, i32, i32)>(0x8d4d68b8)(track, slot, wave, depth);
-    if (track != kHeldTrack) return;
-    const i32 amount = (depth >> 16) * (wave >> 16) * 2;
-    stock<u32(u32, u32)>(0x8d4d666a)(kHeldId, kHeldTag | (slot & 0xff) << 16 | static_cast<u32>(amount) >> 16);
-}
-
 extern "C" i32 sdk_lfo_held_amount(u32 track, u32 index, i32 stock_amount) {
     if (track != kHeldTrack || !hosts[track]) return stock_amount;
+    if (!hosts[track]->shared_lfo) return 0;
     const u32 held = word(kTelemetry + kHeldId * 4);
     if ((held & 0xff000000u) != kHeldTag) return stock_amount;
     if (!byte(stock<u32(u32)>(0x8d587708)(track) + 0x24) || ((held >> 16) & 0xff) != index) return 0;
@@ -291,6 +285,7 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
 // Called by the GUI tick after a project load or new project, before the
 // machines run (sdk_control_kept_apply). It touches none of stock's buffers.
 extern "C" void sdk_control_forget() {
+    sdk_synth_queue_page_key(kNoTrack, 0);
     original_count = pending_count = applied_count = wanted_count = 0;
     capture_track = kNoTrack;
     for (u32 t = 0; t < control::all_tracks; ++t) {

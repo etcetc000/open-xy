@@ -43,7 +43,7 @@ const u32 saved_capacity = 8192;
 struct Entry { u8 track, index; u16 reserved; i32 value; };
 
 struct Input {
-    u32 track;  // the track this copy is on: an instrument track, or an aux track it took over
+    u32 track;  // the aux track this machine holds (zero-based)
     // Each track's live values as stock sets them (sequenced, locked or
     // edited), without any machine's overlay.
     i32 values[all_tracks][track_parameters];
@@ -59,8 +59,9 @@ struct Input {
     // The project's tempo and the song position (96 ticks per quarter note,
     // advancing only while playing), for anything that follows the music.
     Transport transport;
-    // A stock page key the machine hides ("hidePages"), pressed on its track
-    // since the last tick: 2..4 for M2..M4, or 0. The page does not change.
+    // Last directly handled page key since the last tick: 1..4 for M1..M4,
+    // or 0. M1 selects the machine page; M2/M3 leave the current page alone.
+    // With sharedLfo enabled, M4 belongs to the shared LFO and is not delivered.
     u32 page_key;
     // 1 while the machine's track is muted in the current scene (aux + track
     // key, or the mixer). As stock's brain does nothing while muted, none of

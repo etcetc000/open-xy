@@ -141,6 +141,7 @@ void tick(u32 expected_writes, const char* message) {
 // The hidden-pages check (synth_controls.cpp) runs once per GUI tick.
 void sdk_synth_pages() { ++page_checks; }
 u32 page_key;
+void sdk_synth_queue_page_key(u32, u32 key) { page_key = key; }
 u32 sdk_synth_page_key(u32 track) { return track == 2 ? page_key : 0; }
 opxy::u32 sdk_benchmark_cycles() { return cycles; }
 // The aux service's entry points, which its startup fills in on the device.
@@ -150,7 +151,7 @@ const volatile unsigned short* stock_project_tempo() { return &tempo; }
 
 extern "C" {
 const opxy::platform::ControlMachine sdk_control_machines[] = {
-    {reinterpret_cast<const char*>(40), ready, reset, run, nullptr, 0, nullptr, nullptr, true, 1u << 11, nullptr, {}},
+    {reinterpret_cast<const char*>(40), ready, reset, run, nullptr, 0, nullptr, nullptr, true, 1u << 11, nullptr, {}, true},
     {reinterpret_cast<const char*>(41), ready, reset_other, run_other, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}},
     {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}}};
 const opxy::u32 sdk_control_machine_count = 2;
@@ -468,15 +469,13 @@ int main() {
     // pair while its LFO is on, for the slot it targets.
     require(sdk_lfo_held_amount(11, 1, 5) == 5, "Nothing published yet, but stock's amount replaced");
     require(sdk_lfo_held_amount(3, 1, 5) == 5, "Another track's amount replaced");
-    sdk_lfo_aux_publish(3, 1, 0x40000000, 0x40000000);
-    require(lfo_publishes == 1 && telemetry25 == 0, "Another track published or stock's publish skipped");
-    sdk_lfo_aux_publish(11, 1, 0x40000000, 0x40000000);
-    require(lfo_publishes == 2 && (telemetry25 >> 16) == 0xab01, "Own amount not tagged with track and slot");
+    // The aux service publishes this word; its publisher has its own fixture.
+    telemetry25 = 0xab012000;
     require(sdk_lfo_held_amount(11, 1, 5) == 0, "LFO off, but an amount shown");
     cv_lfo_on = 1;
     require(sdk_lfo_held_amount(11, 1, 5) == 0x20000000, "Own amount not shown");
     require(sdk_lfo_held_amount(11, 2, 5) == 0, "Own amount shown on another slot");
-    sdk_lfo_aux_publish(11, 2, -0x40000000, 0x40000000);
+    telemetry25 = 0xab02e000;
     require(sdk_lfo_held_amount(11, 2, 5) == -0x20000000, "Negative amount not kept");
     cv_lfo_on = 0;
     engines[2] = 40;

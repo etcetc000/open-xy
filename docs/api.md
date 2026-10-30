@@ -183,10 +183,8 @@ sound of its own, say) may declare `"hidePages"` at the top of
 track, those keys then leave the page shown as it was, and selecting the track
 while another track shows a hidden page shows the engine page. The SDK
 corrects the page once per GUI tick, so the hidden page may flash for a frame.
-The LFO page (M4) always stays, as on every stock track. A hidden page's key is
-free: a [track control](#track-control) machine (one that steers other tracks,
-which always runs on an aux track) receives it as `page_key`; for other synths
-the key simply does nothing.
+The LFO page (M4) always stays on instrument tracks. Aux replacements own their
+pages and receive their page keys directly; see [aux tracks](#aux-tracks).
 
 A synth may leave a slot empty yet keep later parameters at their indices
 (projects save by index): declare it
@@ -316,31 +314,24 @@ void control(ControlState& state, const opxy::control::Input& input, opxy::contr
 ```
 
 [track_control.hpp](../sdk/include/opxy/track_control.hpp) defines the types.
-`control` runs on the GUI side once per stock GUI tick while the machine is on
-an instrument track, or holds an aux track ([aux tracks](#aux-tracks)). Every
-track control machine on tracks 1-8 runs, in track order, then one holding an
-aux track, so a project can hold several, and several copies of one: each copy has
-its own `ControlState`, which costs `stateBytes` for each of the eight tracks.
-A machine that must run alone adds `"unique": true` to `trackControl`: it has
-one state, and while two or more tracks hold it, none runs and every
-overlay and capture ends as if it had left. A display can tell its user with
-`opxy::control::copies(track)`, the number of tracks holding the
-machine on `track` (browser previews answer 1). `control_reset` runs before a
-copy's first call. A copy of a machine that is not unique is reset again
-whenever it arrives on a track. A unique machine keeps its one state for the
-whole project: it is reset again only after a project is loaded or created,
-just before `control_load` (below), not when it moves to another track or
-comes back to one.
+`control` runs on the GUI side once per stock GUI tick while its machine holds
+an aux track ([aux tracks](#aux-tracks)). Currently only track 12 is supported,
+so one controller runs in each pattern. `unique: true` is required: it has one
+`ControlState`. `opxy::control::copies(track)` reports the number of tracks
+holding that machine (browser previews answer 1). `control_reset` runs before
+its first call, and again only after a project is loaded or created, just
+before `control_load` (below). The machine keeps its state while patterns that
+hold its role (CV) play, and when it comes back.
 
 | `Input` field | Contract |
 | --- | --- |
-| `track` | The track this copy is on: an instrument track, or the aux track it holds |
+| `track` | The aux track the machine holds, zero-based |
 | `capturing` | 1 while this copy's capture is in effect (below) |
 | `values[track][index]` | Every track's 58 live parameter words (`all_tracks`, 16; aux tracks are 8..15), as stock sets them (edits, parameter locks, sequencing), without any machine's overlay. Indices 0..7 are the engine's controls; the rest are stock's own track parameters, in stock's units. The machine's own engine controls are the values its page shows, including its LFO |
 | `edit_count`, `edits` | While capturing: up to 32 encoder edits of other instrument tracks' parameters since the last tick, oldest first, as track, index and edited value |
 | `elapsed_us` | Microseconds since the previous tick, from the core clock: 0 on the first tick after a reset, at most one second |
 | `transport` | The project's tempo in tenths of BPM (0 when unknown), the song position in 96ths of a quarter note, which advances only while playing, and whether the sequencer plays |
-| `page_key` | A stock page key the synth hides (`"hidePages"`), pressed on its track since the last tick: 2 or 3 for M2 or M3, else 0. The page stays as it was, so the key is free for the machine |
+| `page_key` | Last directly handled page key since the last tick: 1..4 for M1..M4, or 0. M1 returns to the machine page; M2/M3 leave the current page alone. With `sharedLfo: true`, M4 belongs to the shared LFO and is not delivered |
 | `muted` | 1 while the machine's track is muted in the current scene (aux + track key, or the mixer). As with stock's brain, a muted machine has no effect: none of its overlays, capture or marks apply. It still runs, so its page can say so |
 
 `overlay` arrives empty; `opxy::control::add` appends up to 64 entries, each a
@@ -436,12 +427,15 @@ is not in tracks 1-8's engine list: it is chosen on its aux track only.
   to the current pattern, is copied with it and saved with the project, and
   chained patterns switch between CV and the machine. While a machine holds the
   playing pattern, CV and gate stay silent. A new project starts with `cv`.
-- **Its page:** M1 shows the machine's display, and its encoders, presses and
-  alternates work as on tracks 1-8. Its `hidePages` and `page_key` work there
-  too: on an aux track M2 and M3 are the track's other pages, and M4, its
-  LFO, always stays. The
-  LFO's four engine destinations, the track's words 0..3, are named after the
-  machine's first four parameters, and move them as on tracks 1-8.
+- **Its interface:** M1 shows the machine's display. Its encoders, clicks,
+  fine turns and parameter locks use the machine's controls directly; CV's
+  page dispatch does not run. M2/M3 are delivered as `page_key` actions and
+  do not open stock pages. `hidePages` is unnecessary for an aux replacement.
+- **Optional shared LFO:** `"sharedLfo": true` in `trackControl` gives M4 to the
+  shared LFO page, naming destinations after the machine's first four
+  parameters. By default M4 is another machine action, no stock page is
+  exposed, and stock LFO modulation is excluded from the machine's controls.
+  The shared LFO uses the track's existing LFO settings.
 - **Its controls:** words 0..7 of track 12, so they are sequenced, locked and
   saved like any track parameter, and `values[11]` holds them. Taking a
   pattern over sets the machine's defaults; giving it back restores the role's
