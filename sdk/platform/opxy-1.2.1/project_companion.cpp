@@ -17,6 +17,8 @@
 // problem leaves the project as saved; the load never fails because of its companion.
 #include "project_companion.hpp"
 #include "stock.hpp"
+#include "master_filter.hpp"
+namespace master_filter = opxy::platform::master_filter;
 
 using opxy::u32;
 using opxy::platform::CompanionMachine;
@@ -150,7 +152,14 @@ void write_companion(u32 bytes, u32 crc) {
         w.put("\n        }");
     }
     w.put(listed ? "\n      },\n" : "},\n");
-    w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }\n  },\n  \"version\": 1\n}\n");
+    w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }");
+    if(*master_filter::owner()) {
+        const auto controls=master_filter::Controls::unpack(master_filter::snapshot());
+        w.put(",\n    \"open-xy.master-filter\": {\n      \"version\": 1,\n      \"processor\": \"");
+        w.put(controls.type ? master_filter::owner() : "eq");
+        w.put("\",\n      \"sweep\": ");w.number(controls.sweep);w.put("\n    }");
+    }
+    w.put("\n  },\n  \"version\": 1\n}\n");
     w.flush();
     file_close(file);
 }
@@ -660,6 +669,30 @@ bool other_section(Parser& p, bool& ok) {
     return read;
 }
 
+u32 master_packet=master_filter::initial_packet;
+bool master_applies;
+bool master_section(Parser& p,bool& valid) {
+    master_applies=false;master_packet=master_filter::initial_packet;
+    valid=false;
+    if(p.peek()!='{')return p.skip();
+    bool version_ok=false,sweep_ok=false,processor_ok=false;
+    u32 version=0,sweep=512,type=0;
+    const bool read=p.object([&](const Text& key){
+        if(key.is("version"))return p.natural(version,version_ok);
+        if(key.is("sweep"))return p.natural(sweep,sweep_ok);
+        if(!key.is("processor"))return p.skip();
+        processor_ok=false;
+        if(p.peek()!='"')return p.skip();
+        Text id;if(!p.string(id))return false;
+        type=id.is(master_filter::owner()) ? 1 : 0;
+        processor_ok=type || id.is("eq");return true;
+    });
+    valid=version_ok && version>=1;
+    master_applies=valid && version==1 && sweep_ok && sweep<=1023 && processor_ok;
+    if(master_applies)master_packet=master_filter::Controls{sweep,type}.pack();
+    return read;
+}
+
 // Other owners' sections whose last value so far is invalid, by name (at most
 // kKeyBytes, so held whole).
 Text invalid_sections[kInvalidSections];
@@ -683,9 +716,10 @@ bool note_section(const Text& name, bool ok) {
 
 // Reads the companion: true when it is valid and its machines section applies to this
 // firmware, the maps then filled, with the binding it gives.
-bool read_document(File* file, u32& bytes, u32& crc) {
+bool read_document(File* file, u32& bytes, u32& crc, bool& applies) {
     Parser p(file);
-    bool format = false, version = false, binding = false, sections = false, applies = false, valid = false;
+    bool format = false, version = false, binding = false, sections = false, valid = false;
+    applies=false;master_applies=false;master_packet=master_filter::initial_packet;
     clear_maps();
     const bool read = p.object([&](const Text& key) {
         if (key.is("format")) {
@@ -706,6 +740,7 @@ bool read_document(File* file, u32& bytes, u32& crc) {
         if (!key.is("sections")) return p.skip();
         // Only the last sections object counts.
         applies = false;
+        master_applies=false;master_packet=master_filter::initial_packet;
         valid = true;
         invalid_count = 0;
         clear_maps();
@@ -719,6 +754,11 @@ bool read_document(File* file, u32& bytes, u32& crc) {
             }
             if (name.is("open-xy.machines")) return machines_section(p, applies, machines_ok);
             bool ok;
+            if(name.is("open-xy.master-filter") && *master_filter::owner()) {
+                if(!master_section(p,ok))return false;
+                if(!note_section(name,ok))valid=false;
+                return true;
+            }
             if (!other_section(p, ok)) return false;
             if (!note_section(name, ok)) valid = false;
             return true;
@@ -726,7 +766,7 @@ bool read_document(File* file, u32& bytes, u32& crc) {
         valid = valid && machines_ok && !invalid_count;
         return members;
     });
-    return read && p.end() && format && version && binding && sections && valid && applies;
+    return read && p.end() && format && version && binding && sections && valid && (applies || master_applies);
 }
 
 // Rewrites every pattern's machine number on the instrument and send tracks
@@ -751,13 +791,15 @@ void apply_companion(void* project, const char* path) {
     File* file = file_open(read_companion_path, "rb");
     if (!file) return;  // no companion: the numbers are read as saved
     u32 bytes = 0, crc = 0, measured_bytes, measured_crc;
-    const bool applies = read_document(file, bytes, crc);
+    bool machines_apply=false;
+    const bool applies = read_document(file, bytes, crc, machines_apply);
     file_close(file);
     // Saved since by stock or another tool, for other firmware, or invalid: as saved.
     if (!applies || !measure(path, read_chunk, measured_bytes, measured_crc) || measured_bytes != bytes ||
         measured_crc != crc)
         return;
-    remap(static_cast<unsigned char*>(project));
+    if(machines_apply)remap(static_cast<unsigned char*>(project));
+    if(master_applies)master_filter::loaded(static_cast<u32>(reinterpret_cast<opxy::platform::Address>(project)),master_packet);
 }
 }
 
@@ -772,6 +814,7 @@ u32 sdk_project_save(void* project, const char* path) {
 // Stock's deserialize, then the companion's numbers. The project is the inactive buffer,
 // which nothing reads until stock validates it and makes it pending.
 u32 sdk_project_load(void* project, const char* path) {
+    master_filter::clear_pending();
     const u32 loaded = deserialize(project, path);
     if (loaded && project && path) apply_companion(project, path);
     return loaded;

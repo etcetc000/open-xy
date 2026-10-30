@@ -95,7 +95,9 @@ class Services(unittest.TestCase):
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
-        self.assertEqual(steps(machines), list(native.SDK_UNITS))  # full collections keep the link order
+        self.assertEqual(steps(machines), [u for u in native.SDK_UNITS
+                         if native.UNIT_SERVICES.get(u) != 'master_filter'])
+        self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
         without = [m for m in machines if m.kind != 'sample']  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
         self.assertEqual(set(native.object_services(machines).values()), {'samples', 'extensions'})

@@ -123,6 +123,19 @@ which machine was missing. A number two listed machines claim falls back the
 same way, since neither can be trusted. Numbers the section does not list are
 read as saved. A section for another profile is ignored.
 
+## `open-xy.master-filter`
+
+Version 1 contains `processor` (`eq` or the selected master-filter extension's
+`state_id`, defaulting to its ID) and integer `sweep` (0–1023, neutral 512).
+The SDK writes this section only when a master-filter owner is included. It uses the envelope's existing file
+size/CRC binding and the same streaming reader as machine remapping.
+
+A matching companion restores the choice and sweep when its project becomes
+active. Missing/unsupported state, another processor ID, an invalid sweep or a
+binding mismatch selects stock EQ and neutral sweep. Stock EQ parameters stay
+in the stock `.xy`; companions are optional. New projects and abandoned loads
+cannot inherit pending state from another project.
+
 ## Commands
 
 | Command | Does |

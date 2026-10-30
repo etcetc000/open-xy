@@ -623,3 +623,44 @@ supplies only wet audio. The generated adapter exposes the machine's declared
 `dryParameter`, or returns `INT32_MAX` when none is declared, matching stock's
 absent-object fallback. This is a source-mixer control, not a wet/dry crossfade
 inside the effect. See the [effect API](api.md#effects).
+
+
+## Master-filter capability
+
+The conditional `master_filter` service redirects these stock 1.2.1 sites.
+Eight-byte entry branches replay their exact original prologues in adapter
+trampolines before resuming stock. Four-byte call sites remain relative; the
+master audio call retains its eight-byte absolute footprint. The existing
+project save/deserialize hooks are shared, not replaced or duplicated.
+
+| Site | Purpose | Original bytes |
+| --- | --- | --- |
+| `8c093a70` | MIX ordinary buttons entry | `00e80000eb052132` |
+| `8c09392c` | MIX Shift buttons entry | `093200e803006160` |
+| `8c093888` | MIX encoder entry | `4360990900e80300` |
+| `8d537d04` | EQ frame entry | `00e82400e305666f` |
+| `8d511b80` | Master stereo EQ processing call | `00dea011102c0000` |
+| `8d5b145e` | B3 parameter receiver call | `fae397eb` |
+| `8d598a3c` | Active project publication getter call | `ffe3ea5b` |
+| `8d588114` | New-project preparation entry | `00e80c15e305666f` |
+
+MIX page is word `+0x88`, with EQ at index 1; M2 key 7 takes the shifted
+vtable method while Shift is held. Keys 10–13 are encoder clicks. Stock
+continuous stepping is `8d4d6cc8`; an actual edit uses dirty marker `8d585ee8`.
+B3 virtual parameter 128 carries sweep in bits 0–9 and selection in bit 30;
+all such packets, including malformed values, are consumed before stock's
+unbounded parameter setter `8d50eb8c`. Audio state is private to the audio
+role; processing is 64 stereo Q31 samples at 44.1 kHz.
+
+Project publication calls getter `8d584210` after activation. Companion
+state is associated with the deserialized project buffer and consumed once
+when that buffer is published; new-project preparation clears pending state.
+The existing deserialize call at `8d58913e` still performs machine remapping
+before stock validation.
+
+For standalone panels, constructor `8d520844` with ID zero explicitly avoids
+stock screen registration. Per-document loader `8d520ce0` loads that document
+before binding; EQ slot 33 is never overwritten. Path commands remain fixed
+32-byte records (type at +24); the panel adapter checks exact command counts
+and types, caches geometry/palette references and hides degenerate geometry
+with a translation, preserving positive scale. All this runs on the GUI role.

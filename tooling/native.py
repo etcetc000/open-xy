@@ -205,7 +205,8 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'presets')
+             'extension_runtime', 'extension_collection', 'extension_stock', 'presets',
+             'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -213,11 +214,14 @@ UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callba
                                'drum_controls_stock', 'drum_display_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
 
+UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, and
     'extension' when it links extensions (native builds link all of the collection's)."""
-    return [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    return [m.kind for m in machines] + (['extension'] if extensions_of(machines) else []) + (
+        ['master_filter'] if any(e.master_filter is not None for e in extensions_of(machines)) else [])
 
 
 def module_bytes(profile):
@@ -370,6 +374,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
                 return cxx(str(extensions.generate_extension(folder, extension)), obj)
+            if step == 'master_filter_collection':
+                return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
             if step == 'extension_collection':
@@ -544,6 +550,10 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
         entry = word(symbols[table]['value'] + slot)
         require(entry in body, 'Audio entry of ' + m.id + ' is not a function start')
         bounds[m.id] = depth(entry)
+    if 'sdk_master_process' in symbols:
+        entry = symbols['sdk_master_process']['value']
+        require(entry in body, 'Master audio entry is not a function start')
+        bounds['sdk:master_filter'] = depth(entry)
     return bounds
 
 
@@ -741,6 +751,12 @@ def prepare_assets(catalog, profile, machines):
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
+    for e in extensions_of(machines):
+        if e.master_filter is not None:
+            path = e.root / e.master_filter['artwork']
+            name = 'content/display/' + path.name
+            require(name not in outputs, 'Display asset collision: ' + name)
+            outputs[name] = extensions.validate_master_artwork(path)
     return outputs
 
 

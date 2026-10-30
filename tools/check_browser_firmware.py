@@ -9,7 +9,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tooling.formats import elf32, ldr, mapped_offset, require, sha
-from tooling import screen, startup_label
+from tooling import extensions, screen, startup_label
 from tooling.adapters import catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
 from tooling.native import configuration, package_collection
@@ -42,7 +42,9 @@ def main():
     subprocess.run(['node', str(ROOT / 'tools/check_browser_firmware.mjs'), str(directory), str(stock_file), str(content)], check=True)
     kit = json.loads((directory / 'kit.json').read_text(encoding='utf-8'))
     # Definitions of the machines the kit was built from, wherever they live.
-    definitions = {m.id: m.definition for m in configuration(package_collection(directory / 'source'))[1]}
+    collection = configuration(package_collection(directory / 'source'))[1]
+    definitions = {m.id: m.definition for m in collection}
+    extension_sources = {e.id: e for e in collection.extensions}
     stock = stock_file.read_bytes()
     require(sha(stock) == kit['profile']['stock_sha256'], 'Unexpected stock input')
     # 0x8c0c7d04 measures the text using this stock width table, adding
@@ -83,7 +85,9 @@ def main():
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
         services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
-                                   (['extension'] if result['extensions'] else []))
+                                   (['extension'] if result['extensions'] else []) +
+                                   (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
+                                                            for e in kit.get('extensions', [])) else []))
         modes = {}
         for profiling in (True, False):
             profile = copy.deepcopy(kit['profile'])
@@ -142,6 +146,14 @@ def main():
                 name = 'content/display/' + machine['asset']
                 art = screen.compose(machine['artwork'].encode())
                 require((prefix / name).read_bytes() == art, 'Browser artwork differs')
+                expected_files[name] = art
+        for identity in result['extensions']:
+            extension = extension_sources[identity]
+            if extension.master_filter is not None:
+                path = extension.root / extension.master_filter['artwork']
+                name = 'content/display/' + path.name
+                art = extensions.validate_master_artwork(path)
+                require((prefix / name).read_bytes() == art, 'Extension artwork differs')
                 expected_files[name] = art
         with zipfile.ZipFile(prefix.with_suffix('.zip')) as archive:
             require(set(archive.namelist()) == set(expected_files) and archive.testzip() is None, 'Invalid ZIP file')

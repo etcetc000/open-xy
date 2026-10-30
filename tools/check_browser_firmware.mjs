@@ -32,7 +32,7 @@ for (const {name, selected, extensions} of selections) {
   damagedLabel[Number(kit.profile.patches.at(-1).file_offset)] ^= 1;
   assert.deepEqual(await recoverFirmware(kit, damagedLabel), earlier);
   writeFileSync(target + '.ldr', firmware);
-  const files = await buildAssets(kit, selected, catalog, linked.numbers);
+  const files = await buildAssets(kit, selected, catalog, linked.numbers, linked.extensions);
   for (const [path, bytes] of Object.entries(files)) {
     const name = resolve(target, path); mkdirSync(resolve(name, '..'), {recursive: true}); writeFileSync(name, bytes);
   }

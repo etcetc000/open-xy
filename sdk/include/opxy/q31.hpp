@@ -4,6 +4,16 @@
 namespace opxy { namespace q31 {
 // SDK-owned platform boundary. Engine source always calls the same operations.
 const i32 maximum = 2147483647;
+// Full signed 32 x 32 product, without a shift or saturation.
+inline i64 wide(i32 a, i32 b) {
+#if defined(__bfin__)
+    register i64 result __asm__("R0");
+    __asm__("(R1:0) = %1 * %2 (IS,NS);" : "=d"(result) : "d"(a), "d"(b) : "ASTAT", "CC");
+    return result;
+#else
+    return static_cast<i64>(a) * b;
+#endif
+}
 inline i32 multiply(i32 a, i32 b) {
 #if defined(__bfin__)
     // Blackfin's saturating, truncating (T) multiply: the same result as the

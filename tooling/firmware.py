@@ -59,8 +59,8 @@ def hook_instruction(patch, target):
     """Reviewed absolute/relative call or branch, with zero NOP padding."""
     site, length, call = int(patch['address'], 16), patch['length'], patch['call']
     if length in (8, 12):
-        require(call, 'Wide hook must be an absolute call')
-        return absolute_call(target) + bytes(length - 8)
+        require(type(call) is bool and (call or length == 8), 'Invalid absolute hook policy')
+        return (absolute_call(target) if call else startup_label.jump(target)[:8]) + bytes(length - 8)
     require(length in (4, 6), 'Unsupported relative-hook footprint')
     return branch_instruction(site, target, call) + bytes(length - 4)
 
@@ -70,7 +70,10 @@ def hook_target(patch, instruction):
     if patch['length'] in (8, 12):
         require(len(instruction) == patch['length'] and instruction[8:] == bytes(patch['length'] - 8),
                 'Changed absolute-hook padding')
-        return absolute_target(instruction[:8]), True
+        if patch['call']: return absolute_target(instruction[:8]), True
+        require(patch['length'] == 8 and instruction == startup_label.jump(startup_label.destination(instruction + bytes(2)))[:8],
+                'Invalid absolute entry branch')
+        return startup_label.destination(instruction + bytes(2)), False
     require(instruction[4:] == bytes(patch['length'] - 4), 'Changed hook padding')
     return decode_branch(int(patch['address'], 16), instruction[:4])
 

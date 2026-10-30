@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = 'cfd2ebe1c602f62d50654254d72c1a6d4de6b13f0dfa3ae98958554bd1d96ede';
+export const PROFILE_SHA256 = '84623d35677cb732ab137276dc6dac9760d061da6964bba0a18ee861c8355d2c';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -304,6 +304,7 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
   check(Array.isArray(selection) && new Set(selection).size === selection.length &&
     selection.every(id => entries.some(e => e.id === id)), 'Choose each available extension once.');
   const selected = entries.filter(e => selection.includes(e.id));
+  check(selected.filter(e => e.master_filter).length <= 1, 'Choose only one master filter.');
   const shared = sharedClaim(selected);
   check(!shared, shared && `These extensions both use ${claimLabel(selected, shared)}. Choose only one.`);
   return selected.map(e => e.id); // Collection order, never checkbox order.
@@ -366,6 +367,13 @@ export async function openKit(kit) {
       ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
         new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))),
       'Invalid extension metadata');
+    if(e.master_filter) {
+      const f=e.master_filter;
+      check(Object.keys(f).sort().join() === 'artwork,asset,sha256' &&
+        /^[a-z][a-z0-9_]*\.svg$/.test(f.asset) && typeof f.artwork === 'string', 'Invalid master filter asset');
+      const data=decode64(f.artwork);
+      check(data.length>0 && data.length<=65536 && await sha256(data)===f.sha256, 'Master filter artwork differs');
+    }
     extensionIds.add(e.id);
   }
   check(kit.linked === undefined || (Array.isArray(kit.linked) && kit.linked.length > 0 &&
@@ -391,6 +399,9 @@ export async function openKit(kit) {
     const owned = objects.filter(o => o.extension === id);
     check(owned.length === 1 && owned[0].symbols.some(s => s.section && s.binding === 1 &&
       s.name === 'sdk_extension_' + id + '_hooks'), 'Missing extension accessor: ' + id);
+    if(extensions.find(e => e.id===id).master_filter)
+      check(owned[0].symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+id+'_filter'),
+        'Missing master filter accessor: '+id);
   }
   return {...kit, objects};
 }
@@ -412,7 +423,8 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
-    ...(extensions.size ? [{kind: 'extension'}] : [])]);
+    ...(extensions.size ? [{kind: 'extension'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.master_filter) ? [{kind: 'master_filter'}] : [])]);
   const objects = kit.objects.filter(o => (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];
@@ -454,9 +466,11 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   // those resolve to the declared fallbacks. Machine objects never do.
   const aliases = new Map();
   for (const e of kit.extensions ?? []) if (!extensions.has(e.id)) {
-    const symbol = 'sdk_extension_' + e.id + '_hooks';
-    check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
-    aliases.set(symbol, globals.get('kit_absent'));
+    for(const suffix of ['hooks', ...(e.master_filter ? ['filter'] : [])]) {
+      const symbol = 'sdk_extension_' + e.id + '_' + suffix;
+      check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
+      aliases.set(symbol, globals.get('kit_absent'));
+    }
   }
   for (const m of kit.machines) if (!selected.has(m.id)) {
     for (const [symbol, fallback] of Object.entries(m.absent)) {
@@ -529,9 +543,9 @@ export function redirect(edit, destination) {
   }
   check(edit.kind === 'hook' && typeof edit.call === 'boolean', 'Not a hook');
   if (edit.length === 8 || edit.length === 12) {
-    check(edit.call, 'Wide hook must be a call');
+    check(edit.call || edit.length === 8, 'Invalid absolute hook policy');
     const after = new Uint8Array(edit.length);
-    after.set(words(0xde00, destination >>> 16, destination & 0xffff, 0));
+    after.set(words(edit.call ? 0xde00 : 0xdc00, destination >>> 16, destination & 0xffff, 0));
     return after;
   }
   const delta = destination - Number(edit.address);
@@ -759,7 +773,7 @@ function defaultPreset(machine) {
   };
 }
 
-export async function buildAssets(kit, selection, catalog, numbers) {
+export async function buildAssets(kit, selection, catalog, numbers, extensionIds = []) {
   check(await sha256(catalog) === kit.profile.stock_catalog_sha256, 'The site’s machine data is damaged. Reload this page.');
   const machines = kit.machines.filter(m => selection.includes(m.id));
   // Each machine's entry ends its stock list; the offsets are bound to the
@@ -776,6 +790,13 @@ export async function buildAssets(kit, selection, catalog, numbers) {
     expected[key] = [...base[key], ...group.map(m => JSON.parse(catalogEntry(m, numbers).trim().replace(/^,/, '')))];
   check(JSON.stringify(JSON.parse(text)) === JSON.stringify(expected), 'Unexpected catalog modification');
   const files = {'content/op1_factory.json': extended};
+  for(const id of extensionSelection(kit,extensionIds)) {
+    const filter=kit.extensions.find(e => e.id===id).master_filter;
+    if(!filter)continue;
+    const data=decode64(filter.artwork);
+    check(data.length<=65536 && await sha256(data)===filter.sha256, 'Master filter artwork differs');
+    files['content/display/'+filter.asset]=data;
+  }
   for (const machine of machines)
     for (const [path, preset] of Object.entries(presetFiles(machine)))
       files[path] = utf8.encode(JSON.stringify(preset, null, 2) + '\n');
@@ -785,6 +806,7 @@ export async function buildAssets(kit, selection, catalog, numbers) {
     check(baseSvg.split('</svg>').length === 2, 'Unexpected stock artwork boundary');
     for (const m of machines.filter(m => m.artwork)) {
       check(/^[a-z][a-z0-9_]*\.svg$/.test(m.asset), 'Invalid artwork filename');
+      check(files['content/display/' + m.asset] === undefined, 'Display asset collision: ' + m.asset);
       files['content/display/' + m.asset] = utf8.encode(baseSvg.replace('</svg>', m.artwork + '</svg>'));
     }
   }

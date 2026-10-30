@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <project_companion.cpp>
+#include "project_master.hpp"
 
 using opxy::platform::Address;
 
@@ -48,7 +49,8 @@ Address opxy::platform::host_stock_address(Address address) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 3) return 2;
+    if (argc != 3 && argc != 4) return 2;
+    if(argc==4)opxy::platform::master_filter::test_enable(static_cast<unsigned>(std::strtoul(argv[3],nullptr,10)));
     saving = argv[1];
     save_result = static_cast<unsigned>(std::atoi(argv[2]));
     return sdk_project_save(nullptr, saving) == save_result ? 0 : 1;

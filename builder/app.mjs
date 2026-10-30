@@ -472,7 +472,7 @@ async function build() {
   try {
     const selection = [...selected], extensions = Core.extensionSelection(kit, selectedExtensions);
     const result = Core.linkKit(kit, selection, numbers, extensions);
-    const files = await Core.buildAssets(kit, selection, catalog, result.numbers);
+    const files = await Core.buildAssets(kit, selection, catalog, result.numbers, result.extensions);
     files['os.ldr'] = await Core.patchFirmware(kit, result, stock, {profiling: false});
     const hashes = {};
     for (const [name, bytes] of Object.entries(files)) hashes[name] = await Core.sha256(bytes);

@@ -104,6 +104,7 @@ def host_writer(folder, fixture='project_companion.cpp'):
     binary = folder / (Path(fixture).stem + ('.exe' if os.name == 'nt' else ''))
     result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(folder),
                              '-I' + str(ROOT / 'sdk/include'), '-I' + str(platform),
+                             '-I' + str(ROOT / 'tests/fixtures'),
                              str(ROOT / 'tests/fixtures' / fixture), '-o', str(binary)],
                             capture_output=True, text=True, timeout=120)
     if result.returncode:

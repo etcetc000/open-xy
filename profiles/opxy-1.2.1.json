@@ -96,6 +96,9 @@
     ],
     "extensions": [
       "extension"
+    ],
+    "master_filter": [
+      "master_filter"
     ]
   },
   "patches": [
@@ -1320,6 +1323,94 @@
       "symbol": "sdk_sample_multi_press_engine",
       "service": "samples",
       "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "MIX button dispatcher: master processor menu",
+      "address": "0x8c093a70",
+      "file_offset": "0xcacac",
+      "length": 8,
+      "before": "00e80000eb052132",
+      "symbol": "sdk_master_buttons",
+      "call": false,
+      "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "MIX shifted button dispatcher: master processor menu",
+      "address": "0x8c09392c",
+      "file_offset": "0xcab68",
+      "length": 8,
+      "before": "093200e803006160",
+      "symbol": "sdk_master_shift_buttons",
+      "call": false,
+      "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "MIX encoder dispatcher: master processor controls",
+      "address": "0x8c093888",
+      "file_offset": "0xcaac4",
+      "length": 8,
+      "before": "4360990900e80300",
+      "symbol": "sdk_master_turn",
+      "call": false,
+      "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "Master EQ frame: selected processor panel",
+      "address": "0x8d537d04",
+      "file_offset": "0x16ef60",
+      "length": 8,
+      "before": "00e82400e305666f",
+      "symbol": "sdk_master_frame",
+      "call": false,
+      "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "Master EQ parameter receiver: atomic processor snapshot",
+      "address": "0x8d5b145e",
+      "file_offset": "0x1e86b6",
+      "length": 4,
+      "before": "fae397eb",
+      "symbol": "sdk_master_receive",
+      "call": true,
+      "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "Master EQ audio call: selected stereo processor",
+      "address": "0x8d511b80",
+      "file_offset": "0x148ddc",
+      "length": 8,
+      "before": "00dea011102c0000",
+      "symbol": "sdk_master_process",
+      "call": true,
+      "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "Active project publication: restore selected master processor",
+      "address": "0x8d598a3c",
+      "file_offset": "0x1cfc98",
+      "length": 4,
+      "before": "ffe3ea5b",
+      "symbol": "sdk_master_project",
+      "call": true,
+      "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "New project preparation: discard any pending companion state",
+      "address": "0x8d588114",
+      "file_offset": "0x1bf370",
+      "length": 8,
+      "before": "00e80c15e305666f",
+      "symbol": "sdk_project_new",
+      "call": false,
+      "service": "master_filter"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

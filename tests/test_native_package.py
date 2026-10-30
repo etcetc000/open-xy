@@ -129,6 +129,7 @@ class PackageVerification(unittest.TestCase):
         self.assertEqual(current['engine_types'][:-len(names)], original['engine_types'])
         self.assertEqual([e['type'] for e in current['engine_types'][-len(names):]], names)
         displays = [m.native_name for m in self.linked if m.display != 'stock']
+        displays += [Path(e.master_filter['artwork']).stem for e in native.extensions_of(self.linked) if e.master_filter]
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
         self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays})
@@ -136,6 +137,8 @@ class PackageVerification(unittest.TestCase):
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',
                  *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock')]
+        names += ['candidate/content/display/' + Path(e.master_filter['artwork']).name
+                  for e in native.extensions_of(self.linked) if e.master_filter]
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name
