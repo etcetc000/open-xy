@@ -65,7 +65,8 @@ class PlayerContracts(unittest.TestCase):
         self.assertIn('probeplayer_key_127', first)
         self.assertIn('probeplayer_played_127', first)
         self.assertIn('player_output(object, shown)', first)
-        self.assertLess(first.index('refresh_keyboard_octave(track)'), first.index('probeplayer::display('))
+        source = (PLATFORM / 'players.cpp').read_text(encoding='utf-8')
+        self.assertLess(source.index('refresh_keyboard_octaves()'), source.index('if (selected != kMaestroPage)'))
         self.assertEqual(len(vtable()), 16)
         for i, entry in enumerate(vtable()):
             self.assertEqual('0x' not in entry, i in {2, 3, 5, 6, 7, 10})
@@ -112,9 +113,9 @@ bool release(State& s, opxy::u32 note) {
 }
 ''', encoding='utf-8')
         (self.root / 'stock.hpp').write_text('''#include <opxy/types.hpp>
-void stock_release(void*, opxy::u32);
+const void* stock_address(opxy::u32);
 namespace opxy { namespace platform {
-template<class Function> Function* stock(u32) { return reinterpret_cast<Function*>(&stock_release); }
+template<class Function> Function* stock(u32 address) { return reinterpret_cast<Function*>(const_cast<void*>(stock_address(address))); }
 }}
 ''', encoding='utf-8')
         binary = self.root / ('adapter.exe' if os.name == 'nt' else 'adapter')

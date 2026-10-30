@@ -25,6 +25,10 @@ void opxy::platform::refresh_keyboard_octave(u32 track) {
     sdk_publish_octave(track, stock<i32(u32)>(0x8d58f65c)(track));
 }
 
+void opxy::platform::refresh_keyboard_octaves() {
+    for (u32 track = 0; track < kTracks; ++track) refresh_keyboard_octave(track);
+}
+
 // 8d58f5c2: stock clamps and stores the octave on the GUI side. Read back its
 // effective keyboard octave: some instrument types step by two octaves.
 u32 sdk_octave_store(u32 track, i32 octave) {

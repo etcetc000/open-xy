@@ -8,10 +8,11 @@
 #define require(value) do { if (!(value)) { std::fprintf(stderr, "line %d\n", __LINE__); std::abort(); } } while (0)
 
 static const opxy::u32 kSlots = 256;  // the relocated screen slots (stock_tables.SCREENS)
-static opxy::u32 owned_page, asked, refreshes;
+static opxy::u32 owned_page, asked, refreshes, substitutions;
 static int ready = 1;
 int sdk_screen_owned(opxy::u32 page) { ++asked; return page == owned_page ? ready : 0; }
 void sdk_send_refresh() { ++refreshes; }
+opxy::u32 substitute(opxy::u32) { ++substitutions; return 0; }
 
 // One frame; returns the pages in paint order. selected changes after the
 // first advance to check that the frame keeps its snapshot.
@@ -32,16 +33,18 @@ static unsigned frame(opxy::u32 selected, opxy::u32* order) {
 }
 
 int main() {
+    sdk_screen_substitute = substitute;
     opxy::u32 order[kSlots];
     for (int state : {1, 0, 2}) {
         ready = state;
         for (opxy::u32 owned = 0; owned <= kSlots + 1; ++owned)
             for (opxy::u32 selected : {0u, 1u, 2u, 7u, 80u, 81u, 82u, 83u, 126u, 127u, 128u, 200u, 254u, 255u, 256u, 300u, owned}) {
                 owned_page = owned;
-                asked = refreshes = 0;
+                asked = refreshes = substitutions = 0;
                 require(frame(selected, order) == kSlots);
                 require(asked <= 1);  // ownership is asked once per frame at most
                 require(refreshes == 1);  // the sends' effect controls, once a frame
+                require(substitutions == 1); // player refresh runs on every page, once
                 const bool promoted = ready == 1 && selected == owned && selected > 1 && selected < kSlots;
                 // Every page exactly once; the promoted page second, others ascending.
                 unsigned expected = 0;

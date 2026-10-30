@@ -162,6 +162,9 @@ u32 sdk_player_id(const void* name) {
 // The compositor's substitute for the selected page: the own page of the
 // selected track's player while the stock Maestro page is selected, else 0.
 u32 sdk_player_substitute(u32 selected) {
+    // The compositor calls once per GUI frame, even when the player page is
+    // hidden. Sequenced players on unselected tracks need fresh octaves too.
+    refresh_keyboard_octaves();
     if (selected != kMaestroPage) return 0;
     const u32 track = selected_track();
     for (u32 i = 0; i < sdk_player_count; ++i) {

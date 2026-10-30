@@ -12,10 +12,11 @@ void sdk_publish_octave(opxy::u32 track, opxy::i32 octave) __asm__("sdk_publish_
 }
 
 namespace opxy { namespace platform {
-// GUI only: refresh after a stored-octave edit or before rendering a player
-// page. This also catches loaded projects and instrument changes without an
-// octave-key gesture. Note/audio callbacks use the published word instead.
+// GUI only: refresh after a stored-octave edit. The player compositor refreshes
+// all tracks once per frame, including while other pages are selected, to catch
+// project/instrument changes. Note/audio callbacks use the published word.
 void refresh_keyboard_octave(u32 track);
+void refresh_keyboard_octaves();
 // At octave 0 the keyboard's lowest key, F, plays note 53; each octave adds 12.
 const u32 kLowestKey = 53;
 }}

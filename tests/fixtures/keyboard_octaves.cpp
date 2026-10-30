@@ -23,12 +23,22 @@ int main() {
     require(sdk_octave_store(1,-1)==123 && sdk_track_octaves[1]==-2);
     require(writes==3 && reads==3);
     // A loaded project can replace the stored value without the octave-key
-    // path. Rendering the player refreshes the input split before display.
+    // path. The compositor refreshes every track even on non-player pages.
     stored[0]=-1; sdk_track_octaves[0]=2;
     refresh_keyboard_octave(0); require(sdk_track_octaves[0]==-1);
     // The same stored setting means different pitches after an engine change.
     scale[0]=2; refresh_keyboard_octave(0); require(sdk_track_octaves[0]==-2);
     const u32 before=reads; refresh_keyboard_octave(8); require(reads==before);
     require(sdk_track_octaves[1]==-2);
+    for (u32 track=0; track<8; ++track) {
+        stored[track]=static_cast<i32>(track)-4;
+        scale[track]=track%2+1;
+        sdk_track_octaves[track]=99;
+    }
+    const u32 frame_reads=reads;
+    refresh_keyboard_octaves();
+    require(reads==frame_reads+8);
+    for (u32 track=0; track<8; ++track)
+        require(sdk_track_octaves[track]==stored[track]*scale[track]);
     std::puts("effective keyboard octave published after edits, project loads and instrument changes");
 }

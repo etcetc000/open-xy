@@ -12,6 +12,13 @@ opxy::player::Plan sounded = {};
 opxy::u32 released = 0, releases = 0;
 }
 void stock_release(void*, opxy::u32 note) { released = note; ++releases; }
+void stock_reset(void*) {}
+const void* stock_address(opxy::u32 address) {
+    using namespace opxy::platform;
+    if (address == kMaestroRelease) return reinterpret_cast<const void*>(&stock_release);
+    require(address == kMaestroReset || address == kMaestroAllOff);
+    return reinterpret_cast<const void*>(&stock_reset);
+}
 namespace opxy { namespace platform {
 void* player_state(void* object) { return object; }
 player::Controls player_controls(void*) { return controls; }
