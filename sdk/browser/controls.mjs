@@ -23,8 +23,10 @@ export function physicalValue(mapping, value) {
 
 // A synth's page position (encoder) for each parameter, in parameter order:
 // the first four are the positions' own, later ones name theirs in `control`
-// (the definition schema; tooling.definitions.control_positions).
-export const controlPositions = parameters => parameters.map((p, i) => p.control ?? i);
+// (the definition schema; tooling.definitions.control_positions). An absent
+// parameter (an empty slot) belongs to none, null, unless a paged synth puts it
+// on a position's second page.
+export const controlPositions = parameters => parameters.map((p, i) => p.absent ? p.control ?? null : p.control ?? i);
 
 // The parameters the four positions show after editing parameter `slot`
 // (positions: controlPositions): that position shows it, or on a paged synth
@@ -36,7 +38,7 @@ export function editedShown(shown, positions, slot, pages = false) {
   const shared = slot < 4 && !positions.slice(4).includes(slot);
   const second = shared ? shown.some(s => s >= 4) : slot >= 4;
   const next = [0, 1, 2, 3];
-  positions.forEach((position, s) => { if ((s >= 4) === second) next[position] = s; });
+  positions.forEach((position, s) => { if (position !== null && (s >= 4) === second) next[position] = s; });
   return next;
 }
 
@@ -117,6 +119,10 @@ export function createControls(input) {
     }
     return canonical;
   }
+  // Presets name the present controls; an absent one (an empty slot) stays 0.
+  const absent = Object.fromEntries(parameters.filter(p => p.absent).map(p => [p.id, 0]));
+  const presets = descriptor.presets &&
+    Object.fromEntries(Object.entries(descriptor.presets).map(([name, values]) => [name, { ...absent, ...values }]));
   return Object.freeze({ definition, parameters, positions: Object.freeze(controlPositions(parameters)),
-    defaults, presets: descriptor.presets, physical, displayValue, q31, validateParameters, makePatch, readPatch });
+    defaults, presets, physical, displayValue, q31, validateParameters, makePatch, readPatch });
 }

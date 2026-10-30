@@ -72,6 +72,10 @@ Read README.md and CONTRIBUTING.md. For native changes also read
   [hardware profiling](docs/profiling.md); host estimates cannot fill the catalog field.
 - Build and verification commands are local. Device operations require a separate
   user instruction. Do not infer measured cycles or recovery from host checks.
+- Copy files to a connected OP-XY with `python sdk.py device push <folder>`
+  (`list` and `pull` read it), never with a new transfer script. It mirrors the
+  folder onto the device root with backups, readback and rollback; see
+  [install](docs/build.md#5-install). If it fails, fix `tooling/device.py`.
 - Keep public docs about current interfaces and behavior. Remove obsolete text
   instead of adding another status page or repeating caveats across every guide.
 

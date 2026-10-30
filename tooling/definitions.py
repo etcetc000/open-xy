@@ -100,9 +100,12 @@ def control_positions(definition):
     The first four parameters are the positions' own; each later one names the
     position it alternates on with `control`, which an effect may leave out to
     alternate on position i - 4. Pressing an encoder cycles its position through
-    its own parameter, then its alternates in parameter order.
+    its own parameter, then its alternates in parameter order. An absent
+    parameter (an empty slot) belongs to no position, None, unless a paged synth
+    puts it on one's second page with `control`.
     """
-    return [parameter.get('control', i % SYNTH_POSITIONS) for i, parameter in enumerate(definition['parameters'])]
+    return [parameter.get('control') if parameter.get('absent') else parameter.get('control', i % SYNTH_POSITIONS)
+            for i, parameter in enumerate(definition['parameters'])]
 
 
 def paged(definition):
@@ -155,20 +158,25 @@ def validate_definition(value, kind):
     names = set()
     for i, parameter in enumerate(parameters):
         alternate = kind in ('synth', 'effect') and i >= SYNTH_POSITIONS
+        require(kind == 'synth' or not (isinstance(parameter, dict) and 'absent' in parameter),
+                'Only a synth leaves a slot absent')
         validate_parameter(parameter, alternate, required=kind == 'synth')
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
     # Two pages share positions with no alternate; no duplicate saved parameters.
+    require('press' in value or not any(p.get('absent') and 'control' in p for p in parameters),
+            'Only a paged synth puts an absent slot on a position')
     if 'press' in value:
-        alternates = control_positions(value)[SYNTH_POSITIONS:]
+        alternates = [p for p in control_positions(value)[SYNTH_POSITIONS:] if p is not None]
         require(kind in ('synth', 'effect') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
-                len(set(alternates)) == len(alternates),
+                alternates and len(set(alternates)) == len(alternates),
                 '"press": "page" needs five to eight synth or effect parameters and at most one alternate per position')
     if 'shift' in value:
         validate_shift(value['shift'], kind, set(names))
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
+    present = {p['id'] for p in parameters if not p.get('absent')}
     for name, preset in value['presets'].items():
-        label(name); keys(preset, names, 'preset')
+        label(name); keys(preset, present, 'preset')
         for default in preset.values(): number(default, 0, 1, 'preset value')
     return value
 
@@ -222,6 +230,20 @@ def validate_display(display):
 
 
 def validate_parameter(parameter, alternate=False, required=True):
+    if isinstance(parameter, dict) and parameter.get('absent') is not None:
+        # An empty slot that keeps later parameters at their indices: no label, no
+        # position, no presets; its encoder shows nothing and turns nothing. A
+        # paged synth's may name the position whose second page it blanks.
+        keys(parameter, ('id', 'label', 'default', 'mapping', 'display', 'absent',
+                         *(('control',) if alternate and 'control' in parameter else ())), 'absent parameter')
+        if 'control' in parameter:
+            require(type(parameter['control']) is int and 0 <= parameter['control'] < SYNTH_POSITIONS,
+                    'An alternate parameter names its control position 0..3')
+        require(parameter['absent'] is True and parameter['label'] == '' and parameter['default'] == 0 and
+                parameter['mapping'] == {'kind': 'linear', 'minimum': 0, 'maximum': 1} and parameter['display'] == 'percent',
+                'An absent parameter is {"absent": true, "label": "", "default": 0, linear 0..1, percent}')
+        identifier(parameter['id'])
+        return
     # A synth's or effect's parameters after the first four are alternates of one
     # control position, which a synth's must name.
     named = alternate and (required or 'control' in parameter)
