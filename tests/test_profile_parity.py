@@ -64,9 +64,9 @@ class ProfileParity(unittest.TestCase):
     def test_requested_numbers_agree(self):
         # What a kit machine may ask for: valid numbers, or SDK 1.5's null where the layout gives one.
         rules = self.profile['identities']
-        pages = (None, -1, 0, 2, 7, 21, 81, 82, 127, 128)
+        pages = (None, -1, 0, 2, 7, 21, 81, 82, 127, 128, 255, 256)
         cases = [(kind, {'engine': n, 'page': page}) for kind in ('synth', 'sample')
-                 for n in (None, 0, 2, 33, 34, 36, 62, 63) for page in pages]
+                 for n in (None, 0, 2, 33, 34, 36, 62, 63, 255, 256) for page in pages]
         cases += [('effect', {'effect': n, 'page': page}) for n in (None, 0, 1, 8, 9) for page in pages]
         cases += [('synth', {'engine': None}), ('sample', {'page': 7}), ('effect', {'engine': None, 'page': 21}),
                   ('synth', None), ('sample', {'engine': None, 'page': 7, 'base': 'drumSampler'})]

@@ -30,7 +30,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 20 | Routes controls, octave publication, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
-| Relocated tables | 22 | Moves the effect records (63), engine records (63) and screen slots (128) into the last 8 KiB of the reservation |
+| Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 1 | Paints a selected owned synth page before stock overlays |
 | Synth and effect controls | 7 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page |
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
@@ -38,6 +38,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Project companions | 5 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, and shows companions beside projects over MTP |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
+| Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
 | Module | 1 record | One loader block holding the linked module |
@@ -207,8 +208,8 @@ and then completes the stock epilogue it replaced.
 
 | Table | Size | Never use | Notes |
 | --- | --- | --- | --- |
-| Engines | 63 (relocated) | 33 (stock "none"), IDs stock registers | IDs above 32 exist only with the relocated tables |
-| Screen pages | 128 (relocated) | 81 (stock "none") | Sample engines show stock page 2 or 7 instead |
+| Engines | 256 (relocated) | 33 (stock "none"), IDs stock registers | IDs above 32 exist only with the relocated tables |
+| Screen pages | 256 (relocated) | 81 (stock "none") | Sample engines show stock page 2 or 7 instead |
 | Effects | 63 (relocated) | 19 (stock "none"), IDs stock registers, stock engine IDs (2–4, 6, 7, 20, 22, 29–33) | Free IDs: 1, 8, 11, 21, 23–28, 34–62; all effects use page 21 |
 
 Presets store the engine **name**. Projects store the engine **number**.
@@ -416,7 +417,7 @@ declarations retain 64-word output.
 The stock stereo PCM reader consumes packed left/right 16-bit pairs, while
 its output writes alternating 32-bit left/right words.
 
-Requirements: flag 1, an engine ID of 34–62, and page 2 or 7. The engine never
+Requirements: flag 1, an engine ID of 34–255, and page 2 or 7. The engine never
 touches the sample cache or its lock.
 
 Stock's sample predicate and note-region dispatcher also have explicit engine
@@ -565,6 +566,20 @@ Stock's MTP view lists only paths matching a table of regular expressions
 the workspace and project patterns in place to `\.o?xy$`. Dropping a redundant
 `\d` (already in `\w`) from one character class keeps each string's length;
 the workspace pattern uses its padding.
+
+## Presets
+
+At boot, stock scans `content/presets` (factory presets, which the device
+never deletes or moves) and then `/presets` (the user's). For each preset it
+reads the top-level `"type"` at `8d4eed56`, and lists only presets with one.
+The SDK hook ([`presets.cpp`](../sdk/platform/opxy-1.2.1/presets.cpp)) calls
+the stock reader unchanged and then, on the factory pass, empties the type
+when no engine of that name is installed: neither stock's resolver knows it
+nor is it one of the build's machines. Such a preset, for example the default
+preset of a machine a later build left out, is then not listed; its file stays
+on the device. Until stock's engine name map exists, every name counts as
+installed. User presets stay listed: stock deletes a user folder that lists no
+presets, so hiding them could delete them.
 
 ## Send effects
 

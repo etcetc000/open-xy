@@ -97,7 +97,7 @@ def main(argv=None):
     p.add_argument('mode', choices=['selftest', 'probe', 'benchmark', 'report'])
     p.add_argument('--out', type=Path)
     p.add_argument('--package', type=Path)
-    p.add_argument('--seconds', type=float, default=60)
+    p.add_argument('--seconds', type=float, help='how long to wait for reports (default: 60, or about 3 per expected run)')
     p.add_argument('--greet', action='store_true')
     p.add_argument('--installed', action='store_true', help='confirm --package is installed and unsaved work is saved')
     p.add_argument('--capture', type=Path, action='append', default=[], help='report: capture.json from each independent run')
@@ -116,8 +116,6 @@ def main(argv=None):
         return
     if not a.out or a.out.exists():
         raise ValueError('fresh output required')
-    if not 1 <= a.seconds <= 60:
-        raise ValueError('timeout bounds')
     expected = None
     package_identity = None
     if a.mode == 'benchmark':
@@ -126,6 +124,16 @@ def main(argv=None):
         _manifest, report, package_identity = package_data(a.package)
         expected = report['benchmark_cases']
         require(a.installed, 'Confirm this exact package is installed and save work first: --installed')
+    # Each stock-workload run takes about 2.2 s (1,500 blocks); a sweep sends many.
+    if a.seconds is None:
+        a.seconds = max(60, 3 * len(expected) + 15) if expected else 60
+    # A batch sweep can run for hours; its frames and traffic grow with its reports.
+    if not 1 <= a.seconds <= (12 * 3600 if expected else 60):
+        raise ValueError('timeout bounds')
+    reports_expected = len(expected) if expected else 0
+    # Each report also brings stock's text lines; leave room for many per report.
+    frame_budget = max(10000, 25 * reports_expected + 1000)
+    traffic_budget = max(2 * 1024 * 1024, 4096 * (reports_expected + 500))
     a.out.mkdir(parents=True)
     record = {'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'mode': a.mode, 'route': a.route, 'collector_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), 'expected_cases': expected, 'transmissions': [], 'frames': [], 'errors': [], 'identity': None, 'complete': False}
     record['package'] = package_identity
@@ -137,6 +145,7 @@ def main(argv=None):
     outgoing = rtmidi.MidiOut()
     pending = bytearray()
     total = 0
+    received_reports = 0
     ordinal = 0
     raw = (a.out / 'traffic.jsonl').open('x', encoding='utf-8')
 
@@ -144,17 +153,22 @@ def main(argv=None):
         raw.write(json.dumps(item) + '\n')
         raw.flush()
 
-    def receive(seconds):
-        nonlocal total
+    def receive(seconds, reports=None):
+        """Read for `seconds`, or until `reports` benchmark reports have arrived."""
+        nonlocal total, received_reports
         end = time.monotonic() + seconds
+        stopping = False
         while time.monotonic() < end:
+            if reports is not None and received_reports >= reports and not stopping:
+                # Listen several runs longer, so an extra report is still refused.
+                end, stopping = min(end, time.monotonic() + 10), True
             got = incoming.get_message()
             if got is None:
                 time.sleep(0.002)
                 continue
             b = bytes(got[0])
             total += len(b)
-            if total > 2 * 1024 * 1024:
+            if total > traffic_budget:
                 raise ValueError('traffic limit')
             save({'direction': 'rx', 'time': time.monotonic(), 'hex': b.hex()})
             if not b.startswith(HEAD) or not b.endswith(b'\xf7'):
@@ -181,7 +195,9 @@ def main(argv=None):
                     continue
                 item = {'route': f[0], 'seq': f[1], 'command': f[2], 'payload_hex': f[4:-1].hex(), 'text': f[4:-1].decode('utf-8', 'replace')}
                 record['frames'].append(item)
-                if len(record['frames']) > 10000:
+                if item['command'] == 0x94 and item['route'] == 0x12:  # decode()'s reports only
+                    received_reports += 1
+                if len(record['frames']) > frame_budget:
                     raise ValueError('frame budget')
                 text = item['text'].replace('\x00', '').strip()
                 if f[2] == 10:
@@ -221,8 +237,9 @@ def main(argv=None):
                 raise RuntimeError('Benchmark endpoint routing unverified; command not sent')
             if ident.get('mode') != 'normal' or ident.get('product') not in ('OP-XY', 'OP-1') or ident.get('os_version') != '1.2.1':
                 raise RuntimeError('Normal OS identity not confirmed; benchmark not sent')
+            received_reports = 0  # only this benchmark's reports end the listen early
             send(0xc8)
-            receive(a.seconds)
+            receive(a.seconds, len(expected) if expected else None)
         else:
             receive(max(0, a.seconds - 3))
         if pending:
@@ -240,16 +257,36 @@ def main(argv=None):
         (a.out / 'messages.txt').write_text('\n'.join((f['text'] for f in record['frames'])), encoding='utf-8')
     if expected is not None:
         decoded = decode(record, expected)
-        results = {'package': package_identity, 'engines': decoded, 'normalization': '100 * encoded average / 65535; stock 580352-cycle block budget', 'workload': 'Versioned workloads in docs/profiling.md; synth: stock note 60/midpoint; effect/sample: isolated default-setting callback fixtures', 'limitations': ['Synthetic test, not live project utilization or maximum polyphony.', 'Results assigned by build order and exact packet count; device firmware hash is not attested.', 'Machine settings affect cost; this does not sweep presets or models.', 'Graphics are excluded. Effect/sample callback tests exclude stock mixing, preparation and allocation.', 'Whole voice includes oscillator; do not add the two.', 'A maximum of 65535 is clipped; insufficient voice activity is flagged.']}
+        results = {'package': package_identity, 'engines': decoded, 'normalization': '100 * encoded average / 65535; stock 580352-cycle block budget', 'workload': 'Versioned workloads in docs/profiling.md; synth: stock note 60/midpoint, then in a sweep build each control through its positions; effect/sample: isolated default-setting callback fixtures', 'limitations': ['Synthetic test, not live project utilization or maximum polyphony.', 'Results assigned by build order and exact packet count; device firmware hash is not attested.', 'Machine settings affect cost; a sweep moves one control at a time, then combines each control at its heaviest position; other combinations and presets are not run.', 'Graphics are excluded. Effect/sample callback tests exclude stock mixing, preparation and allocation.', 'Whole voice includes oscillator; do not add the two.', 'A maximum of 65535 is clipped; insufficient voice activity is flagged.']}
         (a.out / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
-        lines = ['| Machine | Scope | Mean block budget |', '| --- | --- | ---: |']
+        from tooling.cpu_measurement import recommendation
+        from tooling.benchmark import case_label, combined_label, combined_positions
+        lines = ['| Machine | Scope | Setting | Mean block budget |', '| --- | --- | --- | ---: |']
+        heaviest, swept = {}, {}
         for item in decoded:
             metrics = item['metrics']
             suffix = ' (insufficient activity)' if item['insufficient_voice_activity'] else ''
             case = item['machine']
             scope = 'whole voice' if case.get('kind', 'synth') == 'synth' else case['kind'] + ' callback'
-            value = metrics[case.get('metric', 5)]['average_budget_percent']
-            lines.append(f"| {case['name']}{suffix} | {scope} | {value:.3f}% |")
+            metric = metrics[case.get('metric', 5)]
+            value = metric['average_budget_percent']
+            setting = case.get('setting')
+            if setting:
+                swept.setdefault(case['name'], []).append((setting, metric['encoded_average']))
+            label = (combined_label(combined_positions(swept.get(case['name'], []))) if case.get('combined')
+                     else case_label(case))
+            lines.append(f"| {case['name']}{suffix} | {scope} | {label} | {value:.3f}% |")
+            # A silent run says nothing about cost; a saturated one is the heaviest of all.
+            # As profile report: a swept setting counts if it timed anything; others must sound.
+            sounded = metric['encoded_average'] > 0 and (setting or not item['insufficient_voice_activity'])
+            if case.get('source') == 'sdk' and sounded and value > heaviest.get(case['name'], (0, ''))[0]:
+                heaviest[case['name']] = (value, label + (' (saturated: at or above the whole budget)'
+                                                          if metric['encoded_average'] >= 65535 else ''))
+        lines.append('')
+        for name, (value, label) in heaviest.items():
+            warning = recommendation(value, 'at ' + label)
+            lines.append(f'- {name}: heaviest {value:.3f}% at {label} in this run.' +
+                         (f' **{warning[0].upper() + warning[1:]}.**' if warning else ''))
         lines += ['', 'Workload: ' + results['workload'] + '.', '', 'Normalization: ' + results['normalization'] + '.',
                   '', *('- ' + item for item in results['limitations']), '',
                   'Firmware SHA-256: `' + package_identity['firmware_sha256'] + '`']

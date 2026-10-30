@@ -45,9 +45,22 @@ def voice_values(definition):
                 PEAK=resources['outputPeakQ31'])
 
 
-def generate_voice(directory, m):
-    """The native machine object, method table and voice pool for a synth."""
-    values = dict(voice_values(m.definition), PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
+def generate_voice(directory, m, sweep=False):
+    """The native machine object, method table and voice pool for a synth. In a sweep
+    build (benchmark.cpp.in) its voices render with the swept controls while a sweep run
+    of this machine is active; other builds' voices never look."""
+    if sweep:
+        declarations = ('// A profiling build\'s control sweep (benchmark.cpp.in): while set for this machine\'s\n'
+                        '// engine, its voices render with these controls instead of their track\'s.\n'
+                        'extern const opxy::i32* volatile sdk_benchmark_parameters __asm__("sdk_benchmark_parameters");\n'
+                        'extern const char* volatile sdk_benchmark_engine __asm__("sdk_benchmark_engine");\n')
+        controls = (f'        const opxy::i32* swept = sdk_benchmark_engine == {m.prefix}_engine_id ? '
+                    'sdk_benchmark_parameters : nullptr;\n'
+                    '        const opxy::i32* controls = swept ? swept : parameters;\n')
+    else:
+        declarations, controls = '', '        const opxy::i32* controls = parameters;\n'
+    values = dict(voice_values(m.definition), SWEEP_DECLARATIONS=declarations, SWEEP_CONTROLS=controls,
+                  PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
                   CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
     return expand('voice.cpp.in', values, Path(directory) / 'voice.cpp')

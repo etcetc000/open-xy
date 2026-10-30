@@ -32,7 +32,8 @@ Adjust that path if the user already has the SDK elsewhere.
    and [hardware profiling guide](https://github.com/etcetc000/open-xy/blob/staging/docs/profiling.md).
    Prepare a profiling-enabled build from committed source, request a device test
    if not already authorized, and wait for confirmation of installation/reboot.
-   Collect three complete runs, generate the report and explain its scope.
+   Collect a complete run (hardware profiling's "Collect a run"), generate the
+   report and explain its scope.
    Never invent a CPU number from host checks. If hardware is unavailable, report
    that validation remains pending; a maintainer can run the batch.
 5. If publication is requested, follow

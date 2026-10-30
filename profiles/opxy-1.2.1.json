@@ -13,10 +13,10 @@
   "heap_fill_base": 2349663104,
   "heap_fill_bytes": 20971520,
   "stock_records": 984,
-  "linker_sha256": "0c434900514b5daa2b0ae90a97308f6b0c8ceeaa5e53a19c4c8b9922a5bf5175",
-  "table_bytes": 8192,
+  "linker_sha256": "5f1e26c9d592459035519a905e2305c92165600e6626ba0ddd5bc360d4effd69",
+  "table_bytes": 16384,
   "identities": {
-    "engines": 63,
+    "engines": 256,
     "engine_none": 33,
     "stock_engines": [
       2,
@@ -33,7 +33,7 @@
       31,
       32
     ],
-    "pages": 128,
+    "pages": 256,
     "page_none": 81,
     "sample_pages": [
       2,
@@ -169,7 +169,7 @@
       "file_offset": "0x13c4ee",
       "length": 8,
       "before": "02da0308fc940000",
-      "after": "02da4c8d80f50000"
+      "after": "02da4c8d50cf0000"
     },
     {
       "kind": "table",
@@ -178,7 +178,7 @@
       "file_offset": "0x13c59a",
       "length": 8,
       "before": "02da0308fc940000",
-      "after": "02da4c8d80f50000"
+      "after": "02da4c8d50cf0000"
     },
     {
       "kind": "table",
@@ -187,7 +187,7 @@
       "file_offset": "0x13c5c2",
       "length": 8,
       "before": "02da0308fc940000",
-      "after": "02da4c8d80f50000"
+      "after": "02da4c8d50cf0000"
     },
     {
       "kind": "table",
@@ -196,7 +196,7 @@
       "file_offset": "0x13d786",
       "length": 8,
       "before": "08da0308fc940000",
-      "after": "08da4c8d80f50000"
+      "after": "08da4c8d50cf0000"
     },
     {
       "kind": "table",
@@ -205,7 +205,7 @@
       "file_offset": "0x13da3e",
       "length": 8,
       "before": "00da0308fc940000",
-      "after": "00da4c8d80f50000"
+      "after": "00da4c8d50cf0000"
     },
     {
       "kind": "table",
@@ -214,7 +214,7 @@
       "file_offset": "0x13ded0",
       "length": 8,
       "before": "01da0308fc940000",
-      "after": "01da4c8d80f50000"
+      "after": "01da4c8d50cf0000"
     },
     {
       "kind": "table",
@@ -223,16 +223,16 @@
       "file_offset": "0x13e0fa",
       "length": 8,
       "before": "08da0308fc940000",
-      "after": "08da4c8d80f50000"
+      "after": "08da4c8d50cf0000"
     },
     {
-      "kind": "table",
-      "name": "IN-MEMORY engine record validity bound -> relocated table",
+      "kind": "hook",
       "address": "0x8d505356",
       "file_offset": "0x13c5b2",
-      "length": 2,
-      "before": "0961",
-      "after": "f961"
+      "length": 4,
+      "before": "09618808",
+      "symbol": "sdk_engine_bound",
+      "call": true
     },
     {
       "kind": "table",
@@ -241,7 +241,7 @@
       "file_offset": "0x13da38",
       "length": 4,
       "before": "22e13006",
-      "after": "22e1d00b"
+      "after": "22e10030"
     },
     {
       "kind": "table",
@@ -250,7 +250,7 @@
       "file_offset": "0x1579ee",
       "length": 8,
       "before": "00daeb8428320000",
-      "after": "00da4c8d80f30000"
+      "after": "00da4c8d50ff0000"
     },
     {
       "kind": "table",
@@ -259,7 +259,7 @@
       "file_offset": "0x157a24",
       "length": 8,
       "before": "00daeb8428320000",
-      "after": "00da4c8d80f30000"
+      "after": "00da4c8d50ff0000"
     },
     {
       "kind": "table",
@@ -268,7 +268,7 @@
       "file_offset": "0x157b1a",
       "length": 4,
       "before": "27e15100",
-      "after": "27e18000"
+      "after": "27e10001"
     },
     {
       "kind": "table",
@@ -277,7 +277,7 @@
       "file_offset": "0x157f9a",
       "length": 4,
       "before": "27e15100",
-      "after": "27e18000"
+      "after": "27e10001"
     },
     {
       "kind": "table",
@@ -286,7 +286,7 @@
       "file_offset": "0x13c4d2",
       "length": 8,
       "before": "02da03086c910000",
-      "after": "02da4c8d80e30000"
+      "after": "02da4c8d80c30000"
     },
     {
       "kind": "table",
@@ -295,7 +295,7 @@
       "file_offset": "0x13c512",
       "length": 8,
       "before": "02da03086c910000",
-      "after": "02da4c8d80e30000"
+      "after": "02da4c8d80c30000"
     },
     {
       "kind": "table",
@@ -304,7 +304,7 @@
       "file_offset": "0x13c570",
       "length": 8,
       "before": "02da03086c910000",
-      "after": "02da4c8d80e30000"
+      "after": "02da4c8d80c30000"
     },
     {
       "kind": "table",
@@ -313,7 +313,7 @@
       "file_offset": "0x13d916",
       "length": 8,
       "before": "08da03086c910000",
-      "after": "08da4c8d80e30000"
+      "after": "08da4c8d80c30000"
     },
     {
       "kind": "table",
@@ -322,7 +322,7 @@
       "file_offset": "0x13df14",
       "length": 8,
       "before": "01da03086c910000",
-      "after": "01da4c8d80e30000"
+      "after": "01da4c8d80c30000"
     },
     {
       "kind": "table",
@@ -331,7 +331,7 @@
       "file_offset": "0x13e184",
       "length": 8,
       "before": "08da03086c910000",
-      "after": "08da4c8d80e30000"
+      "after": "08da4c8d80c30000"
     },
     {
       "kind": "table",
@@ -804,6 +804,15 @@
       "length": 8,
       "before": "00de5a8dbcd50000",
       "symbol": "sdk_synth_turn",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4eed56",
+      "file_offset": "0x125fb2",
+      "length": 4,
+      "before": "ffe3c0fe",
+      "symbol": "sdk_preset_type",
       "call": true
     },
     {

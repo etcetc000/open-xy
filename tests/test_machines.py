@@ -50,8 +50,8 @@ class Identity(unittest.TestCase):
                 machines.collection(entries)
 
     def test_stock_occupied_or_sentinel_ids_are_rejected(self):
-        for kind, change in (('synth', dict(engine=33)), ('synth', dict(engine=2)), ('synth', dict(engine=63)),
-                             ('synth', dict(page=81)), ('synth', dict(page=128)), ('synth', dict(engine=True)),
+        for kind, change in (('synth', dict(engine=33)), ('synth', dict(engine=2)), ('synth', dict(engine=256)),
+                             ('synth', dict(page=81)), ('synth', dict(page=256)), ('synth', dict(engine=True)),
                              ('sample', dict(engine=26)), ('sample', dict(page=82)),
                              ('effect', dict(effect=0)), ('effect', dict(effect=5)), ('effect', dict(page=20))):
             with self.subTest(kind=kind, change=change), self.assertRaises(ValueError):
@@ -294,7 +294,7 @@ class OutsideMachines(unittest.TestCase):
         self.numberless(folder, base='drumSampler')
         self.assertEqual(machines.machine_at(folder).identity, {'engine': None, 'page': 7})
         built = machines.collection(machines.read_collection(None, [folder]))[0]
-        self.assertEqual(built.identity, {'engine': 41, 'page': 7})  # its own place in the engine pool
+        self.assertEqual(built.identity, {'engine': 201, 'page': 7})  # its own place in the engine pool
         # Without pad settings it may fork the keyboard sampler; a 1.4 machine still picks it by number.
         definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
         definition['resources'].pop('padSettings')

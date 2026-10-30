@@ -36,6 +36,57 @@ class Benchmark(unittest.TestCase):
             empty = generate(folder, []).read_text(encoding='utf-8')
             self.assertIn('{0, 0, 0, 0, 0}', empty)
 
+    def test_a_sweep_runs_each_synth_control_through_its_positions_after_the_standard_run(self):
+        from tooling.benchmark import SWEEP, sweep_settings
+        from tooling.cpu import sweep
+        synth, effect = fixture('probesynth'), fixture('probefx')
+        parameters = synth.definition['parameters']
+        settings = sweep_settings(synth)
+        self.assertEqual(len(settings), sum(len(sweep(p)) for p in parameters))
+        defaults = [round(p['default'] * 0x7fffffff) for p in parameters] + [0] * (8 - len(parameters))
+        for control, label, value, _option in settings:
+            self.assertEqual(label, parameters[control]['label'])
+            self.assertIn(value, sweep(parameters[control]))
+        plain, swept = cases([effect, synth]), cases([effect, synth], sweep=True)
+        self.assertEqual(swept[:len(plain)], plain)
+        extra = swept[len(plain):]
+        # Each swept setting, then every control at its heaviest position.
+        self.assertEqual([c['benchmark'] for c in extra], [SWEEP] * (len(settings) + 1))
+        self.assertEqual([(c['setting']['control'], c['setting']['value']) for c in extra[:-1]],
+                         [(control, value) for control, _label, value, _option in settings])
+        self.assertTrue(extra[-1]['combined'] and 'setting' not in extra[-1])
+        with tempfile.TemporaryDirectory() as folder:
+            source = generate(folder, [effect, synth], sweep=True).read_text(encoding='utf-8')
+            # The synth is machines[1]: a row per setting with its control and value, and
+            # one row of its defaults; the effect sweeps nothing.
+            def table(text, name):
+                body = text.split(f'const {name}[] = {{\n', 1)[1].split('\n};', 1)[0]
+                return [line.strip() for line in body.splitlines() if line.strip()][:-1]
+            self.assertEqual(table(source, 'Setting settings'),
+                             ['{1, %d, %d},' % (c, v) for c, _l, v, _o in settings])
+            self.assertEqual(table(source, 'Defaults defaults'), ['{1, {%s}},' % ', '.join(map(str, defaults))])
+            self.assertIn('sdk_benchmark_parameters = controls;', source)
+            plain_source = generate(folder, [effect, synth]).read_text(encoding='utf-8')
+            self.assertEqual((table(plain_source, 'Setting settings'), table(plain_source, 'Defaults defaults')), ([], []))
+
+    def test_list_controls_name_their_option(self):
+        from tooling.benchmark import position
+        self.assertEqual(position(dict(control=1, label='Octave', value=7, option='+2')), 'Octave +2')
+        self.assertEqual(position(dict(control=0, label='Tone', value=0x7fffffff)), 'Tone 100.0%')
+        synth = fixture('probesynth')
+        options = {p['label']: p['mapping']['labels'] for p in synth.definition['parameters'] if p['mapping']['kind'] == 'enum'}
+        for case in cases([synth], sweep=True):
+            setting = case.get('setting')
+            if setting:
+                self.assertEqual('option' in setting, setting['label'] in options)
+
+    def test_the_combined_run_takes_each_controls_first_heaviest_position(self):
+        from tooling.benchmark import combined_positions
+        a0, a1, b0, b1 = (dict(control=c, label=l, value=v) for c, l, v in
+                          ((0, 'A', 0), (0, 'A', 9), (1, 'B', 0), (1, 'B', 9)))
+        self.assertEqual(combined_positions([(a0, 5), (a1, 7), (b0, 3), (b1, 3)]), [a1, b0])
+        self.assertEqual(combined_positions([]), [])
+
     def test_hook_replaces_only_the_explicit_diagnostic_runner(self):
         patch = next(p for p in config()['patches'] if p.get('symbol') == 'sdk_benchmark_run')
         self.assertEqual(decode_branch(int(patch['address'], 16), bytes.fromhex(patch['before'])),

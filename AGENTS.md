@@ -38,7 +38,10 @@ through the catalog like any other machine.
 For machine work, follow the complete [authoring journey](docs/first-machine.md)
 and the [UX conventions](docs/ux.md): implement and test, offer audition where supported, then prepare a development
 build and propose an authorized hardware test. Follow [hardware profiling](docs/profiling.md)
-to collect the revision-bound CPU readout required for catalog submission.
+to collect the revision-bound CPU readout required for catalog submission. A
+synth's readout is a control sweep (the default for profiling builds); when it
+reports a result above the recommended 3.5%, tell the user which setting is
+heaviest and suggest making that path lighter before submitting.
 If hardware is unavailable, say that validation remains pending; a maintainer
 can measure it. Never treat a successful host check as a measured CPU result or
 hardware acceptance. A sample engine uses the public sample API and Timestretch

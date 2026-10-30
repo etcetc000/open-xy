@@ -28,13 +28,22 @@ int second_screen_register() { calls += "second-page "; return 1; }
 int effect_fx_register() { calls += "effect "; return 1; }
 u32 stock_gui_role() { calls += "role "; return gui; }
 u32 stock_catalog_insert(void*, const void*, u32 id) { inserted = id; return 7; }
+int sdk_stock_engine_known(const void*) { return named && std::string(named) == "prism"; }
 
 static u32 catalog(const char* name, u32 id) {
     named = name; inserted = 0; calls.clear();
     return extensions_catalog_checked(nullptr, name, id);
 }
 
+static int installed(const char* name) {
+    named = name;
+    return sdk_engine_installed(name);
+}
+
 int main() {
+    // The preset scan's engine check: stock engines, then this build's machines by name.
+    require(installed("prism") == 1 && installed("first") == 1 && installed("sampled") == 1);
+    require(installed("gone") == 0 && installed("effect") == 0);
     // Effects register on both roles, before the role check; engines in ledger order on audio.
     sdk_startup_synth();
     require(calls == "effect role first second sampled ");

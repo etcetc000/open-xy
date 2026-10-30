@@ -108,7 +108,7 @@ Every build command takes the collection:
 
 A build needs at least one machine; the SDK holds none of its own.
 
-All selected machines share 2040 KiB ([memory and limits](api.md#memory-and-limits));
+All selected machines share 2032 KiB ([memory and limits](api.md#memory-and-limits));
 `compile` shows each machine's share. To make room, list fewer machines in your
 own collection file.
 

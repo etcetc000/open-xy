@@ -227,15 +227,15 @@ test('numbers follow the layout, not the selection order, and unselected machine
   const k=fixture(); k.machines.push(machine('b',34,82,'personal'),machine('c',34,82,'personal'));
   assert.deepEqual(assignNumbers(k,['c','b','a']),assignNumbers(k,['a','b','c']));
   // c's own places in the pools (FNV-1a of its ID), as it asks for a's fixed numbers.
-  assert.deepEqual(assignNumbers(k,['a','c']).c,{engine:40,page:83});
+  assert.deepEqual(assignNumbers(k,['a','c']).c,{engine:246,page:204});
   // Once b has numbers, they stay held when b is dropped; c keeps its own, which b's do not collide with.
   const numbers=assignNumbers(k,['a','b']);
-  assert.deepEqual(numbers.b,{engine:57,page:121});
-  assert.deepEqual(assignNumbers(k,['a','c'],numbers),{...numbers,c:{engine:40,page:83}});
+  assert.deepEqual(numbers.b,{engine:215,page:221});
+  assert.deepEqual(assignNumbers(k,['a','c'],numbers),{...numbers,c:{engine:246,page:204}});
   const linked=linkKit(k,['a','c'],numbers);
   assert.deepEqual([linked.definitions.a_engine_id,linked.definitions.b_engine_id,linked.definitions.c_engine_id,
-    linked.definitions.c_page_id],[34,0,40,83]);
-  assert.deepEqual(linked.numbers.b,{engine:57,page:121});
+    linked.definitions.c_page_id],[34,0,246,204]);
+  assert.deepEqual(linked.numbers.b,{engine:215,page:221});
 });
 test('saved layouts restore numbers and selections, including older saved selections', () => {
   const k=fixture(), id=k.profile.id;
@@ -302,7 +302,7 @@ test('SDK 1.5 machines ask for no numbers and the selection gives them', async (
     {id:'e',prefix:'e',kind:'effect',identity:{effect:null,page:21},absent:{},origin:'personal'}];
   await openKit(k);
   assert.deepEqual(assignNumbers(k,['a','b','d','e']),
-    {a:{engine:34,page:82},b:{engine:57,page:121},d:{engine:42,page:7},e:{effect:47,page:21}});
+    {a:{engine:34,page:82},b:{engine:215,page:221},d:{engine:179,page:7},e:{effect:47,page:21}});
   assert.deepEqual(assignNumbers(k,['b'],{b:{engine:50,page:100}}).b,{engine:50,page:100});
   for (const identity of [{engine:null,page:82},{engine:null,page:null,base:'sampler'}]) {
     k.machines[1].identity=identity; await assert.rejects(openKit(k),/Machine numbers/);
@@ -362,7 +362,14 @@ test('firmware recovery rejects malformed and foreign loader layouts without pri
 test('the release checks the linked machines, each other machine beside the official ones, and their subsets', () => {
   const machines = [machine('a',34,82,'official'), machine('b',35,82,'official'), machine('c',36,82), machine('d',37,82)];
   // Everything fits: the native package links all four.
-  assert.deepEqual(checkedSelections(machines), [1, 2, 3, 7, 11, 15]);
+  assert.deepEqual(checkedSelections(machines), [1n, 2n, 3n, 7n, 11n, 15n]);
   // Not all at once: the native package links the official machines.
-  assert.deepEqual(checkedSelections(machines, ['a', 'b']), [1, 2, 3, 7, 11]);
+  assert.deepEqual(checkedSelections(machines, ['a', 'b']), [1n, 2n, 3n, 7n, 11n]);
+  // More machines than a 32-bit mask holds, with official ones past bit 31.
+  const many = Array.from({length: 40}, (_, i) => machine('m' + i, 34, 82, i === 33 || i === 39 ? 'official' : undefined));
+  const core = (1n << 33n) | (1n << 39n);
+  const selections = checkedSelections(many, ['m33', 'm39']);
+  assert.deepEqual(selections.slice(0, 3), [1n << 33n, 1n << 39n, core]);
+  assert.equal(selections.length, 3 + 38);
+  assert.ok(selections.slice(3).every(mask => (mask & core) === core));
 });

@@ -2,26 +2,105 @@
 from pathlib import Path
 import struct
 
+from .cpu import control_defaults, sweep
 from .pipeline import ROOT
 from .formats import require
 
 METHODS = {'synth': ('opxy-synth-c8-v1', 5), 'effect': ('opxy-effect-callback-v1', 7),
            'sample': ('opxy-sample-callback-v1', 3)}
+# A sweep build's extra synth runs: the stock workload, one control at a time.
+SWEEP = 'opxy-synth-c8-sweep-v1'
 
 STOCK = [('prism', 18), ('simple', 32), ('hardsync', 19), ('dissolve', 20),
          ('axis', 22), ('organ', 6), ('epiano', 7), ('wavetable', 31), ('chord', 13)]
 
 
-def cases(machines):
-    return [dict(name=name, engine=engine, source='stock') for name, engine in STOCK] + [
-        dict(name=m.id, engine=m.identity.get('engine', m.identity.get('effect')), source='sdk',
-             kind=m.kind, benchmark=METHODS[m.kind][0], metric=METHODS[m.kind][1])
-        for m in machines]
+def sweep_settings(m):
+    """A synth's swept settings in run order, as (control, its label, Q31 value, the
+    option's name for a list control, else None): each control through its positions
+    (cpu.sweep, as the host estimate times them); the firmware runs each with the other
+    controls at their defaults (cpu.control_defaults)."""
+    result = []
+    for control, p in enumerate(m.definition['parameters']):
+        options = p['mapping']['labels'] if p['mapping']['kind'] == 'enum' else None
+        result += [(control, p['label'], value, options[i] if options else None)
+                   for i, value in enumerate(sweep(p))]
+    return result
 
 
-def generate(directory, machines):
-    declarations, rows = [], []
+def cases(machines, sweep=False):
+    """The reports a run sends, in order: stock's nine, then each machine's; in a sweep
+    build a synth's swept settings follow its standard run, then one run with every
+    control at the position that ran heaviest (combined_positions)."""
+    result = [dict(name=name, engine=engine, source='stock') for name, engine in STOCK]
     for m in machines:
+        case = dict(name=m.id, engine=m.identity.get('engine', m.identity.get('effect')), source='sdk',
+                    kind=m.kind, benchmark=METHODS[m.kind][0], metric=METHODS[m.kind][1])
+        result.append(case)
+        swept = sweep_settings(m) if sweep and m.kind == 'synth' else []
+        if swept:
+            result += [dict(case, benchmark=SWEEP, setting=dict(control=control, label=label, value=value,
+                                                                **({'option': option} if option else {})))
+                       for control, label, value, option in swept]
+            result.append(dict(case, benchmark=SWEEP, combined=True))
+    return result
+
+
+def position(setting):
+    """A swept setting as people read it: the control's label and its position, or the
+    option's name for a list control."""
+    if setting.get('option'):
+        return f"{setting['label']} {setting['option']}"
+    return f"{setting['label']} {100 * setting['value'] / 0x7fffffff:.1f}%"
+
+
+def combined_label(positions):
+    """The combined run as people read it: the positions its capture's reports point to."""
+    return 'combined (as read from the reports): ' + ', '.join(map(position, positions))
+
+
+def case_label(case):
+    """What a case ran, as people read it: a swept setting, the combined run, a synth's
+    midpoint run or a callback's defaults."""
+    if case.get('setting'):
+        return position(case['setting'])
+    if case.get('combined'):
+        return 'combined'
+    return 'midpoint (stock)' if case.get('kind', 'synth') == 'synth' else 'defaults'
+
+
+def case_key(case):
+    """A case's name across builds and captures: a stock engine's, or an SDK machine's
+    with what it ran, the control's index keeping equal labels apart."""
+    if case.get('source') != 'sdk':
+        return case['name']
+    control = f" #{case['setting']['control']}" if case.get('setting') else ''
+    return f"{case['name']}{control} {case_label(case)}"
+
+
+def combined_positions(results):
+    """The positions a machine's combined run used, from that capture's swept results
+    ((setting, encoded average) in run order): each control's heaviest, the first of
+    equal ones, as the firmware picks them from its cycles per block. Encoded averages
+    round those, so on a near tie the firmware may have picked a neighbour."""
+    chosen = {}
+    for setting, average in results:
+        control = setting['control']
+        if control not in chosen or average > chosen[control][1]:
+            chosen[control] = (setting, average)
+    return [chosen[control][0] for control in sorted(chosen)]
+
+
+def generate(directory, machines, sweep=False):
+    declarations, rows, settings, defaults = [], [], [], []
+    for index, m in enumerate(machines):
+        swept = sweep_settings(m) if sweep and m.kind == 'synth' else []
+        if swept:
+            # A row per setting holds only its control and value; the defaults beside it
+            # are one row per machine.
+            defaults.append('    {%d, {%s}},' % (index, ', '.join(map(str, control_defaults(m.definition['parameters'])))))
+            settings += ['    {%d, %d, %d},' % (index, control, value)
+                         for control, _label, value, _option in swept]
         p = m.prefix
         id_symbol = p + ('_fx_id' if m.kind == 'effect' else '_engine_id')
         declarations += [f'int {p}_ready() __asm__("{p}_ready");',
@@ -34,6 +113,8 @@ def generate(directory, machines):
     source = (ROOT / 'sdk/platform/opxy-1.2.1/benchmark.cpp.in').read_text(encoding='utf-8')
     source = source.replace('@DECLARATIONS@', '\n'.join(declarations))
     source = source.replace('@MACHINES@', '\n'.join(rows))
+    source = source.replace('@SETTINGS@', '\n'.join(settings))
+    source = source.replace('@DEFAULTS@', '\n'.join(defaults))
     path = Path(directory) / 'benchmark.cpp'
     path.write_text(source, encoding='utf-8', newline='\n')
     return path
@@ -65,8 +146,7 @@ def decode(capture, expected):
 def append_callback(path, m):
     """Compile the diagnostic beside the real callback, without duplicating author code."""
     resources = m.definition['resources']
-    defaults = [round(p['default'] * 0x7fffffff) for p in m.definition['parameters']]
-    values = dict(PREFIX=m.prefix, NAMESPACE=m.id, DEFAULTS=', '.join(map(str, defaults + [0] * (8-len(defaults)))))
+    values = dict(PREFIX=m.prefix, NAMESPACE=m.id, DEFAULTS=', '.join(map(str, control_defaults(m.definition['parameters']))))
     if m.kind == 'effect':
         size = resources.get('bufferBytes', 0)
         values.update(BUFFER_BYTES=str(size)+'u', BUFFER=f'Buffer{{static_cast<i32*>(memory.data), {size//4}u}}, ' if size else '',
