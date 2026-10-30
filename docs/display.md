@@ -287,9 +287,9 @@ palette entry, which the template's artwork leaves to the effect. Slots 17 to
 authored block from `myeffect8`'s `panel.svg.fragment` and draw the effect's
 own artwork after it, with its own nodes beyond those.
 Titles and the page map work as for the [two-page header](#two-page-header).
-Captions read as stock's FX page writes its own: `header_number` gives a
-control's place in its travel as two digits, `floor(100 × value)` from 00 to
-99, whatever it maps to; a choice shows its name.
+Captions count as the stock pages do: `header_number` writes a control's place
+in its travel as two digits, `floor(100 × value)` from 00 to 99, whatever it
+maps to, so a quarter of travel reads 25; a choice shows its name.
 
 ```cpp
 effect_page(state.page, input, frame, titles, values, first_node);

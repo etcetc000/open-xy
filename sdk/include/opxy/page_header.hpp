@@ -25,9 +25,9 @@ static inline void header_amount(char* out, u32 capacity, i32 value) {
     copy(out, capacity, number);
 }
 
-// A control's place in its travel as two digits, 00..99, exactly as stock's FX
-// page captions it: floor(100 * value / 2^31), full scale 99. The underlying
-// Q31 is unchanged.
+// A control's place in its travel as two digits, 00..99, exactly as the stock
+// pages caption it: floor(100 * value / 2^31). A quarter of travel reads 25,
+// full scale 99. The underlying Q31 is unchanged.
 static inline void header_number(char* out, u32 capacity, i32 value) {
     const u32 n = value < 0 ? 0 : ((static_cast<u32>(value) >> 8) * 100) >> 23;
     const char number[3] = {static_cast<char>('0' + n / 10), static_cast<char>('0' + n % 10), 0};
