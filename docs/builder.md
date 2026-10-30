@@ -60,7 +60,7 @@ The ZIP contains:
 | `content/presets/<machine>/*.json` | Each selected instrument's init preset, `default.json`, and its own [presets](api.md#presets), in the instrument's folder |
 | `layout.json`, hashes | Keep `layout.json`: it holds your machines' numbers, and loading it into the builder next time keeps them for your projects |
 
-Every build shows its release at boot, `OPEN 0.0.2-1.2.1` for 0.0.2, the version in
+Every build shows its release at boot, `OPEN 0.0.3-1.2.1` for 0.0.3, the version in
 [`VERSION`](../VERSION) that the builder also shows under its name and records in
 `build.json`. Timestretch starts without a sample;
 choose one on its sample page. Ring Mod is a send effect and has no preset.
@@ -93,8 +93,8 @@ an explicit click and USB permission, and releases the connection afterwards.
 
 ## Capacity and machine numbers
 
-The firmware reserves **2 MiB** of the application heap: 2040 KiB that every
-selected machine shares for code, data and state, and 8 KiB for relocated stock
+The firmware reserves **2 MiB** of the application heap: 2032 KiB that every
+selected machine shares for code, data and state, and 16 KiB for relocated stock
 tables. The memory meter shows each machine's share; see
 [memory and limits](api.md#memory-and-limits). CPU headroom is not measured.
 
@@ -166,7 +166,8 @@ with no collection as a UI check and never consumes private inputs.
 static assets only, with no Worker script. The `beta` environment is a separate
 `open-xy-beta` site at `beta.open-xy.com`, deployed from `staging`; production
 is deployed from `main`. Merge work into `staging`, release beta, then open a
-pull request from `staging` to `main` and release production. Catalog changes
+pull request from `staging` (or a `release/<version>` branch cut from it) to `main` and release
+production. Catalog changes
 merge into `main` (then `main` into `staging`), so a new machine can reach
 production without an SDK release.
 

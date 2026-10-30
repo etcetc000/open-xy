@@ -7,8 +7,8 @@ COMMANDS = '''Commands:
   check     Contributor checks: python sdk.py check [--help]
   preview   Browser audition build: python sdk.py preview --machine ../mymachine --out local/preview-001
   new       Start a machine repository: python sdk.py new --repository [--kind synth|effect] [--controls 4..8] --id mymachine --name "My Machine" --out ../mymachine
-  test      Check machine folders anywhere: python sdk.py test --machine ../mymachine [--firmware]
-  catalog   Published machines: python sdk.py catalog check | fetch | test [--tags]
+  test      Check machine and extension folders anywhere: python sdk.py test --machine ../mymachine | --extension ../myextension [--firmware]
+  catalog   Published machines and extensions: python sdk.py catalog check | fetch | test [--tags]
   project   Project companions: python sdk.py project write --layout layout.json song.xy | check song.xy
   compile   Native module only: python sdk.py compile --help
   build     Native firmware package: python sdk.py build [--machine <folder>] --help
@@ -16,6 +16,7 @@ COMMANDS = '''Commands:
   kit       Browser builder export: python sdk.py kit --help
   release   Catalog kit and site: python sdk.py release --help
   toolchain Install the pinned Blackfin tools: python sdk.py toolchain fetch
+  device    Copy a build to a connected OP-XY (Windows): python sdk.py device push <build>/candidate | list | pull
   doctor    Check tools: python sdk.py doctor --preview | --toolchain [<dir>]
 Preview server: python tools/serve_harness.py --preview local/preview-001'''
 
@@ -50,6 +51,9 @@ if __name__ == '__main__':
         raise SystemExit(main(argv))
     if command == 'toolchain':
         from tooling.toolchain import main
+        raise SystemExit(main(argv))
+    if command == 'device':
+        from tooling.device import main
         raise SystemExit(main(argv))
     if command == 'check':
         from tooling.checks import main

@@ -30,17 +30,26 @@ def notices(machines):
     return '\n\n'.join(texts)
 
 
-def catalog_sources(machines, personal):
-    """The release of each catalog machine at its pinned commit, by ID. A published kit
-    holds reviewed machines only: those. A personal kit may hold any folder."""
+def catalog_sources(machines, personal, entries=None):
+    """The release of each catalog machine (or extension) at its pinned commit, by ID. A
+    published kit holds reviewed ones only: those. A personal kit may hold any folder."""
     from .catalog import load, pinned
-    entries = load()
+    entries = load() if entries is None else entries
     sources = {m.id: next(e for e in entries if e['id'] == m.id) for m in machines
                if pinned(m, entries)}
     require(personal or all(m.id in sources for m in machines),
-            'A published kit holds catalog machines at their pinned commits '
+            'A published kit holds catalog machines and extensions at their pinned commits '
             '(sdk.py catalog fetch); build other folders into a --personal kit')
     return sources
+
+
+def extension_origins(extensions_, personal):
+    """Each extension's origin, as for machines: official (Open-XY's own, catalog.
+    OFFICIAL_EXTENSIONS), catalog (a community release) or personal (any other folder)."""
+    from .catalog import load_extensions
+    sources = catalog_sources(extensions_, personal, load_extensions())
+    return {e.id: 'personal' if e.id not in sources else 'official' if official(sources[e.id]) else 'catalog'
+            for e in extensions_}
 
 
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
@@ -89,7 +98,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     object_dir = output / 'objects'
     object_dir.mkdir()
     objects = []
-    extension_objects = {'sdk/extension_' + e['id'] + '.o': e['id'] for e in extensions.collection()}
+    extension_objects = {'sdk/extension_' + e.id + '.o': e.id for e in native.extensions_of(machines)}
     for name, owner in owners.items():
         data = read(child(package / 'analysis', name))
         destination = child(object_dir, name)
@@ -109,7 +118,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     kit = dict(format='opxy-browser-kit/1', version=native.package_version(package), profile=profile,
                profileSource=base64.b64encode(read(ROOT / ('profiles/' + profile['id'] + '.json'))).decode('ascii'),
                definitions=stock, fixed=FIXED_NUMBERS, linked=linked,
-               machines=kit_machines, extensions=extensions.metadata(), objects=objects, notices=notices(machines),
+               machines=kit_machines, objects=objects, notices=notices(machines),
+               extensions=extensions.metadata(native.extensions_of(machines),
+                                              extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
     kit_path = output / 'kit.json'

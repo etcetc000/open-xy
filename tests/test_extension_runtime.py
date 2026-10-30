@@ -1,18 +1,19 @@
 """The extension runtime, its generated registry and the 1.2.1 adapter, without a device.
 
-Each extension's own tests live in extensions/<id>/tests/ and run here too: every
-.cpp there is a host program that returns 0 when its checks pass.
+Extensions live in their own folders and repositories, with their own tests
+(sdk.py test --extension). The SDK's probe extension (tests/fixtures/extension_probe)
+exercises the adapter here.
 """
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest import mock
 from test_sample_services import HOST_CXX
 
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
+PROBE = ROOT / 'tests/fixtures/extension_probe'
 
 
 def build_and_run(test, source, folder, includes=()):
@@ -59,19 +60,16 @@ class Runtime(unittest.TestCase):
         self.run_fixture('extension_runtime')
 
     def test_generated_registry_omits_disabled_extensions_and_preserves_order(self):
-        from tooling.extensions import generate_collection
+        from tooling.extensions import Extension, generate_collection
         def prepare(folder):
-            with mock.patch('tooling.extensions.collection', return_value=[
-                dict(id='capture', origin='official', claims=['record_double_tap'], actions=['edit_notes']),
-                dict(id='observer', origin='community', claims=[], actions=[]),
-            ]):
-                generate_collection(folder)
+            generate_collection(folder, [
+                Extension('capture', PROBE, ('record_double_tap',), ('edit_notes',), {}),
+                Extension('observer', PROBE, (), (), {}),
+            ])
         self.run_fixture('extension_selection', prepare)
 
-    def test_stock_adapter_forwarding_undo_and_failure_with_capture_subscribed(self):
-        # The adapter end to end, with stock doubles at its mapped addresses and
-        # capture as the subscriber whose writes it carries out.
-        from tooling.extensions import generate_collection, generate_extension
+    def test_stock_adapter_events_keys_and_writes_with_the_probe_subscribed(self):
+        from tooling.extensions import extension_at, generate_collection, generate_extension
         def prepare(folder):
             stock = (PLATFORM / 'stock.hpp').read_text()
             stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
@@ -82,21 +80,7 @@ class Runtime(unittest.TestCase):
             (folder / 'stock.hpp').write_text(stock)
             (folder / 'extension_stock.cpp').write_text((PLATFORM / 'extension_stock.cpp').read_text().replace(
                 '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
-            generate_collection(folder)
-            generate_extension(folder, 'capture')
+            probe = extension_at(PROBE)
+            generate_collection(folder, [probe])
+            generate_extension(folder, probe)
         self.run_fixture('extension_stock', prepare)
-
-
-@unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
-class ExtensionsOwnTests(unittest.TestCase):
-    def test_each_extension_runs_its_own_tests(self):
-        from tooling.extensions import collection
-        found = 0
-        for entry in collection():
-            root = ROOT / 'extensions' / entry['id']
-            for source in sorted((root / 'tests').glob('*.cpp')):
-                found += 1
-                with self.subTest(extension=entry['id'], test=source.name), \
-                        tempfile.TemporaryDirectory(prefix='extension-own-test-') as folder:
-                    build_and_run(self, source, folder, (root,))
-        self.assertTrue(found, 'Every extension in the collection should carry tests in extensions/<id>/tests/')

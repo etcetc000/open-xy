@@ -1,40 +1,75 @@
-"""Extension ordering, the claim and action registry, event sites and build provenance."""
+"""Extension folders, the claim and action registry, event sites, the extension catalog
+and build provenance. Extensions live in their own repositories; the SDK's probe
+extension (tests/fixtures/extension_probe) stands in for one here."""
 import copy
+import json
+from pathlib import Path
 import re
+import shutil
+import tempfile
 import unittest
 from unittest import mock
-from tooling import extensions, native
+from tooling import catalog, extensions, native
+from tooling.machines import read_collection
 from tooling.pipeline import ROOT, config, document
+
+PROBE = ROOT / 'tests/fixtures/extension_probe'
+
+
+class Folder:
+    """A copy of the probe extension to change."""
+
+    def __enter__(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='extension-')
+        self.root = Path(self.temporary.name) / 'probe'
+        shutil.copytree(PROBE, self.root)
+        return self
+
+    def __exit__(self, *_):
+        self.temporary.cleanup()
+
+    def declare(self, **changes):
+        path = self.root / 'extension.json'
+        data = json.loads(path.read_text(encoding='utf-8'))
+        data.update(changes)
+        path.write_text(json.dumps({k: v for k, v in data.items() if v is not None}), encoding='utf-8')
+        return self.root
 
 
 class Extensions(unittest.TestCase):
-    def valid(self):
-        return document(ROOT / extensions.PROFILE)
-
-    def test_collection_rejects_conflicting_and_unsafe_declarations(self):
-        for mutate in (
-            lambda data: data['extensions'].append(copy.deepcopy(data['extensions'][0])),
-            lambda data: data['extensions'][0].update(id='../capture'),
-            lambda data: data['extensions'][0].update(id='runtime'),  # sdk/extension_runtime.o
-            lambda data: data['extensions'][0].update(id='delete'),  # a C++ keyword
-            lambda data: data['extensions'][0].update(claims=[]),  # edit_notes needs its claim
-            lambda data: data['extensions'][0].update(claims=['shift_hold']),  # not in the registry
-            lambda data: data['extensions'][0].update(actions=['edit_notes', 'edit_notes']),
-            lambda data: data['extensions'][0].update(extra=True),
-            lambda data: data['extensions'][0].update(origin='catalog'),
-            lambda data: data['extensions'][0].pop('origin'),
-            lambda data: data['claims'].update(bad={'label': ''}),
-            lambda data: data['actions'].update(other={'requires': 'missing'}),
-            lambda data: data.update(schema=1),
+    def test_a_folder_declares_itself_against_the_registry(self):
+        probe = extensions.extension_at(PROBE)
+        self.assertEqual((probe.id, probe.claims, probe.actions), ('probe', ('record_double_tap',), ('edit_notes', 'notify')))
+        for changes in (
+            dict(id='../probe'), dict(id='runtime'), dict(id='delete'),  # paths, SDK objects, C++ keywords
+            dict(claims=[]),  # edit_notes needs its claim
+            dict(claims=['shift_hold']),  # not in the registry
+            dict(actions=['edit_notes', 'edit_notes']),
+            dict(extra=True), dict(origin='official'),  # origin comes from the catalog, not the folder
+            dict(description='x' * 141), dict(note=''), dict(name=None),
         ):
-            data = self.valid()
+            with self.subTest(**{k: str(v) for k, v in changes.items()}), Folder() as folder, self.assertRaises(ValueError):
+                extensions.extension_at(folder.declare(**changes))
+        with Folder() as folder, self.assertRaisesRegex(ValueError, 'conditional compilation'):
+            (folder.root / 'extension.cpp').write_text('#ifdef X\n#endif\n', encoding='utf-8')
+            extensions.extension_at(folder.root)
+
+    def test_a_collection_holds_each_extension_and_claim_once(self):
+        probe = extensions.extension_at(PROBE)
+        with self.assertRaisesRegex(ValueError, 'Duplicate'):
+            extensions.check_collection([probe, probe])
+        other = extensions.Extension('other', PROBE, ('record_double_tap',), (), {})
+        with self.assertRaisesRegex(ValueError, 'multiple owners'):
+            extensions.check_collection([probe, other])
+
+    def test_the_registry_is_claims_and_actions_only(self):
+        for mutate in (lambda d: d['claims'].update(bad={'label': ''}),
+                       lambda d: d['actions'].update(other={'requires': 'missing'}),
+                       lambda d: d.update(extensions=[]), lambda d: d.update(schema=2)):
+            data = document(ROOT / extensions.PROFILE)
             mutate(data)
             with mock.patch.object(extensions, 'document', return_value=data), self.assertRaises(ValueError):
-                extensions.collection()
-        data = self.valid()
-        data['extensions'].append(dict(id='other', origin='community', claims=['record_double_tap'], actions=[]))
-        with mock.patch.object(extensions, 'document', return_value=data), self.assertRaisesRegex(ValueError, 'multiple owners'):
-            extensions.collection()
+                extensions.registry()
 
     def test_actions_match_the_runtime_bits_and_claims_are_data(self):
         # An action is SDK code: one registry entry and one runtime constant, in
@@ -64,26 +99,60 @@ class Extensions(unittest.TestCase):
             with self.assertRaises(ValueError):
                 extensions.check_profile(changed)
 
-    def test_site_text_is_one_short_line_and_an_optional_note(self):
-        for entry in extensions.metadata():
-            self.assertLessEqual(len(entry['description']), extensions.TEXT_LIMITS['description'])
-        text = {'name': 'Capture', 'description': 'Play, then double-tap Record.'}
-        for bad in (dict(text, description='x' * 141), dict(text, note=''), dict(text, gesture='Record'),
-                    {'name': 'Capture'}):
-            with mock.patch.object(extensions, 'document', side_effect=lambda path: (
-                    self.valid() if path.name == 'extensions.json' else bad)), self.assertRaises(ValueError):
-                extensions.metadata()
+    def test_the_kit_carries_text_claims_labels_and_origin(self):
+        probe = extensions.extension_at(PROBE)
+        [entry] = extensions.metadata([probe], {'probe': 'personal'})
+        self.assertEqual(entry['origin'], 'personal')
+        self.assertEqual(entry['claim_labels'], {'record_double_tap': 'Record double-tap'})
+        self.assertLessEqual(len(entry['description']), extensions.TEXT_LIMITS['description'])
 
-    def test_extension_source_and_selection_are_authenticated_build_inputs(self):
-        sources = native.provenance([])
+    def test_extensions_reach_a_build_through_its_collection(self):
+        with tempfile.TemporaryDirectory() as folder:
+            listing = Path(folder) / 'collection.json'
+            listing.write_text(json.dumps({'schema': 1, 'machines': [], 'extensions': [{'path': str(PROBE)}]}))
+            self.assertEqual(read_collection(listing), [{'extension': str(PROBE.resolve())}])
+            self.assertEqual(read_collection(None, (), [PROBE]), [{'extension': str(PROBE.resolve())}])
+        probe = extensions.extension_at(PROBE)
+        machines = native.Collection([], [probe])
+        sources = native.provenance(machines)
         self.assertIn('profiles/extensions.json', sources)
-        self.assertIn('extensions/capture/extension.cpp', sources)
-        self.assertIn('extensions/capture/history.hpp', sources)
-        self.assertIn(('sdk/extension_capture.o', None, 'extension:capture'), native.plan([]))
-        self.assertNotIn('sdk/extension_capture.o', native.object_services([]))
+        self.assertIn('extension:probe/extension.cpp', sources)
+        self.assertIn(('sdk/extension_probe.o', None, 'extension:probe'), native.plan(machines))
+        self.assertIn('extensions', native.active_services(config(), native.service_users(machines)))
+        # A subset of the machines keeps the collection's extensions.
+        self.assertEqual(native.subset(machines, []).extensions, (probe,))
 
-    def test_empty_selection_has_no_extension_objects(self):
-        data = dict(self.valid(), extensions=[])
-        with mock.patch.object(extensions, 'document', return_value=data):
-            self.assertFalse(any(step.startswith('extension:') for _, _, step in native.plan([])))
-            self.assertFalse(any(name.startswith('extensions/') for name in native.provenance([])))
+    def test_no_extensions_means_no_extension_objects_or_service(self):
+        self.assertFalse(any(step.startswith('extension:') for _, _, step in native.plan([])))
+        self.assertFalse(any(name.startswith('extension:') for name in native.provenance([])))
+        self.assertNotIn('extensions', native.active_services(config(), native.service_users([])))
+
+
+class ExtensionCatalog(unittest.TestCase):
+    def entry(self, **changes):
+        entry = dict(id='capture', kind='extension', maintainer='etcetc000', status='published',
+                     repository='https://github.com/etcetc000/open-xy-core-machines', tag='v1.6.0',
+                     commit='a' * 40, path='extensions/capture')
+        entry.update(changes)
+        return {k: v for k, v in entry.items() if v is not None}
+
+    def test_entries_have_the_machine_catalog_format(self):
+        self.assertEqual(catalog.validate({'schema': 1, 'extensions': [self.entry()]}, 'extensions')[0]['id'], 'capture')
+        for bad in (dict(kind='synth'), dict(id='runtime'), dict(cpu={}), dict(commit=None), dict(path='../x')):
+            with self.subTest(**{k: str(v) for k, v in bad.items()}), self.assertRaises(ValueError):
+                catalog.validate({'schema': 1, 'extensions': [self.entry(**bad)]}, 'extensions')
+        with self.assertRaises(ValueError):  # extensions belong in their own catalog
+            catalog.validate({'schema': 1, 'machines': [self.entry()]})
+
+    def test_updates_keep_entries_and_need_no_cpu(self):
+        before = [self.entry()]
+        catalog.changes(before, [self.entry(commit='b' * 40, tag='v1.7.0')])
+        with self.assertRaises(ValueError):
+            catalog.changes(before, [])
+        with self.assertRaises(ValueError):
+            catalog.changes(before, [self.entry(repository='https://github.com/someone/else')])
+
+    def test_official_extensions_are_listed_by_id(self):
+        self.assertTrue(catalog.official(self.entry()))
+        self.assertFalse(catalog.official(self.entry(id='echo')))
+        self.assertEqual([e['id'] for e in catalog.load_extensions()], ['capture'])

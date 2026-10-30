@@ -101,7 +101,7 @@ reads stays within these limits; one beyond them is ignored whole:
 - a value it skips (an unknown field, or another owner's section) nested at
   most 8 objects or arrays deep;
 - section names at most 64 bytes;
-- at most 128 distinct machines in `open-xy.machines` (the reference reader
+- at most 256 distinct machines in `open-xy.machines` (the reference reader
   enforces this one too).
 
 ## `open-xy.machines`

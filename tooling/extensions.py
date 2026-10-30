@@ -1,11 +1,18 @@
-"""Curated, ordered firmware extensions. No dynamic loading or arbitrary hooks."""
+"""Firmware extensions: folders of their own, like machines, against the SDK's contracts.
+
+An extension folder holds extension.json (its ID, the site's text, and the claims
+and actions it uses), extension.cpp and tests/. The SDK holds the registry of
+claims and actions (PROFILE) and the runtime; a build's collection lists the
+extensions it links, in callback order. No dynamic loading or arbitrary hooks.
+"""
+from dataclasses import dataclass
+from pathlib import Path
 import re
 from .contributors import validate_source_boundary
 from .formats import require
 from .pipeline import ROOT, document
 
 PROFILE = 'profiles/extensions.json'
-
 
 NAME = re.compile(r'[a-z][a-z0-9_]{0,31}')
 # IDs name an object beside the SDK's own (sdk/extension_<id>.o) and a C++ namespace.
@@ -19,16 +26,17 @@ RESERVED = {'runtime', 'collection', 'stock', *'''alignas alignof and and_eq asm
 # The site's row and details: one line saying what it does and how, and an
 # optional note for its one limit. Short on purpose: people scan, not read.
 TEXT_LIMITS = {'name': 32, 'description': 140, 'note': 100}
-# Open-XY's own extensions are official (shown as Core); contributed ones are community.
-ORIGINS = ('official', 'community')
+MAX_EXTENSIONS = 16
 HEADER = 'sdk/include/opxy/extension.hpp'
 RUNTIME = 'sdk/platform/extension_runtime.hpp'
+SOURCE_SUFFIXES = ('.cpp', '.cc', '.h', '.hpp', '.inc')
 
 
-def _document():
+def registry():
+    """The claims and actions an extension may declare: SDK contracts. Claims are
+    data (a label and the key it governs); actions are one bit each in RUNTIME."""
     data = document(ROOT / PROFILE)
-    require(set(data) == {'schema', 'claims', 'actions', 'extensions'} and data['schema'] == 2,
-            'Invalid extension collection schema')
+    require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
@@ -39,45 +47,66 @@ def _document():
     for name, action in actions.items():
         require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
                 ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
-    return data
+    return claims, actions
 
 
-def registry():
-    """The claims and actions an extension may declare: SDK contracts, one bit each in RUNTIME."""
-    data = _document()
-    return data['claims'], data['actions']
+@dataclass(frozen=True)
+class Extension:
+    id: str
+    root: Path
+    claims: tuple
+    actions: tuple
+    text: dict  # name, description and optional note: the site's row and details
+
+    def sources(self):
+        """Every file of the extension, by name relative to its folder."""
+        return {p.relative_to(self.root).as_posix(): p for p in sorted(self.root.rglob('*'))
+                if p.is_file() and '.git' not in p.relative_to(self.root).parts}
 
 
-def collection():
-    data = _document()
-    claims, actions = data['claims'], data['actions']
-    entries = data['extensions']
-    require(isinstance(entries, list) and len(entries) <= 16, 'At most 16 extensions')
+def extension_at(folder):
+    """The extension in `folder`, checked against the SDK's registry and source rules."""
+    root = Path(folder).resolve()
+    require((root / 'extension.json').is_file() and (root / 'extension.cpp').is_file(),
+            f'{root}: an extension folder holds extension.json and extension.cpp')
+    data = document(root / 'extension.json')
+    keys = {'id', 'claims', 'actions', 'name', 'description'}
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note'}, f'{root}: extension.json fields are '
+            'id, name, description, claims, actions and an optional note')
+    name = data['id']
+    require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
+    for key in TEXT_LIMITS:
+        require(key not in data or (isinstance(data[key], str) and 0 < len(data[key]) <= TEXT_LIMITS[key]),
+                f'{name}: {key} is 1-{TEXT_LIMITS[key]} characters')
+    claims, actions = registry()
+    for field, known in (('claims', claims), ('actions', actions)):
+        values = data[field]
+        require(isinstance(values, list) and len(set(values)) == len(values) and
+                all(isinstance(v, str) and v in known for v in values),
+                f'{name}: unknown or repeated {field[:-1]}; the SDK declares them in {PROFILE} and {RUNTIME}')
+    for action in data['actions']:
+        needed = actions[action].get('requires')
+        require(needed is None or needed in data['claims'], f'{name}: {action} requires the {needed} claim')
+    require(not data['actions'] or data['claims'], f'{name}: actions are granted through a claim it holds')
+    for path in root.rglob('*'):
+        if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
+            validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
+    return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
+                     {k: data[k] for k in TEXT_LIMITS if k in data})
+
+
+def check_collection(extensions):
+    """A build's extensions: distinct, within the limit, and no claim held twice."""
+    require(len(extensions) <= MAX_EXTENSIONS, f'At most {MAX_EXTENSIONS} extensions')
     ids, owners = set(), {}
-    for entry in entries:
-        require(isinstance(entry, dict) and set(entry) == {'id', 'origin', 'claims', 'actions'} and
-                entry['origin'] in ORIGINS, 'Invalid extension declaration')
-        name = entry['id']
-        require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, 'Invalid extension ID')
-        require(name not in ids, 'Duplicate extension ID: ' + name)
-        ids.add(name)
-        for field, known in (('claims', claims), ('actions', actions)):
-            values = entry[field]
-            require(isinstance(values, list) and len(set(values)) == len(values) and
-                    all(isinstance(v, str) and v in known for v in values),
-                    f'Unknown or repeated {field[:-1]} in {name}: declare it in {PROFILE} and {RUNTIME}')
-        for claim in entry['claims']:
-            require(claim not in owners, f'{claims[claim]["label"]} has multiple owners: {owners.get(claim)}, {name}')
-            owners[claim] = name
-        for action in entry['actions']:
-            needed = actions[action].get('requires')
-            require(needed is None or needed in entry['claims'], f'{action} requires the {needed} claim')
-        root = ROOT / 'extensions' / name
-        require((root / 'extension.cpp').is_file(), 'Missing extension source: ' + name)
-        for path in root.rglob('*'):
-            if path.is_file() and path.suffix in ('.cpp', '.cc', '.h', '.hpp', '.inc'):
-                validate_source_boundary(path.read_text(encoding='utf-8'), path.relative_to(ROOT).as_posix())
-    return entries
+    claims, _actions = registry()
+    for e in extensions:
+        require(e.id not in ids, 'Duplicate extension ID: ' + e.id)
+        ids.add(e.id)
+        for claim in e.claims:
+            require(claim not in owners, f'{claims[claim]["label"]} has multiple owners: {owners.get(claim)}, {e.id}')
+            owners[claim] = e.id
+    return extensions
 
 
 def events():
@@ -103,21 +132,20 @@ def check_profile(profile):
     require(fed == known, 'Events without a firmware site: ' + ', '.join(sorted(known - fed)))
 
 
-def generate_collection(folder):
+def generate_collection(folder, extensions):
     """The collection and the registry tables the runtime reads: each claim's
     key, and the claims that grant each action (0: any claim its holder owns)."""
-    entries = collection()
     claims, actions = registry()
     claim_bit = {name: 1 << i for i, name in enumerate(claims)}
     action_bit = {name: 1 << i for i, name in enumerate(actions)}
     mask = lambda table, names: '0x%xu' % sum(table[n] for n in names)
     table = lambda values: ', '.join(values) or '0'
     lines = ['#include "extension_runtime.hpp"']
-    for entry in entries:
-        symbol = 'sdk_extension_' + entry['id'] + '_hooks'
+    for e in extensions:
+        symbol = 'sdk_extension_' + e.id + '_hooks'
         lines.append('extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");')
     lines += ['namespace opxy { namespace platform {', 'namespace {',
-              'ExtensionEntry collection_entries[' + str(max(1, len(entries))) + '];',
+              'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
               'const u32 claim_keys[] = {' + table([str(c['key']) for c in claims.values()]) + '};',
               '// ' + ', '.join(actions) if actions else '// no actions',
@@ -128,36 +156,31 @@ def generate_collection(folder):
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
               'const ExtensionEntry* extension_collection(u32& count) {', '    count = 0;']
-    for entry in entries:
-        lines += ['    if (const auto* hooks = sdk_extension_' + entry['id'] + '_hooks())',
+    for e in extensions:
+        lines += ['    if (const auto* hooks = sdk_extension_' + e.id + '_hooks())',
                   '        collection_entries[count++] = {"%s", %s, %s, hooks};' % (
-                      entry['id'], mask(claim_bit, entry['claims']), mask(action_bit, entry['actions']))]
+                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions))]
     lines += ['    return collection_entries;', '}', '}}', '']
     target = folder / 'extension_collection.cpp'
     target.write_text('\n'.join(lines), encoding='utf-8')
     return target
 
 
-def generate_extension(folder, name):
+def generate_extension(folder, extension):
     """Stable C accessor; an omitted browser object resolves it to kit_absent."""
-    require(name in {entry['id'] for entry in collection()}, 'Unknown extension')
-    target = folder / ('extension_' + name + '.cpp')
-    source = (ROOT / 'extensions' / name / 'extension.cpp').as_posix()
-    symbol = 'sdk_extension_' + name + '_hooks'
+    target = folder / ('extension_' + extension.id + '.cpp')
+    source = (extension.root / 'extension.cpp').as_posix()
+    symbol = 'sdk_extension_' + extension.id + '_hooks'
     target.write_text('#include "' + source + '"\n'
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");\n'
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() {\n'
-                      '    return &opxy::extensions::' + name + '::hooks;\n}\n', encoding='utf-8')
+                      '    return &opxy::extensions::' + extension.id + '::hooks;\n}\n', encoding='utf-8')
     return target
 
 
-def metadata():
-    result = []
-    for entry in collection():
-        data = document(ROOT / 'extensions' / entry['id'] / 'extension.json')
-        require({'name', 'description'} <= set(data) <= set(TEXT_LIMITS) and
-                all(isinstance(value, str) and 0 < len(value) <= TEXT_LIMITS[key] for key, value in data.items()),
-                'Invalid extension display metadata: ' + entry['id'])
-        claims, _actions = registry()
-        result.append(dict(entry, **data, claim_labels={c: claims[c]['label'] for c in entry['claims']}))
-    return result
+def metadata(extensions, origins):
+    """The kit's extension entries: the site's text, claims and actions, and an origin
+    (official, catalog or personal, as for machines) from `origins` by ID."""
+    claims, _actions = registry()
+    return [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
+                 claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]

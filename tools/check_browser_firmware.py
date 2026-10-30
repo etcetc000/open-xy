@@ -60,8 +60,7 @@ def main():
     # reproduces it exactly.
     selections = json.loads((directory / 'reference/selections.json').read_text())
     linked = kit.get('linked', [m['id'] for m in kit['machines']])
-    mask = sum(2 ** i for i, m in enumerate(kit['machines']) if m['id'] in linked)
-    full = [r for r in selections if r['mask'] == mask and
+    full = [r for r in selections if set(r['selected']) == set(linked) and
             r['extensions'] == [e['id'] for e in kit.get('extensions', [])]]
     require(len(full) == 1, 'The checked selections must include the linked machines with every extension')
     everything = directory / 'reference' / full[0]['name']

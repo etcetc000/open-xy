@@ -44,7 +44,7 @@ u32 deserialize(void* project, const char* path) {
 }
 
 const u32 kPathBytes = 256;
-const u32 kTextBytes = 8192;
+const u32 kTextBytes = 1024;  // the writer streams through it (Writer)
 const u32 kChunkBytes = 4096;
 // The writer's and the reader's buffers stay apart, so a save and a load never share one.
 unsigned char chunk[kChunkBytes];
@@ -98,14 +98,20 @@ bool companion_path(const char* path, char* out) {
     return true;
 }
 
+// Streams the companion through `text`, a buffer at a time, so its size follows the
+// machines listed, not the buffer. As with one write, a card that fills part way leaves
+// a document the reader refuses whole: the project then loads as saved.
 class Writer {
 public:
-    u32 length = 0;
-    bool full = false;
+    explicit Writer(File* file) : file_(file) {}
     void put(const char* s) { while (*s) byte(*s++); }
     void byte(char c) {
-        if (length < kTextBytes) text[length++] = c;
-        else full = true;
+        if (length_ == kTextBytes) flush();
+        text[length_++] = c;
+    }
+    void flush() {
+        if (length_) file_write(text, length_, 1, file_);
+        length_ = 0;
     }
     void number(u32 v) {
         char digits[10];
@@ -116,10 +122,16 @@ public:
     void hex(u32 v) {
         for (int shift = 28; shift >= 0; shift -= 4) byte("0123456789abcdef"[(v >> shift) & 15]);
     }
+
+private:
+    File* file_;
+    u32 length_ = 0;
 };
 
 void write_companion(u32 bytes, u32 crc) {
-    Writer w;
+    File* file = file_open(companion, "wb");
+    if (!file) return;
+    Writer w(file);
     w.put("{\n  \"format\": \"open-xy-project\",\n  \"project\": {\n    \"bytes\": ");
     w.number(bytes);
     w.put(",\n    \"crc32\": \"");
@@ -139,10 +151,7 @@ void write_companion(u32 bytes, u32 crc) {
     }
     w.put(listed ? "\n      },\n" : "},\n");
     w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }\n  },\n  \"version\": 1\n}\n");
-    if (w.full) return;
-    File* file = file_open(companion, "wb");
-    if (!file) return;
-    file_write(text, w.length, 1, file);
+    w.flush();
     file_close(file);
 }
 
@@ -150,8 +159,10 @@ void write_companion(u32 bytes, u32 crc) {
 // through read_chunk, so a companion of up to 64 KiB needs no buffer of its size. A
 // repeated key counts once, its last value deciding, as Python's json reads it.
 const u32 kCompanionLimit = 64 * 1024;
-// Engine and effect records (docs/abi-1.2.1.md): no registered number lies outside.
-const u32 kNumbers = 63;
+// The relocated engine and effect records (docs/abi-1.2.1.md, tooling/stock_tables.py):
+// no registered engine or effect number lies outside its table.
+const u32 kNumbers = 256;
+const u32 kEffectNumbers = 63;
 // A number the companion does not list stays as saved (a stock machine).
 const u32 kUnlisted = 0xfffffffeu;
 // What a listed machine this firmware lacks becomes, written into every pattern itself:
@@ -164,8 +175,9 @@ const u32 kNoEffect = 0;
 const u32 kDepth = 8;      // nesting a skipped value may use; deeper is refused (stack)
 const u32 kKeyBytes = 64;  // longer strings match nothing we read
 const u32 kMachineBytes = 15;
-// Distinct machine IDs one section may list (tooling/projects.py MACHINE_LIMIT).
-const u32 kMachines = 128;
+// Distinct machine IDs one section may list (tooling/projects.py MACHINE_LIMIT): more than
+// one firmware can number (test_stock_tables), so it reads every companion it writes.
+const u32 kMachines = 256;
 // Other owners' sections invalid at once, each awaiting a repeat of its name that
 // replaces it; more refuse the companion.
 const u32 kInvalidSections = 4;
@@ -173,13 +185,13 @@ const u32 kInvalidSections = 4;
 // Old number -> this firmware's number, kUnlisted, or the fallback, for engines (tracks
 // 0-7) and effects (send tracks 14 and 15), which share the pattern field.
 u32 engine_map[kNumbers];
-u32 effect_map[kNumbers];
+u32 effect_map[kEffectNumbers];
 
 // Each machine the section lists, by ID, as its last entry gives it.
 struct Listed {
     char id[kMachineBytes];
     unsigned char length;
-    unsigned char old;  // kNumbers when the entry names no number a pattern can hold
+    unsigned short old;  // kNumbers when the entry names no number a pattern can hold
     bool effect, valid;
 };
 Listed listed[kMachines];
@@ -494,7 +506,8 @@ u32 number_here(const Listed& entry) {
 }
 
 void clear_maps() {
-    for (u32 i = 0; i < kNumbers; ++i) engine_map[i] = effect_map[i] = kUnlisted;
+    for (u32 i = 0; i < kNumbers; ++i) engine_map[i] = kUnlisted;
+    for (u32 i = 0; i < kEffectNumbers; ++i) effect_map[i] = kUnlisted;
 }
 
 // The maps from the listed machines, as tooling/projects.py translation() gives them.
@@ -503,7 +516,7 @@ void fill_maps() {
     clear_maps();
     for (u32 i = 0; i < listed_count; ++i) {
         const Listed& entry = listed[i];
-        if (entry.old >= kNumbers) continue;  // no pattern holds such a number registered
+        if (entry.old >= (entry.effect ? kEffectNumbers : kNumbers)) continue;  // no pattern holds such a number registered
         u32& slot = (entry.effect ? effect_map : engine_map)[entry.old];
         slot = slot == kUnlisted ? number_here(entry) : entry.effect ? kNoEffect : kPrism;
     }
@@ -522,7 +535,7 @@ bool record(const Text& id, bool valid, bool effect, u32 old) {
     }
     listed[i].valid = valid;
     listed[i].effect = effect;
-    listed[i].old = static_cast<unsigned char>(old < kNumbers ? old : kNumbers);
+    listed[i].old = static_cast<unsigned short>(old < kNumbers ? old : kNumbers);
     return true;
 }
 
@@ -722,12 +735,13 @@ void remap(unsigned char* project) {
     for (u32 track = 0; track < 16; ++track) {
         if (track >= 8 && track < 14) continue;  // tracks 8-13 hold no machine number
         const u32* map = track < 8 ? engine_map : effect_map;
+        const u32 limit = track < 8 ? kNumbers : kEffectNumbers;
         unsigned char* base = project + 0xd7c + track * 0x53f44;
         u32 patterns = *reinterpret_cast<u32*>(base + 0x53f40);
         if (patterns > 16) patterns = 16;
         for (u32 k = 0; k < patterns; ++k) {
             u32& number = *reinterpret_cast<u32*>(base + k * 0x53f4 + 0x18);
-            if (number < kNumbers && map[number] != kUnlisted) number = map[number];
+            if (number < limit && map[number] != kUnlisted) number = map[number];
         }
     }
 }

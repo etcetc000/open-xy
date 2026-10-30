@@ -58,14 +58,35 @@ NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)'
 SVG_INHERITED = {'fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 'style'}
 
 
+class Collection(list):
+    """A build's machines, in firmware order, and the extensions it links, in
+    callback order (`extensions`). A subset of its machines keeps its extensions."""
+
+    def __init__(self, machines=(), extensions_=()):
+        super().__init__(machines)
+        self.extensions = tuple(extensions_)
+
+
+def extensions_of(machines):
+    """The extensions a machine list carries: none for a plain list."""
+    return getattr(machines, 'extensions', ())
+
+
+def subset(machines, chosen):
+    """Some of a collection's machines, with all of its extensions."""
+    return Collection(chosen, extensions_of(machines))
+
+
 def configuration(entries=None, layout=None):
-    """The profile, the collection's machines numbered by the layout, and their link-time
-    IDs. Entries are machines.read_collection's."""
+    """The profile, the collection's machines numbered by the layout (a Collection,
+    carrying its extensions), and their link-time IDs. Entries are
+    machines.read_collection's."""
     profile = config()
     stock_tables.check_profile(profile)
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
-    machines = collection(entries, layout)
+    machines = Collection(collection(entries, layout), extensions.check_collection(
+        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
     definitions = dict(DEFINITIONS)
     for m in machines:
         if m.kind == 'effect':
@@ -83,13 +104,16 @@ def provenance(machines):
     """Every authored, SDK and compiler-profile input; private artifacts never enter.
     The collection is its machines, in order: their IDs and sources below."""
     paths = {PROFILE, LINKER, extensions.PROFILE}
-    for folder in ('sdk/include', 'sdk/platform', 'tooling', *('extensions/' + entry['id'] for entry in extensions.collection())):
+    for folder in ('sdk/include', 'sdk/platform', 'tooling'):
         paths |= {p.relative_to(ROOT).as_posix() for p in (ROOT / folder).rglob('*')
                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md'}
     hashes = {name: sha(read(child(ROOT, name))) for name in paths}
     for m in machines:
         hashes.update({name: sha(read(path)) for name, path in m.files().items()})
-    hashes['collection'] = sha(json.dumps([m.id for m in machines]).encode('utf-8'))
+    for e in extensions_of(machines):
+        hashes.update({f'extension:{e.id}/{name}': sha(read(path)) for name, path in e.sources().items()})
+    hashes['collection'] = sha(json.dumps([m.id for m in machines] +
+                                          ['extension:' + e.id for e in extensions_of(machines)]).encode('utf-8'))
     return dict(sorted(hashes.items()))
 
 
@@ -169,8 +193,7 @@ def plan(machines, profile=None):
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
-    units += [(f'sdk/extension_{entry["id"]}.o', None, 'extension:' + entry['id'])
-              for entry in extensions.collection()]
+    units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
@@ -184,7 +207,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock')
+             'extension_runtime', 'extension_collection', 'extension_stock', 'presets')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -195,8 +218,8 @@ UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection',
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, and
-    'extension' when the collection declares extensions (native builds link them all)."""
-    return [m.kind for m in machines] + (['extension'] if extensions.collection() else [])
+    'extension' when it links extensions (native builds link all of the collection's)."""
+    return [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
 
 
 def module_bytes(profile):
@@ -279,14 +302,14 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',
                *(f'--defsym={key}={value:#x}' for key, value in definitions.items()),
                *(f'--defsym={key}={value}' for key, value in aliases.items()),
-               *(object_name for object_name, _m, _step in plan(selected, profile))]
+               *(object_name for object_name, _m, _step in plan(subset(machines, selected), profile))]
     try:
         subprocess.check_output([str(arg) for arg in command], cwd=directory, stderr=subprocess.STDOUT, text=True, timeout=120)
     except subprocess.CalledProcessError as error:
         overflow = re.search(r"region `MODULE' overflowed by (\d+) bytes", error.output or '')
         if not overflow and 'Module overlaps the relocated tables' not in (error.output or ''):
             raise
-        usage, limit = memory_by_owner(directory, selected, profile), module_bytes(profile)
+        usage, limit = memory_by_owner(directory, subset(machines, selected), profile), module_bytes(profile)
         total = limit + int(overflow.group(1)) if overflow else sum(sum(share.values()) for share in usage.values())
         return memory_summary(usage, total, limit)
     return None
@@ -311,13 +334,15 @@ def linked_machines(directory, tools, profile, machines, definitions):
         (directory / leftover).unlink(missing_ok=True)
     overflow = link(directory, tools, profile, definitions, machines, core)
     require(overflow is None, 'The official machines exceed the shared module memory, ' + str(overflow))
-    return core
+    return subset(machines, core)
 
 
-def compile_collection(directory, toolchain, compiler, profile, machines, definitions, version, profiling=True):
+def compile_collection(directory, toolchain, compiler, profile, machines, definitions, version, profiling=True,
+                       sweep=False):
     """Compile every machine and link those that fit (linked_machines), labelled with the
     release version; return the module bytes, report and patched profile."""
-    require(type(profiling) is bool, 'Profiling must be a boolean')
+    require(type(profiling) is bool and type(sweep) is bool, 'Profiling and sweep must be booleans')
+    require(profiling or not sweep, 'A control sweep needs a profiling build')
     directory = Path(directory)
     for m in machines:
         if m.display != 'stock':
@@ -344,13 +369,15 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         folder.mkdir(exist_ok=True)
         if m is None:
             if step == 'benchmark':
-                return cxx(str(benchmark.generate(folder, machines)), obj)
+                return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
             if step.startswith('extension:'):
-                return cxx(str(extensions.generate_extension(folder, step.removeprefix('extension:'))), obj)
+                chosen = step.removeprefix('extension:')
+                extension = next(e for e in extensions_of(machines) if e.id == chosen)
+                return cxx(str(extensions.generate_extension(folder, extension)), obj)
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
             if step == 'extension_collection':
-                return cxx(str(extensions.generate_collection(folder)), obj)
+                return cxx(str(extensions.generate_collection(folder, extensions_of(machines))), obj)
             if step == 'screen_order':
                 return cxx(str(generate_screen_order(folder)), obj)
             if step == 'sample_callbacks':
@@ -377,7 +404,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
         if step.startswith('source:'):
             return cxx(m.source(step.removeprefix('source:')), obj, m)
-        source = {'voice': lambda: generate_voice(folder, m), 'display': lambda: display_unit(folder, m),
+        source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
                   'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True)}[step]
@@ -395,7 +422,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     require(provenance(machines) == before, 'Sources changed during compilation')
     report = dict(schema=1, target=TARGET, status='experimental-unqualified', sources=before,
                   host=host_platform(), tools=host_pins('tools')[0], compiler=host_pins('compiler')[0],
-                  cxx_flags=CXX_FLAGS, profiling=profiling, benchmark_cases=benchmark.cases(linked),
+                  cxx_flags=CXX_FLAGS, profiling=profiling, benchmark_cases=benchmark.cases(linked, sweep),
+                  **({'benchmark_sweep': True} if sweep else {}),
                   sizes=sizes, memory=usage, module_bytes=module_bytes(profile), audio_stack_bytes=stack,
                   reserved_bytes=profile['reserved_bytes'],
                   module_sha256=sha(module), elf_sha256=sha(read(directory / 'module.elf')), hooks=hooks,
@@ -723,7 +751,7 @@ def prepare_assets(catalog, profile, machines):
 
 def linked_in(machines, report):
     """The machines a compile report's module links, in collection order."""
-    return [m for m in machines if m.id in report['linked']]
+    return subset(machines, [m for m in machines if m.id in report['linked']])
 
 
 def package_collection(package):
@@ -759,11 +787,13 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
     require(manifest.get('schema') == 1 and manifest.get('target') == TARGET, 'Unexpected manifest')
     profiling = manifest.get('profiling')
     require(type(profiling) is bool, 'Manifest profiling must be a boolean')
+    sweep = manifest.get('benchmark_sweep', False)
+    require(sweep is True or 'benchmark_sweep' not in manifest, 'Manifest benchmark_sweep must be true when present')
     profile, machines, definitions = configuration(package_collection(package), package_layout(package))
     with tempfile.TemporaryDirectory(prefix='opxy-verify-') as temporary:
         temporary = Path(temporary)
         module, report, patch_profile = compile_collection(temporary, toolchain, compiler, profile, machines,
-                                                           definitions, package_version(package), profiling)
+                                                           definitions, package_version(package), profiling, sweep)
         require(report['profiling'] is profiling, 'Compile profiling differs from manifest')
         expected_assets = prepare_assets(catalog, profile, linked_in(machines, report))
         expected_assets['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
@@ -793,9 +823,12 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
     return result
 
 
-def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True):
+def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True, sweep=False):
     """A firmware package. Its machines take their numbers from `layout` (by machine ID);
-    the package's layout.json is that layout after this build, for the next one."""
+    the package's layout.json is that layout after this build, for the next one. Only a
+    package for hardware profiling sweeps synth controls: `sdk.py build` turns it on with
+    profiling; release kits leave it off, so their sweep tables are empty and their voices
+    never check the sweep override."""
     require(type(profiling) is bool, 'Profiling must be a boolean')
     entries = [] if entries is None else entries
     profile, machines, definitions = configuration(entries, layout)
@@ -809,7 +842,7 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     analysis.mkdir()
     version = startup_label.release_version()
     module, report, patch_profile = compile_collection(analysis, toolchain, compiler, profile, machines,
-                                                       definitions, version, profiling)
+                                                       definitions, version, profiling, sweep)
     prepared = prepare_assets(catalog, profile, linked_in(machines, report))
     prepared['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
                                   set(report['services']), profiling)
@@ -819,6 +852,7 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
         path.write_bytes(data)
     tracked = ['candidate/' + name for name in prepared] + ['analysis/module.bin', 'analysis/module.elf'] + ANALYSIS
     save_json(output / 'manifest.json', dict(schema=1, target=TARGET, version=version, collection=entries, profiling=profiling,
+                                             **({'benchmark_sweep': True} if sweep else {}),
                                              **({'layout': layout} if layout else {}),
                                              files={name: sha(read(output / name)) for name in tracked}))
     save_json(output / 'layout.json', layout_document(numbers_after(layout, machines)))
@@ -829,14 +863,16 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
 
 def add_collection_arguments(parser):
     parser.add_argument('--collection', type=Path,
-                        help='collection file of {"path": ...} machine folders, such as local/catalog/collection.json '
-                             'from python sdk.py catalog fetch')
+                        help='collection file of {"path": ...} machine and extension folders, such as '
+                             'local/catalog/collection.json from python sdk.py catalog fetch')
     parser.add_argument('--machine', type=Path, action='append', default=[],
                         help='a machine folder to add to the collection; repeatable')
+    parser.add_argument('--extension', type=Path, action='append', default=[],
+                        help='an extension folder to add to the collection; repeatable')
 
 
 def selected_collection(args):
-    return read_collection(args.collection, args.machine)
+    return read_collection(args.collection, args.machine, args.extension)
 
 
 COMMANDS = {
@@ -862,6 +898,9 @@ def main(argv=None, command=None):
     if command != 'verify':  # a package records its own collection
         parser.add_argument('--profiling', choices=('on', 'off'), default='on',
                             help='per-voice diagnostic timing (default: on for SDK development builds)')
+        parser.add_argument('--sweep', choices=('on', 'off'),
+                            help='time each synth control through its positions on the device '
+                                 '(docs/profiling.md; default: on with profiling)')
         add_collection_arguments(parser)
         parser.add_argument('--layout', type=Path,
                             help="the machine numbers your OP-XY's projects use: the layout.json of your last build")
@@ -869,6 +908,9 @@ def main(argv=None, command=None):
     # A failed command removes only the --out folder it created itself.
     created = command != 'verify' and not args.out.exists()
     try:
+        if command != 'verify':
+            sweep = (args.sweep or args.profiling) == 'on'
+            require(args.profiling == 'on' or not sweep, 'A control sweep needs --profiling on')
         if command == 'verify':
             require_release_host()  # only its tools reproduce published package bytes
         if command != 'compile':
@@ -886,7 +928,8 @@ def main(argv=None, command=None):
             require(not any(m.contains(args.out) for m in machines), 'Keep build output outside every machine folder')
             output = fresh_output(args.out)
             _module, report, _patches = compile_collection(output, *tools, profile, machines, definitions,
-                                                           startup_label.release_version(), args.profiling == 'on')
+                                                           startup_label.release_version(), args.profiling == 'on',
+                                                           sweep)
             print(json.dumps(report['sizes'], indent=2))
             print('Memory ' + memory_summary(report['memory'], report['sizes']['allocated_span_bytes'],
                                             report['module_bytes']))
@@ -900,7 +943,7 @@ def main(argv=None, command=None):
             print(json.dumps(verification(stock, catalog, args.package.resolve(), *tools), indent=2))
         else:
             output, result = build(args.out, *tools, args.stock_os, args.stock_content, entries, layout,
-                                   args.profiling == 'on')
+                                   args.profiling == 'on', sweep)
             print(json.dumps(result, indent=2))
             print('Local experimental package: ' + str(output))
             candidate = output / 'candidate'

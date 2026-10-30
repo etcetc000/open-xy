@@ -400,7 +400,7 @@ function renderExtensions() {
       .flatMap(o => o.sections.filter(s => s.group)).reduce((total, s) => total + s.size, 0);
     const meta = node('span', undefined, 'machine-meta');
     meta.append(node('span', 'Extension'), node('span', kib(ownBytes), 'machine-memory'),
-      node('span', {official: 'Core', community: 'Community'}[extension.origin], 'machine-origin'));
+      node('span', {official: 'Core', catalog: 'Community', personal: 'Yours'}[extension.origin], 'machine-origin'));
     button.append(node('span', extension.name, 'machine-name'), meta);
     button.onclick = () => inspectExtension(extension.id);
     const conflict = entries.find(e => e.id !== extension.id && selectedExtensions.includes(e.id) &&
@@ -538,6 +538,7 @@ try {
   // A tap opens the memory breakdown on screens without hover.
   document.querySelector('.memory-bar').onclick = e => e.currentTarget.classList.toggle('open');
   $('builder-version').textContent = 'v' + kit.version;
+  $('capacity-foot').textContent = kib(Core.moduleBytes(kit.profile)) + ' for machines; CPU load is not measured';
   selected = kit.machines.filter(Core.chosenByDefault).map(machine => machine.id);
   try {
     const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');

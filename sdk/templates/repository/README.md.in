@@ -36,7 +36,8 @@ Its `OPEN_XY_REF` starts at `staging`; pin a compatible SDK commit for a release
 Follow the SDK's [firmware build guide](https://github.com/etcetc000/open-xy/blob/staging/docs/build.md)
 and [hardware profiling workflow](https://github.com/etcetc000/open-xy/blob/staging/docs/profiling.md).
 Keep firmware and stock content outside every checkout. Commit the machine,
-build with profiling enabled, install when authorized and collect three runs.
+build with profiling enabled, install when authorized and collect a run
+(see its "Collect a run" section).
 The host estimate printed by `test` cannot substitute for those measurements.
 
 For the builder, follow [catalog submission](https://github.com/etcetc000/open-xy/blob/staging/docs/catalog.md#submit-a-machine).
