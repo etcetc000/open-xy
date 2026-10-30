@@ -125,7 +125,7 @@ void process(State&, opxy::Buffer buffer, opxy::Channel left, opxy::Channel, opx
         self.assertIn('process(object->state, left, right, words)', text)
         # The control table names the row and captions its choices as slots 8 and 9.
         self.assertIn('static const char* const probefx_shift_titles[] = {"s 0", "s 1"};', table)
-        self.assertIn('probefx_format, true, false, 2, {3, 2, 1, 1}, probefx_shift_titles},', table)
+        self.assertIn('probefx_format, true, false, 0, 2, {3, 2, 1, 1}, probefx_shift_titles},', table)
         self.assertIn('case 8: {', table)
         self.assertIn('case 9: {', table)
 
