@@ -21,8 +21,29 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     if (delta < -127) delta = -127;
     unsigned char* record = static_cast<unsigned char*>(region);
     u8 mark = drum_mark(record[24]);
-    if (control == 5) {
-        // Shift and the second encoder choose the key's choke group.
+    // Shift's encoders: a kit with groups chooses the group, the model in it
+    // and the choke group on the first three; one without, the model and the
+    // choke group on the first two.
+    const bool grouped = machine->group_count != 0;
+    if (grouped && control == 4) {
+        // A group keeps the model's place in it, so BD stays BD across groups.
+        const u32 group = machine->group(model);
+        i32 next = static_cast<i32>(group) + delta;
+        if (next < 0) next = 0;
+        if (next >= static_cast<i32>(machine->group_count)) next = static_cast<i32>(machine->group_count) - 1;
+        if (next == static_cast<i32>(group)) return 0;
+        const u32 place = model - machine->group_first(group), size = machine->group_sizes[next];
+        model = static_cast<u8>(machine->group_first(static_cast<u32>(next)) + (place < size ? place : size - 1));
+    } else if (grouped && control == 5) {
+        const u32 first = machine->group_first(machine->group(model));
+        const i32 last = static_cast<i32>(first + machine->group_sizes[machine->group(model)]) - 1;
+        i32 next = static_cast<i32>(model) + delta;
+        if (next < static_cast<i32>(first)) next = static_cast<i32>(first);
+        if (next > last) next = last;
+        if (next == model) return 0;
+        model = static_cast<u8>(next);
+    } else if (control == (grouped ? 6u : 5u)) {
+        // Shift and the encoder after the model choose the key's choke group.
         const i32 choice = static_cast<i32>(drum_choke(record[24]));
         i32 next = choice + delta;
         if (next < 0) next = 0;
@@ -38,8 +59,7 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         if (next == model) return 0;
         model = static_cast<u8>(next);
     } else if (control >= page_controls) {
-        // Stock maps Shift's third and fourth encoders to indices 6 and 7:
-        // their cells name the choke group, so they turn nothing.
+        // Stock maps Shift's encoders to indices 4..7; the rest turn nothing.
         return 0;
     } else {
         // The encoders' discrete steps are already one unit a detent; a slot

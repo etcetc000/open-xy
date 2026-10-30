@@ -293,6 +293,14 @@ each other off. While Shift is held the first encoder's cell shows MACHINE and
 the model, the second's CHOKE and the group, and the third and fourth are
 blank and turn nothing.
 
+A kit may name groups of consecutive models in `resources.modelGroups`, such
+as `[{"label": "TRX", "count": 13}, {"label": "EFM", "count": 8}]`: 2..16
+groups, each with a control label and at least one model, whose counts add up
+to `modelCount`. Shift's first encoder then chooses the group (KIT), keeping
+the model's place in it, so a kit's first model stays first; the second the
+model within the group (MACHINE); the third the choke group (CHOKE); and the
+fourth turns nothing.
+
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
 

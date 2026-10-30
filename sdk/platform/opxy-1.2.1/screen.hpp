@@ -210,13 +210,20 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     update_controls(o, controls.track, controls.valid ? &view : stock_vector);
     if (controls.valid) {
         // While Shift is held, the first encoder chooses the key's model, as
-        // on stock Drumline, and the second its choke group; the third and
-        // fourth turn nothing, so their cells are blank.
+        // on stock Drumline, and the second its choke group; a kit with model
+        // groups chooses the group first, then the model and the choke group.
+        // The encoders after those turn nothing, so their cells are blank.
         const bool choosing = drum && platform::shift_held();
         controls.choosing = choosing;
-        const char* const titles[page_controls] = {"MACHINE", "CHOKE", "", ""};
+        const bool grouped = drum && drum->group_count;
+        const char* const plain[page_controls] = {"MACHINE", "CHOKE", "", ""};
+        const char* const kits[page_controls] = {"KIT", "MACHINE", "CHOKE", ""};
+        const char* const* titles = grouped ? kits : plain;
+        const char* const name = choosing ? drum->model_name(model) : "";
+        const char* const choke = choosing ? sdk_drum_choke(controls.track) : "";
         const char* const values[page_controls] = {
-            choosing ? drum->model_name(model) : "", choosing ? sdk_drum_choke(controls.track) : "", "", ""};
+            grouped ? (choosing ? drum->group_names[drum->group(model)] : "") : name,
+            grouped ? name : choke, grouped ? choke : "", ""};
         for (u32 i = 0; i < page_controls; ++i) {
             char text[16];
             if (sdk_synth_value(controls.track, controls.shown[i], controls.values[i], text))

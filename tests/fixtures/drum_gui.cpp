@@ -55,14 +55,22 @@ void shown(u32 a, u32 b, u32 c, u32 d) {
 }
 
 extern "C" {
+// Engine 37 groups its five models as two and three; engine 38 has 33, so it
+// stores slots 6 and 7 at 64 steps.
+static const opxy::u8 group_sizes[] = {2, 3};
+static const char* const group_names[] = {"ONE", "TWO"};
 const opxy::platform::DrumMachine sdk_drum_machines[] = {
-    {reinterpret_cast<const char*>(34), ready, 2, defaults, label, name, count}
+    {reinterpret_cast<const char*>(34), ready, 2, defaults, label, name, count},
+    {reinterpret_cast<const char*>(37), ready, 5, defaults, label, name, count, 2, group_sizes, group_names},
+    {reinterpret_cast<const char*>(38), ready, 33, defaults, label, name, count}
 };
-const opxy::u32 sdk_drum_machine_count = 1;
+const opxy::u32 sdk_drum_machine_count = 3;
 const opxy::platform::SynthControls sdk_synth_controls[] = {
-    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false}
+    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false},
+    {reinterpret_cast<const char*>(37), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false},
+    {reinterpret_cast<const char*>(38), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false}
 };
-const opxy::u32 sdk_synth_control_count = 1;
+const opxy::u32 sdk_synth_control_count = 3;
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(Address address) {
@@ -190,6 +198,49 @@ int main() {
     require(!sdk_drum_pad(0, 30) && !sdk_drum_pad(0, 128) && !sdk_drum_pad(8, 53));
     shifted_octave = false;
     require(sdk_drum_selected_pad(0) == 53);
+
+    {
+        // Model groups: Shift's first encoder chooses the group, keeping the
+        // model's place in it; the second the model in the group; the third
+        // the choke group; the fourth nothing.
+        engine = 37; key = 54; shifted = true;
+        const u32 up[3] = {0, 1, 0}, many[3] = {0, 3, 0}, back5[3] = {0, static_cast<u32>(-5), 0};
+        u8 m = 99, v[8];
+        require(sdk_drum_values(0, &m, v) && m == 1);   // group ONE, its second
+        sdk_drum_edit(54, 4, up, 0);
+        require(sdk_drum_values(0, &m, v) && m == 3);   // group TWO, its second
+        const u32 before = publications;
+        sdk_drum_edit(54, 4, up, 0);   // TWO is the last group
+        require(publications == before && sdk_drum_values(0, &m, v) && m == 3);
+        sdk_drum_edit(54, 5, many, 0);
+        require(sdk_drum_values(0, &m, v) && m == 4);   // the group's last model is the limit
+        sdk_drum_edit(54, 5, back5, 0);
+        require(sdk_drum_values(0, &m, v) && m == 2);   // and its first
+        sdk_drum_edit(54, 4, back5, 0);
+        require(sdk_drum_values(0, &m, v) && m == 0);   // ONE, its first
+        const u8* pad = reinterpret_cast<const u8*>(regions[1]);
+        require(drum_choke(pad[24]) == 0);
+        sdk_drum_edit(54, 6, up, 0);
+        require(drum_choke(pad[24]) == 1 && !std::strcmp(sdk_drum_choke(0), "1"));
+        const u32 still = publications;
+        sdk_drum_edit(54, 7, up, 0);
+        require(publications == still);
+
+        // 64 steps on slots 6 and 7: a detent moves a step, to 127 at the top,
+        // and the other slot keeps its nearest step.
+        engine = 38; key = 55; shifted = false;
+        shown(0,1,2,3);
+        sdk_synth_press(2); ++presses; shown(0,1,6,3);
+        sdk_drum_edit(55, 2, up, 0);
+        require(sdk_drum_values(0, &m, v) && m == 0 && v[6] == 28 && v[7] == 56 && v[5] == 25);
+        const u32 far[3] = {0, 100, 0};
+        sdk_drum_edit(55, 2, far, 0);
+        require(sdk_drum_values(0, &m, v) && v[6] == 127);
+        sdk_drum_edit(55, 2, back5, 0);
+        require(sdk_drum_values(0, &m, v) && v[6] == 116);   // step 63 less five
+        sdk_synth_press(2); ++presses; shown(0,1,2,3);
+        engine = 34; key = 53;
+    }
 
     ownership = 0;
     require(sdk_drum_edit(53, 0, one, 0) == 1234 && fallback == 1);

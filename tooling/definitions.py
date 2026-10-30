@@ -79,6 +79,8 @@ SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS)
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 EFFECT_OPTIONS = ('bufferBytes', 'transport')
+# A drum kit's models in named groups (SDK 1.9), which Shift and the first encoder choose.
+DRUM_OPTIONS = ('modelGroups',)
 EFFECT_BUFFER_LIMIT = 524288
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
@@ -113,10 +115,10 @@ def validate_definition(value, kind):
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
-    options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else ()
+    options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else DRUM_OPTIONS if kind == 'drum' else ()
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
-    require(all(type(v) is int for k, v in resources.items() if k != 'display'),
+    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups')),
             'Numeric resource requirements must be integers')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
@@ -145,6 +147,15 @@ def validate_definition(value, kind):
         validate_synth_resources(resources)
     if kind == 'drum':
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
+        if 'modelGroups' in resources:
+            groups = resources['modelGroups']
+            require(isinstance(groups, list) and 2 <= len(groups) <= 16, 'modelGroups lists 2..16 groups')
+            for group in groups:
+                keys(group, ('label', 'count'), 'model group')
+                control_label(group['label'])
+                require(type(group['count']) is int and group['count'] >= 1, 'A model group holds at least one model')
+            require(sum(g['count'] for g in groups) == resources['modelCount'],
+                    "modelGroups' counts add up to modelCount")
     parameters = value['parameters']
     low, high = CONTROLS[kind]
     require(isinstance(parameters, list) and low <= len(parameters) <= high,

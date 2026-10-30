@@ -11,7 +11,23 @@ struct DrumMachine {
     const char* (*label)(u32 model, u32 slot);
     const char* (*model_name)(u32 model);
     u32 (*count)(u32 model);
+    // Optional named groups of consecutive models (resources.modelGroups):
+    // Shift and the first encoder choose a group, the second a model in it.
+    u32 group_count;
+    const u8* group_sizes;
+    const char* const* group_names;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
+    // A model's group (0 without groups) and the group's first model.
+    u32 group(u32 model) const {
+        u32 g = 0;
+        for (u32 first = 0; g + 1 < group_count && model >= first + group_sizes[g]; ++g) first += group_sizes[g];
+        return g;
+    }
+    u32 group_first(u32 g) const {
+        u32 first = 0;
+        for (u32 i = 0; i < g && i < group_count; ++i) first += group_sizes[i];
+        return first;
+    }
     // A slot the model uses: below its count and named. An unnamed slot inside
     // the count is a gap in the machine's own layout: blank and inert.
     bool used(u32 model, u32 slot) const {
