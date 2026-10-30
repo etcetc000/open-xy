@@ -8,6 +8,7 @@ object layouts, method tables, storage, registration and menu entries:
 - sample: flag-1 synth registration that receives the track's sample;
 - effect: send-FX registry object with in-place stereo processing.
 """
+import copy
 import json
 import math
 from pathlib import Path
@@ -21,6 +22,10 @@ from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
 
 TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
+# The init preset's authored settings, shared with builder/core.mjs's defaultPreset
+# (which embeds this same file's content at its import). Engine params, the
+# machine's type and its amp overrides are merged in at default_preset below.
+DEFAULT_PRESET_TEMPLATE = json.loads((Path(__file__).parent / 'default_preset.json').read_text(encoding='utf-8'))
 
 
 def expand(template, values, destination, root=TEMPLATES):
@@ -493,29 +498,17 @@ def preset_path(m):
 
 
 def default_preset(m):
-    """The generated init preset: catalog defaults in the device's version-4 preset
-    structure (builder/core.mjs defaultPreset). Engine controls come from the
-    catalog, never from a copied factory sound."""
+    """The generated init preset: catalog defaults merged into the shared template
+    (tooling/default_preset.json, also embedded into builder/core.mjs's defaultPreset).
+    Engine controls come from the catalog, never from a copied factory sound."""
     entry = json.loads(catalog_entry(m).strip().lstrip(','))
     amp = m.preset_defaults.get('amp', {})
-    return {
-        'engine': {
-            'bendrange': 8191, 'highpass': 0,
-            'modulation': {source: {'amount': 16384, 'target': 0}
-                           for source in ('aftertouch', 'modwheel', 'pitchbend', 'velocity')},
-            'params': list(entry['default_params']), 'playmode': 'poly',
-            'portamento.amount': 0, 'portamento.type': 0, 'transpose': 0,
-            'tuning.root': 0, 'tuning.scale': 0, 'velocity.sensitivity': 0, 'volume': 16384, 'width': 0,
-        },
-        'envelope': {
-            # Match a device-saved minimum amp release: the stored endpoint is 32767.
-            'amp': {'attack': 128, 'decay': 8192, 'release': 32767, 'sustain': 32767, **amp},
-            'filter': {'attack': 0, 'decay': 0, 'release': 0, 'sustain': 32767},
-        },
-        'fx': {'active': False, 'params': [0, 0, 0, 0, 0, 32767, 0, 0], 'type': 'svf'},
-        'lfo': {'active': False, 'params': [0, 0, 0, 0, 0, 0, 0, 0], 'type': 'value'},
-        'octave': 0, 'platform': 'OP-XY', 'regions': [], 'type': entry['type'], 'version': 4,
-    }
+    preset = copy.deepcopy(DEFAULT_PRESET_TEMPLATE)
+    preset['engine']['params'] = list(entry['default_params'])
+    # Match a device-saved minimum amp release: the stored endpoint is 32767.
+    preset['envelope']['amp'].update(amp)
+    preset['type'] = entry['type']
+    return preset
 
 
 def preset_files(m):
