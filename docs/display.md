@@ -36,7 +36,7 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | --- | --- |
 | `paths` | 0..4 mutable outlines; they are nodes `0..paths-1` |
 | `points` | 2..64 points per outline; 0 when there are no paths |
-| `nodes` | `paths`..256 transformable elements |
+| `nodes` | `paths`..512 transformable elements; more than 256 need `"sdk": "1.9"` |
 | `texts` | 0..16 text slots; more than 4 need `"sdk": "1.3"` |
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |

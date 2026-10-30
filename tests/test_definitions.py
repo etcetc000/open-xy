@@ -117,7 +117,7 @@ class Definitions(unittest.TestCase):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
                            ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
-                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 17), ('texts', True),
+                           ('nodes', 1), ('nodes', 513), ('texts', -1), ('texts', 17), ('texts', True),
                            ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value

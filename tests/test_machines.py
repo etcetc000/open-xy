@@ -226,6 +226,17 @@ class OutsideMachines(unittest.TestCase):
         shutil.copytree(FOLDER / name, folder)
         return folder
 
+    def test_more_than_256_display_nodes_need_sdk_1_9(self):
+        path = self.folder / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['resources']['display']['nodes'] = 300
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(self.folder, sdk='1.8')
+        with self.assertRaisesRegex(ValueError, 'More than 256 display nodes'):
+            machines.machine_at(self.folder)
+        self.numberless(self.folder, sdk='1.9')
+        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+
     def test_sdk_1_5_machines_name_no_numbers(self):
         self.numberless(self.folder)
         m = machines.machine_at(self.folder)

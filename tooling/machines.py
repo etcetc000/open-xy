@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, paged, stock_name, validate_definition
+from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_8_NODES, paged, stock_name, validate_definition
 from .formats import require
 from .pipeline import config
 
@@ -268,6 +268,8 @@ def machine_at(root, identity=None):
             require_sdk(version, (1, 4), 'A partially filled second page')
     if kind == 'synth' and definition['resources']['display']['texts'] > SDK_1_2_TEXTS:
         require_sdk(version, (1, 3), 'More than %d display text slots' % SDK_1_2_TEXTS)
+    if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_8_NODES:
+        require_sdk(version, (1, 9), 'More than %d display nodes' % SDK_1_8_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
     # After the feature checks, which name the SDK version each feature needs.
     requested = requested_numbers(config()['identities'], kind, value, version)
