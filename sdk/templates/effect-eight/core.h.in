@@ -1,0 +1,10 @@
+#pragma once
+#include <opxy/effect.hpp>
+
+namespace @ID@ {
+// At most opxy::effect_buffered_state_bytes; storage starts zeroed and is never destroyed.
+struct State { opxy::u32 write, written, phase; opxy::i32 level; };
+void initialize(State& state);
+void process(State& state, opxy::Buffer buffer, opxy::Channel left, opxy::Channel right,
+             opxy::Parameters parameters);
+}

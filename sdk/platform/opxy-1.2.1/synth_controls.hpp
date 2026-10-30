@@ -40,6 +40,7 @@ struct SendView {
     char texts[page_controls][16];
     bool shift;
     u8 choices[4];
+    i32 level_in, level_out;  // stock's FX page meters for this send
 };
 // GUI-only, bounded one-decimal formatting. Caller provides 16 bytes.
 void control_tenths(char* text, u32 tenths, const char* suffix);

@@ -1,0 +1,75 @@
+#include "core.h"
+#include <opxy/q31.hpp>
+
+namespace @ID@ {
+namespace {
+// The send's delay line: 2048 stereo frames, interleaved, in the buffer's
+// 4096 words (bufferBytes 16384). The longest delay, 25 ms plus 5 ms of
+// depth at 44.1 kHz, is about 1325 frames.
+const opxy::u32 kFrames = 2048, kMask = kFrames - 1;
+enum { kRate, kDepth, kDelay, kFeedback, kShape, kStereo, kLevel, kDry };
+
+opxy::i32 q15(opxy::i32 control) { return control < 0 ? 0 : control >> 16; }
+
+// The LFO at a phase, -32767..32767: a triangle, or rounded towards a sine.
+opxy::i32 wave(opxy::u32 phase, bool sine) {
+    const opxy::i32 t = static_cast<opxy::i32>(phase >> 16);
+    const opxy::i32 x = t < 32768 ? -32767 + 2 * t : 32767 - 2 * (t - 32768);
+    if (!sine) return x;
+    const opxy::i32 squared = x * x >> 15;
+    return x * ((3 * 32768 - squared) >> 2) >> 14;
+}
+
+// One channel's tap, `delay` frames back in Q8, linearly interpolated, at
+// half level so the difference cannot overflow. Silence until written.
+opxy::i32 tap(const opxy::i32* line, opxy::u32 channel, const State& state, opxy::i32 delay) {
+    const opxy::u32 whole = static_cast<opxy::u32>(delay >> 8), part = static_cast<opxy::u32>(delay & 255);
+    const opxy::i32 a = whole <= state.written ? line[((state.write - whole) & kMask) * 2 + channel] >> 1 : 0;
+    const opxy::i32 b = whole < state.written ? line[((state.write - whole - 1) & kMask) * 2 + channel] >> 1 : 0;
+    return a + ((b - a) >> 8) * static_cast<opxy::i32>(part);
+}
+
+// About a 1.5 ms glide toward a new level 0..1, so control changes do not click.
+opxy::i32 smooth(opxy::i32 value, opxy::i32 target) {
+    const opxy::i32 difference = target - value, step = difference / 64;
+    return value + (step ? step : (difference > 0) - (difference < 0));
+}
+}
+
+void initialize(State& state) { state.write = state.written = state.phase = 0; state.level = 0; }
+
+// Learning effect: a stereo chorus, one LFO sweeping a short delay per side.
+// Add sound tests before treating a modified effect as a production instrument.
+void process(State& state, opxy::Buffer buffer, opxy::Channel left, opxy::Channel right,
+             opxy::Parameters parameters) {
+    if (!buffer.words || buffer.count < kFrames * 2) {
+        for (unsigned i = 0; i < opxy::block_frames; ++i) left[i] = right[i] = 0;
+        return;
+    }
+    // 0.1 to 5 Hz, in phase steps a sample at 44.1 kHz.
+    const opxy::u32 step = 9739u + static_cast<opxy::u32>(q15(parameters[kRate]) * 14949 >> 10);
+    const opxy::i32 base = (220 + (q15(parameters[kDelay]) * 882 >> 15)) << 8;  // 5..25 ms
+    const opxy::i32 depth = (q15(parameters[kDepth]) * 220 >> 15) << 8;        // up to 5 ms
+    const opxy::u32 spread = static_cast<opxy::u32>(q15(parameters[kStereo])) << 16;  // up to 180 degrees
+    const bool sine = q15(parameters[kShape]) < 16384;
+    const opxy::i32 feedback = opxy::q31::multiply(parameters[kFeedback] < 0 ? 0 : parameters[kFeedback], 0x60000000);
+    const opxy::i32 level = parameters[kLevel] < 0 ? 0 : parameters[kLevel];
+    opxy::i32* line = buffer.words;
+    for (unsigned i = 0; i < opxy::block_frames; ++i) {
+        state.phase += step;
+        state.level = smooth(state.level, level);
+        const opxy::i32 delay_left = base + (wave(state.phase, sine) * (depth >> 8) >> 7);
+        const opxy::i32 delay_right = base + (wave(state.phase + spread, sine) * (depth >> 8) >> 7);
+        const opxy::i32 wet_left = tap(line, 0, state, delay_left < 512 ? 512 : delay_left);
+        const opxy::i32 wet_right = tap(line, 1, state, delay_right < 512 ? 512 : delay_right);
+        const opxy::i32 full_left = opxy::q31::add(wet_left, wet_left);
+        const opxy::i32 full_right = opxy::q31::add(wet_right, wet_right);
+        line[state.write * 2] = opxy::q31::add(left[i], opxy::q31::multiply(full_left, feedback));
+        line[state.write * 2 + 1] = opxy::q31::add(right[i], opxy::q31::multiply(full_right, feedback));
+        state.write = (state.write + 1) & kMask;
+        if (state.written < kFrames) ++state.written;
+        left[i] = opxy::q31::multiply(full_left, state.level);
+        right[i] = opxy::q31::multiply(full_right, state.level);
+    }
+}
+}

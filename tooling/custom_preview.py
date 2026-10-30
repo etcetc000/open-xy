@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape
 
 from .contributors import validate_source_boundary
 from .definitions import ROOT, label, stock_name, validate_definition
@@ -148,13 +149,15 @@ STARTERS = ('synth', 'effect')
 def scaffold(out, identity, name, kind='synth', repository=False, controls=None):
     require(kind in STARTERS, 'sdk.py new starts a ' + ' or '.join(STARTERS))
     controls = 4 if controls is None else controls
-    require(type(controls) is int and 4 <= controls <= 8 and (kind == 'synth' or controls == 4),
-            'Use 4 to 8 controls for a synth; effects use 4')
+    require(type(controls) is int and 4 <= controls <= 8 and (kind == 'synth' or controls in (4, 8)),
+            'Use 4 to 8 controls for a synth; effects use 4 or 8')
     custom_identity(identity); label(name)
     out = fresh_output(out)
     starters = [ROOT / 'sdk/templates' / kind]
     if kind == 'synth' and controls > 4:
         starters.append(ROOT / 'sdk/templates/synth-eight')
+    if kind == 'effect' and controls == 8:
+        starters.append(ROOT / 'sdk/templates/effect-eight')
     if repository:
         starters.append(ROOT / 'sdk/templates/repository')
     audition = ('Build and audition the synth in the browser:\n\n```sh\n'
@@ -183,6 +186,9 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None)
         record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'effect', 'description': name,
                   'dryParameter': 'dry'}
         (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
+        if controls == 8:
+            artwork = f'<g id="{identity}_panel">\n' + effect_page_artwork(identity, name) + '</g>\n'
+            (out / 'panel.svg.fragment').write_text(artwork, encoding='utf-8', newline='\n')
         machine_at(out)
         print('Created local effect: ' + str(out))
         print(f'Each build gives it an effect number. Effects have no browser preview; '
@@ -232,6 +238,16 @@ def page_header_artwork(identity, first_node):
     return text.replace('@ID@', identity)
 
 
+def effect_page_artwork(identity, name, first_node=0, first_palette=0):
+    """Authored half of opxy/effect_page.hpp: 20 nodes from first_node, sixteen texts
+    and one palette entry for the effect's own use."""
+    text = (ROOT / 'sdk/templates/shared/effect_page.svg.in').read_text(encoding='utf-8')
+    for i in range(20):
+        text = text.replace('@NODE_%d@' % i, str(first_node + i))
+    text = text.replace('@PALETTE_0@', str(first_palette))
+    return text.replace('@ID@', identity).replace('@LABEL@', escape(name.lower()))
+
+
 def square_outline(points, half=32):
     """A square traced through exactly `points` vertices, as drawing paths require."""
     corners = [(-half, -half), (half, -half), (half, half), (-half, half)]
@@ -249,7 +265,7 @@ def main(argv=None):
     parser.add_argument('--name', required=True, help='name shown on the OP-XY')
     parser.add_argument('--kind', choices=STARTERS, default='synth', help='machine kind to start (default: synth)')
     parser.add_argument('--controls', type=int, choices=range(4, 9),
-                        help='control count (default: 4); synths with 5..8 use two pages; effects use 4')
+                        help='control count (default: 4); synths with 5..8 use two pages; effects use 4 or 8')
     parser.add_argument('--out', required=True, type=Path, help='new source folder, such as ../mymachine')
     parser.add_argument('--repository', action='store_true', help='include README, agent instructions, licence and CI for a standalone repository')
     args = parser.parse_args(argv)

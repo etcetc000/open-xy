@@ -128,9 +128,12 @@ engine page (see [the API](api.md#effect-pages)). Its input's `slots` hold all
 eight of its controls, `track` is the send (14 or 15), and two fields follow
 the note activity: `shift`, 1 while Shift is held on an effect with a
 [shift row](api.md#effect-pages-and-shift-rows), and `choices`, each shift
-control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
-Previews use drawing ABI 3 with an 84-byte input; the browser host still
-accepts ABI 1 and 2.
+control's choice (0 beyond the declared ones). Then `level_in` and
+`level_out` hold the send's input and its return as linear Q31 amplitudes,
+the levels stock's FX page draws its meters from. A synth's page reads 0 in
+all four. Previews use drawing ABI 4 with a 92-byte input, and read silence
+unless the host passes levels to `PreviewDisplay.tick`; the browser host still
+accepts ABI 1 to 3.
 
 ## Frame
 
@@ -204,6 +207,53 @@ settle within 0.15 seconds and reverse continuously on a second press.
 Initialization, track changes and reduced motion snap to the selected page.
 The helper reads every `shown` position, including layouts whose first
 column is shared. It does not touch the machine's audio or parameter state.
+
+## Effect page
+
+SDK 1.7 also supplies `<opxy/effect_page.hpp>`, the recommended page for a
+[send effect that draws its own](api.md#effect-pages) with eight controls on
+two pages. `sdk.py new --kind effect --controls 8` generates it, with a stereo
+chorus as the starting sound. It follows stock's FX page:
+
+- a badge naming the send, `FX I` or `FX II` from `input.track` (14 or 15),
+  beside the effect's name, which is fixed artwork;
+- both pages in place as rows of four 100 × 65 px columns from x = 40, each a
+  title above, a box with a level bar and a caption below;
+- one white band, the full width of the screen, behind the row the encoders
+  edit, which a press slides to the other row. Its ends, left and right of
+  the columns, carry the send's input and return meters from `level_in` and
+  `level_out`: as stock's, a thin black line from the band's middle row that
+  drops `70 × level` px for a linear amplitude, 35 px at −6 dB, past the
+  band's bottom when the send is loud.
+
+The boxes stay put. On the edited row they are stock's: black, `#323232` and
+`#969696`, the fourth column being the band itself. The bars are drawn as
+stock 1.2.1 draws them over its own page, 8 px tall at `floor(57 × (1 −
+value))` below the box's top, `#CDCDCD` in the first column and black in the
+others. The other row shows the same boxes and bars, and its titles and
+captions, at the dim text's brightness (`#0F0F0F`, `#2D2D2D`, `#3C3C3C`). A
+press moves the bright and dim sets between the rows at the middle of the
+slide, as the text swaps. Every bound shape keeps its authored fill, with no
+stroke, on whole pixels, so the device draws them sharp as it draws stock's.
+
+Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
+`display_reset`. The page takes 20 consecutive nodes from `first_node`,
+all sixteen text slots, no paths and no palette entries; frames declare at
+least one palette entry, which the generated artwork leaves to the effect. Keep the authored block from the generated
+`panel.svg.fragment` and draw the effect's own artwork after it, with its own
+nodes beyond those.
+Titles and the page map work as for the [two-page header](#two-page-header).
+Captions read as stock's FX page writes its own: `header_number` gives a
+control's place in its travel as two digits, `floor(100 × value)` from 00 to
+99, whatever it maps to; a choice shows its name.
+
+```cpp
+effect_page(state.page, input, frame, titles, values, first_node);
+```
+
+A bar reads its control's Q31 value from 0 to full scale; an enum or a
+mapped control shows where it sits in its travel. Draw over the boxes with
+the effect's own artwork where it can say more.
 
 ## Artwork
 

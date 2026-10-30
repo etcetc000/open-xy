@@ -66,13 +66,17 @@ struct Input {
     // A synth's page reads 0 in both.
     u32 shift;
     u8 choices[4];
+    // An effect's page (SDK 1.7): the send's input and its return, as linear
+    // Q31 amplitudes from stock's FX page meters. A synth's page reads 0 in both.
+    i32 level_in, level_out;
 };
 const u32 notes_unavailable = 0xffffffffu;
-static_assert(sizeof(Input) == 84 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
+static_assert(sizeof(Input) == 92 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
               __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72 &&
-              __builtin_offsetof(Input, shift) == 76 && __builtin_offsetof(Input, choices) == 80,
+              __builtin_offsetof(Input, shift) == 76 && __builtin_offsetof(Input, choices) == 80 &&
+              __builtin_offsetof(Input, level_in) == 84 && __builtin_offsetof(Input, level_out) == 88,
               "Drawing input layout (display.mjs)");
 static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (display.mjs)");
 

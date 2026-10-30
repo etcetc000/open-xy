@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "id": "@ID@",
+  "name": "@NAME@",
+  "parameters": [
+    {
+      "id": "rate",
+      "label": "Rate",
+      "default": 0.15,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0.1,
+        "maximum": 5
+      },
+      "display": "ratio"
+    },
+    {
+      "id": "depth",
+      "label": "Depth",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "delay",
+      "label": "Delay",
+      "default": 0.3,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0.005,
+        "maximum": 0.025
+      },
+      "display": "duration"
+    },
+    {
+      "id": "feedback",
+      "label": "Feedback",
+      "default": 0,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 0.75
+      },
+      "display": "percent"
+    },
+    {
+      "id": "shape",
+      "label": "Shape",
+      "control": 0,
+      "default": 0,
+      "mapping": {
+        "kind": "enum",
+        "labels": [
+          "Sine",
+          "Tri"
+        ]
+      },
+      "display": "enum"
+    },
+    {
+      "id": "stereo",
+      "label": "Stereo",
+      "control": 1,
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "level",
+      "label": "Level",
+      "control": 2,
+      "default": 0.7,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "dry",
+      "label": "Dry",
+      "control": 3,
+      "default": 1,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    }
+  ],
+  "presets": {},
+  "resources": {
+    "bufferBytes": 16384,
+    "display": {
+      "stateBytes": 20,
+      "stateAlignment": 4,
+      "paths": 0,
+      "points": 0,
+      "nodes": 20,
+      "texts": 16,
+      "palette": 1
+    }
+  },
+  "press": "page"
+}

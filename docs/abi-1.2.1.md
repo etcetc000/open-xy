@@ -649,3 +649,11 @@ keeps its slot from `init(object, slot)`, reads word 36 of track 14 or 15
 from `84eab39c + slot × 0xe8`, and passes the DSP its eight words and each
 control's choice as a ninth to twelfth.
 
+An effect's page reads its send's meters where stock's FX page does
+(`8d53b676`): the GUI's level table at `080376e4`, a word per meter that the
+setter at `8d4d666a` writes and flags. Entry 26 + send is the send's input
+and 28 + send its return (send A 0, B 1); the page converts each word from a
+linear Q31 amplitude before shaping its `vu_in` and `vu_out` lines. The SDK
+reads the same two words for the selected send each frame and passes them to
+the display as `level_in` and `level_out`.
+

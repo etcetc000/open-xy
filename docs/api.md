@@ -475,6 +475,8 @@ Shift is held, and the display reads them all, the shift row too
 ([input](display.md#effect-pages-sdk-17)). Effects have no browser preview
 yet. An effect that comes to draw its own page keeps its effect number and is
 given a page in its firmware's layout.
+An effect with eight controls can start from the SDK's
+[effect page](display.md#effect-page).
 
 ### Effect buffers
 
