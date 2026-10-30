@@ -6,7 +6,8 @@ sample engines and effects. Unchanged older entries can remain without one
 until their next update. A maintainer can run a batch for contributors who do
 not have hardware; contributors can also follow this procedure themselves.
 The [host estimate](api.md#cpu) is useful during development but cannot fill
-this field. CI validates the record and revision; it cannot independently
+this field; it also swings several-fold while other builds or tests run on the
+same computer, so time one machine at a time. CI validates the record and revision; it cannot independently
 attest that a contributor ran the hardware test.
 
 ## Build and install
@@ -62,6 +63,10 @@ python sdk.py profile benchmark --package <private>/cpu-build-001 --installed --
 ```
 
 Never run two collectors at once: they share the OP-XY's one MIDI port pair.
+Restart the OP-XY normally, without saving, before every run after the first:
+later runs in the same boot are counted twice, and the report refuses their
+capture (`Report count differs from this build`). Waiting between runs
+doesn't help.
 A swept setting that times nothing (a level at 0) is left out only when two
 or more captures agree it is silent, since a failed run reads silent too:
 `profile report` names it and asks for a second capture.
@@ -117,6 +122,11 @@ firmware-containing packages.
 Keep `block_percent` at or below the **recommended 3.5%**. A higher result is
 still accepted, but `profile report`, the collector's readout and `catalog check`
 print a warning naming the heaviest setting: make that path lighter where you can.
+Stock keeps rendering a voice until its amplitude envelope ends, so a long
+release calls `render` well after the machine's own sound has died away, and
+the benchmark's 500 release blocks count that work. Once a voice's tail is
+below an inaudible floor and nothing more will sound, write silence and skip
+the rest.
 
 Synth records from before the sweep (`opxy-synth-c8-v1`) stay valid while their
 release stays at the commit they measured; a new synth, or one whose release

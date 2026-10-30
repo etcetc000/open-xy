@@ -165,6 +165,32 @@ explicit diagnostic commands but does not install firmware. To select machines a
 install through the browser builder's guide instead, export a
 [personal kit](builder.md#export-a-kit) of your collection.
 
+## On the device
+
+Each of these cost someone a round of installing:
+
+- **Build from the device's layout.** Pass the `layout.json` of the firmware
+  the OP-XY is running, which a builder install leaves at the device's root,
+  not one from another build. Otherwise machines get other numbers, and
+  projects saved without a [companion](projects.md) open the wrong machines.
+- **Write the OS from the boot menu.** A plain restart keeps the old OS. If
+  you have left file transfer, hold COM while switching on, then press track 3
+  and track 5, and switch off and on after "firmware written ok!".
+- **`producer_factory … not registered` is not proof.** The device's log in
+  `/logs` shows it at every boot, even when every machine works. A machine
+  missing from the menu is what shows the old OS is still running.
+- **Copying never deletes.** Presets made for a machine's old controls stay on
+  the device and sound wrong until you delete them. Factory presets of machines
+  a build leaves out stay too; the firmware hides them
+  ([presets](abi-1.2.1.md#presets)).
+- **Effects get a quiet send.** An effect receives a much quieter signal than
+  a synth's output ([effects](api.md#effects)): one tuned on the host blew out
+  at a 1 to 2% send on the device. Test effects on the device at low send
+  settings.
+- **The stock LFO needs voices or a selected track.** It moves a machine that
+  plays no voices only while that machine's track is selected
+  ([#238](https://github.com/etcetc000/open-xy/issues/238)).
+
 ## What a build checks
 
 | Check | Responsibility |
