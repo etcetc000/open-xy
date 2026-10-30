@@ -31,7 +31,10 @@ def host_tests(m, host_cxx, scratch):
         # The folder's include paths, as its preview and native builds use them.
         includes = [ROOT / 'sdk/include', m.root, *(m.root / extra for extra in getattr(m, 'includes', ()))]
         command = [host_cxx, '-std=c++11', '-O2', '-Wall', '-Werror', *('-I' + str(path) for path in includes),
-                   str(test), *(str(m.root / source) for source in m.sources), '-o', str(binary)]
+                   # Only a drum kit's tests link its extra sources: other machines' tests
+                   # include what they need, and linking them as well defines it twice.
+                   str(test), *(str(m.root / source) for source in (m.sources if m.kind == 'drum' else ())),
+                   '-o', str(binary)]
         result = subprocess.run(command, capture_output=True, text=True, timeout=300, creationflags=NO_WINDOW)
         require(result.returncode == 0, f'{m.id}: {test.name} does not compile:\n{result.stdout}{result.stderr}')
         result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=300, creationflags=NO_WINDOW)
