@@ -44,6 +44,13 @@ static const opxy::u32* const increments = reinterpret_cast<const opxy::u32*>(op
 static const opxy::i32* const amplitude = reinterpret_cast<const opxy::i32*>(0x11903400);
 // A stable nonzero voice ID: the stock voice index plus one.
 static opxy::u32 owner(const Handle* handle) { return static_cast<opxy::u32>(handle - handles) + 1; }
+// How the kit's keys are stored, from its models' control counts: built on the
+// first note, on the audio side only.
+static opxy::platform::DrumCodec codec;
+static const opxy::platform::DrumCodec& storage() {
+    if (!codec.models) codec = opxy::platform::drum_codec(@MODEL_COUNT@, @NAMESPACE@::parameter_count);
+    return codec;
+}
 // The voice a handle still holds, or none if its voice went to another note.
 static Slot* held(const Handle* handle) {
     return handle->slot && voices[handle->slot - 1].owner == owner(handle) ? &voices[handle->slot - 1] : nullptr;
@@ -113,7 +120,7 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* region,
         // The payload's first word carries stock's reading of the pad's model
         // byte: only a pad the kit stored is marked.
         if (region && opxy::platform::drum_marked_q31(region[0]))
-            opxy::platform::drum_unpack(region + 1, &model, stored, @MODEL_COUNT@);
+            opxy::platform::drum_unpack(region + 1, &model, stored, storage());
         if (model >= @MODEL_COUNT@) @NAMESPACE@::drum_defaults(handle->key, &model, stored);
         // The track's eight parameters offset the eight controls after
         // unpacking, never the persisted words; the model has no offset.

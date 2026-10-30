@@ -16,11 +16,13 @@ inline bool drum_region_values(const DrumMachine& machine, u32 track, u32 key,
                                const void* region, u8* model, u8* controls) {
     if (!region || !model || !controls) return false;
     const unsigned char* record = static_cast<const unsigned char*>(region);
+    const DrumCodec codec = drum_codec(machine.model_count, machine.count);
+    if (!codec.fits()) return false;   // more than 15 models with eight controls
     const u32 canonical = drum_canonical_key(track, key, region);
     machine.defaults(canonical, model, controls);
     // A pad the kit has not stored (stock's defaults, or the eight-value
     // layout of earlier SDK builds) keeps the key's defaults.
-    if (drum_marked(record[24])) drum_unpack(static_cast<const i32*>(region) + 1, model, controls, machine.model_count);
+    if (drum_marked(record[24])) drum_unpack(static_cast<const i32*>(region) + 1, model, controls, codec);
     if (*model >= machine.model_count) machine.defaults(canonical, model, controls);
     return *model < machine.model_count;
 }

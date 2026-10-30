@@ -281,10 +281,11 @@ serialized access.
 SDK 1.9 adds `"kind": "drum"`: one registered instrument with independent
 model selection and sound controls on 24 keys. It supplies the synth
 lifecycle, a drawing display, and the same resources plus `modelCount`
-(2..64). Each key holds a model and eight controls. A kit of up to 16 models
-stores every control at 128 steps; a larger kit stores slots 6 and 7 at 64
-(0, 2, ..., 124 and 127), each turn moving a step, and its other controls at
-128. The definition declares
+(2..64). Each key holds a model and eight 7-bit controls. A kit of more than
+16 models stores them in a prefix code, which holds at most 15 models that use
+all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
+and fails a kit with more; on the device such a kit's keys play their defaults
+and turn nothing. The definition declares
 the eight controls: slots 0..3 on the four encoders, slots 4..7 their
 alternates, one per encoder, switched by pressing it; with `"press": "page"`,
 as a synth's two pages, any press switches the whole row between slots 0..3
@@ -316,11 +317,11 @@ opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are us
 ```
 
 Keys passed to `drum_defaults` are canonical keys 53..76. Controls are
-integers 0..127; the model must be below `modelCount`. A kit with more than 16
-models stores its defaults for slots 6 and 7 at their nearest step. If a kit
-grows past 16 models, its keys saved before keep slots 0..5, read 6 and 7 at
-the step below, and keep their model when both of those were even; otherwise
-the model reads 16 or 32 higher, or, past the kit's last, as the key's defaults. Names are static
+integers 0..127; the model must be below `modelCount`. In a kit of more than 16
+models, a key on a model of seven or fewer controls stores its first seven, so
+changing a key's model keeps every control the new model stores and its eighth
+reads the key's default. Keys are read in their kit's current layout: a kit that
+grows past 16 models does not carry over the keys it saved before. Names are static
 strings; parameter labels fit eight characters. Return an empty label for
 unused slots. The screen shows the selected key's controls and labels with
 the track's offsets applied, so a held step shows the values its locks play;

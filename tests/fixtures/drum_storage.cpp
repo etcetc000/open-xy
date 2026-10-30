@@ -7,9 +7,25 @@ using namespace opxy;
 using namespace opxy::platform;
 static void require(bool valid) { if (!valid) std::abort(); }
 
-static void roundtrip(u32 model, const u8* source, u32 models = kDrumNarrowModels) {
+// The 4-bit model layout as SDK 1.3 to 1.8 wrote it: a kit of up to 16
+// models still stores its keys bit for bit so.
+static void legacy_pack(u32 model, const u8* controls, i32* words) {
+    u32 packed[4] = {};
+    for (u32 k = 0; k < 60; ++k) {
+        const u32 bit = k < 56 ? (u32(controls[k / 7]) >> (k % 7)) & 1u : (model >> (k - 56)) & 1u;
+        packed[k / 15] |= bit << (k % 15);
+    }
+    for (u32 i = 0; i < 4; ++i) words[i] = static_cast<i32>(packed[i] << 16);
+}
+
+// A 33-model kit whose 15 full models (eight controls) are 0..12, 20 and 32;
+// the others use seven or fewer.
+static u32 counts(u32 model) { return model < 13 || model == 20 || model == 32 ? 8 : 1 + model % 7; }
+static u32 sixteen(u32 model) { return model < 16 ? 8 : 3; }
+
+static void roundtrip(u32 model, const u8* source) {
     i32 words[4] = {};
-    require(drum_pack(model, source, words, models));
+    require(drum_pack(model, source, words));
     // Stock preset serialization: integer word >> 16, then integer << 16.
     // Exercise float32 conversion too: every persisted integer is exact.
     for (u32 i = 0; i < 4; ++i) {
@@ -17,10 +33,16 @@ static void roundtrip(u32 model, const u8* source, u32 models = kDrumNarrowModel
         const float json_integer = static_cast<float>(words[i] >> 16);
         words[i] = static_cast<i32>(static_cast<u32>(json_integer) << 16);
     }
-    u8 restored[8] = {}, restored_model = 99, expected[8];
-    for (u32 i = 0; i < 8; ++i) expected[i] = drum_stored(models, i, source[i]);
-    require(drum_unpack(words, &restored_model, restored, models));
-    require(restored_model == model && std::memcmp(expected, restored, 8) == 0);
+    u8 restored[8] = {}, restored_model = 99;
+    require(drum_unpack(words, &restored_model, restored));
+    require(restored_model == model && std::memcmp(source, restored, 8) == 0);
+    i32 legacy[4];
+    legacy_pack(model, source, legacy);
+    require(std::memcmp(words, legacy, sizeof words) == 0);
+    // A kit of up to 16 models takes the same path through its codec.
+    const DrumCodec narrow = drum_codec(16, sixteen);
+    i32 coded[4] = {};
+    require(!narrow.wide() && drum_pack(model, source, coded, narrow) && std::memcmp(coded, legacy, sizeof coded) == 0);
 }
 
 int main() {
@@ -70,7 +92,6 @@ int main() {
         require(std::memcmp(words, baseline, sizeof words) == 0);
     }
     require(!drum_pack(kDrumNarrowModels, controls, words));
-    require(!drum_pack(33, controls, words, 33) && !drum_pack(0, controls, words, kDrumModelLimit + 1));
     require(std::memcmp(words, baseline, sizeof words) == 0);
     u8 output[8], output_model = 91;
     std::memset(output, 91, sizeof output);
@@ -88,53 +109,44 @@ int main() {
     require(!drum_unpack(nullptr, &output_model, output) && !drum_unpack(baseline, nullptr, output) &&
             !drum_unpack(baseline, &output_model, nullptr));
 
-    // A kit of more than 16 models: slots 6 and 7 at 64 steps, to the nearest
-    // (127 is the top), and every other control exact.
-    require(!drum_coarse(16, 6) && drum_coarse(17, 6) && drum_coarse(64, 7) && !drum_coarse(64, 5));
-    for (u32 v = 0; v < 128; ++v) {
-        const u8 stored = drum_stored(33, 6, v);
-        require(stored == drum_stored(33, 6, stored) && (stored == 127 || !(stored & 1)));
-        require(stored + 1 >= v && stored <= v + 1);
-        require(drum_stored(33, 5, v) == v && drum_stored(16, 7, v) == v);
-    }
-    require(drum_stored(33, 7, 126) == 127 && drum_stored(33, 7, 124) == 124 && drum_stored(33, 7, 1) == 2);
-    for (u32 models : {17u, 33u, kDrumModelLimit})
-        for (u32 model = 0; model < models; ++model)
-            for (u32 value = 0; value < 128; value += 3) {
-                for (u32 i = 0; i < 8; ++i) controls[i] = static_cast<u8>((i * 29 + value * 11 + model * 5) & 127);
-                controls[6] = static_cast<u8>(value);
-                controls[7] = static_cast<u8>(127 - value);
-                roundtrip(model, controls, models);
-            }
-    for (u32 k = 0; k < 60; ++k) {
-        // Each bit alone: the step's lowest bit is the value's second.
-        u8 one[8] = {};
-        u32 model = 0;
-        const u32 slot = k / 7, bit = k % 7;
-        if (k >= 56) model = 1u << (k - 56);
-        else if (slot < 6) one[slot] = static_cast<u8>(1u << bit);
-        else if (bit) one[slot] = static_cast<u8>(1u << bit);
-        else model = 1u << (slot == 6 ? 4 : 5);
-        i32 wide[4];
-        require(drum_pack(model, one, wide, kDrumModelLimit));
-        u32 set = 0;
-        for (u32 i = 0; i < 4; ++i)
-            for (u32 b = 0; b < 32; ++b) set += (static_cast<u32>(wide[i]) >> b) & 1u;
-        require(set == 1);
-        roundtrip(model, one, kDrumModelLimit);
-    }
+    // A kit of more than 16 models: the prefix code keeps every control at 7
+    // bits. A full model stores all eight; any other its first seven, and its
+    // eighth keeps the caller's value (the key's default).
+    const DrumCodec wide = drum_codec(33, counts);
+    require(wide.wide() && wide.fits() && wide.fulls == 15 && wide.full[13] == 20 && wide.full[14] == 32);
+    require(wide.rank[20] == 13 && wide.rank[13] == kDrumFullModels);
+    for (u32 model = 0; model < 33; ++model)
+        for (u32 value = 0; value < 128; value += 3) {
+            u8 source[8];
+            for (u32 i = 0; i < 8; ++i) source[i] = static_cast<u8>((i * 29 + value * 11 + model * 5) & 127);
+            source[value % 8] = 127;
+            i32 words[4] = {};
+            require(drum_pack(model, source, words, wide));
+            for (u32 i = 0; i < 4; ++i) require(words[i] >= 0 && !(static_cast<u32>(words[i]) & 65535u));
+            u8 restored[8], restored_model = 99;
+            std::memset(restored, 91, sizeof restored);
+            require(drum_unpack(words, &restored_model, restored, wide) && restored_model == model);
+            const bool full = counts(model) == 8;
+            require(std::memcmp(source, restored, full ? 8 : 7) == 0 && (full || restored[7] == 91));
+            // The top four bits: a full model's rank, or 15 and the model in bits 49..54.
+            const u32 top = (static_cast<u32>(words[3]) >> 16) >> 11, at49 = ((static_cast<u32>(words[3]) >> 16) >> 4) & 63;
+            require(top == (full ? wide.rank[model] : 15u) && (full || at49 == model));
+        }
     {
-        // A pad stored while the kit had 16 models, read by its 33-model self:
-        // slots 0..5 exact, 6 and 7 at the step below, the model when both are even.
-        const u8 old[8] = {1, 2, 3, 4, 5, 6, 40, 90};
-        i32 stored[4];
-        require(drum_pack(11, old, stored));
-        u8 model = 0, read[8];
-        require(drum_unpack(stored, &model, read, 33));
-        require(model == 11 && std::memcmp(read, old, 6) == 0 && read[6] == 40 && read[7] == 90);
-        const u8 odd[8] = {1, 2, 3, 4, 5, 6, 41, 90};
-        require(drum_pack(11, odd, stored) && drum_unpack(stored, &model, read, 33));
-        require(model == 27 && read[6] == 40);
+        // More than 15 full models do not fit: nothing packs or unpacks.
+        const DrumCodec over = drum_codec(17, sixteen);
+        u8 one[8] = {}, m = 0;
+        i32 words[4] = {};
+        require(over.wide() && !over.fits() && !drum_pack(0, one, words, over) && !drum_unpack(words, &m, one, over));
+        // A rank no full model has does not unpack.
+        const DrumCodec few = drum_codec(20, [](u32 model) -> u32 { return model < 2 ? 8 : 4; });
+        require(few.fits() && few.fulls == 2);
+        u8 controls[8] = {};
+        require(drum_pack(1, controls, words, few));
+        words[3] = static_cast<i32>(static_cast<u32>(words[3]) | (5u << 27));   // rank 1 becomes 5
+        u8 out[8], model = 99;
+        require(!drum_unpack(words, &model, out, few) && model == 99);
+        require(!drum_pack(20, controls, words, few));   // beyond the kit
     }
 
     // The mark: Drumline type 7 in the model byte, stock's choke group kept.

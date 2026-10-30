@@ -30,6 +30,26 @@ class DrumServices(unittest.TestCase):
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_a_kit_of_more_than_16_models_has_at_most_15_with_eight_controls(self):
+        from tooling.machine_test import drum_storage
+        with tempfile.TemporaryDirectory(prefix='drum-storage-') as folder:
+            folder = Path(folder)
+            (folder / 'core.h').write_text('#include <opxy/types.hpp>\nnamespace probe { opxy::u32 parameter_count(opxy::u32); }\n')
+            for fulls, ok in ((16, False), (15, True), (14, True)):
+                (folder / 'engine.cpp').write_text(
+                    'namespace probe { opxy::u32 parameter_count(opxy::u32 m) { return m < %d ? 8 : 5; } }\n' % fulls)
+                machine = SimpleNamespace(id='probe', root=folder, sources=(), includes=(),
+                                          definition={'id': 'probe', 'resources': {'modelCount': 33}})
+                with self.subTest(fulls=fulls):
+                    if ok:
+                        self.assertEqual(drum_storage(machine, HOST_CXX, folder), fulls)
+                    else:
+                        with self.assertRaisesRegex(ValueError, '16 of its 33 models use all eight controls'):
+                            drum_storage(machine, HOST_CXX, folder)
+            machine.definition['resources']['modelCount'] = 16
+            (folder / 'engine.cpp').write_text('namespace probe { opxy::u32 parameter_count(opxy::u32) { return 8; } }\n')
+            self.assertEqual(drum_storage(machine, HOST_CXX, folder), 16)   # the 4-bit layout holds any
+
     def test_pad_edit_alternates_shift_and_model_changes(self):
         platform = ROOT / 'sdk/platform/opxy-1.2.1'
         with tempfile.TemporaryDirectory(prefix='drum-services-') as folder:

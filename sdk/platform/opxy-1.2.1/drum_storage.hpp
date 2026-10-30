@@ -2,8 +2,8 @@
 // Stock presets write each of the four parameter words >> 16 and restore it
 // << 16, so nonnegative Q15 integers preserve 60 bits. A kit of up to 16
 // models stores eight 7-bit controls (56 bits) and a 4-bit model; a larger kit
-// (up to 64) stores slots 6 and 7 at 64 steps to give its model 6 bits. The
-// pad's model byte (Drumline's
+// (up to 64) stores every control at 7 bits too, in a prefix code (DrumCodec).
+// The pad's model byte (Drumline's
 // instrument type in its low nibble, its choke group in the high one) marks
 // the layout with type 7, which stock's editor skips and its default kit never
 // uses; the choke group stays stock's.
@@ -14,7 +14,8 @@ namespace opxy { namespace platform {
 const u32 kDrumControlCount = 8;
 const u32 kDrumStorageWords = 4;
 const u32 kDrumModelLimit = 64;   // models a kit can store
-const u32 kDrumNarrowModels = 16; // up to this many, every control keeps 7 bits
+const u32 kDrumNarrowModels = 16; // up to this many, the 4-bit model layout
+const u32 kDrumFullModels = 15;   // a larger kit's models with eight controls
 const u32 kDrumModelMark = 7;     // the model byte's low nibble on a kit's pad
 
 // Enum-bin midpoint using only 32-bit division. For at most 128 models the
@@ -65,65 +66,108 @@ inline void drum_offset(const u8* controls, const i32* parameters, u8* live) {
     }
 }
 
-// Whether a kit of `models` stores `slot` at 64 steps: slots 6 and 7 of a kit
-// with more than 16 models.
-inline bool drum_coarse(u32 models, u32 slot) { return models > kDrumNarrowModels && slot >= 6; }
-// A coarse slot's step for a value 0..127, to the nearest (63 is 127), and back.
-inline u32 drum_coarse_step(u32 value) {
-    if (value >= 126) return 63;
-    const u32 s = (value + 1) >> 1;
-    return s > 62 ? 62 : s;
-}
-inline u8 drum_coarse_value(u32 step) { return static_cast<u8>(step >= 63 ? 127 : step << 1); }
-// The value a slot stores: itself, or a coarse slot's nearest step.
-inline u8 drum_stored(u32 models, u32 slot, u32 value) {
-    return drum_coarse(models, slot) ? drum_coarse_value(drum_coarse_step(value)) : static_cast<u8>(value);
-}
-
-// Bit k of the 60: controls in bits 0..55, the model in 56..59. A larger kit
-// keeps every other bit there: slots 6 and 7 store their step in their top six
-// bits, and their lowest bits (42, 49) hold the model's bits 4 and 5. So a pad
-// stored while the kit had at most 16 models reads slots 0..5 exactly, 6 and 7
-// at the step below, and its model when those two were even.
-inline u32 drum_bit(u32 k, u32 models, u32 model, const u8* controls) {
-    if (k >= 56) return (model >> (k - 56)) & 1u;
-    const u32 slot = k / 7, bit = k % 7;
-    if (!drum_coarse(models, slot)) return (u32(controls[slot]) >> bit) & 1u;
-    return bit ? (drum_coarse_step(controls[slot]) >> (bit - 1)) & 1u : (model >> (slot == 6 ? 4 : 5)) & 1u;
-}
-inline bool drum_pack(u32 model, const u8* controls, i32* words, u32 models = kDrumNarrowModels) {
-    if (!controls || !words || model >= models || models > kDrumModelLimit) return false;
-    for (u32 i = 0; i < kDrumControlCount; ++i)
-        if (controls[i] > 127) return false;
-    u32 packed[kDrumStorageWords] = {};
-    for (u32 k = 0; k < 60; ++k)
-        packed[k / 15] |= drum_bit(k, models, model, controls) << (k % 15);
-    for (u32 i = 0; i < kDrumStorageWords; ++i)
-        words[i] = static_cast<i32>(packed[i] << 16);
+// Bit k of the 60 is bit k % 15 of word k / 15, each word shifted up 16.
+inline bool drum_words(const u32* packed, i32* words) {
+    for (u32 i = 0; i < kDrumStorageWords; ++i) words[i] = static_cast<i32>(packed[i] << 16);
     return true;
 }
-
-// The caller checks the mark first. Failure leaves the outputs untouched, so
-// the caller keeps its defaults.
-inline bool drum_unpack(const i32* words, u8* model, u8* controls, u32 models = kDrumNarrowModels) {
-    if (!words || !model || !controls) return false;
-    u32 packed[kDrumStorageWords];
+inline bool drum_bits(const i32* words, u32* packed) {
     for (u32 i = 0; i < kDrumStorageWords; ++i) {
         if (words[i] < 0 || (static_cast<u32>(words[i]) & 65535u)) return false;
         packed[i] = static_cast<u32>(words[i]) >> 16;
     }
-    u32 values[kDrumControlCount] = {}, m = 0;
-    for (u32 k = 0; k < 60; ++k) {
-        const u32 bit = (packed[k / 15] >> (k % 15)) & 1u;
-        const u32 slot = k / 7;
-        if (k >= 56) m |= bit << (k - 56);
-        else if (!drum_coarse(models, slot)) values[slot] |= bit << (k % 7);
-        else if (k % 7) values[slot] |= bit << (k % 7 - 1);
-        else m |= bit << (slot == 6 ? 4 : 5);
-    }
-    *model = static_cast<u8>(m);
+    return true;
+}
+inline void drum_put(u32* packed, u32 at, u32 bits, u32 value) {
+    for (u32 b = 0; b < bits; ++b) packed[(at + b) / 15] |= ((value >> b) & 1u) << ((at + b) % 15);
+}
+inline u32 drum_get(const u32* packed, u32 at, u32 bits) {
+    u32 value = 0;
+    for (u32 b = 0; b < bits; ++b) value |= ((packed[(at + b) / 15] >> ((at + b) % 15)) & 1u) << b;
+    return value;
+}
+
+// A kit of up to 16 models: the controls in bits 0..55, 7 each, and the model
+// in 56..59.
+inline bool drum_pack(u32 model, const u8* controls, i32* words) {
+    if (!controls || !words || model >= kDrumNarrowModels) return false;
     for (u32 i = 0; i < kDrumControlCount; ++i)
-        controls[i] = drum_coarse(models, i) ? drum_coarse_value(values[i]) : static_cast<u8>(values[i]);
+        if (controls[i] > 127) return false;
+    u32 packed[kDrumStorageWords] = {};
+    for (u32 i = 0; i < kDrumControlCount; ++i) drum_put(packed, 7 * i, 7, controls[i]);
+    drum_put(packed, 56, 4, model);
+    return drum_words(packed, words);
+}
+
+// The caller checks the mark first. Failure leaves the outputs untouched, so
+// the caller keeps its defaults.
+inline bool drum_unpack(const i32* words, u8* model, u8* controls) {
+    u32 packed[kDrumStorageWords];
+    if (!words || !model || !controls || !drum_bits(words, packed)) return false;
+    *model = static_cast<u8>(drum_get(packed, 56, 4));
+    for (u32 i = 0; i < kDrumControlCount; ++i) controls[i] = static_cast<u8>(drum_get(packed, 7 * i, 7));
+    return true;
+}
+
+// A kit of more than 16 models keeps every control at 7 bits in the same 60
+// bits, by a prefix code. Its full models, those using all eight controls
+// (parameter_count 8), number at most 15: a key on one stores its rank among
+// them in bits 56..59 and its eight controls in 0..55. A key on any other
+// model stores 15 there, the model in bits 49..54 and its first seven
+// controls in 0..48; its eighth is unused (the model's count is at most
+// seven), so it reads the caller's value, the key's default. Decoding is
+// shifts and masks only. Keys are read in their kit's current layout: a kit
+// that grows past 16 models does not carry over the keys it saved before.
+struct DrumCodec {
+    u32 models;                 // the kit's model count
+    u32 fulls;                  // its full models, in model order (more than 15: it does not fit)
+    u8 full[kDrumFullModels];
+    u8 rank[kDrumModelLimit];   // a full model's place among them, else kDrumFullModels
+    bool wide() const { return models > kDrumNarrowModels; }
+    bool fits() const { return models >= 1 && models <= kDrumModelLimit && (!wide() || fulls <= kDrumFullModels); }
+};
+inline DrumCodec drum_codec(u32 models, u32 (*count)(u32)) {
+    DrumCodec codec = {};
+    codec.models = models;
+    for (u32 m = 0; m < kDrumModelLimit; ++m) codec.rank[m] = kDrumFullModels;
+    for (u32 m = 0; models <= kDrumModelLimit && m < models; ++m) {
+        if (count(m) < kDrumControlCount) continue;
+        if (codec.fulls < kDrumFullModels) {
+            codec.full[codec.fulls] = static_cast<u8>(m);
+            codec.rank[m] = static_cast<u8>(codec.fulls);
+        }
+        ++codec.fulls;
+    }
+    return codec;
+}
+
+inline bool drum_pack(u32 model, const u8* controls, i32* words, const DrumCodec& codec) {
+    if (!codec.wide()) return drum_pack(model, controls, words);
+    if (!controls || !words || !codec.fits() || model >= codec.models) return false;
+    const u32 rank = codec.rank[model], stored = rank < kDrumFullModels ? 8 : 7;
+    for (u32 i = 0; i < stored; ++i)
+        if (controls[i] > 127) return false;
+    u32 packed[kDrumStorageWords] = {};
+    for (u32 i = 0; i < stored; ++i) drum_put(packed, 7 * i, 7, controls[i]);
+    if (rank < kDrumFullModels) {
+        drum_put(packed, 56, 4, rank);
+    } else {
+        drum_put(packed, 49, 6, model);
+        drum_put(packed, 56, 4, kDrumFullModels);
+    }
+    return drum_words(packed, words);
+}
+
+inline bool drum_unpack(const i32* words, u8* model, u8* controls, const DrumCodec& codec) {
+    if (!codec.wide()) return drum_unpack(words, model, controls);
+    u32 packed[kDrumStorageWords];
+    if (!words || !model || !controls || !codec.fits() || !drum_bits(words, packed)) return false;
+    const u32 rank = drum_get(packed, 56, 4);
+    if (rank < kDrumFullModels && rank >= codec.fulls) return false;
+    const u32 m = rank < kDrumFullModels ? codec.full[rank] : drum_get(packed, 49, 6);
+    const u32 stored = rank < kDrumFullModels ? 8 : 7;
+    *model = static_cast<u8>(m);
+    for (u32 i = 0; i < stored; ++i) controls[i] = static_cast<u8>(drum_get(packed, 7 * i, 7));
     return true;
 }
 }}
