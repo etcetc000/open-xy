@@ -35,7 +35,7 @@ class SampleServices(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-            if name in ('sample_callbacks', 'benchmark', 'drum_controls'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'sample_display_routing'):
                 probe = replace(fixture('probesample'), id='probe', identity=dict(engine=46, page=7))
                 if name == 'sample_callbacks':
                     # A page-2 engine with no services beside it: it plays like the sampler.
@@ -43,8 +43,8 @@ class SampleServices(unittest.TestCase):
                     sampler = replace(plain, id='sampler', identity=dict(engine=47, page=2),
                                       definition=dict(plain.definition, resources=dict(voiceCapacity=256)))
                     generate_sample_callbacks(folder, [probe, sampler])
-                elif name == 'drum_controls':
-                    source = ROOT / 'sdk/platform/opxy-1.2.1/drum_controls_stock.cpp'
+                elif name in ('drum_controls', 'sample_display_routing'):
+                    source = ROOT / ('sdk/platform/opxy-1.2.1/drum_controls_stock.cpp' if name == 'drum_controls' else 'sdk/platform/opxy-1.2.1/sample_display_controls.cpp')
                     (Path(folder) / source.name).write_text(source.read_text())
                 else:
                     from tooling.benchmark import generate
@@ -93,6 +93,9 @@ class SampleServices(unittest.TestCase):
 
     def test_pad_shortcuts_clipboard_and_multi_edit(self):
         self.run_fixture('drum_controls', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
+
+    def test_actual_sample_display_routing_and_stock_fallback(self):
+        self.run_fixture('sample_display_routing')
 
     def test_owned_primary_screen_precedes_stock_overlays(self):
         self.run_fixture('screen_order')

@@ -54,7 +54,9 @@ bool sdk_sample_display_key_event(const void* raw) {
     return true;
 }
 u32 sdk_sample_display_page(void* controller) {
-    if (instrument_page()) {
+    // 8c093f98 asks the base controller while a browser overlay can be top.
+    // This virtual call belongs to its supplied object, not the input target.
+    if (controller && *static_cast<const u32*>(controller) == 0x8400dff8 && word(0x080238bc) == 0) {
         const u32 track = byte(kSelectedTrack);
         if (track < kTracks) {
             const u32 engine = track_engine(track);

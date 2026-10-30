@@ -15,6 +15,7 @@
 #include "screen.hpp"
 
 extern "C" {
+extern const char arranger_screen_slots[] __asm__("__stock_screen_slots");
 opxy::u32 stock_gui_role() __asm__("stock_gui_role");
 void sdk_arranger_screen_startup() __asm__("sdk_arranger_screen_startup");
 int sdk_arranger_screen_owned(opxy::u32) __asm__("sdk_arranger_screen_owned");
@@ -46,7 +47,8 @@ namespace {
 using namespace opxy;
 using namespace opxy::screen;
 using platform::stock;
-const u32 slots_address = 0x8d4cf380;
+// Follow the relocated table even when the SDK grows its engine capacity.
+u32 slots_address() { return reinterpret_cast<platform::Address>(arranger_screen_slots); }
 const u32 visible_clips = 64;
 u32 window_ticks = 15360;
 u32 view_start;
@@ -804,7 +806,7 @@ const char asset[] = "open-xy-arranger.svg";
 
 bool registered() {
     return page_id >= 82 && page_id < 128 &&
-        reinterpret_cast<Base* volatile*>(slots_address)[page_id] == &screen_state.base &&
+        reinterpret_cast<Base* volatile*>(slots_address())[page_id] == &screen_state.base &&
         screen_state.base.vtable == &vtable && screen_state.base.loader;
 }
 
@@ -868,7 +870,7 @@ void press(const void* raw, bool shifted) {
 void sdk_arranger_screen_startup() {
     if (!stock_gui_role() || page_id || screen_state.base.vtable) return;
     Base** slots = stock<Base**()>(0x8d52077c)();
-    if (reinterpret_cast<platform::Address>(slots) != slots_address) return;
+    if (reinterpret_cast<platform::Address>(slots) != slots_address()) return;
     for (u32 page = 127; page >= 82; --page) {
         if (slots[page]) continue;
         base_construct(&screen_state.base, page, asset);
