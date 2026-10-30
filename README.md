@@ -1,7 +1,7 @@
 # OP-XY SDK
 
 Write an instrument in C++, audition it in a browser, and build it into
-firmware for an OP-XY running OS 1.2.0. The same sound and display code
+firmware for an OP-XY running OS 1.2.1. The same sound and display code
 compiles to WebAssembly for previews and to Blackfin for the device.
 
 This repository is the SDK and the [catalog](docs/catalog.md) of published
@@ -17,13 +17,23 @@ own stock `os.ldr`, without installing anything.
 
 **Contributing? Start feature branches from `staging` and open pull requests
 against `staging`.** It is the development branch; `main` receives reviewed
-releases from `staging`. See the [contributor workflow](CONTRIBUTING.md#branch-workflow).
+releases from `staging`, and machine submissions (catalog-only PRs) go to `main`. See the [contributor workflow](CONTRIBUTING.md#branch-workflow).
+
+With Retrospective capture enabled, firmware keeps a live-note ghost pattern for
+the selected instrument track. Double-tap Record to insert the performance at
+its original loop positions; **captured** confirms insertion. Stop preserves a partial take, while
+starting playback again clears it. Changing tracks, patterns, projects, track
+length, scale or quantization clears the ghost pattern. Notes survive loop wraps
+and silence; later playing replaces nearby same-pitch notes as in stock recording.
+It holds up to 120 notes, with stock collision and pattern-capacity limits. The
+first Record tap snapshots the take; the second confirms capture.
 
 This is an unofficial, experimental SDK. A build statically links a curated
-collection of machines into exact stock OS 1.2.0; arbitrary engine installation
+collection of machines into exact stock OS 1.2.1; arbitrary engine installation
 and dynamic loading are not implemented. Native code is not sandboxed, and
 build checks cannot guarantee recovery from a faulty image. Browser previews
-work on any OS; firmware builds need Windows x86_64 or Apple-silicon macOS.
+work on any OS; firmware builds need Windows x86_64, Apple-silicon macOS or
+Linux x86_64.
 
 ## Try an example
 
@@ -40,7 +50,7 @@ python sdk.py preview --machine ../open-xy-core-machines/machines/fm2op --out lo
 python tools/serve_harness.py --preview local/preview-001
 ```
 
-Open http://127.0.0.1:8917/ and click **Enable audio**. Use
+Open http://127.0.0.1:8917/ and play a key or click **Play phrase**; audio starts automatically. Use
 `machines/macroosc` or `machines/karplus` for another synth. The
 [preview guide](docs/preview.md) covers iteration, patches and automation.
 
@@ -48,20 +58,36 @@ Open http://127.0.0.1:8917/ and click **Enable audio**. Use
 
 Start with [Your first machine](docs/first-machine.md): check the prerequisites,
 create a custom C++ machine, play it in the browser and make an audible edit.
-To keep a machine in a repository of your own and submit it to the builder,
-start from the [machine template](https://github.com/etcetc000/open-xy-machine-template);
-the [core machines](https://github.com/etcetc000/open-xy-core-machines) are worked examples.
+The [core machines](https://github.com/etcetc000/open-xy-core-machines) are the
+worked examples. Create a repository-ready starter directly from the SDK:
 
-A machine is a folder of source: `machine.json`, which declares its kind and
-the stock numbers it asks for, controls in `definition.json`, and C++ for its kind: a synth's
+```sh
+python sdk.py new --repository --id mymachine --name "My Machine" --out ../mymachine
+```
+
+Synths start with four controls and the stock header. Choose `--controls 5`,
+`6`, `7` or `8` when the sound needs more controls; these use the shared
+two-page header. Unused second-page columns repeat the same control from page 1.
+It includes source, tests, README, agent instructions, licence and CI. Use
+`--kind effect` for a send effect; omit `--repository` when adding just a machine
+folder to an existing repository. Follow the generated instructions through
+audition, [hardware profiling](docs/profiling.md) and
+[catalog submission](docs/catalog.md#submit-a-machine).
+
+A machine is a folder of source: `machine.json`, which declares its kind (each
+build gives its stock numbers), controls in `definition.json`, and C++ for its kind: a synth's
 sound (`engine.cpp`) and display (`display.cpp` and artwork), a sample engine's
 `sample.cpp` or an effect's `fx.cpp`. The SDK supplies adapters, storage,
 previews, firmware builds and packaging.
 
 - [Machine API](docs/api.md): platform rules, schemas, callbacks for each kind, buffers and ownership.
+- [Firmware extensions](docs/extensions.md): shared controller events, callback order and exclusive commands.
 - [Display API](docs/display.md): retained drawing frames and asset constraints.
+- [Machine UX](docs/ux.md): the conventions machines share for controls, pages, screens and motion.
 - [Build your own firmware](docs/build.md): toolchain, stock files, adding a machine, build and install.
 - [Open-XY builder](docs/builder.md): using the builder, web development and kit export.
+- [Hardware CPU profiling](docs/profiling.md): measure your machine and publish the required catalog readout.
+- [Port to a new OS release](docs/porting.md): move the profile and platform layer to a new stock OP-XY OS, test it and compare CPU.
 - [Catalog](docs/catalog.md): machines published from their own repositories, pinned by commit.
 - [Project companions](docs/projects.md): the `.oxy` file recording which machine each project number meant.
 - [Contributing](CONTRIBUTING.md): code ownership and checks.
@@ -90,6 +116,6 @@ carries its own licence in its repository. Timestretch, in the
 AGPL-3.0; the SDK carries no copyleft code, but firmware and builder kits that
 include Timestretch are distributed under the AGPL-3.0. No firmware is included: all firmware comes from the user's own
 device. The one stock file in this repository is the instrument catalog every
-build extends, [`op1_factory.json`](profiles/opxy-1.2.0/content/op1_factory.json),
+build extends, [`op1_factory.json`](profiles/opxy-1.2.1/content/op1_factory.json),
 kept for development; the builder distributes it too. The
 [toolchain](docs/toolchain.md) release ships its GPL sources.

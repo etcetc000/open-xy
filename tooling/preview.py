@@ -27,7 +27,9 @@ SDK_FOLDERS = ('sdk/include', 'sdk/browser', 'sdk/platform/blackfin/freestanding
 FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-exceptions', '-fno-rtti',
          '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-c++-static-destructors', '-nostdlib',
          '-Wall', '-Werror', '-Wno-unused']
-MEMORY = 524288
+# Fixed browser allowance for code/data/state; no memory growth during audio.
+# Native collections have a separate 2032 KiB linker limit.
+MEMORY = 2 * 1024 * 1024
 
 
 def compile_preview(compiler, definition, out, root, sources=(), includes=(), *, kind='synth'):
@@ -39,7 +41,7 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
     units += [out / 'display_binding.cpp', ROOT / 'sdk/host/display_preview.cpp']
     paths = [ROOT, ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', root,
              *(root / extra for extra in includes), out]
-    memory = 2 * 1024 * 1024 if kind == 'drum' else MEMORY
+    memory = MEMORY
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={memory}',
                f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS)]
@@ -47,12 +49,13 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
             f'\nCheck the compiler with: python sdk.py doctor --preview --cxx "{compiler}"')
-    check_runtime(out / 'engine.wasm', kind=kind)
+    display = definition.get('resources', {}).get('display', {})
+    check_runtime(out / 'engine.wasm', display.get('paths', 0), display.get('points', 0))
 
 
-def check_runtime(module, *, kind='synth'):
+def check_runtime(module, paths=0, points=0):
     """Smoke-test host contracts without requiring a particular sound."""
-    result = subprocess.run(['node', str(ROOT / 'tools/check_preview_contract.mjs'), str(module), kind],
+    result = subprocess.run(['node', str(ROOT / 'tools/check_preview_contract.mjs'), str(module), str(paths), str(points)],
                             capture_output=True, text=True, timeout=120,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview contract check failed:\n' + result.stdout + result.stderr)

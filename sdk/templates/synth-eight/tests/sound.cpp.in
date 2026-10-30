@@ -1,0 +1,30 @@
+// The machine's own sound checks, compiled for the host and run by
+// python sdk.py test --machine <folder>. Extend them as the sound grows.
+#include "../engine.cpp"
+#include <cstdio>
+
+int main() {
+    static @ID@::Voice voice;
+    static @ID@::Shared shared;
+    opxy::i32 parameters[8] = {0x40000000, 0x40000000, 0x7fffffff, 0x40000000};
+    opxy::u32 pitch[opxy::block_frames];
+    for (unsigned i = 0; i < opxy::block_frames; ++i) pitch[i] = 42852281u;  // 440 Hz at 44.1 kHz
+    opxy::i32 output[opxy::block_frames];
+    @ID@::initialize(voice, shared, 1);
+    @ID@::start(voice, shared, 1);
+    bool sounding = false, bounded = true;
+    for (unsigned block = 0; block < 690; ++block) {
+        // Every processor corner, with a voice restart, must remain bounded.
+        for (unsigned j = 4; j < @CONTROLS@; ++j) parameters[j] = ((block / 32) & (1u << (j - 4))) ? 0x7fffffff : 0;
+        if (block == 345) @ID@::start(voice, shared, 1);  // one second
+        @ID@::render(voice, shared, 1, output, parameters, pitch);
+        for (unsigned i = 0; i < opxy::block_frames; ++i) {
+            sounding = sounding || output[i] != 0;
+            // definition.json declares outputPeakQ31: 1073741824.
+            bounded = bounded && output[i] >= -1073741824 && output[i] <= 1073741824;
+        }
+    }
+    if (!sounding) std::puts("FAIL silent");
+    if (!bounded) std::puts("FAIL above the declared peak");
+    return sounding && bounded ? 0 : 1;
+}

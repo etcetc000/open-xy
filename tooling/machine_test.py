@@ -1,10 +1,11 @@
-"""Check machine folders anywhere, as a machine repository's CI does.
+"""Check machine and extension folders anywhere, as their repositories' CI does.
 
-For each folder: the machine's records and sources against this SDK, a browser
-preview build of a synth or drum, the machine's own host tests (tests/*.cpp, compiled
-against the SDK headers and run), an estimate of its CPU cost next to Open-XY's
-core machines', and optionally a native compile of every folder together. No
-stock files and no device.
+For each machine: its records and sources against this SDK, a browser preview
+build of a synth or drum kit, its own host tests (tests/*.cpp, compiled against the SDK
+headers and run) and an estimate of its CPU cost next to Open-XY's core
+machines'. For each extension: its extension.json and sources against the SDK's
+registry and source rules, and its own host tests, which it must have.
+Optionally a native compile of every folder together. No stock files and no device.
 """
 import argparse
 import os
@@ -23,12 +24,12 @@ from .pipeline import NO_WINDOW, ROOT
 
 
 def host_tests(m, host_cxx, scratch):
-    """Compiles and runs each tests/*.cpp of the machine; its own sound and behaviour checks."""
+    """Compiles and runs each tests/*.cpp of a machine or extension; its own checks."""
     tests = sorted((m.root / 'tests').glob('*.cpp'))
     for test in tests:
         binary = scratch / (m.id + '-' + test.stem + ('.exe' if os.name == 'nt' else ''))
-        # The machine's include folders, as its preview and native builds use them.
-        includes = [ROOT / 'sdk/include', m.root, *(m.root / extra for extra in m.includes)]
+        # The folder's include paths, as its preview and native builds use them.
+        includes = [ROOT / 'sdk/include', m.root, *(m.root / extra for extra in getattr(m, 'includes', ()))]
         command = [host_cxx, '-std=c++11', '-O2', '-Wall', '-Werror', *('-I' + str(path) for path in includes),
                    str(test), *(str(m.root / source) for source in m.sources), '-o', str(binary)]
         result = subprocess.run(command, capture_output=True, text=True, timeout=300, creationflags=NO_WINDOW)
@@ -40,15 +41,20 @@ def host_tests(m, host_cxx, scratch):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='sdk.py test', description=__doc__)
-    parser.add_argument('--machine', type=Path, action='append', required=True, help='machine folder; repeatable')
+    parser.add_argument('--machine', type=Path, action='append', default=[], help='machine folder; repeatable')
+    parser.add_argument('--extension', type=Path, action='append', default=[], help='extension folder; repeatable')
     parser.add_argument('--cxx', default='clang++', help='Clang++ with wasm32/wasm-ld, for synth and drum previews')
     parser.add_argument('--host-cxx', default='c++', help='host C++11 compiler for tests/*.cpp')
     parser.add_argument('--no-cpu', action='store_true', help='skip the CPU estimate')
     parser.add_argument('--firmware', action='store_true',
-                        help='also compile these machines together with the pinned Blackfin tools')
+                        help='also compile these folders together with the pinned Blackfin tools')
     args = parser.parse_args(argv)
+    if not args.machine and not args.extension:
+        parser.error('pass --machine or --extension')
     try:
+        from .extensions import check_collection, extension_at
         machines = [machine_at(folder) for folder in args.machine]
+        extensions = check_collection([extension_at(folder) for folder in args.extension])
         require(len({m.id for m in machines}) == len(machines), 'Each machine folder needs its own ID')
         check_sources([m for m in machines if m.kind not in ('synth', 'drum')])  # previews check their own sources
         with tempfile.TemporaryDirectory(prefix='opxy-machine-test-') as scratch:
@@ -65,12 +71,19 @@ def main(argv=None):
                 print('PASS: ' + '; '.join(done))
                 if not args.no_cpu:
                     print(cpu.summary(m, host_cxx, scratch))
+            for e in extensions:
+                host_cxx = shutil.which(args.host_cxx) or args.host_cxx
+                count = host_tests(e, host_cxx, scratch)
+                require(count, f'{e.id}: an extension carries host tests in tests/*.cpp')
+                print(f'PASS: extension {e.id} ({e.root}); {count} host test{"s" * (count != 1)} passed')
             if args.firmware:
                 command = [sys.executable, str(ROOT / 'sdk.py'), 'compile', '--out', str(scratch / 'module')]
                 for m in machines:
                     command += ['--machine', str(m.root)]
+                for e in extensions:
+                    command += ['--extension', str(e.root)]
                 subprocess.run(command, check=True, cwd=ROOT, timeout=1800)
-        print('PASS: machine checks; no stock files or device operations.')
+        print('PASS: machine and extension checks; no stock files or device operations.')
         return 0
     except (ValueError, OSError, KeyError, TypeError, ET.ParseError, subprocess.SubprocessError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

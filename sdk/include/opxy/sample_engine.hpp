@@ -5,9 +5,9 @@
 #include <opxy/transport.hpp>
 
 namespace opxy {
-// A 16-bit value the machine defines and the SDK saves with each pad
-// (padSettings). Its meaning belongs to the machine.
-typedef u16 PadSettings;
+// An 18-bit value (0..262143) the machine defines and the SDK saves with each
+// pad (padSettings). Its meaning belongs to the machine.
+typedef u32 PadSettings;
 // SampleRegion.level is unsigned Q27: this is unity gain.
 const u32 sample_unity_level = 1u << 27;
 

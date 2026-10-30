@@ -12,7 +12,7 @@ opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sd
 namespace {
 using namespace opxy;
 using namespace opxy::platform;
-u32 track, key = 53, engine = 34, page, controller = 0x8400b208;
+u32 track, key = 53, engine = 34, page, controller = 0x8400dff8;
 u32 publications, dirty, clicks, fallback, last_key, turned_slot;
 int ownership = 1;
 bool shifted, shifted_octave;
@@ -59,7 +59,7 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
 };
 const opxy::u32 sdk_drum_machine_count = 1;
 const opxy::platform::SynthControls sdk_synth_controls[] = {
-    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, format, false}
+    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false}
 };
 const opxy::u32 sdk_synth_control_count = 1;
 }
@@ -67,21 +67,21 @@ const opxy::u32 sdk_synth_control_count = 1;
 opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     switch (address) {
     case kSelectedTrack: return reinterpret_cast<Address>(&track);
-    case 0x08023c74: return reinterpret_cast<Address>(&page);
-    case 0x8d585eb4: return reinterpret_cast<Address>(&get_engine);
-    case 0x8d4d7650: return reinterpret_cast<Address>(&get_key);
-    case 0x8d4d78cc: return reinterpret_cast<Address>(&get_track);
-    case 0x8d51e5bc: return reinterpret_cast<Address>(&get_shift);
-    case 0x8c095008: return reinterpret_cast<Address>(&top);
-    case 0x8d51e634: return reinterpret_cast<Address>(&press);
-    case 0x8d587904: return reinterpret_cast<Address>(&region);
-    case 0x8d5878a8: return reinterpret_cast<Address>(&canonical);
-    case 0x8d584584: return reinterpret_cast<Address>(&changed);
-    case 0x8d4d68c0: return reinterpret_cast<Address>(&publish);
-    case 0x8d4d6908: return reinterpret_cast<Address>(&stock_edit);
-    case 0x8d5ab8ec: return reinterpret_cast<Address>(&turn);
-    case 0x8d5065fc: return reinterpret_cast<Address>(&title);
-    case 0x8d5ff080: return reinterpret_cast<Address>(&text);
+    case 0x080238bc: return reinterpret_cast<Address>(&page);
+    case 0x8d58781c: return reinterpret_cast<Address>(&get_engine);
+    case 0x8d4d6c98: return reinterpret_cast<Address>(&get_key);
+    case 0x8d4d6f14: return reinterpret_cast<Address>(&get_track);
+    case 0x8d51f184: return reinterpret_cast<Address>(&get_shift);
+    case 0x8c0944b0: return reinterpret_cast<Address>(&top);
+    case 0x8d51f1fc: return reinterpret_cast<Address>(&press);
+    case 0x8d58926c: return reinterpret_cast<Address>(&region);
+    case 0x8d589210: return reinterpret_cast<Address>(&canonical);
+    case 0x8d585ee8: return reinterpret_cast<Address>(&changed);
+    case 0x8d4d5f18: return reinterpret_cast<Address>(&publish);
+    case 0x8d4d5f60: return reinterpret_cast<Address>(&stock_edit);
+    case 0x8d5ad5bc: return reinterpret_cast<Address>(&turn);
+    case 0x8d506c4c: return reinterpret_cast<Address>(&title);
+    case 0x8d6011f0: return reinterpret_cast<Address>(&text);
     default: std::abort();
     }
 }

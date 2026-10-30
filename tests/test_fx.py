@@ -84,7 +84,7 @@ void process(State& state, opxy::Channel left, opxy::Channel right, opxy::Parame
             generated.write_text(text.replace('__builtin_offsetof(Object, state) == 4',
                                               '__builtin_offsetof(Object, state) == sizeof(void*)'))
             # Stock functions resolve through host_stock_address on the host.
-            stock = (ROOT / 'sdk/platform/opxy-1.2.0/stock.hpp').read_text()
+            stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
             stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
                                   'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
             stock = stock.replace('reinterpret_cast<T*>(address)', 'reinterpret_cast<T*>(host_stock_address(address))')
@@ -130,7 +130,7 @@ void process(State&, opxy::Buffer buffer, opxy::Channel left, opxy::Channel, opx
             self.assertNotIn('control_tenths', body)
 
     def test_device_and_browser_name_divisions_alike(self):
-        native = (ROOT / 'sdk/platform/opxy-1.2.0/synth_controls.cpp').read_text()
+        native = (ROOT / 'sdk/platform/opxy-1.2.1/synth_controls.cpp').read_text()
         browser = (ROOT / 'sdk/browser/controls.mjs').read_text()
         names = lambda text, pattern: re.findall(r'"([^"]+)"', re.search(pattern, text, re.S).group(1).replace("'", '"'))
         self.assertEqual(names(native, r'names\[8\] = \{(.*?)\};'), names(browser, r'DIVISIONS = \[(.*?)\];'))

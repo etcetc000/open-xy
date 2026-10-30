@@ -47,7 +47,7 @@ function sourceFlow(t, {fake, bytes, hash, usb = true}) {
   };
   const reachTransfer = computer => {
     $('source-' + computer).onclick(); $('source-device').onclick();
-    click('version-yes'); click('Connected and at te-boot'); click('menu-yes');
+    click('Connected and at te-boot'); click('menu-yes');
     assert.equal($('device-flow').dataset.stage, 'open-dev-menu');
     click('Dev menu is open'); click('I see "mtp mode active"');
   };
@@ -58,7 +58,11 @@ test('Mac reads and verifies the original OS, then remembers transfer mode for i
   const bytes = Uint8Array.from({length: 2048}, (_, i) => i * 7);
   const fake = fakeDevice({files: {'upgrade/firmware/blackfin/bin/os.ldr': bytes, 'os.ldr': Uint8Array.of(99)}, split: true});
   const f = sourceFlow(t, {fake, bytes, hash: await sha256(bytes)}), {$, click} = f;
-  assert.equal($('computer-choice').hidden, false); assert.equal($('source-start').hidden, true);
+  // The OS version is asked first, before the computer or any OS file.
+  assert.equal($('os-version').hidden, false); assert.equal($('computer-choice').hidden, true);
+  $('os-version-no').onclick(); assert.equal($('os-update').hidden, false); assert.equal($('os-version').hidden, true);
+  $('os-update-done').onclick(); assert.equal($('computer-choice').hidden, false); assert.equal($('os-update').hidden, true);
+  assert.equal($('source-start').hidden, true);
   f.reachTransfer('mac');
   assert.equal($('flow-title').textContent, 'Quit Field Kit and OpenMTP.');
   assert.equal(f.requests(), 0); assert.equal($('flow-install-reminder').hidden, true);
@@ -76,7 +80,7 @@ test('Mac reads and verifies the original OS, then remembers transfer mode for i
   assert.deepEqual(new Uint8Array(await (await fetch($('source-backup').href)).arrayBuffer()), bytes);
   f.wizard.clearSourceBackup(); assert.equal($('source-backup').hidden, true);
   assert.ok(!fake.state.ops.some(op => ['100b', '100c', '100d'].includes(op)));
-  f.wizard.navigate(3);
+  f.wizard.navigate(4);
   assert.equal($('download').hidden, true); assert.equal($('route-mac').hidden, false);
   $('route-mac').onclick({preventDefault() {}});
   assert.equal($('device-flow').dataset.stage, 'transfer');
@@ -110,7 +114,7 @@ test('a manual Mac copy still closes transfer apps before sending a build', t =>
   const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
   f.reachTransfer('mac'); f.click('field-kit-closed'); f.click('mtp-manual');
   f.click('Files copied · Choose files');
-  f.wizard.navigate(3); f.$('route-mac').onclick({preventDefault() {}});
+  f.wizard.navigate(4); f.$('route-mac').onclick({preventDefault() {}});
   assert.equal(f.$('device-flow').dataset.stage, 'close-field-kit');
   assert.equal(f.requests(), 0);
 });
@@ -127,7 +131,7 @@ test('enabling connects and sends in one click; failures and menu retries keep t
   }
   const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
   f.$('source-windows').onclick(); f.$('source-device').onclick();
-  f.click('version-yes'); f.click('Connected and at te-boot'); f.click('menu-no');
+  f.click('Connected and at te-boot'); f.click('menu-no');
   assert.deepEqual(calls, []);
   await f.click('dev-enable');
   assert.equal(f.$('device-flow').dataset.stage, 'enable');
@@ -167,7 +171,7 @@ test('post-install disable runs directly and retries without restarting setup', 
     t.after(() => { Session.prototype[name] = original; });
   }
   const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
-  f.$('source-mac').onclick(); f.wizard.navigate(3);
+  f.$('source-mac').onclick(); f.wizard.navigate(4);
   f.$('route-mac').onclick({preventDefault() {}});
   f.click('Connected and at te-boot'); f.click('menu-yes'); f.click('Dev menu is open');
   f.click('I see "mtp mode active"'); f.click('field-kit-closed'); f.click('mtp-manual');
@@ -222,7 +226,7 @@ test('missing OS recovery disables the menu before reinstalling, then restarts t
     assert.equal($('recovery-downloads').hidden, true);
     await click('recovery-disable');
     assert.equal(connects, 1); assert.equal(disables, 1);
-    assert.equal($('flow-title').textContent, 'Power cycle and reinstall OS 1.2.0.');
+    assert.equal($('flow-title').textContent, 'Power cycle and reinstall OS 1.2.1.');
     assert.equal($('recovery-downloads').hidden, false);
     assert.equal($('flow-back').hidden, true);
     assert.ok($('flow-instructions').children.some(li => li.children[0].textContent.includes('hold COM')));
@@ -317,8 +321,8 @@ test('installation links preview the edited steps without a build or device acce
   const $ = id => { assert.ok(elements.has(id), `Missing authored element: ${id}`); return elements.get(id); };
   let deviceRequests = 0, exits = 0;
   const listeners = new Map();
-  const pages = [1, 2, 3].map(page => Object.assign(new Element(), {dataset: {page: String(page)}}));
-  const steps = [1, 2, 3].map(step => Object.assign(new Element(), {dataset: {step: String(step)}}));
+  const pages = [1, 2, 3, 4].map(page => Object.assign(new Element(), {dataset: {page: String(page)}}));
+  const steps = [1, 2, 3, 4].map(step => Object.assign(new Element(), {dataset: {step: String(step)}}));
   const location = {hash: '#preview/mac/transfer', pathname: '/', search: ''};
   const globals = {
     document: {
@@ -326,9 +330,9 @@ test('installation links preview the edited steps without a build or device acce
       addEventListener() {},
       querySelectorAll: selector => ({'[data-icon]': [], '[data-page]': pages, '.steps button': steps}[selector] ?? []),
       querySelector: selector => {
-        const match = /^\[data-page="([123])"\]( h1)?$/.exec(selector);
+        const match = /^\[data-page="([1234])"\]( h1)?$/.exec(selector);
         assert.ok(match, `Unexpected selector: ${selector}`);
-        return match[2] ? $(['input-title', 'machines-title', 'download-title'][Number(match[1]) - 1]) : pages[Number(match[1]) - 1];
+        return match[2] ? $(['input-title', 'machines-title', 'extensions-title', 'download-title'][Number(match[1]) - 1]) : pages[Number(match[1]) - 1];
       },
     },
     window: {addEventListener: (event, listener) => listeners.set(event, listener)},

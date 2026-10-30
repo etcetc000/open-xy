@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""OP-XY SDK commands. Local builds and checks only; no device operations."""
+"""OP-XY SDK commands: local builds/checks and explicitly requested hardware profiling."""
 import sys
 
 COMMANDS = '''Commands:
+  profile   Hardware machine measurements: python sdk.py profile --help
   check     Contributor checks: python sdk.py check [--help]
   preview   Browser audition build: python sdk.py preview --machine ../mymachine --out local/preview-001
-  new       Start a machine: python sdk.py new [--kind synth|effect] --id mymachine --name "My Machine" --out ../mymachine
-  test      Check machine folders anywhere: python sdk.py test --machine ../mymachine [--firmware]
-  catalog   Published machines: python sdk.py catalog check | fetch | test [--tags]
+  new       Start a machine repository: python sdk.py new --repository [--kind synth|effect] [--controls 4..8] --id mymachine --name "My Machine" --out ../mymachine
+  test      Check machine and extension folders anywhere: python sdk.py test --machine ../mymachine | --extension ../myextension [--firmware]
+  catalog   Published machines and extensions: python sdk.py catalog check | fetch | test [--tags]
   project   Project companions: python sdk.py project write --layout layout.json song.xy | check song.xy
   compile   Native module only: python sdk.py compile --help
   build     Native firmware package: python sdk.py build [--machine <folder>] --help
@@ -23,6 +24,9 @@ if __name__ == '__main__':
     if command in ('compile', 'build', 'verify'):
         from tooling.native import main
         raise SystemExit(main(argv, command))
+    if command == 'profile':
+        from tools.benchmark import main
+        raise SystemExit(main(argv))
     if command == 'new':
         from tooling.custom_preview import main
         raise SystemExit(main(argv))

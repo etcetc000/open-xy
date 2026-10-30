@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "extensions": [
+    {
+      "id": "capture",
+      "kind": "extension",
+      "maintainer": "etcetc000",
+      "status": "published",
+      "repository": "https://github.com/etcetc000/open-xy-core-machines",
+      "tag": "v1.6.1",
+      "commit": "efa880a9063b4eb06a72fbae0362b94bbed0b37b",
+      "path": "extensions/capture"
+    }
+  ]
+}

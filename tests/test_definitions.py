@@ -10,7 +10,7 @@ import unittest
 
 from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, generate_display, generate_screen,
                                generate_synth_controls, screen_bytes)
-from tooling.definitions import ROOT, control_positions, validate_definition
+from tooling.definitions import ROOT, control_positions, paged, validate_definition
 from machine_fixtures import FOLDER, fixture
 from tooling.native import display_ids
 
@@ -117,7 +117,7 @@ class Definitions(unittest.TestCase):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
                            ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
-                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 5), ('texts', True),
+                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 17), ('texts', True),
                            ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value
@@ -180,6 +180,64 @@ class Definitions(unittest.TestCase):
         sample['parameters'][-1]['control'] = 0
         with self.assertRaisesRegex(ValueError, 'parameter fields'): validate_definition(sample, 'sample')
 
+    def test_a_paged_synth_has_one_alternate_per_position(self):
+        value = copy.deepcopy(self.engine)
+        value['parameters'] += [self.alternate(c, 'p%d' % c) for c in (3, 0, 1, 2)]
+        for preset in value['presets'].values():
+            preset.update(p0=0, p1=0, p2=0, p3=0)
+        value['press'] = 'page'
+        validate_definition(value, 'synth')
+        self.assertTrue(paged(value))
+        self.assertEqual(control_cycles(value), [5, 6, 7, 4, 3, 0, 1, 2])
+        self.assertFalse(paged(self.engine))
+        rejected = []
+        for bad in ('next', True, None):
+            changed = copy.deepcopy(value); changed['press'] = bad
+            rejected.append(changed)
+        short = copy.deepcopy(value); del short['parameters'][-1]
+        for preset in short['presets'].values(): del preset['p2']
+        validate_definition(short, 'synth')
+        following = control_cycles(short)
+        self.assertEqual(following[:4], [5, 6, 2, 4])
+        shown = list(range(4))
+        shown = [following[s] for s in shown]
+        self.assertEqual(shown, [5, 6, 2, 4])
+        self.assertEqual([following[s] for s in shown], list(range(4)))
+        empty = copy.deepcopy(self.engine); empty['press'] = 'page'
+        rejected.append(empty)
+        twice = copy.deepcopy(value); twice['parameters'][-1]['control'] = 3
+        rejected.append(twice)
+        for bad in rejected:
+            with self.subTest(press=bad['press'], count=len(bad['parameters'])), self.assertRaises(ValueError):
+                validate_definition(bad, 'synth')
+        sample = copy.deepcopy(fixture('probesample').definition)
+        sample['press'] = 'page'
+        with self.assertRaisesRegex(ValueError, 'press'): validate_definition(sample, 'sample')
+        # The control table marks the paged synth's row.
+        machines = [SimpleNamespace(kind='synth', prefix='paged', identity=dict(engine=9), definition=value),
+                    SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false)\},$', text, re.M),
+                         [('paged', 'true'), ('plain', 'false')])
+
+    def test_an_effects_controls_after_four_alternate_on_the_send_page(self):
+        # Without `control`, an effect's fifth to eighth controls alternate on positions 0..3.
+        effect = copy.deepcopy(fixture('probefx').definition)
+        base = effect['parameters'][0]
+        effect['parameters'] = [dict(copy.deepcopy(base), id='p%d' % i, label='P%d' % i) for i in range(8)]
+        effect['presets'] = {}
+        validate_definition(effect, 'effect')
+        self.assertEqual(control_cycles(effect), [4, 5, 6, 7, 0, 1, 2, 3])
+        # One may name another position instead.
+        effect['parameters'][7]['control'] = 0
+        validate_definition(effect, 'effect')
+        self.assertEqual(control_cycles(effect), [4, 5, 6, 3, 7, 1, 2, 0])
+        machines = [SimpleNamespace(kind='effect', prefix='alts', identity=dict(effect=23), definition=effect)]
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^    \{alts_fx_id, alts_ready, \{([\d, ]+)\},', text, re.M), ['4, 5, 6, 3, 7, 1, 2, 0'])
+
     def test_control_table_owns_all_synths_and_preserves_alternates(self):
         alternates = copy.deepcopy(self.engine)
         alternates['parameters'].append(self.alternate(2))
@@ -217,7 +275,7 @@ class Definitions(unittest.TestCase):
                     hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
                     result = subprocess.run(
                         [LAYOUT_CXX, '-m32', '-std=gnu++11', '-fsyntax-only', '-Wall', '-Werror', '-ffreestanding',
-                         *('-I' + str(path) for path in (ROOT / 'sdk/include', ROOT / 'sdk/platform/opxy-1.2.0',
+                         *('-I' + str(path) for path in (ROOT / 'sdk/include', ROOT / 'sdk/platform/opxy-1.2.1',
                                                          FOLDER / 'probesynth')), source.name],
                         cwd=directory, capture_output=True, text=True, timeout=120, **hidden)
                     self.assertEqual(result.returncode, 0, result.stderr)

@@ -19,7 +19,7 @@ class Lfo(unittest.TestCase):
 
     @unittest.skipUnless(services.HOST_CXX, 'No working host C++ compiler')
     def test_destinations_cycle_declared_slots_and_use_assigned_encoder_icons(self):
-        self.run_fixture('lfo', ('sdk/platform/opxy-1.2.0/lfo.cpp',))
+        self.run_fixture('lfo', ('sdk/platform/opxy-1.2.1/lfo.cpp',))
 
     def test_metadata_includes_instrument_records_and_stable_slot_names(self):
         machines = [fixture(name) for name in ('probesynth', 'probesample', 'probefx')]
@@ -44,22 +44,22 @@ class Lfo(unittest.TestCase):
         profile = config()
         self.assertEqual(sha(data), profile['stock_sha256'])
         expected = {
-            0x8d53ec60: ('sdk_lfo_range', 0x8d4d78e0),
-            0x8d53ef50: ('sdk_lfo_range', 0x8d4d78e0),
-            0x8d53ff32: ('sdk_lfo_range', 0x8d4d78e0),
-            0x8d5426b8: ('sdk_lfo_range', 0x8d4d78e0),
-            0x8d5ab7ea: ('sdk_lfo_step', 0x8d5ab618),
-            0x8d5ab8ce: ('sdk_lfo_step', 0x8d5ab618),
-            0x11a03f20: ('sdk_lfo_audio', 0x8d5182d4),
-            0x8d545b2e: ('sdk_synth_title', 0x8d5065fc),
-            0x8d53f676: ('sdk_lfo_element_icon', 0x8d5fffa4),
-            0x8d540b6e: ('sdk_lfo_random_icon', 0x8d5fffa4),
-            0x8d5431ca: ('sdk_lfo_value_icon', 0x8d5fffa4),
-            0x8d53f3e8: ('sdk_lfo_element_name', 0x8d4d8940),
-            0x8d53ecc0: ('sdk_lfo_element_initial_icon', None),
-            0x8c0b38b4: ('sdk_lfo_cycle', 0x8d5ab258),
-            0x8d5404b6: ('sdk_lfo_label', 0x8d4d8940),
-            0x8d542da8: ('sdk_lfo_label', 0x8d4d8940),
+            0x8d53f828: ('sdk_lfo_range', 0x8d4d6f28),
+            0x8d53fb18: ('sdk_lfo_range', 0x8d4d6f28),
+            0x8d540afa: ('sdk_lfo_range', 0x8d4d6f28),
+            0x8d543280: ('sdk_lfo_range', 0x8d4d6f28),
+            0x8d5ad4ba: ('sdk_lfo_step', 0x8d5ad2e8),
+            0x8d5ad59e: ('sdk_lfo_step', 0x8d5ad2e8),
+            0x11a04260: ('sdk_lfo_audio', 0x8d518ec4),
+            0x8d5466f6: ('sdk_synth_title', 0x8d506c4c),
+            0x8d54023e: ('sdk_lfo_element_icon', 0x8d602114),
+            0x8d541736: ('sdk_lfo_random_icon', 0x8d602114),
+            0x8d543d92: ('sdk_lfo_value_icon', 0x8d602114),
+            0x8d53ffb0: ('sdk_lfo_element_name', 0x8d4d7f88),
+            0x8d53f888: ('sdk_lfo_element_initial_icon', None),
+            0x8c0b2d54: ('sdk_lfo_cycle', 0x8d5acf28),
+            0x8d54107e: ('sdk_lfo_label', 0x8d4d7f88),
+            0x8d543970: ('sdk_lfo_label', 0x8d4d7f88),
         }
         seen = set()
         for patch in profile['patches']:
@@ -85,9 +85,9 @@ class Lfo(unittest.TestCase):
         # The engine-group audio hook follows a store of the folded index.
         # The same scratch word is read later as publication argument R1.
         for address, before in (
-            (0x11a03f10, '00d80484584a0202'),
-            (0x11a042d8, '00d80484584a0100'),
-            (0x11a042e8, '00de4d8d60720000'),
+            (0x11a04250, '00d8048450790202'),
+            (0x11a04618, '00d8048450790100'),
+            (0x11a04628, '00de4d8db8680000'),
         ):
             offset = mapped_offset(ldr(data), address, 8)
             self.assertEqual(data[offset:offset + 8].hex(), before)

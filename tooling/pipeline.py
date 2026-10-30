@@ -1,6 +1,7 @@
 """Shared local build utilities and stock firmware compatibility boundary."""
 import argparse
 import json
+import os
 from pathlib import Path
 import platform
 import re
@@ -15,23 +16,23 @@ NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_FILE = 16 * 1024 * 1024
-PROFILE = 'profiles/opxy-1.2.0.json'
+PROFILE = 'profiles/opxy-1.2.1.json'
 TOOLCHAINS = 'profiles/toolchains.json'
 TOOLCHAIN_HOME = 'local/toolchain'  # where `sdk.py toolchain fetch` installs
-TOOLCHAINS_SHA256 = 'ab575720dc8685fa3e5edac1891c9e917cced62a723bfa61e7faf83b1da64d72'
+TOOLCHAINS_SHA256 = '318e955c019f31e7ed1c5611ceaf6c476389bea88626bf535dd1cfd705baa468'
 # Additional exclusions, not a complete map of critical code. The exact source,
 # module and whole-output pins remain the stronger reference boundary.
 PROTECTED = (
     (0x11a00000, 0x11a0c000),  # Startup/entry payload
-    (0x8c040ad4, 0x8c0d0d5c),  # OS block containing storage/partition/reboot code
-    (0x8d516fa4, 0x8d517174),  # Simple factory/callbacks
-    (0x8d504b74, 0x8d504bd0),  # Shared default voice callbacks
-    (0x8d506246, 0x8d50626c),  # Simple registration
-    (0x8404d2dc, 0x8404d308),  # Simple method table
-    (0x84044afc, 0x84044b00),  # Stock amplitude constant
-    (0x84045094, 0x8404509c),  # Simple name
-    (0x840452f0, 0x84045310),  # Simple label pointers
-    (0x84044c74, 0x84044c7c),  # Stock shape label
+    (0x8c03d000, 0x8c0d0380),  # OS block containing storage/partition/reboot code
+    (0x8d517b94, 0x8d517d64),  # Simple factory/callbacks
+    (0x8d5051c4, 0x8d505220),  # Shared default voice callbacks
+    (0x8d506896, 0x8d5068bc),  # Simple registration
+    (0x84050780, 0x840507ac),  # Simple method table
+    (0x840479f4, 0x840479f8),  # Stock amplitude constant
+    (0x84047f8c, 0x84047f94),  # Simple name
+    (0x840481e8, 0x84048208),  # Simple label pointers
+    (0x84047b6c, 0x84047b74),  # Stock shape label
 )
 
 
@@ -112,11 +113,11 @@ def reviewed_profile_sha256():
 
 
 def config():
-    """The firmware profile: stock 1.2.0 hashes, the reservation, every edit and the identity rules."""
+    """The firmware profile: stock 1.2.1 hashes, the reservation, every edit and the identity rules."""
     data = read(ROOT / PROFILE)
     require(sha(data) == reviewed_profile_sha256(), 'Reviewed firmware profile changed')
     profile = json.loads(data)
-    require(profile['schema'] == 1 and profile['id'] == 'opxy-1.2.0', 'Incompatible profile')
+    require(profile['schema'] == 1 and profile['id'] == 'opxy-1.2.1', 'Incompatible profile')
     check_patch_boundaries(profile, len(profile['patches']))
     return profile
 
@@ -179,7 +180,12 @@ def tool_paths(directory):
 
 
 def execute(args):
-    return subprocess.check_output([str(a) for a in args], stderr=subprocess.STDOUT, text=True, timeout=120)
+    return subprocess.check_output([str(a) for a in args], stderr=subprocess.STDOUT, text=True, timeout=120,
+                                   **hidden_process())
+
+
+def hidden_process():
+    return dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
 
 
 def fresh_output(path):

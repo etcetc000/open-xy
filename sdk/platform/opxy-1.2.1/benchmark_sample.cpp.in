@@ -1,0 +1,39 @@
+
+// A private generated sample and voice, independent of project assignments.
+#include "benchmark.hpp"
+extern "C" opxy::benchmark::Stats @PREFIX@_benchmark() __asm__("@PREFIX@_benchmark");
+opxy::benchmark::Stats @PREFIX@_benchmark() {
+    using namespace opxy;
+    using namespace opxy::benchmark;
+    Stats stats{};
+    Memory pcm_memory(sample_frames * sizeof(i16));
+    if (!pcm_memory.data) return stats;
+    i16* data = static_cast<i16*>(pcm_memory.data);
+    for (u32 i = 0; i < sample_frames; ++i) data[i] = pcm(i);
+    const SampleView sample{data, sample_frames, 44100, 1};
+    static @NAMESPACE@::Voice voice;
+    unsigned char* bytes = reinterpret_cast<unsigned char*>(&voice);
+    for (u32 i = 0; i < sizeof(voice); ++i) bytes[i] = 0;
+    @NAMESPACE@::initialize(voice, sample);
+    const SampleAnalysis* analysis = nullptr;
+@PREPARE@
+    const i32 parameters[8] = {@DEFAULTS@};
+    u32 pitch[64];
+    for (u32 i = 0; i < 64; ++i) pitch[i] = 25480118u; // C4 at 44.1 kHz
+    const SampleRegion region{0, sample_frames, sample_unity_level, false, 0};
+    PadSettings settings = 0;
+@SETTINGS@
+    i32 output[64 * @CHANNELS@];
+    for (u32 index = 0; index < blocks; ++index) {
+        // A fresh note every 500 blocks keeps a one-shot active for this fixture.
+        if (index % 500u == 0) @NAMESPACE@::start(voice);
+        for (u32 i = 0; i < 64 * @CHANNELS@; ++i) output[i] = 0;
+        const SampleBlock block{output, parameters, pitch, transport(index), region,
+                                analysis, settings, @CHANNELS@, 0, 0};
+        const u32 begin = cycles();
+        @NAMESPACE@::render_sample(voice, block);
+        stats.add(cycles() - begin);
+        stats.observe(output, 64 * @CHANNELS@);
+    }
+    return stats;
+}

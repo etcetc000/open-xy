@@ -26,6 +26,20 @@ export function physicalValue(mapping, value) {
 // (the definition schema; tooling.definitions.control_positions).
 export const controlPositions = parameters => parameters.map((p, i) => p.control ?? i);
 
+// The parameters the four positions show after editing parameter `slot`
+// (positions: controlPositions): that position shows it, or on a paged synth
+// (`"press": "page"`) every position shows the edited parameter's page.
+export function editedShown(shown, positions, slot, pages = false) {
+  if (!pages) return shown.map((s, position) => position === positions[slot] ? slot : s);
+  // A position with no alternate edits the same saved parameter on either page.
+  // Turning that repeated control must not jump back to page 1.
+  const shared = slot < 4 && !positions.slice(4).includes(slot);
+  const second = shared ? shown.some(s => s >= 4) : slot >= 4;
+  const next = [0, 1, 2, 3];
+  positions.forEach((position, s) => { if ((s >= 4) === second) next[position] = s; });
+  return next;
+}
+
 // The display input (draw.hpp) for the eight parameter words in
 // parameter order, when shown[i] is the parameter position i shows (initially
 // its own; on the device an encoder press selects an alternate, in a preview

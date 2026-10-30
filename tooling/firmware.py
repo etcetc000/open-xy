@@ -6,7 +6,8 @@ from . import startup_label
 
 
 def active_services(profile, kinds):
-    """Profile services a collection or selection needs; each names the machine kinds that use it."""
+    """Profile services a collection or selection needs; each names the machine kinds that use it,
+    or 'extension' for selected extensions."""
     kinds = set(kinds)
     return {name for name, users in profile.get('services', {}).items() if kinds & set(users)}
 
@@ -55,19 +56,21 @@ def absolute_target(data):
 
 
 def hook_instruction(patch, target):
-    """Replacement bytes of a hook: an absolute call over eight bytes, else a relative branch plus padding."""
+    """Reviewed absolute/relative call or branch, with zero NOP padding."""
     site, length, call = int(patch['address'], 16), patch['length'], patch['call']
-    if length == 8:
-        require(call, 'Eight-byte hook must be an absolute call')
-        return absolute_call(target)
+    if length in (8, 12):
+        require(call, 'Wide hook must be an absolute call')
+        return absolute_call(target) + bytes(length - 8)
     require(length in (4, 6), 'Unsupported relative-hook footprint')
     return branch_instruction(site, target, call) + bytes(length - 4)
 
 
 def hook_target(patch, instruction):
     """(destination, call) of hook bytes produced by hook_instruction."""
-    if patch['length'] == 8:
-        return absolute_target(instruction), True
+    if patch['length'] in (8, 12):
+        require(len(instruction) == patch['length'] and instruction[8:] == bytes(patch['length'] - 8),
+                'Changed absolute-hook padding')
+        return absolute_target(instruction[:8]), True
     require(instruction[4:] == bytes(patch['length'] - 4), 'Changed hook padding')
     return decode_branch(int(patch['address'], 16), instruction[:4])
 
@@ -75,7 +78,7 @@ def hook_target(patch, instruction):
 def assemble(stock, module, profile, original_profile, edits, services, profiling=True):
     require(type(profiling) is bool, 'Profiling must be a boolean')
     require(sha(stock) == original_profile['stock_sha256'] and len(stock) == original_profile['stock_bytes'],
-            'Expected exact decrypted stock OP-XY 1.2.0')
+            'Expected exact decrypted stock OP-XY 1.2.1')
     require(len(module) > 0 and len(module) <= original_profile['reserved_bytes'], 'Invalid module size')
     require(len(profile['patches']) == len(original_profile['patches']) == edits, f'Expected {edits} edit intervals')
     low = original_profile['module_base']

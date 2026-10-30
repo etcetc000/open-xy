@@ -145,56 +145,91 @@ def authenticate(manifest, artifacts):
 STARTERS = ('synth', 'effect')
 
 
-def scaffold(out, identity, name, kind='synth'):
+def scaffold(out, identity, name, kind='synth', repository=False, controls=None):
     require(kind in STARTERS, 'sdk.py new starts a ' + ' or '.join(STARTERS))
+    controls = 4 if controls is None else controls
+    require(type(controls) is int and 4 <= controls <= 8 and (kind == 'synth' or controls == 4),
+            'Use 4 to 8 controls for a synth; effects use 4')
     custom_identity(identity); label(name)
-    from .machines import free_effect_identity, free_synth_identity
-    stock_identity = free_effect_identity() if kind == 'effect' else free_synth_identity()  # before writing anything
     out = fresh_output(out)
-    starter = ROOT / 'sdk/templates' / kind
-    for template in sorted(starter.rglob('*.in')):
-        text = template.read_text(encoding='utf-8').replace('@ID@', identity).replace('@NAME@', name)
-        destination = out / template.relative_to(starter).as_posix().removesuffix('.in')
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(text, encoding='utf-8', newline='\n')
+    starters = [ROOT / 'sdk/templates' / kind]
+    if kind == 'synth' and controls > 4:
+        starters.append(ROOT / 'sdk/templates/synth-eight')
+    if repository:
+        starters.append(ROOT / 'sdk/templates/repository')
+    audition = ('Build and audition the synth in the browser:\n\n```sh\n'
+                'python ../open-xy/sdk.py preview --machine . --out ../previews/@ID@-001\n'
+                'python ../open-xy/tools/serve_harness.py --preview ../previews/@ID@-001\n```'
+                if kind == 'synth' else
+                'Effects have no browser preview. Run the host tests below, then audition on your XY\n'
+                'using the hardware workflow linked below.')
+    for starter in starters:
+        for template in sorted(starter.rglob('*.in')):
+            text = template.read_text(encoding='utf-8').replace('@AUDITION@', audition)
+            text = text.replace('@ID@', identity).replace('@NAME@', name)
+            text = text.replace('@CONTROLS@', str(controls))
+            text = text.replace('@PAGE_SLOTS@', ', '.join(str(i + 4 if i + 4 < controls else i) for i in range(4)))
+            destination = out / template.relative_to(starter).as_posix().removesuffix('.in')
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(text, encoding='utf-8', newline='\n')
+    if repository:
+        shutil.copyfile(ROOT / 'LICENSE', out / 'LICENSE')
+        print('Repository-ready source: README.md, AGENTS.md and CI included; Git is not initialized.')
     from .machines import SDK_VERSION
     python = 'python3' if Path(sys.executable).name.startswith('python3') else 'python'
     if kind == 'effect':
         from .machines import machine_at
         # The send's dry level follows the Dry control (docs/api.md, effects).
         record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'effect', 'description': name,
-                  'identity': stock_identity, 'dryParameter': 'dry'}
+                  'dryParameter': 'dry'}
         (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
         machine_at(out)
         print('Created local effect: ' + str(out))
-        print(f'machine.json suggests effect {record["identity"]["effect"]}, free in this repository. '
-              f'Effects have no browser preview; build with: {python} sdk.py compile --machine "{out}" --out <folder>')
+        print(f'Each build gives it an effect number. Effects have no browser preview; '
+              f'build with: {python} sdk.py compile --machine "{out}" --out <folder>')
         return
+    if controls > 4:
+        definition_path = out / 'definition.json'
+        definition = json.loads(definition_path.read_text(encoding='utf-8'))
+        definition['parameters'] = definition['parameters'][:controls]
+        names = {p['id'] for p in definition['parameters']}
+        definition['presets'] = {name: {k: v for k, v in preset.items() if k in names}
+                                 for name, preset in definition['presets'].items()}
+        definition_path.write_text(json.dumps(definition, indent=2) + '\n', encoding='utf-8', newline='\n')
     from .native import display_ids
     display = json.loads((out / 'definition.json').read_text(encoding='utf-8'))['resources']['display']
     ids = display_ids(identity, display)
     nodes, palette = ids[:display['nodes']], ids[display['nodes'] + display['texts']:]
     outline = square_outline(display['points'])
     artwork = [f'<g id="{identity}_panel">']
+    if controls > 4:
+        artwork.append(page_header_artwork(identity, display['paths']))
     artwork += [f'  <path id="{node}" d="{outline}" fill="none" stroke="#ffffff" stroke-width="1"/>'
                 for node in nodes[:display['paths']]]
-    artwork += [f'  <circle id="{node}" cx="0" cy="0" r="2" fill="#ffffff"/>' for node in nodes[display['paths']:]]
+    if controls == 4:
+        artwork += [f'  <circle id="{node}" cx="0" cy="0" r="2" fill="#ffffff"/>' for node in nodes[display['paths']:]]
     for i, entry in enumerate(palette):
         color = '#' + f'{i * 17:02x}' * 3
         artwork.append(f'  <circle id="{entry}" cx="640" cy="0" r="1" fill="{color}" stroke="{color}" stroke-width="1"/>')
     artwork.append('</g>')
     (out / 'panel.svg.fragment').write_text('\n'.join(artwork) + '\n', encoding='utf-8', newline='\n')
-    # For a device build of this folder (sdk.py build --machine): an identity
-    # no machine in this repository uses.
-    record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'synth', 'description': name,
-              'identity': stock_identity}
+    # For a device build of this folder (sdk.py build --machine), which gives its numbers.
+    record = {'schema': 1, 'sdk': '%d.%d' % SDK_VERSION, 'kind': 'synth', 'description': name}
     (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
     metadata(source_files(out))
     print('Created local machine: ' + str(out))
     print(f'Preview with: {python} sdk.py preview --source "{out}" --out local/my-preview-001'
           ' (add --cxx <clang++> if doctor --preview needed one)')
-    print(f'machine.json suggests engine {record["identity"]["engine"]}, page {record["identity"]["page"]} '
-          f'for a device build, free in this repository: {python} sdk.py build --machine "{out}" (docs/build.md, step 3).')
+    print(f'Each device build gives its numbers: {python} sdk.py build --machine "{out}" '
+          '(docs/build.md, step 3).')
+
+
+def page_header_artwork(identity, first_node):
+    """Authored half of opxy/page_header.hpp: eight bar nodes and sixteen texts."""
+    text = (ROOT / 'sdk/templates/shared/page_header.svg.in').read_text(encoding='utf-8')
+    for i in range(8):
+        text = text.replace('@NODE_%d@' % i, str(first_node + i))
+    return text.replace('@ID@', identity)
 
 
 def square_outline(points, half=32):
@@ -209,14 +244,17 @@ def square_outline(points, half=32):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Start a machine folder: portable C++ that previews (synths) and builds anywhere')
+    parser = argparse.ArgumentParser(description='Start a machine, optionally with repository instructions and CI')
     parser.add_argument('--id', required=True, help='lower-case machine ID, also its stock name and artwork prefix')
     parser.add_argument('--name', required=True, help='name shown on the OP-XY')
     parser.add_argument('--kind', choices=STARTERS, default='synth', help='machine kind to start (default: synth)')
-    parser.add_argument('--out', required=True, type=Path, help='new folder for the machine source, such as local/mymachine')
+    parser.add_argument('--controls', type=int, choices=range(4, 9),
+                        help='control count (default: 4); synths with 5..8 use two pages; effects use 4')
+    parser.add_argument('--out', required=True, type=Path, help='new source folder, such as ../mymachine')
+    parser.add_argument('--repository', action='store_true', help='include README, agent instructions, licence and CI for a standalone repository')
     args = parser.parse_args(argv)
     try:
-        scaffold(args.out, args.id, args.name, args.kind)
+        scaffold(args.out, args.id, args.name, args.kind, repository=args.repository, controls=args.controls)
         return 0
     except (ValueError, OSError, ET.ParseError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

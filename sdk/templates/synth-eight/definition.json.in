@@ -1,0 +1,138 @@
+{
+  "schema": 1,
+  "id": "@ID@",
+  "name": "@NAME@",
+  "parameters": [
+    {
+      "id": "blend",
+      "label": "Blend",
+      "default": 0,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "width",
+      "label": "Width",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "level",
+      "label": "Level",
+      "default": 0.65,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "motion",
+      "label": "Motion",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "drive",
+      "label": "Drive",
+      "control": 0,
+      "default": 0,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "crush",
+      "label": "Crush",
+      "control": 1,
+      "default": 0,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "rectify",
+      "label": "Rectify",
+      "control": 2,
+      "default": 0,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "smooth",
+      "label": "Smooth",
+      "control": 3,
+      "default": 0,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    }
+  ],
+  "presets": {
+    "Triangle": {
+      "blend": 0,
+      "width": 0.5,
+      "level": 0.65,
+      "motion": 0.5,
+      "drive": 0,
+      "crush": 0,
+      "rectify": 0,
+      "smooth": 0
+    },
+    "Pulse": {
+      "blend": 1,
+      "width": 0.5,
+      "level": 0.5,
+      "motion": 0.5,
+      "drive": 0,
+      "crush": 0,
+      "rectify": 0,
+      "smooth": 0
+    }
+  },
+  "resources": {
+    "voiceBytes": 8,
+    "voiceAlignment": 4,
+    "voiceCapacity": 8,
+    "sharedBytes": 0,
+    "outputPeakQ31": 1073741824,
+    "display": {
+      "stateBytes": 24,
+      "stateAlignment": 4,
+      "paths": 2,
+      "points": 64,
+      "nodes": 10,
+      "texts": 16,
+      "palette": 16
+    }
+  },
+  "press": "page"
+}

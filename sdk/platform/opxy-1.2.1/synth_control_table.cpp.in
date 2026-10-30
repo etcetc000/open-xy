@@ -1,0 +1,26 @@
+// Generated ownership and control metadata for one collection's synths and FX.
+#include "synth_controls.hpp"
+#include "lfo.hpp"
+extern "C" {
+@READY_DECLS@
+}
+using opxy::platform::SynthControls;
+using opxy::platform::control_tenths;
+using opxy::platform::control_ratio;
+using opxy::platform::control_division;
+using opxy::platform::control_label;
+
+@FORMATTERS@
+
+const SynthControls sdk_synth_controls[] = {
+@MACHINES@
+    {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false}
+};
+// The terminating entry keeps the array nonempty for a sample-only collection.
+const opxy::u32 sdk_synth_control_count = sizeof(sdk_synth_controls) / sizeof(sdk_synth_controls[0]) - 1;
+
+const opxy::platform::LfoMachine sdk_lfo_machines[] = {
+@LFO_MACHINES@
+    {nullptr, nullptr, 0, {}}
+};
+const opxy::u32 sdk_lfo_machine_count = sizeof(sdk_lfo_machines) / sizeof(sdk_lfo_machines[0]) - 1;

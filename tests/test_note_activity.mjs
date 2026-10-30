@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NoteActivity, PreviewDisplay } from '../sdk/browser/display.mjs';
-import { shownControls } from '../sdk/browser/controls.mjs';
+import { editedShown, shownControls } from '../sdk/browser/controls.mjs';
 
 // Engine-independent WASM storage exercises the actual browser ABI transport.
 function unsigned(value) {
@@ -95,4 +95,26 @@ test('ABI 1 previews retain their original storage and unsupported layouts fail'
   display.tick(input(),17,2,0,false,{held_notes:2,note_off_serial:9});
   assert.equal(display.input.length, 17); assert.equal(after[0], 0xabcdef);
   for (const [abi, bytes] of [[1,76],[2,68],[3,76]]) assert.throws(() => new PreviewDisplay(fixture(abi,bytes)), /ABI/);
+});
+
+test('an edit shows its parameter at its position, or its whole page on a paged synth', () => {
+  // Macro Osc's shape: page 2 holds FM Depth on position 3, then Bits, Rate and Drift on 0..2.
+  const positions = [0, 1, 2, 3, 3, 0, 1, 2];
+  assert.deepEqual(editedShown([0, 1, 2, 3], positions, 4), [0, 1, 2, 4]);
+  assert.deepEqual(editedShown([0, 1, 2, 3], positions, 6, true), [5, 6, 7, 4]);
+  assert.deepEqual(editedShown([5, 6, 7, 4], positions, 1, true), [0, 1, 2, 3]);
+});
+
+test('partial second pages repeat the same saved controls without switching pages on a turn', () => {
+  // Six controls like Solar: the second and fourth columns are shared.
+  const solar = [0, 1, 2, 3, 0, 2];
+  assert.deepEqual(editedShown([0, 1, 2, 3], solar, 5, true), [4, 1, 5, 3]);
+  assert.deepEqual(editedShown([4, 1, 5, 3], solar, 1, true), [4, 1, 5, 3]);
+  assert.deepEqual(editedShown([4, 1, 5, 3], solar, 3, true), [4, 1, 5, 3]);
+  assert.deepEqual(editedShown([4, 1, 5, 3], solar, 2, true), [0, 1, 2, 3]);
+  // Seven controls like Drone: even the first column can be shared.
+  const drone = [0, 1, 2, 3, 1, 2, 3];
+  assert.deepEqual(editedShown([0, 1, 2, 3], drone, 4, true), [0, 4, 5, 6]);
+  assert.deepEqual(editedShown([0, 4, 5, 6], drone, 0, true), [0, 4, 5, 6]);
+  assert.deepEqual(editedShown([0, 4, 5, 6], drone, 3, true), [0, 1, 2, 3]);
 });
