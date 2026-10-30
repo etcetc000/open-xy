@@ -1,4 +1,5 @@
 import copy
+import dataclasses
 import os
 from pathlib import Path
 import re
@@ -8,8 +9,8 @@ import tempfile
 import json
 import unittest
 
-from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, generate_display, generate_screen,
-                               generate_synth_controls, screen_bytes)
+from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, default_preset, generate_display,
+                               generate_screen, generate_synth_controls, preset_files, screen_bytes)
 from tooling.definitions import ROOT, control_positions, paged, validate_definition
 from machine_fixtures import FOLDER, fixture
 from tooling.native import display_ids
@@ -90,6 +91,28 @@ class Definitions(unittest.TestCase):
         changed = copy.deepcopy(self.engine)
         changed['parameters'][0]['default'] = 0.5
         self.assertEqual(catalog_defaults(changed)[0], 16384)
+
+    def test_generated_init_preset_matches_catalog_defaults_except_for_effects(self):
+        self.assertEqual(preset_files(fixture('probefx')), {})
+        for m in (fixture('probesynth'), fixture('probesample')):
+            files = preset_files(m)
+            path = f'content/presets/{m.id}/default.json'
+            self.assertEqual(list(files), [path])
+            preset = files[path]
+            self.assertEqual(preset, default_preset(m))
+            self.assertEqual((preset['type'], preset['version'], preset['platform'], preset['regions']),
+                             (m.id, 4, 'OP-XY', []))
+            self.assertEqual(preset['engine']['params'], catalog_defaults(m.definition))
+            self.assertFalse(preset['fx']['active'] or preset['lfo']['active'])
+
+    def test_a_machines_own_default_preset_replaces_the_generated_one(self):
+        synth = fixture('probesynth')
+        own = {'type': synth.id, 'version': 4, 'marker': 'authored'}
+        other = {'type': synth.id, 'version': 4, 'marker': 'warm'}
+        overridden = dataclasses.replace(synth, presets={'default': own, 'warm': other})
+        files = preset_files(overridden)
+        self.assertEqual(files, {f'content/presets/{synth.id}/default.json': own,
+                                 f'content/presets/{synth.id}/warm.json': other})
 
     def test_resource_declarations_reject_unknown_layouts_and_rates(self):
         for key, value in (('voiceBytes', 0), ('voiceBytes', 41),

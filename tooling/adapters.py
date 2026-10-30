@@ -486,3 +486,48 @@ def catalog_entry(m):
     return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
             ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }\n')
 
+
+def preset_path(m):
+    """content/presets/<id>/default.json for an instrument; None for an effect (builder/core.mjs presetPath)."""
+    return None if m.kind == 'effect' else f'content/presets/{m.id}/default.json'
+
+
+def default_preset(m):
+    """The generated init preset: catalog defaults in the device's version-4 preset
+    structure (builder/core.mjs defaultPreset). Engine controls come from the
+    catalog, never from a copied factory sound."""
+    entry = json.loads(catalog_entry(m).strip().lstrip(','))
+    amp = m.preset_defaults.get('amp', {})
+    return {
+        'engine': {
+            'bendrange': 8191, 'highpass': 0,
+            'modulation': {source: {'amount': 16384, 'target': 0}
+                           for source in ('aftertouch', 'modwheel', 'pitchbend', 'velocity')},
+            'params': list(entry['default_params']), 'playmode': 'poly',
+            'portamento.amount': 0, 'portamento.type': 0, 'transpose': 0,
+            'tuning.root': 0, 'tuning.scale': 0, 'velocity.sensitivity': 0, 'volume': 16384, 'width': 0,
+        },
+        'envelope': {
+            # Match a device-saved minimum amp release: the stored endpoint is 32767.
+            'amp': {'attack': 128, 'decay': 8192, 'release': 32767, 'sustain': 32767, **amp},
+            'filter': {'attack': 0, 'decay': 0, 'release': 0, 'sustain': 32767},
+        },
+        'fx': {'active': False, 'params': [0, 0, 0, 0, 0, 32767, 0, 0], 'type': 'svf'},
+        'lfo': {'active': False, 'params': [0, 0, 0, 0, 0, 0, 0, 0], 'type': 'value'},
+        'octave': 0, 'platform': 'OP-XY', 'regions': [], 'type': entry['type'], 'version': 4,
+    }
+
+
+def preset_files(m):
+    """The machine's init preset, then its own presets (tooling.machines.read_presets):
+    each a version 4 preset of this machine, pointing at no samples. Its own
+    default replaces the generated init preset (builder/core.mjs presetFiles)."""
+    path = preset_path(m)
+    if not path:
+        return {}
+    presets = m.presets or {}
+    files = {} if 'default' in presets else {path: default_preset(m)}
+    for name, preset in presets.items():
+        files[f'content/presets/{m.id}/{name}.json'] = preset
+    return files
+
