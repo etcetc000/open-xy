@@ -65,6 +65,7 @@ class PlayerContracts(unittest.TestCase):
         self.assertIn('probeplayer_key_127', first)
         self.assertIn('probeplayer_played_127', first)
         self.assertIn('player_output(object, shown)', first)
+        self.assertLess(first.index('refresh_keyboard_octave(track)'), first.index('probeplayer::display('))
         self.assertEqual(len(vtable()), 16)
         for i, entry in enumerate(vtable()):
             self.assertEqual('0x' not in entry, i in {2, 3, 5, 6, 7, 10})
@@ -187,6 +188,17 @@ template<class F> F* stock(u32 address) { return reinterpret_cast<F*>(const_cast
 
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
 class StockPlayer(unittest.TestCase):
+    def test_effective_keyboard_octave_scales_the_stored_value(self):
+        from tooling.formats import sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        source = (PLATFORM / 'keyboard_octaves.cpp').read_text(encoding='utf-8')
+        self.assertIn('stock<i32(u32)>(0x8d58f65c)(track)', source)
+        at = mapped_offset(ldr(data), 0x8d58f67c, 10)
+        # The stock getter selects a multiplier of one or two by instrument
+        # type, then multiplies the stored octave before returning it.
+        self.assertEqual(data[at:at+10], struct.pack('<5H', 0x6012, 0x6009, 0x060a, 0x40c8, 0x0010))
+
     def test_chord_storage_matches_stock_step_and_release(self):
         from tooling.formats import sha
         data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()

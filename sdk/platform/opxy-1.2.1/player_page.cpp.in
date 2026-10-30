@@ -4,6 +4,7 @@
 // Maestro page while the selected track plays this player (players.cpp).
 #include "registration.hpp"
 #include "screen_player.hpp"
+#include "keyboard_octaves.hpp"
 namespace {
 struct Page {
     static const char* const ids[opxy::player::display_dots + 257];
@@ -11,6 +12,7 @@ struct Page {
     static bool display(opxy::u32 track, opxy::player::Display& shown) {
         void* object = opxy::platform::player_object(track, @PREFIX@_player_vtable);
         if (!object) return false;
+        opxy::platform::refresh_keyboard_octave(track);
         @NAMESPACE@::display(state(object), opxy::platform::player_controls(object), shown);
         opxy::platform::player_output(object, shown);
         return true;

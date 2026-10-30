@@ -664,6 +664,9 @@ the replacement's later slot, and retains stock overlays. Page construction
 and readiness use the same occupied-slot and object-identity guards as synths.
 
 The octave setter is in the shared `octaves` service, enabled for sample
-engines or players. It retains the existing stock setter call and publishes
-the clamped octave per track for note callbacks; sample-engine GUI lookups
+engines or players. It retains the existing stock setter call and then reads
+stock's effective keyboard octave, which scales the stored value according
+to instrument type. Player GUI frames refresh this value before reading input
+state, also covering project loads and instrument changes without an octave
+key press. Note callbacks only read the published word; sample-engine GUI lookups
 publish into the same storage. No audio callback uses GUI pattern getters.

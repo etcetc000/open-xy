@@ -36,7 +36,7 @@ class SampleServices(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves'):
                 probe = replace(fixture('probesample'), id='probe', identity=dict(engine=46, page=7))
                 if name == 'sample_callbacks':
                     # A page-2 engine with no services beside it: it plays like the sampler.
@@ -47,6 +47,8 @@ class SampleServices(unittest.TestCase):
                 elif name == 'drum_controls':
                     source = ROOT / 'sdk/platform/opxy-1.2.1/drum_controls_stock.cpp'
                     (Path(folder) / source.name).write_text(source.read_text())
+                    shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
+                elif name == 'keyboard_octaves':
                     shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
                 elif name == 'benchmark':
                     from tooling.benchmark import generate
@@ -86,6 +88,9 @@ class SampleServices(unittest.TestCase):
 
     def test_cache_lifetime_capacity_and_browser_deferral(self):
         self.run_fixture('sample_cache')
+
+    def test_keyboard_effective_octave_and_gui_refresh(self):
+        self.run_fixture('keyboard_octaves')
 
     def test_progress_never_takes_over_another_notification(self):
         self.run_fixture('sample_progress')

@@ -20,11 +20,15 @@ void sdk_publish_octave(u32 track, i32 octave) {
     barrier();
 }
 
-// 8d58f5c2: after stock clamps the octave, mirror its stored value immediately.
-// No engine/project getter: this setter also runs while loading a project or
-// preset.
+void opxy::platform::refresh_keyboard_octave(u32 track) {
+    if (track >= kTracks) return;
+    sdk_publish_octave(track, stock<i32(u32)>(0x8d58f65c)(track));
+}
+
+// 8d58f5c2: stock clamps and stores the octave on the GUI side. Read back its
+// effective keyboard octave: some instrument types step by two octaves.
 u32 sdk_octave_store(u32 track, i32 octave) {
     const u32 result = stock<u32(u32, i32)>(0x8d58573c)(track, octave);
-    sdk_publish_octave(track, octave);
+    refresh_keyboard_octave(track);
     return result;
 }
