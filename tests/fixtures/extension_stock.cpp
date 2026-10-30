@@ -1,7 +1,7 @@
-// Execute the service AND the version adapter; only stock addresses are mapped.
-#include <opxy/double_tap.hpp>
+// The runtime and the 1.2.1 adapter end to end, with stock doubles at their mapped
+// addresses and the SDK's probe extension (tests/fixtures/extension_probe) subscribed.
 #include <extension_runtime.cpp>
-#include <extension_capture.cpp>
+#include <extension_probe.cpp>
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
 
@@ -22,9 +22,11 @@ RecordedNote inserted[120];
 i32 last_radius;
 bool failed, consume_record, reject_note, step_entry;
 
-u32 get_pattern(u32 t) { failed |= t != selected; return pattern_id; }
-u32 get_length(u32 t) { failed |= t != selected; return track_length; }
-u32 get_scale(u32 t) { failed |= t != selected; return scale; }
+// Any instrument track has a pattern; writes may target another than the selected one.
+u32 last_track, last_delta;
+u32 get_pattern(u32 t) { failed |= t >= 8; last_track = t; return pattern_id; }
+u32 get_length(u32 t) { failed |= t >= 8; return track_length; }
+u32 get_scale(u32 t) { failed |= t >= 8; return scale; }
 u32 get_quantization(u32 t) { failed |= t != selected; return quantization; }
 i32 get_position(u32 controller, u32 t) {
     failed |= controller != 0x860c6adc || t != selected;
@@ -38,7 +40,7 @@ void forward_loop(u32 controller, u32 elapsed) {
     failed |= controller != 0x860c6adc || elapsed != 17; ++loop_calls;
 }
 void forward_tick(u32 state, u32 delta) {
-    failed |= state != 0x860c072c || delta > 10000; ++tick_calls;
+    failed |= state != 0x860c072c; last_delta = delta; ++tick_calls;
 }
 void forward_stop(u32 controller) { failed |= controller != 0x860c6adc; ++stop_calls; }
 void forward_event(const u32* e) {
@@ -60,10 +62,10 @@ void forward_off(u32 a0,u32 a1,u32 a2,u32 a3,u32 a4,const void* e) {
     args[0]=a0; args[1]=a1; args[2]=a2; args[3]=a3; args[4]=a4;
     last_event=e; ++off_calls;
 }
-unsigned char* container(u32 t, u32 mode) { failed |= t != selected || mode != 0; return pattern_notes; }
+unsigned char* container(u32 t, u32 mode) { failed |= t >= 8 || mode != 0; last_track = t; return pattern_notes; }
 void undo_reset(u32 controller) { failed |= controller != 0x860c6adc; ++resets; }
 void undo_snapshot(u32 controller,u32 t) {
-    failed |= controller != 0x860c6adc || t != selected || resets != undos + 1; ++undos;
+    failed |= controller != 0x860c6adc || t != last_track || resets != undos + 1; ++undos;
 }
 notes::Container& pattern() { return *reinterpret_cast<notes::Container*>(pattern_notes); }
 // A valid stock list holding `filled` notes, the first `held` of them still recording.
@@ -94,10 +96,10 @@ __UINT64_TYPE__ insert(void* c, const PatternNote* note, i32 radius) {
     last_radius=radius;
     return static_cast<__UINT64_TYPE__>(slot) << 32;
 }
-void publish(u32 t) { failed |= t != selected; ++publishes; }
-const char* expected_popup="captured";
+void publish(u32 t) { failed |= t != last_track; ++publishes; }
 void popup(const char* text,u32 a,u32 b,u32 duration) {
-    for (u32 i=0;expected_popup[i] || text[i];++i) failed |= text[i]!=expected_popup[i];
+    const char expected[]="probed";
+    for (u32 i=0;i<sizeof(expected);++i) failed |= text[i]!=expected[i];
     failed |= a!=1 || b || duration!=0x3f000000u; ++popups;
 }
 void key(u32 key, bool pressed, u32 elapsed=50000) {
@@ -105,9 +107,8 @@ void key(u32 key, bool pressed, u32 elapsed=50000) {
     const u32 event[4]={key, pressed ? 100u : 0u, 123, 456};
     failed |= sdk_extensions_key_queue(event) != 0x08023c78;
 }
-void double_tap() { key(50,true); key(50,false); key(50,true); key(50,false); }
+void record() { key(50,true); key(50,false); }
 void play() { key(51,true); key(51,false); }
-void stop() { key(52,true); key(52,false); }
 void note(u32 pitch=60,u32 velocity=87) {
     sdk_extensions_live_note_on(0x860c6adc,selected,pitch,0xffffffffu,0xffffffffu,velocity,0,1,123,456,33,nullptr);
 }
@@ -157,108 +158,79 @@ Address host_stock_address(Address address) {
 }
 }}
 
+using extensions::probe::seen;
+using extensions::probe::command;
+using extensions::probe::written;
+
 int main() {
     fill_pattern(0);
-    sdk_extensions_controller_update(0x860c6adc,17); CHECK(loop_calls==1);
-    double_tap(); CHECK(!writes && !popups && !undos);
-    play(); position=123; note(); advance(240); release(); stop();
-    CHECK(on_calls==1 && off_calls==1 && tick_calls==1);
-    CHECK(args[0]==0x860c6adc && args[1]==0 && args[2]==60 && args[3]==1 && args[4]==2);
-    double_tap(); CHECK(writes==1 && popups==1 && publishes==1 && undos==1);
-    CHECK(inserted[0].position==123 && inserted[0].length==240 && inserted[0].velocity==87 && last_radius==180);
-    double_tap(); CHECK(writes==1 && popups==1);
-    // Verify every argument to the twelve-word stock call, including timing.
-    play(); note(64,91);
+    // The controller update forwards and refreshes the context.
+    sdk_extensions_controller_update(0x860c6adc,17); CHECK(loop_calls==1 && seen.contexts>=1);
+    const extensions::RecordingContext& c = seen.context.recording;
+    CHECK(c.project==1 && c.pattern==2 && c.track==0 && c.length==16*480 && c.scale==3);
+    CHECK(c.editable && c.recordable && !seen.context.playing);
+
+    // Live input is forwarded unchanged; while stopped it is only activity.
+    note(64,91);
     const u32 expected[]={0x860c6adc,0,64,0xffffffffu,0xffffffffu,91,0,1,123,456,33};
     for (u32 i=0;i<11;++i) CHECK(args[i]==expected[i]);
-    CHECK(!last_event);
-    advance(60); stop(); play(); stop(); double_tap(); CHECK(writes==1);
-    // Context edits while stopped invalidate; each is observed at the normal loop boundary.
-    for (u32 field=0;field<6;++field) {
-        play(); note(); advance(20); stop();
-        switch(field) {
-            case 0: ++project_id; break; case 1: ++pattern_id; break;
-            case 2: selected^=1; break; case 3: ++track_length; break;
-            case 4: scale=5; break; case 5: ++quantization; break;
-        }
-        sdk_extensions_controller_update(0x860c6adc,17); double_tap(); CHECK(writes==1);
-    }
-    // Track scaling and stock's signed pickup placement survive capture.
-    play(); position=track_length*480-10; note(67,99); advance(121); stop();
-    double_tap(); CHECK(writes==2 && inserted[1].position==-10 && inserted[1].length==60 && last_radius==90);
-    // Controls, long holds, chords, and a page consuming Record never capture.
-    play(); position=50; note(); advance(100); release(); stop();
-    key(50,true); key(50,false); key(10,true); key(10,false); key(50,true); key(50,false); CHECK(writes==2);
-    key(50,true); key(50,false,300000); CHECK(writes==2);
-    other_held=55; double_tap(); other_held=0; CHECK(writes==2);
-    consume_record=true; double_tap(); consume_record=false; CHECK(writes==2);
-    input_enabled=0; double_tap(); input_enabled=1; CHECK(writes==2);
-    // A note stock is still recording refuses the replacement before any undo,
-    // keeping history and the pattern.
-    fill_pattern(5, 1);
-    double_tap(); CHECK(writes==2 && popups==2 && undos==2 && pattern().count==5);
-    fill_pattern(0);
-    // A Record release stock does not accept still ends the tap, so the next
-    // double-tap is not mistaken for a key repeat.
-    key(50,true); input_enabled=0; key(50,false); input_enabled=1;
-    double_tap(); CHECK(writes==3 && popups==3 && undos==3);
-    // Other tracks and recorder workflows are forwarded but never captured.
-    play(); sdk_extensions_live_note_on(0x860c6adc,7,72,1,2,80,3,4,5,6,7,nullptr);
-    stop(); double_tap(); CHECK(writes==3);
-    recorder_mode=1; play(); note(); advance(20); stop(); double_tap(); CHECK(writes==3);
-    recorder_mode=0; sdk_extensions_controller_update(0x860c6adc,17);
-    // Immediate live notes between taps cancel, even without a queued key event.
-    play(); position=0; note(); advance(60); release();
-    key(50,true); key(50,false); note(62); release(62); key(50,true); key(50,false);
-    CHECK(writes==3);
-    key(10,true); key(10,false); stop();
-    // A take replaces the sequence, even a full one: only the two captured notes remain.
-    fill_pattern(120);
-    double_tap(); CHECK(writes==5 && popups==4 && undos==4 && publishes==4 && pattern().count==2);
-    bool used[notes::capacity]; CHECK(notes::valid(pattern(), used));
-    fill_pattern(0);
-    play(); note(); advance(60);
-    playing=counting=0; sdk_extensions_stop(0x860c6adc);
-    playing=1; advance(1); // External restart before the next GUI/controller poll.
-    stop(); double_tap(); CHECK(writes==5 && stop_calls==1);
-    // A sequencer call reaches the shared acceptance function without the live
-    // input scope. Rejected live notes and step entry must also stay out.
-    play(); sdk_extensions_note_accepted(selected,60);
+    CHECK(on_calls==1 && seen.activity==1 && seen.notes_on==0);
+    release(64); CHECK(off_calls==1 && seen.notes_off==1 && seen.off.pitch==64);
+
+    // Playing: an accepted live onset on the selected track is recordable, with
+    // stock's position and its scale's collision radius.
+    play(); CHECK(seen.context.playing);
+    position=123; note(60,87);
+    CHECK(seen.notes_on==1 && seen.note.pitch==60 && seen.note.velocity==87);
+    CHECK(seen.note.position==123 && seen.note.collision_radius==180);
+    // Rejected notes, step entry, sequencer calls and other tracks are not.
     reject_note=true; note(); reject_note=false;
     step_entry=true; note(); step_entry=false;
-    stop(); double_tap(); CHECK(writes==5);
+    sdk_extensions_note_accepted(selected,60);
+    sdk_extensions_live_note_on(0x860c6adc,7,72,1,2,80,3,4,5,6,7,nullptr);
+    CHECK(seen.notes_on==1);
+    // A step or sample recorder workflow leaves the pattern editable, not recordable.
+    recorder_mode=1; sdk_extensions_controller_update(0x860c6adc,17);
+    CHECK(c.editable && !c.recordable); note(); CHECK(seen.notes_on==1);
+    recorder_mode=0; sdk_extensions_controller_update(0x860c6adc,17);
 
-    // An early first note survives loop wrap and time spent making the gesture.
-    scale=3; play(); position=-12; note(65,97); advance(40); release(65);
-    advance(track_length*480-28);
-    key(50,true); advance(300); key(50,false); key(50,true); key(50,false);
-    CHECK(writes==6 && popups==5 && inserted[5].position==-12);
-    CHECK(inserted[5].length==40 && inserted[5].pitch==65 && inserted[5].velocity==97);
-    // An expired pair must take a fresh snapshot, not reuse the earlier take.
-    position=20; note(66); advance(20);
-    key(50,true); key(50,false); advance(60);
-    key(50,true,350001); key(50,false); key(50,true); key(50,false);
-    CHECK(writes==7 && inserted[6].length==80); release(66);
-    // Context changes invalidate a snapshot already anchored by the first tap.
-    position=0; note(); advance(30); release(); key(50,true); key(50,false);
-    ++quantization; sdk_extensions_controller_update(0x860c6adc,17);
-    key(50,true); key(50,false); key(50,true); key(50,false); CHECK(writes==7);
+    // Recorder ticks forward unchanged and reach the probe scaled to Q8.
+    advance(60); CHECK(tick_calls==1 && last_delta==60 && seen.ticks==1 && seen.tick.delta_q8==(60u<<8) && !seen.tick.discontinuity);
+    advance(0x00800000u); CHECK(seen.tick.discontinuity && seen.tick.delta_q8==0);
 
-    // Reported workflow: two pages at 1x, quantization on, one silent pass,
-    // early pickup into the next pass, then Stop after the loop wraps again.
-    // Later passes replace the same note without expiring the first step.
-    stop(); track_length=32; scale=3; quantization=255; play();
-    advance(7680); advance(7668); position=32*480-12;
-    note(60,93); advance(12); release(60);
-    position=480; note(67,80); advance(60); release(67);
-    for (u32 pass=0;pass<3;++pass) {
-        advance(7680); advance(7680);
-        note(67,90+pass); advance(60); release(67);
-    }
-    advance(7680); advance(7680); advance(960); stop(); double_tap();
-    CHECK(writes==9 && inserted[7].position==-12 && inserted[7].pitch==60);
-    CHECK(inserted[7].velocity==93 && inserted[7].length==12);
-    CHECK(inserted[8].position==480 && inserted[8].pitch==67 && inserted[8].velocity==92);
+    // Stop forwards, and the context sees it within the same update.
+    playing=counting=0; sdk_extensions_stop(0x860c6adc); CHECK(stop_calls==1 && !seen.context.playing);
+
+    // Queued keys: stock's own handling first, then the event with the clock's time.
+    record(); CHECK(seen.control.key==50 && !seen.control.pressed && seen.control.accepted);
+    CHECK(seen.control.unmodified && seen.control.time==clock_time && event_calls==4);
+    key(10,true); CHECK(seen.control.key==10 && seen.control.accepted);
+    other_held=55; key(50,true); CHECK(!seen.control.unmodified); key(50,false); other_held=0;
+    shift=1; key(50,true); CHECK(!seen.control.unmodified && !seen.control.accepted); key(50,false); shift=0;
+    consume_record=true; key(50,true); CHECK(!seen.control.accepted); key(50,false); consume_record=false;
+    input_enabled=0; key(10,true); CHECK(!seen.control.accepted); input_enabled=1;
+    CHECK(!writes && !undos && !popups);
+
+    // A write replaces the sequence in one undo transaction and publishes once.
+    fill_pattern(120);
+    command=1; record();
+    CHECK(written==2 && writes==2 && resets==1 && undos==1 && publishes==1 && popups==1);
+    CHECK(pattern().count==2 && inserted[0].position==-12 && inserted[0].length==40 && inserted[0].pitch==60);
+    CHECK(inserted[1].position==480 && inserted[1].velocity==100 && last_radius==180);
+    bool used[notes::capacity]; CHECK(notes::valid(pattern(), used));
+    // A note stock is still recording refuses the replacement before any undo.
+    fill_pattern(5, 1); record();
+    CHECK(written==0 && writes==2 && undos==1 && publishes==1 && popups==1 && pattern().count==5);
+    // Inserting keeps the existing notes.
+    fill_pattern(3); command=2; record();
+    CHECK(written==2 && writes==4 && undos==2 && pattern().count==5);
+    // Writes reach another instrument track.
+    fill_pattern(0); command=3; record();
+    CHECK(written==2 && writes==6 && last_track==3 && undos==3 && publishes==3);
+    // Not accepted, nothing is granted.
+    command=1; consume_record=true; key(50,true); key(50,false); consume_record=false;
+    CHECK(writes==6 && undos==3);
+
     CHECK(!failed);
     return 0;
 }

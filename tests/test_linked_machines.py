@@ -15,7 +15,7 @@ def linked(machines, too_big):
 
     def link(_directory, _tools, _profile, _definitions, _machines, selected, name='module'):
         calls.append(([m.id for m in selected], name))
-        return '2100.0 of 2040 KiB' if too_big([m.id for m in selected]) else None
+        return '2100.0 of 2032 KiB' if too_big([m.id for m in selected]) else None
     with patch.object(native, 'link', link):
         return native.linked_machines(Path('unused'), {}, {}, machines, {}), calls
 
@@ -34,11 +34,11 @@ class LinkedMachines(unittest.TestCase):
                                      (['fm2op', 'macroosc'], 'module')])
 
     def test_a_machine_too_big_beside_the_official_ones_fails_by_name(self):
-        with self.assertRaisesRegex(ValueError, 'big does not fit beside the official machines, 2100.0 of 2040 KiB'):
+        with self.assertRaisesRegex(ValueError, 'big does not fit beside the official machines, 2100.0 of 2032 KiB'):
             linked([FM, MACRO, BIG, SMALL], lambda ids: 'big' in ids)
 
     def test_a_collection_without_official_machines_must_fit_at_once(self):
-        with self.assertRaisesRegex(ValueError, 'Machines exceed the shared module memory, 2100.0 of 2040 KiB'):
+        with self.assertRaisesRegex(ValueError, 'Machines exceed the shared module memory, 2100.0 of 2032 KiB'):
             linked([BIG, SMALL], lambda ids: len(ids) == 2)
 
 

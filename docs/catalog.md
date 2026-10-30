@@ -22,13 +22,23 @@ effect and page numbers are not the catalog's: each firmware's
 | `repository`, `tag`, `commit`, `path` | A draft or published machine's release: `https://github.com/<owner>/<repo>`, the tag, its full commit SHA, and the machine's folder in the repository (`.` at the root). A retired entry may keep them |
 
 New or changed draft/published entries also require a `cpu` record generated
-from [hardware profiling](profiling.md), for every machine kind. That guide owns
+from [hardware profiling](profiling.md), for every machine kind; a synth's is a
+control sweep that records its heaviest setting. Results above the recommended
+3.5% of the block budget are accepted with a warning. That guide owns
 the field schema, workloads and contributor commands. Unchanged legacy entries
 may remain without a record until their next update; measurements are never
 backfilled with host estimates.
 
 IDs are unique across the catalog. Open-XY's own machines are entries like
 any other, published from the [core machines](https://github.com/etcetc000/open-xy-core-machines).
+
+[Firmware extensions](extensions.md) have a catalog of their own,
+`catalog/extensions.json`, in the same format under `"extensions"`: `kind` is
+`extension`, `path` is the extension's folder, and there is no `cpu` record
+(extensions run on the controller path, not in audio). Its IDs are unique among
+extensions. Submit one the same way as a machine: a pull request that changes only
+that file. `sdk.py catalog check`, `fetch` and `test` cover both catalogs, and
+`fetch` writes both into the collection.
 
 The builder's machine details panel links to the catalog's maintainer profile,
 repository and source at the pinned release commit. Community machines also
@@ -67,7 +77,7 @@ python sdk.py compile --collection local/catalog/collection.json --out <folder>
    budget printed by the build. Host CPU estimates guide development.
 4. **Commit and measure on hardware.** Follow [hardware profiling](profiling.md)
    for the exact machine revision: build with profiling enabled, install when
-   authorized, confirm reboot, collect three runs, and publish the generated
+   authorized, confirm reboot, collect a run ([one is enough](profiling.md#collect-a-run)), and publish the generated
    readout. Keep all firmware outside every checkout. A maintainer can run this
    for authors without an XY. A reserved entry can stay reserved while hardware
    evidence is pending; `draft` and `published` submissions both need it.

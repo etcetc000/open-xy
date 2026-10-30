@@ -2,9 +2,10 @@
 
 Extensions change how the OP-XY itself behaves: recording, controls, the
 sequencer. Machines make sound and draw; extensions observe the firmware's
-events and act through stock. Capture is the first extension, in
-[`extensions/capture/`](../extensions/capture/extension.cpp), and the worked
-example for the next.
+events and act through stock. Like machines, extensions live in repositories of
+their own and reach builds through the catalog
+([`catalog/extensions.json`](../catalog/extensions.json)). Capture is the first,
+in [open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture), and the worked example for the next.
 
 An extension is ordinary C++11 compiled into the firmware. It has no firmware
 addresses, assembly, platform conditionals or OS headers. The SDK installs each
@@ -103,8 +104,8 @@ onsets.
 
 ## Claims and actions
 
-[`profiles/extensions.json`](../profiles/extensions.json) holds the registry and
-the collection.
+[`profiles/extensions.json`](../profiles/extensions.json) holds the registry: the
+SDK's claims and actions. Each extension's `extension.json` lists those it uses.
 
 - **A claim** is an exclusive control on one key: a `label` the site shows and
   the `key` it governs. One owner per build; two extensions with the same claim
@@ -134,20 +135,29 @@ Observers cannot transform notes or suppress stock input.
 
 ## Add an extension
 
-1. Create `extensions/<id>/extension.cpp`, exporting
-   `opxy::extensions::<id>::hooks`, naming only the events it takes:
-   `extern constexpr Hooks hooks = Hooks().with_context(context).with_queued_control(queued_control);`
-   Keep its helpers in that folder, and its tests in `tests/` (below).
-2. Add `{"id": "<id>", "origin": "community", "claims": [], "actions": []}`
-   to the collection in
-   `profiles/extensions.json`, with any claims and actions it needs from the
-   registry. The collection's order is the callback order.
-3. Add `extensions/<id>/extension.json` for the site's row and details panel:
-   a `name`, a one-line `description` saying what it does and how to use it
-   (140 characters at most), and optionally a `note` for its one limit (100).
-   People scan this; put the full behavior in the docs, not here.
+An extension is a folder in a repository of its own, beside this SDK checkout:
 
-Native builds include the whole collection. The site's Extensions step follows
+1. `extension.json`: its `id`, the site's row and details panel (a `name`, a
+   one-line `description` saying what it does and how to use it, 140 characters
+   at most, and optionally a `note` for its one limit, 100), and the `claims`
+   and `actions` it uses from the registry. People scan this; put the full
+   behavior in your repository's README.
+2. `extension.cpp`, exporting `opxy::extensions::<id>::hooks`, naming only the
+   events it takes:
+   `extern constexpr Hooks hooks = Hooks().with_context(context).with_queued_control(queued_control);`
+   Keep its helpers in the folder.
+3. `tests/`: host tests (below). An extension without them is refused.
+
+Check it with `python ../open-xy/sdk.py test --extension <folder>`, and build it
+into your own firmware with `--extension <folder>` beside `--machine` on
+`compile`, `build` and `kit`. To offer it in the builder, tag a release and open
+a pull request that adds its entry to `catalog/extensions.json`: the same
+format as [machines](catalog.md#entries), with `"kind": "extension"` and no
+`cpu`. Origin follows the catalog: Open-XY's own (`catalog.OFFICIAL_EXTENSIONS`)
+show as Core, others as Community, and folders outside the catalog as Yours.
+
+A build's collection lists its extensions after its machines; that order is the
+callback order. Native builds include the whole collection. The site's Extensions step follows
 Machines, starts with none selected, saves choices with the layout and omits
 unselected extensions entirely. The SDK's extension hooks form the profile's
 `extensions` service: a build with no extension selected links none of the
@@ -185,7 +195,7 @@ build reads the event list from the builders). The pull request states:
 Extensions name their callbacks, so adding one changes none of them. Renaming
 or widening one updates every extension in the same pull request.
 
-**Add a claim** with one registry entry in `profiles/extensions.json`: its
+**Add a claim** with one registry entry in [`profiles/extensions.json`](../profiles/extensions.json): its
 `label` and `key`. Nothing else changes; the runtime reads claims from the
 generated registry. Never add a per-claim field to the collection or a
 per-claim branch to the runtime.
@@ -204,13 +214,17 @@ otherwise conflict: say what stock already does with that gesture.
 
 ## Verify
 
-Put an extension's tests in `extensions/<id>/tests/`: each `.cpp` there is a
-host program that returns 0 when its checks pass, built with the SDK headers
-and the extension's folder on the include path
-([`history.cpp`](../extensions/capture/tests/history.cpp) is capture's). Run
-`python sdk.py check`, which runs them for every extension in the collection,
-then the full [native release verification](build.md#release-verification).
-Shared tests exercise callback ordering, exclusive claims, the registry, grants
-from data, every hook's events, stale-context and unauthorized edits, and the
-adapter end to end with stock boundary doubles. Device scheduling still requires
+An extension's tests are its `tests/*.cpp`: each is a host program that returns
+0 when its checks pass, built with the SDK headers and the extension's folder
+on the include path. Drive the callbacks as the runtime does, with a fake
+`Actions` table for the writes (capture's
+[`gesture.cpp`](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture/tests/gesture.cpp) does). `sdk.py test --extension`
+and `sdk.py catalog test` run them.
+
+For SDK changes, run `python sdk.py check`, then the full
+[native release verification](build.md#release-verification). The SDK's own
+tests exercise callback ordering, exclusive claims, the registry, grants from
+data, every hook's events, stale-context and unauthorized edits, and the
+adapter end to end with stock boundary doubles and the SDK's probe extension
+([`tests/fixtures/extension_probe`](../tests/fixtures/extension_probe/extension.cpp)). Device scheduling still requires
 testing the exact built image.

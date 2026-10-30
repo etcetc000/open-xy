@@ -480,27 +480,30 @@ def assign_numbers(machines, layout=None, fixed=None):
     return assigned, numbers
 
 
-def read_collection(path=None, extra=()):
+def read_collection(path=None, extra=(), extensions=()):
     """A collection file's entries, resolved: each machine's absolute folder
-    ({"path": ...}, relative to the file). Folders in `extra` follow them."""
-    if path is None:
-        return [{'path': str(Path(folder).resolve())} for folder in extra]
-    path = Path(path)
-    value = json.loads(path.read_text(encoding='utf-8'))
-    require(isinstance(value, dict) and set(value) == {'schema', 'machines'} and value['schema'] == 1 and
-            isinstance(value['machines'], list), 'Unsupported collection file: ' + str(path))
+    ({"path": ...}) and each extension's ({"extension": ...}), relative to the
+    file. Machine folders in `extra` and extension folders in `extensions` follow."""
     entries = []
-    for entry in value['machines']:
-        require(isinstance(entry, dict) and set(entry) == {'path'} and isinstance(entry['path'], str),
-                'Collection entries are {"path": ...}: the SDK holds no machines of its own')
-        entries.append({'path': str((path.parent / entry['path']).resolve())})
-    return entries + [{'path': str(Path(folder).resolve())} for folder in extra]
+    if path is not None:
+        path = Path(path)
+        value = json.loads(path.read_text(encoding='utf-8'))
+        require(isinstance(value, dict) and {'schema', 'machines'} <= set(value) <= {'schema', 'machines', 'extensions'}
+                and value['schema'] == 1 and isinstance(value['machines'], list) and
+                isinstance(value.get('extensions', []), list), 'Unsupported collection file: ' + str(path))
+        for kind, key in (('machines', 'path'), ('extensions', 'extension')):
+            for entry in value.get(kind, []):
+                require(isinstance(entry, dict) and set(entry) == {'path'} and isinstance(entry['path'], str),
+                        'Collection entries are {"path": ...}: the SDK holds no machines or extensions of its own')
+                entries.append({key: str((path.parent / entry['path']).resolve())})
+    return (entries + [{'path': str(Path(folder).resolve())} for folder in extra] +
+            [{'extension': str(Path(folder).resolve())} for folder in extensions])
 
 
 def collection(entries=None, layout=None):
     """Machines in firmware order, with their numbers in the layout: the order sets
     startup, catalog and link layout, never numbers. Entries come from read_collection."""
-    entries = [] if entries is None else entries
+    entries = [e for e in ([] if entries is None else entries) if 'path' in e]
     require(isinstance(entries, list) and entries,
             'Collection needs machines: pass --machine <folder>, or --collection local/catalog/collection.json '
             'after python sdk.py catalog fetch')

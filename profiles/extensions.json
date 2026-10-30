@@ -1,13 +1,10 @@
 {
-  "schema": 2,
+  "schema": 3,
   "claims": {
     "record_double_tap": {"label": "Record double-tap", "key": 50}
   },
   "actions": {
     "edit_notes": {"requires": "record_double_tap"},
     "notify": {}
-  },
-  "extensions": [
-    {"id": "capture", "origin": "official", "claims": ["record_double_tap"], "actions": ["edit_notes", "notify"]}
-  ]
+  }
 }

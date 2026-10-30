@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '397dfd06b2f14a15cceedda34ab173cf1c7c543b141a3976f9fe176dc9c25ee1';
+export const PROFILE_SHA256 = '8d621d7ca759f7a1053334af3859510ae692272bbd7ccd0f78a60ce836bd0c9b';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -96,16 +96,17 @@ export function readObject(bytes) {
   return {sections, symbols, relocations};
 }
 
-// The selections the release checks link, as bit masks over kit.machines: every
-// combination of Open-XY's own machines, each other machine with all of those, and
-// the machines the native package links (kit.linked; all of them when they fit).
+// The selections the release checks link, as BigInt bit masks over kit.machines (a
+// kit holds more machines than a 32-bit mask): every combination of Open-XY's own
+// machines, each other machine with all of those, and the machines the native package
+// links (kit.linked; all of them when they fit).
+export const selectionBit = i => 1n << BigInt(i);
 export function checkedSelections(machines, linked = machines.map(m => m.id)) {
-  const bit = i => 2 ** i;
-  const core = machines.reduce((mask, m, i) => m.origin === 'official' ? mask + bit(i) : mask, 0);
-  const masks = new Set([machines.reduce((mask, m, i) => linked.includes(m.id) ? mask + bit(i) : mask, 0)]);
-  for (let mask = core; mask; mask = (mask - 1) & core) masks.add(mask);
-  machines.forEach((m, i) => { if (!(core & bit(i))) masks.add(core + bit(i)); });
-  return [...masks].sort((a, b) => a - b);
+  const core = machines.reduce((mask, m, i) => m.origin === 'official' ? mask | selectionBit(i) : mask, 0n);
+  const masks = new Set([machines.reduce((mask, m, i) => linked.includes(m.id) ? mask | selectionBit(i) : mask, 0n)]);
+  for (let mask = core; mask; mask = (mask - 1n) & core) masks.add(mask);
+  machines.forEach((m, i) => { if (!(core & selectionBit(i))) masks.add(core | selectionBit(i)); });
+  return [...masks].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 // The profile's identity rules, as tooling.machines.check_identity applies them.
@@ -302,8 +303,8 @@ function catalogEntry(m, numbers) {
 // GitHub repository, release tag, commit and maintainer, matching tooling.catalog's patterns.
 // Official catalog machines are Open-XY's own (tooling.catalog.OFFICIAL); the rest are community.
 export const ORIGINS = ['official', 'catalog', 'personal'];
-// Extensions: Open-XY's own, or contributed (tooling.extensions.ORIGINS).
-export const EXTENSION_ORIGINS = ['official', 'community'];
+// Extensions come from the same places as machines (tooling.browser_kit.extension_origins).
+export const EXTENSION_ORIGINS = ORIGINS;
 const RELEASE = {repository: /^https:\/\/github\.com\/[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/,
   tag: /^[A-Za-z0-9._/-]{1,64}$/, commit: /^[0-9a-f]{40}$/, maintainer: /^[A-Za-z0-9-]{1,39}$/};
 export function validSource(source) {
@@ -360,14 +361,15 @@ export const moduleBytes = profile => profile.reserved_bytes - profile.table_byt
 const screenTemplateOk = async kit => typeof kit.screenTemplate === 'string' &&
   await sha256(utf8.encode(kit.screenTemplate)) === kit.profile.screen_template_sha256;
 export async function openKit(kit) {
-  check(kit.format === 'opxy-browser-kit/1' && kit.machines.length > 0 && kit.machines.length <= 32,
-    'Unsupported curated kit');
+  check(kit.format === 'opxy-browser-kit/1', 'Unsupported curated kit');
   // The release version, which every build's boot label shows (tooling.startup_label).
   check(typeof kit.version === 'string' && /^\d+\.\d+\.\d+$/.test(kit.version), 'Unsupported curated kit version');
   const profileBytes = decode64(kit.profileSource);
   check(await sha256(profileBytes) === PROFILE_SHA256 &&
     JSON.stringify(JSON.parse(decoder.decode(profileBytes))) === JSON.stringify(kit.profile),
     'Firmware edit profile is not the reviewed profile');
+  // No more machines than the relocated engine table holds (tooling/stock_tables.py).
+  check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
   const extensions = kit.extensions ?? [];

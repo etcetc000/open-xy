@@ -34,9 +34,9 @@ The [firmware contract](abi-1.2.1.md) explains where each rule comes from.
 
 ## Memory and limits
 
-Every selected machine and the SDK share **one 2040 KiB module region**: code,
+Every selected machine and the SDK share **one 2032 KiB module region**: code,
 constant data and zero-initialized state together. It is the 2 MiB the
-firmware reserves from its heap, minus 8 KiB of relocated stock tables. There
+firmware reserves from its heap, minus 16 KiB of relocated stock tables. There
 is no per-machine allowance: a build that does not fit names each machine's
 share, and `sdk.py compile` and the builder's memory meter report the same
 figures. State usually dominates, since a synth's voice pool is
@@ -50,7 +50,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 
 | Limit | Value | Why |
 | --- | --- | --- |
-| Module memory | 2040 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
+| Module memory | 2032 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
 | Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |
@@ -173,6 +173,17 @@ editing a shared control keeps the current page. Use the SDK's
 [two-page header](display.md#two-page-header) for fixed rows, active-row
 emphasis and motion. `sdk.py new` supplies it by default. Macro Osc is the
 [worked reference](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json).
+
+A synth may leave a slot empty yet keep later parameters at their indices
+(projects save by index): declare it
+`{"id": ..., "label": "", "default": 0, "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent", "absent": true}`,
+with no preset entry. It belongs to no position, so no press selects it; an
+empty own slot still starts its position's cycle, so the press reaches the
+position's alternates. Its title is empty and a turn on it changes nothing; a
+machine's display can blank its value with header text `" "`. A paged synth
+may give an absent slot after the first four a `control`: that position's
+second page is then the empty slot, blank and inert, rather than its
+first-page parameter again.
 
 On instrument tracks, the Value, Random and Element LFOs can target every
 declared parameter of a custom synth or sample engine, including all eight
@@ -551,8 +562,8 @@ build gives every machine the stock numbers projects save, an engine number
 
 | Kind | Engine or effect number | Screen |
 | --- | --- | --- |
-| `synth` | Engine 34..62 | Its own, 82..127 |
-| `sample` | Engine 34..62 | Its base's: the stock sampler's or drum sampler's. An [own screen](#own-screen): its own, 82..127 |
+| `synth` | Engine 34..255 | Its own, 82..255 |
+| `sample` | Engine 34..255 | Its base's: the stock sampler's or drum sampler's. An [own screen](#own-screen): its own, 82..255 |
 | `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen |
 
 These numbers exist only in the relocated stock tables, so no machine shares

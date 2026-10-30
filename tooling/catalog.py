@@ -1,6 +1,7 @@
-"""The catalog: machines published from their own repositories, by ID.
+"""The catalog: machines and extensions published from their own repositories, by ID.
 
-catalog/machines.json lists each machine once, for good:
+catalog/machines.json lists each machine once, for good, and catalog/extensions.json
+each firmware extension, in the same format (kind "extension", no cpu):
 
 - reserved: an ID held for a machine being written;
 - draft: a release pinned for review, like a published one, but not built yet;
@@ -28,6 +29,9 @@ from .machines import machine_at, relative_path
 from .pipeline import NO_WINDOW, ROOT
 
 CATALOG = ROOT / 'catalog/machines.json'
+EXTENSION_CATALOG = ROOT / 'catalog/extensions.json'
+# Each catalog file's list and the kinds its entries may have.
+KINDS = {'machines': ('synth', 'sample', 'effect'), 'extensions': ('extension',)}
 # Fetched machine sources: third-party code, never firmware, so it may live in local/.
 CACHE = ROOT / 'local/catalog'
 STATUSES = ('reserved', 'draft', 'published', 'retired')
@@ -43,19 +47,21 @@ MAINTAINER = r'[A-Za-z0-9-]{1,39}'
 # ID. Maintainers keep this list; a catalog entry has no field to claim it, and
 # who hosts the repository does not decide it.
 OFFICIAL = ('fm2op', 'macroosc', 'karplus', 'timestretch', 'ringmod', 'pingpong')
+OFFICIAL_EXTENSIONS = ('capture',)
 
 
 def official(entry):
-    """Whether a catalog entry is one of Open-XY's own machines."""
-    return entry['id'] in OFFICIAL
+    """Whether a catalog entry is one of Open-XY's own machines or extensions."""
+    return entry['id'] in (OFFICIAL_EXTENSIONS if entry.get('kind') == 'extension' else OFFICIAL)
 
 
-def validate(value):
-    """A catalog document's entries, checked against each other."""
-    require(isinstance(value, dict) and set(value) == {'schema', 'machines'} and value['schema'] == 1 and
-            isinstance(value['machines'], list), 'Unsupported catalog')
+def validate(value, listed='machines'):
+    """A catalog document's entries, checked against each other. `listed` is its
+    list: machines, or extensions."""
+    require(isinstance(value, dict) and set(value) == {'schema', listed} and value['schema'] == 1 and
+            isinstance(value[listed], list), 'Unsupported catalog')
     names = {}
-    for entry in value['machines']:
+    for entry in value[listed]:
         require(isinstance(entry, dict) and isinstance(entry.get('id'), str), 'Catalog entries need an id')
         name = entry['id']
         status = entry.get('status')
@@ -65,15 +71,20 @@ def validate(value):
         if status == 'retired' and RELEASE & set(entry):
             required = COMMON | RELEASE
         if 'cpu' in entry:
+            require(listed == 'machines', f'{name}: extensions carry no cpu measurement')
             require('commit' in entry and status != 'reserved', f'{name}: cpu needs a pinned release')
             cpu_measurement.validate(entry['cpu'], entry.get('kind'))
             required = required | {'cpu'}
         require(set(entry) == required, f'{name}: catalog fields for a {status} machine: '
                 + ', '.join(sorted(required)))
-        stock_name(name)
+        if listed == 'machines':
+            stock_name(name)
+        else:
+            from .extensions import NAME, RESERVED
+            require(NAME.fullmatch(name) and name not in RESERVED, f'{name}: invalid extension ID')
         require(name not in names, f'{name}: the ID is already {names.get(name)}')
         names[name] = 'listed in the catalog'
-        require(entry['kind'] in ('synth', 'sample', 'effect'), f'{name}: unknown kind')
+        require(entry['kind'] in KINDS[listed], f'{name}: unknown kind')
         require(isinstance(entry['maintainer'], str) and re.fullmatch(MAINTAINER, entry['maintainer']),
                 f'{name}: maintainer is a GitHub user name')
         if 'repository' in entry:
@@ -84,8 +95,8 @@ def validate(value):
             require(isinstance(entry['tag'], str) and re.fullmatch(TAG, entry['tag']),
                     f'{name}: invalid tag')
             require(relative_path(entry['path']),
-                    f'{name}: path is the machine folder inside the repository, such as "." or "machines/<id>"')
-    return value['machines']
+                    f'{name}: path is the {listed[:-1]} folder inside the repository, such as "." or "{listed}/<id>"')
+    return value[listed]
 
 
 # A machine's status moves forward, except that a published machine may go back to
@@ -101,12 +112,19 @@ def changes(before, after, allow_carried_cpu=False):
     current = {e['id']: e for e in after}
     previous = {e['id']: e for e in before}
     for entry in after:
+        # Extensions run on the controller path, not in audio: they carry no cpu record.
+        if entry['kind'] == 'extension':
+            continue
         if entry['status'] in ('draft', 'published') and entry != previous.get(entry['id']):
             require('cpu' in entry, f"{entry['id']}: new or updated submissions require hardware cpu measurements (docs/profiling.md)")
-            cpu_measurement.validate(entry['cpu'], entry['kind'])
             # With a maintainer's approval, an update may carry its previous measurement over
             # unchanged, still naming the commit it measured; otherwise it measures the pinned commit.
+            measured = lambda cpu: {k: v for k, v in cpu.items() if k != 'report'} if isinstance(cpu, dict) else cpu
+            unchanged = measured(entry['cpu']) == measured(previous.get(entry['id'], {}).get('cpu'))
+            # Carrying a record over takes the record exactly as it was, evidence link included.
             carried = allow_carried_cpu and entry['cpu'] == previous.get(entry['id'], {}).get('cpu')
+            # A fresh synth measurement is a control sweep; an unchanged one may predate it.
+            cpu_measurement.validate(entry['cpu'], entry['kind'], legacy=unchanged)
             require(carried or entry['cpu']['commit'] == entry['commit'],
                     f"{entry['id']}: cpu must measure the pinned commit; remeasure when updating "
                     "(a catalog maintainer can approve keeping the previous measurement)")
@@ -158,7 +176,8 @@ def release_controls(before, after, cache=CACHE, allow=False):
     report, refused = [], []
     for entry in after:
         old = previous.get(entry['id'])
-        if entry['status'] != 'published' or old is None or old['commit'] == entry['commit']:
+        if (entry['kind'] == 'extension' or entry['status'] != 'published' or old is None or
+                old['commit'] == entry['commit']):
             continue
         changed, notes = control_changes(fetch(old, cache).definition['parameters'],
                                          fetch(entry, cache).definition['parameters'])
@@ -173,6 +192,12 @@ def release_controls(before, after, cache=CACHE, allow=False):
 
 def load(path=CATALOG):
     return validate(json.loads(Path(path).read_text(encoding='utf-8')))
+
+
+def load_extensions(path=EXTENSION_CATALOG):
+    """The extension catalog's entries; none before it exists."""
+    path = Path(path)
+    return validate(json.loads(path.read_text(encoding='utf-8')), 'extensions') if path.exists() else []
 
 
 # Remote machine repositories are public: never ask for credentials, which would
@@ -196,8 +221,10 @@ def tag_commit(repository, tag):
 
 
 def fetch(entry, cache=CACHE):
-    """One published machine's folder at exactly its catalog commit, checked against its entry."""
-    folder = Path(cache) / f"{entry['id']}-{entry['commit'][:12]}"
+    """One published machine's or extension's folder at exactly its catalog commit,
+    checked against its entry."""
+    extension = entry['kind'] == 'extension'
+    folder = Path(cache) / f"{'extension-' if extension else ''}{entry['id']}-{entry['commit'][:12]}"
     if folder.exists() and not head(folder):
         shutil.rmtree(folder)  # an interrupted fetch: start again
     if not folder.exists():
@@ -210,6 +237,11 @@ def fetch(entry, cache=CACHE):
         partial.rename(folder)
     require(head(folder) == entry['commit'], f"{entry['id']}: the fetched commit differs from the catalog's")
     require(untouched(folder), f"{entry['id']}: the fetched folder {folder} was changed; delete it to fetch again")
+    if extension:
+        from .extensions import extension_at
+        e = extension_at(folder / entry['path'])
+        require(e.id == entry['id'], f"{entry['id']}: the extension at the pinned commit differs from its catalog entry")
+        return e
     m = machine_at(folder / entry['path'])
     require(m.id == entry['id'] and m.kind == entry['kind'],
             f"{entry['id']}: the machine at the pinned commit differs from its catalog entry")
@@ -233,8 +265,8 @@ def untouched(folder):
 
 
 def pinned(m, entries):
-    """Whether a machine folder is a published catalog machine (of `entries`, from load())
-    at its pinned commit, unchanged."""
+    """Whether a machine or extension folder is a published catalog entry (of `entries`,
+    from load() or load_extensions()) at its pinned commit, unchanged."""
     entry = next((e for e in entries if e['id'] == m.id and e['status'] == 'published'), None)
     if entry is None:
         return False
@@ -251,15 +283,15 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog='sdk.py catalog', description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     command = parser.add_subparsers(dest='command', required=True)
-    checking = command.add_parser('check', help='validate catalog/machines.json')
+    checking = command.add_parser('check', help='validate catalog/machines.json and catalog/extensions.json')
     checking.add_argument('--base', help='a git revision to compare with, such as the pull request target')
     checking.add_argument('--allow-control-changes', action='store_true',
                           help="accept releases that change what saved parameter values mean (a catalog maintainer's approval)")
     checking.add_argument('--allow-carried-cpu', action='store_true',
                           help="accept updates that keep their previous cpu measurement (a catalog maintainer's approval)")
     checking.add_argument('--cache', type=Path, default=CACHE, help='fetched machines (default: local/catalog)')
-    fetching = command.add_parser('fetch', help='fetch every published machine at its pinned commit')
-    testing = command.add_parser('test', help='fetch, then check every published machine with sdk.py test')
+    fetching = command.add_parser('fetch', help='fetch every published machine and extension at its pinned commit')
+    testing = command.add_parser('test', help='fetch, then check every published machine and extension with sdk.py test')
     for sub in (fetching, testing):
         sub.add_argument('--cache', type=Path, default=CACHE, help='fetched machines (default: local/catalog)')
         sub.add_argument('--tags', action='store_true', help='also confirm each release tag still names its commit')
@@ -267,44 +299,59 @@ def main(argv=None):
     testing.add_argument('--host-cxx', default='c++', help="host C++11 compiler for each machine's tests")
     args = parser.parse_args(argv)
     try:
-        entries = load()
+        catalogs = (('machines', CATALOG, load()), ('extensions', EXTENSION_CATALOG, load_extensions()))
         if args.command == 'check':
-            if args.base:
-                # A base without a catalog held nothing yet.
-                listed = git('ls-tree', '--name-only', args.base, 'catalog/machines.json', cwd=ROOT).strip()
-                before = json.loads(git('show', f'{args.base}:catalog/machines.json', cwd=ROOT)) if listed else None
-                if before:
-                    # Entries before layouts gave machine numbers also listed an identity.
-                    for entry in before.get('machines', []):
-                        if isinstance(entry, dict):
-                            entry.pop('identity', None)
-                before = validate(before) if before else []
-                changes(before, entries, args.allow_carried_cpu)
-                # A moved release is fetched at both commits to compare its controls.
-                for line in release_controls(before, entries, args.cache, args.allow_control_changes):
-                    print(line)
-            print(f'PASS: {len(entries)} catalog entr{"y" if len(entries) == 1 else "ies"}; '
-                  'IDs are unique.')
+            for listed, path, entries in catalogs:
+                if args.base:
+                    # A base without a catalog held nothing yet.
+                    name = path.relative_to(ROOT).as_posix()
+                    present = git('ls-tree', '--name-only', args.base, name, cwd=ROOT).strip()
+                    before = json.loads(git('show', f'{args.base}:{name}', cwd=ROOT)) if present else None
+                    if before:
+                        # Entries before layouts gave machine numbers also listed an identity.
+                        for entry in before.get(listed, []):
+                            if isinstance(entry, dict):
+                                entry.pop('identity', None)
+                    before = validate(before, listed) if before else []
+                    changes(before, entries, args.allow_carried_cpu)
+                    # A moved release is fetched at both commits to compare its controls.
+                    if listed == 'machines':
+                        for line in release_controls(before, entries, args.cache, args.allow_control_changes):
+                            print(line)
+                # Against a base, only the entries this change touches; alone, every entry.
+                earlier = {e['id']: e for e in before} if args.base else {}
+                for entry in entries:
+                    if args.base and earlier.get(entry['id']) == entry:
+                        continue
+                    warning = 'cpu' in entry and cpu_measurement.above_recommended(entry['cpu'])
+                    if warning:
+                        print(f"WARNING: {entry['id']}: {warning}")
+                print(f'PASS: {len(entries)} {listed[:-1]} entr{"y" if len(entries) == 1 else "ies"}; '
+                      'IDs are unique.')
             return 0
-        published = [e for e in entries if e['status'] == 'published']
-        folders = []
-        for entry in published:
-            if args.tags:
-                require(tag_commit(entry['repository'], entry['tag']) == entry['commit'],
-                        f"{entry['id']}: tag {entry['tag']} no longer names the catalog's commit")
-            m = fetch(entry, args.cache)
-            folders.append(m.root)
-            print(f"Fetched {m.id} {entry['tag']} ({entry['commit'][:12]}): {m.root}")
-        # Every published machine, in catalog order: a collection for any build command.
+        found = {}
+        for listed, _path, entries in catalogs:
+            found[listed] = []
+            for entry in (e for e in entries if e['status'] == 'published'):
+                if args.tags:
+                    require(tag_commit(entry['repository'], entry['tag']) == entry['commit'],
+                            f"{entry['id']}: tag {entry['tag']} no longer names the catalog's commit")
+                fetched = fetch(entry, args.cache)
+                found[listed].append(fetched.root)
+                print(f"Fetched {fetched.id} {entry['tag']} ({entry['commit'][:12]}): {fetched.root}")
+        # Every published machine and extension, in catalog order: a collection for any build command.
         collection = Path(args.cache) / 'collection.json'
-        entries = [{'path': os.path.relpath(f, Path(args.cache).resolve())} for f in folders]
+        relative = lambda folders: [{'path': os.path.relpath(f, Path(args.cache).resolve())} for f in folders]
         collection.parent.mkdir(parents=True, exist_ok=True)
-        collection.write_text(json.dumps({'schema': 1, 'machines': entries}, indent=2) + '\n', encoding='utf-8')
+        collection.write_text(json.dumps({'schema': 1, 'machines': relative(found['machines']),
+                                          'extensions': relative(found['extensions'])}, indent=2) + '\n',
+                              encoding='utf-8')
         print(f'Collection: {collection} (pass it to build, compile or kit with --collection)')
-        if args.command == 'test' and folders:
+        if args.command == 'test' and (found['machines'] or found['extensions']):
             from .machine_test import main as test
-            return test([*(f'--machine={folder}' for folder in folders), '--cxx', args.cxx,
-                         '--host-cxx', args.host_cxx])
+            return test([*(f'--machine={folder}' for folder in found['machines']),
+                         *(f'--extension={folder}' for folder in found['extensions']),
+                         '--cxx', args.cxx, '--host-cxx', args.host_cxx])
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

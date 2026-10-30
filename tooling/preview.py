@@ -28,7 +28,7 @@ FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-excepti
          '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-c++-static-destructors', '-nostdlib',
          '-Wall', '-Werror', '-Wno-unused']
 # Fixed browser allowance for code/data/state; no memory growth during audio.
-# Native collections have a separate 2040 KiB linker limit.
+# Native collections have a separate linker limit (builder moduleBytes).
 MEMORY = 2 * 1024 * 1024
 
 

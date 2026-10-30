@@ -179,6 +179,11 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     const SynthControls* m = index < opxy::page_controls ? machine(track, t) : nullptr;
     if (m) {
         index = t->slots[index];
+        // An absent slot (an empty placeholder) turns nothing: stock gets a turn of no detents.
+        if (event && index < opxy::parameter_slots && (m->absent & (1u << index))) {
+            const opxy::i32 still[3] = {0, 0, 0};
+            return stock<u32(u32, u32, u32, const opxy::i32*)>(0x8d5ad5bc)(project, track, index, still);
+        }
         if (event && (m->continuous & (1u << index)) && fine_turn) {
             // Stock consumes all three words synchronously; keep detents and
             // acceleration intact for its parameter-lock/quantized paths.
