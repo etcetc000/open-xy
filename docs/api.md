@@ -341,6 +341,34 @@ calls `drum_select` with the model, then `render` with each control as
 `raw << 24`, 127 mapped to `0x7fffffff`. Packed words never reach machine
 DSP. Presets and projects retain per-key settings using stock region storage.
 
+With `"chokeSameKey": 1` in `resources` (0 or 1; omitted means 0), a kit
+plays one voice per pad and track, as a Machinedrum track does: a note cuts the
+kit's other voices still sounding the same track's same key, at any octave
+(the same pad). Each cut voice keeps rendering while it fades out linearly over
+128 frames (2.9 ms), then is destroyed and its note retired; its own handle
+retriggered keeps its voice and does not fade. When a note needs a voice and
+none is free, a voice already fading goes before the oldest note's. Without the
+flag, notes on one key layer, up to `voiceCapacity`. This is separate from the
+choke groups Shift chooses, which stock applies to keys sharing a group. A
+synth or an effect cannot declare it; sample engines have their own
+`chokeSameKey` (see [Services](#services)).
+
+A kit's engine may also report that a voice's sound has ended, so stock
+retires its note and the voice is free for the next one before stock's
+amplitude envelope ends:
+
+```cpp
+bool finished(const Voice& voice, const Shared& shared);   // optional; in the machine namespace
+```
+
+The adapter asks after each rendered block. Once it returns true, the adapter
+calls `destroy` and frees the voice, and stock retires the note after mixing
+the block just rendered, so return true only once the voice renders silence.
+The function must be in the namespace that defines `Voice`, where
+argument-dependent lookup finds it, and take the voice and the shared state;
+one elsewhere or with other arguments is never called. A kit without it behaves exactly as
+before. The browser preview models neither the choke nor `finished`.
+
 Kits use the same fixed shared-state and voice-pool rules as synths. Their
 code and state are linked once per machine, shared across tracks; voices
 still require independent state. Machine code and model data need no file loading when notes or patterns change.

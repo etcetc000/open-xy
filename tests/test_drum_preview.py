@@ -59,6 +59,26 @@ class DrumPreviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             self.assertIn('plain_drum_count, 0, nullptr, nullptr},', adapters.generate_drum_callbacks(folder, [plain]).read_text())
 
+    def test_choke_same_key_is_a_drum_flag_and_not_a_synths(self):
+        from tooling.definitions import validate_definition
+        for value in (0, 1):
+            definition = self.definition('drum')
+            definition['resources']['chokeSameKey'] = value
+            validate_definition(definition, 'drum')
+            machine = SimpleNamespace(kind='drum', prefix='kit', definition=definition, native_name='kit')
+            with tempfile.TemporaryDirectory() as folder:
+                source = adapters.generate_voice(folder, machine).read_text()
+            self.assertIn('const bool kChoke = %s;' % ('true' if value else 'false'), source)
+        for value in (2, -1, True, '1'):
+            definition = self.definition('drum')
+            definition['resources']['chokeSameKey'] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_definition(definition, 'drum')
+        definition = self.definition('synth')
+        definition['resources']['chokeSameKey'] = 1
+        with self.assertRaises(ValueError):
+            validate_definition(definition, 'synth')
+
     def test_drum_adapters_validate_model_count_without_changing_synth_defaults(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

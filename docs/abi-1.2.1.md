@@ -654,7 +654,11 @@ the note. Both calls have dedicated SDK adapters. Vtable `+24` reports whether
 the handle still owns a voice. Zero causes the renderer to report completion;
 the caller at `8d51c7a6` retires it after mixing that block. Active handles
 remain allocated until the stock amplitude envelope completes or the SDK
-steals their slot. Vtable `+32` returns zero
+steals their slot. The SDK also reports zero, having already destroyed and
+freed the voice, once a `chokeSameKey` fade has rendered its last frame or the
+engine's optional `finished` hook returns true: the same state as a stolen or
+destroyed handle, which renders silence and whose later `+0` destroy finds no
+voice. Vtable `+32` returns zero
 for mono output; the unused normal-render entry `+8` fills its output with
 silence. The kit never calls stock Drumline synthesis.
 Unlike the normal synth path, this renderer leaves amplitude application to

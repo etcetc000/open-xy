@@ -81,8 +81,9 @@ SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS)
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 EFFECT_OPTIONS = ('bufferBytes', 'transport')
-# A drum kit's models in named groups (SDK 1.9), which Shift and the first encoder choose.
-DRUM_OPTIONS = ('modelGroups',)
+# A drum kit's models in named groups (SDK 1.9), which Shift and the first encoder choose;
+# and chokeSameKey 1 for a note to cut the voices still sounding its track's same key.
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey')
 EFFECT_BUFFER_LIMIT = 524288
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
@@ -149,6 +150,7 @@ def validate_definition(value, kind):
         validate_synth_resources(resources)
     if kind == 'drum':
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
+        require(resources.get('chokeSameKey', 0) in (0, 1), 'chokeSameKey must be 0 or 1')
         if 'modelGroups' in resources:
             groups = resources['modelGroups']
             require(isinstance(groups, list) and 2 <= len(groups) <= 16, 'modelGroups lists 2..16 groups')

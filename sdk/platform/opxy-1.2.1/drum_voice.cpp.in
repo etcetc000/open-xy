@@ -28,12 +28,20 @@ using Shared = @NAMESPACE@::Shared;
 // Stock's voice indices; every one gets a handle.
 const opxy::u32 kVoiceIndices = 256;
 struct Handle { const void* const* vtable; opxy::u32 slot, key, track; };  // slot: its voice plus one, or 0
-struct Slot { Voice voice; opxy::u32 owner, started; };       // owner: a voice ID, or 0 when free
+// owner: a voice ID, or 0 when free. pad: the note's track and key plus one, or
+// 0 for a note without them. fade: frames left of a same-key choke, or 0.
+struct Slot { Voice voice; opxy::u32 owner, started, pad, fade; };
 static Handle handles[kVoiceIndices];
 static Slot voices[@CAPACITY@];
 static opxy::u32 notes;  // counts note starts, to find the oldest
 static Shared shared;
 // Declared generic labels: @LABELS@
+// chokeSameKey: a note cuts the voices still sounding its track's same key
+// (the same pad, at any octave), each fading out linearly over these frames
+// (2.9 ms at 44.1 kHz) inside its own render, then freed.
+const bool kChoke = @CHOKE@;
+const opxy::u32 kChokeFrames = 128;
+static_assert(kChokeFrames << 24 == 0x80000000u, "The fade's Q31 gain steps are 1/128");
 static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
 static_assert(alignof(Voice) == @VOICE_ALIGNMENT@, "Declared voice alignment differs from the compiled type");
 static_assert(@SHARED_BYTES@ == 0 ? __is_empty(Shared) : sizeof(Shared) == @SHARED_BYTES@,
@@ -55,6 +63,30 @@ static const opxy::platform::DrumCodec& storage() {
 static Slot* held(const Handle* handle) {
     return handle->slot && voices[handle->slot - 1].owner == owner(handle) ? &voices[handle->slot - 1] : nullptr;
 }
+// Destroys a voice for its note and frees it.
+static void release(Slot* slot) {
+    @NAMESPACE@::destroy(slot->voice, shared, slot->owner);
+    slot->owner = 0;
+    slot->fade = 0;
+}
+// Whether a held voice should go to a new note before another: the one whose
+// note started longest ago, except that with chokeSameKey a voice already
+// fading out goes first, the closest to silence first.
+static bool sooner(const Slot& a, const Slot& b) {
+    if (kChoke && (a.fade || b.fade)) return a.fade && (!b.fade || a.fade < b.fade);
+    return notes - a.started > notes - b.started;
+}
+// An engine may define `bool finished(const Voice&, const Shared&)` in its
+// namespace: true once the voice's sound has ended. Argument-dependent lookup
+// finds it, and an exact non-template match wins over this fallback; an
+// engine without one gets the constant false, so its voices behave as before.
+namespace sdk_drum_finished {
+struct Absent {};
+template <class V, class S> Absent finished(const V&, const S&) { return Absent(); }
+inline bool ended(Absent) { return false; }
+template <class R> bool ended(R value) { return static_cast<bool>(value); }
+template <class V, class S> bool query(V& voice, S& state) { return ended(finished(voice, state)); }
+}
 extern "C" {
 extern const void* const @PREFIX@_vtable[];
 // A note keeps its handle's voice or takes one: a free voice, else the one
@@ -62,17 +94,17 @@ extern const void* const @PREFIX@_vtable[];
 // for that note first; a voice new to this handle starts zeroed and initialized.
 int @PREFIX@_start(void* self, opxy::u32 key) {
     Handle* handle = static_cast<Handle*>(self);
-    handle->key = key < 128 && handle->track < 8
-        ? opxy::platform::sample_drum_key(key, sdk_sample_drum_octaves[handle->track]) : 53;
+    const bool keyed = key < 128 && handle->track < 8;
+    handle->key = keyed ? opxy::platform::sample_drum_key(key, sdk_sample_drum_octaves[handle->track]) : 53;
     const opxy::u32 id = owner(handle);
     Slot* slot = held(handle);
     if (!slot) {
         slot = &voices[0];
         for (opxy::u32 i = 0; i < @CAPACITY@; ++i) {
             if (!voices[i].owner) { slot = &voices[i]; break; }
-            if (notes - voices[i].started > notes - slot->started) slot = &voices[i];
+            if (sooner(voices[i], *slot)) slot = &voices[i];
         }
-        if (slot->owner) @NAMESPACE@::destroy(slot->voice, shared, slot->owner);
+        if (slot->owner) release(slot);
         // Storage starts zeroed for every owner; a voice need not be assignable.
         unsigned char* bytes = reinterpret_cast<unsigned char*>(&slot->voice);
         for (unsigned i = 0; i < sizeof(Voice); ++i) bytes[i] = 0;
@@ -81,6 +113,13 @@ int @PREFIX@_start(void* self, opxy::u32 key) {
         handle->slot = static_cast<opxy::u32>(slot - voices) + 1;
     }
     slot->started = ++notes;
+    slot->pad = keyed ? (handle->track << 8 | (handle->key + 1)) : 0;
+    slot->fade = 0;
+    // A note on a pad cuts every other voice still sounding it on the track.
+    if (kChoke && slot->pad)
+        for (opxy::u32 i = 0; i < @CAPACITY@; ++i)
+            if (voices[i].owner && &voices[i] != slot && voices[i].pad == slot->pad && !voices[i].fade)
+                voices[i].fade = kChokeFrames;
     @NAMESPACE@::start(slot->voice, shared, id);
     return 0;
 }
@@ -93,10 +132,7 @@ static int start_drum(void* self, opxy::u32 key, opxy::u32,
 }
 int @PREFIX@_destroy(void* self) {
     Handle* handle = static_cast<Handle*>(self);
-    if (Slot* slot = held(handle)) {
-        @NAMESPACE@::destroy(slot->voice, shared, slot->owner);
-        slot->owner = 0;
-    }
+    if (Slot* slot = held(handle)) release(slot);
     handle->slot = 0;
     return 0;
 }
@@ -137,6 +173,19 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* region,
         @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
         for (unsigned i = 0; i < opxy::block_frames; ++i)
             output[i] = opxy::q31::multiply(output[i], amplitude[i]);
+        // A choked voice fades to silence, then is freed: +24 then reports it
+        // inactive and stock retires its note after mixing this block.
+        if (kChoke && slot->fade) {
+            // Gain (left - 1) / 128 in Q31, the native multiply: no 64-bit
+            // arithmetic, which needs the libgcc the firmware does not link.
+            opxy::u32 left = slot->fade;
+            for (unsigned i = 0; i < opxy::block_frames; ++i) {
+                output[i] = left ? opxy::q31::multiply(output[i], static_cast<opxy::i32>((left - 1) << 24)) : 0;
+                if (left) --left;
+            }
+            slot->fade = left;
+            if (!left) release(slot);
+        }
     } else {
         for (unsigned i = 0; i < opxy::block_frames; ++i) output[i] = 0;
     }
@@ -150,8 +199,17 @@ static int render_normal(void*, opxy::i32* output, const opxy::i32*) {
 }
 // Stock's alternate renderer retires the note when +24 reports inactive.
 // Retain our allocated voice until stock's amplitude envelope ends the note;
-// stolen or destroyed handles can be retired immediately.
-static int active(void* self) { return held(static_cast<Handle*>(self)) ? 1 : 0; }
+// stolen, destroyed or choked handles can be retired immediately, as can one
+// whose engine reports its voice finished, which is freed here: the block its
+// sound ended in has been rendered and mixed already.
+static int active(void* self) {
+    Slot* slot = held(static_cast<Handle*>(self));
+    if (slot && sdk_drum_finished::query(slot->voice, shared)) {
+        release(slot);
+        return 0;
+    }
+    return slot ? 1 : 0;
+}
 static int zero() { return 0; }
 static void noop() {}
 const char @PREFIX@_name[] = "@NAME@";

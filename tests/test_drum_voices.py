@@ -191,13 +191,76 @@ int main() {
 '''
 
 
+# A kit that opts into chokeSameKey and defines the finished hook.
+CHOKE_ENGINE = ENGINE.replace('#include "core.h"', '#include "core.h"\nextern bool done[257];', 1).replace(
+    'inline const char* parameter_name', """inline bool finished(const Voice& v, const Shared&) { return done[v.owner]; }
+inline const char* parameter_name""", 1)
+CHOKE_DRIVER = DRIVER[:DRIVER.index('int main() {')].replace(
+    'unsigned destroyed[257]', 'bool done[257];\nunsigned destroyed[257]') + r"""
+// Every frame of the handle's next block, in units of 1/65536 of full scale.
+bool block(unsigned id, opxy::i32* output) {
+    reinterpret_cast<Render>(const_cast<void*>(table(id)[3]))(objects[id], output, nullptr, offsets);
+    return true;
+}
+int main() {
+    (void)kMarked;
+    for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
+    for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
+    for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
+    // Four voices. Handles 1, 9, 17 and 25 play track one; 2 plays track two.
+    note(1, 53);
+    CHECK(rendered(1) == 2 && is_active(1));
+    // Another track's same key, and the same track's other keys, never choke.
+    note(2, 53);
+    note(17, 54);
+    CHECK(rendered(1) == 2 && rendered(2) == 3 && rendered(17) == 18);
+    // The same pad an octave pair up (77 plays pad 53) cuts handle one's voice:
+    // it fades out linearly over 128 frames, two blocks, inside its render.
+    note(9, 77);
+    CHECK(rendered(9) == 10 && is_active(1) && destroyed[2] == 0);
+    opxy::i32 output[opxy::block_frames];
+    const opxy::i32 full = opxy::q31::multiply(2 << 16, 0x7fffffff);   // after stock's gain
+    for (unsigned b = 0; b < 2; ++b) {
+        CHECK(block(1, output));
+        for (unsigned i = 0; i < opxy::block_frames; ++i)
+            CHECK(output[i] == opxy::q31::multiply(full, opxy::i32(127 - (b * 64 + i)) << 24));
+        CHECK(output[0] > output[opxy::block_frames - 1] && (b == 0 || output[opxy::block_frames - 1] == 0));
+        CHECK(b == 1 || (is_active(1) && destroyed[2] == 0));
+    }
+    // Then it is freed: +24 reports it inactive and it renders silence.
+    CHECK(destroyed[2] == 1 && !is_active(1) && rendered(1) == 0);
+    end(1);
+    CHECK(destroyed[2] == 1);
+    CHECK(rendered(9) == 10 && rendered(2) == 3 && rendered(17) == 18);
+    // A retriggered handle keeps its own voice without fading it.
+    note(9, 53);
+    CHECK(rendered(9) == 10 && rendered(9) == 10 && is_active(9) && started[10] == 2);
+    // With every voice busy, one already fading goes to a new note before the
+    // oldest: handle two's note (the oldest) keeps sounding.
+    note(25, 54);     // track one: cuts handle 17
+    CHECK(rendered(25) == 26 && is_active(17));
+    note(3, 60);
+    CHECK(destroyed[18] == 1 && !is_active(17) && rendered(17) == 0);
+    CHECK(rendered(2) == 3 && rendered(3) == 4 && rendered(25) == 26 && rendered(9) == 10);
+    // The finished hook: +24 reports the voice inactive and frees it at once.
+    done[4] = true;
+    CHECK(!is_active(3) && destroyed[4] == 1 && rendered(3) == 0);
+    end(3);
+    CHECK(destroyed[4] == 1);
+    note(4, 60);      // takes the voice handle three freed, not a sounding one
+    CHECK(initialized[5] == 1 && rendered(4) == 5);
+    CHECK(rendered(2) == 3 && rendered(25) == 26 && rendered(9) == 10 && is_active(2));
+    return 0;
+}
+"""
+
+
 class DrumVoices(unittest.TestCase):
-    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
-    def test_native_parameter_transport_and_voice_lifecycle(self):
+    def run_adapter(self, engine, driver, capacity, **resources):
         definition = copy.deepcopy(fixture('probesynth').definition)
         definition['id'] = 'probe'
-        definition['resources'].update(voiceBytes=4, voiceAlignment=4, voiceCapacity=2,
-                                       sharedBytes=0, modelCount=12)
+        definition['resources'].update(voiceBytes=4, voiceAlignment=4, voiceCapacity=capacity,
+                                       sharedBytes=0, modelCount=12, **resources)
         machine = SimpleNamespace(kind='drum', definition=definition, prefix='probe', native_name='probe')
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
@@ -206,13 +269,14 @@ class DrumVoices(unittest.TestCase):
             # payload-pointer substitution is needed to execute the adapter.
             generated = source.read_text(encoding='utf-8')
             self.assertNotIn('0x0803b9c4', generated)
+            self.assertIn('const bool kChoke = %s;' % ('true' if resources.get('chokeSameKey') else 'false'), generated)
             native_pitch = 'reinterpret_cast<const opxy::u32*>(opxy::platform::kPitchIncrements)'
             self.assertEqual(generated.count(native_pitch), 1)
             native_amplitude = 'reinterpret_cast<const opxy::i32*>(0x11903400)'
             self.assertEqual(generated.count(native_amplitude), 1)
             source.write_text(generated.replace(native_pitch, 'fixture_pitch').replace(
                 native_amplitude, 'fixture_amplitude'), encoding='utf-8')
-            for name, content in (('core.h', CORE), ('engine.cpp', ENGINE), ('test.cpp', DRIVER)):
+            for name, content in (('core.h', CORE), ('engine.cpp', engine), ('test.cpp', driver)):
                 (folder / name).write_text(content, encoding='utf-8')
             binary = folder / ('test.exe' if os.name == 'nt' else 'test')
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
@@ -223,6 +287,16 @@ class DrumVoices(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, **hidden)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_native_parameter_transport_and_voice_lifecycle(self):
+        # Without chokeSameKey or a finished hook: handles 0 and 200 share track
+        # zero and key 53 and both keep sounding.
+        self.run_adapter(ENGINE, DRIVER, 2)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_same_key_choke_fades_the_old_voice_and_finished_frees_it(self):
+        self.run_adapter(CHOKE_ENGINE, CHOKE_DRIVER, 4, chokeSameKey=1)
 
 
 if __name__ == '__main__':

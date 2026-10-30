@@ -62,6 +62,7 @@ def generate_voice(directory, m, sweep=False):
     values.pop('PEAK')
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
+        values['CHOKE'] = 'true' if m.definition['resources'].get('chokeSameKey', 0) else 'false'
     return expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
 
 
