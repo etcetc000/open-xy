@@ -32,8 +32,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.5 drops identity numbers: the layout gives every number, and a sample engine
 # names its base instead of a stock page.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
-# 1.7 adds synthesis drum kits.
-SDK_VERSION = (1, 7)
+# 1.7 and 1.8 are held for send-effect screens (#230) and aux machines (#234); 1.9 adds
+# synthesis drum kits. If they haven't landed, renumber.
+SDK_VERSION = (1, 9)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -246,7 +247,7 @@ def machine_at(root, identity=None):
     kind = value.get('kind')
     require(kind in KINDS, 'Unknown machine kind: ' + str(kind))
     if kind == 'drum':
-        require_sdk(version, (1, 7), 'A synthesis drum kit')
+        require_sdk(version, (1, 9), 'A synthesis drum kit')
     require(isinstance(value.get('description'), str) and 0 < len(value['description']) <= 160,
             'Machine needs a short description')
     sources = tuple(_relative(root, s) for s in value.get('sources', ()))
