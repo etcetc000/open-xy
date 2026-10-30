@@ -36,6 +36,12 @@ class Benchmark(unittest.TestCase):
             empty = generate(folder, []).read_text(encoding='utf-8')
             self.assertIn('{0, 0, 0, 0, 0}', empty)
 
+    def test_a_drum_kit_is_not_benchmarked(self):
+        drum = replace(fixture('probesynth'), kind='drum', id='probedrum')
+        self.assertEqual([c['name'] for c in cases([drum, fixture('probefx')])[9:]], ['probefx'])
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertNotIn('probedrum', generate(folder, [drum]).read_text(encoding='utf-8'))
+
     def test_a_sweep_runs_each_synth_control_through_its_positions_after_the_standard_run(self):
         from tooling.benchmark import SWEEP, sweep_settings
         from tooling.cpu import sweep
