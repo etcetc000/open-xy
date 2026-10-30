@@ -46,8 +46,8 @@ extensions_sample_note_region:
     IF CC JUMP .Lnote_nearest;
     CC = R5 == 3;
     IF CC JUMP .Lnote_sampler;
-    CC = R5 == 4;
-    IF CC JUMP .Lnote_synthesis;
+    CC = R5 <= 2 (IU);   /* compares take -4..3: kOwnedSynthesis (4) is the one above */
+    IF !CC JUMP .Lnote_synthesis;
     R7 = 30;
     CC = R5 == 1;
     IF CC JUMP .Lnote_nearest;
