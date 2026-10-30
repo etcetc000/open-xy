@@ -15,7 +15,7 @@ from test_sample_services import HOST_CXX
 class NoteActivity(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_real_platform_adapter_and_public_event_tracker(self):
-        platform = ROOT / 'sdk/platform/opxy-1.2.0'
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
         with tempfile.TemporaryDirectory(prefix='note-activity-') as directory:
             folder = Path(directory)
             # Substitute only the stock-address boundary, as other SDK fixtures do.
@@ -39,7 +39,7 @@ class NoteActivity(unittest.TestCase):
 
     def test_both_release_routes_are_reviewed_calls_in_a_shared_unit(self):
         hooks = [p for p in config()['patches'] if p.get('symbol') == 'sdk_note_off']
-        self.assertEqual({int(p['address'],16) for p in hooks}, {0x8d5937ea,0x8d59384c})
+        self.assertEqual({int(p['address'],16) for p in hooks}, {0x8d5954b2,0x8d595514})
         self.assertTrue(all(p['call'] and p['length'] == 4 and 'service' not in p for p in hooks))
         self.assertIn('note_activity', native.SDK_UNITS)
         self.assertNotIn('note_activity', native.UNIT_SERVICES)
@@ -80,7 +80,7 @@ if (notes.held_notes !== 0 || notes.note_off_serial !== 2) throw Error('Offline 
             before = stock[offset:offset+patch['length']]
             self.assertEqual(before.hex(), patch['before'])
             self.assertEqual(offset, int(patch['file_offset'],16))
-            self.assertEqual(decode_branch(address,before), (0x8d5b5ea4,True))
+            self.assertEqual(decode_branch(address,before), (0x8d5b7d2c,True))
 
 
 if __name__ == '__main__':

@@ -84,14 +84,16 @@ class BuilderPatterns(unittest.TestCase):
 class Changes(unittest.TestCase):
     def test_entries_keep_their_kind_and_only_move_forward(self):
         reserved = {k: PUBLISHED[k] for k in catalog.COMMON} | {'status': 'reserved'}
-        catalog.changes([reserved], [PUBLISHED])
-        catalog.changes([PUBLISHED], [dict(PUBLISHED, tag='v1.1.0', commit='1' * 40)])
+        from test_cpu_measurement import measurement
+        measured = dict(PUBLISHED, cpu=measurement())
+        catalog.changes([reserved], [measured])
+        catalog.changes([PUBLISHED], [dict(measured, tag='v1.1.0', commit='1' * 40, cpu=measurement(commit='1'*40))])
         catalog.changes([PUBLISHED], [dict(PUBLISHED, status='retired')])
-        catalog.changes([], [PUBLISHED])
+        catalog.changes([], [measured])
         # A draft is not built yet; a published machine may go back to draft.
-        draft = dict(PUBLISHED, status='draft')
+        draft = dict(measured, status='draft')
         catalog.changes([PUBLISHED], [draft])
-        catalog.changes([draft], [PUBLISHED])
+        catalog.changes([draft], [measured])
         catalog.changes([reserved], [draft])
         for after in ([], [dict(PUBLISHED, kind='effect')],
                       [dict(reserved)], [dict(PUBLISHED, id='other')],

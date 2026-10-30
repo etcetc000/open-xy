@@ -24,7 +24,7 @@ void events(opxy::draw::NoteTracker& tracker, opxy::draw::Input& input, bool sta
 opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Address address) {
     if (address >= kNoteMap && address < kNoteMap + sizeof(gates))
         return reinterpret_cast<Address>(&gates[address - kNoteMap]);
-    if (address == 0x8d5b5ea4) return reinterpret_cast<Address>(&clear_gate);
+    if (address == 0x8d5b7d2c) return reinterpret_cast<Address>(&clear_gate);
     std::abort();
 }
 

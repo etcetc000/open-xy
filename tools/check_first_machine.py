@@ -23,7 +23,7 @@ def main():
         directory = Path(temporary).resolve()
         source = directory / 'machine'
         first, second = directory / 'first', directory / 'second'
-        scaffold(source, 'firstmachine', 'First Machine')
+        scaffold(source, 'firstmachine', 'First Machine', repository=True)
         build(compiler, source, first)
         preview_bundle(first)
         engine = source / 'engine.cpp'

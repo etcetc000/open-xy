@@ -1,9 +1,10 @@
 import { headerSvg } from '../sdk/browser/display.mjs';
 
-// The device page: the stock four-control header above the machine's own
-// drawing, 480 x 220 as on the OP-XY. Each of the four positions shows the
-// parameter shown[i] (its own or an alternate); header holds the display's own
-// text for a position, or '' for the formatted value.
+// The device page, 480 x 220 as on the OP-XY: the stock four-control header
+// under the machine's own drawing, which can cover it, and above the
+// harness's waveform view. Each of the four positions shows the parameter
+// shown[i] (its own or an alternate); header holds the display's own text for
+// a position, or '' for the formatted value.
 export function renderScreen(values, view, samples = null, graphics = '', controls, shown = [0, 1, 2, 3], header = ['', '', '', '']) {
   const selected = controls;
   const title = selected.definition.name;
@@ -23,7 +24,6 @@ export function renderScreen(values, view, samples = null, graphics = '', contro
   const shownValues = parameters.map((p, i) => header[i] || selected.displayValue(p.id, values));
   return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220" role="img" aria-label="${title} ${view} screen">
     <rect width="480" height="220" fill="#000000"/>
-    ${drawing}
-    ${headerSvg(titles, shownValues)}
+    ${view === 'waveform' ? drawing + headerSvg(titles, shownValues) : headerSvg(titles, shownValues) + drawing}
     </svg>`;
 }

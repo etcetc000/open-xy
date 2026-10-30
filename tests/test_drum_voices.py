@@ -205,10 +205,10 @@ class DrumVoices(unittest.TestCase):
             # The actual +12 ABI transports its payload directly; no global
             # payload-pointer substitution is needed to execute the adapter.
             generated = source.read_text(encoding='utf-8')
-            self.assertNotIn('0x84ebba70', generated)
+            self.assertNotIn('0x0803b9c4', generated)
             native_pitch = 'reinterpret_cast<const opxy::u32*>(opxy::platform::kPitchIncrements)'
             self.assertEqual(generated.count(native_pitch), 1)
-            native_amplitude = 'reinterpret_cast<const opxy::i32*>(0x11905300)'
+            native_amplitude = 'reinterpret_cast<const opxy::i32*>(0x11903400)'
             self.assertEqual(generated.count(native_amplitude), 1)
             source.write_text(generated.replace(native_pitch, 'fixture_pitch').replace(
                 native_amplitude, 'fixture_amplitude'), encoding='utf-8')
@@ -217,7 +217,7 @@ class DrumVoices(unittest.TestCase):
             binary = folder / ('test.exe' if os.name == 'nt' else 'test')
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-Wno-unused-function',
-                       *('-I' + str(path) for path in (ROOT / 'sdk/include', ROOT / 'sdk/platform/opxy-1.2.0', folder)),
+                       *('-I' + str(path) for path in (ROOT / 'sdk/include', ROOT / 'sdk/platform/opxy-1.2.1', folder)),
                        str(folder / 'test.cpp'), '-o', str(binary)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

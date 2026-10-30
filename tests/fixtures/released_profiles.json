@@ -1,0 +1,5 @@
+{
+ "comment": "Every reviewed edit of each firmware profile released for the current stock OS, by file offset and stock bytes. The builder recovers that stock OS from those releases' open-xy OS by undoing the current profile's edits, so the current profile must keep covering them (test_profile_parity.py). A port to a new OS release empties this list: TE's updater replaces an older OS, open-xy or not.",
+ "stock_sha256": "60358afdaa9b58ed40411602f6d5d4e1e3e02553ff2da7e25038e71dd002b52f",
+ "releases": {}
+}

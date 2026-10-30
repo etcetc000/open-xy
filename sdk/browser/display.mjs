@@ -38,6 +38,40 @@ export class NoteActivity {
   }
 }
 
+// Outlines the OP-XY draws as streaks: a line traced out and back over itself,
+// which has no area, or an outline that turns straight back on itself at a point.
+// `frame` is a PreviewDisplay frame with `paths` outlines of `points` points.
+export function outlineFaults(frame, paths, points) {
+  const faults = [];
+  for (let p = 0; p < paths; ++p) {
+    const at = p * (1 + 2 * points) + 1, xy = [];
+    for (let i = 0; i < points; ++i) {
+      const x = frame[at + 2 * i], y = frame[at + 2 * i + 1], last = xy[xy.length - 1];
+      if (!last || last[0] !== x || last[1] !== y) xy.push([x, y]);
+    }
+    const first = xy[0], end = xy[xy.length - 1];
+    if (xy.length > 1 && first[0] === end[0] && first[1] === end[1]) xy.pop();
+    if (xy.length < 3) continue;  // a point or a collapsed outline draws nothing
+    // Traced out and back: every edge is also walked the other way. (A signed area
+    // of zero would also flag a figure eight, which encloses area.)
+    const edges = new Map(), edge = (a, b) => `${a[0]},${a[1]}>${b[0]},${b[1]}`;
+    for (let i = 0; i < xy.length; ++i) {
+      const key = edge(xy[i], xy[(i + 1) % xy.length]);
+      edges.set(key, (edges.get(key) || 0) + 1);
+    }
+    const retraced = [...edges].every(([key, count]) => {
+      const [a, b] = key.split('>');
+      return edges.get(`${b}>${a}`) === count;
+    });
+    if (retraced) { faults.push(`outline ${p} has no area`); continue; }
+    for (let i = 0; i < xy.length; ++i) {
+      const before = xy[(i + xy.length - 1) % xy.length], after = xy[(i + 1) % xy.length];
+      if (before[0] === after[0] && before[1] === after[1]) { faults.push(`outline ${p} turns straight back`); break; }
+    }
+  }
+  return faults;
+}
+
 export class PreviewDisplay {
   constructor(module) {
     if (!(module instanceof WebAssembly.Module) || WebAssembly.Module.imports(module).length) {
@@ -52,8 +86,8 @@ export class PreviewDisplay {
     this.noteActivity = abi >= 2;
     this.hasModel = abi >= 3;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
-    // Largest declared frame: 4 paths of 64 points, 256 nodes, 4 texts and the header.
-    const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 4 * 36 + 32, 'drawing frame size');
+    // Largest declared frame: 4 paths of 64 points, 256 nodes, 16 texts and the header.
+    const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 16 * 36 + 32, 'drawing frame size');
     this.memory = e.memory.buffer;
     const ranges = [
       [e.opxy_display_state(), this.stateBytes], [e.opxy_display_input(), inputBytes], [e.opxy_display_frame(), frameBytes],
@@ -107,7 +141,7 @@ const attributes = new Set(['id', 'd', 'x', 'y', 'width', 'height', 'cx', 'cy', 
 
 const escape = text => String(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 // The device page's four-control header, as the SDK screen template draws it
-// (sdk/platform/opxy-1.2.0/screen.svg): a stepped grey bar 20 px tall with each
+// (sdk/platform/opxy-1.2.1/screen.svg): a stepped grey bar 20 px tall with each
 // position's title above its value, light text on the dark half and dark text
 // on the light half. Browser fonts stand in for the device's.
 export function headerSvg(titles, values) {
@@ -132,7 +166,7 @@ export class SvgDisplay {
     if (!Array.isArray(nodes) || !Array.isArray(texts) || !Array.isArray(palette) ||
         !Number.isInteger(paths) || paths < 0 || paths > 4 || paths > nodes.length ||
         !Number.isInteger(points) || (paths ? points < 2 || points > 64 : points !== 0) ||
-        nodes.length < 1 || nodes.length > 256 || texts.length > 4 || palette.length < 1 || palette.length > 16) {
+        nodes.length < 1 || nodes.length > 256 || texts.length > 16 || palette.length < 1 || palette.length > 16) {
       throw new Error('Unsupported retained asset bindings');
     }
     this.points = points;

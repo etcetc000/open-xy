@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <vector>
 extern "C" void host_barrier();
-#include "../../sdk/platform/opxy-1.2.0/sample_cache.cpp"
+#include "../../sdk/platform/opxy-1.2.1/sample_cache.cpp"
 
 static unsigned analysis_words(const opxy::SampleView& sample) {
     return 4 + ((sample.frames + 31) / 32) * sample.channels;

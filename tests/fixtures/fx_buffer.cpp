@@ -11,7 +11,7 @@ static opxy::i32* stock_scratch(opxy::u32 slot, opxy::u32 bytes) {
     return scratch[slot == 14];
 }
 opxy::platform::Address opxy::platform::host_stock_address(Address address) {
-    if (address == 0x8d50d9c8) return reinterpret_cast<Address>(&stock_scratch);
+    if (address == 0x8d50e048) return reinterpret_cast<Address>(&stock_scratch);
     std::abort();
 }
 

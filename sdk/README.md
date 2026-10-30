@@ -8,7 +8,7 @@ interfaces. This directory implements those contracts across platforms.
 | `include/opxy/` | C++ types, arithmetic, audio and effect buffers, drawing frames and resource pools |
 | `host/` | WebAssembly preview bindings |
 | `browser/` | AudioWorklet, controls, patch handling and retained drawing backends |
-| `platform/` | Blackfin primitives and stock 1.2.0 calling-convention adapters |
+| `platform/` | Blackfin primitives and stock 1.2.1 calling-convention adapters |
 | `templates/` | The starter machine `sdk.py new` copies |
 
 Platform conditionals belong here, never in a machine. The generated adapters

@@ -40,7 +40,7 @@ class HarnessServerTests(unittest.TestCase):
     def test_private_and_traversal_paths_are_not_served(self):
         for url in ['/local/inputs/os.ldr', '/.git/config', '/harness/../local/inputs/os.ldr',
                     '/harness/%2e%2e/local/inputs/os.ldr', '/harness/%252e%252e/local/',
-                    '/sdk/include/../../profiles/opxy-1.2.0.json',
+                    '/sdk/include/../../profiles/opxy-1.2.1.json',
                     '/harness/..%5clocal%5cinputs%5cos.ldr', '/README.md', '/tools/serve_harness.py']:
             with self.subTest(url=url):
                 self.assertIsNone(server.resolve_public_path(url))

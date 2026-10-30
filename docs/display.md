@@ -8,6 +8,8 @@ reshapes, recolours and relabels them. It is not executable SVG animation. The
 same C++ computes the browser preview and the device frames; fonts, framing and
 rasterization can differ.
 
+The [UX conventions](ux.md) say how machine screens look and move.
+
 There is one display contract. Characters, dials, keyboards, meters and other
 patterns are the machine's own code filling nodes; see
 [Macro Osc's segment characters](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/segments.hpp).
@@ -35,13 +37,22 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | `paths` | 0..4 mutable outlines; they are nodes `0..paths-1` |
 | `points` | 2..64 points per outline; 0 when there are no paths |
 | `nodes` | `paths`..256 transformable elements |
-| `texts` | 0..4 text slots |
+| `texts` | 0..16 text slots; more than 4 need `"sdk": "1.3"` |
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) is the format definition.
 `DisplayState` is trivial, standard-layout data. Put it, with the frame type,
 in `display.h`.
+
+## Display activation
+
+The native renderer calls `display_reset` when an owned synth page becomes
+selected and when its selected track changes. The next display callback
+starts with reset state; use this for an entrance or to establish fresh
+note-activity baselines. Continuing to show the same page and track does not
+reset it. Browser hosts call `PreviewDisplay.reset()` when reactivating a
+preview. Audio state, note routing and the drawing input ABI are unchanged.
 
 ## Input
 
@@ -143,6 +154,46 @@ reaches more than 160 pixels left and more than 100 pixels up from its origin.
 of upright (at most 1800). `text` and `header` copy bounded strings. `valid`
 checks the complete frame before painting; an invalid frame is not applied.
 
+## Two-page header
+
+SDK 1.4 supplies `<opxy/page_header.hpp>` for synths using `"press": "page"`.
+`sdk.py new --controls 8` generates it with eight controls; `--controls 5`,
+`6` or `7` shares unchanged controls between the rows. The default four-control
+starter keeps the stock header. This helper uses the existing drawing ABI and
+the [UX layout](ux.md#more-than-four-controls).
+
+Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
+`display_reset`. It occupies 20 bytes with four-byte alignment. Reserve eight
+consecutive bar nodes and all sixteen text slots; keep the authored header
+block from the generated `panel.svg.fragment`. That block includes the stock
+header cover, stepped bar and bright/grey text at their resting sizes. If
+moving its node bindings, update both the artwork IDs and `first_node` below.
+Keep other artwork below y=38 and do not cover the header later in the SVG.
+
+```cpp
+const char* const titles[8] = {"wave", "shape", "level", "tone",
+                               "drift", "noise", "", ""};
+// Six controls: columns 2 and 3 repeat their original controls on page 2.
+const opxy::u8 pages[2][4] = {{0, 1, 2, 3}, {4, 5, 2, 3}};
+char values[8][opxy::draw::header_capacity] = {};
+for (opxy::u32 i = 0; i < 6; ++i)
+    opxy::draw::header_amount(values[i], sizeof(values[i]), input.slots[i]);
+opxy::draw::page_header(state.header, input, frame, titles, values, first_node, pages);
+```
+
+Titles and captions are indexed by saved parameter slot. Supply lowercase
+real-unit captions for enums, frequencies, ratios and other mapped controls;
+`header_amount` rounds Q31 amounts to 0..100 without a percent sign. Titles
+are lowercased by the helper. The page map must match each alternate's
+`control` assignment; omit it only for slots 4..7 in column order. Shared
+columns repeat the original slot index, so labels, values and edits agree.
+
+Rows keep their order while the active row grows and brightens. Transitions
+settle within 0.15 seconds and reverse continuously on a second press.
+Initialization, track changes and reduced motion snap to the selected page.
+The helper reads every `shown` position, including layouts whose first
+column is shared. It does not touch the machine's audio or parameter state.
+
 ## Artwork
 
 Elements bind by index and the machine's symbol prefix:
@@ -152,6 +203,12 @@ Elements bind by index and the machine's symbol prefix:
 | Node `i` | `<prefix>_node_<i>`: a `path` or `circle`. Path nodes are a `path` of exactly `M`, `points - 1` `L` and `Z` with no fill, every point distinct: the OP-XY's SVG parser merges repeated points, leaving fewer than the frame binds, and the device then no longer reshapes the outline. |
 | Text slot `i` | `<prefix>_text_<i>`: a `text` with explicit font, positioned by its transform, with no `x` or `y` |
 | Palette entry `i` | `<prefix>_palette_<i>`: a `path` or `circle` with explicit `#RRGGBB` fill and stroke and a stroke width; it lends them to the nodes that select it. Park entries off screen. |
+
+Every outline a frame draws must enclose area. A line traced out and back over
+itself, or an outline that turns straight back at a point, has none there, and the
+OP-XY draws streaks from its ends. Draw a line as a thin closed ribbon: one edge
+out, the other back a fraction of a pixel away, every point distinct. `sdk.py test`
+warns about outlines that break this in its preview frames.
 
 Every frame sets a bound element's whole transform, so its authored transform
 is `matrix(1 0 0 1 x y)` or none: the pose before the first frame, which the
@@ -163,13 +220,16 @@ Authored numbers allow at most four fractional digits; exponent notation and
 unsupported elements/references are rejected. Do not rely on browser-only SVG
 features or group style inheritance. The native packager combines the machine
 fragment with the SDK-owned
-[OP-XY screen template](../sdk/platform/opxy-1.2.0/screen.svg). It supplies a black
+[OP-XY screen template](../sdk/platform/opxy-1.2.1/screen.svg). It supplies a black
 480 × 220 canvas and the stock synth header: a stepped grey bar 20 pixels tall
 with four titles (10 px) above four values (20 px), light text on the dark half
-and dark text on the light half, at the stock positions. Machine artwork starts
-below y = 20. No stock artwork is copied. Machine graphics below that header
+and dark text on the light half, at the stock positions. Machine artwork usually
+starts below y = 20. No stock artwork is copied. Machine graphics below that header
 are controlled by `display.cpp`; the platform adapter updates parameter labels
-and values.
+and values. The machine's artwork is drawn after the template, so artwork that
+covers the top 20 pixels hides the stock header: a machine can draw its own
+header there with nodes and text slots. The browser previews draw the stock
+header under the artwork in the same way.
 
 The template's `titles` and `values` groups each contain four group children,
 each with one explicitly styled text leaf. This is the stock four-knob helper's
@@ -181,7 +241,7 @@ Template validation checks structure, not actual device text rendering.
 See [2op display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/display.cpp) (outlines and pulses) and
 [Macro display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/display.cpp) (segment characters,
 glow, dials and header text) for implementations.
-How screens reach stock is described in the [firmware ABI](abi-1.2.0.md#screens).
+How screens reach stock is described in the [firmware ABI](abi-1.2.1.md#screens).
 
 ## Migrating from before SDK 1.0
 

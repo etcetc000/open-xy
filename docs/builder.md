@@ -15,12 +15,12 @@ leaves the browser.
 2. Choose Mac or Windows. **Help me get the OS file** starts the guided setup;
    **I already have the OS file** opens the file picker. At the dev menu check,
    **No, it’s missing** is the first option and leads to enabling the menu.
-   Choose the OS: the decrypted OP-XY OS 1.2.0 file `os.ldr`, or an Open-XY
-   build to change. Only OS 1.2.0 is supported; the `.tfw` update files teenage
+   Choose the OS: the decrypted OP-XY OS 1.2.1 file `os.ldr`, or an Open-XY
+   build to change. Only OS 1.2.1 is supported; the `.tfw` update files teenage
    engineering hosts are a different, encrypted format. The stock file is in a
    device capture at `/upgrade/firmware/blackfin/bin/os.ldr`; a previously
    installed Open-XY build is at `/os.ldr`. On a Mac with WebUSB in a compatible browser,
-   follow the OS file guide and select **Read original OS**. The guide confirms OS 1.2.0, opens
+   follow the OS file guide and select **Read original OS**. The guide confirms OS 1.2.1, opens
    Mac file transfer mode and asks you to quit Field Kit and OpenMTP. It reads
    the original firmware path, checks the exact stock hash and loads the OS
    directly into the builder, with an optional backup download. It does not change device files or fall back to
@@ -31,7 +31,7 @@ leaves the browser.
    reset or initialization leaves `OPXY/upgrade/firmware/blackfin/bin/os.ldr`
    missing. **The OS file is missing · Help me recover it** shows how to exit
    file transfer, then **Disable dev menu** connects and sends the disable command
-   in one click. The next page links to the official OS 1.2.0 download and explains
+   in one click. The next page links to the official OS 1.2.1 download and explains
    how to power cycle, check that the menu is gone, and reinstall. After reinstalling,
    **Try again** goes straight to enabling the dev menu for the same computer.
 3. Select machines. Synth rows have a playable preview of their C++ sound and
@@ -41,7 +41,12 @@ leaves the browser.
    link to the machine's code at the commit the catalog pins. Open-XY's own
    example machines from the catalog are labelled as Open-XY machines. A
    [personal kit](#export-a-kit)'s own machines are marked **Yours**.
-4. Follow the installation guide using the remembered computer choice. Mac
+4. Choose optional extensions using the same checkbox rows as machines. Select
+   a row to read what it does and how to use it in the details panel.
+   Extensions start off; continuing with none is valid. The summary lists your
+   machines, extensions and combined memory use. Conflicting Record-double-tap
+   claims cannot be selected together.
+5. Build the firmware, then follow the installation guide using the remembered computer choice. Mac
    browsers with WebUSB send the files directly; Windows downloads a ZIP to
    copy with File Explorer. The OS write step on the device is still manual.
 
@@ -52,19 +57,23 @@ The ZIP contains:
 | `os.ldr` | Device root, replacing the existing file |
 | `content/op1_factory.json` | Replaces the menu file |
 | `content/display/*.svg` | New screens for the selected machines; keep the stock files |
-| `content/presets/<machine>/default.json` | One init preset in each selected instrument's own folder |
+| `content/presets/<machine>/*.json` | Each selected instrument's init preset, `default.json`, and its own [presets](api.md#presets), in the instrument's folder |
 | `layout.json`, hashes | Keep `layout.json`: it holds your machines' numbers, and loading it into the builder next time keeps them for your projects |
 
-Every build shows its release at boot, `OPEN 0.0.2-1.2.0` for 0.0.2, the version in
+Every build shows its release at boot, `OPEN 0.0.3-1.2.1` for 0.0.3, the version in
 [`VERSION`](../VERSION) that the builder also shows under its name and records in
 `build.json`. Timestretch starts without a sample;
 choose one on its sample page. Ring Mod is a send effect and has no preset.
 
-The builder accepts only the exact stock file or an exact Open-XY output of the
-same collection. Encrypted `.tfw`, unknown patches and damaged files are
-rejected. Opening an Open-XY build restores its machine selection by rebuilding
-the stock image from it; projects, presets and samples on the device are not
-touched.
+The builder accepts the stock OS 1.2.1 file or any Open-XY OS made from it,
+including one from an earlier release: it rebuilds the stock image by undoing
+the reviewed edits and accepts it only if it matches OS 1.2.1 exactly. An exact
+output of the same collection also restores its machine and extension
+selection; for any other, choose them again (the layout still keeps machine
+numbers). Saved selection files also retain extensions; older selection files
+without that field select none.
+Encrypted `.tfw`, unknown patches and damaged files are rejected. Projects,
+presets and samples on the device are not touched.
 
 ### Dev menu
 
@@ -84,8 +93,8 @@ an explicit click and USB permission, and releases the connection afterwards.
 
 ## Capacity and machine numbers
 
-The firmware reserves **2 MiB** of the application heap: 2040 KiB that every
-selected machine shares for code, data and state, and 8 KiB for relocated stock
+The firmware reserves **2 MiB** of the application heap: 2032 KiB that every
+selected machine shares for code, data and state, and 16 KiB for relocated stock
 tables. The memory meter shows each machine's share; see
 [memory and limits](api.md#memory-and-limits). CPU headroom is not measured.
 
@@ -93,7 +102,7 @@ Projects save each track's machine by number, so a machine keeps its numbers
 in your firmware for good ([layouts](api.md#identity)). The builder remembers
 your layout in this browser and writes it to `layout.json` in every download;
 load that file under the machine list to build from another browser or
-computer. Numbers given to a machine you drop stay held, so its projects never
+computer. A layout from a build for OS 1.2.0 still loads. Numbers given to a machine you drop stay held, so its projects never
 open another machine. Adding a machine to the collection means adding it to
 the native build; the builder is not a plugin loader and does not raise the
 voice limit.
@@ -113,6 +122,9 @@ collection without uploading an OS file. Append a machine ID, for example
 `#preview/machines/fm2op`, to open its details directly. Installation stays disabled;
 the **OS** button returns to the normal builder entry. A configured collection is
 required for machine previews.
+
+The extension picker has a direct preview at `#preview/extensions`, with no OS
+file required. Building remains disabled in preview mode.
 
 Installation screens have direct preview links, such as
 `http://127.0.0.1:8918/#preview/mac/transfer`, `#preview/mac/exit-transfer`
@@ -153,15 +165,16 @@ with no collection as a UI check and never consumes private inputs.
 `wrangler.jsonc` names the site `open-xy` and binds `open-xy.com`. The site is
 static assets only, with no Worker script. The `beta` environment is a separate
 `open-xy-beta` site at `beta.open-xy.com`, deployed from `staging`; production
-is deployed from `main`. Merge work, and catalog changes, into `staging`,
-release beta, then open a pull request from `staging` to `main` and release
-production.
+is deployed from `main`. Merge work into `staging`, release beta, then open a
+pull request from `staging` to `main` and release production. Catalog changes
+merge into `main` (then `main` into `staging`), so a new machine can reach
+production without an SDK release.
 
 On the release host, after `npx wrangler login`, one command releases the
 catalog:
 
 ```powershell
-python sdk.py release --stock-os <stock-1.2.0>/os.ldr --out <builds>/release-001 --deploy beta
+python sdk.py release --stock-os <stock-1.2.1>/os.ldr --out <builds>/release-001 --deploy beta
 ```
 
 It fetches every published [catalog](catalog.md) machine at its pinned commit
@@ -191,7 +204,7 @@ Domains & Routes → Add → Custom Domain**; see the
 With the [pinned native tools](build.md) and Clang++ for wasm32:
 
 ```powershell
-python sdk.py kit --preview-cxx clang++ --stock-os "$env:LOCALAPPDATA/OPXY-SDK/private/stock-1.2.0/os.ldr" --out "$env:LOCALAPPDATA/OPXY-SDK/private/builds/browser-kit-001"
+python sdk.py kit --preview-cxx clang++ --stock-os "$env:LOCALAPPDATA/OPXY-SDK/private/stock-1.2.1/os.ldr" --out "$env:LOCALAPPDATA/OPXY-SDK/private/builds/browser-kit-001"
 ```
 
 `--stock-content` defaults to the repository's copy of `op1_factory.json`. The export runs the
@@ -217,12 +230,20 @@ sections, COMMON or weak symbols, unresolved imports, overlapping relocations,
 range overflow, constructors and memory overflow are errors. A deselected
 machine's startup and catalog callbacks resolve to `kit_absent`, which declines:
 startup skips it and its menu name is left to stock. Its audio code and state
-are omitted.
+are omitted. Extensions use the same omission mechanism: a generated accessor
+returns their callback descriptor, or resolves to `kit_absent` when deselected.
+The registry skips absent descriptors and retains collection order. Deselected
+extensions contribute no code or state; shared controller hooks still forward
+stock behavior with an empty extension registry. Export a fresh kit after this
+SDK change; older kits containing the fixed extension registry are rejected.
 
-The export checks, normally and under `python -O`, that:
+The export checks that:
 
-- selecting every machine reproduces the native `os.ldr` byte for byte;
-- every non-empty selection matches GNU ld, including symbols and BSS;
+- selecting the machines the native package links, with every extension, reproduces
+  its `os.ldr` byte for byte: every machine, or Open-XY's own when the collection
+  doesn't fit at once ([memory](api.md#memory-and-limits));
+- every non-empty selection with every extension choice (including none) matches
+  GNU ld, including symbols and BSS;
 - browser output matches the Python writer, with correct catalog, artwork and ZIP;
 - every output is recognized and its selection restored, and corruption inside
   or outside the allowed edits is rejected.

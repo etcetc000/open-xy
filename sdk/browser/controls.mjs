@@ -23,9 +23,22 @@ export function physicalValue(mapping, value) {
 
 // A synth's page position (encoder) for each parameter, in parameter order:
 // the first four are the positions' own, later ones name theirs in `control`
-// (the definition schema; tooling.definitions.control_positions). An absent
-// parameter (an empty slot) belongs to none: null.
-export const controlPositions = parameters => parameters.map((p, i) => p.absent ? null : p.control ?? i);
+// (the definition schema; tooling.definitions.control_positions).
+export const controlPositions = parameters => parameters.map((p, i) => p.control ?? i);
+
+// The parameters the four positions show after editing parameter `slot`
+// (positions: controlPositions): that position shows it, or on a paged synth
+// (`"press": "page"`) every position shows the edited parameter's page.
+export function editedShown(shown, positions, slot, pages = false) {
+  if (!pages) return shown.map((s, position) => position === positions[slot] ? slot : s);
+  // A position with no alternate edits the same saved parameter on either page.
+  // Turning that repeated control must not jump back to page 1.
+  const shared = slot < 4 && !positions.slice(4).includes(slot);
+  const second = shared ? shown.some(s => s >= 4) : slot >= 4;
+  const next = [0, 1, 2, 3];
+  positions.forEach((position, s) => { if ((s >= 4) === second) next[position] = s; });
+  return next;
+}
 
 // The display input (draw.hpp) for the eight parameter words in
 // parameter order, when shown[i] is the parameter position i shows (initially
@@ -104,10 +117,6 @@ export function createControls(input) {
     }
     return canonical;
   }
-  // Presets name the present controls; an absent one (an empty slot) stays 0.
-  const absent = Object.fromEntries(parameters.filter(p => p.absent).map(p => [p.id, 0]));
-  const presets = descriptor.presets &&
-    Object.fromEntries(Object.entries(descriptor.presets).map(([name, values]) => [name, { ...absent, ...values }]));
   return Object.freeze({ definition, parameters, positions: Object.freeze(controlPositions(parameters)),
-    defaults, presets, physical, displayValue, q31, validateParameters, makePatch, readPatch });
+    defaults, presets: descriptor.presets, physical, displayValue, q31, validateParameters, makePatch, readPatch });
 }

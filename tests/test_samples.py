@@ -43,11 +43,11 @@ class Generation(unittest.TestCase):
             check_analysis_budgets([analyzing('one', 1 << 20), analyzing('two', (1 << 20) + 4)])
 
     def test_absolute_calls_reject_invalid_width_opcode_padding_and_alignment(self):
-        for target in (0, 0x8d450d60, 0xfffffffe):
+        for target in (0, 0x8d450380, 0xfffffffe):
             self.assertEqual(firmware.absolute_target(firmware.absolute_call(target)), target)
         for target in (-2, 1, 0x100000000):
             with self.assertRaises(ValueError): firmware.absolute_call(target)
-        valid = firmware.absolute_call(0x8d450d60)
+        valid = firmware.absolute_call(0x8d450380)
         for bad in (valid[:-1], valid + b'\0', b'\1' + valid[1:], valid[:4] + b'\x61' + valid[5:], valid[:-1] + b'\1'):
             with self.assertRaises(ValueError): firmware.absolute_target(bad)
 

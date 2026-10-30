@@ -51,7 +51,7 @@ class DrumPreviewTests(unittest.TestCase):
                 validate_definition(definition, 'drum')
 
     def test_drum_preview_links_all_sources_with_fixed_memory(self):
-        for kind, memory in [('synth', 524288), ('drum', 2097152)]:
+        for kind, memory in [('synth', 2097152), ('drum', 2097152)]:
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder)
                 with patch('tooling.preview.subprocess.run', return_value=SimpleNamespace(returncode=0, stderr='')) as run, \
@@ -63,7 +63,8 @@ class DrumPreviewTests(unittest.TestCase):
                     self.assertIn(f'-Wl,--max-memory={memory}', command)
                     for source in sources:
                         self.assertIn(str(root / source), command)
-                    check.assert_called_once_with(root / 'engine.wasm', kind=kind)
+                    display = self.definition(kind)['resources']['display']
+                    check.assert_called_once_with(root / 'engine.wasm', display.get('paths', 0), display.get('points', 0))
 
 
 if __name__ == '__main__':

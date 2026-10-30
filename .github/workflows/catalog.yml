@@ -4,7 +4,7 @@ name: Catalog
 # module with all of them. No stock files or device.
 on:
   pull_request:
-    # Adding or removing the controls-changed label runs the check again.
+    # Adding or removing the controls-changed or cpu-carried label runs the check again.
     types: [opened, synchronize, reopened, labeled, unlabeled]
     paths: ['catalog/**', 'sdk/**', 'tooling/**', 'linker/**', 'profiles/**', 'sdk.py',
             '.github/workflows/catalog.yml']
@@ -20,6 +20,7 @@ concurrency:
 jobs:
   machines:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,36 +32,44 @@ jobs:
         with:
           node-version: '22'
       - name: Preview and host test tools
+        timeout-minutes: 5
         run: |
-          sudo apt-get update && sudo apt-get install -y clang lld
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y clang lld
           python -m pip install numpy==2.3.5
-      - name: A machine submission changes only the catalog
-        # Machines live in their own repositories: a pull request from a fork that
-        # touches the catalog may change nothing else. SDK changes are their own PR.
+      - name: A machine or extension submission changes only the catalog
+        # Machines and extensions live in their own repositories: a pull request from a
+        # fork that touches the catalog may change nothing else. SDK changes are their own PR.
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         env:
           BASE: ${{ github.base_ref }}
         shell: bash
         run: |
           changed=$(git diff --name-only "origin/$BASE...HEAD")
-          if grep -qx 'catalog/machines.json' <<<"$changed" && [ "$changed" != 'catalog/machines.json' ]; then
-            echo "::error::A machine submission changes only catalog/machines.json. Changed: $(echo $changed)"
-            echo "Keep the machine in its own repository; open SDK changes as a separate pull request."
+          catalogs='catalog/(machines|extensions)\.json'
+          if grep -qxE "$catalogs" <<<"$changed" && grep -vqxE "$catalogs" <<<"$changed"; then
+            echo "::error::A submission changes only catalog/machines.json or catalog/extensions.json. Changed: $(echo $changed)"
+            echo "Keep the machine or extension in its own repository; open SDK changes as a separate pull request."
             exit 1
           fi
       - name: Catalog entries
         env:
-          BASE: ${{ github.base_ref }}
+          # A release (staging -> main, ci.yml) repeats no review: every entry was checked
+          # against staging when it merged there, so it compares with staging itself.
+          BASE: ${{ (github.base_ref == 'main' && github.head_ref == 'staging' && github.event.pull_request.head.repo.full_name == github.repository) && 'staging' || github.base_ref }}
           CONTROLS: ${{ contains(github.event.pull_request.labels.*.name, 'controls-changed') && '--allow-control-changes' || '' }}
+          CPU: ${{ contains(github.event.pull_request.labels.*.name, 'cpu-carried') && '--allow-carried-cpu' || '' }}
         shell: bash
         # A pull request keeps every machine's ID and kind from its target branch, and a moved
-        # release keeps its controls unless a catalog maintainer labels it controls-changed.
-        run: python sdk.py catalog check ${BASE:+--base origin/$BASE} $CONTROLS
+        # release keeps its controls unless a catalog maintainer labels it controls-changed, and
+        # is remeasured unless one labels it cpu-carried.
+        run: python sdk.py catalog check ${BASE:+--base origin/$BASE} $CONTROLS $CPU
       - name: Fetch the pinned machines, confirming their tags, and check them
         run: python sdk.py catalog test --tags --cxx clang++ --host-cxx g++
   firmware:
     # The pinned Blackfin tools run on Windows x86_64 and macOS arm64.
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

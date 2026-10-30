@@ -7,10 +7,11 @@
 
 #define require(value) do { if (!(value)) { std::fprintf(stderr, "line %d\n", __LINE__); std::abort(); } } while (0)
 
-static const opxy::u32 kSlots = 128;
-static opxy::u32 owned_page, asked;
+static const opxy::u32 kSlots = 256;  // the relocated screen slots (stock_tables.SCREENS)
+static opxy::u32 owned_page, asked, refreshes;
 static int ready = 1;
 int sdk_screen_owned(opxy::u32 page) { ++asked; return page == owned_page ? ready : 0; }
+void sdk_send_refresh() { ++refreshes; }
 
 // One frame; returns the pages in paint order. selected changes after the
 // first advance to check that the frame keeps its snapshot.
@@ -35,11 +36,12 @@ int main() {
     for (int state : {1, 0, 2}) {
         ready = state;
         for (opxy::u32 owned = 0; owned <= kSlots + 1; ++owned)
-            for (opxy::u32 selected : {0u, 1u, 2u, 7u, 80u, 81u, 82u, 83u, 126u, 127u, 128u, 200u, owned}) {
+            for (opxy::u32 selected : {0u, 1u, 2u, 7u, 80u, 81u, 82u, 83u, 126u, 127u, 128u, 200u, 254u, 255u, 256u, 300u, owned}) {
                 owned_page = owned;
-                asked = 0;
+                asked = refreshes = 0;
                 require(frame(selected, order) == kSlots);
                 require(asked <= 1);  // ownership is asked once per frame at most
+                require(refreshes == 1);  // the sends' effect controls, once a frame
                 const bool promoted = ready == 1 && selected == owned && selected > 1 && selected < kSlots;
                 // Every page exactly once; the promoted page second, others ascending.
                 unsigned expected = 0;
@@ -50,6 +52,34 @@ int main() {
                 }
             }
     }
-    std::puts("screen order ok");
+    opxy::platform::ScreenActivation empty = {};
+    require(empty.token(84, 0) == 0);
+    ready = 1; owned_page = 84; frame(84, order);
+    const auto first = sdk_screen_activation(84, 0);
+    require(first != 0 && sdk_screen_activation(83, 7) == 0);
+    // Multiple calls, background renderers and later frames preserve state.
+    require(sdk_screen_activation(84, 0) == first);
+    frame(84, order); require(sdk_screen_activation(84, 0) == first);
+    const auto other_track = sdk_screen_activation(84, 1);
+    require(other_track != first && other_track != 0);
+    require(sdk_screen_activation(84, 1) == other_track);
+    frame(2, order); require(sdk_screen_activation(84, 7) == 0);
+    frame(84, order);
+    const auto reopened = sdk_screen_activation(84, 1);
+    require(reopened != other_track && reopened != 0);
+    // Losing readiness and selecting another owned page are fresh activations.
+    ready = 0; frame(84, order); require(sdk_screen_activation(84, 1) == 0);
+    ready = 1; frame(84, order);
+    const auto ready_again = sdk_screen_activation(84, 1);
+    require(ready_again != reopened && ready_again != 0);
+    owned_page = 85; frame(85, order);
+    require(sdk_screen_activation(84, 1) == 0 && sdk_screen_activation(85, 1) != 0);
+    owned_page = 84; frame(84, order);
+    require(sdk_screen_activation(84, 1) != ready_again);
+    opxy::platform::ScreenActivation wrap = {84, 0, 0xffffffffu, 1};
+    require(wrap.token(84, 1) == 1);
+    wrap.serial = 0xffffffffu; wrap.select(85);
+    require(wrap.serial == 1 && wrap.token(85, 1) != 0);
+    std::puts("screen order and page/track activation ok");
     return 0;
 }

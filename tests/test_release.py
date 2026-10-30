@@ -26,7 +26,7 @@ class Release(unittest.TestCase):
     def test_a_release_fetches_the_catalog_exports_the_kit_then_deploys(self):
         with tempfile.TemporaryDirectory() as directory:
             for target, dry in (('beta', True), ('production', True), ('beta', False)):
-                out = Path(directory) / f'{target}-{dry}'
+                out = Path(directory).resolve() / f'{target}-{dry}'
                 with self.subTest(target=target, dry=dry), mock.patch.object(release, 'branch', return_value='staging'), \
                         mock.patch.object(release, 'published', return_value=True), \
                         mock.patch.object(release, 'outside_checkouts', return_value=True), \

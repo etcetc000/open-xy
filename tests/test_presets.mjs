@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {buildAssets, presetPath, sha256} from '../builder/core.mjs';
+import {buildAssets, presetFiles, presetPath, sha256} from '../builder/core.mjs';
 
 const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 // Catalog entries as the Python SDK writes them (any valid Q15 defaults).
@@ -52,6 +52,39 @@ test('all selections include only their instrument presets with native names and
     assert.deepEqual(Object.keys(files).filter(p=>p.startsWith('user/')),[]);
   }
   assert.deepEqual(machines,original);
+});
+
+// A machine's own presets as tooling.machines.read_presets passes them on.
+const own = (changes = {}) => ({engine: {params: [1, 2, 3, 4, 5, 6, 7, 8], volume: 9000}, platform: 'OP-XY',
+  regions: [], type: 'probesynth', version: 4, ...changes});
+
+test("a machine's own presets install beside its init preset, unchanged", async () => {
+  const synth = {...machines[0], presets: {'warm-pad': own(), bass_2: own({octave: -1})}};
+  const {kit, catalog} = await fixture([synth, ...machines.slice(1)]);
+  const files = await buildAssets(kit, ['probesynth', 'probefx'], catalog, numbers);
+  assert.deepEqual(Object.keys(files).filter(p => p.startsWith('content/presets/')).sort(),
+    ['content/presets/probesynth/bass_2.json', 'content/presets/probesynth/default.json',
+      'content/presets/probesynth/warm-pad.json']);
+  const read = path => new TextDecoder().decode(files[path]);
+  assert.deepEqual(JSON.parse(read('content/presets/probesynth/bass_2.json')), own({octave: -1}));
+  assert.equal(read('content/presets/probesynth/warm-pad.json'), JSON.stringify(own(), null, 2) + '\n');
+  // The install guide lists the same files.
+  assert.deepEqual(Object.keys(presetFiles(synth)).sort(), ['content/presets/probesynth/bass_2.json',
+    'content/presets/probesynth/default.json', 'content/presets/probesynth/warm-pad.json']);
+  assert.deepEqual(presetFiles(machines[3]), {});
+  // Its own default replaces the generated init preset.
+  const authored = presetFiles({...machines[0], presets: {default: own({octave: 1})}});
+  assert.deepEqual(authored, {'content/presets/probesynth/default.json': own({octave: 1})});
+});
+
+test("a machine's own presets are checked again before they reach a device", async () => {
+  for (const presets of [{default: own({type: 'x'})}, {'../x': own()}, {'Warm Pad': own()}, {a: own({type: 'fm2op'})},
+    {a: own({version: 3})}, {a: own({platform: 'OP-1'})}, {a: own({regions: [{sample: 'kick.wav'}]})},
+    {a: own({engine: {params: [0]}})}, {a: own({engine: {params: Array(8).fill(32768)}})}, {a: null},
+    Object.fromEntries(Array.from({length: 17}, (_, i) => ['p' + i, own()])), []]) {
+    const {kit, catalog} = await fixture([{...machines[0], presets}]);
+    await assert.rejects(buildAssets(kit, ['probesynth'], catalog, numbers), /Invalid machine preset/);
+  }
 });
 
 test('preset generation rejects unsafe paths, foreign kinds and invalid engine parameter values', async () => {

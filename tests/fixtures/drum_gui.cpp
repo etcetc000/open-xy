@@ -12,7 +12,7 @@ opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sd
 namespace {
 using namespace opxy;
 using namespace opxy::platform;
-u32 track, key = 53, engine = 34, page, controller = 0x8400b208;
+u32 track, key = 53, engine = 34, page, controller = 0x8400dff8;
 u32 publications, dirty, clicks, fallback, last_key, turned_slot;
 int ownership = 1;
 bool shifted, shifted_octave;
@@ -45,13 +45,7 @@ void* region(u32 selected, u32 note, u32* scratch, u32 nearest) {
 void changed() { ++dirty; }
 void publish(u32 note) { ++publications; last_key = note; }
 u32 stock_edit(u32, u32, const u32*, u32) { ++fallback; return 1234; }
-// The event is a small token or, for a turn the SDK rewrote, a pointer to three words.
-i32 turned_detents = -1;
-u32 turn(u32, u32 selected, u32 slot, __UINTPTR_TYPE__ event) {
-    require(selected == track); turned_slot = slot;
-    turned_detents = event > 0xffff ? reinterpret_cast<const i32*>(event)[0] | reinterpret_cast<const i32*>(event)[1] : -1;
-    return slot;
-}
+u32 turn(u32, u32 selected, u32 slot, u32) { require(selected == track); turned_slot = slot; return slot; }
 const char* title(u32, u32) { return "stock"; }
 u32 text(u32, const char*) { return 0; }
 void shown(u32 a, u32 b, u32 c, u32 d) {
@@ -66,30 +60,29 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
 };
 const opxy::u32 sdk_drum_machine_count = 1;
 const opxy::platform::SynthControls sdk_synth_controls[] = {
-    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, format, false, {5, 5, 5, 5, 5, 5, 5, 5}},
-    {reinterpret_cast<const char*>(35), ready, {0,1,2,3,4,5,6,7}, 0xf8, format, false, {5, 0, 64, 2, 0, 0, 0, 128}, 0x02}
+    {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, false}
 };
-const opxy::u32 sdk_synth_control_count = 2;
+const opxy::u32 sdk_synth_control_count = 1;
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     switch (address) {
     case kSelectedTrack: return reinterpret_cast<Address>(&track);
-    case 0x08023c74: return reinterpret_cast<Address>(&page);
-    case 0x8d585eb4: return reinterpret_cast<Address>(&get_engine);
-    case 0x8d4d7650: return reinterpret_cast<Address>(&get_key);
-    case 0x8d4d78cc: return reinterpret_cast<Address>(&get_track);
-    case 0x8d51e5bc: return reinterpret_cast<Address>(&get_shift);
-    case 0x8c095008: return reinterpret_cast<Address>(&top);
-    case 0x8d51e634: return reinterpret_cast<Address>(&press);
-    case 0x8d587904: return reinterpret_cast<Address>(&region);
-    case 0x8d5878a8: return reinterpret_cast<Address>(&canonical);
-    case 0x8d584584: return reinterpret_cast<Address>(&changed);
-    case 0x8d4d68c0: return reinterpret_cast<Address>(&publish);
-    case 0x8d4d6908: return reinterpret_cast<Address>(&stock_edit);
-    case 0x8d5ab8ec: return reinterpret_cast<Address>(&turn);
-    case 0x8d5065fc: return reinterpret_cast<Address>(&title);
-    case 0x8d5ff080: return reinterpret_cast<Address>(&text);
+    case 0x080238bc: return reinterpret_cast<Address>(&page);
+    case 0x8d58781c: return reinterpret_cast<Address>(&get_engine);
+    case 0x8d4d6c98: return reinterpret_cast<Address>(&get_key);
+    case 0x8d4d6f14: return reinterpret_cast<Address>(&get_track);
+    case 0x8d51f184: return reinterpret_cast<Address>(&get_shift);
+    case 0x8c0944b0: return reinterpret_cast<Address>(&top);
+    case 0x8d51f1fc: return reinterpret_cast<Address>(&press);
+    case 0x8d58926c: return reinterpret_cast<Address>(&region);
+    case 0x8d589210: return reinterpret_cast<Address>(&canonical);
+    case 0x8d585ee8: return reinterpret_cast<Address>(&changed);
+    case 0x8d4d5f18: return reinterpret_cast<Address>(&publish);
+    case 0x8d4d5f60: return reinterpret_cast<Address>(&stock_edit);
+    case 0x8d5ad5bc: return reinterpret_cast<Address>(&turn);
+    case 0x8d506c4c: return reinterpret_cast<Address>(&title);
+    case 0x8d6011f0: return reinterpret_cast<Address>(&text);
     default: std::abort();
     }
 }
@@ -205,47 +198,5 @@ int main() {
     shown(0,1,2,3);
     sdk_synth_press(0); ++presses; shown(0,1,2,3);
     require(clicks == presses);
-
-    // An owned synth's enum moves a choice a detent (two when accelerated) and
-    // lands on the choice's midpoint, which the machine reads as that choice.
-    ownership = 1; engine = 35;
-    const i32 up[3] = {1000, 1, 0}, down[3] = {-1000, -1, 0}, fast[3] = {3000, 1, 2}, still[3] = {0, 0, 0};
-    const i32 lots[3] = {0, 0x7fffffff, 0}, fewer[3] = {0, -2147483647 - 1, 0};
-    const u32 counts[4] = {5, 64, 2, 128}, slots[4] = {0, 2, 3, 7};
-    for (u32 k = 0; k < 4; ++k) {
-        const u32 n = counts[k], slot = slots[k];
-        const auto choice = [n](i32 v) { return ((static_cast<u32>(v) >> 16) * n) >> 15; };
-        i32 value = 0, stepped = -1;
-        for (u32 c = 1; c < n; ++c) {
-            require(sdk_synth_step(0, slot, value, up, stepped) && choice(stepped) == c);
-            value = stepped;
-        }
-        require(sdk_synth_step(0, slot, value, up, stepped) && choice(stepped) == n - 1);
-        require(sdk_synth_step(0, slot, value, down, stepped) && choice(stepped) == n - 2);
-        require(sdk_synth_step(0, slot, 0, fast, stepped) && choice(stepped) == (n > 2 ? 2 : 1));
-        require(sdk_synth_step(0, slot, 0, still, stepped) && choice(stepped) == 0);
-        require(sdk_synth_step(0, slot, 0, lots, stepped) && choice(stepped) == (n > 8 ? 8 : n - 1));
-        require(sdk_synth_step(0, slot, 0x7fffffff, fewer, stepped) && choice(stepped) == (n > 8 ? n - 9 : 0));
-        require(sdk_synth_step(0, slot, -5, up, stepped) && choice(stepped) == 1);
-    }
-    i32 stepped = 0;
-    require(!sdk_synth_step(0, 1, 0, up, stepped));          // continuous: stock steps it
-    require(!sdk_synth_step(0, 0, 0, nullptr, stepped));
-    require(!sdk_synth_step(0, 8, 0, up, stepped));
-    require(!sdk_synth_step(8, 0, 0, up, stepped));
-    engine = 34;
-    require(!sdk_synth_step(0, 0, 0, up, stepped));          // a drum kit steps its own integers
-    engine = 35; ownership = 0;
-    require(!sdk_synth_step(0, 0, 0, up, stepped));
-    engine = 36; ownership = 1;
-    require(!sdk_synth_step(0, 0, 0, up, stepped));
-
-    // An absent slot (slot 1 here) turns nothing: stock gets a turn of no detents.
-    engine = 35; page = 0;
-    turned_detents = -1;
-    sdk_synth_turn(0, 0, 1, 1);
-    require(turned_slot == 1 && turned_detents == 0);
-    sdk_synth_turn(0, 0, 2, 1);
-    require(turned_slot == 2 && turned_detents == -1);
     return 0;
 }

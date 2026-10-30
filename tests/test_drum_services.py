@@ -14,7 +14,7 @@ from test_sample_services import HOST_CXX, ROOT
 @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
 class DrumServices(unittest.TestCase):
     def test_generated_classification_does_not_require_gui_screen(self):
-        platform = ROOT / 'sdk/platform/opxy-1.2.0'
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
         machine = SimpleNamespace(kind='drum', prefix='probe', definition={'resources': {'modelCount': 12}})
         with tempfile.TemporaryDirectory(prefix='drum-classification-') as folder:
             folder = Path(folder)
@@ -31,7 +31,7 @@ class DrumServices(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_pad_edit_alternates_shift_and_model_changes(self):
-        platform = ROOT / 'sdk/platform/opxy-1.2.0'
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
         with tempfile.TemporaryDirectory(prefix='drum-services-') as folder:
             folder = Path(folder)
             stock = (platform / 'stock.hpp').read_text()

@@ -38,11 +38,11 @@ const opxy::platform::CompanionMachine sdk_companion_machines[] = {
 
 Address opxy::platform::host_stock_address(Address address) {
     switch (address) {
-    case 0x8fed0350: return reinterpret_cast<Address>(&open_file);
-    case 0x8fed05c8: return reinterpret_cast<Address>(&read_file);
-    case 0x8fed078c: return reinterpret_cast<Address>(&write_file);
-    case 0x8fed00b6: return reinterpret_cast<Address>(&close_file);
-    case 0x8d5973ac: return reinterpret_cast<Address>(&stock_save);
+    case 0x8fed0348: return reinterpret_cast<Address>(&open_file);
+    case 0x8fed05bc: return reinterpret_cast<Address>(&read_file);
+    case 0x8fed0780: return reinterpret_cast<Address>(&write_file);
+    case 0x8fed00ae: return reinterpret_cast<Address>(&close_file);
+    case 0x8d599074: return reinterpret_cast<Address>(&stock_save);
     }
     std::abort();
 }

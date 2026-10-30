@@ -21,7 +21,7 @@ def identifier(value):
     require(isinstance(value, str) and re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', value), 'Invalid identifier')
 
 
-# The stock firmware's own engine and effect types (stock 1.2.0 catalog).
+# The stock firmware's own engine and effect types (stock 1.2.1 catalog).
 STOCK_TYPES = frozenset({'sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 'hardsync', 'dissolve', 'axis',
                          'wavetable', 'simple', 'midi', 'multisampler',
                          'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi'})
@@ -67,7 +67,9 @@ RESOURCES = {
 # A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
 # declares its frame's budget within these limits.
 DISPLAY_FIELDS = ('stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'texts', 'palette')
-DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 4), palette=(1, 16))
+DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 16), palette=(1, 16))
+# More text slots than this need SDK 1.3 (tooling.machines).
+SDK_1_2_TEXTS = 4
 # Analysis storage is allocated from the stock heap at runtime, which also holds
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
@@ -81,7 +83,8 @@ EFFECT_BUFFER_LIMIT = 524288
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
 # A synth's first four fill the four-control page; up to four more are alternates
-# (see control_positions). Sample engines and effects use one to eight.
+# (see control_positions). Sample engines and effects use one to eight; an
+# effect's after the first four are alternates on the send page.
 CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
@@ -92,15 +95,21 @@ def control_positions(definition):
     """The synth page position (encoder) that edits each parameter, in parameter order.
 
     The first four parameters are the positions' own; each later one names the
-    position it alternates on with `control`. Pressing an encoder cycles its
-    position through its own parameter, then its alternates in parameter order.
-    An absent parameter (an empty slot) belongs to no position: None.
+    position it alternates on with `control`, which an effect may leave out to
+    alternate on position i - 4. Pressing an encoder cycles its position through
+    its own parameter, then its alternates in parameter order.
     """
-    return [None if parameter.get('absent') else parameter.get('control', i) for i, parameter in enumerate(definition['parameters'])]
+    return [parameter.get('control', i % SYNTH_POSITIONS) for i, parameter in enumerate(definition['parameters'])]
+
+
+def paged(definition):
+    """Whether a press switches the synth's whole page (`"press": "page"`, SDK 1.3)."""
+    return definition.get('press') == 'page'
 
 
 def validate_definition(value, kind):
-    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources'), 'definition')
+    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *(('press',) if 'press' in value else ())),
+         'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
@@ -142,19 +151,22 @@ def validate_definition(value, kind):
             f'Control count outside {low}..{high} for this kind')
     names = set()
     for i, parameter in enumerate(parameters):
-        alternate = kind in ('synth', 'drum') and i >= SYNTH_POSITIONS
-        require(kind == 'synth' or not (isinstance(parameter, dict) and 'absent' in parameter),
-                'Only a synth leaves a slot absent')
-        validate_parameter(parameter, alternate)
+        alternate = kind in ('synth', 'drum', 'effect') and i >= SYNTH_POSITIONS
+        validate_parameter(parameter, alternate, required=kind in ('synth', 'drum'))
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
     if kind == 'drum':
         require(sorted(p['control'] for p in parameters[4:]) == [0, 1, 2, 3],
                 'A drum kit has one alternate per encoder')
+    # Two pages share positions with no alternate; no duplicate saved parameters.
+    if 'press' in value:
+        alternates = control_positions(value)[SYNTH_POSITIONS:]
+        require(kind == 'synth' and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+                len(set(alternates)) == len(alternates),
+                '"press": "page" needs five to eight synth parameters and at most one alternate per position')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
-    present = {p['id'] for p in parameters if not p.get('absent')}
     for name, preset in value['presets'].items():
-        label(name); keys(preset, present, 'preset')
+        label(name); keys(preset, names, 'preset')
         for default in preset.values(): number(default, 0, 1, 'preset value')
     return value
 
@@ -187,19 +199,12 @@ def validate_display(display):
             'Display state must occupy aligned whole words')
 
 
-def validate_parameter(parameter, alternate=False):
-    if isinstance(parameter, dict) and parameter.get('absent') is not None:
-        # An empty slot that keeps later parameters at their indices: no label, no
-        # position, no presets; its encoder shows nothing and turns nothing.
-        keys(parameter, ('id', 'label', 'default', 'mapping', 'display', 'absent'), 'absent parameter')
-        require(parameter['absent'] is True and parameter['label'] == '' and parameter['default'] == 0 and
-                parameter['mapping'] == {'kind': 'linear', 'minimum': 0, 'maximum': 1} and parameter['display'] == 'percent',
-                'An absent parameter is {"absent": true, "label": "", "default": 0, linear 0..1, percent}')
-        identifier(parameter['id'])
-        return
-    # A synth's parameters after the first four are alternates of one control position.
-    keys(parameter, ('id', 'label', 'default', 'mapping', 'display', *(('control',) if alternate else ())), 'parameter')
-    if alternate:
+def validate_parameter(parameter, alternate=False, required=True):
+    # A synth's or effect's parameters after the first four are alternates of one
+    # control position, which a synth's must name.
+    named = alternate and (required or 'control' in parameter)
+    keys(parameter, ('id', 'label', 'default', 'mapping', 'display', *(('control',) if named else ())), 'parameter')
+    if named:
         require(type(parameter['control']) is int and 0 <= parameter['control'] < SYNTH_POSITIONS,
                 'An alternate parameter names its control position 0..3')
     identifier(parameter['id']); control_label(parameter['label'])

@@ -1,0 +1,30 @@
+
+// Separate state and scratch memory; never borrows a live send slot.
+#include "benchmark.hpp"
+extern "C" opxy::benchmark::Stats @PREFIX@_benchmark() __asm__("@PREFIX@_benchmark");
+opxy::benchmark::Stats @PREFIX@_benchmark() {
+    using namespace opxy;
+    using namespace opxy::benchmark;
+    Stats stats{};
+    @NAMESPACE@::State state{};
+    Memory memory(@BUFFER_BYTES@);
+    if (@BUFFER_BYTES@ && !memory.data) return stats;
+    u32* scratch = static_cast<u32*>(memory.data);
+    for (u32 i = 0; i < @BUFFER_BYTES@ / 4u; ++i) scratch[i] = 0;
+    @NAMESPACE@::initialize(state);
+    const i32 parameters[8] = {@DEFAULTS@};
+    i32 left[64], right[64];
+    for (u32 block = 0; block < blocks; ++block) {
+        for (u32 i = 0; i < 64; ++i) {
+            left[i] = static_cast<i32>(pcm(block * 64u + i)) * 65536;
+            right[i] = static_cast<i32>(pcm(block * 64u + i + 137u)) * 65536;
+        }
+        const Transport time = transport(block);
+        (void)time;
+        const u32 begin = cycles();
+        @NAMESPACE@::process(state, @BUFFER@@TRANSPORT@left, right, parameters);
+        stats.add(cycles() - begin);
+        stats.observe(left, 64); stats.observe(right, 64);
+    }
+    return stats;
+}
