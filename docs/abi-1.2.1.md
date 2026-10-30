@@ -28,7 +28,9 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample dispatch | 2 | Recognizes owned SDK sample registrations and selects the stock sampler's (page 2) or multisampler's (page 7) audio payload |
 | Sampler page | 9 | Shows an owned page-2 engine's track as the stock sampler's page, with its one sample in region 0 for every key |
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
-| Drum-page services | 20 | Routes controls, octave publication, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
+| Drum-page services | 19 | Routes controls, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
+| Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines and note players |
+| Note players | 6 | Routes owned player construction, project loading, controllers and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 1 | Paints a selected owned synth page before stock overlays |

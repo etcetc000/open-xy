@@ -432,7 +432,7 @@ def catalog_entry(m):
     """The stock catalog text inserted for a machine, in the reviewed byte layout."""
     if m.kind in ('effect', 'player'):
         return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
-                ',\n            "id": ' + str(m.identity['effect'] if m.kind == 'effect' else m.identity['player'] + 4) +
+                ',\n            "id": ' + str(m.identity['effect'] if m.kind == 'effect' else m.identity['player'] + PLAYER_CATALOG_OFFSET) +
                 ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }')
     return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
             ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }\n')

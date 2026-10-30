@@ -383,6 +383,6 @@ test('players have stable separate types and share the relocated page pool', () 
   assert.notEqual(layout.probeplayer.player, layout.second.player);
   assert.notEqual(layout.probeplayer.page, layout.second.page);
   assert.deepEqual(numberLayout(rules, [], layout, machines.slice().reverse()), layout);
-  assert.deepEqual(activeServices(profile, ['player']).sort(), ['octaves', 'players']);
+  assert.deepEqual([...activeServices(profile, [{kind: 'player'}])].sort(), ['octaves', 'players']);
   assert.throws(() => numberLayout(rules, [], {probeplayer: {player: 4, page: 84}}, machines), /cannot use/);
 });

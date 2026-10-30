@@ -1,6 +1,6 @@
 // A note player's own page: the stock four-control header with the player's
-// captions and values, 24 dots that show or hide, and one centred line of
-// text. The player draws it from its State (opxy/player.hpp: display). It
+// captions and values, 24 input dots, a centered chord line, and an output
+// keyboard showing emitted notes. The player supplies its input display. It
 // paints in place of the stock Maestro page while the selected track plays
 // the player (players.cpp). Include once, from the player's generated unit.
 #pragma once
@@ -10,7 +10,8 @@
 #include "screen.hpp"
 
 namespace opxy { namespace screen { namespace {
-// Machine: ids[] names the 24 dots then the text line; titles[] the header
+// Machine: ids[] names the input dots, text, output keys and output dots;
+// titles[] names the header
 // captions; display() fills the page from the selected track's player, false
 // when that track plays no such player.
 template <class Machine> struct PlayerPage {
