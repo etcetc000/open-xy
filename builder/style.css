@@ -476,3 +476,6 @@ footer details[open] { flex-basis:100%; }
 #device-flow[data-quick="true"] #flow-back,
 #device-flow[data-quick="true"] #connection-help { display:none; }
 #device-flow[data-quick="true"] .flow-body { display:block; }
+#expert-summary { grid-template-columns:100px minmax(0,1fr); gap:12px 20px; line-height:1.5; }
+#expert-summary dd { min-width:0; overflow-wrap:anywhere; font-family:inherit; }
+[data-page="5"] .page-header p { display:block; }

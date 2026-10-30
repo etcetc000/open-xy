@@ -482,6 +482,7 @@ test('expert build-and-copy chooses USB in the gesture, builds before opening, v
   assert.ok(log.indexOf('Added content/') < log.indexOf('Added os.ldr'));
   assert.match(f.$('flow-title').textContent, /Files verified/);
   assert.equal(f.$('device-flow').dataset.quick, 'true');
+  assert.equal(f.$('flow-exit').textContent, 'Back to expert mode');
   assert.equal(fake.state.opened, false);
 });
 

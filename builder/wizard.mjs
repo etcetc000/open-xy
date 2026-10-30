@@ -57,8 +57,7 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
       delivered ? 'Files verified on your OP–XY.' : busy ? 'Building and copying…' : 'Build and copy',
       delivered ? 'Exit MTP (track 2), write OS (track 5), wait for “firmware written ok!”, then power-cycle.'
         : 'Keep the XY in dev-menu MTP mode. Do not flash until every file is verified.',
-      busy ? [] : delivered ? [action('Back to expert mode', 'exit')]
-        : [action('Try copy again', null, 'mtp-send'), action('Back to expert mode', 'exit')],
+      busy || delivered ? [] : [action('Try copy again', null, 'mtp-send')],
     ];
     const install = purpose === 'install', disabling = isDisabling(), recovering = purpose === 'recover', kit = getKit();
     const transfer = computer ? 'open-dev-menu' : 'computer';
@@ -190,7 +189,7 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
     $('dev-cancel').textContent = purpose === 'source' && direct() ? 'Stop reading' : sending ? 'Stop sending' : 'Cancel connection';
     $('flow-back').hidden = !history.length || ['write-os', 'write-result', 'write-help', 'disabled'].includes(stage);
     $('flow-back').disabled = $('flow-exit').disabled = busy;
-    $('flow-exit').textContent = previewMode ? 'Back to builder' : hostPage === 1 ? 'Back to file choice' : 'Back to install choice';
+    $('flow-exit').textContent = quickMode ? 'Back to expert mode' : previewMode ? 'Back to builder' : hostPage === 1 ? 'Back to file choice' : 'Back to install choice';
     $('flow-download').hidden = previewMode || hostPage !== 4 || !hasDownload() || sendsDirectly();
     $('connection-help').hidden = !['enable', 'menu-help', 'missing-os', 'restart', 'disabled'].includes(stage);
     if (['enable', 'menu-help', 'missing-os', 'restart', 'disabled'].includes(stage) && !supported()) status('MIDI access is unavailable in this browser. Use Connection help below.', true);
