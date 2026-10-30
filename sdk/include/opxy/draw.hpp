@@ -61,13 +61,22 @@ struct Input {
     i32 slots[parameter_slots];  // Every declared parameter's value, 0 beyond the declared ones.
     u32 held_notes;          // Distinct gated MIDI pitches, 0..128; notes_unavailable if unknown.
     u32 note_off_serial;     // Gate closures, excluding duplicate releases and audio release tails.
+    // While Shift is held: 1, and each Shift control's choice, 0 beyond the
+    // declared ones (an effect's shift row, SDK 1.7; a drum kit's, SDK 1.9).
+    // A drum kit's choices are its selected key's model group, its model in
+    // the group and its choke group, or without groups its model and choke
+    // group; they hold at all times, shift only while Shift is held.
+    u32 shift;
+    u8 choices[4];
     u32 model;               // A drum kit's selected key's model (its machine); 0 for other kinds.
 };
 const u32 notes_unavailable = 0xffffffffu;
-static_assert(sizeof(Input) == 80 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
+static_assert(sizeof(Input) == 88 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
-              __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72 && __builtin_offsetof(Input, model) == 76,
+              __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72 &&
+              __builtin_offsetof(Input, shift) == 76 && __builtin_offsetof(Input, choices) == 80 &&
+              __builtin_offsetof(Input, model) == 84,
               "Drawing input layout (display.mjs)");
 static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (display.mjs)");
 

@@ -35,6 +35,14 @@ const char* sdk_drum_choke(opxy::u32 track) {
     return record ? names[drum_choke(record[24])] : "";
 }
 
+opxy::u32 sdk_drum_choke_choice(opxy::u32 track) {
+    using namespace opxy::platform;
+    if (track >= kTracks || !sdk_drum_machine(track_engine(track))) return 0;
+    const opxy::u32 key = stock<opxy::u32(opxy::u32)>(0x8d4d6c98)(track);
+    const unsigned char* record = static_cast<const unsigned char*>(pad_region(track, key));
+    return record ? drum_choke(record[24]) : 0;
+}
+
 const char* sdk_drum_title(opxy::u32 engine, opxy::u32 slot) {
     using namespace opxy;
     using namespace opxy::platform;

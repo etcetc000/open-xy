@@ -120,6 +120,7 @@ int main() {
     require(drum_choke(record[24]) == 0 && !std::strcmp(sdk_drum_choke(0), "NONE"));
     sdk_drum_edit(53, 5, event, 0);
     require(publications == 2 && (record[24] >> 4) == 5 && !std::strcmp(sdk_drum_choke(0), "3"));
+    require(sdk_drum_choke_choice(0) == 3);
     sdk_drum_edit(53, 5, event, 0);   // mute3 is the limit
     require(publications == 2);
     const u32 none[3] = {0, static_cast<u32>(-5), 0};

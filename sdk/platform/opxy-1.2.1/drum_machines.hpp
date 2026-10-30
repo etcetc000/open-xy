@@ -52,6 +52,8 @@ opxy::u32 sdk_drum_selected_pad(opxy::u32 track) __asm__("sdk_drum_selected_pad"
 opxy::u32 sdk_drum_pad(opxy::u32 track, opxy::u32 note) __asm__("sdk_drum_pad");
 // The selected key's choke group, as the Shift page names it.
 const char* sdk_drum_choke(opxy::u32 track) __asm__("sdk_drum_choke");
+// The same as a choice, 0 (none) to 3.
+opxy::u32 sdk_drum_choke_choice(opxy::u32 track) __asm__("sdk_drum_choke_choice");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
 }

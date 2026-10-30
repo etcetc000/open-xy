@@ -143,6 +143,7 @@ struct Controls {
     u32 model;   // a drum kit's selected key's model; 0 otherwise
     u32 pad;     // a drum kit's selected canonical pad, 53..76; 0 otherwise
     bool choosing;   // a drum kit's Shift page: the cells name the model and choke group
+    u8 choices[4];   // a drum kit's Shift controls' choices (draw::Input::choices)
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -185,6 +186,13 @@ inline bool refresh_controls(Base* o, Controls& controls) {
         ? sdk_drum_machine(platform::track_engine(controls.track)) : nullptr;
     if (drum && !sdk_drum_values(controls.track, &model, drum_values)) drum = nullptr;
     controls.model = drum ? model : 0;
+    for (u32 i = 0; i < 4; ++i) controls.choices[i] = 0;
+    if (drum) {
+        const u32 choke = sdk_drum_choke_choice(controls.track);
+        const u32 group = drum->group(model);
+        const u32 grouped[4] = {group, model - drum->group_first(group), choke, 0}, plain[4] = {model, choke, 0, 0};
+        for (u32 i = 0; i < 4; ++i) controls.choices[i] = static_cast<u8>(drum->group_count ? grouped[i] : plain[i]);
+    }
     controls.pad = drum ? sdk_drum_selected_pad(controls.track) : 0;
     if (drum) {
         // Stock's vector holds the track parameters a held step locks: show

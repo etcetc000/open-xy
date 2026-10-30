@@ -121,6 +121,19 @@ a 76-byte input; the browser host also accepts existing ABI 1 previews, which
 retain their 68-byte input and do not receive activity. Rebuild old preview
 modules to use the new fields.
 
+### Shift and a drum kit's machine (SDK 1.9)
+
+| Field | Meaning |
+| --- | --- |
+| `shift` | 1 while Shift is held on a page with Shift controls (a drum kit's), else 0. |
+| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. They hold whether or not Shift is held, so a screen can show them in its header either way. |
+| `model` | A drum kit's selected key's model. |
+
+A screen that draws its own header (the two-page header) shows the Shift
+controls in its edited row while `shift` is 1, as the stock header does. The
+previews use drawing ABI 4, an 88-byte input; ABI 3 (84 bytes) ends after
+`choices`.
+
 ## Frame
 
 The frame persists between calls; the first call after reset must set every
