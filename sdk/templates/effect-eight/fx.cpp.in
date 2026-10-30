@@ -9,6 +9,13 @@ namespace {
 const opxy::u32 kFrames = 2048, kMask = kFrames - 1;
 enum { kRate, kDepth, kDelay, kFeedback, kShape, kStereo, kLevel, kDry };
 
+// Musical values at the quarters, where the captions read 0, 25, 50, 75 and 99
+// (docs/ux.md), as definition.json's mappings declare. Rate doubles each
+// quarter, 0.25 to 4 Hz, in phase steps a sample at 44.1 kHz; delay is 5 to
+// 25 ms, 10, 15 and 20 ms on the quarters, in frames.
+const opxy::i32 kRates[5] = {24348, 48696, 97392, 194783, 389566};
+const opxy::i32 kDelays[5] = {220, 441, 662, 882, 1102};
+
 opxy::i32 q15(opxy::i32 control) { return control < 0 ? 0 : control >> 16; }
 
 // The LFO at a phase, -32767..32767: a triangle, or rounded towards a sine.
@@ -46,11 +53,11 @@ void process(State& state, opxy::Buffer buffer, opxy::Channel left, opxy::Channe
         for (unsigned i = 0; i < opxy::block_frames; ++i) left[i] = right[i] = 0;
         return;
     }
-    // 0.1 to 5 Hz, in phase steps a sample at 44.1 kHz.
-    const opxy::u32 step = 9739u + static_cast<opxy::u32>(q15(parameters[kRate]) * 14949 >> 10);
-    const opxy::i32 base = (220 + (q15(parameters[kDelay]) * 882 >> 15)) << 8;  // 5..25 ms
+    const opxy::u32 step = static_cast<opxy::u32>(opxy::q31::anchored(parameters[kRate], kRates, 5));
+    const opxy::i32 base = opxy::q31::anchored(parameters[kDelay], kDelays, 5) << 8;
     const opxy::i32 depth = (q15(parameters[kDepth]) * 220 >> 15) << 8;        // up to 5 ms
-    const opxy::u32 spread = static_cast<opxy::u32>(q15(parameters[kStereo])) << 16;  // up to 180 degrees
+    // Up to 180 degrees between the sides: 90, a quarter cycle, at 50.
+    const opxy::u32 spread = static_cast<opxy::u32>(q15(parameters[kStereo])) << 16;
     const bool sine = q15(parameters[kShape]) < 16384;
     const opxy::i32 feedback = opxy::q31::multiply(parameters[kFeedback] < 0 ? 0 : parameters[kFeedback], 0x60000000);
     const opxy::i32 level = parameters[kLevel] < 0 ? 0 : parameters[kLevel];

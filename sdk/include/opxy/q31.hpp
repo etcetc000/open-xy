@@ -45,5 +45,17 @@ inline i32 half(i32 value) {
 #endif
 }
 
+// A control's value between evenly spaced anchors (SDK 1.7), as the
+// definition's "anchors" mapping: `count` values (2..256) at equal steps of
+// travel, the first at 0 and the last at full scale. Five anchors fall exactly
+// where the stock captions read 00, 25, 50, 75 and 99. Like the other controls
+// it reads the control in Q15. Neighbouring values must differ by less than 2^31.
+inline i32 anchored(i32 control, const i32* values, u32 count) {
+    const u32 q15 = control < 0 ? 0 : static_cast<u32>(control) >> 16;
+    if (q15 == 32767) return values[count - 1];
+    const u32 position = q15 * (count - 1), index = position >> 15;
+    return values[index] + multiply(values[index + 1] - values[index], static_cast<i32>((position & 32767) << 16));
+}
+
 
 }} // namespace opxy::q31

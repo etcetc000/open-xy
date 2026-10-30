@@ -6,11 +6,16 @@
     {
       "id": "rate",
       "label": "Rate",
-      "default": 0.15,
+      "default": 0.5,
       "mapping": {
-        "kind": "linear",
-        "minimum": 0.1,
-        "maximum": 5
+        "kind": "anchors",
+        "values": [
+          0.25,
+          0.5,
+          1,
+          2,
+          4
+        ]
       },
       "display": "ratio"
     },
@@ -28,7 +33,7 @@
     {
       "id": "delay",
       "label": "Delay",
-      "default": 0.3,
+      "default": 0.25,
       "mapping": {
         "kind": "linear",
         "minimum": 0.005,
@@ -77,7 +82,7 @@
       "id": "level",
       "label": "Level",
       "control": 2,
-      "default": 0.7,
+      "default": 0.75,
       "mapping": {
         "kind": "linear",
         "minimum": 0,

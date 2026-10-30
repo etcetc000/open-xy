@@ -122,7 +122,10 @@ Every machine kind keeps its controls in `definition.json` (for example
 Controls are finite numbers in [0, 1]. Mappings support `linear`
 (`minimum + (maximum - minimum) * value`), three or more increasing `anchors`
 interpolated evenly, `power` (`maximum * value^exponent`, exponent other than 1),
-`exponential` (`minimum * (maximum/minimum)^value`) and `enum`. Display formats
+`exponential` (`minimum * (maximum/minimum)^value`) and `enum`. Five anchors
+fall on the quarters, where stock captions read 00, 25, 50, 75 and 99;
+`opxy::q31::anchored` (`opxy/q31.hpp`) applies the same mapping to integer
+values in C++. Display formats
 are `ratio`, `percent` (the normalized value scaled to 0.0–100.0, without a suffix), `bipolar` (a -1..1 value as a signed
 percentage), `duration`, `semitones`, `enum` and `division` (SDK 1.2: one of
 stock delay's eight note lengths, below). Mappings describe

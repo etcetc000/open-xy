@@ -35,6 +35,16 @@ int main() {
         if (block < 3 && !silent()) { std::puts("FAIL the chorus answers before its delay"); return 1; }
         if (block == 3 && silent()) { std::puts("FAIL the chorus never repeats its input"); return 1; }
     }
+    // A quarter of the delay's travel, where its caption reads 25, is 10 ms:
+    // 441 frames, in block 6.
+    const opxy::i32 quarter[8] = {0, 0, 0x20000000, 0, 0, 0, 0x7fffffff, 0x7fffffff};
+    @ID@::initialize(state);
+    for (unsigned block = 0; block < 8; ++block) {
+        for (unsigned i = 0; i < opxy::block_frames; ++i) left[i] = right[i] = block == 0 && i == 0 ? 0x40000000 : 0;
+        @ID@::process(state, buffer, left, right, quarter);
+        if (block < 6 && !silent()) { std::puts("FAIL a 10 ms chorus answers early"); return 1; }
+        if (block == 6 && silent()) { std::puts("FAIL a 10 ms chorus never repeats its input"); return 1; }
+    }
     // Outside a send there is no buffer: silence.
     const opxy::Buffer none = {0, 0};
     for (unsigned i = 0; i < opxy::block_frames; ++i) left[i] = right[i] = 0x40000000;
