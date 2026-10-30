@@ -110,23 +110,17 @@ int main() {
     aux_tab = 1;
     sdk_synth_pages();
     require(aux_tab == 1 && sets == sets_before && aux_sets == 0, "Auxiliary track's page changed");
-    // One a machine holds hides its pages on the aux controller's tab, and keeps a
-    // press of a hidden page's key for the machine, as on an instrument track.
+    // Aux replacements do not pass through instrument-page hiding.
     selected = 11;
     aux_engines[11] = 42;
-    aux_tab = 0;
-    sdk_synth_pages();
-    aux_tab = 3;
-    sdk_synth_pages();
-    require(aux_tab == 3 && aux_sets == 0, "Held aux track's LFO tab hidden");
-    aux_tab = 0;
-    sdk_synth_pages();
-    aux_tab = 2;
-    sdk_synth_pages();
-    require(aux_tab == 0 && aux_sets == 1 && sets == sets_before, "Held aux track's hidden tab kept");
-    require(sdk_synth_page_key(11) == 3 && sdk_synth_page_key(11) == 0, "M3 press on a held aux track not kept once");
-    aux_engines[11] = 0;
-    sdk_synth_pages();
+    for (u32 tab = 0; tab < 4; ++tab) {
+        aux_tab = tab;
+        sdk_synth_pages();
+        require(aux_tab == tab && aux_sets == 0, "Aux page changed by instrument hiding");
+    }
+    sdk_synth_queue_page_key(11, 2);
+    require(sdk_synth_page_key(0) == 0 && sdk_synth_page_key(11) == 2 && sdk_synth_page_key(11) == 0,
+            "Direct aux M2 was not delivered once to its owner");
 
     return 0;
 }

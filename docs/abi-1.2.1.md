@@ -39,7 +39,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Track control | 3 | Runs a synth's track control once per GUI tick, after stock's own call at that site, lets it capture encoder edits, and shows its overlays as parameter values |
-| Aux tracks | 11 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
+| Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
@@ -519,7 +519,7 @@ usable for that reason (its branches share `8c08fd60`).
 | --- | --- | --- |
 | `8c08f6ec` | `UNLINK; R0 = 1; RTS`: Shift + M1 in the shifted-key method (+0x10, `8c08f6b0`), which ignores Shift + M1..M4 | Opens the chooser on track 12; on the sends, stock's effect list (`8c08f60c`) |
 | `8c08f610` | Just after the `LINK` of `8c08f60c(controller, track)`, Shift + track key, which acts on the sends only | Opens the preset list on track 12; otherwise replays the four instructions and returns into stock |
-| `8c08f540` | `P1 = 840a0534` in the page method (+0x2c, `8c08f53c`) | On tab 0, and on a tab the machine hides, returns the machine's page |
+| `8c08f540` | `P1 = 840a0534` in the page method (+0x2c, `8c08f53c`) | Returns the machine's page on every tab except its explicitly enabled shared M4 LFO |
 | `8d512214` | The audio loop's call of the CV output `8d50f1cc` (voltage from word 0, mode from word 14) | Skipped while a machine holds track 12; once, clears stock's held CV notes (`8d5b59a0`) and lowers the gate (`8d5b5f78(0)`) |
 | `8d50e95c` | Note on's call of the CV gate `8d5b5fe0` | Skipped while a machine holds track 12 |
 | `8d53d2a0` | `P2 = 84056d50` in the aux LFO's destination label `8d53d160(track, group, slot)`, for group 0: stock's fixed `param1`..`param4` | While a machine holds the track, returns its parameter's name from the engine record (`8d506c4c`), as tracks 1-8 show theirs; otherwise replays the load |
@@ -549,10 +549,23 @@ the loaded project is in use: touching a track there (`8d587708` and the
 setters above) fails stock's assertion `data.cpp:985` at boot. The restore only
 records the holder; the next GUI tick marks the track.
 
-Hidden pages and their keys work as on instrument tracks ([hidden
-pages](#hidden-pages)), with the aux tab word and setter; stock's M2 sets no tab
-on tracks with no second page, CV's among them. The stock LFO switch-off stays
-on instrument tracks, where its byte is measured.
+A held aux track owns its input before stock's CV dispatch. The hook at
+`8c08fd30` covers 12 complete bytes after the unshifted key handler's prologue
+(`P2 = 50`, the parallel `R2 = R0; P1 = [P0]`, and `R7 = R0`). It consumes
+M1?M4 and machine-page encoder clicks. The hook at `8c08fa14` covers the
+complete eight-byte `P5 = 840a0534` load after the encoder handler's prologue.
+It sends machine-page turns directly to the SDK editor. Neither interval has
+an internal branch target. Both stubs preserve stock's input arguments and
+replay replaced instructions on fallback; handled paths unwind the original
+method's saved registers and frame. Only `sharedLfo: true` delegates M4's
+page and input to stock. Instrument `hidePages` polling never handles aux
+tracks. The shared LFO retains the track's existing LFO settings.
+
+Capture originals include their pattern block, engine and last edited value.
+A current pattern restores through stock's setter; an inactive pattern restores
+only its stored word, without publishing into the playing pattern. Project
+load/new-project callbacks discard transient capture and overlay bookkeeping
+without dereferencing stock's project during deserialization.
 
 **Presets.** Stock's instrument preset browser is a folder browser: the
 factory's `content/presets/<category>/<name>.json` and the user's

@@ -14,6 +14,7 @@ const char* sdk_fx_title(opxy::u32, opxy::u32) __asm__("sdk_fx_title");
 const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 }
 opxy::u32 (*sdk_aux_engine)(opxy::u32) = nullptr;
+bool (*sdk_aux_owns_page)(opxy::u32) = nullptr;
 
 namespace {
 using opxy::u32;
@@ -154,7 +155,8 @@ void sdk_synth_press(u32 encoder) {
             const u32 next = m->next[t->slots[i]];
             if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
         }
-    } else if (controller == kAuxController && word(kAuxTab) == 0 && (m = machine(byte(kSelectedTrack), t))) {
+    } else if (controller == kAuxController && sdk_aux_owns_page && sdk_aux_owns_page(byte(kSelectedTrack)) &&
+               (m = machine(byte(kSelectedTrack), t))) {
         // The page of a machine holding an aux track, as on an instrument track.
         for (u32 i = 0; i < opxy::page_controls; ++i) {
             if (i != encoder && !m->page) continue;

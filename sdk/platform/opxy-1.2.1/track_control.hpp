@@ -25,6 +25,7 @@ struct ControlMachine {
     u32 aux;
     const char* page;
     i32 defaults[8];
+    bool shared_lfo;  // explicitly use the shared M4 page; otherwise all page keys belong to the machine
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
     u32 page_id() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(page)); }
 };

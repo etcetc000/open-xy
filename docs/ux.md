@@ -72,9 +72,10 @@ things everywhere.
 - **Shift + track key opens presets**, in two columns as on tracks 1-8:
   folders, then presets. Ship a preset named `init` with the machine's
   defaults; the builders add one for the stock role, so it stays listed.
-- **Hide the pages it has no use for.** M2 and M3 on an aux track are its
-  other pages; a machine with no use for them hides them with `hidePages` and
-  may take the key itself. M4, the track's LFO, always stays.
+- **The replacement owns its interface.** M1 returns to its page; M2/M3
+  are its actions, without inherited stock pages to hide. Leave an unused
+  action inactive. Enable `trackControl.sharedLfo` explicitly to use the
+  shared M4 LFO page; otherwise M4 is another machine action.
 - **Mute is the bypass.** Muting the machine's track (aux + track key, or the
   mixer) switches its effect off, as it does stock's brain; show it on the
   page (`Input.muted`) rather than adding a bypass of your own.
