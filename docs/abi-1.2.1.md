@@ -640,6 +640,8 @@ stock OS 1.2.1 during release verification.
 The stock player object occupies one 64 KiB slot per track. The SDK reserves
 2048 bytes after the stock object for machine state. A plan appends one of
 eight bounded Maestro chord records, each holding at most eight tones. The
+record array starts at `+0x10c`, with its count at `+0x34c`; release checks
+authenticate both offsets against stock's step and note-off instructions. The
 unchanged stock step emits zero-delay tones and decrements their delays;
 note-off removes the root's record. The GUI snapshots negative-delay tones
 from these records for the output keyboard, bounding every observed count.

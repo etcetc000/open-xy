@@ -37,11 +37,12 @@ const u32 kPlayerSlots = 16;           // one per track
 const u32 kMaestroPage = 46;           // the stock Maestro page (chord.svg)
 const u32 kContinue = 0xffffffffu;
 
-// Maestro object fields: chord records from +0x1dc, their count at +0x41c.
+// OS 1.2.1 Maestro object fields: chord records from +0x10c, count at +0x34c.
 // A record's tone plays when its delay, decremented every step, reaches zero;
 // release sends note-off for every played tone when the record's root matches.
 typedef PlayerChord ChordRecord;
-const u32 kRecords = 0x1dc, kHeld = 0x41c, kMaxHeld = 8;
+const u32 kRecords = 0x10c, kHeld = 0x34c, kMaxHeld = 8;
+static_assert(kRecords + kMaxHeld * sizeof(ChordRecord) == kHeld, "Stock Maestro chord array layout");
 // Each track's player lives in its own 64 KiB slot; stock objects end below
 // 0x480, so the SDK state follows at a fixed offset.
 const u32 kStateOffset = 0x800;

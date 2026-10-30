@@ -3,6 +3,7 @@ from dataclasses import replace
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 import tempfile
@@ -112,6 +113,29 @@ class PlayerContracts(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
 class StockPlayer(unittest.TestCase):
+    def test_chord_storage_matches_stock_step_and_release(self):
+        from tooling.formats import sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        records, held, limit = (int(value, 0) for value in re.search(
+            r'kRecords = (0x[0-9a-f]+), kHeld = (0x[0-9a-f]+), kMaxHeld = (\d+)',
+            (PLATFORM / 'players.cpp').read_text(encoding='utf-8')).groups())
+        self.assertEqual(held - records, limit * 72)
+
+        def instruction(address, opcode, immediate):
+            at = mapped_offset(ldr(data), address, 4)
+            self.assertEqual(data[at:at+4], struct.pack('<HH', opcode, immediate),
+                             f'Player chord layout disagrees with stock at {address:#x}')
+
+        # Decode the SDK's layout against both stock consumers, not against
+        # another copy of the assumed offsets. OS 1.2.1 moved these fields.
+        instruction(0x8d57d8d4, 0xe121, records)  # step: R1 = record-array offset
+        instruction(0x8d57d8e0, 0xe428, held // 4)  # step: R0 = [P5 + held]
+        instruction(0x8d57d8dc, 0xe125, 72)  # step: chord stride
+        instruction(0x8d57d74c, 0xe122, records)  # release: R2 = record-array offset
+        instruction(0x8d57d758, 0xe428, held // 4)  # release: R0 = [P5 + held]
+        instruction(0x8d57d754, 0xe124, 72)  # release: chord stride
+
     def test_kept_methods_are_authenticated_stock_maestro(self):
         from tooling.formats import sha
         data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
