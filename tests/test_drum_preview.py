@@ -31,8 +31,8 @@ class DrumPreviewTests(unittest.TestCase):
             adapters.generate_voice_preview(root, definition, kind='drum')
             adapters.generate_display(root, definition=definition, kind='drum')
             self.assertIn('700000', (root / 'voice_preview.cpp').read_text())
-            definition['resources']['modelCount'] = 17
-            with self.assertRaisesRegex(ValueError, '2..16'):
+            definition['resources']['modelCount'] = 65
+            with self.assertRaisesRegex(ValueError, '2..64'):
                 adapters.generate_voice_preview(root, definition, kind='drum')
             with self.assertRaises(ValueError):
                 adapters.generate_display(root, definition=definition, kind='drum')

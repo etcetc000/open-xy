@@ -113,7 +113,7 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* region,
         // The payload's first word carries stock's reading of the pad's model
         // byte: only a pad the kit stored is marked.
         if (region && opxy::platform::drum_marked_q31(region[0]))
-            opxy::platform::drum_unpack(region + 1, &model, stored);
+            opxy::platform::drum_unpack(region + 1, &model, stored, @MODEL_COUNT@);
         if (model >= @MODEL_COUNT@) @NAMESPACE@::drum_defaults(handle->key, &model, stored);
         // The track's eight parameters offset the eight controls after
         // unpacking, never the persisted words; the model has no offset.

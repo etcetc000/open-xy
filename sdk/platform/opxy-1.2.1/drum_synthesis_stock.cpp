@@ -42,18 +42,22 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         // their cells name the choke group, so they turn nothing.
         return 0;
     } else {
-        // The encoders' discrete steps are already one unit a detent.
+        // The encoders' discrete steps are already one unit a detent; a slot
+        // the kit stores at 64 steps moves one of them.
         u8 shown[page_controls];
         sdk_synth_shown(track, shown);
         const u32 slot = shown[control % page_controls];
         if (slot >= kDrumControlCount || !machine->used(model, slot)) return 0;
-        i32 next = static_cast<i32>(controls[slot]) + delta;
+        const bool coarse = drum_coarse(machine->model_count, slot);
+        i32 next = static_cast<i32>(coarse ? drum_coarse_step(controls[slot]) : controls[slot]) + delta;
+        const i32 top = coarse ? 63 : 127;
         if (next < 0) next = 0;
-        if (next > 127) next = 127;
-        if (next == controls[slot]) return 0;
-        controls[slot] = static_cast<u8>(next);
+        if (next > top) next = top;
+        const u8 value = coarse ? drum_coarse_value(static_cast<u32>(next)) : static_cast<u8>(next);
+        if (value == controls[slot]) return 0;
+        controls[slot] = value;
     }
-    if (!drum_pack(model, controls, static_cast<i32*>(region) + 1)) return 0;
+    if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, machine->model_count)) return 0;
     record[24] = mark;
     stock<void()>(0x8d585ee8)();
     stock<void(u32)>(0x8d4d5f18)(key);

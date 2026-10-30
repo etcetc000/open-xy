@@ -1,14 +1,15 @@
 #include "drum_storage.hpp"
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 
 using namespace opxy;
 using namespace opxy::platform;
 static void require(bool valid) { if (!valid) std::abort(); }
 
-static void roundtrip(u32 model, const u8* source) {
+static void roundtrip(u32 model, const u8* source, u32 models = kDrumNarrowModels) {
     i32 words[4] = {};
-    require(drum_pack(model, source, words));
+    require(drum_pack(model, source, words, models));
     // Stock preset serialization: integer word >> 16, then integer << 16.
     // Exercise float32 conversion too: every persisted integer is exact.
     for (u32 i = 0; i < 4; ++i) {
@@ -16,9 +17,10 @@ static void roundtrip(u32 model, const u8* source) {
         const float json_integer = static_cast<float>(words[i] >> 16);
         words[i] = static_cast<i32>(static_cast<u32>(json_integer) << 16);
     }
-    u8 restored[8] = {}, restored_model = 99;
-    require(drum_unpack(words, &restored_model, restored));
-    require(restored_model == model && std::memcmp(source, restored, 8) == 0);
+    u8 restored[8] = {}, restored_model = 99, expected[8];
+    for (u32 i = 0; i < 8; ++i) expected[i] = drum_stored(models, i, source[i]);
+    require(drum_unpack(words, &restored_model, restored, models));
+    require(restored_model == model && std::memcmp(expected, restored, 8) == 0);
 }
 
 int main() {
@@ -30,7 +32,7 @@ int main() {
     if (opxy::platform::drum_model_q31(0, 0) || opxy::platform::drum_model_q31(2, 2)) return 98;
     // Every model with every control at every value, the others nonzero.
     u8 controls[8] = {};
-    for (u32 model = 0; model < kDrumModelLimit; ++model) {
+    for (u32 model = 0; model < kDrumNarrowModels; ++model) {
         std::memset(controls, 0, sizeof controls);
         roundtrip(model, controls);
         std::memset(controls, 127, sizeof controls);
@@ -67,7 +69,8 @@ int main() {
         require(!drum_pack(3, invalid, words));
         require(std::memcmp(words, baseline, sizeof words) == 0);
     }
-    require(!drum_pack(kDrumModelLimit, controls, words));
+    require(!drum_pack(kDrumNarrowModels, controls, words));
+    require(!drum_pack(33, controls, words, 33) && !drum_pack(0, controls, words, kDrumModelLimit + 1));
     require(std::memcmp(words, baseline, sizeof words) == 0);
     u8 output[8], output_model = 91;
     std::memset(output, 91, sizeof output);
@@ -84,6 +87,55 @@ int main() {
     require(!drum_pack(0, nullptr, words) && !drum_pack(0, controls, nullptr));
     require(!drum_unpack(nullptr, &output_model, output) && !drum_unpack(baseline, nullptr, output) &&
             !drum_unpack(baseline, &output_model, nullptr));
+
+    // A kit of more than 16 models: slots 6 and 7 at 64 steps, to the nearest
+    // (127 is the top), and every other control exact.
+    require(!drum_coarse(16, 6) && drum_coarse(17, 6) && drum_coarse(64, 7) && !drum_coarse(64, 5));
+    for (u32 v = 0; v < 128; ++v) {
+        const u8 stored = drum_stored(33, 6, v);
+        require(stored == drum_stored(33, 6, stored) && (stored == 127 || !(stored & 1)));
+        require(stored + 1 >= v && stored <= v + 1);
+        require(drum_stored(33, 5, v) == v && drum_stored(16, 7, v) == v);
+    }
+    require(drum_stored(33, 7, 126) == 127 && drum_stored(33, 7, 124) == 124 && drum_stored(33, 7, 1) == 2);
+    for (u32 models : {17u, 33u, kDrumModelLimit})
+        for (u32 model = 0; model < models; ++model)
+            for (u32 value = 0; value < 128; value += 3) {
+                for (u32 i = 0; i < 8; ++i) controls[i] = static_cast<u8>((i * 29 + value * 11 + model * 5) & 127);
+                controls[6] = static_cast<u8>(value);
+                controls[7] = static_cast<u8>(127 - value);
+                roundtrip(model, controls, models);
+            }
+    for (u32 k = 0; k < 60; ++k) {
+        // Each bit alone: the step's lowest bit is the value's second.
+        u8 one[8] = {};
+        u32 model = 0;
+        const u32 slot = k / 7, bit = k % 7;
+        if (k >= 56) model = 1u << (k - 56);
+        else if (slot < 6) one[slot] = static_cast<u8>(1u << bit);
+        else if (bit) one[slot] = static_cast<u8>(1u << bit);
+        else model = 1u << (slot == 6 ? 4 : 5);
+        i32 wide[4];
+        require(drum_pack(model, one, wide, kDrumModelLimit));
+        u32 set = 0;
+        for (u32 i = 0; i < 4; ++i)
+            for (u32 b = 0; b < 32; ++b) set += (static_cast<u32>(wide[i]) >> b) & 1u;
+        require(set == 1);
+        roundtrip(model, one, kDrumModelLimit);
+    }
+    {
+        // A pad stored while the kit had 16 models, read by its 33-model self:
+        // slots 0..5 exact, 6 and 7 at the step below, the model when both are even.
+        const u8 old[8] = {1, 2, 3, 4, 5, 6, 40, 90};
+        i32 stored[4];
+        require(drum_pack(11, old, stored));
+        u8 model = 0, read[8];
+        require(drum_unpack(stored, &model, read, 33));
+        require(model == 11 && std::memcmp(read, old, 6) == 0 && read[6] == 40 && read[7] == 90);
+        const u8 odd[8] = {1, 2, 3, 4, 5, 6, 41, 90};
+        require(drum_pack(11, odd, stored) && drum_unpack(stored, &model, read, 33));
+        require(model == 27 && read[6] == 40);
+    }
 
     // The mark: Drumline type 7 in the model byte, stock's choke group kept.
     for (u32 byte = 0; byte < 256; ++byte) {

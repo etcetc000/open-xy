@@ -669,7 +669,10 @@ the lower 16 bits are zero because stock has already quantized them.
 
 Each key's four parameter words store 60 bits that stock exports as positive
 Q15 integers and restores with a left shift of 16. The SDK packs the key's
-eight 7-bit controls into 56 bits and its model into the other 4. The pad's
+eight 7-bit controls into 56 bits and its model into the other 4. A kit of more
+than 16 models (up to 64) keeps that layout but for slots 6 and 7: their step,
+0..63, fills their top six bits (43..48 and 50..55), and their lowest bits (42
+and 49) hold the model's bits 4 and 5. The pad's
 model byte (record `+0x18`: Drumline's instrument type in the low nibble, its
 choke group in the high one) marks the layout with type 7, which stock's
 editor skips (`8d4d6028`) and its default kit never uses; the choke group is

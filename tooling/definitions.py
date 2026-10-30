@@ -144,7 +144,7 @@ def validate_definition(value, kind):
     if kind in ('synth', 'drum'):
         validate_synth_resources(resources)
     if kind == 'drum':
-        require(2 <= resources['modelCount'] <= 16, 'A drum kit has 2..16 models')
+        require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
     parameters = value['parameters']
     low, high = CONTROLS[kind]
     require(isinstance(parameters, list) and low <= len(parameters) <= high,

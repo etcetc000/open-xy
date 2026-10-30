@@ -20,7 +20,7 @@ inline bool drum_region_values(const DrumMachine& machine, u32 track, u32 key,
     machine.defaults(canonical, model, controls);
     // A pad the kit has not stored (stock's defaults, or the eight-value
     // layout of earlier SDK builds) keeps the key's defaults.
-    if (drum_marked(record[24])) drum_unpack(static_cast<const i32*>(region) + 1, model, controls);
+    if (drum_marked(record[24])) drum_unpack(static_cast<const i32*>(region) + 1, model, controls, machine.model_count);
     if (*model >= machine.model_count) machine.defaults(canonical, model, controls);
     return *model < machine.model_count;
 }
