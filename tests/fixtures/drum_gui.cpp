@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "stock.hpp"
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
@@ -17,7 +18,8 @@ u32 publications, dirty, clicks, fallback, last_key, turned_slot;
 int ownership = 1;
 bool shifted, shifted_octave;
 i32 regions[24][32];
-void require(bool ok) { if (!ok) std::abort(); }
+void require_at(bool ok, int line) { if (!ok) { std::fprintf(stderr, "line %d\n", line); std::abort(); } }
+#define require(ok) require_at(ok, __LINE__)
 int ready() { return ownership; }
 void defaults(u32 note, u8* model, u8* values) {
     *model = static_cast<u8>((note - 53) % 2);
@@ -48,10 +50,11 @@ u32 stock_edit(u32, u32, const u32*, u32) { ++fallback; return 1234; }
 u32 turn(u32, u32 selected, u32 slot, u32) { require(selected == track); turned_slot = slot; return slot; }
 const char* title(u32, u32) { return "stock"; }
 u32 text(u32, const char*) { return 0; }
-void shown(u32 a, u32 b, u32 c, u32 d) {
+void shown_at(u32 a, u32 b, u32 c, u32 d, int line) {
     u8 slots[4]; sdk_synth_shown(track, slots);
-    require(slots[0] == a && slots[1] == b && slots[2] == c && slots[3] == d);
+    require_at(slots[0] == a && slots[1] == b && slots[2] == c && slots[3] == d, line);
 }
+#define shown(a, b, c, d) shown_at(a, b, c, d, __LINE__)
 }
 
 extern "C" {
@@ -157,10 +160,7 @@ int main() {
     shifted = false;
 
     key = 54; shown(0,1,2,3);
-    sdk_synth_press(1); ++presses; shown(4,5,6,7);   // the shorter model's second row is blank
-    sdk_drum_edit(54, 1, event, 0);   // and inert
-    require(publications == 4);
-    sdk_synth_press(1); ++presses; shown(0,1,2,3);
+    sdk_synth_press(1); ++presses; shown(0,1,2,3);   // the shorter model has no second row: a press stays
     sdk_drum_edit(54, 3, event, 0);   // nor a slot 3: inert
     require(publications == 4);
     require(!std::strcmp(sdk_drum_title(34, 1), "short"));
@@ -170,6 +170,9 @@ int main() {
     sdk_drum_edit(53, 4, back, 0);
     shifted = false;
     require(sdk_drum_values(0, &model, raw) && model == 0 && publications == 5);
+    sdk_synth_press(1); ++presses; shown(4,5,6,7);
+    key = 54; shown(0,1,2,3);   // a key without a second row returns to the first
+    key = 53;
     sdk_synth_press(1); ++presses; shown(4,5,6,7);
     sdk_synth_press(1); ++presses; shown(0,1,2,3);
 
