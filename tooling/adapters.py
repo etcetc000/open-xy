@@ -334,7 +334,8 @@ def control_cycles(definition):
         return None
     following = list(range(8))
     for position in range(4):
-        cycle = [slot for slot, owner in enumerate(positions) if owner == position]
+        # An absent own slot still starts its position's cycle, so the press reaches the alternates.
+        cycle = [slot for slot, owner in enumerate(positions) if owner == position or (slot == position and owner is None)]
         for i, slot in enumerate(cycle):
             following[slot] = cycle[(i + 1) % len(cycle)]
     return following
@@ -354,13 +355,14 @@ def generate_synth_controls(directory, machines):
         if m.kind != 'effect':
             declarations.append(f'int {m.prefix}_record_ready() __asm__("{m.prefix}_record_ready");')
             declarations.append(f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");')
-            controls = ', '.join(str(position % 4) for position in control_positions(m.definition))
+            controls = ', '.join(str((i if position is None else position) % 4) for i, position in enumerate(control_positions(m.definition)))
             lfo_rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_record_ready, {len(m.definition["parameters"])}, {{{controls}}}}},')
         if m.kind not in ('synth', 'drum', 'effect'):
             continue
         effect = m.kind == 'effect'
         following = control_cycles(m.definition) or list(range(8))
-        continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum')
+        continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum' and not p.get('absent'))
+        absent = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p.get('absent'))
         steps = [enum_steps(p) for p in m.definition['parameters']]
         steps += [0] * (8 - len(steps))
         declarations.append(f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");')
@@ -371,6 +373,8 @@ def generate_synth_controls(directory, machines):
         body = [f'static bool {m.prefix}_format(opxy::u32 slot, opxy::i32 value, char* text) {{', '    switch (slot) {']
         for i, p in enumerate(m.definition['parameters']):
             mapping = p['mapping']
+            if p.get('absent'):
+                continue
             # The selected choice's label, on synth and send pages alike.
             if mapping['kind'] == 'enum':
                 labels = ', '.join(json.dumps(label) for label in mapping['labels'])
@@ -401,7 +405,7 @@ def generate_synth_controls(directory, machines):
         page = not effect and (m.kind == 'drum' or paged(m.definition))
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
-                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}}},")
+                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {absent}}},")
     return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters), LFO_MACHINES='\n'.join(lfo_rows)),
                   Path(directory) / 'synth_control_table.cpp')
 

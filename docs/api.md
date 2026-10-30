@@ -177,6 +177,17 @@ editing a shared control keeps the current page. Use the SDK's
 emphasis and motion. `sdk.py new` supplies it by default. Macro Osc is the
 [worked reference](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json).
 
+A synth may leave a slot empty yet keep later parameters at their indices
+(projects save by index): declare it
+`{"id": ..., "label": "", "default": 0, "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent", "absent": true}`,
+with no preset entry. It belongs to no position, so no press selects it; an
+empty own slot still starts its position's cycle, so the press reaches the
+position's alternates. Its title is empty and a turn on it changes nothing; a
+machine's display can blank its value with header text `" "`. A paged synth
+may give an absent slot after the first four a `control`: that position's
+second page is then the empty slot, blank and inert, rather than its
+first-page parameter again.
+
 On instrument tracks, the Value, Random and Element LFOs can target every
 declared parameter of a custom synth or sample engine, including all eight
 when present. Destination names follow parameter order regardless of which
