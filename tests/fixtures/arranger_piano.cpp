@@ -15,6 +15,21 @@ static i32 insert(void* ptr,const PianoNote* note) {
 }
 static u8 source[0x53f4];
 int main() {
+    require(piano_vertical_zoom(8, -1) == 12 && piano_vertical_zoom(8, 1) == 6);
+    require(piano_vertical_zoom(6, 1) == 6 && piano_vertical_zoom(24, -1) == 24);
+    const u32 rows[] = {6, 8, 12, 16, 24};
+    for (u32 count : rows) for (u32 pitch = 0; pitch < 128; ++pitch) {
+        const u32 low = piano_pitch_low(pitch, count);
+        require(low + count <= 128 && pitch >= low && pitch < low + count);
+        for (u32 row = 0; row < count; ++row) {
+            require(piano_row_y(row + 1, count) > piano_row_y(row, count) + 3);
+            require(piano_row_y(row, count) >= 28 && piano_row_y(row + 1, count) <= 196);
+        }
+    }
+    for (u32 pitch = 0; pitch < 128; ++pitch) {
+        const u32 n = pitch % 12;
+        require(piano_black_key(pitch) == (n == 1 || n == 3 || n == 6 || n == 8 || n == 10));
+    }
     source[0]=16;u8* c=source+0x457c;for(u32 i=0;i<120;++i)put(c,i*16+2,i==119?-1:i+1);
     put(c,0x782,-1);put(c,0x784,-1); PianoEditor editor(insert);editor.bind(source,1,1);require(editor.valid());
     i32 a=-1,b=-1,d=-1;PianoNote n={480,240,60,100,0,0}; require(editor.add(n,a));n.position=0;require(editor.add(n,b));n.position=960;require(editor.add(n,d));require(editor.count()==3);

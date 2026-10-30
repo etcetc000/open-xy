@@ -58,6 +58,8 @@ struct Object {
     PathNode* clips[visible_clips];
     Leaf* clip_labels[visible_clips];
     PathNode* bar_grid[17];
+    PathNode* piano_rows[24];
+    PathNode* lane_lines[8];
     PathNode* lane_highlight;
     PathNode* selection;
     PathNode* cursor;
@@ -132,7 +134,7 @@ u32 pending_add_source, pending_add_count;
 arranger::Model pending_add_before{};
 bool pending_add_uncommitted;
 u32 piano_project, piano_generation, piano_slot, piano_track, piano_pattern;
-u32 piano_time, piano_pitch = 60, piano_low = 56, piano_start, piano_window = 7680;
+u32 piano_time, piano_pitch = 60, piano_low = 56, piano_start, piano_window = 7680, piano_rows = 8;
 i32 piano_selected = -1;
 
 
@@ -270,8 +272,7 @@ void open_piano() {
         if (piano_time >= piano.span()) piano_time = piano.span() - 1;
         piano_pitch = first.pitch;
     }
-    piano_low = piano_pitch > 3 ? piano_pitch - 3 : 0;
-    if (piano_low > 120) piano_low = 120;
+    piano_rows = 8; piano_low = platform::piano_pitch_low(piano_pitch, piano_rows);
     piano_window = 7680; piano_start = piano_time / piano_window * piano_window;
     piano_view = true; piano_select();
     announce("E1 CURSOR E2 ZOOM E3 PITCH E4 LENGTH");
@@ -283,7 +284,7 @@ void piano_key(u32 key, bool shifted) {
     if (key >= 14 && key <= 21) {
         if (shifted && (key == 16 || key == 17)) {
             if (piano_editable()) { piano_changed(key == 16 ? piano.undo() : piano.redo()); piano_select(); }
-        } else if (!shifted) { piano_pitch = piano_low + 7 - (key - 14); piano_select(); }
+        } else if (!shifted) { piano_pitch = piano_low + piano_rows - 1 - (key - 14) * piano_rows / 8; piano_select(); }
         return;
     }
     if (!piano_editable()) return;
@@ -306,6 +307,9 @@ void piano_encoder(u32 encoder, i32 delta) {
         piano_time = platform::arranger_cursor_time(piano_time, delta, step);
         if (piano_time >= piano.span()) piano_time = piano.span() - 1;
         piano_select();
+    } else if (index == 1 && shifted) {
+        piano_rows = platform::piano_vertical_zoom(piano_rows, delta);
+        piano_low = platform::piano_pitch_low(piano_pitch, piano_rows);
     } else if (index == 1) {
         const u32 next = platform::arranger_zoom(piano_window, delta > 0 ? 1 : -1, 480);
         const u32 relative = piano_time >= piano_start ? piano_time - piano_start : 0;
@@ -360,11 +364,13 @@ bool commit_edit(bool changed, const char* success) {
 platform::ArrangerAddContext add_context() {
     return {platform::word(0x840a0524), stock<u32()>(0x8d584224)(), ui_track, cursor, selected_pattern, selected_slot};
 }
-bool add_permitted() {
+bool add_permitted(bool record_intent = false) {
     return view_active() && !piano_view && !menu_open && !menu_tool && !bounce_choice.open &&
         !platform::byte(platform::kPlaying) && !platform::byte(platform::kPlaying + 1) &&
-        !platform::byte(platform::kPlaying + 2) && !platform::byte(platform::kPlaying + 3) &&
-        !sdk_arranger_record_status() && !sdk_arranger_bounce_busy();
+        !platform::byte(platform::kPlaying + 2) &&
+        (record_intent || !platform::byte(platform::kPlaying + 3)) &&
+        !platform::byte(0x860c072c) && !platform::byte(0x860c072d) &&
+        (record_intent || !sdk_arranger_record_status()) && !sdk_arranger_bounce_busy();
 }
 const char* add_progress() {
     using A = platform::ArrangerPendingAdd;
@@ -378,8 +384,8 @@ const char* add_progress() {
     default: return "ADDED EMPTY CLIP";
     }
 }
-void add_clip() {
-    if (!pending_add.enqueue(add_context(), add_permitted())) { announce("ADD REQUIRES STOPPED TIMELINE"); return; }
+void add_clip(bool record_intent = false) {
+    if (!pending_add.enqueue(add_context(), add_permitted(record_intent), record_intent)) { announce("ADD REQUIRES STOPPED TIMELINE"); return; }
     pending_add_slot = -1; pending_add_source = pending_add.request.pattern; pending_add_uncommitted = false;
     announce(add_progress());
 }
@@ -399,10 +405,18 @@ void process_pending_add() {
     if (!pending_add.pending) return;
     using A = platform::ArrangerPendingAdd;
     const platform::ArrangerAddContext current = add_context();
-    if (!pending_add.bound(current) || !add_permitted() ||
+    if (!pending_add.bound(current) || !add_permitted(pending_add.record_after) ||
         (pending_add.stage <= A::create && !pending_add.context_matches(current)) ||
         (pending_add.stage != A::project_check && !sdk_arranger_project_edit_ready())) {
         cancel_pending_add("ADD CANCELLED: CONTEXT CHANGED"); return;
+    }
+    if (pending_add.draw_complete) {
+        // Start outside rendering, only after the published clip's final frame.
+        const bool started = sdk_arranger_request_record(pending_add.request.track, 0xffffffffu) &&
+            sdk_arranger_request_start(pending_add.request.cursor, false, true);
+        pending_add.cancel();
+        announce(started ? "RECORDING NEW CLIP" : "REC START REJECTED / CLIP KEPT");
+        return;
     }
     if (!pending_add.ready(ui_now()) || pending_add.draw_requested) return;
     switch (pending_add.stage) {
@@ -648,18 +662,30 @@ bool render_piano(Object* o) {
     const u8* source = piano_source();
     if (!source || !piano.valid()) { piano_view = false; return false; }
     if (piano_pitch < piano_low) piano_low = piano_pitch;
-    if (piano_pitch >= piano_low + 8) piano_low = piano_pitch - 7;
+    if (piano_pitch >= piano_low + piano_rows) piano_low = piano_pitch - piano_rows + 1;
     if (piano_time < piano_start || piano_time - piano_start >= piano_window)
         piano_start = piano_time / piano_window * piano_window;
     set_text(o->title, "PIANO ROLL");
     const char* names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-    for (u32 row = 0; row < 8; ++row) {
-        const u32 pitch = piano_low + 7 - row;
+    for (u32 row = 0; row < 24; ++row) {
+        const u32 y = platform::piano_row_y(row, piano_rows);
+        const u32 height = platform::piano_row_y(row + 1, piano_rows) - y;
+        const bool black = row < piano_rows && platform::piano_black_key(piano_low + piano_rows - 1 - row);
+        rectangle(o->piano_rows[row], 2, y, black ? 472 : 0, black ? height : 0);
+    }
+    for (u32 label_index = 0; label_index < 8; ++label_index) {
+        text_position(&o->lane_lines[label_index]->leaf, 0, 0, false);
+        const u32 row = piano_rows <= 8 ? label_index : label_index * piano_rows / 8;
+        if (row >= piano_rows) { text_position(o->lanes[label_index], 0, 0, false); continue; }
+        const u32 pitch = piano_low + piano_rows - 1 - row;
         char label[12]; char* end = append(label, names[pitch % 12]);
         if (pitch < 12) append(end, "-1"); else number(end, pitch / 12 - 1);
-        set_text(o->lanes[row], label);
+        set_text(o->lanes[label_index], label);
+        text_position(o->lanes[label_index], 3, platform::piano_row_y(row, piano_rows) + 12, true);
     }
-    rectangle(o->lane_highlight, 2, 28 + (7 - (piano_pitch - piano_low)) * 21, 472, 20);
+    const u32 selected_row = piano_rows - 1 - (piano_pitch - piano_low);
+    rectangle(o->lane_highlight, 2, platform::piano_row_y(selected_row, piano_rows), 32,
+        platform::piano_row_y(selected_row + 1, piano_rows) - platform::piano_row_y(selected_row, piano_rows));
     rectangle(o->selection, 0, 0, 0, 0); rectangle(o->loop_band, 0, 0, 0, 0);
     const u32 spacing = platform::arranger_bar_spacing(piano_window);
     u32 offset = piano_start % spacing ? spacing - piano_start % spacing : 0;
@@ -668,7 +694,7 @@ bool render_piano(Object* o) {
     u32 shown = 0, total = 0;
     for (u32 node = 0; node < platform::PianoEditor::capacity; ++node) {
         platform::PianoNote note;
-        if (!piano.note(node, note) || note.pitch < piano_low || note.pitch >= piano_low + 8) continue;
+        if (!piano.note(node, note) || note.pitch < piano_low || note.pitch >= piano_low + piano_rows) continue;
         if (note.position < -static_cast<i32>(piano.span()) || note.position >= static_cast<i32>(piano.span())) continue;
         const u32 duration = note.duration < piano.span() ? note.duration : piano.span();
         const i32 note_end = note.position + static_cast<i32>(duration);
@@ -679,9 +705,11 @@ bool render_piano(Object* o) {
         const u32 right = end < piano_window ? end : piano_window;
         const u32 x = 36 + left * 432 / piano_window;
         const u32 width = right * 432 / piano_window - left * 432 / piano_window;
-        const u32 y = 30 + (7 - (note.pitch - piano_low)) * 21;
-        rectangle(o->clips[shown], x, y, width ? width : 1, 16);
-        if (static_cast<i32>(node) == piano_selected) rectangle(o->selection, x, y, width ? width : 1, 16);
+        const u32 row = piano_rows - 1 - (note.pitch - piano_low);
+        const u32 y = platform::piano_row_y(row, piano_rows) + 2;
+        const u32 height = platform::piano_row_y(row + 1, piano_rows) - y - 1;
+        rectangle(o->clips[shown], x, y, width ? width : 1, height);
+        if (static_cast<i32>(node) == piano_selected) rectangle(o->selection, x, y, width ? width : 1, height);
         text_position(o->clip_labels[shown], 0, 0, false); ++shown;
     }
     for (; shown < visible_clips; ++shown) {
@@ -701,7 +729,8 @@ bool render_piano(Object* o) {
     end = append(end, " @"); end = number(end, piano_time);
     end = append(end, " N"); end = number(end, piano_pitch);
     end = append(end, " NOTES "); end = number(end, piano.count());
-    set_text(o->controls, platform::shift_held() ? "E1 MOVE / E2 ZOOM / E3 PITCH CURSOR / E4 VELOCITY" :
+    end = append(end, " ROWS "); end = number(end, piano_rows);
+    set_text(o->controls, platform::shift_held() ? "E1 MOVE / E2 PITCH ZOOM / E3 CURSOR / E4 VELOCITY" :
         "E1 CURSOR / E2 ZOOM / E3 NOTE UP-DOWN / E4 LENGTH");
     platform::PianoNote selected;
     if (piano_selected >= 0 && piano.note(static_cast<u32>(piano_selected), selected)) {
@@ -788,6 +817,16 @@ struct Renderer {
             o->menu_disabled[i] = text_node(find(&o->base, dim));
             if (!o->menu_rows[i] || !o->menu_disabled[i]) return;
         }
+        for (u32 i = 0; i < 24; ++i) {
+            char id[16] = "pianokey"; decimal(id + 8, i);
+            o->piano_rows[i] = path_node(find(&o->base, id));
+            if (!o->piano_rows[i]) return;
+        }
+        for (u32 i = 0; i < 8; ++i) {
+            char id[16] = "laneline"; decimal(id + 8, i);
+            o->lane_lines[i] = path_node(find(&o->base, id));
+            if (!o->lane_lines[i]) return;
+        }
         o->title = text_node(find(&o->base, "title"));
         for (u32 i = 0; i < 8; ++i) {
             char id[12] = "lane"; decimal(id + 4, i);
@@ -811,7 +850,12 @@ struct Renderer {
         hide_menu(o);
         if (piano_view && render_piano(o)) return;
         set_text(o->title, "Linear by Veff");
-        for (u32 i = 0; i < 8; ++i) { char label[4]; decimal(label, i + 1); set_text(o->lanes[i], label); }
+        for (u32 i = 0; i < 24; ++i) rectangle(o->piano_rows[i], 0, 0, 0, 0);
+        for (u32 i = 0; i < 8; ++i) {
+            char label[4]; decimal(label, i + 1); set_text(o->lanes[i], label);
+            text_position(o->lanes[i], 3, 43 + i * 21, true);
+            text_position(&o->lane_lines[i]->leaf, 0, 0, true);
+        }
         const arranger::Model& model = menu_tool ? menu_preview : sdk_arranger_model();
         const u32 position = sdk_arranger_playback_position();
         if (cursor < view_start || cursor - view_start >= window_ticks)
@@ -905,7 +949,8 @@ struct Renderer {
         else if (sdk_arranger_project_status() == 2) set_text(o->feedback, "SAVE FAILED / CHANGES NOT SAVED");
         draw(&o->base);
         if (pending_add.pending && pending_add.draw_requested) {
-            pending_add.cancel(); announce("ADDED EMPTY CLIP");
+            if (pending_add.record_after) pending_add.draw_complete = true;
+            else { pending_add.cancel(); announce("ADDED EMPTY CLIP"); }
         }
     }
 };
@@ -921,6 +966,13 @@ bool registered() {
 }
 
 bool consume_play(bool shifted) {
+    if (!shifted && held(50) && view_active() && !piano_view && !menu_open && !menu_tool) {
+        select_clip(false);
+        if (selected_slot < 0) {
+            // Capture REC before its release; never start until the staged add succeeds.
+            add_clip(true); swallowed_release[51] = true; return true;
+        }
+    }
     if (!sdk_arranger_request_start(cursor, shifted, held(50))) {
         announce("TRANSPORT BUSY"); swallowed_release[51] = true; return true;
     }
@@ -1002,6 +1054,10 @@ void sdk_arranger_raw_event(const void* raw) {
     const u32 key = event.words[0];
     const bool down = event.words[1] != 0;
     if (pending_add.pending) {
+        if (key == 52 && down && !held(key)) {
+            raw_edit_gate.consume(key, true, true, false, false);
+            cancel_pending_add("ADD / RECORD CANCELLED"); return;
+        }
         // New presses stay out of stock held bookkeeping. Release keys already
         // forwarded before the operation, including audition notes and +.
         if (key < 72 && down && !held(key)) raw_edit_gate.consume(key, true, true, false, false);

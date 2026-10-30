@@ -17,16 +17,16 @@ struct ArrangerAddContext {
 // progress frame and a 200ms settling interval, matching hardware-tested 015.
 struct ArrangerPendingAdd {
     enum Stage { idle, project_check, history, create, commit, select, draw };
-    bool pending, painted, draw_requested;
+    bool pending, painted, draw_requested, record_after, draw_complete;
     Stage stage;
     u32 painted_at;
     ArrangerAddContext request;
-    bool enqueue(const ArrangerAddContext& value, bool permitted) {
+    bool enqueue(const ArrangerAddContext& value, bool permitted, bool record = false) {
         if (pending || !permitted || !value.project) return false;
         request = value; pending = true; stage = project_check;
-        painted = draw_requested = false; return true;
+        painted = draw_requested = draw_complete = false; record_after = record; return true;
     }
-    void cancel() { pending = painted = draw_requested = false; stage = idle; }
+    void cancel() { pending = painted = draw_requested = record_after = draw_complete = false; stage = idle; }
     bool bound(const ArrangerAddContext& current) const {
         return request.project == current.project && request.generation == current.generation;
     }

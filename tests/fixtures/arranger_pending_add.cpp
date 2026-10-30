@@ -50,4 +50,12 @@ int main() {
     require(!queue.ready(0x47u) && queue.ready(0x48u)); // Clock rollover.
     queue.cancel(); // Project restoration cancels even reused identities.
     require(queue.enqueue(initial, true) && !queue.ready(10000));
+    require(!queue.record_after && !queue.draw_complete);
+    queue.cancel();
+    require(queue.enqueue(initial, true, true) && queue.record_after);
+    require(!queue.enqueue(initial, true, false) && queue.record_after);
+    queue.draw_complete = true;
+    queue.cancel(); // STOP/project restore/failure clears deferred record intent too.
+    require(!queue.record_after && !queue.draw_complete && !queue.pending);
+    require(!queue.enqueue(initial, false, true) && !queue.record_after);
 }

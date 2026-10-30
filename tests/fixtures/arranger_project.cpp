@@ -101,6 +101,7 @@ u32 load(const char*, u32 commit) {
 }
 void nested_save() { during_save = nullptr; sdk_arranger_project_save("/song.xy"); }
 void change_during_save() { model.seek(222); sdk_arranger_project_changed(true, 3); }
+void apply_then_edit() { sdk_arranger_project_poll(); change_during_save(); }
 void read_during_publish() { require(!capture_snapshot(), "reader declined writer intent"); }
 void write_during_capture() { require(!publish_snapshot(), "writer declined reader intent"); }
 void replace_project_during_write() { files["/song.xy"][0] ^= 1; }
@@ -354,5 +355,29 @@ int main() {
         require(test::model.clip(19) && test::model.position() == 300 + pass && !sdk_arranger_project_status(),
             "each revision binds its own serialized bytes and clips");
     }
+    // Native598b04 loads/commits and synchronously saves workspace via598ae8,
+    // before GUI poll applies the validated staged arrangement.
+    require(sdk_arranger_project_load("/revised.xy", 1) == 1, "native load before immediate workspace save");
+    test::save_payload = 101;
+    test::during_save = sdk_arranger_project_poll; // GUI accepts this same stage while stock writes
+    require(sdk_arranger_project_save("/fat32/projects/workspace.xy") == 1, "native immediate workspace save");
+    test::during_save = nullptr;
+    require(!sdk_arranger_project_status() && test::files.count("/fat32/projects/workspace.xy.oxyl"),
+        "workspace autosave includes committed staged Linear state before GUI poll");
+    sdk_arranger_project_poll();
+    require(sdk_arranger_project_load("/fat32/projects/workspace.xy", 1) == 1, "reload immediate workspace pair");
+    sdk_arranger_project_poll();
+    require(test::enabled && test::model.clip(19) && test::model.position() == 301,
+        "workspace reopen retains Linear mode and timeline");
+    require(sdk_arranger_project_load("/revised.xy", 1) == 1, "stage before no-GUI workspace save");
+    require(sdk_arranger_project_save("/no-gui.xy") == 1 && test::files.count("/no-gui.xy.oxyl"),
+        "stage persists with no GUI application at all");
+    sdk_arranger_project_poll();
+    require(sdk_arranger_project_load("/revised.xy", 1) == 1, "stage before apply plus real edit");
+    test::during_save = test::apply_then_edit;
+    sdk_arranger_project_save("/concurrent-edit.xy");
+    test::during_save = nullptr;
+    require(sdk_arranger_project_status() == 2 && !test::files.count("/concurrent-edit.xy.oxyl"),
+        "stage apply handoff must not admit subsequent GUI edit");
     return 0;
 }

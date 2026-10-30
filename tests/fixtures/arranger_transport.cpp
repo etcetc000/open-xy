@@ -29,7 +29,7 @@ namespace test {
 const u32 project_address = 0x10000, controller = 0x10000000;
 std::vector<u8> project(0x54076c), control(0x9000);
 u8 recorder_memory[0x1000] = {}, globals[32] = {};
-u32 role, requested_pattern = 0xffffffffu, recorded, finished;
+u32 role = 1, task = 1, requested_pattern = 0xffffffffu, recorded, finished;
 bool record_target = true;
 bool inject_publish_note, inject_record_off;
 u32 callback_depth, max_callback_depth;
@@ -44,6 +44,7 @@ void put(u32 address, u32 value) { std::memcpy(fake_memory(address), &value, 4);
 u32 get(u32 address) { u32 value; std::memcpy(&value, fake_memory(address), 4); return value; }
 u32 track_object(u32 track) { return controller + 0x108 + track * 0x290; }
 u32 gui_role() { return role; }
+u32 current_task() { return task; }
 u32 get_generation() { return generation; }
 void reset(u32 object) { ++resets; put(object + 0x190, 0); put(object + 0x198, 0); }
 void publish(u32 address, u32 track) {
@@ -82,6 +83,7 @@ void record_latch(u32 address, u32 enabled) {
     require(!opxy::platform::fake_byte(recorder) && !opxy::platform::fake_byte(recorder+1), "native latch must not enter alternate recorder mode");
     *static_cast<u8*>(fake_memory(address + 0x305f)) = static_cast<u8>(enabled);
 }
+void wrong_record_source(u32) { require(false, "master sequencer recording fell back to stock scene source"); }
 void undo_reset(u32 address) { put(address + 0x4610, 0xffffffffu); }
 void record_note(u32 address, u32 pitch, u32 track, u32 velocity) {
     ++callback_depth;
@@ -117,6 +119,12 @@ void tick(u32 object, u32 delta, u32) {
     queued_fires += get(object + 0x190);
     put(object + 0x190, 0);
     const u8* pattern = sdk_arranger_pattern(track);
+    const u32 interrupted_task = task;
+    task = 2; // Same master CPU, unrelated GUI task preempts the sequencer.
+    require(sdk_arranger_pattern(track) == project.data() + 0xd7c + track * 0x53f44,
+        "GUI preemption cannot borrow sequencer clip source");
+    task = interrupted_task;
+    require(sdk_arranger_pattern(track) == pattern, "sequencer source survives GUI preemption");
     if (get(object + 0x198) >= 480 * 1680) {
         // Stock wrap helper derives this from global clock, not clip position.
         ++global_retimes;
@@ -158,6 +166,7 @@ void* fake_memory(u32 address) {
 }
 namespace opxy { namespace platform {
 u32 fake_word(u32 address) {
+    if (address == 0x84247150) return 1;
     if (address == 0x840a0524) return test::project_address;
     return test::get(address);
 }
@@ -166,6 +175,7 @@ u32 fake_byte(u32 address) { return *static_cast<u8*>(fake_memory(address)); }
 void* fake_address(u32 address) {
     using namespace test;
     switch (address) {
+    case 0x8c03eccc: return reinterpret_cast<void*>(current_task);
     case 0x8d5c3eac: return reinterpret_cast<void*>(gui_role);
     case 0x8d584224: return reinterpret_cast<void*>(get_generation);
     case 0x8d5ac024: return reinterpret_cast<void*>(reset);
@@ -179,6 +189,7 @@ void* fake_address(u32 address) {
     case 0x8d597d00: return reinterpret_cast<void*>(stop);
     case 0x8d593c9c: return reinterpret_cast<void*>(record_note);
     case 0x8d5904e2: return reinterpret_cast<void*>(record_off);
+    case 0x8d587668: return reinterpret_cast<void*>(wrong_record_source);
     case 0x8d592998: return reinterpret_cast<void*>(record_latch);
     case 0x8d591948: return reinterpret_cast<void*>(undo_reset);
     case 0x8d5841e4: return reinterpret_cast<void*>(scene_indices);
@@ -294,13 +305,13 @@ int main() {
     require(model.insert({0, 0, 20, 20, 0, 480}) >= 0, "record next source");
     sdk_arranger_publish(true, true);
     sdk_arranger_dispatch(controller, 1, 0);
-    role = 1;
+    task = 2;
     requested_pattern = 1;
     require(sdk_arranger_request_record(0, 1), "bind EDIT recording target");
     const u32 before_record = recorded;
     sdk_arranger_record_note(controller, 60, 0, 100);
     require(recorded == before_record, "GUI recording must wait for audio owner");
-    role = 0;
+    task = 1;
     sdk_arranger_dispatch(controller, 1, 0);
     require(recorded == before_record + 1 && get(controller + 0x4614) == 1,
         "record selected source with matching undo identity");
@@ -311,28 +322,28 @@ int main() {
     sdk_arranger_dispatch(controller, 19, 0);
     require(finished == before_finished + 1 && get(0x860c0224) == 0,
         "source transition finalizes held recording before new source");
-    role = 1;
+    task = 2;
     sdk_arranger_record_note(controller, 61, 0, 100);
-    role = 0;
+    task = 1;
     sdk_arranger_dispatch(controller, 1, 0);
     require(recorded == before_record + 1, "EDIT target cannot record into different playback source");
-    role = 1;
+    task = 2;
     requested_pattern = 0xffffffffu;
     require(sdk_arranger_request_record(0, 0xffffffffu), "bind timeline recording target");
     sdk_arranger_record_note(controller, 62, 0, 100);
-    role = 0;
+    task = 1;
     sdk_arranger_dispatch(controller, 1, 0);
     require(recorded == before_record + 2, "timeline recording uses current selected-lane clip");
-    role = 1;
+    task = 2;
     for (u32 index = 0; index < 65; ++index) sdk_arranger_record_off(recorder, 0, 62);
-    role = 0;
+    task = 1;
     sdk_arranger_dispatch(controller, 1, 0);
     require(get(0x860c0224) == 0, "queue overflow finalizes pending notes");
-    role = 1;
+    task = 2;
     require(sdk_arranger_request_record(0, 0xffffffffu), "rearm after overflow");
     sdk_arranger_record_note(controller, 63, 0, 100);
     sdk_arranger_record_off(recorder, 0, 63);
-    role = 0;
+    task = 1;
     sdk_arranger_dispatch(controller, 1, 0);
     require(recorded == before_record + 3 && get(0x860c0224) == 0,
         "queued note on/off order is preserved");
@@ -349,9 +360,9 @@ int main() {
     sdk_arranger_dispatch(controller, 1, 0);
     require(sdk_arranger_record_status() == 2, "recording status at valid clip");
     *static_cast<u8*>(fake_memory(controller + 0x305d)) = 0;
-    role = 1;
+    task = 2;
     sdk_arranger_record_note(controller, 64, 0, 100);
-    role = 0;
+    task = 1;
     sdk_arranger_dispatch(controller, 1, 0);
     require(recorded == before_record + 3 && sdk_arranger_record_status() == 1,
         "stopped recorder is armed but cannot insert queued live notes");
@@ -423,13 +434,15 @@ int main() {
     model = opxy::arranger::Model{};
     require(model.insert({0,1,0,480,0,480}) >= 0 && model.setLoop(true,0,480), "overdub loop uses clip B while scene stays A");
     model.seek(0); sdk_arranger_publish(true,true);
-    role=1; requested_pattern=0xffffffffu;
+    task=2; requested_pattern=0xffffffffu;
     require(sdk_arranger_request_record(0,0xffffffffu), "arm selected lane");
     *static_cast<u8*>(fake_memory(controller+0x3060))=1;
     require(sdk_arranger_request_start(0,false,true), "REC+Play captures held intent");
     *static_cast<u8*>(fake_memory(controller+0x3060))=0; // physical release before dispatch
-    role=0;sdk_arranger_dispatch(controller,1,0);
+    task=1;sdk_arranger_dispatch(controller,1,0); // Native sequencer thread runs on master, like GUI.
     require(opxy::platform::fake_byte(controller+0x305f)==1, "REC+Play remains latched after physical release");
+    require(!ticks.empty() && ticks.back().track == 0 && ticks.back().pattern == source(0,1),
+        "master sequencer actually plays clip B while scene remains A");
     const u32 overdub_before=recorded;
     for(u32 lap=0;lap<2;++lap) {
         if(opxy::platform::fake_byte(controller+0x305f)) sdk_arranger_record_note(controller,60+lap,0,100);

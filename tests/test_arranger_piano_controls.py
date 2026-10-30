@@ -8,6 +8,15 @@ from tooling.pipeline import ROOT
 from test_sample_services import HOST_CXX
 
 class PianoControls(unittest.TestCase):
+    def test_piano_row_asset_contract(self):
+        import xml.etree.ElementTree as ET
+        asset = ET.fromstring((ROOT / 'sdk/platform/opxy-1.2.1/arranger.svg').read_text())
+        nodes = {node.get('id'): node for node in asset.iter() if node.get('id')}
+        for index in range(24):
+            self.assertEqual(nodes['pianokey' + str(index)].get('fill'), '#181818')
+        for index in range(8):
+            self.assertIn('laneline' + str(index), nodes)
+
     @unittest.skipUnless(HOST_CXX, 'No host C++ compiler')
     def test_encoder_mapping_and_focus(self):
         ui = (ROOT / 'sdk/platform/opxy-1.2.1/arranger_ui.cpp').read_text()
@@ -20,7 +29,7 @@ class PianoControls(unittest.TestCase):
 using namespace opxy;
 namespace opxy { namespace platform { bool shift_held() { return false; } } }
 bool fine_grid, piano_view;
-u32 piano_time, piano_pitch=60, piano_low=56, piano_start, piano_window=7680;
+u32 piano_time, piano_pitch=60, piano_low=56, piano_start, piano_window=7680, piano_rows=8;
 i32 piano_selected=0;
 struct FakePiano {
     platform::PianoNote value{960,480,72,100,0,0}; u32 writes=0; bool has=true;
@@ -41,9 +50,12 @@ int main() {
     require(piano_pitch==84 && piano_time==12000 && piano_view);
     require(piano_pitch>=piano_low && piano_pitch<piano_low+8);
     require(piano_time>=piano_start && piano_time<piano_start+piano_window);
-    piano.value={960,480,72,100,0,0}; piano_time=960; piano_pitch=72; piano_start=0; piano_window=7680;
+    piano.value={960,480,72,100,0,0}; piano_time=960; piano_pitch=72; piano_start=0; piano_window=7680, piano_rows=8;
     piano_encoder(0,1); require(piano_time==1440 && !piano.writes); // Cursor only.
     piano_encoder(1,1); require(piano_window!=7680 && !piano.writes); // Zoom only.
+    const u32 horizontal=piano_window;
+    piano_encoder(5,-1); require(piano_rows==12 && piano_window==horizontal && !piano.writes);
+    piano_encoder(5,1); require(piano_rows==8 && piano_window==horizontal && !piano.writes);
     piano_encoder(2,1); require(piano.value.pitch==73 && piano.value.duration==480);
     piano_encoder(3,1); require(piano.value.duration==960 && piano.value.pitch==73);
     piano_encoder(4,1); require(piano.value.position==961); // Shift E1 fine note move.

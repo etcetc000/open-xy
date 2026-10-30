@@ -1,5 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220">
 <rect width="480" height="220" fill="#000000"/>
+<path id="pianokey0" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey1" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey2" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey3" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey4" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey5" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey6" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey7" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey8" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey9" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey10" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey11" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey12" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey13" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey14" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey15" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey16" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey17" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey18" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey19" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey20" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey21" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey22" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
+<path id="pianokey23" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#181818"/>
 <path id="lanehighlight" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#333333"/>
 <path id="bargrid0" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
 <path id="bargrid1" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
@@ -22,21 +46,21 @@
 <text id="title" transform="matrix(1 0 0 1 12 18)" fill="#dddddd" font-family="UniversNextPro-Light" font-size="14px">VEFF'S LINEAR WORKFLOW</text>
 <text id="position" transform="matrix(1 0 0 1 260 18)" fill="#dddddd" font-family="UniversNextPro-Light" font-size="10px"></text>
 <text id="lane0" transform="matrix(1 0 0 1 3 43)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">1</text>
-<path d="M 34 48 L 470 48" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="laneline0" d="M 34 48 L 470 48" fill="none" stroke="#444444" stroke-width="1"/>
 <text id="lane1" transform="matrix(1 0 0 1 3 64)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">2</text>
-<path d="M 34 69 L 470 69" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="laneline1" d="M 34 69 L 470 69" fill="none" stroke="#444444" stroke-width="1"/>
 <text id="lane2" transform="matrix(1 0 0 1 3 85)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">3</text>
-<path d="M 34 90 L 470 90" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="laneline2" d="M 34 90 L 470 90" fill="none" stroke="#444444" stroke-width="1"/>
 <text id="lane3" transform="matrix(1 0 0 1 3 106)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">4</text>
-<path d="M 34 111 L 470 111" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="laneline3" d="M 34 111 L 470 111" fill="none" stroke="#444444" stroke-width="1"/>
 <text id="lane4" transform="matrix(1 0 0 1 3 127)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">5</text>
-<path d="M 34 132 L 470 132" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="laneline4" d="M 34 132 L 470 132" fill="none" stroke="#444444" stroke-width="1"/>
 <text id="lane5" transform="matrix(1 0 0 1 3 148)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">6</text>
-<path d="M 34 153 L 470 153" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="laneline5" d="M 34 153 L 470 153" fill="none" stroke="#444444" stroke-width="1"/>
 <text id="lane6" transform="matrix(1 0 0 1 3 169)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">7</text>
-<path d="M 34 174 L 470 174" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="laneline6" d="M 34 174 L 470 174" fill="none" stroke="#444444" stroke-width="1"/>
 <text id="lane7" transform="matrix(1 0 0 1 3 190)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">8</text>
-<path d="M 34 195 L 470 195" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="laneline7" d="M 34 195 L 470 195" fill="none" stroke="#444444" stroke-width="1"/>
 <path id="clip0" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
 <path id="clip1" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
 <path id="clip2" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>

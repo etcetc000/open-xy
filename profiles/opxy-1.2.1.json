@@ -2408,5 +2408,5 @@
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches",
-  "arranger_svg_sha256": "86bda447b18651e1a113ce8eac52189d4081382b5d26c004ee874732b710b0a2"
+  "arranger_svg_sha256": "f6900fee318e304cbe80cd3deba89ef230a084678cbbe504499022be88421bce"
 }

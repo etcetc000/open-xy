@@ -23,10 +23,19 @@ u32 source_generation;
 bool releasing;
 u32 project_generation() { return opxy::platform::stock<u32()>(0x8d584224)(); }
 bool project_matches() { return sdk_arranger_audio_project_matches(project_generation()); }
+// Both GUI and sequencer run on master. Startup692a stores the sequencer task
+// handle at84247150; native eccc returns current RTOS task (also used by4dd318).
+// Task identity prevents a preempting GUI callback from borrowing playback state.
+bool sequencer_context() {
+    using namespace opxy::platform;
+    const u32 task = word(0x84247150);
+    return task && stock<u32()>(0x8d5c3eac)() && stock<u32()>(0x8c03eccc)() == task;
+}
 const u8* pattern_source(u32 track, bool instrument = false) {
     using namespace opxy::platform;
     if (track >= 8) return nullptr;
-    if (stock<u32()>(0x8d5c3eac)()) return sdk_arranger_edit_source(track, instrument);
+    if (!sequencer_context())
+        return stock<u32()>(0x8d5c3eac)() ? sdk_arranger_edit_source(track, instrument) : nullptr;
     if ((!sdk_arranger_audio_active() && !releasing) ||
         source_project != word(0x840a0524) || source_generation != project_generation() ||
         !project_matches()) return nullptr;
@@ -195,7 +204,7 @@ void close_recorded_notes(u32 track = 8) {
 
 bool queue_record(const RecordEvent& event) {
     using opxy::platform::barrier;
-    const u32 role = opxy::platform::stock<u32()>(0x8d5c3eac)() ? 1 : 0;
+    const u32 role = sequencer_context() ? 0 : 1;
     RecordQueue& queue = record_queues[role];
     const u32 next = (queue.write + 1) % 64;
     if (next == queue.read) { queue.overflow = 1; return false; }
@@ -639,7 +648,7 @@ extern "C" void sdk_arranger_record_note(u32, u32, u32, u32) __asm__("sdk_arrang
 extern "C" void sdk_arranger_record_note(u32 controller, u32 pitch, u32 track, u32 velocity) {
     using namespace opxy::platform;
     u32 pattern = 0xffffffffu;
-    const bool gui = stock<u32()>(0x8d5c3eac)() != 0;
+    const bool gui = stock<u32()>(0x8d5c3eac)() && !sequencer_context();
     const bool gui_target = gui && sdk_arranger_record_target(track, &pattern);
     if (!record_owner && !gui_target) {
         stock<void(u32, u32, u32, u32)>(0x8d593c9c)(controller, pitch, track, velocity);
@@ -654,7 +663,7 @@ extern "C" void sdk_arranger_record_off(u32, u32, u32) __asm__("sdk_arranger_rec
 extern "C" void sdk_arranger_record_off(u32 state, u32 track, u32 pitch) {
     using namespace opxy::platform;
     u32 pattern;
-    const bool gui = stock<u32()>(0x8d5c3eac)() != 0;
+    const bool gui = stock<u32()>(0x8d5c3eac)() && !sequencer_context();
     if (!releasing && (record_owner || (gui && sdk_arranger_record_target(track, &pattern)))) {
         queue_record(RecordEvent{project_generation(), 0, track, pitch, 0, 0, 0});
         return;
@@ -666,7 +675,7 @@ extern "C" const u8* sdk_arranger_record_indices() __asm__("sdk_arranger_record_
 extern "C" const u8* sdk_arranger_record_indices() {
     using namespace opxy::platform;
     const u8* original = stock<const u8*()>(0x8d5841e4)();
-    const u32 role = stock<u32()>(0x8d5c3eac)() ? 1 : 0;
+    const u32 role = sequencer_context() ? 0 : 1;
     static u8 indices[2][16];
     for (u32 track = 0; track < 16; ++track) indices[role][track] = original[track];
     const u8* project = at<const u8>(word(0x840a0524));

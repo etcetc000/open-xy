@@ -2,6 +2,22 @@
 #include <opxy/types.hpp>
 
 namespace opxy { namespace platform {
+inline u32 piano_vertical_zoom(u32 rows, i32 delta) {
+    static const u32 sizes[] = {6, 8, 12, 16, 24};
+    u32 index = 0; while (index < 4 && sizes[index] < rows) ++index;
+    if (delta > 0 && index) --index;
+    if (delta < 0 && index < 4) ++index;
+    return sizes[index];
+}
+inline u32 piano_pitch_low(u32 pitch, u32 rows) {
+    const u32 low = pitch > rows / 2 ? pitch - rows / 2 : 0;
+    return low > 128 - rows ? 128 - rows : low;
+}
+inline bool piano_black_key(u32 pitch) {
+    const u32 key = pitch % 12;
+    return key == 1 || key == 3 || key == 6 || key == 8 || key == 10;
+}
+inline u32 piano_row_y(u32 row, u32 rows) { return 28 + row * 168 / rows; }
 struct PianoNote { i32 position; u32 duration; u8 pitch, velocity, flags, padding; };
 
 // GUI-only, source-local native ticks (480 per step). Caller must stop transport,

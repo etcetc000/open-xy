@@ -21,8 +21,8 @@ const u32 path_capacity = 256, project_limit = 16 * 1024 * 1024;
 State published, captured, staged, decode_scratch;
 const State empty_state;
 alignas(4) volatile u32 writer_intent, reader_intent, revision, retry, stage_ready, stage_cancelled, load_busy;
-u32 published_revision, published_generation, gui_generation, captured_revision, captured_generation, staged_generation;
-bool gui_bound, gui_active, publish_pending, published_bound, staged_recovered, staged_failed;
+u32 published_revision, published_generation, gui_generation, captured_revision, captured_generation, staged_generation, staged_revision;
+bool gui_bound, gui_active, publish_pending, published_bound, staged_recovered, staged_failed, captured_staged;
 alignas(4) volatile u32 protected_generation, protection_active, io_status;
 u32 observed_retry, staged_pointer, gui_pointer;
 u8 gui_track;
@@ -51,14 +51,35 @@ bool publish_snapshot() {
     release_writer();
     return true;
 }
+bool capture_current() {
+    if (captured_generation != generation()) return false;
+    if (captured_revision == revision) return true;
+    // Applying this same validated load advances revision once, without an edit.
+    // Any subsequent GUI edit advances it again and invalidates the disk capture.
+    return captured_staged && revision == captured_revision + 1 && gui_bound &&
+        gui_generation == captured_generation && gui_pointer == word(0x840a0524);
+}
 bool capture_snapshot() {
+    captured_staged = false;
     reader_intent = 1; barrier();
     if (writer_intent) { release_reader(); return false; }
     captured = published;
     captured_generation = published_generation; captured_revision = published_revision;
     const bool bound = published_bound;
     release_reader();
-    return bound && captured_generation == generation() && captured_revision == revision;
+    if (bound && captured_generation == generation() && captured_revision == revision) return true;
+    // Native598b04 commits a load, then598ae8 immediately saves workspace before
+    // GUI poll can publish it. The file-operation lock keeps staged immutable;
+    // use only the validated candidate for this exact committed buffer/generation.
+    barrier();
+    if (!stage_ready || stage_cancelled || staged_generation != generation() ||
+        staged_pointer != word(0x840a0524)) return false;
+    captured_staged = true;
+    captured_revision = staged_revision;
+    captured_generation = staged_generation;
+    captured = staged;
+    barrier();
+    return !stage_cancelled && capture_current();
 }
 
 // OS libc FILE begins with flags: fread's negative-read branches 8fed06ae /
@@ -125,11 +146,11 @@ bool write_file(const char* path) {
     const u32 written = stock<u32(const void*, u32, u32, File*)>(0x8fed0780)(buffer, 1, n, file);
     const int result = close(file);
     if (written != n || result != 0 || operation_conflict ||
-        captured_generation != generation() || captured_revision != revision) return false;
+        !capture_current()) return false;
     Binding after;
     if (!measure(path, after) || after.project_bytes != binding.project_bytes ||
         after.project_crc32 != binding.project_crc32 || operation_conflict ||
-        captured_generation != generation() || captured_revision != revision) return false;
+        !capture_current()) return false;
     // Same checked close -> rename sequence as stock RLE writer 8d59155a..59e.
     // Preserves previous sidecar on short write/close failure; not an atomic .xy pair.
     return stock<int(const char*, const char*)>(0x8fed0908)(temporary, sidecar) == 0;
@@ -197,8 +218,7 @@ u32 sdk_arranger_project_save(const char* path) {
     const bool captured_ok = capture_snapshot();
     // 8d585e98 forwards serializer R0 unchanged after its call at 8d585eda.
     const u32 result = stock<u32(const char*)>(0x8d585e98)(path);
-    if (!result || !captured_ok || operation_conflict || captured_generation != generation() ||
-        captured_revision != revision || !write_file(path)) { ++retry; io_status = 2; }
+    if (!result || !captured_ok || operation_conflict || !capture_current() || !write_file(path)) { ++retry; io_status = 2; }
     else io_status = 0;
     barrier(); operation_busy = 0;
     return result;
@@ -238,6 +258,7 @@ u32 sdk_arranger_project_load(const char* path, u32 commit) {
         if (!same_file || operation_conflict) staged = empty_state;
         else if (staged_recovered) ++retry;
         staged_generation = before + 1;
+        staged_revision = revision;
         protected_generation = staged_generation;
         protection_active = (!same_file && staged_failed) || operation_conflict;
         io_status = 0;
