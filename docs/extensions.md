@@ -259,3 +259,18 @@ service, not an atomic live editor subscription. `read_pattern` copies all notes
 or none: insufficient capacity returns false with count zero and leaves the
 output buffer unchanged. The maximum capacity is 120. The actions are unavailable
 outside the granted callback, including through a retained `Actions` value.
+
+
+For a deferred read, register `with_pattern_read_result(callback)` and call
+`actions.request_pattern_read(ref)` in a granted control callback. A nonzero
+return value is its request ID; zero means unavailable or another snapshot is
+outstanding. The GUI service performs the bounded copy outside stock key and
+render callbacks. The owning extension receives a `PatternReadResult` on the
+controller path, after its context callback. No contributor code runs on the GUI
+service. The result's notes are borrowed only for that callback. Failure carries
+no notes; a changed project or no-longer-readable context fails rather than
+returning data from the old project. Do not wait or spin for completion.
+
+The SDK holds one snapshot until its result callback returns. Another request
+cannot replace it, including from another extension. This service reads existing
+sources; it does not allocate, clone or edit patterns.

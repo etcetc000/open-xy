@@ -29,6 +29,9 @@ const ExtensionRegistry& extension_registry();
 
 // These entry points belong only to the version adapter.
 void extensions_sync();
+// Only the authenticated GUI poll adapter calls this; never dispatches contributor callbacks.
+void extensions_gui_poll();
+void extension_barrier();
 void extensions_input_activity();
 void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity);
 void extensions_selected_note_off(u32 track, u32 pitch);

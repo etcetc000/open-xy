@@ -205,13 +205,13 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'presets')
+             'extension_runtime', 'extension_collection', 'extension_stock', 'extension_gui', 'extension_gui_stock', 'presets')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
-UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
+UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'extension_gui', 'extension_gui_stock'), 'extensions'))
 
 
 def service_users(machines):
@@ -576,9 +576,11 @@ def check_module(directory, tools, profile, machines, profiling=True):
     # The startup label thunk uses Blackfin+ absolute CALL/JUMP forms objdump
     # cannot decode; its exact bytes are checked against the stock targets.
     label = symbols[startup_label.SYMBOL]
+    gui = extensions.checked_gui_trampoline(profile, module, symbols, allocated['.text'])
+    verified_ranges = [(label['value'], label['value'] + label['size'])] + ([gui] if gui else [])
     undecoded = [int(line.split(':')[0], 16) for line in disassembly.splitlines()
                  if 'ILLEGAL' in line and re.match(r'\s*[0-9a-f]+:', line)]
-    require(all(label['value'] <= at < label['value'] + label['size'] for at in undecoded) and
+    require(all(any(begin <= at < end for begin, end in verified_ranges) for at in undecoded) and
             'R_BFIN_' not in disassembly, 'Invalid or unresolved instructions')
     require(startup_label.thunk_ok(read(directory / 'module.bin'), label['value'] - profile['module_base'],
                                    label['size'], symbols['kit_startup_label_text']['value']),

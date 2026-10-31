@@ -5,6 +5,7 @@ Extensions live in their own folders and repositories, with their own tests
 exercises the adapter here.
 """
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -30,6 +31,31 @@ def build_and_run(test, source, folder, includes=()):
 
 
 class KeyQueueHook(unittest.TestCase):
+    def test_gui_poll_trampoline_matches_reviewed_entry(self):
+        from tooling.pipeline import config
+        patch = next(p for p in config()['patches'] if p.get('symbol') == 'sdk_extension_gui_poll')
+        source = (PLATFORM / 'extension_gui_stock.s').read_text()
+        data = bytes(int(value, 16) for line in source.splitlines() if line.strip().startswith('.byte')
+                     for value in re.findall(r'0x([0-9a-f]{2})', line))
+        self.assertEqual(data[:12], bytes.fromhex(patch['before']))
+        self.assertEqual((patch['address'], patch['encoding'], patch['length']),
+                         ('0x8c0b723c', 'absolute_jump', 12))
+        self.assertEqual(data[12:], bytes.fromhex('00dc0b8c48720000'))
+        from tooling.extensions import checked_gui_trampoline
+        profile = config()
+        base = profile['module_base']
+        symbols = {'sdk_stock_extension_gui_poll': {'value': base, 'size': len(data)}}
+        text = {'address': base, 'size': len(data)}
+        self.assertEqual(checked_gui_trampoline(profile, data, symbols, text), (base, base + len(data)))
+        for at in range(len(data)):
+            changed = bytearray(data); changed[at] ^= 1
+            with self.assertRaises(ValueError):
+                checked_gui_trampoline(profile, changed, symbols, text)
+        for wrong in ({'value': base, 'size': 18}, {'value': base + 2, 'size': 20}):
+            with self.assertRaises(ValueError):
+                checked_gui_trampoline(profile, data, {'sdk_stock_extension_gui_poll': wrong}, text)
+        self.assertIsNone(checked_gui_trampoline(profile, data, {}, text))
+
     def test_queued_event_keeps_absolute_call_and_exact_nop_padding(self):
         from tooling.firmware import hook_instruction, hook_target
         from tooling.pipeline import config
