@@ -99,7 +99,14 @@ u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedN
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes};
+bool discover_pattern(u32 track, u32 index, extensions::PatternInfo& out) {
+    return (transaction.granted & action_read_patterns) && extension_discover_pattern(track, index, out);
+}
+bool read_pattern(const extensions::PatternRef& ref, RecordedNote* out, u32 capacity, u32& count) {
+    count = 0;
+    return (transaction.granted & action_read_patterns) && extension_read_pattern(ref, out, capacity, count);
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, discover_pattern, read_pattern};
 }
 
 void extensions_sync() {
