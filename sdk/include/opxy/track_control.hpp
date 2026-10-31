@@ -1,15 +1,14 @@
-// Track control (SDK 1.7): a synth that declares resources.trackControl runs
-// control() on the GUI side once per stock GUI tick while it is on an
-// instrument track, or on an aux track it took over (resources.trackControl.aux).
-// It reads every track's live parameters and may overlay other instrument
-// tracks' values for that tick, or capture their encoder edits.
-// Overlays never reach the saved project: stock keeps its own values, and a
-// parameter the machine stops overlaying returns to them.
+// Track control (SDK 1.7): a synth that declares resources.trackControl, with
+// the aux track it takes over (resources.trackControl.aux), runs control() on
+// the GUI side once per stock GUI tick while it holds that track. It reads
+// every track's live parameters and may overlay instrument tracks' values for
+// that tick, or capture their encoder edits. Overlays never reach the saved
+// project: stock keeps its own values, and a parameter the machine stops
+// overlaying returns to them.
 //
-// Every track control machine on tracks 0..7, then on the aux tracks, runs in
-// track order, each copy with its own state. A machine that declares
-// "unique": true runs only while one track holds it; one that keeps data with
-// projects, or takes over an aux track, must be unique.
+// Such a machine must declare "unique": true. It has one state for the
+// project, reset before its first call and after a project is loaded or
+// created; it runs only while one track holds it.
 #pragma once
 #include <opxy/transport.hpp>
 #include <opxy/types.hpp>

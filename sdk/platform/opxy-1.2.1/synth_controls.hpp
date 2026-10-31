@@ -21,7 +21,6 @@ struct SynthControls {
     bool (*format)(u32 slot, i32 value, char* text);
     bool effect;
     bool page;
-    u8 hidden_pages;  // stock instrument pages the synth hides, by page index (bit 1 envelope, 2 filter)
     u8 absent;  // bit s: slot s is an empty placeholder, shown blank and never edited
     // An effect's shift row (SDK 1.7, shift_row.hpp): its control count, each
     // one's choice count, and titles; formats caption it as slots 8..11.
@@ -65,14 +64,6 @@ bool sdk_synth_value(opxy::u32 track, opxy::u32 slot, opxy::i32 value, char* tex
 // owned synth, as last refreshed; other indices and engines map to themselves.
 // For stock control titles.
 opxy::u32 sdk_synth_title_slot(opxy::u32 engine, opxy::u32 index) __asm__("sdk_synth_title_slot");
-// Once per GUI tick (synth_pages.cpp, the control service): when the selected
-// instrument track's owned synth hides the stock page shown, shows the page shown
-// before it instead.
-void sdk_synth_pages() __asm__("sdk_synth_pages");
-// The hidden page key (2..4 for M2..M4) last pressed on `track` while it was
-// selected, once, or 0.
-opxy::u32 sdk_synth_page_key(opxy::u32 track) __asm__("sdk_synth_page_key");
-void sdk_synth_queue_page_key(opxy::u32 track, opxy::u32 key) __asm__("sdk_synth_queue_page_key");
 // The send page's value text for position `index` of an owned effect, through
 // the hook in screen_hooks.s; every other caption reaches stock unchanged.
 opxy::u32 sdk_fx_value_text(opxy::u32 widget, const char* text, opxy::u32 index, opxy::i32 value)

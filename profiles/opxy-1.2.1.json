@@ -95,8 +95,7 @@
       "sample"
     ],
     "control": [
-      "trackControl",
-      "hidePages"
+      "trackControl"
     ],
     "aux": [
       "auxTrack"

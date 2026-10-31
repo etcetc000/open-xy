@@ -276,16 +276,6 @@ class OutsideMachines(unittest.TestCase):
         self.numberless(self.folder, sdk='1.7')
         self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
 
-    def test_hidden_pages_need_the_sdk_that_adds_them(self):
-        definition = json.loads((self.folder / 'definition.json').read_text(encoding='utf-8'))
-        definition['hidePages'] = ['envelope']
-        (self.folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
-        self.numberless(self.folder, sdk='1.6')
-        with self.assertRaisesRegex(ValueError, 'Hidden stock pages'):
-            machines.machine_at(self.folder)
-        self.numberless(self.folder, sdk='1.7')
-        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-
     def numberless(self, folder, **changes):
         """A machine.json in SDK 1.5 form: no identity; `changes` adds or (None) removes fields."""
         record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))

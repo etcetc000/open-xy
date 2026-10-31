@@ -9,7 +9,7 @@ import unittest
 from tooling import native
 from tooling.adapters import (control_callbacks, generate_control, generate_track_control_overlay,
                               generate_track_controls)
-from tooling.definitions import hidden_pages, validate_definition
+from tooling.definitions import validate_definition
 from tooling.machines import check_saved_budget
 from tooling.formats import ldr, mapped_offset, sha
 from tooling.pipeline import ROOT, config
@@ -238,11 +238,14 @@ class TrackControl(unittest.TestCase):
         self.assertIn('{0, 4, 4, 1},  // probesynth', overlay)
         self.assertIn('{5, 2, 7, 1},  // own', overlay)
 
-    def test_builds_without_track_control_or_hidden_pages_stay_as_before(self):
+    def test_definitions_no_longer_hide_pages(self):
+        # Aux machines own their pages; a definition declaring hidePages is refused like any unknown key.
+        with self.assertRaises(ValueError):
+            validate_definition(dict(copy.deepcopy(fixture('probesynth').definition), hidePages=['envelope']), 'synth')
+
+    def test_builds_without_track_control_stay_as_before(self):
         from tooling.firmware import active_services, patch_active
         plain = [fixture(name) for name in ('probesynth', 'probefx')]
-        hiding = copy.deepcopy(fixture('probesynth'))
-        hiding.definition['hidePages'] = ['envelope']
         steering = copy.deepcopy(fixture('probesynth'))
         steering.definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4}
         aux = copy.deepcopy(steering)
@@ -257,7 +260,7 @@ class TrackControl(unittest.TestCase):
                          ['0x840ae308', '0x840ae32c', '0x840aedfc', '0x840aee6c', 'sdk_aux_key_hook',
                           'sdk_aux_lfo_label_hook', 'sdk_aux_page_hook', 'sdk_aux_shift_m1_hook', 'sdk_aux_shift_track_hook', 'sdk_aux_turn_hook', 'sdk_cv_gate_on',
                           'sdk_cv_output', 'sdk_lfo_aux_publish'])
-        for machines, used, aux_used in ((plain, False, False), ([hiding], True, False), ([steering], True, False),
+        for machines, used, aux_used in ((plain, False, False), ([steering], True, False),
                                          ([aux], True, True)):
             services = active_services(config(), native.service_users(machines))
             self.assertEqual(('control' in services, 'aux' in services), (used, aux_used))
@@ -265,7 +268,7 @@ class TrackControl(unittest.TestCase):
             self.assertEqual(all(patch_active(p, services) for p in aux_edits), aux_used)
             units = {step for _name, _m, step in native.plan(machines)}
             for unit in ('track_control', 'track_control_table', 'track_control_hooks', 'track_control_overlay',
-                         'track_control_project', 'synth_pages'):
+                         'track_control_project'):
                 self.assertEqual(unit in units, used)
             for unit in ('aux_tracks', 'aux_hooks'):
                 self.assertEqual(unit in units, aux_used)
@@ -321,7 +324,7 @@ class TrackControl(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_real_aux_and_instrument_page_dispatch(self):
         platform = ROOT / 'sdk/platform/opxy-1.2.1'
-        for unit in ('synth_pages', 'aux_tracks'):
+        for unit in ('aux_tracks',):
             with self.subTest(unit=unit), tempfile.TemporaryDirectory(prefix='page-dispatch-') as directory:
                 folder = Path(directory)
                 stock = (platform / 'stock.hpp').read_text(encoding='utf-8')
@@ -342,16 +345,6 @@ class TrackControl(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_a_synth_can_hide_the_envelope_and_filter_pages(self):
-        synth = copy.deepcopy(fixture('probesynth').definition)
-        for pages in (['envelope'], ['filter', 'envelope']):
-            validate_definition(dict(synth, hidePages=pages), 'synth')
-        # The LFO page always stays.
-        for pages in ([], ['engine'], ['filter', 'filter'], 'filter', ['lfo'], ['lfo', 'envelope', 'filter']):
-            with self.subTest(pages=pages), self.assertRaises(ValueError):
-                validate_definition(dict(synth, hidePages=pages), 'synth')
-        self.assertEqual(hidden_pages(dict(synth, hidePages=['envelope', 'filter'])), 6)
 
     @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
     def test_hooked_calls_reach_the_original_functions(self):

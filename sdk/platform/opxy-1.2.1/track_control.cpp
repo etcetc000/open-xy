@@ -137,6 +137,14 @@ const ControlMachine* owner(u32 track) {
     }
     return nullptr;
 }
+// The page key last handled on an aux track, once, for that track's machine.
+u32 key_track = kNoTrack, key_number;
+u32 take_page_key(u32 track) {
+    if (track != key_track) return 0;
+    key_track = kNoTrack;
+    return key_number;
+}
+
 u32 machine_index(const ControlMachine* m) { return static_cast<u32>(m - sdk_control_machines); }
 
 Applied* find(u32 track, u32 index) {
@@ -284,8 +292,13 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
 
 // Called by the GUI tick after a project load or new project, before the
 // machines run (sdk_control_kept_apply). It touches none of stock's buffers.
+extern "C" void sdk_control_queue_page_key(u32 track, u32 key) {
+    key_track = track;
+    key_number = key;
+}
+
 extern "C" void sdk_control_forget() {
-    sdk_synth_queue_page_key(kNoTrack, 0);
+    sdk_control_queue_page_key(kNoTrack, 0);
     original_count = pending_count = applied_count = wanted_count = 0;
     capture_track = kNoTrack;
     for (u32 t = 0; t < control::all_tracks; ++t) {
@@ -298,7 +311,6 @@ extern "C" void sdk_control_forget() {
 extern "C" void sdk_gui_tick() {
     stock<void()>(0x8d580074)();
     ++gui_ticks;
-    sdk_synth_pages();
     if (!sdk_control_machine_count && !applied_count) return;
     sdk_control_kept_apply();
     if (sdk_aux.tick) sdk_aux.tick();
@@ -358,7 +370,7 @@ extern "C" void sdk_gui_tick() {
             input.values[t][p] = shown(t, p);
         }
         input.track = t;
-        input.page_key = sdk_synth_page_key(t);
+        input.page_key = take_page_key(t);
         input.muted = muted(t);
         input.capturing = capture_track == t;
         input.edit_count = input.capturing ? pending_count : 0;

@@ -201,10 +201,9 @@ test('SDK objects of a profile service link only when a selected machine uses it
   k.machines.push({...machine('b',46,7),kind:'sample'});
   assert.throws(()=>linkKit(k,['a','b']),/Duplicate global symbol: entry/);
 });
-test('track control and hidden pages use the control service, whose entry points fall back while unused', () => {
+test('track control uses the control service, whose entry points fall back while unused', () => {
   const k=fixture(), o=k.objects[0];
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control']);
-  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['hidePages']}])],['control']);
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth'}])],[]);
   // Shared startup calls the marks screen, which only a control build links.
   k.definitions.fallback=k.profile.module_base;

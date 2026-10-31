@@ -32,10 +32,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.5 drops identity numbers: the layout gives every number, and a sample engine
 # names its base instead of a stock page.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
-# 1.7 adds a synth's track control (resources.trackControl) and hidden stock pages
-# (hidePages), supplies a frozen source-audition clock for tempo-aware sample slicing,
-# lets an effect page its controls, have a shift row, draw its own page and fix its
-# source dry (dryLevel), and adds a saturating Q31 add and up to 32 display text slots.
+# 1.7 adds a synth's track control (resources.trackControl), supplies a frozen
+# source-audition clock for tempo-aware sample slicing, lets an effect page its controls,
+# have a shift row, draw its own page and fix its source dry (dryLevel), and adds a
+# saturating Q31 add and up to 32 display text slots.
 SDK_VERSION = (1, 7)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -277,8 +277,6 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), 'A press that switches the page ("press": "page")')
         if len(definition['parameters']) < 8:
             require_sdk(version, (1, 4), 'A partially filled second page')
-    if 'hidePages' in definition:
-        require_sdk(version, (1, 7), 'Hidden stock pages ("hidePages")')
     if kind == 'effect' and paged(definition):
         require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
     if shift_parameters(definition):

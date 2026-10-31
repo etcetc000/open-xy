@@ -40,7 +40,7 @@ const u32 sdk_control_machine_count = 2;
 AuxService sdk_aux;
 u32 (*sdk_aux_engine)(u32);
 bool (*sdk_aux_owns_page)(u32);
-void sdk_synth_queue_page_key(u32 track, u32 key) { host_key_track = track; host_key = key; }
+void sdk_control_queue_page_key(u32 track, u32 key) { host_key_track = track; host_key = key; }
 u32 sdk_effect_turn(u32 project, u32 track, u32 index, u32 event) {
     require(project == kProject, "Wrong editor project");
     ++host_turns; host_turn_track = track; host_turn_index = index; host_turn_event = event;
@@ -86,7 +86,7 @@ int main() {
     take(11, 1);
     require(host_engine(11) == 40 && host_base(11, 0) == 10 && host_live[11][57] == kAuxMark,
             "Takeover did not apply the machine's defaults and silencer");
-    // No hidePages metadata: every inherited tab still routes to this machine.
+    // Every inherited tab routes to this machine.
     for (u32 tab = 0; tab < 4; ++tab) {
         host_tab = tab;
         require(sdk_aux_page() == 120 && owns_page(11), "Inherited CV page escaped ownership");

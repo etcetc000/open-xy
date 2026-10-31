@@ -191,7 +191,7 @@ void take(u32 track, u32 choice) {
     const ControlMachine* before = holder(track);
     const ControlMachine* m = choice ? &sdk_control_machines[choice - 1] : nullptr;
     if (!kept || m == before) return;
-    sdk_synth_queue_page_key(control::all_tracks, 0);
+    sdk_control_queue_page_key(control::all_tracks, 0);
     const u32 p = current_pattern(track), bit = 1u << p;
     if (!before) {
         for (u32 i = 0; i < kControls; ++i) kept->values[p][i] = base(track, i);
@@ -529,7 +529,7 @@ u32 sdk_aux_key(u32 controller, const u32* event) {
     if (key >= 6 && key <= 9) {
         if (key == 9 && m->shared_lfo) return 0;
         if (key == 6) stock<void(u32, u32)>(0x8c08f74c)(controller, 0);
-        sdk_synth_queue_page_key(track, key - 5);
+        sdk_control_queue_page_key(track, key - 5);
         return 1;
     }
     return key >= 10 && key <= 13 && owns_page(track) ? 2 : 0;

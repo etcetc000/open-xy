@@ -208,18 +208,18 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_overlay', 'track_control_project',
-             'synth_pages', 'aux_tracks', 'aux_hooks', 'presets')
+             'aux_tracks', 'aux_hooks', 'presets')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
-# Track control and hidden pages run from the GUI tick hook; the marks' screen
+# Track control runs from the GUI tick hook; the marks' screen
 # registers at startup only in builds that link it, and startup stands in for the
 # saved data's entry points in builds that don't.
 UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
-                                    'track_control_overlay', 'track_control_project', 'synth_pages'), 'control'))
+                                    'track_control_overlay', 'track_control_project'), 'control'))
 # Machines that take over aux tracks: the chooser, presets, pages and the stock
 # roles' silencers; startup starts it, and control reaches it through sdk_aux.
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
@@ -227,12 +227,11 @@ UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
-    they declare ('trackControl', 'auxTrack', 'hidePages'), and 'extension' when it links
+    they declare ('trackControl', 'auxTrack'), and 'extension' when it links
     extensions (native builds link all of the collection's)."""
     users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
-            ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
-            ['hidePages' for m in machines if 'hidePages' in m.definition])
+            ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')])
 
 
 def module_bytes(profile):

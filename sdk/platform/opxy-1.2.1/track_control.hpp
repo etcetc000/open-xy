@@ -60,6 +60,9 @@ extern const opxy::u32 sdk_control_machine_count __asm__("sdk_control_machine_co
 void sdk_gui_tick() __asm__("sdk_gui_tick");
 // A project replacement invalidates transient edits/overlays without touching stock's buffers.
 void sdk_control_forget() __asm__("sdk_control_forget");
+// The page key (1..4 for M1..M4) an aux machine's track handled directly
+// (aux_tracks.cpp), for the machine's next tick as Input.page_key.
+void sdk_control_queue_page_key(opxy::u32 track, opxy::u32 key) __asm__("sdk_control_queue_page_key");
 // Whether each machine of the table has had its reset for this project: a unique
 // machine keeps one state for the project, so arriving on a track doesn't reset it.
 extern bool sdk_control_prepared[] __asm__("sdk_control_prepared");

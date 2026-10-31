@@ -86,7 +86,6 @@ i32 stock_base(u32 project, u32 track, u32 index) {
 u32 selected = 0;
 u32 stock_selected() { return selected; }
 int ready() { return 1; }
-u32 page_checks;
 void reset(u32) { ++resets; }
 void run(u32 copy, const control::Input* input, control::Overlay* overlay) {
     require(copy == 0, "A unique machine's copy is not 0");
@@ -138,11 +137,6 @@ void tick(u32 expected_writes, const char* message) {
 }
 }
 
-// The hidden-pages check (synth_controls.cpp) runs once per GUI tick.
-void sdk_synth_pages() { ++page_checks; }
-u32 page_key;
-void sdk_synth_queue_page_key(u32, u32 key) { page_key = key; }
-u32 sdk_synth_page_key(u32 track) { return track == 2 ? page_key : 0; }
 opxy::u32 sdk_benchmark_cycles() { return cycles; }
 // The aux service's entry points, which its startup fills in on the device.
 opxy::u32 aux_engine(opxy::u32 track) { return track < control::all_tracks ? aux_engines[track] : 0; }
@@ -198,7 +192,7 @@ int main() {
     value(3, 9) = 7;
     plan({{0, 1, 0, 500}});
     tick(0, "Overlay written without a machine");
-    require(ticks == 1 && runs == 0 && value(0, 1) == 100 && page_checks == 1, "Stock tick not delegated alone");
+    require(ticks == 1 && runs == 0 && value(0, 1) == 100, "Stock tick not delegated alone");
 
     engines[2] = 40;
     // Own track and out-of-range entries are ignored; the later duplicate wins.
@@ -357,11 +351,15 @@ int main() {
     playing[1] = 0;
     tick(0, "Timing rewrote the overlay");
     require(seen_elapsed == 1000000 && seen_playing == 0, "Elapsed time not capped");
-    // A hidden page key pressed on the host's track reaches the machine.
-    page_key = 4;
+    // A page key handled on the host's track reaches its machine once; another track's does not.
+    sdk_control_queue_page_key(2, 4);
     tick(0, "Page key rewrote the overlay");
     require(seen_key == 4, "Page key not given");
-    page_key = 0;
+    tick(0, "Page key rewrote the overlay");
+    require(seen_key == 0, "Page key given twice");
+    sdk_control_queue_page_key(5, 3);
+    tick(0, "Page key rewrote the overlay");
+    require(seen_key == 0, "Another track's page key given");
 
     // What the control passes to its display, for the selected track.
     selected = 2;
@@ -450,7 +448,7 @@ int main() {
 
     // A machine holding an aux track runs there after the instrument tracks,
     // reads its own controls from that track, and counts as a copy as it would
-    // on an instrument track.
+    // on an instrument track. Unique and already prepared, it keeps its state.
     engines[2] = 0;
     tick(1, "Overlay not released when the machine left");
     const i32 stock_value = value(0, 1);
@@ -460,7 +458,7 @@ int main() {
     plan({{0, 1, 0, 400}, {11, 2, 0, 9}});
     const u32 aux_resets = resets, aux_before = aux_ticks;
     tick(1, "Aux host's overlay not written");
-    require(resets == aux_resets + 1 && seen_own == 33 && value(0, 1) == 400 && value(11, 2) == 0 &&
+    require(resets == aux_resets && seen_own == 33 && value(0, 1) == 400 && value(11, 2) == 0 &&
             sdk_control_copies(11) == 1 && aux_ticks == aux_before + 1, "Aux host not run");
     selected = 11;
     require(sdk_control_display(1) == 77, "Aux host's display words not kept");

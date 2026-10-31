@@ -51,8 +51,8 @@ form the profile's `samples` service: a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine. Otherwise
 their sites stay stock. The track control rows (and the project read of the
 project companion rows) form the `control` service in the same way: a build
-uses them only when it includes a machine with [track control](api.md#track-control)
-or [hidden pages](api.md#alternate-controls). The aux track rows form the `aux`
+uses them only when it includes a machine with [track control](api.md#track-control).
+The aux track rows form the `aux`
 service, used only by a machine that [takes over aux tracks](api.md#aux-tracks).
 Everything else must reconstruct byte for byte. Protected ranges in
 [`pipeline.py`](../tooling/pipeline.py) admit only hooks into the module and
@@ -423,16 +423,6 @@ as audio does. Changing from a larger machine therefore keeps a valid name
 and icon until the user edits the destination.
 The [API guide](api.md#alternate-controls) describes saved-selector compatibility.
 
-### Hidden pages
-
-[`synth_pages.cpp`](../sdk/platform/opxy-1.2.1/synth_pages.cpp) runs once per
-GUI tick from track control's tick. The instrument controller's page word
-(`080238bc`: 0 for the engine page, 1..3 for M2..M4) is set by `8c0b19c4`,
-which M1..M4, track changes and menus all reach. When the selected track's synth
-hides the page shown, the SDK calls `8c0b19c4` with the page shown before, or
-the engine page. Only the envelope (M2) and filter (M3) pages can be hidden;
-the LFO page (M4) always stays.
-
 ### Track control
 
 Stock keeps each track's live parameters at `g_project + 0x4080` (`g_project`
@@ -445,14 +435,17 @@ when it changed.
 `8c0baacc`, the GUI's per-tick update, calls the void function `8d580074` (which calls `8d5be290`) just
 before the sequencer tick. That call at `8c0baade` routes through
 `sdk_gui_tick` ([`track_control.cpp`](../sdk/platform/opxy-1.2.1/track_control.cpp)),
-which makes the original call first. Then it treats any live value that
-differs from the one it last wrote as stock's, and runs every instrument
-track's synth with [track control](api.md#track-control) in track order (track
-engines from `8d58781c`; a unique one only while no other track holds the same
-engine), then the machine holding each aux track ([aux tracks](#aux-tracks)),
-giving each every track's values without overlays. It writes their overlays through `8d5acea8`, the later track's
-winning a parameter two overlay, and writes stock's last value back wherever
-no machine overlays any more, unless stock has written there since. Values written this
+which makes the original call first. After a project load or new project it
+gives machines their data (the [project hook](#project-companions) only records
+it, on the file task). Then it treats any live value that differs from the one
+it last wrote as stock's, and runs the [track control](api.md#track-control)
+machine holding each aux track ([aux tracks](#aux-tracks)), in track order,
+giving each every track's values without overlays. The lower-level runtime
+still runs instrument tracks' track control engines first (from `8d58781c`),
+but the build lets none be chosen there. It writes their overlays through
+`8d5acea8`, the later track's winning a parameter two overlay, and writes
+stock's last value back wherever no machine overlays any more, unless stock
+has written there since. Values written this
 way are live values only: the saved project keeps stock's base values. With no
 such synth on a track, the hook makes only the original call.
 
@@ -564,8 +557,7 @@ It sends machine-page turns directly to the SDK editor. Neither interval has
 an internal branch target. Both stubs preserve stock's input arguments and
 replay replaced instructions on fallback; handled paths unwind the original
 method's saved registers and frame. Only `sharedLfo: true` delegates M4's
-page and input to stock. Instrument `hidePages` polling never handles aux
-tracks. The shared LFO retains the track's existing LFO settings.
+page and input to stock. The shared LFO retains the track's existing LFO settings.
 
 Capture originals include their pattern block, engine and last edited value.
 A current pattern restores through stock's setter; an inactive pattern restores

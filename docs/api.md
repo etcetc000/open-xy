@@ -177,15 +177,6 @@ editing a shared control keeps the current page. Use the SDK's
 emphasis and motion. `sdk.py new` supplies it by default. Macro Osc is the
 [worked reference](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json).
 
-A synth for which a stock instrument page means nothing (one that makes no
-sound of its own, say) may declare `"hidePages"` at the top of
-`definition.json` (SDK 1.7), listing `"envelope"` (M2), `"filter"` (M3) or both. On its
-track, those keys then leave the page shown as it was, and selecting the track
-while another track shows a hidden page shows the engine page. The SDK
-corrects the page once per GUI tick, so the hidden page may flash for a frame.
-The LFO page (M4) always stays on instrument tracks. Aux replacements own their
-pages and receive their page keys directly; see [aux tracks](#aux-tracks).
-
 A synth may leave a slot empty yet keep later parameters at their indices
 (projects save by index): declare it
 `{"id": ..., "label": "", "default": 0, "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent", "absent": true}`,
@@ -299,9 +290,8 @@ serialized access.
 
 ## Track control
 
-A synth can steer other tracks (SDK 1.7). A build without such a machine (or
-one with [hidden pages](#alternate-controls)) applies none of track control's
-firmware edits and links none of its code. Such a synth runs on an
+A synth can steer other tracks (SDK 1.7). A build without such a machine
+applies none of track control's firmware edits and links none of its code. Such a synth runs on an
 [aux track](#aux-tracks), never in an instrument track's place. It declares
 `"trackControl": {"stateBytes": n, "stateAlignment": a, "unique": true, "aux": [12]}`
 in `resources`, with `"sdk": "1.7"` in `machine.json`, and supplies
@@ -364,7 +354,8 @@ and a parameter it stops adding gets its underlying value back at the end of
 that tick. The underlying value is stock's: what `values` reports, including
 edits, parameter locks and sequencing under the overlay. Between machines, the
 later track wins a parameter, and the earlier machine's overlay comes back when
-the later one gives it up. All machines together overlay at most 128 different
+the later one gives it up; with track 12 the only aux track for now, one machine
+runs at a time, so no two overlay together. All machines together overlay at most 128 different
 parameters in a tick; entries beyond that are ignored. A capture restores at
 most 128 different parameters: further edits during it play and stay as edited,
 and do not arrive in `edits`.
@@ -422,7 +413,8 @@ only one for now, the one whose stock role the SDK keeps silent. Such a machine
 is not in tracks 1-8's engine list: it is chosen on its aux track only.
 
 - **Choosing:** Shift + M1 on track 12 opens a list, "engine", with the
-  track's stock role (`cv`) first, then each machine that may take it over.
+  track's stock role (`cv`) first, then each machine that may take it over:
+  up to 31 in one build, which the build checks.
   As tracks 1-8 hold an engine, each pattern holds its own choice: it applies
   to the current pattern, is copied with it and saved with the project, and
   chained patterns switch between CV and the machine. While a machine holds the
@@ -430,7 +422,7 @@ is not in tracks 1-8's engine list: it is chosen on its aux track only.
 - **Its interface:** M1 shows the machine's display. Its encoders, clicks,
   fine turns and parameter locks use the machine's controls directly; CV's
   page dispatch does not run. M2/M3 are delivered as `page_key` actions and
-  do not open stock pages. `hidePages` is unnecessary for an aux replacement.
+  do not open stock pages.
 - **Optional shared LFO:** `"sharedLfo": true` in `trackControl` gives M4 to the
   shared LFO page, naming destinations after the machine's first four
   parameters. By default M4 is another machine action, no stock page is

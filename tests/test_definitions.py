@@ -216,9 +216,8 @@ class Definitions(unittest.TestCase):
         machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
-        # The row's last field: the absent slots' mask (slots 3 and 4), which are not continuous either;
-        # before it, the hidden pages (none).
-        row = re.search(r'^    \{gap_engine_id, gap_ready, \{([\d, ]+)\}, (\d+), \{[\d, ]+\}, gap_format, false, false, 0, (\d+)\},$', text, re.M)
+        # The row's last field: the absent slots' mask (slots 3 and 4), which are not continuous either.
+        row = re.search(r'^    \{gap_engine_id, gap_ready, \{([\d, ]+)\}, (\d+), \{[\d, ]+\}, gap_format, false, false, (\d+)\},$', text, re.M)
         self.assertEqual(row.group(1), '0, 1, 2, 5, 4, 3, 6, 7')
         self.assertEqual(int(row.group(2)) & 24, 0)
         self.assertEqual(row.group(3), '24')
@@ -279,7 +278,7 @@ class Definitions(unittest.TestCase):
                     SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false), \d+, \d+\},$', text, re.M),
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false), \d+\},$', text, re.M),
                          [('paged', 'true'), ('plain', 'false')])
 
     def test_an_effect_may_page_and_have_a_shift_row(self):
