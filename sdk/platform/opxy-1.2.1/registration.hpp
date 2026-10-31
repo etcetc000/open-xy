@@ -70,6 +70,9 @@ int add_screen(const Pages&, const Record&, const Screen&);
 // 1 only while the record (and, given a screen, its loaded page) is ours.
 // Read-only: calls no stock getter, allocator, registrar or resolver.
 int ready(const Registry&, const Pages&, const Record&, const Screen*);
+// A screen registered at its record's page and loaded, apart from any engine:
+// a sample engine's own screen (its engine shows a stock page).
+int screen_ready(const Pages&, const Record&, const Screen&);
 // 1 when a stock string holds exactly the record's name.
 int name_matches(const Record&, const StockString*);
 // 1 when the name resolves to a registered entry, or before the name map exists
@@ -83,6 +86,7 @@ extern "C" {
 int sdk_register_engine(const opxy::platform::Record*) __asm__("sdk_register_engine");
 int sdk_register_effect(const opxy::platform::Record*) __asm__("sdk_register_effect");
 int sdk_register_screen(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_register_screen");
+int sdk_screen_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_screen_ready");
 int sdk_engine_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_engine_ready");
 // An effect with its own page (SDK 1.7) passes its screen; one on stock's FX page, null.
 int sdk_effect_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_effect_ready");

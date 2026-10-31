@@ -1,6 +1,7 @@
 # Display API
 
-A synth draws its own page. Display code runs separately from audio. Each
+A synth draws its own page, as from SDK 1.10 may a sample engine on the
+sampler's page ([own screen](api.md#own-screen)). Display code runs separately from audio. Each
 frame it fills a bounded frame, which the SDK's browser and native renderers
 apply to the machine's artwork, `panel.svg.fragment`. This is retained
 drawing: the artwork's elements are drawn by the device, and the frame moves,
@@ -16,7 +17,7 @@ patterns are the machine's own code filling nodes; see
 
 ## Declaration
 
-Each synth declares its frame's budget in `resources.display` of
+Each synth, or sample engine with its own screen, declares its frame's budget in `resources.display` of
 `definition.json` and names the same shape as its C++ frame type. The SDK sizes
 the native renderer, the browser renderer and the artwork bindings from that
 declaration; a mismatch fails to compile.
@@ -205,6 +206,26 @@ settle within 0.15 seconds and reverse continuously on a second press.
 Initialization, track changes and reduced motion snap to the selected page.
 The helper reads every `shown` position, including layouts whose first
 column is shared. It does not touch the machine's audio or parameter state.
+
+### Sample overview
+
+From SDK 1.10, a sample engine's [own screen](api.md#own-screen) can draw its sample.
+[sample_overview.hpp](../sdk/include/opxy/sample_overview.hpp) gives display
+code `opxy_sample_overview()`, never null: the selected track's sample as the
+engine plays it.
+
+| Field | Contract |
+| --- | --- |
+| `assigned` | 0 while the track holds no sample: say how to load one |
+| `loaded` | 0 until every peak has been read, while the sample loads and for a few frames after |
+| `frames`, `rate` | The whole sample's length and rate; 0 until it loads |
+| `peaks` | 64 bins of equal length across the whole sample, each its largest magnitude, 0..255 |
+| `begin`, `end` | The outer markers, in frames, as the engine plays them |
+
+The SDK reads a bounded slice of the sample before each frame of the screen,
+so a long sample fills in over a few frames. Audio callbacks never call it.
+In the browser preview it stays empty unless the host writes one through the
+`opxy_display_sample` export.
 
 ## Artwork
 

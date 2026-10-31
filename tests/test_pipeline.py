@@ -191,6 +191,15 @@ class SourceContracts(unittest.TestCase):
         with mock.patch.object(pipeline, 'host_platform', return_value='other-host'),                 self.assertRaisesRegex(ValueError, 'on ' + release + ', not other-host'):
             pipeline.require_release_host()
 
+    def test_own_screen_sample_engines_keep_their_words_where_stock_neutralizes_them(self):
+        # Both ask the sample predicate, then set a sampler's eight words to 0x40000000.
+        hooks = {p['address']: p for p in config()['patches'] if p.get('symbol') == 'sdk_sample_neutral_engine'}
+        self.assertEqual(sorted(hooks), ['0x8d581eb2', '0x8d588df2'])
+        self.assertEqual(hooks['0x8d588df2']['before'], '01e3e775')  # CALL 8d5b79c0
+        self.assertEqual(hooks['0x8d581eb2']['before'], '01e387ad')  # CALL 8d5b79c0
+        for hook in hooks.values():
+            self.assertEqual((hook['service'], hook['length'], hook['call']), ('samples', 4, True))
+
 
 if __name__ == '__main__':
     unittest.main()

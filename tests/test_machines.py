@@ -52,7 +52,7 @@ class Identity(unittest.TestCase):
     def test_stock_occupied_or_sentinel_ids_are_rejected(self):
         for kind, change in (('synth', dict(engine=33)), ('synth', dict(engine=2)), ('synth', dict(engine=256)),
                              ('synth', dict(page=81)), ('synth', dict(page=256)), ('synth', dict(engine=True)),
-                             ('sample', dict(engine=26)), ('sample', dict(page=82)),
+                             ('sample', dict(engine=26)), ('sample', dict(page=81)), ('sample', dict(page=256)),
                              ('effect', dict(effect=0)), ('effect', dict(effect=5)), ('effect', dict(page=20))):
             with self.subTest(kind=kind, change=change), self.assertRaises(ValueError):
                 machines.check_identity(RULES, kind, identity(kind, **change))
@@ -62,6 +62,17 @@ class Identity(unittest.TestCase):
         for page in (2, 21, 50, 81):
             with self.subTest(page=page), self.assertRaises(ValueError):
                 machines.check_identity(RULES, 'synth', identity('synth', page=page))
+
+    def test_a_sample_engine_drawing_its_own_screen_holds_a_relocated_page(self):
+        own = identity('sample', page=90)
+        self.assertEqual(machines.check_identity(RULES, 'sample', own), own)
+        self.assertEqual(machines.check_identity(RULES, 'sample', own, 'drawing'), own)
+        self.assertIn(('page', 90), machines.occupied(RULES, own))
+        self.assertNotIn(('page', 2), machines.occupied(RULES, identity('sample', page=2)))
+        for value, display in ((own, 'stock'), (identity('sample', page=2), 'drawing'), (identity('sample', page=81), None),
+                               (identity('sample', page=256), None), (identity('sample', screen=90), None)):
+            with self.subTest(value=value, display=display), self.assertRaises(ValueError):
+                machines.check_identity(RULES, 'sample', value, display)
 
     def test_names_and_fields_are_checked(self):
         # The folder name is the stock name, so identity holds only IDs.
@@ -248,9 +259,11 @@ class OutsideMachines(unittest.TestCase):
         for version in ('1.1', '1.2', '1.3', '1.4'):
             self.rename('fmcopy', self.free, version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-        for version in ('1.5', '1.6'):
+        # Versions compare as numbers: 1.10 is after 1.9, and 1.11 is ahead of this SDK.
+        for version in ('1.5', '1.6', '1.7', '1.8', '1.9', '1.10'):
             self.numberless(self.folder, sdk=version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+        self.assertGreater(machines.sdk_version('1.10'), machines.sdk_version('1.9'))
         future = '%d.%d' % (machines.SDK_VERSION[0], machines.SDK_VERSION[1] + 1)
         for version in ('0.9', '2.0', future, '1', 'latest', None):
             with self.subTest(version=version):
@@ -344,6 +357,81 @@ class OutsideMachines(unittest.TestCase):
         self.assertEqual(machines.machine_at(folder).identity, {'engine': None, 'page': 2})
         self.numberless(folder, base=None, sdk='1.4', identity={'engine': 47, 'page': 2})
         self.assertEqual(machines.machine_at(folder).identity, {'engine': 47, 'page': 2})
+
+    def test_a_sample_engine_forking_the_sampler_may_draw_its_own_screen(self):
+        folder = self.copy('probesample')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        for name in ('padSettings', 'drumControls'):
+            definition['resources'].pop(name)
+        synth = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+        definition['resources']['display'] = synth['resources']['display']
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(folder, base='drumSampler', sdk='1.10')
+        with self.assertRaisesRegex(ValueError, 'Only a sample engine forking the sampler'):
+            machines.machine_at(folder)
+        # Every released SDK that builds an earlier version refuses a sample engine's
+        # display, so a machine declaring one must name the version that first has it.
+        for version in ('1.5', '1.6', '1.9'):
+            self.numberless(folder, base='sampler', sdk=version)
+            with self.subTest(version=version), self.assertRaisesRegex(
+                    ValueError, r'''A sample engine's own screen \(resources.display\) needs "sdk": "1.10"'''):
+                machines.machine_at(folder)
+        # The form before SDK 1.5 names no version that has the feature, and gives no page.
+        self.numberless(folder, base=None, sdk='1.4', identity={'engine': 47, 'page': 2, 'screen': 90})
+        with self.assertRaisesRegex(ValueError, 'needs "sdk": "1.10"'):
+            machines.machine_at(folder)
+        self.numberless(folder, base=None, sdk='1.10', identity={'engine': 47, 'page': 2, 'screen': 90})
+        with self.assertRaisesRegex(ValueError, 'Remove "identity"'):
+            machines.machine_at(folder)
+        self.numberless(folder, base='sampler', sdk='1.10')
+        m = machines.machine_at(folder)
+        self.assertEqual((m.display, m.identity), ('drawing', {'engine': None, 'page': None}))
+        # The layout gives the screen a page from its own place, as it gives a synth's,
+        # and the engine stays on the sampler's page.
+        built = machines.collection(machines.read_collection(None, [folder]))[0]
+        self.assertIn(built.identity['page'], machines.number_pools(RULES)['page'])
+        self.assertEqual(built.sample_page, 2)
+        # Without a display it keeps the stock page it forks, and may not ask for another.
+        definition['resources'].pop('display')
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(folder, base='sampler', sdk='1.10')
+        self.assertEqual(machines.machine_at(folder).identity, {'engine': None, 'page': 2})
+        self.numberless(folder, base=None, sdk='1.4', identity={'engine': 47, 'page': 90})
+        with self.assertRaisesRegex(ValueError, 'stock sample page'):
+            machines.machine_at(folder)
+
+    def test_only_a_sample_engines_own_screen_reads_the_overview_from_sdk_1_10(self):
+        include = '#include <opxy/sample_overview.hpp>\n'
+        # A synth at its own version, or one the header doesn't yet exist in.
+        synth = self.copy('probesynth')
+        source = synth / 'display.cpp'
+        source.write_text(include + source.read_text(encoding='utf-8'), encoding='utf-8')
+        self.numberless(synth, sdk='1.9')
+        with self.assertRaisesRegex(ValueError, r'A sample overview \(opxy/sample_overview.hpp\) needs "sdk": "1.10"'):
+            machines.machine_at(synth)
+        self.numberless(synth, sdk='1.10')
+        with self.assertRaisesRegex(ValueError, "Only a sample engine's own screen"):
+            machines.machine_at(synth)
+        # In its tests or tools it's the machine's own business.
+        (synth / 'tests').mkdir(exist_ok=True)
+        (synth / 'tests/screen.cpp').write_text(include, encoding='utf-8')
+        source.write_text(source.read_text(encoding='utf-8').replace(include, ''), encoding='utf-8')
+        self.assertEqual(machines.machine_at(synth).id, synth.name)
+        # A sample engine without a display of its own has none to read it from.
+        folder = self.copy('probesample')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        definition['resources'].pop('padSettings')
+        definition['resources'].pop('drumControls')
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        (folder / 'display.cpp').write_text(include, encoding='utf-8')
+        self.numberless(folder, base='sampler', sdk='1.10')
+        with self.assertRaisesRegex(ValueError, "Only a sample engine's own screen"):
+            machines.machine_at(folder)
+        # With one, it may.
+        synth_definition = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+        definition['resources']['display'] = synth_definition['resources']['display']
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.assertEqual(machines.machine_at(folder).display, 'drawing')
 
     def preset(self, **changes):
         value = {'engine': {'params': [0, 16384, 32767, 0, 0, 0, 0, 0], 'volume': 16384}, 'platform': 'OP-XY',

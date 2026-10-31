@@ -4,6 +4,7 @@
 // In a browser kit, an unselected machine's callbacks resolve to kit_absent,
 // which declines.
 #include <opxy/types.hpp>
+#include "stock.hpp"
 
 using opxy::u32;
 
@@ -15,6 +16,7 @@ int kit_absent() __asm__("kit_absent");
 u32 stock_catalog_insert(void*, const void*, u32) __asm__("stock_catalog_insert");
 u32 stock_gui_role() __asm__("stock_gui_role");
 int sdk_screen_owned(u32) __asm__("sdk_screen_owned");
+u32 sdk_sample_screen(u32) __asm__("sdk_sample_screen");
 int sdk_engine_installed(const void*) __asm__("sdk_engine_installed");
 int sdk_stock_engine_known(const void*) __asm__("sdk_stock_engine_known");
 @DECLARATIONS@
@@ -53,6 +55,19 @@ u32 extensions_catalog_checked(void* catalog, const void* name, u32 id) {
 // 1 when page is the own screen of a machine that is ready (screen_order.cpp.in).
 int sdk_screen_owned(u32 page) {
 @OWNED_SCREENS@
+    return 0;
+}
+
+// While page is the stock sampler's page (2), the own screen page of the
+// selected track's sample engine when that screen is ready; else 0
+// (screen_order.cpp.in).
+u32 sdk_sample_screen(u32 page) {
+    if (page != 2) return 0;
+    const u32 track = opxy::platform::selected_track();
+    if (track >= opxy::platform::kTracks) return 0;
+    const u32 engine = opxy::platform::track_engine(track);
+@SAMPLE_SCREENS@
+    (void)engine;
     return 0;
 }
 
