@@ -14,7 +14,10 @@ u32 host_telemetry, host_publishes;
 void require(bool ok, const char* message) {
     if (!ok) { std::fprintf(stderr, "%s\n", message); std::exit(1); }
 }
-u32 host_block(u32 track) { return host_project + 0xd7c + track * 0x53f44; }
+// Each track's current pattern, 0x53f4 bytes a pattern.
+u32 host_pattern[16];
+u32 host_block(u32 track) { return host_project + 0xd7c + track * 0x53f44 + host_pattern[track] * 0x53f4; }
+template <typename T> T& host_at(u32 address) { return *reinterpret_cast<T*>(host_data + address - host_project); }
 u32& host_engine(u32 track) { return *reinterpret_cast<u32*>(host_data + host_block(track) - host_project + 0x18); }
 i32& host_base(u32 track, u32 index) {
     return *reinterpret_cast<i32*>(host_data + host_block(track) - host_project + 0x3864 + index * 4);
@@ -113,6 +116,27 @@ int main() {
     event = 6;
     require(sdk_aux_key(kAuxController, &event) && host_tab == 0 && sdk_aux_page() == 121,
             "M1 did not return to the replacement");
+    // A song's scene change between two patterns holding the same machine: the
+    // next tick publishes all of the new pattern's values, its first step's locks
+    // included, but not the silencer's mark word.
+    aux_tick();
+    const u32 second = host_block(11) + 0x53f4;
+    host_at<u32>(second + 0x18) = host_engine(11);
+    host_at<i32>(second + 0x3864 + 20 * 4) = 777;     // a track value of its own (its LFO, say)
+    host_at<i32>(second + 0x3864 + 45 * 4) = 555;     // past the lockable values
+    host_at<u32>(second + 0x2c58) = 1u << 3;          // step 0 locks value 3...
+    host_at<opxy::u16>(second + 0x258 + 3 * 2) = 0x1234;
+    host_at<u32>(second + 0x2c5c) = 1u << (40 - 32);  // ...and value 40
+    host_at<opxy::u16>(second + 0x258 + 40 * 2) = 0x4321;
+    host_at<i32>(second + 0x3864 + 57 * 4) = 0;
+    host_live[11][20] = host_live[11][45] = 1;
+    host_pattern[11] = 1;
+    aux_tick();
+    require(host_live[11][20] == 777 && host_live[11][45] == 555 && host_live[11][3] == 0x12340000 &&
+            host_live[11][40] == 0x43210000 && host_live[11][57] == kAuxMark,
+            "Scene change did not publish the new pattern's values");
+    host_pattern[11] = 0;
+    aux_tick();
     take(11, 0);
     for (u32 i = 0; i < 8; ++i) require(host_base(11, i) == static_cast<i32>(100 + i), "CV's controls not restored");
     require(host_engine(11) == 18 && sdk_aux_page() == -1, "CV ownership not restored");

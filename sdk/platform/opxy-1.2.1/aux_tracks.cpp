@@ -116,11 +116,12 @@ bool loaded;
 // mode, stock's scene change between two patterns holding the same machine
 // leaves the track's live values as they were until the next change; manual
 // pattern and scene changes publish them. So a held track's new pattern gets
-// its controls published on the next tick as its first step sets them, as
-// stock's step locks do (lock_apply_step, 8d5936c0): a control locked on step 0
-// (its bit in the step's 64-bit mask at pattern + 0x2c58) takes its 16-bit lock
-// value (pattern + 0x258, 42 of them a step) shifted up, the others their
-// stored value.
+// all its values published on the next tick (the machine's controls, and the
+// track's own: its LFO, say), as its first step sets them, as stock's step
+// locks do (lock_apply_step, 8d5936c0): one of the 42 lockable values locked on
+// step 0 (its bit in the step's 64-bit mask at pattern + 0x2c58) takes its
+// 16-bit lock value (pattern + 0x258, 42 of them a step) shifted up, the others
+// their stored value. The silencer's mark word stays as it is.
 u32 seen_block[control::all_tracks];
 
 bool takeable(u32 track) { return track < control::all_tracks && (kTakeable >> track & 1); }
@@ -151,8 +152,9 @@ i32 base(u32 track, u32 index) {
     return static_cast<i32>(word(stock<u32(u32)>(0x8d587708)(track) + 0x3864 + index * 4));
 }
 // A held track control as its pattern's first step sets it (seen_block, above).
+const u32 kLockable = 42;
 i32 first_step_value(u32 track, u32 block, u32 index) {
-    if (!(word(block + 0x2c58) >> index & 1)) return base(track, index);
+    if (index >= kLockable || !(word(block + 0x2c58 + index / 32 * 4) >> index % 32 & 1)) return base(track, index);
     return static_cast<i32>(static_cast<u32>(*at<const volatile unsigned short>(block + 0x258 + index * 2)) << 16);
 }
 void param_set(u32 track, u32 index, i32 value) {
@@ -477,7 +479,7 @@ void aux_tick() {
         const ControlMachine* m = holder(t);
         const u32 block = current_block(t);
         if (m && seen_block[t] && block != seen_block[t])
-            for (u32 i = 0; i < kControls; ++i) live_set(t, i, first_step_value(t, block, i));
+            for (u32 i = 0; i < kMarkWord; ++i) live_set(t, i, first_step_value(t, block, i));
         seen_block[t] = block;
         if (m) mark(t);
         else unmark(t);
