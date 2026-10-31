@@ -13,17 +13,17 @@ int main() {
     require(!sample_display_page_valid(256));
     require(!sample_display_page_valid(0xffffffffu));
     opxy::platform::SampleDisplayKey key = {};
-    require(!key.consume(23, false, true)); // Never own unmatched release.
-    require(!key.consume(23, true, false)); // Stock press stays stock.
-    require(!key.consume(23, false, true));
-    require(key.consume(23, true, true));
+    require(!key.consume(6, false, true)); // Never own unmatched release.
+    require(!key.consume(6, true, false)); // Stock press stays stock.
+    require(!key.consume(6, false, true));
+    require(key.consume(6, true, true));
     require(key.owned);
-    require(key.consume(23, true, false)); // Repeat after leaving page.
+    require(key.consume(6, true, false)); // Repeat after leaving page.
     require(!key.consume(55, false, true)); // Shift release remains stock.
     require(key.owned);
-    require(key.consume(23, false, false)); // Navigation cannot leak release.
+    require(key.consume(6, false, false)); // Navigation cannot leak release.
     require(!key.owned);
-    require(!key.consume(23, false, true));
-    require(key.consume(23, true, true)); // Next intentional gesture rearms.
-    require(key.consume(23, false, true));
+    require(!key.consume(6, false, true));
+    require(key.consume(6, true, true)); // Next intentional gesture rearms.
+    require(key.consume(6, false, true));
 }

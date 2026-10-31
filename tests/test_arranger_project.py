@@ -10,6 +10,11 @@ from test_sample_services import HOST_CXX
 
 
 class ArrangerProjectTests(unittest.TestCase):
+    def test_named_project_rename_hook_uses_verified_native_call(self):
+        hooks = [p for p in config()['patches'] if p.get('symbol') == 'sdk_arranger_project_rename']
+        self.assertEqual([(p['address'], p['file_offset'], p['length'], p['before'], p['call']) for p in hooks],
+                         [('0x8d572966', '0x1a9bc2', 8, '00de048c780c0000', True)])
+
     def test_mtp_extension_uses_stock_file_allowlist_matcher(self):
         hooks = [p for p in config()['patches'] if p.get('symbol') == 'sdk_arranger_mtp_match']
         self.assertEqual([(p['address'], p['file_offset'], p['length'], p['before'], p['call']) for p in hooks],

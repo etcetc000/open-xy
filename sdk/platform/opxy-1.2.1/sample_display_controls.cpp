@@ -38,19 +38,28 @@ bool sample_display_active(u32 engine) {
 bool sdk_sample_display_key_event(const void* raw) {
     if (!raw) return false;
     const u32* event = static_cast<const u32*>(raw);
-    if (event[0] != 23) return false;
-    // Ownership survives navigation/Shift release. Never swallow a release
-    // whose press stock already received, nor toggle on repeated keydowns.
-    if (sample_key.owned) return sample_key.consume(event[0], event[1] != 0, false);
-    if (!event[1] || !shift_held() || !instrument_page() ||
-        stock<u32(u32)>(0x8d5b7d7c)(23)) return false;
+    const u32 key = event[0];
+    // Page 1 is raw key 6 (stock instrument handler 8c0b2e4c).
+    // Owned keyup stays ours even if navigation changes the current controller.
+    if (sample_key.owned && key == 6)
+        return sample_key.consume(key, event[1] != 0, false);
+    if ((key != 6 && key != 23) || !event[1] || shift_held() ||
+        stock<u32(u32)>(0x8d5b7d7c)(key)) return false;
+    const u32* controller = stock<const u32*()>(0x8c0944b0)();
+    if (!controller || *controller != 0x8400dff8) return false;
     const u32 track = byte(kSelectedTrack);
     if (track >= kTracks) return false;
     const u32 engine = track_engine(track);
     if (!display_page(engine)) return false;
     Mode& value = mode(track, engine);
+    if (key == 23 || !instrument_page()) {
+        // Sample opens the normal browser; returning from it starts in controls.
+        // Page 1 from another page selects controls through stock navigation.
+        value.trim = false;
+        return false;
+    }
     value.trim = !value.trim;
-    sample_key.consume(event[0], true, true);
+    sample_key.consume(key, true, true);
     return true;
 }
 u32 sdk_sample_display_page(void* controller) {

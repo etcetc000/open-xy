@@ -19,3 +19,7 @@ extern "C" bool sdk_arranger_bounce_start() __asm__("sdk_arranger_bounce_start")
 extern "C" void sdk_arranger_bounce_stop() __asm__("sdk_arranger_bounce_stop");
 extern "C" void sdk_arranger_bounce_end() __asm__("sdk_arranger_bounce_end");
 extern "C" bool sdk_arranger_bounce_transport_running() __asm__("sdk_arranger_bounce_transport_running");
+
+// Capture adapters: Song delegates unchanged; Linear requires a current clip source.
+extern "C" bool sdk_arranger_extension_target(opxy::u32 track)
+    __asm__("sdk_arranger_extension_target");

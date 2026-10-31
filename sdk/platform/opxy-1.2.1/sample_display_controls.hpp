@@ -6,7 +6,7 @@ namespace opxy { namespace platform {
 struct SampleDisplayKey {
     bool owned;
     bool consume(u32 key, bool down, bool eligible) {
-        if (key != 23) return false;
+        if (key != 6) return false;
         if (owned) { if (!down) owned = false; return true; }
         if (!down || !eligible) return false;
         owned = true;

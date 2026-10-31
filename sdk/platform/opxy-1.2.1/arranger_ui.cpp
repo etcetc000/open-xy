@@ -947,6 +947,7 @@ struct Renderer {
         if (pending_add.pending) set_text(o->feedback, add_progress());
         else if (sdk_arranger_project_status() == 1) set_text(o->feedback, "RESTORE FAILED / SAVE BLOCKED");
         else if (sdk_arranger_project_status() == 2) set_text(o->feedback, "SAVE FAILED / CHANGES NOT SAVED");
+        else if (sdk_arranger_project_status() == 3) set_text(o->feedback, "RENAME FAILED / SAVE BLOCKED");
         draw(&o->base);
         if (pending_add.pending && pending_add.draw_requested) {
             if (pending_add.record_after) pending_add.draw_complete = true;

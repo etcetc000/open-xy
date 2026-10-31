@@ -8,7 +8,7 @@ u32* controller() { return &top; }
 u32 get_engine(u32) { return engine; }
 u32 get_selected() { return selected; }
 u32 get_shift() { return shifted; }
-u32 get_held(u32 key) { return key == 23 && sample_held; }
+u32 get_held(u32 key) { return key == 6 && sample_held; }
 u32 stock_page(void*) { ++stock_calls; return 2; }
 u32 stock_kind(u32 id) { return id == 2; }
 u32 display() { return loaded; }
@@ -39,11 +39,11 @@ int main() {
     require(sdk_sample_display_page(&instrument) == 255); // Base under browser stays Granular.
     require(sdk_sample_display_page(&other) == 2);
     require(sdk_sample_display_page(nullptr) == 2);
-    shifted = true; u32 browser_press[4] = {23, 1};
+    shifted = false; u32 browser_press[4] = {6, 1};
     require(!sdk_sample_display_key_event(browser_press)); // Input remains overlay-owned.
     top = 0x8400dff8; page = 1; require(sdk_sample_display_page(&instrument) == 2);
-    page = 0; shifted = true;
-    u32 down[4] = {23, 1}, up[4] = {23, 0};
+    page = 0; shifted = false;
+    u32 down[4] = {6, 1}, up[4] = {6, 0};
     require(sdk_sample_display_key_event(down));
     require(sdk_sample_display_page(&instrument) == 2);
     require(sdk_sample_parameter_kind(36) == 0); // Trim view cannot change automation storage.
@@ -51,10 +51,27 @@ int main() {
     require(sdk_sample_display_page(&instrument) == 2);
     top = 123; shifted = false;
     require(sdk_sample_display_key_event(up)); // Owned release survives browser navigation.
-    top = 0x8400dff8; shifted = true;
+    top = 0x8400dff8; shifted = false;
     require(sdk_sample_display_key_event(down));
     require(sdk_sample_display_page(&instrument) == 255);
     require(sdk_sample_display_key_event(up));
+    // Entering page 1 from another page always starts with custom controls.
+    require(sdk_sample_display_key_event(down));
+    require(sdk_sample_display_key_event(up));
+    page = 2;
+    require(!sdk_sample_display_key_event(down));
+    page = 0; require(sdk_sample_display_page(&instrument) == 255);
+    require(!sdk_sample_display_key_event(up));
+    // Browser selection cannot leave the old trim latch active.
+    require(sdk_sample_display_key_event(down));
+    require(sdk_sample_display_key_event(up));
+    u32 sample[4] = {23, 1};
+    require(!sdk_sample_display_key_event(sample));
+    top = 123; require(sdk_sample_display_page(&instrument) == 255);
+    top = 0x8400dff8;
+    shifted = true; require(!sdk_sample_display_key_event(down));
+    require(!sdk_sample_display_key_event(sample));
+    shifted = false;
     engine = 2; require(sdk_sample_display_page(&instrument) == 2);
     require(!sdk_sample_display_key_event(down));
     engine = 36; selected = 8; require(sdk_sample_display_page(&instrument) == 2);

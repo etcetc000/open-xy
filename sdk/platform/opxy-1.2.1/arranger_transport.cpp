@@ -2,6 +2,7 @@
 #include "arranger_phase.hpp"
 #include "arranger_state.hpp"
 #include "arranger_transport.hpp"
+#include "arranger_project.hpp"
 #include "barrier.hpp"
 #include "stock.hpp"
 
@@ -689,6 +690,21 @@ extern "C" const u8* sdk_arranger_record_indices() {
             indices[role][track] = static_cast<u8>(delta / 0x53f4);
     }
     return indices[role];
+}
+
+bool sdk_arranger_extension_target(u32 track) {
+    if (track >= 8) return false;
+    if (!sdk_arranger_audio_active() && !sdk_arranger_project_linear()) return true;
+    const u8* source = pattern_source(track);
+    if (!source) return false;
+    if (!sequencer_context()) return true; // Valid explicit GUI editor source.
+    // Capture can run before the next dispatcher slice refreshes cached sources.
+    // Reject a gap or stale boundary selection instead of falling back to Song.
+    u32 phase;
+    const opxy::arranger::Model& model = sdk_arranger_audio_model();
+    const opxy::arranger::Clip* clip = model.active(static_cast<u8>(track), model.position(), phase);
+    return clip && source == opxy::platform::arranger_pattern_source(
+        opxy::platform::at<const u8>(opxy::platform::word(0x840a0524)), track, clip->pattern, false);
 }
 
 extern "C" void sdk_arranger_record_changed(u32) __asm__("sdk_arranger_record_changed");

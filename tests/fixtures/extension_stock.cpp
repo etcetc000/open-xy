@@ -1,5 +1,6 @@
 // The runtime and the 1.2.1 adapter end to end, with stock doubles at their mapped
 // addresses and the SDK's probe extension (tests/fixtures/extension_probe) subscribed.
+#include <cstring>
 #include <extension_runtime.cpp>
 #include <extension_probe.cpp>
 #include <extension_collection.cpp>
@@ -15,7 +16,10 @@ i32 position = 0;
 u32 playing = 0, counting = 0, held_record = 0, recorder_mode = 0, recorder_alt = 0;
 u32 other_held = 0, shift = 0;
 extensions::Time clock_time;
-alignas(4) unsigned char pattern_notes[0x788];
+alignas(4) unsigned char song_notes[0x788], linear_notes[0x788], undo_notes[0x788];
+unsigned char* pattern_notes = song_notes;
+bool linear = false, gap = false;
+u32 published_a = 0, published_b = 0, undo_pattern = 0;
 u32 on_calls, off_calls, tick_calls, loop_calls, stop_calls, event_calls, writes, publishes, popups, resets, undos;
 u32 args[11]; const void* last_event;
 RecordedNote inserted[120];
@@ -24,7 +28,7 @@ bool failed, consume_record, reject_note, step_entry;
 
 // Any instrument track has a pattern; writes may target another than the selected one.
 u32 last_track, last_delta;
-u32 get_pattern(u32 t) { failed |= t >= 8; last_track = t; return pattern_id; }
+u32 get_pattern(u32 t) { failed |= t >= 8; last_track = t; return linear && !gap ? 3 : pattern_id; }
 u32 get_length(u32 t) { failed |= t >= 8; return track_length; }
 u32 get_scale(u32 t) { failed |= t >= 8; return scale; }
 u32 get_quantization(u32 t) { failed |= t != selected; return quantization; }
@@ -66,6 +70,8 @@ unsigned char* container(u32 t, u32 mode) { failed |= t >= 8 || mode != 0; last_
 void undo_reset(u32 controller) { failed |= controller != 0x860c6adc; ++resets; }
 void undo_snapshot(u32 controller,u32 t) {
     failed |= controller != 0x860c6adc || t != last_track || resets != undos + 1; ++undos;
+    undo_pattern = get_pattern(t);
+    std::memcpy(undo_notes, pattern_notes, sizeof(undo_notes));
 }
 notes::Container& pattern() { return *reinterpret_cast<notes::Container*>(pattern_notes); }
 // A valid stock list holding `filled` notes, the first `held` of them still recording.
@@ -96,7 +102,7 @@ __UINT64_TYPE__ insert(void* c, const PatternNote* note, i32 radius) {
     last_radius=radius;
     return static_cast<__UINT64_TYPE__>(slot) << 32;
 }
-void publish(u32 t) { failed |= t != last_track; ++publishes; }
+void publish(u32 t) { failed |= t != last_track; ++publishes; ++published_a; }
 void popup(const char* text,u32 a,u32 b,u32 duration) {
     const char expected[]="probed";
     for (u32 i=0;i<sizeof(expected);++i) failed |= text[i]!=expected[i];
@@ -114,6 +120,12 @@ void note(u32 pitch=60,u32 velocity=87) {
 }
 void advance(u32 delta) { sdk_extensions_recorder_tick(0x860c072c,delta); }
 void release(u32 pitch=60) { sdk_extensions_live_note_off(0x860c6adc,selected,pitch,1,2,nullptr); }
+}
+
+bool sdk_arranger_extension_target(u32 track) { return track < 8 && (!linear || !gap); }
+void sdk_arranger_record_changed(u32 track) {
+    if (linear && !gap) { failed |= track != last_track; ++publishes; ++published_b; }
+    else publish(track);
 }
 
 namespace opxy { namespace platform {
@@ -231,6 +243,41 @@ int main() {
     command=1; consume_record=true; key(50,true); key(50,false); consume_record=false;
     CHECK(writes==6 && undos==3);
 
+    // In Linear, the patched stock getters route capture and its one undo
+    // snapshot to B even though stock's scene still selects A.
+    command=0; selected=0; pattern_notes=song_notes; fill_pattern(7);
+    unsigned char original_a[sizeof(song_notes)];
+    std::memcpy(original_a, song_notes, sizeof(song_notes));
+    const u32 previous_a = published_a, previous_b = published_b;
+    linear=true; pattern_notes=linear_notes; fill_pattern(3);
+    unsigned char original_b[sizeof(linear_notes)];
+    std::memcpy(original_b, linear_notes, sizeof(linear_notes));
+    sdk_extensions_controller_update(0x860c6adc,17);
+    CHECK(c.pattern==3 && c.editable && c.recordable);
+    command=1; record();
+    CHECK(written==2 && pattern().count==2 && undo_pattern==3);
+    CHECK(published_b==previous_b+1 && published_a==previous_a);
+    CHECK(std::memcmp(original_a,song_notes,sizeof(song_notes))==0);
+    // Restore the transaction snapshot to its captured pattern identity.
+    CHECK(undo_pattern==3);
+    std::memcpy(linear_notes,undo_notes,sizeof(linear_notes));
+    CHECK(std::memcmp(original_b,linear_notes,sizeof(linear_notes))==0);
+    CHECK(std::memcmp(original_a,song_notes,sizeof(song_notes))==0);
+
+    // A Linear gap must not expose stock's fallback scene A as a write target.
+    gap=true; pattern_notes=song_notes;
+    sdk_extensions_controller_update(0x860c6adc,17);
+    CHECK(!c.pattern && !c.editable && !c.recordable);
+    const u32 before_writes=writes, before_undo=undos, before_publish=publishes;
+    record();
+    CHECK(written==0 && writes==before_writes && undos==before_undo && publishes==before_publish);
+    RecordedNote direct={0,120,60,100};
+    CHECK(extension_write(0,&direct,1,true)==0);
+    CHECK(writes==before_writes && undos==before_undo && publishes==before_publish);
+    CHECK(std::memcmp(original_a,song_notes,sizeof(song_notes))==0);
+    CHECK(std::memcmp(original_b,linear_notes,sizeof(linear_notes))==0);
+    const u32 before_on=seen.notes_on;
+    play(); note(); CHECK(seen.notes_on==before_on);
     CHECK(!failed);
     return 0;
 }

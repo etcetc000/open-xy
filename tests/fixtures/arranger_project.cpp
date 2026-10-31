@@ -40,6 +40,7 @@ u32 generation = 1, pointer = 0x1000, pending = 0, dirty_count = 0, restored_cou
 u32 bound = 0, selected = 0;
 u32 encoder_calls = 0, row_destructors = 0;
 u8 save_payload = 77;
+bool fail_companion_rename = false;
 bool enabled = false, fail_read = false, fail_write = false, fail_close = false, fail_rename = false, fail_load = false;
 opxy::arranger::Model model;
 void (*during_save)() = nullptr;
@@ -85,9 +86,11 @@ int close(void* raw) {
     delete file; return fail_close ? -1 : 0;
 }
 int rename(const char* from, const char* to) {
-    if (fail_rename) return -1;
+    if (fail_rename || (fail_companion_rename && std::string(from).find(".oxyl") != std::string::npos)) return -1;
+    if (!files.count(from)) return -1;
     files[to] = files[from]; files.erase(from); return 0;
 }
+u32 native_rename(const char* from, const char* to) { return rename(from,to) == 0; }
 u32 save(const char* path) {
     files[path] = std::vector<u8>(100, save_payload);
     if (during_save) during_save();
@@ -155,6 +158,7 @@ void* fake_address(u32 address) {
     case 0x8fed05bc: return reinterpret_cast<void*>(test::read);
     case 0x8fed0780: return reinterpret_cast<void*>(test::write);
     case 0x8fed00ae: return reinterpret_cast<void*>(test::close);
+    case 0x8c040c78: return reinterpret_cast<void*>(test::native_rename);
     case 0x8fed0908: return reinterpret_cast<void*>(test::rename);
     case 0x8d585e98: return reinterpret_cast<void*>(test::save);
     case 0x8d5890b0: return reinterpret_cast<void*>(test::load);
@@ -379,5 +383,44 @@ int main() {
     test::during_save = nullptr;
     require(sdk_arranger_project_status() == 2 && !test::files.count("/concurrent-edit.xy.oxyl"),
         "stage apply handoff must not admit subsequent GUI edit");
+    // Named-project UI uses commit0, unlike the successful boot workspace path.
+    require(sdk_arranger_project_load("/revised.xy", 1) == 1, "restore named Linear source");
+    sdk_arranger_project_poll();
+    require(sdk_arranger_project_save("/fat32/projects/user/named.xy") == 1, "save named Linear project");
+    ++test::generation; test::pointer = test::pointer == 0x1000 ? 0x2000 : 0x1000;
+    sdk_arranger_project_poll();
+    require(!test::model.clip(19), "new project clears old arrangement");
+    require(sdk_arranger_project_load("/fat32/projects/user/named.xy", 0) == 1, "named asynchronous load");
+    sdk_arranger_project_poll();
+    test::pointer = test::pending; test::pending = 0; ++test::generation;
+    sdk_arranger_project_poll();
+    require(test::enabled && test::model.clip(19) && !sdk_arranger_project_status(),
+        "named save new-project and async reload retains Linear clips");
+    require(sdk_arranger_project_save("/fat32/projects/user/untitled.xy") == 1, "native save before rename");
+    test::files["/fat32/projects/user/untitled.oxy"] = {1,2,3};
+    test::files["/fat32/projects/user/untitled.xy.oxyl.tmp"] = test::files["/fat32/projects/user/untitled.xy.oxyl"];
+    require(sdk_arranger_project_rename("/fat32/projects/user/untitled.xy", "/fat32/projects/user/my-song.xy") == 1,
+        "native named save renames project and companions");
+    require(test::files.count("/fat32/projects/user/my-song.oxy") &&
+        test::files.count("/fat32/projects/user/my-song.xy.oxyl.tmp") &&
+        !test::files.count("/fat32/projects/user/untitled.xy.oxyl"), "all exact companion names follow rename");
+    ++test::generation; sdk_arranger_project_poll();
+    require(!test::model.clip(19), "new project after named save");
+    require(sdk_arranger_project_load("/fat32/projects/user/my-song.xy",0)==1, "reload renamed saved project");
+    test::pointer=test::pending; test::pending=0; ++test::generation; sdk_arranger_project_poll();
+    require(test::enabled && test::model.clip(19), "renamed project reload retains Linear mode and timeline");
+    const auto before_failed_rename = test::files;
+    test::fail_rename=true;
+    require(!sdk_arranger_project_rename("/fat32/projects/user/my-song.xy", "/failed.xy"), "native rename failure returned");
+    test::fail_rename=false;
+    require(test::files==before_failed_rename, "native failure leaves companions untouched");
+    test::fail_companion_rename=true;
+    require(sdk_arranger_project_rename("/fat32/projects/user/my-song.xy", "/partial.xy"), "partial move retains native result");
+    test::fail_companion_rename=false;
+    require(sdk_arranger_project_status()==3 && test::files.count("/fat32/projects/user/my-song.xy.oxyl"),
+        "failed companion move preserves original and reports recovery failure");
+    const auto partial_project=test::files["/partial.xy"];
+    require(!sdk_arranger_project_save("/partial.xy") && test::files["/partial.xy"]==partial_project,
+        "partial companion rename blocks autosave before project changes");
     return 0;
 }

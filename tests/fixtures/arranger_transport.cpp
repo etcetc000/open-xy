@@ -30,7 +30,8 @@ const u32 project_address = 0x10000, controller = 0x10000000;
 std::vector<u8> project(0x54076c), control(0x9000);
 u8 recorder_memory[0x1000] = {}, globals[32] = {};
 u32 role = 1, task = 1, requested_pattern = 0xffffffffu, recorded, finished;
-bool record_target = true;
+bool record_target = true, project_linear = false;
+const u8* gui_edit_source;
 bool inject_publish_note, inject_record_off;
 u32 callback_depth, max_callback_depth;
 u32 stops, bounce_callbacks;
@@ -197,7 +198,8 @@ void* fake_address(u32 address) {
     require(false, "unexpected stock call"); return nullptr;
 }
 
-extern "C" const u8* sdk_arranger_edit_source(u32, bool) { return nullptr; }
+extern "C" const u8* sdk_arranger_edit_source(u32, bool) { return test::gui_edit_source; }
+extern "C" bool sdk_arranger_project_linear() { return test::project_linear; }
 extern "C" void sdk_arranger_bounce_dispatch(u32) {
     ++test::bounce_callbacks;
     if (test::cancel_bounce_on_dispatch) sdk_arranger_bounce_end();
@@ -234,6 +236,12 @@ int main() {
     using namespace test;
     setup();
     opxy::arranger::Model& model = sdk_arranger_model();
+    require(sdk_arranger_extension_target(0) && !sdk_arranger_extension_target(8), "Song Capture remains available on valid lanes");
+    project_linear = true;
+    require(!sdk_arranger_extension_target(0), "pending Linear activation cannot capture stock Song source");
+    task = 2; gui_edit_source = source(0,1);
+    require(sdk_arranger_extension_target(0), "explicit GUI clip B is a valid Capture source");
+    gui_edit_source = nullptr; task = 1; project_linear = false;
     require(model.insert({0, 0, 0, 10, 0, 480}) >= 0, "first clip");
     require(model.insert({0, 1, 15, 10, 0, 480}) >= 0, "second clip");
     model.seek(5);
@@ -247,6 +255,14 @@ int main() {
     require(ticks[0].phase == 5 * 1680 && ticks[0].amount == 5 * 1680 - 1, "clip end is exclusive");
     require(ticks[1].phase == 0 && ticks[1].amount == 2 * 1680, "next clip starts at zero");
     require(scene_changes == 0, "linear mode must not advance stock scenes");
+    require(sdk_arranger_extension_target(0) && !sdk_arranger_extension_target(1), "Capture resolves active B and rejects empty lane");
+    sdk_arranger_audio_seek(12);
+    require(!sdk_arranger_extension_target(0), "Capture rejects gap before dispatcher refreshes cached B");
+    sdk_arranger_audio_seek(17);
+    auto* selected_source = const_cast<u8*>(source(0,1));
+    selected_source[0x14] = 8; project[0xd7c+0x14] = 8;
+    sdk_arranger_record_changed(0);
+    require(!(selected_source[0x14]&8) && (project[0xd7c+0x14]&8), "Capture publisher marks selected B without touching A");
     put(track_object(0) + 0x190, 1);
     sdk_arranger_publish(false);
     sdk_arranger_dispatch(controller, 1, 0);
@@ -480,6 +496,7 @@ int main() {
     const u32 cursor = sdk_arranger_audio_model().position();
     sdk_arranger_dispatch(controller, 8, 0);
     require(sdk_arranger_audio_model().position() == cursor, "foreign project cannot use old timeline");
+    require(!sdk_arranger_extension_target(0), "Capture rejects stale project binding");
     sdk_arranger_bind_project(generation);
     sdk_arranger_publish(true, true);
     sdk_arranger_consume();

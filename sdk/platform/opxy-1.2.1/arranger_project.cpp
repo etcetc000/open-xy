@@ -23,7 +23,7 @@ const State empty_state;
 alignas(4) volatile u32 writer_intent, reader_intent, revision, retry, stage_ready, stage_cancelled, load_busy;
 u32 published_revision, published_generation, gui_generation, captured_revision, captured_generation, staged_generation, staged_revision;
 bool gui_bound, gui_active, publish_pending, published_bound, staged_recovered, staged_failed, captured_staged;
-alignas(4) volatile u32 protected_generation, protection_active, io_status;
+alignas(4) volatile u32 protected_generation, protection_active, io_status, rename_failed;
 u32 observed_retry, staged_pointer, gui_pointer;
 u8 gui_track;
 Binding staged_binding;
@@ -33,6 +33,7 @@ alignas(4) volatile u8 operation_busy;
 alignas(4) volatile u32 operation_conflict;
 u8 buffer[max_bytes + 1], chunk[4096];
 char sidecar[path_capacity], temporary[path_capacity];
+char rename_from[path_capacity], rename_to[path_capacity];
 
 u32 generation() { return stock<u32()>(0x8d584224)(); }
 void dirty() { stock<void()>(0x8d585ee8)(); }
@@ -201,7 +202,7 @@ void sdk_arranger_project_poll() {
 
 u32 sdk_arranger_project_status() {
     barrier();
-    if (protection_active && protected_generation == generation()) return 1;
+    if (protection_active && protected_generation == generation()) return rename_failed ? 3 : 1;
     return io_status;
 }
 
@@ -261,11 +262,49 @@ u32 sdk_arranger_project_load(const char* path, u32 commit) {
         staged_revision = revision;
         protected_generation = staged_generation;
         protection_active = (!same_file && staged_failed) || operation_conflict;
+        rename_failed = 0;
         io_status = 0;
         staged_pointer = commit ? word(0x840a0524) : word(0x840a0528);
         stage_cancelled = 0; barrier(); stage_ready = 1;
     }
     barrier(); load_busy = 0; operation_busy = 0;
+    return result;
+}
+
+// Native named-project worker saves the old name, then renames only .xy at
+// 572966. The boot workspace does not use this path. Keep exact-byte companions
+// alongside the renamed project; never reconstruct metadata from the GUI here.
+u32 sdk_arranger_project_rename(const char* from, const char* to) {
+    if (!platform::arranger_try_lock(&operation_busy)) { io_status = 2; return 0; }
+    u32 from_size = 0, to_size = 0;
+    if (from) while (from_size < path_capacity && from[from_size]) ++from_size;
+    if (to) while (to_size < path_capacity && to[to_size]) ++to_size;
+    const bool valid = from_size >= 3 && to_size >= 3 &&
+        from_size + 10 < path_capacity && to_size + 10 < path_capacity &&
+        from[from_size-3] == '.' && from[from_size-2] == 'x' && from[from_size-1] == 'y' &&
+        to[to_size-3] == '.' && to[to_size-2] == 'x' && to[to_size-1] == 'y';
+    const u32 result = stock<u32(const char*, const char*)>(0x8c040c78)(from, to);
+    bool moved = valid;
+    if (result && valid) {
+        // .oxy stores SDK engine IDs; .xy.oxyl and its recovery temp store Linear.
+        const char* suffixes[] = {".xy.oxyl", ".xy.oxyl.tmp", ".oxy"};
+        for (u32 kind = 0; kind < 3; ++kind) {
+            for (u32 i = 0; i < from_size - 3; ++i) rename_from[i] = from[i];
+            for (u32 i = 0; i < to_size - 3; ++i) rename_to[i] = to[i];
+            u32 i = 0;
+            do { rename_from[from_size-3+i] = rename_to[to_size-3+i] = suffixes[kind][i]; }
+            while (suffixes[kind][i++]);
+            File* file = open(rename_from, "rb");
+            if (!file) continue; // Same documented absent/open-denied limitation as load.
+            if (close(file) != 0 || stock<int(const char*, const char*)>(0x8fed0908)(rename_from, rename_to) != 0)
+                moved = false;
+        }
+    }
+    if (result && !moved) {
+        protected_generation = generation(); protection_active = 1; rename_failed = 1;
+        io_status = 2;
+    } else if (!result) io_status = 2;
+    barrier(); operation_busy = 0;
     return result;
 }
 

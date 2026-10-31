@@ -5,6 +5,8 @@
 #include "stock.hpp"
 
 extern "C" {
+bool sdk_arranger_extension_target(opxy::u32) __asm__("sdk_arranger_extension_target");
+void sdk_arranger_record_changed(opxy::u32) __asm__("sdk_arranger_record_changed");
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
 void sdk_extensions_key(const opxy::u32*) __asm__("sdk_extensions_key");
 opxy::u32 sdk_extensions_key_queue(const opxy::u32*) __asm__("sdk_extensions_key_queue");
@@ -45,7 +47,7 @@ bool unmodified(u32 key) {
 
 TrackPattern extension_pattern(u32 track) {
     TrackPattern p = {};
-    if (!word(kProject) || track >= 8) return p;
+    if (!word(kProject) || track >= 8 || !sdk_arranger_extension_target(track)) return p;
     p.pattern = stock<u32(u32)>(0x8d586014)(track);
     if (!p.pattern) return p;
     p.length = 480u * stock<u32(u32)>(0x8d586800)(track);
@@ -93,7 +95,8 @@ i32 extension_collision_radius(u32 track) {
 }
 
 u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replace) {
-    if (!notes || !count || count > 120 || track >= 8) return 0;
+    if (!notes || !count || count > 120 || track >= 8 ||
+        !sdk_arranger_extension_target(track)) return 0;
     auto* container = stock<unsigned char*(u32, u32)>(0x8d5875c8)(track, 0);
     if (!container || (!replace && *reinterpret_cast<const i16*>(container + 0x786) >= 120)) return 0;
     auto& list = *reinterpret_cast<notes::Container*>(container);
@@ -114,7 +117,7 @@ u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replac
         if (static_cast<i16>(result >> 32) < 0) break;
         ++written;
     }
-    if (written || replace) stock<void(u32)>(0x8d587668)(track);  // A cleared pattern is a change too.
+    if (written || replace) sdk_arranger_record_changed(track);  // A cleared pattern is a change too.
     return written;
 }
 void extension_notify(const char* text) {
