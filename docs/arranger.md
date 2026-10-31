@@ -18,7 +18,8 @@ turn off Linear playback.
 ### Understand the screen
 
 - **Header:** `Linear by Veff` identifies the timeline.
-- **Tracks:** keys **1–8** select a track and highlight its lane.
+- **Tracks:** keys **1–8** select a track and highlight its lane. Entering Linear
+  follows the currently selected instrument; AUX tracks have no timeline lane.
 - **Edit cursor:** the position where you add clips or start playback.
 - **Playhead:** the current playback position, separate from the edit cursor.
 - **Selection:** the clip under the cursor on the selected track is selected
@@ -275,6 +276,10 @@ name, without an added date. The length limit is slightly below **20 seconds**.
 This is not a sample-exact or dry stem export: leading silence and a capture tail
 can remain, and output effects, normalization and edge fades are retained.
 An audio file can remain in User if later assignment fails or is cancelled.
+The save indicator closes after pending bounce work has finished, including on
+failure or cancellation. A failure reason remains in the footer until the next
+bounce: capture/transport, short capture, sample write, file verification or
+destination assignment. Report that reason when a bounce reaches the end but fails.
 
 ## 8. Save, back up and restore
 

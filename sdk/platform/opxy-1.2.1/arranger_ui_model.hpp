@@ -2,6 +2,13 @@
 #include <opxy/arranger.hpp>
 
 namespace opxy { namespace platform {
+// Stock owns instrument selection outside Linear. Pinned edits/transactions
+// keep their captured lane; AUX tracks have no corresponding timeline lane.
+inline bool arranger_sync_lane(u32 selected, bool pinned, u32& lane) {
+    if (pinned || selected >= 8 || selected == lane) return false;
+    lane = selected;
+    return true;
+}
 inline u32 arranger_shift_time(u32 value, i32 delta, u32 step) {
     const u32 magnitude = delta < 0 ? static_cast<u32>(-(delta + 1)) + 1 : static_cast<u32>(delta);
     if (step && magnitude > 0xffffffffu / step) return delta < 0 ? 0 : 0xffffffffu;

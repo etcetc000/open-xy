@@ -94,6 +94,12 @@ const char* message = "";
 u32 message_at;
 u32 ui_now() { return stock<u32(u32, u32)>(0x8d5be290)(0, 0); }
 void announce(const char* value) { message = value; message_at = ui_now(); }
+const char* bounce_failure_text() {
+    static const char* const failures[] = {"BOUNCE FAILED", "CAPTURE / TRANSPORT FAILED",
+        "CAPTURE TOO SHORT", "SAMPLE WRITE FAILED", "SAVED SAMPLE INVALID", "DESTINATION APPLY FAILED"};
+    const u32 failure = sdk_arranger_bounce_failure();
+    return failures[failure < 6 ? failure : 0];
+}
 // Queue writer0x8c0b5eb4 copies exactly four words; key and value are first.
 struct Event { u32 words[4]; };
 Event pending_stop, pending_arrange;
@@ -224,6 +230,17 @@ void select_clip(bool feedback = true) {
         }
     }
     if (feedback) announce(selected_slot < 0 ? "GAP" : "CLIP SELECTED");
+}
+
+void sync_selected_lane(bool entering = false) {
+    if (!entering && !view_active()) return;
+    if (platform::arranger_sync_lane(platform::selected_track(),
+            editing || piano_view || pending_add.pending || sdk_arranger_bounce_busy(), ui_track)) {
+        selected_pattern = 0;
+        select_clip(false);
+        history.breakGroup();
+        resizing_slot = -1;
+    }
 }
 
 const u8* piano_source() {
@@ -943,6 +960,8 @@ struct Renderer {
             out = append(info, bounce_choice.confirmed ? "REPLACE BELOW? E4 CONFIRM / STOP CANCEL" :
                 bounce_choice.replace ? "REPLACE BELOW - E4 NEXT / STOP CANCEL" : "FREE LANE BELOW - E4 BOUNCE / STOP CANCEL");
         }
+        if (bounce_status == 6 && !sdk_arranger_bounce_busy() && !bounce_choice.open)
+            append(info, bounce_failure_text());
         if (*info) set_text(o->feedback, info);
         if (pending_add.pending) set_text(o->feedback, add_progress());
         else if (sdk_arranger_project_status() == 1) set_text(o->feedback, "RESTORE FAILED / SAVE BLOCKED");
@@ -1045,12 +1064,18 @@ void sdk_arranger_screen_startup() {
 }
 
 int sdk_arranger_screen_owned(u32 page) { return page == page_id && registered(); }
-u32 sdk_arranger_page(void*) { return sdk_arranger_project_linear() && !editing && registered() ? page_id : 47; }
+u32 sdk_arranger_page(void*) {
+    if (!sdk_arranger_project_linear() || editing || !registered()) return 47;
+    // Stock can query the destination page before changing its top controller.
+    sync_selected_lane(true);
+    return page_id;
+}
 u32 sdk_arranger_active() { return active ? 1 : 0; }
 
 void sdk_arranger_plain(const void* event) { press(event, false); }
 void sdk_arranger_shifted(const void* event) { press(event, true); }
 void sdk_arranger_raw_event(const void* raw) {
+    sync_selected_lane();
     const Event& event = *static_cast<const Event*>(raw);
     const u32 key = event.words[0];
     const bool down = event.words[1] != 0;
@@ -1225,6 +1250,7 @@ void sdk_arranger_release(u32 key) {
 }
 
 void sdk_arranger_encoder(void* controller, u32 encoder, const void* raw) {
+    sync_selected_lane();
     if (pending_add.pending) return;
     if (!active) { stock<void(void*, u32, const void*)>(0x8c095ab8)(controller, encoder, raw); return; }
     const i32 delta = static_cast<i32>(static_cast<const Event*>(raw)->words[1]);
@@ -1363,6 +1389,7 @@ void sdk_arranger_poll() {
     stock_arranger_poll();
     if (pending_add.pending) { process_pending_add(); return; }
     sdk_arranger_project_poll();
+    sync_selected_lane();
     sdk_arranger_publish_poll();
     sdk_arranger_bounce_poll();
     if (!view_active() || piano_view || sdk_arranger_bounce_busy() || bounce_choice.open) {
@@ -1375,7 +1402,7 @@ void sdk_arranger_poll() {
         bounce_last_status = status;
         if (status == 4) { history.reset(); announce("BOUNCE SAVED"); select_clip(false); }
         else if (status == 5) announce("BOUNCE CANCELLED");
-        else if (status == 6) announce("BOUNCE FAILED");
+        else if (status == 6) announce(bounce_failure_text());
     }
 
 }

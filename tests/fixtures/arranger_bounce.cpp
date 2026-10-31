@@ -33,7 +33,8 @@ namespace {
 unsigned char editor_memory[128], path_memory[64];
 std::map<u32,u32> globals;
 opxy::arranger::Model model;
-u32 milliseconds, gen=1, starts, ends, commits, forwarded, saves, queued_frames;
+u32 milliseconds, gen=1, starts, ends, commits, forwarded, saves, queued_frames, spinner_closes;
+bool spinner_active;
 bool running, destination_ok=true, destination_working, begin_ok=true, start_ok=true;
 u32 destination_result=1;
 std::vector<wire::Message> sent;
@@ -43,9 +44,10 @@ u32 generation(){return gen;}
 u32 get_editor(){return 0x1000;}
 void set_state(u32,u32 n){store_word(0x1034,n);}
 void saved(u32,u32){++forwarded;}
+void close_spinner(){require(spinner_active,"only close an owned native save indicator"); spinner_active=false; ++spinner_closes;}
 void native_range(const char*,u32 begin,u32 end,opxy::i32){queued_frames=end-begin;}
 void save(u32,u32 frames){
-    ++saves;
+    ++saves; spinner_active=true;
     const char path[]="/fat32/samples/user/bounce.wav";
     std::memcpy(path_memory,path,sizeof(path));
     store_word(0x1018,0x2000);store_word(0x1028,sizeof(path)-1);store_word(0x102c,64);
@@ -85,9 +87,11 @@ void complete_save(){sdk_arranger_bounce_saved(0x1000,queued_frames);write_resul
 void settle(){
     sdk_arranger_bounce_poll();
     require(active&&release_sent,"remote remains owned until release reply");
+    require(spinner_active == saving,"native save indicator remains until writer and destination drain");
     receive(wire::Released);sdk_arranger_bounce_poll();
     sdk_arranger_bounce_dispatch(1);sdk_arranger_bounce_poll();
     require(!active,"release and dispatcher finish settle");
+    require(!spinner_active && spinner_closes == saves,"every owned native save indicator closes exactly once on success, failure and cancellation");
 }
 void cancel_before_ready(){
     sdk_arranger_bounce_cancel();sdk_arranger_bounce_dispatch(1);sdk_arranger_bounce_poll();
@@ -107,7 +111,7 @@ unsigned char* fake_memory(u32 address){
 void* fake_function(u32 a){
 #define F(address,function) if(a==address)return reinterpret_cast<void*>(&function)
     F(0x8d5be290,clock_ms);F(0x8d584224,generation);F(0x8c0a424c,get_editor);
-    F(0x8c0a46b4,set_state);F(0x8d4d8874,native_range);F(0x8c0a4bcc,save);F(0x8c0a44f0,saved);
+    F(0x8c0a46b4,set_state);F(0x8d4d8874,native_range);F(0x8c0a4bcc,save);F(0x8c0a44f0,saved);F(0x8d54a26c,close_spinner);
 #undef F
     std::printf("unexpected master stock call %x\n",a);std::exit(1);
 }
@@ -154,11 +158,20 @@ int main(){
     sdk_arranger_bounce_poll();require(state==3,"writer result alone cannot bypass native completion");
     sdk_arranger_bounce_saved(0x1000,queued_frames);sdk_arranger_bounce_poll();settle();
     require(state==6&&commits==1,"writer failure never assigns");
+    require(sdk_arranger_bounce_failure()==3,"writer failure identified");
     request_start();ready_start();stop_capture();write_result(true,123);
     sdk_arranger_bounce_saved(0x1000,queued_frames);sdk_arranger_bounce_poll();settle();
     require(state==6&&commits==1,"foreign file fingerprint never assigns");
+    require(sdk_arranger_bounce_failure()==4,"saved file mismatch identified");
+    request_start();ready_start();
+    running=false;sdk_arranger_bounce_dispatch(1);sdk_arranger_bounce_poll();
+    receive(wire::Stopped,trim_frames+request.frames-1,400);sdk_arranger_bounce_poll();settle();
+    require(state==6&&sdk_arranger_bounce_failure()==2,"short capture remains rejected and is identified");
+    request_start();ready_start();stop_capture();destination_ok=false;complete_save();settle();
+    require(state==6&&sdk_arranger_bounce_failure()==5,"destination rejection identified");
+    destination_ok=true;
     request_start();ready_start();stop_capture();++gen;
-    complete_save();settle();require(state==5&&commits==1,"project swap prevents assignment");
+    complete_save();settle();require(state==5&&commits==2,"project swap prevents assignment");
     request_start();receive(wire::Error,1);receive(wire::Released);
     sdk_arranger_bounce_dispatch(1);sdk_arranger_bounce_poll();receive(wire::Stopped);
     sdk_arranger_bounce_poll();settle();require(state==6,"rejected Prepare settles");

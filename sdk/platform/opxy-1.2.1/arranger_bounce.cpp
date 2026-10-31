@@ -32,6 +32,8 @@ u32 state, editor, previous_key, previous_native_state, previous_native_frames, 
 volatile bool prepare_sent, stop_sent, release_sent, saving;
 volatile u32 diagnostic_polls, diagnostic_dispatches, diagnostic_captures;
 u32 diagnostic_timeout;
+volatile u32 failure_reason;
+void fail_reason(u32 value) { if (!failure_reason) failure_reason = value; }
 void count(volatile u32& value) { if (value < 65535u) ++value; }
 u32 diagnostic_flags() {
     return (prepare_sent ? 1u : 0u) | (ready ? 2u : 0u) |
@@ -67,6 +69,7 @@ u32 path_hash(const char* path) {
     return hash;
 }
 void finish(u32 result) {
+    if (result == 6) fail_reason(1);
     finish_result = result;
     if (prepare_sent) {
         if (!release_sent) {
@@ -76,6 +79,10 @@ void finish(u32 result) {
         if (!released) return;
     }
     if (dispatch_started && !finish_ack) { barrier(); finish_requested = 1; return; }
+    // Native save 8c0a4bcc opens this indicator (8d54a28c). We suppress
+    // native completion 8c0a44f0 to avoid assigning its sample to the source,
+    // so balance its indicator separately, only after all owned work drains.
+    if (saving) stock<void()>(0x8d54a26c)();
     store_word(0x84039384, previous_native_state);
     store_word(0x84039394, previous_native_frames);
     if (editor) { store_word(editor + 0x38, previous_key); stock<void(u32, u32)>(0x8c0a46b4)(editor, 0); }
@@ -104,7 +111,7 @@ u32 sdk_arranger_bounce_request(u32 slot, u32 engine, bool replace) {
     finish_requested = finish_ack = released = 0;
     writer_done = writer_ok = writer_frames = writer_path_hash = save_complete = saved_frames = 0;
     prepare_sent = stop_sent = release_sent = saving = false;
-    finish_result = 0; state = 1; started_ms = now_ms();
+    failure_reason = 0; finish_result = 0; state = 1; started_ms = now_ms();
     store_word(editor + 0x38, 60);
     stock<void(u32, u32)>(0x8c0a46b4)(editor, 1);
     barrier(); active = 1;
@@ -138,7 +145,7 @@ void sdk_arranger_bounce_receive(const wire::Message* message) {
         barrier(); released = 1; break;
     case wire::Error:
         if (!prepare_sent) return;
-        barrier(); cancelled = 2; break;
+        fail_reason(saving ? 3 : 1); barrier(); cancelled = 2; break;
     default: break;
     }
 }
@@ -151,6 +158,7 @@ void sdk_arranger_bounce_diagnostic(ArrangerBounceDiagnostic* out) {
 bool sdk_arranger_bounce_busy() { return active != 0; }
 void sdk_arranger_bounce_cancel() { if (active) { cancelled = 1; barrier(); } }
 u32 sdk_arranger_bounce_status() { return state; }
+u32 sdk_arranger_bounce_failure() { return failure_reason; }
 u32 sdk_arranger_bounce_progress() {
     barrier(); const u32 total = captured_frames;
     const u32 frames = total > trim_frames ? total - trim_frames : 0;
@@ -196,12 +204,15 @@ void sdk_arranger_bounce_poll() {
     if (!bound()) cancelled = 1;
     if (state == 1 && !transport_started && now_ms() - started_ms > 3000u) {
         if (!diagnostic_timeout) diagnostic_timeout = diagnostic_flags() | 0x80000000u;
-        cancelled = 2;
+        fail_reason(1); cancelled = 2;
     }
     if (state == 7) {
         if (cancelled) sdk_arranger_bounce_destination_cancel();
         const u32 result = sdk_arranger_bounce_destination_status();
-        if (!sdk_arranger_bounce_destination_busy()) finish(cancelled ? 5 : result == 1 ? 4 : 6);
+        if (!sdk_arranger_bounce_destination_busy()) {
+            if (!cancelled && result != 1) fail_reason(5);
+            finish(cancelled ? 5 : result == 1 ? 4 : 6);
+        }
         return;
     }
     if (!prepare_sent && dispatch_started && !cancelled) {
@@ -219,7 +230,10 @@ void sdk_arranger_bounce_poll() {
     if (!stop_ack || !dispatch_done) return;
     if (!saving) {
         if (cancelled || !transport_started || captured_frames < trim_frames + request.frames ||
-            captured_frames > 882000u) { finish(cancelled == 1 ? 5 : 6); return; }
+            captured_frames > 882000u) {
+            fail_reason(!cancelled && transport_started && captured_frames < trim_frames + request.frames ? 2 : 1);
+            finish(cancelled == 1 ? 5 : 6); return;
+        }
         saving = true; state = 3; barrier();
         stock<void(u32, u32)>(0x8c0a4bcc)(editor, captured_frames);
         return;
@@ -230,10 +244,11 @@ void sdk_arranger_bounce_poll() {
     barrier();
     if (cancelled || !bound()) { finish(cancelled == 1 ? 5 : 6); return; }
     const u32 frames = captured_frames - trim_frames;
-    if (!writer_ok || writer_frames != frames || saved_frames != frames || !copy_path(saved_path) ||
-        writer_path_hash != path_hash(saved_path) ||
-        !sdk_arranger_bounce_destination_begin(request.slot, request.engine, request.replace, saved_path, frames)) {
-        finish(6); return;
+    if (!writer_ok) { fail_reason(3); finish(6); return; }
+    if (writer_frames != frames || saved_frames != frames || !copy_path(saved_path) ||
+        writer_path_hash != path_hash(saved_path)) { fail_reason(4); finish(6); return; }
+    if (!sdk_arranger_bounce_destination_begin(request.slot, request.engine, request.replace, saved_path, frames)) {
+        fail_reason(5); finish(6); return;
     }
     state = 7;
 }

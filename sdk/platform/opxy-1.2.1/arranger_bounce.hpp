@@ -19,6 +19,8 @@ void sdk_arranger_bounce_cancel() __asm__("sdk_arranger_bounce_cancel");
 void sdk_arranger_bounce_poll() __asm__("sdk_arranger_bounce_poll");
 // 0 idle, 1 arming, 2 playing, 3 saving, 4 done, 5 cancelled, 6 failed, 7 assigning.
 opxy::u32 sdk_arranger_bounce_status() __asm__("sdk_arranger_bounce_status");
+// 0 none, 1 capture/transport, 2 short capture, 3 write, 4 file verification, 5 destination.
+opxy::u32 sdk_arranger_bounce_failure() __asm__("sdk_arranger_bounce_failure");
 opxy::u32 sdk_arranger_bounce_progress() __asm__("sdk_arranger_bounce_progress");
 // Dispatcher boundary and render-worker capture callbacks; no file I/O here.
 void sdk_arranger_bounce_dispatch(opxy::u32 controller) __asm__("sdk_arranger_bounce_dispatch");

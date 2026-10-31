@@ -6,6 +6,12 @@ using namespace opxy;
 using namespace opxy::platform;
 void require(bool ok, const char* message) { if (!ok) { puts(message); exit(1); } }
 int main() {
+    u32 lane = 0;
+    require(arranger_sync_lane(5, false, lane) && lane == 5, "entry follows stock instrument");
+    require(!arranger_sync_lane(5, false, lane), "same lane keeps selection state");
+    require(!arranger_sync_lane(14, false, lane) && lane == 5, "AUX cannot become timeline lane");
+    require(!arranger_sync_lane(2, true, lane) && lane == 5, "captured edit keeps its lane");
+    require(arranger_sync_lane(2, false, lane) && lane == 2, "return follows latest instrument");
     arranger::Model model;
     ArrangerClipboard clipboard = {};
     const arranger::Clip clip = {2, 3, 480, 960, 240, 1920};
