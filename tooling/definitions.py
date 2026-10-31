@@ -74,7 +74,7 @@ SDK_1_2_TEXTS, SDK_1_6_TEXTS = 4, 16
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
 # A sample engine's optional services: integer 0/1 flags and the analysis budget.
 SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming')
-SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS)
+SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS, 'display')   # display: its own screen
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
@@ -142,6 +142,8 @@ def validate_definition(value, kind):
                 'drumControls edits pad settings: it needs padSettings')
         require(resources.get('drumControls', 0) or not resources.get('sliceTiming', 0),
                 'sliceTiming needs drumControls')
+        if 'display' in resources:
+            validate_display(resources['display'])
     if kind == 'effect' and 'bufferBytes' in resources:
         size = resources['bufferBytes']
         require(4 <= size <= EFFECT_BUFFER_LIMIT and size % 4 == 0,

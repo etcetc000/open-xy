@@ -104,6 +104,15 @@ int ready(const Registry& registry, const Pages& pages, const Record& r, const S
     return identity(*screen, page) && object[2] != 0;
 }
 
+int screen_ready(const Pages& pages, const Record& r, const Screen& screen) {
+    const u32 page = value(r.page);
+    if (page < 1 || page >= pages.limit) return 0;
+    if (!*at<const volatile unsigned char>(pages.initialized) || at<char* volatile>(pages.table)[page] != screen.state)
+        return 0;
+    const volatile u32* object = reinterpret_cast<const volatile u32*>(screen.state);
+    return identity(screen, page) && object[2] != 0;
+}
+
 int known(const Registry& registry, const StockString* name) {
     if (!at<const volatile u32>(registry.map)[1]) return 1;
     return resolve(registry, name) != registry.missing;

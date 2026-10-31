@@ -1,6 +1,7 @@
 # Display API
 
-A synth draws its own page. Display code runs separately from audio. Each
+A synth draws its own page, as from SDK 1.10 may a sample engine on the
+sampler's page ([own screen](api.md#own-screen)). Display code runs separately from audio. Each
 frame it fills a bounded frame, which the SDK's browser and native renderers
 apply to the machine's artwork, `panel.svg.fragment`. This is retained
 drawing: the artwork's elements are drawn by the device, and the frame moves,
@@ -16,7 +17,7 @@ patterns are the machine's own code filling nodes; see
 
 ## Declaration
 
-Each synth declares its frame's budget in `resources.display` of
+Each synth, or sample engine with its own screen, declares its frame's budget in `resources.display` of
 `definition.json` and names the same shape as its C++ frame type. The SDK sizes
 the native renderer, the browser renderer and the artwork bindings from that
 declaration; a mismatch fails to compile.

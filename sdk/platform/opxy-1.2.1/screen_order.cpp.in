@@ -2,11 +2,14 @@
 // screen slots (tooling/stock_tables.py). sdk_screen_owned is in the
 // collection's startup glue.
 #include "screen_order.hpp"
+#include "stock.hpp"
 
 extern "C" {
 opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 int sdk_screen_owned(opxy::u32) __asm__("sdk_screen_owned");
+opxy::u32 sdk_sample_screen(opxy::u32) __asm__("sdk_sample_screen");
 opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor*, opxy::u32) __asm__("sdk_screen_next");
+opxy::u32 sdk_screen_visible(opxy::u32) __asm__("sdk_screen_visible");
 void sdk_send_refresh() __asm__("sdk_send_refresh");
 }
 
@@ -20,9 +23,17 @@ opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor* cursor, opxy::u32 select
     const bool first = cursor->page == 0;
     // Once a frame, at its first slot: the sends' effect controls 5..8.
     if (first) sdk_send_refresh();
-    const opxy::u32 more = order.advance(*cursor, selected, sdk_screen_owned);
+    const opxy::u32 more = order.advance(*cursor, selected, sdk_screen_owned, sdk_sample_screen);
     if (first) activation.select(order.promoted);
     return more;
+}
+
+// 8d5214b0: whether the compositor paints `page` this frame, stock's answer
+// (8d51fc78: the selected page or its companion), and also a sample engine's
+// own screen while its stock sample page is selected.
+opxy::u32 sdk_screen_visible(opxy::u32 page) {
+    if (opxy::platform::stock<opxy::u32(opxy::u32)>(0x8d51fc78)(page)) return 1;
+    return page && page == order.sample_screen();
 }
 
 opxy::u32 sdk_screen_activation(opxy::u32 page, opxy::u32 track) {

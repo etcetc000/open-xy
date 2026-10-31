@@ -4,6 +4,7 @@
 // Machine policy is in the generated sample callbacks.
 #include "sample_machines.hpp"
 #include "stock.hpp"
+#include "synth_controls.hpp"
 #include "stock_sample.hpp"
 #include "sample_preview.hpp"
 #include "barrier.hpp"
@@ -20,6 +21,9 @@ opxy::u32 sdk_sample_edit(void*, opxy::u32, opxy::i32, opxy::u32) __asm__("sdk_s
 opxy::u32 sdk_sample_ui_engine(opxy::u32) __asm__("sdk_sample_ui_engine");
 opxy::u32 sdk_sample_press_engine_owned(opxy::u32, opxy::u32) __asm__("sdk_sample_press_engine_owned");
 opxy::u32 sdk_sample_region_control(opxy::u32, opxy::u32, const opxy::u32*, opxy::u32) __asm__("sdk_sample_region_control");
+opxy::u32 sdk_sample_page_turn(opxy::u32, opxy::u32, const opxy::u32*) __asm__("sdk_sample_page_turn");
+opxy::u32 sdk_sample_param_engine(opxy::u32) __asm__("sdk_sample_param_engine");
+opxy::u32 sdk_sample_neutral_engine(opxy::u32) __asm__("sdk_sample_neutral_engine");
 opxy::u32 sdk_sample_selected_engine() __asm__("sdk_sample_selected_engine");
 opxy::u32 sdk_sample_live_pitch_kind(opxy::u32) __asm__("sdk_sample_live_pitch_kind");
 opxy::u32 sdk_sample_octave_store(opxy::u32, opxy::i32) __asm__("sdk_sample_octave_store");
@@ -42,6 +46,16 @@ using opxy::i32;
 using opxy::u32;
 using namespace opxy::platform;
 const u32 kNotOwned = 0xffffffffu;
+// The project stock's encoder handlers pass to its parameter editor (8c0b15a2).
+const u32 kProject = 0x86bd027c;
+// An owned page-2 engine drawing its own screen: its controls are in the synth
+// control table (tooling/adapters.py), and its page's encoders edit them.
+const SynthControls* own_controls(u32 id) {
+    if (sample_page(id) != 2) return nullptr;
+    for (u32 i = 0; i < sdk_synth_control_count; ++i)
+        if (sdk_synth_controls[i].engine() == id && !sdk_synth_controls[i].effect) return &sdk_synth_controls[i];
+    return nullptr;
+}
 u32 clipboard_engine = kNoEngine;
 // These are separate role-local objects. The stock note packet transports the
 // source snapshot from GUI to audio; module globals are not a cross-role bus.
@@ -370,6 +384,8 @@ u32 sdk_sample_live_pitch_kind(u32 id) {
 u32 sdk_sample_press_engine_owned(u32 track, u32 button) {
     if (track >= kTracks) return kNoEngine;
     const u32 id = track_engine(track);
+    // An own screen's press switches its controls' page (synth_controls.cpp), never stock's mode.
+    if (own_controls(id)) return id;
     if (!pad_settings(id)) return sdk_sample_alias(id);
     const bool shifted = shift_held();
     if (drum_controls(id) && (shifted ? button == 5 || button == 6 : button == 4 || button == 7)) {
@@ -402,6 +418,60 @@ u32 sdk_sample_region_control(u32 key, u32 control, const u32* event, u32 fine) 
         return 0;
     }
     return region_control(key, control, event, fine);
+}
+
+// 8c0b12f2: the sample page's encoder turn (object, encoder, event) first asks
+// 8d5b7c28, a mode flag taking no arguments, and returns at once when it is
+// set. On an owned page-2 engine drawing its own screen every turn edits the
+// control its position shows (an encoder press switches pages,
+// synth_controls.cpp) through stock's parameter editor, which owns stepping,
+// locks and publication, and the sample page edits nothing more. Shift turns
+// a continuous control in tenths of a step, as on a synth's page. Otherwise
+// stock asks its flag as before.
+u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
+    const u32 track = byte(kSelectedTrack);
+    const u32 id = track < kTracks ? track_engine(track) : kNoEngine;
+    const SynthControls* controls = own_controls(id);
+    // The handler reads the encoder as its low two bits; negative means none.
+    if (controls && static_cast<i32>(encoder) >= 0 && event) {
+        opxy::u8 shown[opxy::page_controls];
+        sdk_synth_shown(track, shown);
+        const u32 index = shown[encoder & 3];
+        const bool continuous = (controls->continuous >> index & 1) != 0;
+        const i32* source = reinterpret_cast<const i32*>(event);
+        const i32 fine[3] = {source[0] / 10, source[1], source[2]};
+        const bool tenths = shift_held() && continuous;
+        stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(kProject, track, index,
+            static_cast<u32>(reinterpret_cast<Address>(tenths ? fine : source)));
+        return 1;
+    }
+    (void)object;
+    return stock<u32()>(0x8d5b7c28)();
+}
+
+// 8d5acf3e: stock's parameter writer 8d5acf28 (project, track, index, value)
+// asks the track's engine only to classify it (8d5b79c0, 8d5b79f0). There are
+// two tables, as synth_controls.cpp names them: the stored word a project saves
+// (project + 0x4080 + track * 0xe8 + index * 4) and the track's current word,
+// which stock's editor 8d5ad5bc reads and steps (track object + 0x3864 + index * 4).
+// For an index below 8 of an engine either classifier accepts, a sample engine's
+// through its alias, the writer sets the stored word alone, so the current word
+// stays put and turns never add up; for any other engine it sets the current
+// word (8d587a20) and the stored one. An owned page-2 engine drawing its own
+// screen answers 0, which both classifiers reject, so its controls are saved
+// and played like a synth's.
+u32 sdk_sample_param_engine(u32 track) {
+    const u32 id = track_engine(track);
+    return own_controls(id) ? 0 : id;
+}
+
+// 8d588df2, project load's check of each track, and 8d581eb2, where a stored
+// track's words are copied back in: both ask the sample predicate, through its
+// alias for a sample engine, and on a yes set the track's eight words to neutral
+// (0x40000000), which a stock sampler's page doesn't use. An owned page-2 engine
+// drawing its own screen holds its controls in them, so it answers no, as a synth does.
+u32 sdk_sample_neutral_engine(u32 id) {
+    return own_controls(id) ? 0 : stock<u32(u32)>(0x8d5b79c0)(id);
 }
 
 // 8c094710: stock's edit-multiple controller already iterates its selection

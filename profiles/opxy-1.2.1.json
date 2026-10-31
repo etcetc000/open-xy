@@ -511,6 +511,46 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c0b12f2",
+      "file_offset": "0xe852e",
+      "length": 8,
+      "before": "00de5b8d287c0000",
+      "symbol": "sdk_sample_page_turn",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5acf3e",
+      "file_offset": "0x1e4196",
+      "length": 4,
+      "before": "fee36fd4",
+      "symbol": "sdk_sample_param_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d588df2",
+      "file_offset": "0x1c004e",
+      "length": 4,
+      "before": "01e3e775",
+      "symbol": "sdk_sample_neutral_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d581eb2",
+      "file_offset": "0x1b910e",
+      "length": 4,
+      "before": "01e387ad",
+      "symbol": "sdk_sample_neutral_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8c0b2730",
       "file_offset": "0xe996c",
       "length": 8,
@@ -776,6 +816,16 @@
       "length": 4,
       "before": "ffe3bdb0",
       "symbol": "sdk_sample_octave_store",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5214b0",
+      "file_offset": "0x15870c",
+      "length": 4,
+      "before": "ffe3e4f3",
+      "symbol": "sdk_screen_visible",
       "service": "samples",
       "call": true
     },
