@@ -666,3 +666,16 @@ supplies only wet audio. The generated adapter exposes the machine's declared
 `dryParameter`, or returns `INT32_MAX` when none is declared, matching stock's
 absent-object fallback. This is a source-mixer control, not a wet/dry crossfade
 inside the effect. See the [effect API](api.md#effects).
+
+### Extension pattern inspection
+
+The stopped `read_patterns` actions use existing extension control dispatch;
+there are no additional firmware patches. The adapter binds handles to the
+current project (`0x840a0524`) and commit generation (`0x8d584224`), rejects a
+pending project (`0x840a0528`) and recorder/playback activity, then looks up the
+instrument source pool at project + `0xd7c` + track × `0x53f44`. Each pool holds
+up to sixteen `0x53f4`-byte sources; its count is at `+0x53f40`. Source byte 0 is
+length in steps and byte 8 is the scale index. Notes are the existing validated
+120-slot container at source + `0x457c`. The service copies that container before
+following its links and rechecks project identity before returning notes. It
+never redirects stock getters or changes scene, instrument-lock or source data.

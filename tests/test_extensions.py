@@ -39,7 +39,7 @@ class Folder:
 class Extensions(unittest.TestCase):
     def test_a_folder_declares_itself_against_the_registry(self):
         probe = extensions.extension_at(PROBE)
-        self.assertEqual((probe.id, probe.claims, probe.actions), ('probe', ('record_double_tap',), ('edit_notes', 'notify')))
+        self.assertEqual((probe.id, probe.claims, probe.actions), ('probe', ('record_double_tap',), ('edit_notes', 'notify', 'read_patterns')))
         for changes in (
             dict(id='../probe'), dict(id='runtime'), dict(id='delete'),  # paths, SDK objects, C++ keywords
             dict(claims=[]),  # edit_notes needs its claim

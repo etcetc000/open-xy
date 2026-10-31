@@ -22,6 +22,11 @@ struct RecordingContext {
 };
 struct Context { RecordingContext recording; bool playing; };
 struct Note { i32 position; u32 length; u8 pitch, velocity; };
+// Equality-only identity; never persist across project loads or dereference tokens.
+struct PatternRef { u32 project, generation, track, index; };
+struct PatternInfo { PatternRef ref; u32 length, scale; };
+// Pattern notes use the same stock tick units as Note.
+const u32 pattern_note_capacity = 120;
 struct LiveNote { u32 track, pitch, velocity; i32 position; u32 collision_radius; };
 struct NoteOff { u32 track, pitch; };
 struct Tick { u32 delta_q8; bool discontinuity; };
@@ -52,6 +57,14 @@ struct Actions {
     // Replace an instrument track's pattern notes with these. Refused, changing
     // nothing, while stock is still recording a held note there. Needs edit_notes.
     u32 (*replace_notes)(const Context&, u32 track, const Note*, u32 count);
+    // Read an existing source independently of the scene selection. Needs
+    // read_patterns; stopped normal-recorder mode only, within queued_control.
+    // Tracks 0..7, source indices 0..15. False leaves out unchanged.
+    bool (*discover_pattern)(u32 track, u32 index, PatternInfo& out);
+    // Copy all notes, or none. count is zero on failure; out stays unchanged.
+    // A stale handle, held note, malformed list or insufficient capacity fails.
+    // A successful empty pattern has count zero. No stock pointers escape.
+    bool (*read_pattern)(const PatternRef&, Note* out, u32 capacity, u32& count);
 };
 
 using OnContext = void (*)(const Context&);

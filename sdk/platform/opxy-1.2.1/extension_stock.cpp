@@ -54,6 +54,58 @@ TrackPattern extension_pattern(u32 track) {
     return p;
 }
 
+namespace {
+// The native 1.2.1 source pool has sixteen fixed slots per instrument track.
+// This lookup deliberately does not consult or modify scene pattern indices.
+bool readable_project(u32 project, u32 generation) {
+    return project && word(kProject) == project && !word(0x840a0528) &&
+        stock<u32()>(0x8d584224)() == generation &&
+        !byte(kPlaying) && !byte(kPlaying + 1) && !byte(kRecordHeld) &&
+        !byte(kPlaying + 2) && !byte(kRecorder) && !byte(kRecorder + 1);
+}
+u32 source_address(const extensions::PatternRef& ref) {
+    if (ref.track >= 8 || ref.index >= 16 || !readable_project(ref.project, ref.generation)) return 0;
+    const u32 pool = ref.project + 0xd7c + ref.track * 0x53f44;
+    const u32 count = word(pool + 0x53f40);
+    return count <= 16 && ref.index < count ? pool + ref.index * 0x53f4 : 0;
+}
+}
+bool extension_discover_pattern(u32 track, u32 index, extensions::PatternInfo& out) {
+    const extensions::PatternRef ref = {word(kProject), stock<u32()>(0x8d584224)(), track, index};
+    const u32 source = source_address(ref);
+    if (!source) return false;
+    const extensions::PatternInfo info = {ref, 480u * byte(source), byte(source + 8)};
+    if (!info.length || info.scale >= 16 || !readable_project(ref.project, ref.generation)) return false;
+    out = info;
+    return true;
+}
+bool extension_read_pattern(const extensions::PatternRef& ref, RecordedNote* out, u32 capacity, u32& count) {
+    count = 0;
+    const u32 source = source_address(ref);
+    if (!source || capacity > extensions::pattern_note_capacity || (!out && capacity)) return false;
+    // The bounded copy is private to this call: validation and output never
+    // follow mutable native links. No allocation, mutation, undo or publication.
+    notes::Container snapshot;
+    const volatile u8* input = at<const volatile u8>(source + 0x457c);
+    u8* copy = reinterpret_cast<u8*>(&snapshot);
+    for (u32 i = 0; i < sizeof(snapshot); ++i) copy[i] = input[i];
+    bool used[notes::capacity];
+    if (!notes::valid(snapshot, used) || snapshot.count > static_cast<i32>(capacity)) return false;
+    for (u32 i = 0; i < notes::capacity; ++i) {
+        if (!used[i]) continue;
+        const notes::Note& n = snapshot.slots[i].note;
+        if ((n.flags & notes::held_flag) || n.pitch > 127 || !n.velocity || n.velocity > 127) return false;
+    }
+    if (!readable_project(ref.project, ref.generation)) return false;
+    u32 written = 0;
+    for (i32 i = snapshot.head; i != -1; i = snapshot.slots[i].next) {
+        const notes::Note& n = snapshot.slots[i].note;
+        out[written++] = RecordedNote{n.position, n.length, n.pitch, n.velocity};
+    }
+    count = written;
+    return true;
+}
+
 RecordingContext extension_context(bool& playing) {
     RecordingContext c = {};
     c.project = word(kProject);
