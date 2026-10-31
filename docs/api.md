@@ -338,7 +338,10 @@ next tick. Pages show an overlaid parameter's overlay, whether or not the
 sequencer plays; for a moment after the parameter's encoder is turned, they
 show the track's own value, which the turn changes. A step's parameter lock on
 an overlaid parameter is not heard: the overlay stays, and the lock reaches
-`values` on the next tick, as stock's value beneath it.
+`values` on the next tick, as stock's value beneath it. While the sequencer is
+stopped, stock leaves a track's live values as they were when its pattern
+changes, until play starts; the SDK gives the track its new pattern's stored
+values at once, so `values` and overlaid pages follow the pattern shown.
 
 Setting `overlay.capture` to 1 asks to capture encoder edits for the next tick:
 they still play and show as usual, and arrive in `edits`. One copy captures at a

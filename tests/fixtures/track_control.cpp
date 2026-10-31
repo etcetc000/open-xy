@@ -441,5 +441,21 @@ int main() {
     capture = 0; plan({}); sdk_gui_tick();
     require(bases[0][1] == 1000 && value(0, 1) == 1000 && original_count == 0,
             "Old capture or overlay leaked into a replacement project");
+
+    // Stopped, a pattern change gives the track its new pattern's stored values,
+    // as starting play does; playing, stock gives them itself.
+    playing[0] = playing[1] = 0;
+    sdk_gui_tick();
+    second_bases[0][1] = 321;
+    value(0, 1) = 999;
+    pattern[0] = 1;
+    sdk_gui_tick();
+    require(value(0, 1) == 321, "Stopped pattern change kept the old pattern's live value");
+    playing[1] = 1;
+    value(0, 1) = 999;
+    pattern[0] = 0;
+    sdk_gui_tick();
+    require(value(0, 1) == 999, "Playing pattern change written by the SDK");
+    playing[1] = 0;
     return 0;
 }

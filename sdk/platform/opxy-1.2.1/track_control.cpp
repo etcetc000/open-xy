@@ -80,6 +80,8 @@ bool timed[control::tracks];
 // the last tick, for each tick's elapsed time.
 const u32 kCyclesPerMicrosecond = 400;
 u32 last_cycles;
+// Each instrument track's pattern block as the last tick saw it (0 before the first).
+u32 seen_blocks[control::tracks];
 // GUI ticks so far, and the last encoder edit's parameter and tick. For
 // kTurnTicks after it the edited parameter shows its base value.
 const u32 kTurnTicks = 40;
@@ -266,6 +268,20 @@ extern "C" void sdk_gui_tick() {
     ++gui_ticks;
     if (!sdk_control_machine_count && !applied_count) return;
     sdk_control_kept_apply();
+
+    // A pattern change while the sequencer is stopped leaves the track's live
+    // values as the old pattern had them until play starts (stock's stopped pages
+    // show the stored values instead). A machine would read, and overlay, those
+    // stale values: give the track its new pattern's stored values, as starting
+    // play does.
+    const bool playing = byte(kPlaying) || byte(kPlaying + 1);
+    for (u32 t = 0; t < control::tracks; ++t) {
+        const u32 block = stock<u32(u32)>(0x8d587708)(t);
+        if (!playing && seen_blocks[t] && block != seen_blocks[t])
+            for (u32 p = 0; p < control::track_parameters; ++p)
+                if (live(t, p) != base(t, p)) live_set(t, p, base(t, p));
+        seen_blocks[t] = block;
+    }
 
     // A value that differs from the one written is stock's: an edit, a lock or a step.
     u32 retained = 0;
