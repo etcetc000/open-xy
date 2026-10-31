@@ -96,6 +96,9 @@
     ],
     "extensions": [
       "extension"
+    ],
+    "aux": [
+      "aux"
     ]
   },
   "patches": [
@@ -796,6 +799,83 @@
       "before": "00de5a8dbcd50000",
       "symbol": "sdk_effect_turn",
       "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: an aux track shows its module on M1",
+      "address": "0x8c08f540",
+      "file_offset": "0xc677c",
+      "length": 8,
+      "before": "09da0a8434050000",
+      "symbol": "sdk_aux_screen_hook",
+      "service": "aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: M1's encoders edit the module's controls",
+      "address": "0x8c08fa14",
+      "file_offset": "0xc6c50",
+      "length": 8,
+      "before": "0dda0a8434050000",
+      "symbol": "sdk_aux_turn_hook",
+      "service": "aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: Shift and an aux track's key list its module's presets",
+      "address": "0x8c08f624",
+      "file_offset": "0xc6860",
+      "length": 8,
+      "before": "a66c200501e80000",
+      "symbol": "sdk_aux_preset_hook",
+      "service": "aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: Shift and M1 choose what runs on an aux track",
+      "address": "0x8c08f6ec",
+      "file_offset": "0xc6928",
+      "length": 8,
+      "before": "01e8000008601000",
+      "symbol": "sdk_aux_engine_hook",
+      "service": "aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: a module's track starts no stock note",
+      "address": "0x8d595738",
+      "file_offset": "0x1cc994",
+      "length": 4,
+      "before": "00e81300",
+      "symbol": "sdk_aux_note_hook",
+      "service": "aux",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: the brain transposes nothing while it holds a module",
+      "address": "0x8d595752",
+      "file_offset": "0x1cc9ae",
+      "length": 4,
+      "before": "ffe35d91",
+      "symbol": "sdk_aux_routing",
+      "service": "aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Aux modules: the MIDI track sends no CC while it holds a module",
+      "address": "0x8d58a730",
+      "file_offset": "0x1c198c",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "sdk_aux_midi_hook",
+      "service": "aux",
+      "call": false
     },
     {
       "kind": "hook",

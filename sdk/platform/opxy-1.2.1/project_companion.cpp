@@ -733,14 +733,14 @@ bool read_document(File* file, u32& bytes, u32& crc) {
 // (docs/abi-1.2.1.md, project companions).
 void remap(unsigned char* project) {
     for (u32 track = 0; track < 16; ++track) {
-        if (track >= 8 && track < 14) continue;  // tracks 8-13 hold no machine number
-        const u32* map = track < 8 ? engine_map : effect_map;
-        const u32 limit = track < 8 ? kNumbers : kEffectNumbers;
+        const u32* map = track < 14 ? engine_map : effect_map;
+        const u32 limit = track < 14 ? kNumbers : kEffectNumbers;
         unsigned char* base = project + 0xd7c + track * 0x53f44;
         u32 patterns = *reinterpret_cast<u32*>(base + 0x53f40);
         if (patterns > 16) patterns = 16;
         for (u32 k = 0; k < patterns; ++k) {
             u32& number = *reinterpret_cast<u32*>(base + k * 0x53f4 + 0x18);
+            if (track >= 8 && track < 14 && number == 18) continue; // stock aux module
             if (number < limit && map[number] != kUnlisted) number = map[number];
         }
     }

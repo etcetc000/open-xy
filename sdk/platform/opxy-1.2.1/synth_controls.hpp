@@ -27,6 +27,11 @@ struct SynthControls {
     u8 shift;
     u8 shift_choices[4];
     const char* const* shift_titles;
+
+    // An aux module (definition "aux"): for each control, the instrument-track
+    // parameter word it sets on tracks 0..7, or -1. Other rows leave both 0.
+    signed char macro[4];
+    bool aux;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // An owned effect on send track 14 or 15 as its own page shows it (SDK 1.7):
@@ -81,4 +86,13 @@ void sdk_send_refresh() __asm__("sdk_send_refresh");
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");
 // The view of the owned effect on send track 14 or 15; false for any other track or effect.
 bool sdk_send_view(opxy::u32 track, opxy::platform::SendView* view) __asm__("sdk_send_view");
+
+// The owned synth or effect with this engine or effect ID, ready, or null.
+const opxy::platform::SynthControls* sdk_synth_controls_of(opxy::u32 engine, bool effect = false)
+    __asm__("sdk_synth_controls_of");
+// The aux module on aux track 1..6 (tracks 8..13): the owned synth with "aux"
+// whose engine ID the track's pattern holds in its engine word, which is where
+// the aux selector (aux_modules.cpp) puts it and what stock saves; else null.
+// GUI only.
+const opxy::platform::SynthControls* sdk_aux_controls(opxy::u32 track) __asm__("sdk_aux_controls");
 }

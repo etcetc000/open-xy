@@ -73,6 +73,8 @@ const opxy::u32 sdk_synth_control_count = 2;
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Address address) {
+    if (address >= reinterpret_cast<Address>(saved_words) &&
+        address < reinterpret_cast<Address>(saved_words) + sizeof(saved_words)) return address;
     if (address == 0x8d4d6f14) return reinterpret_cast<Address>(&stock_selected);
     if (address == 0x8d587708) return reinterpret_cast<Address>(&stock_pattern);
     if (address == 0x8d51f184) return reinterpret_cast<Address>(&stock_shift);

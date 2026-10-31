@@ -13,7 +13,7 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import ROOT, SYNTH_POSITIONS, control_positions, paged, shift_parameters, validate_definition
+from .definitions import AUX_MACRO_TARGETS, aux_module, ROOT, SYNTH_POSITIONS, control_positions, paged, shift_parameters, validate_definition
 
 # An effect's shift-row controls follow its eight parameter words (slots 8..11).
 SHIFT_SLOT = 8
@@ -390,16 +390,17 @@ def generate_synth_controls(directory, machines):
             press = m.prefix + '_control_press'
             declarations.append(f'void {press}(opxy::u32, opxy::i32*) __asm__("{press}");')
         # An effect's shift row: its choice counts and titles; other rows leave the fields zero.
-        extra = ''
+        extra = ', 0, {0, 0, 0, 0}, nullptr' if aux_module(m.definition) else ''
         shift = shift_parameters(m.definition)
         if shift:
             titles = ', '.join(json.dumps(p['label'].lower()) for p in shift)
             declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
             choices = [len(p['mapping']['labels']) for p in shift] + [1] * (SYNTH_POSITIONS - len(shift))
             extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
+        aux = f", {{{aux_targets(m.definition)}}}, true" if aux_module(m.definition) else ""
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
-                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {press}{extra}}},")
+                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {press}{extra}{aux}}},")
     return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters), LFO_MACHINES='\n'.join(lfo_rows)),
                   Path(directory) / 'synth_control_table.cpp')
 
@@ -416,6 +417,42 @@ def generate_project_companion_table(directory, machines):
         rows.append(f'    {{"{m.id}", {number}, {page}, {"true" if m.kind == "effect" else "false"}}},')
     return expand('project_companion_table.cpp.in', dict(DECLARATIONS='\n'.join(declarations), MACHINES='\n'.join(rows)),
                   Path(directory) / 'project_companion_table.cpp')
+
+
+def aux_targets(definition):
+    """An aux module's macro target word per control, -1 for none, as C++ initializers."""
+    return ', '.join(str(AUX_MACRO_TARGETS[t] if t else -1) for t in definition['aux'].get('macro', [None] * 4))
+
+
+def generate_aux_modules(directory, machines):
+    """The collection's aux modules (definition "aux"): engine and page symbols, readiness,
+    selector label and each control's macro target word."""
+    declarations, rows, presets = [], [], []
+    for m in machines:
+        if not aux_module(m.definition):
+            continue
+        # Its presets as Shift and the track's key list them: names, and each
+        # one's four control words in Q31, in definition order.
+        ids = [p['id'] for p in m.definition['parameters']]
+        named = list(m.definition['presets'].items())
+        if named:
+            names = ', '.join(json.dumps(name) for name, _values in named)
+            values = ', '.join('{' + ', '.join(str(round(values[i] * 0x7fffffff)) for i in ids) + '}'
+                               for _name, values in named)
+            presets += [f'static const char* const {m.prefix}_preset_names[] = {{{names}}};',
+                        f'static const opxy::i32 {m.prefix}_preset_values[][4] = {{{values}}};']
+            table = f'{len(named)}, {m.prefix}_preset_names, {m.prefix}_preset_values'
+        else:
+            table = '0, nullptr, nullptr'
+        declarations += [f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");',
+                         f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");',
+                         f'extern const char {m.prefix}_page_id[] __asm__("{m.prefix}_page_id");']
+        rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_page_id, {m.prefix}_ready, "{m.native_name}", '
+                    f'{{{aux_targets(m.definition)}}}, {table}}},')
+    return expand('aux_module_table.cpp.in', dict(DECLARATIONS='\n'.join(declarations), MODULES='\n'.join(rows),
+                                                  PRESETS='\n'.join(presets)),
+                  Path(directory) / 'aux_module_table.cpp')
+
 
 # A send slot's stock scratch memory: scratch(slot, bytes) (0x8d50e048), as stock
 # delay and reverb use it, only for the two send slots (docs/abi-1.2.1.md).

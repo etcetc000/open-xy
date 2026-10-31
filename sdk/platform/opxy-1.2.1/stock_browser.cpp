@@ -54,8 +54,9 @@ void copy(char* target, const char* source, u32 size) {
 }
 }
 bool open(Session& session, Row* rows, u32 count, const char* title,
-          const char* const* labels, u32 initial, Callbacks callbacks) {
-    if (owner || word(kScreen) == 9 || !rows || !count || initial >= count || !callbacks.confirm || !labels)
+          const char* const* labels, u32 initial, Callbacks callbacks, i32 number) {
+    if (owner || word(kScreen) == 9 || !rows || !count || initial >= count || !callbacks.confirm || !labels ||
+        number < -1 || number > 98)
         return false;
     const u32 title_size = length(title);
     if (!title_size) return false;
@@ -77,7 +78,8 @@ bool open(Session& session, Row* rows, u32 count, const char* title,
     session.count = count; session.candidate = initial;
     session.accepted = session.closing = false;
     owner = &session;
-    stock<void(void*, i32, const char*)>(0x8d551c48)(screen, -1, session.title);
+    // A number n >= 0 shows as n + 1 above the title; -1 shows the title alone.
+    stock<void(void*, i32, const char*)>(0x8d551c48)(screen, number, session.title);
     stock<void(void*, Catalog*, i32, Delegate*, u32)>(0x8c0a0b90)(
         browser, &session.catalog, static_cast<i32>(initial), &session.delegate, 0);
     stock<void(void*, u32)>(0x8d5501ec)(screen, 0);

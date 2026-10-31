@@ -201,8 +201,8 @@ def reference(raw, data, tracks):
     if saved is None:
         return tracks
     table = translation(saved, HERE)
-    slot = lambda track: 'engine' if track < 8 else 'effect'
-    return {t: [n if 8 <= t < 14 or (slot(t), n) not in table else
+    slot = lambda track: 'engine' if track < 14 else 'effect'
+    return {t: [n if (8 <= t < 14 and n == 18) or (slot(t), n) not in table else
                 FALLBACK[slot(t)] if table[(slot(t), n)] is None else table[(slot(t), n)] for n in numbers]
             for t, numbers in tracks.items()}
 
@@ -259,9 +259,15 @@ class FirmwareReader(unittest.TestCase):
         self.check(companion(PROJECT, SAVED), {
             0: [41, PRISM, 18, 41, 50],       # karplus renumbered; timestretch missing, its 35 now fm2op's
             7: [41],                            # every instrument track
-            9: [36, 35],                        # tracks 8-13 hold no machine
+            9: [41, PRISM],                     # aux engines follow the same ID map
             14: [40, 36, 5],                    # pingpong kept; effect 36 is not karplus's engine 36
             15: [36]})
+
+    def test_aux_tracks_remap_custom_ids_and_preserve_stock_module(self):
+        tracks={t: [36,18] for t in range(8,14)}
+        # Even an invalidly claimed stock number cannot replace the stock module.
+        saved=dict(SAVED, fm2op={'engine':18,'page':60})
+        self.check(companion(PROJECT,saved), {t:[41,18] for t in tracks}, tracks=tracks)
 
     def test_numbers_trade_places_at_once(self):
         saved = {'fm2op': {'engine': 41, 'page': 60}, 'karplus': {'engine': 35, 'page': 90},

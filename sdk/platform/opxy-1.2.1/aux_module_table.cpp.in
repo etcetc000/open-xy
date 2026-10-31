@@ -1,0 +1,15 @@
+// Generated aux modules for one collection: the synths that declare "aux".
+#include "aux_modules.hpp"
+extern "C" {
+@DECLARATIONS@
+}
+using opxy::platform::AuxModule;
+
+@PRESETS@
+
+const AuxModule sdk_aux_modules[] = {
+@MODULES@
+    {nullptr, nullptr, nullptr, nullptr, {-1, -1, -1, -1}, 0, nullptr, nullptr}
+};
+// The terminating entry keeps the array nonempty.
+const opxy::u32 sdk_aux_module_count = sizeof(sdk_aux_modules) / sizeof(sdk_aux_modules[0]) - 1;
