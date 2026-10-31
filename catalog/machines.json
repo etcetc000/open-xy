@@ -223,8 +223,8 @@
       "maintainer": "Hecedu",
       "status": "published",
       "repository": "https://github.com/Hecedu/open-xy-troupe",
-      "tag": "v1.0.0",
-      "commit": "453ff5288aa0000ecbb7f1c01654935560bbdd65",
+      "tag": "v1.0.1",
+      "commit": "0361d821264a42fb765511b3f355f1eb129626cc",
       "path": ".",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
