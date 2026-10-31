@@ -49,13 +49,8 @@ CXX_FLAGS = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-excep
              '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-asynchronous-unwind-tables',
              '-fno-unwind-tables', '-fno-common', '-fno-tree-loop-distribute-patterns',
              '-fomit-frame-pointer', '-nostdinc++', '-Wall', '-Werror', '-Wno-unused-variable']
-# Stock SVG parse (0x8d5f38ba) accepts at most four fractional digits and no exponents.
-SVG_ELEMENTS = {'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text'}
-SVG_NUMERIC = {'d', 'points', 'transform', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
-               'width', 'height', 'stroke-width', 'stroke-miterlimit', 'stroke-dasharray',
-               'stroke-dashoffset', 'font-size', 'opacity', 'fill-opacity', 'stroke-opacity'}
-NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)'
-SVG_INHERITED = {'fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 'style'}
+from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes
+
 
 
 class Collection(list):
@@ -374,6 +369,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
                 return cxx(str(extensions.generate_extension(folder, extension)), obj)
+            if step == 'master_filter_panel':
+                source,root=extensions.generate_master_panel(folder,extensions_of(machines))
+                return compile_cxx(gcc['cxx'],tools['as'],str(source),obj,[*includes(),root])
             if step == 'master_filter_collection':
                 return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
             if step == 'extension_runtime':
@@ -709,23 +707,7 @@ def validate_panel(m, fragment=None):
     palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
     for name in palette:
         donor(name)
-    for node in nodes:
-        for attribute in SVG_NUMERIC.intersection(node.attrib):
-            value = node.attrib[attribute]
-            require(not re.search(r'\d[eE][-+]?\d', value), 'Exponent notation is outside the authored SVG numeric subset')
-            require(not re.search(r'\.\d{5,}', value), 'Authored SVG numbers must have at most four decimal places')
-        require(node.tag in SVG_ELEMENTS, 'Unsupported authored SVG element')
-        require('style' not in node.attrib and not any(k.lower().startswith('on') or 'href' in k.lower()
-                for k in node.attrib), 'Unsupported SVG style, event or external reference')
-        if node.tag == 'g':
-            require(not SVG_INHERITED.intersection(node.attrib), 'Put SVG paint/font attributes on leaves')
-        else:
-            require('fill' in node.attrib, 'Missing explicit SVG fill')
-            if node.tag == 'text':
-                require({'font-family', 'font-size'} <= node.attrib.keys(), 'Missing explicit text font')
-            if node.get('fill') == 'none':
-                require(node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
-                        'Invisible authored SVG outline')
+    validate_nodes(nodes)
     return fragment
 
 

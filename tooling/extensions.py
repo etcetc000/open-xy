@@ -93,7 +93,11 @@ def extension_at(folder):
         require(not artwork.is_absolute() and '..' not in artwork.parts and
                 re.fullmatch(r'[a-z][a-z0-9_]*\.svg', artwork.name) and
                 (root / artwork).resolve().is_relative_to(root), f'{name}: invalid master filter artwork path')
-        validate_master_artwork(root / artwork)
+        from .definitions import validate_definition
+        definition=validate_definition(document(root/'definition.json'),'master')
+        require(definition['id']==name, 'Master definition ID differs from extension ID')
+        require((root/'display.h').is_file() and (root/'display.cpp').is_file(), 'Master processor needs shared display.h/display.cpp')
+        validate_master_artwork(root / artwork, definition)
     claims, actions = registry()
     for field, known in (('claims', claims), ('actions', actions)):
         values = data[field]
@@ -215,7 +219,7 @@ def metadata(extensions, origins):
     return rows
 
 
-def validate_master_artwork(path):
+def validate_master_artwork(path, definition=None):
     """Standalone, authored path-only SVG, never stock content or external references."""
     import xml.etree.ElementTree as ET
     data = path.read_bytes()
@@ -223,14 +227,16 @@ def validate_master_artwork(path):
     root = ET.fromstring(data)
     require(root.tag == '{http://www.w3.org/2000/svg}svg' and root.get('viewBox') == '0 0 480 222',
             'Master filter SVG needs the 480 x 222 viewport')
-    seen = set()
-    for node in root.iter():
-        require(node is root or node.tag == '{http://www.w3.org/2000/svg}path', 'Master panel uses path leaves')
-        require(not any(k.lower().startswith('on') or 'href' in k.lower() or k == 'style' or
-                        'url(' in v.lower() for k,v in node.attrib.items()), 'External/style SVG references refused')
-        name = node.get('id')
-        require(not name or name not in seen, 'Duplicate master SVG ID')
-        if name: seen.add(name)
+    from .svg_safety import validate_nodes
+    for node in root.iter():node.tag=node.tag.removeprefix('{http://www.w3.org/2000/svg}')
+    leaves=[n for n in root.iter() if n is not root]
+    root.tag='g'
+    validate_nodes(list(root.iter()))
+    if definition is not None:
+        from .native import check_bindings
+        check_bindings({n.get('id'):n for n in leaves if n.get('id')},definition['id'],definition['resources']['display'])
+    return data
+
     return data
 
 
@@ -256,6 +262,33 @@ def generate_master_collection(folder, entries):
     for e in entries:
         lines += ['    if(descriptor())return "' + Path(e.master_filter['artwork']).name + '";']
     lines += ['    return "";', '}', '}}}', '']
+    lines=lines[:-2]
+    from .definitions import control_positions
+    lines += ['const Parameter* parameters(u32& count) {']
+    for e in entries:
+        definition=document(e.root/'definition.json')
+        positions=control_positions(definition)
+        rows=[]
+        for i,p in enumerate(definition['parameters']):
+            steps=len(p['mapping']['labels']) if p['mapping']['kind']=='enum' else 0
+            rows.append('{"%s","%s",%d,%d,%d}' % (p['id'],p['label'],round(p['default']*0x7fffffff),positions[i],steps))
+        lines += ['    static const Parameter p[] = {'+','.join(rows)+'};',
+                  '    if(descriptor()){count=%d;return p;}' % len(rows)]
+    lines += ['    count=0;return nullptr;','}','}}}','']
     target = folder / 'master_filter_collection.cpp'
     target.write_text('\n'.join(lines), encoding='utf-8')
     return target
+
+
+def generate_master_panel(folder, entries):
+    """Reuse the normal display binding and retained renderer, with an unregistered host."""
+    from .adapters import generate_display
+    from .native import display_ids
+    e=next(e for e in entries if e.master_filter is not None)
+    definition=document(e.root/'definition.json')
+    generate_display(folder,definition=definition,kind='master',namespace='opxy::extensions::'+e.id)
+    ids=display_ids(e.id,definition['resources']['display'])
+    source='#include "display_binding.cpp"\nstatic const char* const master_display_ids[] = {'+','.join('"'+i+'"' for i in ids)+'};\n'
+    source+='#include "'+(ROOT/'sdk/platform/opxy-1.2.1/master_filter_panel.cpp').as_posix()+'"\n'
+    target=folder/'master_panel.cpp';target.write_text(source,encoding='utf-8')
+    return target,e.root

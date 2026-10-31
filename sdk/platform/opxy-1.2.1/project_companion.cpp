@@ -21,6 +21,7 @@
 namespace master_filter = opxy::platform::master_filter;
 
 using opxy::u32;
+using opxy::i32;
 using opxy::platform::CompanionMachine;
 using opxy::platform::stock;
 
@@ -154,10 +155,16 @@ void write_companion(u32 bytes, u32 crc) {
     w.put(listed ? "\n      },\n" : "},\n");
     w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }");
     if(*master_filter::owner()) {
-        const auto controls=master_filter::Controls::unpack(master_filter::snapshot());
-        w.put(",\n    \"open-xy.master-filter\": {\n      \"version\": 1,\n      \"processor\": \"");
+        const auto controls=master_filter::current();
+        u32 count=0;const auto* parameters=master_filter::parameters(count);
+        w.put(",\n    \"open-xy.master-filter\": {\n      \"version\": 2,\n      \"processor\": \"");
         w.put(controls.type ? master_filter::owner() : "eq");
-        w.put("\",\n      \"sweep\": ");w.number(controls.sweep);w.put("\n    }");
+        w.put("\",\n      \"parameters\": {");
+        for(u32 i=0;i<count;++i) {
+            w.put(i ? ", " : "");w.put("\"");w.put(parameters[i].id);w.put("\": ");
+            w.number(static_cast<u32>(controls.values[i]));
+        }
+        w.put("}\n    }");
     }
     w.put("\n  },\n  \"version\": 1\n}\n");
     w.flush();
@@ -669,27 +676,46 @@ bool other_section(Parser& p, bool& ok) {
     return read;
 }
 
-u32 master_packet=master_filter::initial_packet;
+master_filter::State master_state;
 bool master_applies;
+void master_defaults() {
+    master_state={};u32 count=0;const auto* parameters=master_filter::parameters(count);
+    for(u32 i=0;i<count;++i)master_state.values[i]=parameters[i].initial;
+}
 bool master_section(Parser& p,bool& valid) {
-    master_applies=false;master_packet=master_filter::initial_packet;
-    valid=false;
+    master_applies=false;master_defaults();valid=false;
     if(p.peek()!='{')return p.skip();
-    bool version_ok=false,sweep_ok=false,processor_ok=false;
+    bool version_ok=false,sweep_ok=false,processor_ok=false,values_ok=true;
     u32 version=0,sweep=512,type=0;
     const bool read=p.object([&](const Text& key){
         if(key.is("version"))return p.natural(version,version_ok);
         if(key.is("sweep"))return p.natural(sweep,sweep_ok);
+        if(key.is("parameters")) {
+            master_defaults();values_ok=true;
+            if(p.peek()!='{'){values_ok=false;return p.skip();}
+            return p.object([&](const Text& id){
+                u32 count=0;const auto* parameters=master_filter::parameters(count);
+                for(u32 i=0;i<count;++i)if(id.is(parameters[i].id)) {
+                    u32 value=0;bool ok=false;if(!p.natural(value,ok))return false;
+                    if(!ok || value>0x7fffffffu)values_ok=false;
+                    else master_state.values[i]=static_cast<i32>(value);
+                    return true;
+                }
+                return p.skip();
+            });
+        }
         if(!key.is("processor"))return p.skip();
-        processor_ok=false;
-        if(p.peek()!='"')return p.skip();
+        processor_ok=false;if(p.peek()!='"')return p.skip();
         Text id;if(!p.string(id))return false;
         type=id.is(master_filter::owner()) ? 1 : 0;
         processor_ok=type || id.is("eq");return true;
     });
     valid=version_ok && version>=1;
-    master_applies=valid && version==1 && sweep_ok && sweep<=1023 && processor_ok;
-    if(master_applies)master_packet=master_filter::Controls{sweep,type}.pack();
+    master_applies=valid && processor_ok && ((version==1 && sweep_ok && sweep<=1023) || (version==2 && values_ok));
+    if(master_applies) {
+        master_state.type=type;
+        if(version==1)master_state.values[0]=static_cast<i32>(sweep<<21);
+    }
     return read;
 }
 
@@ -719,7 +745,7 @@ bool note_section(const Text& name, bool ok) {
 bool read_document(File* file, u32& bytes, u32& crc, bool& applies) {
     Parser p(file);
     bool format = false, version = false, binding = false, sections = false, valid = false;
-    applies=false;master_applies=false;master_packet=master_filter::initial_packet;
+    applies=false;master_applies=false;master_defaults();
     clear_maps();
     const bool read = p.object([&](const Text& key) {
         if (key.is("format")) {
@@ -740,7 +766,7 @@ bool read_document(File* file, u32& bytes, u32& crc, bool& applies) {
         if (!key.is("sections")) return p.skip();
         // Only the last sections object counts.
         applies = false;
-        master_applies=false;master_packet=master_filter::initial_packet;
+        master_applies=false;master_defaults();
         valid = true;
         invalid_count = 0;
         clear_maps();
@@ -799,7 +825,7 @@ void apply_companion(void* project, const char* path) {
         measured_crc != crc)
         return;
     if(machines_apply)remap(static_cast<unsigned char*>(project));
-    if(master_applies)master_filter::loaded(static_cast<u32>(reinterpret_cast<opxy::platform::Address>(project)),master_packet);
+    if(master_applies)master_filter::loaded_state(static_cast<u32>(reinterpret_cast<opxy::platform::Address>(project)),master_state);
 }
 }
 

@@ -69,6 +69,8 @@ class SampleServices(unittest.TestCase):
                 # can resolve to a host boundary double instead of a 32-bit ABI.
                 (Path(folder) / 'screen_drawing.hpp').write_bytes(
                     (ROOT / 'sdk/platform/opxy-1.2.1/screen_drawing.hpp').read_bytes())
+                (Path(folder) / 'retained_drawing.hpp').write_bytes(
+                    (ROOT / 'sdk/platform/opxy-1.2.1/retained_drawing.hpp').read_bytes())
                 (Path(folder) / 'screen.hpp').write_bytes(
                     (ROOT / 'tests/fixtures/screen_drawing_host.hpp').read_bytes())
             if name == 'startup':

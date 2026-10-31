@@ -54,6 +54,12 @@ note-activity baselines. Continuing to show the same page and track does not
 reset it. Browser hosts call `PreviewDisplay.reset()` when reactivating a
 preview. Audio state, note routing and the drawing input ABI are unchanged.
 
+A display host that resets a parameter may notify the optional GUI-only callback
+`display_parameter_reset(DisplayState&, u32 slot)` through
+`draw::parameter_reset(state, slot)`. It can animate back to that parameter's
+default without resetting the whole display. Omitting it is supported. This
+lifecycle callback does not change `draw::Input` or its browser ABI.
+
 ## Input
 
 Input holds the Q31 value each of the four control positions shows, Q10 elapsed

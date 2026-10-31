@@ -282,9 +282,6 @@ void control_division(char* text, i32 value) {
                                          "1/8", "1/8 dotted", "1/4", "1/2"};
     for (const char* name = names[division(value)]; (*text = *name); ++text, ++name) {}
 }
-u32 control_choice(i32 value, u32 count) {
-    return value < 0 ? 0 : ((static_cast<u32>(value) >> 16) * count) >> 15;
-}
 void control_label(char* text, i32 value, const char* const* labels, u32 count) {
     for (const char* label = labels[control_choice(value, count)]; (*text = *label); ++text, ++label) {}
 }

@@ -28,7 +28,9 @@ void control_tenths(char* text, u32 tenths, const char* suffix);
 u32 control_ratio(i32 value, const u32* anchors, u32 count);
 // The choice of `count` a stored enum value selects, as stock's stepped edits
 // store it; and that choice's label (at most 15 characters).
-u32 control_choice(i32 value, u32 count);
+inline u32 control_choice(i32 value, u32 count) {
+    return value < 0 ? 0 : ((static_cast<u32>(value) >> 16) * count) >> 15;
+}
 void control_label(char* text, i32 value, const char* const* labels, u32 count);
 // Stock delay's name for the note length a division control selects.
 void control_division(char* text, i32 value);

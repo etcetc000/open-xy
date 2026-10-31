@@ -15,6 +15,60 @@ PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 
 class MasterFilter(unittest.TestCase):
     @unittest.skipUnless(services.HOST_CXX, 'No working host C++ compiler')
+    def test_multi_parameter_companion_and_defaults(self):
+        import json
+        from test_projects import host_writer
+        with tempfile.TemporaryDirectory(prefix='master-parameters-') as directory:
+            folder = Path(directory)
+            writer, reader = host_writer(folder), host_writer(folder, 'project_load.cpp')
+            project = folder / 'song.xy'
+            saved = subprocess.run([str(writer), str(project), '1', str((1 << 30) | 123), 'multi'],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(saved.returncode, 0, saved.stderr)
+            path = project.with_suffix('.oxy')
+            document = json.loads(path.read_bytes())
+            parameters = document['sections']['open-xy.master-filter']['parameters']
+            self.assertEqual(parameters, dict(sweep=123 << 21, gain=1234567, mix=2469134,
+                                             mode=3703701, alt=4938268))
+            def load():
+                result = subprocess.run([str(reader), str(project), '1', 'master-multi', '0:36'],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return result.stdout.strip().splitlines()
+            self.assertEqual(load(), ['0:41', f'parameters:1,{123 << 21},1234567,2469134,3703701,4938268'])
+            parameters.pop('mix')
+            parameters['future'] = 999
+            path.write_text(json.dumps(document))
+            self.assertEqual(load(), ['0:41', f'parameters:1,{123 << 21},1234567,200,3703701,4938268'])
+            parameters['gain'] = True
+            path.write_text(json.dumps(document))
+            self.assertEqual(load(), ['0:41', 'parameters:0,1073741824,100,200,0,300'])
+
+    def test_svg_safety_is_shared_with_instrument_artwork(self):
+        from tooling import extensions, native
+        from machine_fixtures import fixture
+        machine = fixture('probesynth')
+        original = (machine.root / 'panel.svg.fragment').read_bytes()
+        with tempfile.TemporaryDirectory(prefix='master-svg-') as directory:
+            path = Path(directory) / 'panel.svg'
+            for number, safe in (('0.1234', True), ('0.12345', False), ('1e-3', False)):
+                with self.subTest(number=number):
+                    path.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 222">'
+                                    f'<path d="M {number} 0 L 10 0 L 10 10 Z" fill="#000000"/></svg>')
+                    fragment = original.rsplit(b'</g>',1)[0] + f'<path d="M {number} 0 L 10 0 L 10 10 Z" fill="#000000"/></g>'.encode()
+                    if safe:
+                        extensions.validate_master_artwork(path)
+                        native.validate_panel(machine, fragment)
+                    else:
+                        with self.assertRaises(ValueError):
+                            extensions.validate_master_artwork(path)
+                        with self.assertRaises(ValueError):
+                            native.validate_panel(machine, fragment)
+            path.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 222" width="480.12345"/>')
+            with self.assertRaisesRegex(ValueError, 'four decimal'):
+                extensions.validate_master_artwork(path)
+
+    @unittest.skipUnless(services.HOST_CXX, 'No working host C++ compiler')
     def test_mix_hooks_selector_transport_and_project_reset(self):
         with tempfile.TemporaryDirectory(prefix='master-hooks-') as folder:
             folder = Path(folder)
@@ -56,7 +110,7 @@ class MasterFilter(unittest.TestCase):
         from tooling.firmware import active_services
         from test_extensions import Folder
         with Folder() as folder:
-            (folder.root/'panel.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 222"><path id="x" d="M 0 0 L 1 1" fill="none" stroke="#000000"/></svg>')
+            (folder.root/'panel.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 222"><path id="probe_node_0" d="M 0 0 L 1 1" fill="none" stroke="#000000" stroke-width="1"/><path id="probe_palette_0" d="M 0 0 L 1 0 L 1 1 Z" fill="#000000" stroke="#000000" stroke-width="1"/></svg>')
             e=extensions.extension_at(folder.declare(master_filter={'artwork':'panel.svg'}))
             collection=native.Collection([], [e])
             self.assertIn('master_filter',active_services(config(),native.service_users(collection)))
@@ -71,7 +125,7 @@ class MasterFilter(unittest.TestCase):
         from tooling import extensions
         from test_extensions import Folder
         with Folder() as folder:
-            (folder.root/'panel.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 222"/>')
+            (folder.root/'panel.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 222"><path id="renamed_filter_node_0" d="M 0 0 L 1 1" fill="none" stroke="#000000" stroke-width="1"/><path id="renamed_filter_palette_0" d="M 0 0 L 1 0 L 1 1 Z" fill="#000000" stroke="#000000" stroke-width="1"/></svg>')
             e=extensions.extension_at(folder.declare(id='renamed_filter',
                 master_filter={'artwork':'panel.svg','state_id':'original_filter'}))
             source=extensions.generate_master_collection(folder.root,[e]).read_text()
@@ -110,7 +164,7 @@ class MasterFilter(unittest.TestCase):
             document = json.loads(raw)
             self.assertEqual(document['sections']['open-xy.machines']['machines'], layout)
             self.assertEqual(document['sections']['open-xy.master-filter'],
-                             dict(version=1, processor='probe', sweep=987))
+                             dict(version=2, processor='probe', parameters={'sweep':987<<21}))
             loaded = subprocess.run([str(reader), str(project), '1', 'master', '0:253,34'],
                                     capture_output=True, text=True, timeout=30)
             self.assertEqual(loaded.returncode, 0, loaded.stderr)
@@ -132,7 +186,7 @@ class MasterFilter(unittest.TestCase):
             saved=path.read_bytes()
             document=json.loads(saved)
             section=document['sections']['open-xy.master-filter']
-            self.assertEqual(section,dict(version=1,processor='probe',sweep=123))
+            self.assertEqual(section,dict(version=2,processor='probe',parameters={'sweep':123<<21}))
             def load():
                 result=subprocess.run([str(reader),str(project),'1','master','0:36,18'],capture_output=True,text=True)
                 self.assertEqual(result.returncode,0,result.stderr)
@@ -140,7 +194,7 @@ class MasterFilter(unittest.TestCase):
             self.assertEqual(load(),['0:41,18',f'master:{packet},512'])
             # Missing/future/foreign processor and bad values restore EQ/neutral;
             # the upstream machine mapping still applies to a valid companion.
-            for changes in (dict(version=2),dict(processor='missing'),dict(sweep=-1),dict(sweep=1024),dict(sweep=True)):
+            for changes in (dict(version=3),dict(processor='missing'),dict(sweep=-1),dict(sweep=1024),dict(sweep=True)):
                 section.update(version=1,processor='probe',sweep=123)
                 section.update(changes)
                 path.write_text(json.dumps(document))

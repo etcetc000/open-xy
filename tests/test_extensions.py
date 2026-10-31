@@ -33,6 +33,14 @@ class Folder:
         data = json.loads(path.read_text(encoding='utf-8'))
         data.update(changes)
         path.write_text(json.dumps({k: v for k, v in data.items() if v is not None}), encoding='utf-8')
+        if data.get('master_filter'):
+            from tooling.pipeline import save_json
+            definition=dict(schema=1,id=data['id'],name='Probe',parameters=[dict(id='sweep',label='filter',default=.5,
+                mapping=dict(kind='linear',minimum=0,maximum=1),display='percent')],presets={},
+                resources=dict(display=dict(stateBytes=4,stateAlignment=4,paths=0,points=0,nodes=1,texts=0,palette=1)))
+            save_json(self.root/'definition.json',definition)
+            (self.root/'display.h').write_text('// shared display declaration\n')
+            (self.root/'display.cpp').write_text('// shared display implementation\n')
         return self.root
 
 

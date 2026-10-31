@@ -125,16 +125,20 @@ read as saved. A section for another profile is ignored.
 
 ## `open-xy.master-filter`
 
-Version 1 contains `processor` (`eq` or the selected master-filter extension's
-`state_id`, defaulting to its ID) and integer `sweep` (0–1023, neutral 512).
-The SDK writes this section only when a master-filter owner is included. It uses the envelope's existing file
-size/CRC binding and the same streaming reader as machine remapping.
+Version 2 contains `processor` (`eq` or the extension's stable `state_id`) and
+`parameters`, an object mapping the shared parameter IDs to normalized Q31
+integers, 0–2147483647. Missing parameters use their declared defaults; unknown
+parameters are ignored. Invalid known values or unsupported versions do not
+activate the processor. Version 1's integer `sweep` (0–1023, neutral 512) remains
+readable: it maps to the first parameter as `sweep << 21`; later parameters use
+their defaults. The extension identity `dj` remains stable.
 
-A matching companion restores the choice and sweep when its project becomes
-active. Missing/unsupported state, another processor ID, an invalid sweep or a
-binding mismatch selects stock EQ and neutral sweep. Stock EQ parameters stay
-in the stock `.xy`; companions are optional. New projects and abandoned loads
-cannot inherit pending state from another project.
+The SDK writes this section only with a master owner included, using the same
+streaming writer, size/CRC binding and reader as machine remapping. Choice and
+all parameters become active only when their matching project is published.
+Missing/unusable state selects stock EQ and declared defaults. Stock EQ values
+remain in `.xy`; projects without `.oxy` remain compatible. New projects and
+abandoned loads cannot inherit pending state from another project.
 
 ## Commands
 

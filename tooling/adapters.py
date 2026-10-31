@@ -93,14 +93,14 @@ def screen_bytes(m):
     return 76 + 4 * words
 
 
-def generate_display(directory, *, machine=None, definition=None):
+def generate_display(directory, *, machine=None, definition=None, kind="synth", namespace=None):
     """Same authored display callback for host, WebAssembly and native wrappers."""
     if definition is None:
         definition, assignment = machine.definition, stock_identity(machine)
     else:
-        validate_definition(definition, 'synth')
+        validate_definition(definition, kind)
         assignment = {'symbol_prefix': 'local_preview'}
-    namespace, prefix = definition['id'], assignment['symbol_prefix']
+    namespace, prefix = namespace or definition['id'], assignment['symbol_prefix']
     display = definition['resources']['display']
     layout = drawing_layout(display)
     frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**layout)

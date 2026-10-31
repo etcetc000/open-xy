@@ -647,9 +647,12 @@ project save/deserialize hooks are shared, not replaced or duplicated.
 MIX page is word `+0x88`, with EQ at index 1; M2 key 7 takes the shifted
 vtable method while Shift is held. Keys 10–13 are encoder clicks. Stock
 continuous stepping is `8d4d6cc8`; an actual edit uses dirty marker `8d585ee8`.
-B3 virtual parameter 128 carries sweep in bits 0–9 and selection in bit 30;
-all such packets, including malformed values, are consumed before stock's
-unbounded parameter setter `8d50eb8c`. Audio state is private to the audio
+B3 virtual IDs 128–137 are consumed before stock's unbounded parameter setter
+`8d50eb8c`, including malformed values. ID 128 begins a parameter transaction:
+selection in bit 0, count in bits 1–4, and a 25-bit sequence in bits 5–29.
+IDs 129–136 stage full nonnegative Q31 slot values. ID 137 commits the sequence
+only if every declared slot has arrived. Incomplete/mismatched transactions leave
+the previous audio snapshot intact; no virtual ID reaches a stock array index. Audio state is private to the audio
 role; processing is 64 stereo Q31 samples at 44.1 kHz.
 
 Project publication calls getter `8d584210` after activation. Companion
@@ -661,6 +664,6 @@ before stock validation.
 For standalone panels, constructor `8d520844` with ID zero explicitly avoids
 stock screen registration. Per-document loader `8d520ce0` loads that document
 before binding; EQ slot 33 is never overwritten. Path commands remain fixed
-32-byte records (type at +24); the panel adapter checks exact command counts
-and types, caches geometry/palette references and hides degenerate geometry
-with a translation, preserving positive scale. All this runs on the GUI role.
+32-byte records (type at +24); the shared retained renderer checks exact command counts
+and types and caches geometry/palette references. Author frames use the normal
+positive-scale hide transform for degenerate geometry. All this runs on the GUI role.

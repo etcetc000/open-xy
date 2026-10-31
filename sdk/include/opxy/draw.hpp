@@ -70,6 +70,15 @@ static_assert(sizeof(Input) == 76 && __builtin_offsetof(Input, elapsed) == 16 &&
               "Drawing input layout (display.mjs)");
 static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (display.mjs)");
 
+// Optional shared GUI lifecycle callback; ADL finds the display owner's overload.
+// Existing displays need not implement it. Never called by an audio callback.
+namespace detail {
+template<class S> auto parameter_reset(S& state,u32 slot,int)
+    -> decltype(display_parameter_reset(state,slot),void()) { display_parameter_reset(state,slot); }
+template<class S> void parameter_reset(S&,u32,...) {}
+}
+template<class S> void parameter_reset(S& state,u32 slot) { detail::parameter_reset(state,slot,0); }
+
 // Store a zero-initialized NoteTracker in DisplayState. Events describe changes
 // between frames, not a queue. Reset/track changes establish a baseline, even
 // when notes are already held. An unavailable snapshot also clears the baseline.

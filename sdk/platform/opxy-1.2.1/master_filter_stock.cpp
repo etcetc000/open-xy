@@ -1,7 +1,8 @@
 #include "master_filter.hpp"
-#include <opxy/q31.hpp>
 #include "stock.hpp"
 #include "stock_browser.hpp"
+#include "synth_controls.hpp"
+#include <opxy/q31.hpp>
 
 #include "project_companion.hpp"
 
@@ -17,7 +18,6 @@ void sdk_master_frame(void *, i32) __asm__("sdk_master_frame");
 void sdk_master_receive(u32, u32, i32) __asm__("sdk_master_receive");
 void sdk_master_process(void *, i32 *, i32 *) __asm__("sdk_master_process");
 u32 sdk_master_project() __asm__("sdk_master_project");
-u32 sdk_master_snapshot() __asm__("sdk_master_snapshot");
 u32 sdk_master_stock_buttons(void *, const u32 *) __asm__("sdk_master_stock_buttons");
 u32 sdk_master_stock_shift_buttons(void *, const u32 *) __asm__("sdk_master_stock_shift_buttons");
 void sdk_master_stock_turn(void *, u32, const i32 *) __asm__("sdk_master_stock_turn");
@@ -26,8 +26,10 @@ void sdk_master_stock_frame(void *, i32) __asm__("sdk_master_stock_frame");
 
 namespace {
 // GUI and audio execute on separate roles: never use the GUI object as audio
-// state. One existing B3 packet carries an entire non-negative 31-bit snapshot.
-u32 audio_packet = initial_packet;
+// state. A bounded B3 transaction publishes complete normalized parameter sets.
+State audio_state = {}, staged = {};
+u32 staged_sequence, staged_mask, staged_count;
+bool staging;
 i32 selection;
 bool selected_target;
 u32 selection_remaining;
@@ -36,14 +38,20 @@ const master::Filter *audio_filter;
 bool audio_ready;
 i32 eq_left[block_frames], eq_right[block_frames];
 
-u32 &page(void *controller) {
-    return static_cast<u32 *>(controller)[0x88 / 4];
-}
+u32 &page(void *controller) { return static_cast<u32 *>(controller)[0x88 / 4]; }
 void publish() {
-    stock<void(u32, i32)>(0x8d4dc84c)(message_id, static_cast<i32>(menu.packet()));
+    static u32 sequence = 0;
+    sequence = (sequence + 1) & 0x1ffffffu;
+    u32 count = 0;
+    parameters(count);
+    stock<void(u32, i32)>(0x8d4dc84c)(message_id,
+                                      static_cast<i32>((sequence << 5) | (count << 1) | menu.type));
+    for (u32 i = 0; i < count; ++i)
+        stock<void(u32, i32)>(0x8d4dc84c)(message_id + 1 + i, menu.values[i]);
+    stock<void(u32, i32)>(0x8d4dc84c)(commit_id, static_cast<i32>(sequence));
 }
 void publish_edit(u32 before) {
-    if (before != menu.packet())
+    if (before != menu.signature())
         stock<void()>(0x8d585ee8)();
     publish();
 }
@@ -54,15 +62,13 @@ namespace {
 stock_browser::StockSelector<2> selector = {};
 void selected(void *, u32 index) {
     if (menu.open) {
-        const u32 before = menu.packet();
+        const u32 before = menu.signature();
         menu.candidate = index;
         menu.confirm();
         publish_edit(before);
     }
 }
-void cancelled(void *) {
-    menu.cancel();
-}
+void cancelled(void *) { menu.cancel(); }
 void show_browser() {
     if (menu.open)
         return;
@@ -86,10 +92,13 @@ u32 buttons(void *controller, const u32 *event, bool shifted) {
         return 1;
     }
     if (page(controller) == 1 && menu.type && key >= 10 && key <= 13) {
-        const u32 before = menu.packet();
-        if (key == 10)
-            master_filter::reset_visual();
-        menu.click(key - 10);
+        const u32 before = menu.signature();
+        const u32 encoder = key - 10, slot = menu.shown[encoder];
+        menu.click(encoder);
+        u32 count = 0;
+        parameters(count);
+        if (slot < count && menu.shown[encoder] == slot)
+            master_filter::parameter_reset(slot);
         publish_edit(before);
         return 1;
     }
@@ -97,23 +106,32 @@ u32 buttons(void *controller, const u32 *event, bool shifted) {
                    : sdk_master_stock_buttons(controller, event);
 }
 } // namespace
-u32 sdk_master_buttons(void *controller, const u32 *event) {
-    return buttons(controller, event, false);
-}
-u32 sdk_master_shift_buttons(void *controller, const u32 *event) {
-    return buttons(controller, event, true);
-}
+u32 sdk_master_buttons(void *controller, const u32 *event) { return buttons(controller, event, false); }
+u32 sdk_master_shift_buttons(void *controller, const u32 *event) { return buttons(controller, event, true); }
 void sdk_master_turn(void *controller, u32 position, const i32 *event) {
     if (controller && event && page(controller) == 1 && position < 8) {
         const u32 encoder = position & 3u;
         if (menu.type) {
-            if (encoder == 0) {
-                const u32 before = menu.packet();
-                menu.values[encoder] =
-                    stock<i32(i32, const i32 *, u32, i32)>(0x8d4d6cc8)(menu.values[encoder], event, 3, -1);
-                if (menu.values[encoder] < 0)
-                    menu.values[encoder] = 0;
-                master_filter::follow_visual(Controls::unpack(menu.packet()).sweep);
+            u32 count = 0;
+            const Parameter *p = parameters(count);
+            const u32 slot = menu.shown[encoder];
+            if (slot < count) {
+                const u32 before = menu.signature();
+                i32 &value = menu.values[slot];
+                if (p[slot].steps) {
+                    const u32 n = p[slot].steps;
+                    i32 choice = static_cast<i32>(control_choice(value, n));
+                    choice += event[1];
+                    if (choice < 0)
+                        choice = 0;
+                    if (choice >= static_cast<i32>(n))
+                        choice = n - 1;
+                    value = static_cast<i32>(((0x80000000u / n) * (2 * static_cast<u32>(choice) + 1)) / 2);
+                } else {
+                    value = stock<i32(i32, const i32 *, u32, i32)>(0x8d4d6cc8)(value, event, 3, -1);
+                    if (value < 0)
+                        value = 0;
+                }
                 publish_edit(before);
             }
             return;
@@ -126,14 +144,36 @@ void sdk_master_frame(void *object, i32 elapsed) {
         sdk_master_stock_frame(object, elapsed);
         return;
     }
-    master_filter::frame(Controls::unpack(menu.packet()).sweep, elapsed);
+    master_filter::frame(elapsed);
 }
 
 void sdk_master_receive(u32 base, u32 id, i32 value) {
-    if (id == message_id) {
-        // Consume malformed snapshots too; never let virtual IDs index stock.
-        if (value >= 0)
-            audio_packet = static_cast<u32>(value);
+    if (id >= message_id && id <= commit_id) {
+        if (id == message_id) {
+            staging = value >= 0;
+            staged_mask = 0;
+            staged_count = (static_cast<u32>(value) >> 1) & 15;
+            u32 declared_count = 0;
+            parameters(declared_count);
+            if (staged_count < 1 || staged_count != declared_count)
+                staging = false;
+            staged_sequence = static_cast<u32>(value) >> 5;
+            staged = {};
+            staged.type = value & 1;
+        } else if (staging && id == commit_id) {
+            if (value >= 0 && static_cast<u32>(value) == staged_sequence &&
+                staged_mask == ((1u << staged_count) - 1))
+                audio_state = staged;
+            staging = false;
+        } else if (staging && id < commit_id) {
+            const u32 slot = id - message_id - 1;
+            if (value < 0 || slot >= staged_count) {
+                staging = false;
+                return;
+            }
+            staged.values[slot] = value;
+            staged_mask |= 1u << slot;
+        }
         return;
     }
     stock<void(u32, u32, i32)>(0x8d50eb8c)(base, id, value);
@@ -145,8 +185,7 @@ void sdk_master_process(void *object, i32 *left, i32 *right) {
             audio_filter->reset();
         audio_ready = true;
     }
-    const Controls controls = Controls::unpack(audio_packet);
-    const bool selected = controls.type && audio_filter;
+    const bool selected = audio_state.type && audio_filter;
     if (selected != selected_target) {
         selected_target = selected;
         selection_remaining = ramp_frames;
@@ -173,7 +212,7 @@ void sdk_master_process(void *object, i32 *left, i32 *right) {
         }
         stock<void(void *, i32 *, i32 *)>(0x11a02c10)(object, eq_left, eq_right);
     }
-    audio_filter->prepare(controls.sweep);
+    audio_filter->prepare(audio_state.values);
     audio_filter->process(left, right);
     if (run_stock)
         for (u32 i = 0; i < block_frames; ++i) {
@@ -196,20 +235,16 @@ void sdk_master_process(void *object, i32 *left, i32 *right) {
                 32768);
         }
 }
-u32 sdk_master_snapshot() {
-    return menu.packet();
-}
-
 u32 sdk_master_project() {
     // Called only by the full active-project parameter publication, after
     // stock has switched projects. Save and ordinary EQ edits don't reach it.
     const u32 project = stock<u32()>(0x8d584210)();
-    const Controls restored = Controls::unpack(restore(project));
+    const State restored = restore_state(project);
     menu.reset();
     menu.type = menu.candidate = restored.type;
-    menu.values[0] = static_cast<i32>(restored.sweep << 21);
+    for (u32 i = 0; i < parameter_slots; ++i)
+        menu.values[i] = restored.values[i];
     master_filter::reset_project();
-    master_filter::follow_visual(restored.sweep);
     publish();
     return project;
 }

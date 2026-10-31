@@ -1,64 +1,73 @@
-# Master-filter extensions
+# Master processor extensions
 
-An extension can replace the master EQ with one stereo processor and one
-control, while retaining stock EQ as the other choice. It lives in its own
-repository. Declare the capability in `extension.json`:
+An extension may replace the master EQ with one stereo processor. Stock EQ
+remains the other choice in the shared stock `filter` selector, opened with
+Shift+M2 on MIX page 2. Left-encoder navigation and left/white click confirmation
+reuse the stock selector adapter. One included extension may own this capability.
 
-```json
-"master_filter": {"artwork": "artwork/my_filter.svg"}
-```
+Declare `"master_filter": {"artwork": "artwork/my_processor.svg"}` in
+`extension.json`. Optional `state_id` keeps project identity stable across an
+extension rename; it defaults to the extension ID and cannot be `eq`.
+DSP and artwork live in the extension repository, not in the SDK.
 
-An optional `state_id` in `master_filter` keeps the serialized processor ID
-stable when the extension is renamed. It defaults to the extension ID, uses
-the same identifier syntax and cannot be `eq` (reserved for stock EQ).
+## Parameters and audio
 
-Export `opxy::extensions::<id>::hooks` (an empty `Hooks()` is sufficient) and
-`opxy::extensions::<id>::filter`, a constant `opxy::master::Filter` from
-[`master_filter.hpp`](../sdk/include/opxy/master_filter.hpp). Its selector label
-is 1–15 characters. The collection accepts one master-filter owner. Existing
-controller observers and their claims/actions are unchanged.
+Supply `definition.json` using the shared definition schema: `schema`, `id`,
+`name`, `parameters`, `presets`, and `resources.display`. There are 1–8 parameters,
+using the same IDs, normalized defaults, mapping, display formats and optional
+alternate `control` positions as effects. There are four encoder positions;
+clicking a position with alternates selects its next parameter, otherwise it
+resets the shown parameter to its declared default. Enum turns select one choice
+per detent. A project change resets alternate selection to its first positions.
 
-The SDK owns Shift+M2 on MIX page 2, the shared stock `filter` selector, the
-first encoder's sweep and neutral reset, parameter transport and a 20 ms
-crossfade between stock EQ and the extension. Left-encoder navigation and
-left/white click confirmation use the existing stock selector adapter.
+Export `opxy::extensions::<id>::hooks` and `opxy::extensions::<id>::filter`, an
+immutable `opxy::master::Filter` from `<opxy/master_filter.hpp>`:
 
-| Callback | Stage and thread | Contract |
-| --- | --- | --- |
-| `reset()` | First audio block, audio role | Initialize audio state without allocation |
-| `prepare(sweep)` | Before each processed block, audio role | Sweep 0–1023, neutral 512 |
-| `process(left,right)` | Master EQ position, audio role | Transform 64 stereo Q31 samples at 44.1 kHz in place |
-| `panel.frame(scene,input)` | Master filter display frame, GUI role | Update borrowed scene; never access audio state |
+| Callback | Audio-role contract |
+| --- | --- |
+| `reset()` | Initialize private audio state on the first audio block |
+| `prepare(opxy::Parameters)` | Read eight normalized Q31 slots before each block; undeclared slots are zero |
+| `process(left,right)` | Transform 64 stereo Q31 samples at 44.1 kHz in place |
 
-Audio callbacks never draw, perform I/O, allocate, block or register anything.
-GUI and audio state must be separate; the SDK sends complete control snapshots
-through stock's B3 transport. The immutable generated descriptor accessor does
-not initialize or dispatch the controller extension runtime. Existing queued
-controls are delivered after stock handling on the controller path, so they
-cannot provide this audio transform or replace the master page's earlier
-Shift routing. This capability therefore has its own conditional profile
-service rather than adding a second observer of an existing recording stage.
+Audio callbacks never allocate, block, perform I/O, draw or register anything.
+Complete parameter sets cross the stock B3 transport and become visible to audio
+only after a matching commit. The SDK owns the 20 ms stock/extension crossfade.
+No sweep, neutral position, filter algorithm or control count is built into the
+processor interface. The old sweep encoding is accepted only for `.oxy` migration.
 
-A panel is a standalone, authored 480×222 path-only SVG, at most 64 KiB. The
-manifest determines its installed filename. Its descriptor names up to eight
-mutable paths, each with 2–32 points and a fixed open/closed topology, plus a
-grayscale target and donor prefix with up to 256 entries. `Scene.path` accepts
-Q10 screen coordinates bounded to ±1024 pixels. Hide collapsed polygons;
-keep their last valid geometry. `Scene.gray` selects a cached donor fill.
-The adapter binds and validates the SVG once and keeps it unregistered
-(screen ID zero); it never occupies stock EQ's screen slot. Scene calls work
-only during the synchronous GUI callback. `Input` carries elapsed Q10 seconds
-and project/reset/turn serials, allowing the extension to animate reset.
+## Display
 
-The SDK saves the selected processor ID and sweep in
-[`open-xy.master-filter`](projects.md#open-xymaster-filter). The existing
-streaming companion reader still remaps machines before stock validation;
-filter state becomes active only at project publication. Missing or unusable
-state selects stock EQ and neutral sweep, preserving stock EQ parameters.
+Use `display.h`, `display.cpp`, `DisplayState`, `display_reset` and `display`
+with the existing [`draw::Frame` and `draw::Input`](display.md). The normal display
+binding validates sizes and frame layout; the same retained renderer binds and
+applies paths, nodes, text and palettes for instruments and master processors.
+The master host loads the authored standalone 480×222 SVG in unregistered mode
+(screen ID zero), preserving stock EQ's screen slot. It never accesses audio state.
 
-Native builds install the authored SVG. Kits include its source hash and add
-it only when its owner is selected. With no master owner, the master-filter
-service objects are omitted and all its stock hook sites remain unchanged.
-A small shared state/collection unit supports the existing companion path.
-Firmware addresses, trampoline bytes and drawing/storage ABI belong to the
-SDK adapter; DSP, artwork, generators and sound tests belong to the extension.
+All normal display limits apply: at most four closed mutable outlines, 64 points
+per outline, 256 nodes, 16 texts and 16 palette entries. Mutable points are local
+coordinates within ±64 pixels; position and scale their nodes normally. Do not
+pass collapsed filled shapes to stock; hide them while their area is zero.
+Artwork uses the same numeric, paint, binding and reference safety checks as
+instrument artwork, including at most four fractional digits and no exponents.
+
+The optional shared GUI callback `display_parameter_reset(DisplayState&, u32)`
+receives an explicit reset of a declared parameter. It can start an animation
+from existing display state. It does not run on audio. Existing displays need not
+implement it, and `draw::Input` and the browser drawing ABI are unchanged.
+Display state resets on project activation; the next frame carries every slot
+and the parameter index shown at each encoder position.
+
+## Projects and packaging
+
+The SDK saves processor identity and parameters in
+[`open-xy.master-filter`](projects.md#open-xymaster-filter), retaining the shared
+streaming companion reader and machine remapping. State becomes active only at
+project publication. Missing/unusable state selects stock EQ and declared
+parameter defaults, preserving stock EQ's own values.
+
+Native builds install the authored SVG. Kits include its source hash and install
+it only when its owner is selected. Without an owner, capability hooks remain
+stock, service objects and artwork are omitted, and the shared companion support
+remains available. Addresses and native adapters belong to the SDK; audio,
+geometry, artwork generators and sound tests belong to the extension.

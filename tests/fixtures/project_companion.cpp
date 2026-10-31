@@ -49,8 +49,10 @@ Address opxy::platform::host_stock_address(Address address) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 3 && argc != 4) return 2;
-    if(argc==4)opxy::platform::master_filter::test_enable(static_cast<unsigned>(std::strtoul(argv[3],nullptr,10)));
+    if (argc != 3 && argc != 4 && argc != 5) return 2;
+    if(argc>=4)opxy::platform::master_filter::test_enable(static_cast<unsigned>(std::strtoul(argv[3],nullptr,10)));
+    if(argc==5){opxy::platform::master_filter::test_parameter_count=5;
+        for(unsigned i=1;i<5;++i)opxy::platform::master_filter::menu.values[i]=static_cast<int>(i*1234567);}
     saving = argv[1];
     save_result = static_cast<unsigned>(std::atoi(argv[2]));
     return sdk_project_save(nullptr, saving) == save_result ? 0 : 1;

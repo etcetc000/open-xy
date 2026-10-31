@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "stock.hpp"
+#include <opxy/draw.hpp>
 #include "master_filter.hpp"
 #include "stock_browser.hpp"
 using namespace opxy;
@@ -12,6 +13,18 @@ static void require(bool ok, const char *why) {
         std::fprintf(stderr, "%s\n", why);
         std::exit(1);
     }
+}
+namespace opxy { namespace platform { namespace master_filter {
+// Only host diagnostics use the old sweep packet, never production transport.
+const u32 initial_packet=512;
+struct Controls {u32 sweep,type;static Controls unpack(u32 n){return {n&1023,(n>>30)&1};}};
+u32 legacy_packet(){return (menu.type<<30)|(static_cast<u32>(menu.values[0])>>21);}
+void loaded(u32 project,u32 packet){State state={};state.type=(packet>>30)&1;state.values[0]=(packet&1023)<<21;loaded_state(project,state);}
+}}}
+namespace lifecycle_fixture {
+struct State { u32 reset_slot; };
+struct OldState {};
+void display_parameter_reset(State& state,u32 slot){state.reset_slot=slot;}
 }
 static bool shifted;
 static u32 dirty_marks;
@@ -98,9 +111,10 @@ void sdk_master_stock_frame(void *, i32) {
 static u32 shift() {
     return shifted;
 }
+extern "C" void sdk_master_receive(u32,u32,i32);
 static void send(u32 id, i32 value) {
-    sent_id = id;
-    sent_packet = static_cast<u32>(value);
+    sdk_master_receive(123,id,value);
+    if(id==opxy::platform::master_filter::commit_id){sent_id=opxy::platform::master_filter::message_id;sent_packet=opxy::platform::master_filter::legacy_packet();}
 }
 static i32 step(i32 v, const i32 *e, u32 kind, i32 bound) {
     require(kind == 3 && bound == -1, "Stock continuous stepping ABI");
@@ -113,7 +127,7 @@ static void construct(void *, i32, i32, u32 size, const u32 *color, u32 align) {
 }
 static void set(void *, const char *) {
 }
-static void draw(void *, const u32 *c) {
+static void draw_stock(void *, const u32 *c) {
     require(c[0] == 0 && c[10] == 0 && c[11] == 0, "Render context ABI");
     ++draws;
 }
@@ -166,7 +180,7 @@ Address host_stock_address(Address a) {
     case 0x8d6011f0:
         return reinterpret_cast<Address>(&set);
     case 0x8d600a5c:
-        return reinterpret_cast<Address>(&draw);
+        return reinterpret_cast<Address>(&draw_stock);
     case 0x8d5fe884:
         return reinterpret_cast<Address>(&stroke);
     case 0x8d50eb8c:
@@ -185,8 +199,11 @@ Address host_stock_address(Address a) {
 }} // namespace opxy::platform
 namespace opxy { namespace platform { namespace master_filter {
 static u32 frames, resets, follows, projects;
-void frame(u32, i32) {
+void frame(i32) {
     ++frames;
+}
+void parameter_reset(u32) {
+    ++resets;
 }
 void reset_visual() {
     ++resets;
@@ -201,13 +218,17 @@ void reset_project() {
 namespace opxy { namespace platform { namespace master_filter {
 void reset_audio() {
 }
-void prepare_audio(u32) {
+void prepare_audio(Parameters) {
 }
 void process_audio(i32 *, i32 *) {
 }
-const master::Filter probe_filter = {"probe filter", nullptr, reset_audio, prepare_audio, process_audio};
+const master::Filter probe_filter = {"probe filter", reset_audio, prepare_audio, process_audio};
 const master::Filter *descriptor() {
     return &probe_filter;
+}
+u32 parameter_count=1;
+const Parameter* parameters(u32& count) {
+    static const Parameter p[]={{"sweep","filter",0x40000000,0,0},{"gain","gain",100,1,0},{"mix","mix",200,2,0},{"mode","mode",0,3,3},{"alternate","alt",300,0,0}};count=parameter_count;return p;
 }
 const char *owner() {
     return "probe";
@@ -221,6 +242,9 @@ static u32 press(void *c, const u32 *event) {
     return shifted ? sdk_master_shift_buttons(c, event) : sdk_master_buttons(c, event);
 }
 int main() {
+    lifecycle_fixture::State lifecycle={};lifecycle_fixture::OldState old;
+    draw::parameter_reset(lifecycle,5);draw::parameter_reset(old,2);
+    require(lifecycle.reset_slot==5,"Shared optional GUI lifecycle callback");
     require(q31::wide(-2147483647 - 1, -2147483647 - 1) == 4611686018427387904LL &&
                 q31::wide(-2147483647 - 1, -1) == 2147483648LL &&
                 q31::wide(2147483647, 2147483647) == 4611686014132420609LL,
@@ -264,7 +288,7 @@ int main() {
     key[0] = 10;
     press(controller, key);
     require(Controls::unpack(sent_packet).sweep == 512, "First click restores neutral");
-    require(master_filter::resets == 1 && master_filter::follows == 1,
+    require(master_filter::resets == 1,
             "GUI reset and follow reach presentation state");
     shifted = true;
     key[0] = 7;
@@ -336,9 +360,9 @@ int main() {
     const u32 dirty_before = dirty_marks;
     loaded(567, (1u << 30) | 123u);
     sdk_master_project();
-    require(sent_packet == ((1u << 30) | 123u) && sdk_master_snapshot() == sent_packet,
+    require(sent_packet == ((1u << 30) | 123u) && legacy_packet() == sent_packet,
             "Project restores selected replacement and position");
-    require(master_filter::follows > 1 && dirty_marks == dirty_before,
+    require(master_filter::projects > 1 && dirty_marks == dirty_before,
             "Restore updates presentation without marking dirty");
     controller[34] = 1;
     shifted = false;
@@ -356,4 +380,25 @@ int main() {
     require(sent_packet == 77 && menu.type == 0, "EQ selection retains saved replacement position");
     sdk_master_project();
     require(sent_packet == 512, "Missing companion resets only the extension to EQ/neutral");
+    // The same controller accepts unrelated parameters and alternates.
+    parameter_count=5;menu.reset();menu.type=1;
+    require(menu.values[1]==100 && menu.values[4]==300,"Declared defaults for every parameter");
+    menu.click(0);require(menu.shown[0]==4,"Shared alternate convention");
+    const i32 alternate_before=menu.values[4];
+    sdk_master_turn(controller,0,turn);
+    require(menu.values[4]>alternate_before,"Alternate edits its own Q31 slot");
+    const i32 enum_before=menu.values[3];sdk_master_turn(controller,3,turn);
+    require(menu.values[3]>enum_before && menu.values[3]<0x40000000,"Enum advances one detent");
+    menu.values[1]=999;menu.click(1);require(menu.values[1]==100,"Reset uses declared default");
+    const State previous=audio_state;
+    sdk_master_receive(123,message_id,(21<<5)|(5<<1)|1);
+    sdk_master_receive(123,message_id+1,1000);
+    sdk_master_receive(123,commit_id,21);
+    require(audio_state.values[0]==previous.values[0],"Incomplete snapshot never reaches audio");
+    sdk_master_receive(123,message_id,(22<<5)|(5<<1)|1);
+    for(u32 i=0;i<5;++i)sdk_master_receive(123,message_id+1+i,1234567+i);
+    require(audio_state.values[0]==previous.values[0],"Complete staged snapshot waits for commit");
+    sdk_master_receive(123,commit_id,22);
+    for(u32 i=0;i<5;++i)require(audio_state.values[i]==static_cast<i32>(1234567+i),"All slots published together");
+
 }

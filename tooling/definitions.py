@@ -62,6 +62,7 @@ RESOURCES = {
     'synth': ('voiceBytes', 'voiceAlignment', 'voiceCapacity', 'sharedBytes', 'outputPeakQ31', 'display'),
     'sample': ('voiceCapacity',),
     'effect': (),
+    'master': ('display',),
 }
 # A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
 # declares its frame's budget within these limits.
@@ -84,7 +85,7 @@ DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum
 # A synth's first four fill the four-control page; up to four more are alternates
 # (see control_positions). Sample engines and effects use one to eight; an
 # effect's after the first four are alternates on the send page.
-CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8)}
+CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
 SYNTH_POSITIONS = 4
@@ -110,7 +111,9 @@ def validate_definition(value, kind):
     keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *(('press',) if 'press' in value else ())),
          'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
-    stock_name(value['id']); label(value['name'])
+    if kind == 'master': identifier(value['id'])
+    else: stock_name(value['id'])
+    label(value['name'])
     resources = value['resources']
     options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else ()
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
@@ -142,13 +145,15 @@ def validate_definition(value, kind):
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
     if kind == 'synth':
         validate_synth_resources(resources)
+    if kind == 'master':
+        validate_display(resources['display'])
     parameters = value['parameters']
     low, high = CONTROLS[kind]
     require(isinstance(parameters, list) and low <= len(parameters) <= high,
             f'Control count outside {low}..{high} for this kind')
     names = set()
     for i, parameter in enumerate(parameters):
-        alternate = kind in ('synth', 'effect') and i >= SYNTH_POSITIONS
+        alternate = kind in ('synth', 'effect', 'master') and i >= SYNTH_POSITIONS
         validate_parameter(parameter, alternate, required=kind == 'synth')
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
