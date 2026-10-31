@@ -1309,6 +1309,12 @@ ships. Catalog review checks it.
   "loop.crossfade": 0, "loop.onrelease": false}]
 ```
 
+A synthesis drum kit may store exactly 24 sample-free pad records instead of empty
+`regions`: `model` is `"fm slap"` (the stored-pad marker), `params` holds four packed
+Q15 words, and optional `playmode` selects a stock choke/play mode. Optional `hikey`
+is the canonical key 53..76 in pad order. No other fields or sample paths are
+accepted. Keep track parameters neutral to edit saved pad controls freely.
+
 ### Identity
 
 A machine is identified by its `definition.json` `id`. Presets save that name,
