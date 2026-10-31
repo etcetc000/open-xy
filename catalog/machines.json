@@ -391,15 +391,23 @@
       "maintainer": "blen2r",
       "status": "draft",
       "repository": "https://github.com/blen2r/opxy-morpher",
-      "tag": "v1.1.0",
-      "commit": "d600b1d12f1043bf051cda78b1a8625ee1518dac",
+      "tag": "v1.2.4",
+      "commit": "cc8a32cd43b77d6f0d9cda69d11d567a9c124e84",
       "path": "machines/morphose",
       "cpu": {
-        "benchmark": "opxy-synth-c8-v1",
-        "commit": "d600b1d12f1043bf051cda78b1a8625ee1518dac",
-        "firmware_sha256": "8e33133ebc9472266edf8c6492796080f6aa1440388feb4b6ecc7a953ebbc9bc",
-        "runs": 3,
-        "block_percent": 0.852979
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "cc8a32cd43b77d6f0d9cda69d11d567a9c124e84",
+        "firmware_sha256": "151f9fb5c976fecb6f854b76cdb53a81beaade5b022045946a287a8938739532",
+        "runs": 1,
+        "block_percent": 0.823987,
+        "midpoint_percent": 0.817884,
+        "combined_percent": 0.823987,
+        "worst_setting": {
+          "control": 0,
+          "label": "Mode",
+          "value": 1073741823,
+          "option": "wr a"
+        }
       }
     },
     {
