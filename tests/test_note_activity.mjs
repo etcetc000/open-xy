@@ -21,7 +21,7 @@ function signed(value) {
 const vector = items => [...unsigned(items.length), ...items.flat()];
 const section = (id, bytes) => [id, ...unsigned(bytes.length), ...bytes];
 const name = value => [...unsigned(value.length), ...new TextEncoder().encode(value)];
-function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:84, 4:88, 5:104, 6:112}[abi]) {
+function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:84, 4:88, 5:104, 6:112, 7:152}[abi]) {
   const constants = {opxy_display_abi:abi, opxy_display_state_bytes:16,
     opxy_display_input_bytes:inputBytes, opxy_display_frame_bytes:100,
     opxy_display_state:1024, opxy_display_input:2048, opxy_display_frame:4096, opxy_display_valid:1};
@@ -104,7 +104,7 @@ test('ABI 5 publishes the amp envelope after the drum model, and omission marks 
   display.tick(input(),17,1,0,false,notes,0,0,[0,0,0,0],amp);
   assert.deepEqual([...display.input.slice(17)], [1,0,0,0,0,0x00800000,0x20000000,0x7fffffff,0]);
   display.tick(input(),17,1,0,false,notes);
-  assert.deepEqual([...display.input.slice(22)], Array(4).fill(0xffffffff), 'Omission invalidates a stale envelope');
+  assert.deepEqual([...display.input.slice(26)], Array(4).fill(0xffffffff), 'Omission invalidates a stale envelope');
   const before = new Uint8Array(display.memory).slice();
   for (const bad of [{}, {...amp, attack:-1}, {...amp, sustain:0x80000000}, {...amp, release:0.5}, {...amp, decay:'1'}]) {
     assert.throws(() => display.tick(input(),99,2,0,false,notes,0,0,[0,0,0,0],bad), /amp/);
@@ -117,6 +117,22 @@ test('ABI 4 previews ignore a supplied envelope and keep their storage', () => {
   const after = new Uint32Array(display.memory,2048+88,1); after[0] = 0xabcdef;
   display.tick(input(),17,1,0,false,null,0,0,[0,0,0,0],{attack:1,decay:2,sustain:3,release:4});
   assert.equal(display.input.length, 22); assert.equal(after[0], 0xabcdef);
+});
+
+test('ABI 7 keeps the played drum independent of selection and validates before publication', () => {
+  const display = new PreviewDisplay(fixture(7));
+  const trigger = {key:54,model:9,controls:[0x70000000,1,2,3,4,5,6,0x7fffffff]};
+  display.tick(input(),17,4,0,false,null,0,0,[0,0,0,0],null,{},0,trigger);
+  assert.equal(display.input[21],0);
+  assert.deepEqual([...display.input.slice(28)], [54,9,...trigger.controls]);
+  const before = new Uint8Array(display.memory).slice();
+  for (const bad of [{...trigger,key:52},{...trigger,key:77},{...trigger,model:128},
+    {...trigger,controls:[]},{...trigger,controls:[...trigger.controls.slice(0,7),NaN]}]) {
+    assert.throws(() => display.tick(input(),17,5,0,false,null,0,0,[0,0,0,0],null,{},0,bad));
+    assert.deepEqual(new Uint8Array(display.memory),before);
+  }
+  display.tick(input(),17,4);
+  assert.deepEqual([...display.input.slice(28)],Array(10).fill(0));
 });
 
 test('an edit shows its parameter at its position, or its whole page on a paged synth', () => {

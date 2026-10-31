@@ -325,6 +325,7 @@ def generate_screen(directory, m):
 namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
+    static const bool drum = {'true' if getattr(m, 'kind', 'synth') == 'drum' else 'false'};
     static const bool sample = {'true' if getattr(m, 'kind', 'synth') == 'sample' else 'false'};   // reads its sample's overview
 }};
 const char* const Machine::ids[{len(ids)}] = {{

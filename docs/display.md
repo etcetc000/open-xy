@@ -188,11 +188,13 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | `pan`, `level` | A `padMix` kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10; 0 dB on a key the kit has not set up); while a step is held, as that step plays them with its locks; 0 for other machines. |
 | `line` | The row the encoders edit, 0 the first and 1 the second; on a drum kit, also the Shift row (SDK 1.10). |
 | `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0..7, 0 following the track's send); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
+| `trigger_key`, `trigger_model`, `trigger_controls[8]` | The latest played drum pad on this track: canonical key 53..76, its model, and its eight controls with current GUI track offsets. `trigger_key` is 0 when unavailable. Use the snapshot when `note_serial` changes; it is independent of selection. Several hits between frames can coalesce to the last one, and this is not an audio-side step-lock history. |
 
 A screen that draws its own header (the two-page header) shows the Shift
-controls in its edited row while `shift` is 1, as the stock header does. The
-previews use drawing ABI 6, a 112-byte input: ABI 5 (104 bytes) ends after the
-amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
+controls in its edited row while `shift` is 1, as the stock header does.
+Drawing ABI 7 (152 bytes) adds the played drum snapshot after ABI 6's pad
+fields (112 bytes). ABI 5 (104 bytes) ends after the amp envelope, ABI 4
+(88 bytes) after `model`, and ABI 3 (84 bytes) after `choices`.
 
 ## Frame
 

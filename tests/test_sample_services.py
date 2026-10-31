@@ -36,7 +36,7 @@ class SampleServices(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves', 'sample_slice_clock'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves', 'sample_slice_clock', 'drum_trigger'):
                 probe = replace(fixture('probesample'), id='probe', identity=dict(engine=46, page=7))
                 if name == 'sample_callbacks':
                     probe = replace(probe, definition=dict(probe.definition,
@@ -53,6 +53,9 @@ class SampleServices(unittest.TestCase):
                     shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
                 elif name == 'keyboard_octaves':
                     shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
+                elif name == 'drum_trigger':
+                    for unit in ('drum_values.hpp', 'drum_values_stock.cpp'):
+                        shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1' / unit, Path(folder) / unit)
                 elif name == 'benchmark':
                     from tooling.benchmark import generate
                     generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
@@ -139,6 +142,12 @@ class SampleServices(unittest.TestCase):
 
     def test_display_activation_resets_state_and_invalidates_geometry_keys(self):
         self.run_fixture('screen_drawing')
+
+    def test_non_drum_screen_needs_no_pad_note_tracker(self):
+        self.run_fixture('screen_drawing', defines=('OPXY_SCREEN_DRUM=0',))
+
+    def test_played_drum_snapshot_is_independent_of_selection(self):
+        self.run_fixture('drum_trigger')
 
     def test_registration_never_overwrites_and_rechecks_stock_state(self):
         self.run_fixture('registration')

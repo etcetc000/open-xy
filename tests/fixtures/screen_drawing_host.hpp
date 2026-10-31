@@ -5,8 +5,9 @@ namespace opxy { namespace binding {
 struct DisplayState { u32 ticks; };
 using Frame = draw::Frame<1, 2, 1, 0, 1>;
 static unsigned resets, renders;
+static draw::Input last_input;
 inline void display_reset(DisplayState* state, Frame* frame) { ++resets; state->ticks = 0; *frame = {}; }
-inline void display_render(DisplayState* state, const draw::Input*, Frame*) { ++renders; ++state->ticks; }
+inline void display_render(DisplayState* state, const draw::Input* input, Frame*) { ++renders; ++state->ticks; last_input = *input; }
 // Keep this boundary test away from stock object addresses and SVG setters.
 inline bool display_valid(const Frame*) { return false; }
 }}
