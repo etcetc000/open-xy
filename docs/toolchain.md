@@ -67,6 +67,24 @@ refuses other Homebrew versions and `build-linux.sh` other Debian package
 versions. A rebuilt tool gets a new reviewed entry and
 a new `TOOLCHAINS_SHA256`; never relax a hash to admit it.
 
+Machines that use floating-point or 64-bit arithmetic may need compiler
+helpers. The SDK selects only the required arithmetic members and their
+dependencies from the hash-checked `lib/gcc/bfin-elf/8.0.0/libgcc.a`; it
+keeps the SDK's existing integer division implementations. Browser kits
+select the same helpers for each chosen collection. Builds that need no
+helpers gain no runtime objects.
+
+The Windows compiler profile includes this archive. The current macOS
+profile does not, so a native build needing these helpers fails with
+`no authenticated arithmetic runtime`. Other macOS builds are unaffected.
+
+These helpers are part of GCC, licensed under GPL-3.0-or-later with the GCC
+Runtime Library Exception. The toolchain download includes the license
+texts in `licenses/` and identifies the corresponding source in `SOURCES.md`;
+the source archive is published alongside it as described below. Browser kits
+that include these helpers bundle the full license and exception in their
+notices, from [`runtime.LICENSE`](../sdk/platform/blackfin/runtime.LICENSE).
+
 ## Release downloads
 
 `python sdk.py toolchain fetch` downloads this host's archive, checks its

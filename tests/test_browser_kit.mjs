@@ -128,6 +128,21 @@ test('ELF parsing reads symbols and little-endian instructions', () => {
   const o = readObject(elf()); assert.equal(o.symbols[1].name,'entry'); assert.equal(o.symbols[1].size,4);
   assert.deepEqual([...o.sections[1].data],[0,96,16,0]);
 });
+test('runtime objects enter only selections that import their arithmetic helpers', () => {
+  const kit = fixture(), baseline = linkKit(kit, ['a']);
+  kit.machines.push(machine('b', 35, 85));
+  const consumer = {...readObject(elf()), name:'b.o', owner:'b'};
+  consumer.symbols[1].name = 'b_entry';
+  consumer.symbols.push({name:'___muldi3', binding:1, section:0, type:2, value:0, size:0});
+  const helper = {...readObject(elf()), name:'sdk/runtime/_muldi3.o', owner:null, runtime:true};
+  helper.symbols[1].name = '___muldi3';
+  kit.objects.push(consumer, helper);
+  const integers = linkKit(kit, ['a']), arithmetic = linkKit(kit, ['b']);
+  assert.deepEqual(integers.module, baseline.module);
+  assert.deepEqual(integers.objects.map(o => o.name), ['a.o']);
+  assert.deepEqual(arithmetic.objects.map(o => o.name), ['b.o', 'sdk/runtime/_muldi3.o']);
+  assert(arithmetic.globals.has('___muldi3'));
+});
 test('truncated sections, wrong architectures, merge flags, constructors and COMMON fail closed', () => {
   assert.throws(()=>readObject(elf().slice(0,200)),/section table/);
   for (const [offset, type, value] of [[18,16,3],[128+40+8,32,0x36],[128+40+16,32,9999],[86,16,0xfff2]]) {

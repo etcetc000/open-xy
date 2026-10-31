@@ -31,7 +31,9 @@ is the reference for each of them.
   what is played most, page 2 the rest. A press of any encoder switches all
   four, so a press means the same thing everywhere. If a position has no
   alternate, repeat its first-page control in the second row; both edit the
-  same saved parameter. Do not add filler parameters to reach eight.
+  same saved parameter. Do not add filler parameters to reach eight. A drum
+  kit's eight controls page the same way, always: a press switches the row
+  between the key's first four controls and its last four.
 - **Use the shared header.** New synths with five to eight controls use
   [`opxy/page_header.hpp`](display.md#two-page-header), already wired up by
   `sdk.py new` when `--controls` is 5, 6, 7 or 8. Choose the actual parameter

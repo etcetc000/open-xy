@@ -13,7 +13,7 @@ def linked(machines, too_big):
     """linked_machines with GNU ld replaced: a selection overflows when too_big says so."""
     calls = []
 
-    def link(_directory, _tools, _profile, _definitions, _machines, selected, name='module'):
+    def link(_directory, _tools, _profile, _definitions, _machines, selected, name='module', runtime_members=()):
         calls.append(([m.id for m in selected], name))
         return '2100.0 of 2032 KiB' if too_big([m.id for m in selected]) else None
     with patch.object(native, 'link', link):

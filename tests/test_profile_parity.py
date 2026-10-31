@@ -53,7 +53,7 @@ class ProfileParity(unittest.TestCase):
     def test_identity_rules_agree(self):
         rules = self.profile['identities']
         span = range(-1, max(rules['engines'], rules['pages']) + 2)
-        cases = [(kind, {'engine': n, 'page': page}) for kind in ('synth', 'sample') for n in span for page in span]
+        cases = [(kind, {'engine': n, 'page': page}) for kind in ('synth', 'drum', 'sample') for n in span for page in span]
         cases += [('effect', {'effect': n, 'page': page}) for n in range(-1, 24) for page in (0, 2, 7, 20, 21, 22, 82)]
         cases += [('synth', {'engine': 34}), ('synth', {'engine': 34, 'page': 82, 'effect': 1}),
                   ('synth', {'engine': True, 'page': 82}), ('effect', {'engine': 11, 'page': 21})]

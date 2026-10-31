@@ -95,6 +95,12 @@ class SampleServices(unittest.TestCase):
     def test_saved_settings_tuning_and_trim_bounds(self):
         self.run_fixture("stock_sample")
 
+    def test_drum_registration_preserves_stock_and_rejects_conflicts(self):
+        self.run_fixture('drum_machines', ('sdk/platform/opxy-1.2.1/drum_machines.cpp',))
+
+    def test_drum_controls_survive_stock_preset_integer_roundtrip(self):
+        self.run_fixture('drum_storage')
+
     def test_preset_scan_hides_factory_presets_of_engines_not_installed(self):
         self.run_fixture('presets')
 

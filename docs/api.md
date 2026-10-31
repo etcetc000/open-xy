@@ -6,6 +6,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | Kind | C++ the machine supplies | Example |
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
+| `drum` | The synth callbacks and drawing display, plus per-key model/control callbacks ([synthesis drum kits](#synthesis-drum-kits)), from SDK 1.9 | Independent model selection on 24 keys |
 | `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
 | `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.7) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
@@ -20,7 +21,7 @@ fails the build or, for the artwork rule, halts the device's SVG parser.
 
 | Area | Rule |
 | --- | --- |
-| Machine folder | C++ source, definition JSON, `machine.json` and artwork only. No build scripts, generators or tests |
+| Machine folder | C++ source, metadata, artwork, engine-specific generators and sound tests |
 | C++ | Freestanding C++11: no exceptions, RTTI, static constructors, allocation, OS headers, `#if`, inline assembly or platform macros |
 | Callbacks | Bounded work per 64-sample block; no blocking, logging, file access or graphics from audio callbacks |
 | Synth controls | Four control positions, plus up to four alternates; values arrive as Q31 and the stock menu stores Q15 defaults |
@@ -56,12 +57,13 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
-| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 256 nodes, ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
+| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.9"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
 beyond whole words and module memory. Browser previews run 8 voices in
 2 MiB of fixed WebAssembly memory, with growth disabled. This browser allowance
 does not change the native collection's module limit or measure its footprint.
+A drum preview auditions one parameter set across its voices; the device provides per-key drum settings.
 
 ## CPU
 
@@ -96,8 +98,9 @@ host does fast and the Blackfin does not:
 - **Floating point** has no hardware either. Keep audio in integers;
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
   saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
-- **64-bit arithmetic** has no runtime helpers in the module: keep products
-  within 32 bits or split them, as `q31.hpp` does.
+- **64-bit arithmetic** and floating point may need software helpers. The
+  build links only the required authenticated [arithmetic runtime](toolchain.md)
+  members; their code counts toward module memory.
 - **Per-sample work that changes only per block**, such as coefficients and
   increments, belongs outside the sample loop.
 
@@ -115,7 +118,7 @@ Every machine kind keeps its controls in `definition.json` (for example
 | `schema` | 1 |
 | `id` | The machine's name; also its C++ namespace |
 | `name` | Display name |
-| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
+| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), exactly eight for a drum kit, one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
 | `presets` | Named maps containing exactly the declared controls; may be empty |
 | `resources` | What the kind declares about its storage (below) |
 
@@ -286,6 +289,103 @@ method table and voice pool; none of that belongs in `Voice`.
 ownership; `release` cannot free a stolen lease. The engine decides how a
 voice behaves after losing a resource. This pool has no locks and requires
 serialized access.
+
+## Synthesis drum kits
+
+SDK 1.9 adds `"kind": "drum"`: one registered instrument with independent
+model selection and sound controls on 24 keys. It supplies the synth
+lifecycle, a drawing display, and the same resources plus `modelCount`
+(2..64). Each key holds a model and eight 7-bit controls. A kit of more than
+16 models stores them in a prefix code, which holds at most 15 models that use
+all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
+and fails a kit with more; on the device such a kit's keys play their defaults
+and turn nothing. The definition declares
+the eight controls: slots 0..3 on the four encoders and slots 4..7 their
+second row, one per encoder. As a synth's two pages (`"press": "page"`), any
+press switches the whole row between slots 0..3 and 4..7, and a slot the key's
+model leaves unnamed shows blank; a drum kit declares no `press`. As on stock Drumline,
+Shift and the first encoder choose the selected key's model, and Shift and
+the second encoder its choke group, NONE or 1..3; keys sharing a group cut
+each other off. While Shift is held the first encoder's cell shows MACHINE and
+the model, the second's CHOKE and the group, and the third and fourth are
+blank and turn nothing.
+
+A kit may name groups of consecutive models in `resources.modelGroups`, such
+as `[{"label": "TRX", "count": 13}, {"label": "EFM", "count": 8}]`: 2..16
+groups, each with a label of at most eight letters, digits, spaces or hyphens
+and at least one model, whose counts add up
+to `modelCount`. Shift's first encoder then chooses the group (KIT), keeping
+the model's place in it, so a kit's first model stays first; the second the
+model within the group (MACHINE); the third the choke group (CHOKE); and the
+fourth turns nothing.
+
+In the machine namespace, declare these callbacks in `core.h` and implement
+them alongside the engine:
+
+```cpp
+void drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* controls); // a model and eight values
+void drum_select(Voice&, Shared&, opxy::u32 owner, opxy::u32 model);     // before every render
+const char* model_name(opxy::u32 model);
+const char* parameter_name(opxy::u32 model, opxy::u32 slot);
+opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are used
+```
+
+Keys passed to `drum_defaults` are canonical keys 53..76. Controls are
+integers 0..127; the model must be below `modelCount`. In a kit of more than 16
+models, a key on a model of seven or fewer controls stores its first seven, so
+changing a key's model keeps every control the new model stores and its eighth
+reads the key's default. Keys are read in their kit's current layout: a kit that
+grows past 16 models does not carry over the keys it saved before. Names are static
+strings; parameter labels fit eight characters. Return an empty label for
+unused slots. The screen shows the selected key's controls and labels with
+the track's offsets applied, so a held step shows the values its locks play;
+the display's `Input::model` is the selected key's model. A slot is available
+when it is below the count and named: an unnamed slot shows blank and ignores
+turns. Integer edits already have one-unit precision, including Shift turns.
+
+The adapter stores the model and the eight controls losslessly in four
+existing per-key preset words (eight 7 bits, the model 4), and marks the pad
+with Drumline type 7 in its model byte, keeping its choke group unless one is
+chosen. Unmarked
+pads, including those stored by earlier 1.3 builds' eight-value layout, use
+`drum_defaults`. The track's eight parameters are offsets to the eight
+controls, neutral at Q15 16384, so step locks edit controls; the model is not
+lockable. The adapter decodes the key's values, adds the offsets and clamps,
+calls `drum_select` with the model, then `render` with each control as
+`raw << 24`, 127 mapped to `0x7fffffff`. Packed words never reach machine
+DSP. Presets and projects retain per-key settings using stock region storage.
+
+With `"chokeSameKey": 1` in `resources` (0 or 1; omitted means 0), a kit
+plays one voice per pad and track, as a Machinedrum track does: a note cuts the
+kit's other voices still sounding the same track's same key, at any octave
+(the same pad). Each cut voice keeps rendering while it fades out linearly over
+128 frames (2.9 ms), then is destroyed and its note retired; its own handle
+retriggered keeps its voice and does not fade. When a note needs a voice and
+none is free, a voice already fading goes before the oldest note's. Without the
+flag, notes on one key layer, up to `voiceCapacity`. This is separate from the
+choke groups Shift chooses, which stock applies to keys sharing a group. A
+synth or an effect cannot declare it; sample engines have their own
+`chokeSameKey` (see [Services](#services)).
+
+A kit's engine may also report that a voice's sound has ended, so stock
+retires its note and the voice is free for the next one before stock's
+amplitude envelope ends:
+
+```cpp
+bool finished(const Voice& voice, const Shared& shared);   // optional; in the machine namespace
+```
+
+The adapter asks after each rendered block. Once it returns true, the adapter
+calls `destroy` and frees the voice, and stock retires the note after mixing
+the block just rendered, so return true only once the voice renders silence.
+The function must be in the namespace that defines `Voice`, where
+argument-dependent lookup finds it, and take the voice and the shared state;
+one elsewhere or with other arguments is never called. A kit without it behaves exactly as
+before. The browser preview models neither the choke nor `finished`.
+
+Kits use the same fixed shared-state and voice-pool rules as synths. Their
+code and state are linked once per machine, shared across tracks; voices
+still require independent state. Machine code and model data need no file loading when notes or patterns change.
 
 ## Sample engines
 
@@ -580,8 +680,8 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.7 and builds 1.0 to 1.7 machines |
-| `kind` | `synth`, `sample` or `effect` |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.9 and builds 1.0 to 1.9 machines |
+| `kind` | `synth`, `drum` (from SDK 1.9), `sample` or `effect` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |

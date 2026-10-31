@@ -1,10 +1,13 @@
 #include <sample_slice_clock.cpp>
+#include <drum_machines.hpp>
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <cmath>
 using namespace opxy;
 using namespace opxy::platform;
+// sample_machines.cpp routes owned drum kits; this fixture has none.
+const DrumMachine* sdk_drum_machine(u32) { return nullptr; }
 static void check(bool value) { if (!value) std::abort(); }
 static u32 bits(float value) { u32 result; std::memcpy(&result, &value, 4); return result; }
 static float number(u32 value) { float result; std::memcpy(&result, &value, 4); return result; }

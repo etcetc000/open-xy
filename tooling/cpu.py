@@ -227,6 +227,8 @@ def summary(m, host_cxx, scratch):
     try:
         own = block_cost(m, host_cxx, scratch)
         if own is None:
+            if m.kind == 'drum':
+                return f'CPU: drum model timing needs device measurement ({GUIDE})'
             return f'CPU: not estimated for sample engines; keep render_sample light ({GUIDE})'
         cost = round(own / reference_cost(host_cxx, scratch) * REFERENCE_INSTRUCTIONS, -2)
     except (ValueError, OSError, subprocess.SubprocessError) as error:

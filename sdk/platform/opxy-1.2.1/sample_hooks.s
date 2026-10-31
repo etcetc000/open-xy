@@ -63,7 +63,9 @@ sdk_sample_preset_regions:
  * payload (R7 = 2), which stock's test then routes as the sampler (CC = 0).
  * Otherwise the owned engine selects the multisampler payload (R7 = 30); the
  * track and factory keep the real engine either way. kOwnedNearest (1) keeps
- * the nearest-region test; kOwnedDrumPads (2) skips it (CC = 0). */
+ * the nearest-region test; kOwnedDrumPads (2) skips it (CC = 0).
+ * kOwnedSynthesis (4), a synthesis drum kit, selects Drumline's payload
+ * (R7 = 4) and skips the test (CC = 0). */
 .global extensions_sample_note_region
 .type extensions_sample_note_region, STT_FUNC
 extensions_sample_note_region:
@@ -76,11 +78,18 @@ extensions_sample_note_region:
     IF CC JUMP .Lnote_nearest;
     CC = R5 == 3;
     IF CC JUMP .Lnote_sampler;
+    CC = R5 <= 2 (IU);   /* compares take -4..3: kOwnedSynthesis (4) is the one above */
+    IF !CC JUMP .Lnote_synthesis;
     R7 = 30;
     CC = R5 == 1;
     IF CC JUMP .Lnote_nearest;
     R5 = 30;
     CC = R5 == 0;
+    RTS;
+.Lnote_synthesis:
+    R7 = 4;
+    R5 = 30;
+    CC = R7 == R5;
     RTS;
 .Lnote_sampler:
     R7 = 2;

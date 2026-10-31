@@ -7,6 +7,8 @@
 #include "opxy/types.hpp"
 #include "stock.hpp"
 #include "synth_controls.hpp"
+#include "drum_machines.hpp"
+#include "drum_storage.hpp"
 
 namespace opxy { namespace screen { namespace {
 
@@ -138,8 +140,11 @@ struct Controls {
     u8 shown[page_controls];
     i32 values[page_controls];
     i32 slots[parameter_slots];
-    u32 shift;      // an effect's page: Shift held on its shift row
-    u8 choices[4];  // and the row's choices
+    u32 model;   // a drum kit's selected key's model; 0 otherwise
+    u32 pad;     // a drum kit's selected canonical pad, 53..76; 0 otherwise
+    bool choosing;   // a drum kit's Shift page: the cells name the model and choke group
+    u32 shift;       // an effect's page: Shift held on its shift row
+    u8 choices[4];   // that row's choices, or a drum kit's Shift controls' (draw::Input::choices)
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -188,6 +193,8 @@ inline bool refresh_controls(Base* o, Controls& controls) {
         if (!o->values[i] || !o->titles[i]) return false;
     controls.track = selected_track();
     controls.shift = 0;
+    controls.choosing = false;
+    controls.model = controls.pad = 0;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = 0;
     if (send_controls(o, controls)) return true;
     sdk_synth_shown(controls.track, controls.shown);
@@ -198,12 +205,76 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     const Parameters view = {0, static_cast<u32>(reinterpret_cast<platform::Address>(words)),
                              static_cast<u32>(reinterpret_cast<platform::Address>(words + parameter_slots))};
     controls.valid = read_shown(stock_vector, controls, words);
+    u8 model = 0, drum_values[8];
+    const platform::DrumMachine* drum = controls.track < 8
+        ? sdk_drum_machine(platform::track_engine(controls.track)) : nullptr;
+    if (drum && !sdk_drum_values(controls.track, &model, drum_values)) drum = nullptr;
+    controls.model = drum ? model : 0;
+    if (drum) {
+        const u32 choke = sdk_drum_choke_choice(controls.track);
+        const u32 group = drum->group(model);
+        const u32 grouped[4] = {group, model - drum->group_first(group), choke, 0}, plain[4] = {model, choke, 0, 0};
+        for (u32 i = 0; i < 4; ++i) controls.choices[i] = static_cast<u8>(drum->group_count ? grouped[i] : plain[i]);
+    }
+    controls.pad = drum ? sdk_drum_selected_pad(controls.track) : 0;
+    if (drum) {
+        // Stock's vector holds the track parameters a held step locks: show
+        // the values that step plays, as the audio adapter decodes them.
+        i32 offsets[parameter_slots];
+        const bool whole = stock_vector && stock_vector->begin && !(stock_vector->begin & 3) &&
+                           stock_vector->end >= stock_vector->begin + 4 * parameter_slots;
+        for (u32 i = 0; i < parameter_slots; ++i)
+            offsets[i] = whole ? reinterpret_cast<const i32*>(stock_vector->begin)[i] : 0;
+        u8 stored[8];
+        for (u32 i = 0; i < 8; ++i) stored[i] = drum_values[i];
+        platform::drum_offset(stored, whole ? offsets : nullptr, drum_values);
+        controls.valid = true;
+        for (u32 i = 0; i < parameter_slots; ++i) {
+            controls.slots[i] = drum_values[i] == 127 ? 0x7fffffff : static_cast<i32>(static_cast<u32>(drum_values[i]) << 24);
+            words[i] = static_cast<u32>(controls.slots[i]);
+        }
+        for (u32 i = 0; i < page_controls; ++i) {
+            controls.values[i] = controls.slots[controls.shown[i]];
+            words[i] = static_cast<u32>(controls.values[i]);
+        }
+    }
     update_controls(o, controls.track, controls.valid ? &view : stock_vector);
     if (controls.valid) {
+        // While Shift is held, the first encoder chooses the key's model, as
+        // on stock Drumline, and the second its choke group; a kit with model
+        // groups chooses the group first, then the model and the choke group.
+        // The encoders after those turn nothing, so their cells are blank.
+        const bool choosing = drum && platform::shift_held();
+        controls.choosing = choosing;
+        const bool grouped = drum && drum->group_count;
+        const char* const plain[page_controls] = {"MACHINE", "CHOKE", "", ""};
+        const char* const kits[page_controls] = {"KIT", "MACHINE", "CHOKE", ""};
+        const char* const* titles = grouped ? kits : plain;
+        const char* const name = choosing ? drum->model_name(model) : "";
+        const char* const choke = choosing ? sdk_drum_choke(controls.track) : "";
+        const char* const values[page_controls] = {
+            grouped ? (choosing ? drum->group_names[drum->group(model)] : "") : name,
+            grouped ? name : choke, grouped ? choke : "", ""};
         for (u32 i = 0; i < page_controls; ++i) {
             char text[16];
             if (sdk_synth_value(controls.track, controls.shown[i], controls.values[i], text))
                 set_text(o->values[i], text);
+            if (!drum) continue;
+            if (choosing) {
+                set_text(o->titles[i], titles[i]);
+                set_text(o->values[i], values[i]);
+                continue;
+            }
+            const u32 slot = controls.shown[i];
+            set_text(o->titles[i], drum->label(model, slot));
+            u32 value = drum_values[slot];
+            char digits[4];
+            u32 n = 0;
+            if (value >= 100) { digits[n++] = '1'; value -= 100; }
+            if (n || value >= 10) digits[n++] = static_cast<char>('0' + value / 10);
+            digits[n++] = static_cast<char>('0' + value % 10);
+            digits[n] = 0;
+            set_text(o->values[i], drum->used(model, slot) ? digits : "");
         }
     }
     return true;

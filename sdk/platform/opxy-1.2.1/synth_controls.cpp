@@ -7,6 +7,8 @@
 #include <opxy/effect.hpp>
 #include "shift_row.hpp"
 #include "stock.hpp"
+#include "drum_machines.hpp"
+#include "drum_storage.hpp"
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
@@ -61,6 +63,17 @@ Track* state(u32 track, u32 engine) {
     return &t;
 }
 
+// Whether the track's drum kit, if it is one, names a slot in 4..7 for the
+// selected key's model. Any other machine has its second row.
+bool second_row(u32 engine, u32 track) {
+    const DrumMachine* drum = sdk_drum_machine(engine);
+    u8 model, values[kDrumControlCount];
+    if (!drum || !sdk_drum_values(track, &model, values)) return true;
+    for (u32 slot = opxy::page_controls; slot < 2 * opxy::page_controls; ++slot)
+        if (drum->used(model, slot)) return true;
+    return false;
+}
+
 // The owned machine on the track and its state, or null. Any other engine
 // clears the track's selection.
 const SynthControls* machine(u32 track, Track*& t) {
@@ -68,6 +81,10 @@ const SynthControls* machine(u32 track, Track*& t) {
     const u32 engine = track_engine(track);
     const SynthControls* m = owned(engine);
     t = state(track, m ? engine : 0);
+    // A drum key whose model names nothing in slots 4..7 has one row: its
+    // encoders stay on (or return to) slots 0..3.
+    if (m && t->slots[0] >= opxy::page_controls && !second_row(engine, track))
+        for (u32 i = 0; i < opxy::page_controls; ++i) t->slots[i] = static_cast<u8>(i);
     return m;
 }
 
@@ -108,15 +125,12 @@ const u32 kProject = 0x86bd027c;
 opxy::i32 stored_value(u32 track, u32 slot) {
     return *reinterpret_cast<const volatile opxy::i32*>(kProject + 0x4080 + track * 0xe8 + slot * 4);
 }
-
-u32 shown(u32 track, u32 position) {
-    Track* t;
-    return position < opxy::page_controls && machine(track, t) ? t->slots[position] : position;
-}
 }
 
 void sdk_synth_shown(u32 track, u8* slots) {
-    for (u32 i = 0; i < opxy::page_controls; ++i) slots[i] = static_cast<u8>(shown(track, i));
+    Track* t;
+    const SynthControls* m = machine(track, t);
+    for (u32 i = 0; i < opxy::page_controls; ++i) slots[i] = m ? t->slots[i] : static_cast<u8>(i);
 }
 
 // Reads only the selection the screen shell refreshed for this frame.
@@ -144,6 +158,10 @@ void sdk_synth_press(u32 encoder) {
     if (encoder >= opxy::page_controls) return;
     const u32 controller = top_controller_vtable();
     if (controller == kInstrumentController && word(kInstrumentPage) == 0 && (m = machine(byte(kSelectedTrack), t))) {
+        // A paged synth's or a drum kit's press moves the whole row; a slot the
+        // selected key's model leaves unnamed shows blank. A key whose model has
+        // no second row stays on its first.
+        if (!second_row(m->engine(), byte(kSelectedTrack))) return;
         for (u32 i = 0; i < opxy::page_controls; ++i) {
             if (i != encoder && !m->page) continue;
             const u32 next = m->next[t->slots[i]];

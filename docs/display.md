@@ -36,7 +36,7 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | --- | --- |
 | `paths` | 0..4 mutable outlines; they are nodes `0..paths-1` |
 | `points` | 2..64 points per outline; 0 when there are no paths |
-| `nodes` | `paths`..256 transformable elements |
+| `nodes` | `paths`..512 transformable elements; more than 256 need `"sdk": "1.9"` |
 | `texts` | 0..32 text slots; more than 4 need `"sdk": "1.3"`, more than 16 `"sdk": "1.7"` |
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
@@ -129,8 +129,19 @@ eight of its controls, `track` is the send (14 or 15), and two fields follow
 the note activity: `shift`, 1 while Shift is held on an effect with a
 [shift row](api.md#effect-pages-and-shift-rows), and `choices`, each shift
 control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
-Previews use drawing ABI 3 with an 84-byte input; the browser host still
-accepts ABI 1 and 2.
+
+### Shift and a drum kit's machine (SDK 1.9)
+
+| Field | Meaning |
+| --- | --- |
+| `shift` | 1 while Shift is held on a page with Shift controls (a drum kit's), else 0. |
+| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. They hold whether or not Shift is held, so a screen can show them in its header either way. |
+| `model` | A drum kit's selected key's model. |
+
+A screen that draws its own header (the two-page header) shows the Shift
+controls in its edited row while `shift` is 1, as the stock header does. The
+previews use drawing ABI 4, an 88-byte input; ABI 3 (84 bytes) ends after
+`choices`.
 
 ## Frame
 

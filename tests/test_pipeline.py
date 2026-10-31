@@ -1,4 +1,5 @@
 """Public tests use synthetic containers; private integration fixtures are opt-in."""
+from dataclasses import replace
 import copy
 import json
 import os
@@ -86,19 +87,21 @@ class Services(unittest.TestCase):
         profile = config()
         self.assertEqual(active_services(profile, ['synth', 'effect']), set())
         self.assertEqual(active_services(profile, ['sample']), {'samples'})
+        self.assertEqual(active_services(profile, ['drum']), {'samples', 'drums'})
         self.assertEqual(active_services(profile, ['synth', 'extension']), {'extensions'})
         from tooling.extensions import extension_at
         from tooling.pipeline import ROOT
         probe = extension_at(ROOT / 'tests/fixtures/extension_probe')
         # Every kind and an extension, as a full collection holds.
-        machines = native.Collection([fixture(name) for name in NAMES], [probe])
+        machines = native.Collection([fixture(name) for name in NAMES] +
+                                     [replace(fixture('probesynth'), kind='drum', id='probedrum')], [probe])
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
         self.assertEqual(steps(machines), list(native.SDK_UNITS))  # full collections keep the link order
-        without = [m for m in machines if m.kind != 'sample']  # nor any extension
+        without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
-        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'extensions'})
+        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'drums', 'extensions'})
         self.assertEqual(native.object_services(without), {})
 
     def test_only_a_service_edit_may_stay_stock(self):
@@ -190,6 +193,30 @@ class SourceContracts(unittest.TestCase):
             pipeline.require_release_host()
         with mock.patch.object(pipeline, 'host_platform', return_value='other-host'),                 self.assertRaisesRegex(ValueError, 'on ' + release + ', not other-host'):
             pipeline.require_release_host()
+
+
+class DrumNoteStart(unittest.TestCase):
+    def test_note_start_packs_the_played_pad_for_owned_kits(self):
+        # Without this alias the note word carries pad index 0, so every key
+        # renders the first pad's stored values.
+        hooks = [p for p in config()['patches'] if p.get('address') == '0x8d595a4c']
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0]['symbol'], 'extensions_drum_note_region')
+        self.assertEqual(hooks[0]['service'], 'drums')
+        self.assertEqual(hooks[0]['before'], '22601008')  # R2 = 4; CC = R0 == R2
+        stub = (ROOT / 'sdk/platform/opxy-1.2.1/drum_hooks.s').read_text()
+        self.assertIn('extensions_drum_note_region:', stub)
+
+    def test_project_load_gives_owned_kits_neutral_track_offsets(self):
+        # Stock neutralizes a loaded Drumline track's parameters; a kit that
+        # skips it keeps zero, and every note decodes 64 below its values.
+        hooks = [p for p in config()['patches'] if p.get('address') == '0x8d588ec8']
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0]['symbol'], 'extensions_drum_load_parameters')
+        self.assertEqual(hooks[0]['service'], 'drums')
+        self.assertEqual(hooks[0]['before'], '88a10808')  # R0 = [P1 + 0x18]; CC = R0 == R1
+        stub = (ROOT / 'sdk/platform/opxy-1.2.1/drum_hooks.s').read_text()
+        self.assertIn('extensions_drum_load_parameters:', stub)
 
 
 if __name__ == '__main__':

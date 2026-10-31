@@ -196,7 +196,7 @@ function sourceLinks(source) {
 }
 function describeMachine(target, m) {
   const field = name => target.querySelector('.' + name);
-  field('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', sample: 'Sample engine'}[m.kind];
+  field('detail-kind').textContent = {synth: 'Synthesizer', drum: 'Synthesis drum kit', effect: 'Send effect', sample: 'Sample engine'}[m.kind];
   field('detail-name').textContent = m.name; field('detail-description').textContent = m.description;
   field('community-notice').hidden = m.origin !== 'catalog';
   // Credit the catalog's maintainer and repository, with the exact release source;
@@ -360,7 +360,7 @@ function renderMachines(filter = 'all') {
     const button = node('button'); button.dataset.id = m.id; button.setAttribute('aria-pressed', String(inspected === m.id));
     button.append(node('span', m.name, 'machine-name'), node('span', m.description, 'machine-desc'));
     const meta = node('span', undefined, 'machine-meta');
-    meta.append(node('span', {synth: 'Synth', effect: 'Effect', sample: 'Sample'}[m.kind]), node('span', m.controls.length + (m.controls.length === 1 ? ' control' : ' controls')));
+    meta.append(node('span', {synth: 'Synth', drum: 'Drum kit', effect: 'Effect', sample: 'Sample'}[m.kind]), node('span', m.controls.length + (m.controls.length === 1 ? ' control' : ' controls')));
     const ownBytes = kit.objects.filter(o => o.owner === m.id)
       .flatMap(o => o.sections.filter(s => s.group)).reduce((total, s) => total + s.size, 0);
     const memory = node('span', kib(ownBytes), 'machine-memory');

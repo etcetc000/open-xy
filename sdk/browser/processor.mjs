@@ -8,6 +8,7 @@ export class PreviewProcessor extends AudioWorkletProcessor {
     this.port.onmessage = ({ data }) => {
       try {
         if (data.type === 'parameters') this.engine.setParameters(data.value);
+        if (data.type === 'model') this.engine.setModel(data.value);
         if (data.type === 'on') this.engine.noteOn(data.note, data.velocity);
         if (data.type === 'off') this.engine.noteOff(data.note);
         if (data.type === 'panic') this.engine.panic();

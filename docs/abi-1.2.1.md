@@ -30,6 +30,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sampler page | 9 | Shows an owned page-2 engine's track as the stock sampler's page, with its one sample in region 0 for every key |
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 30 | Routes controls, octave publication, assignment, waveform projection, source audition and held-pad slice/copy/paste and multi-edit actions |
+| Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 1 | Paints a selected owned synth page before stock overlays |
@@ -46,8 +47,9 @@ version is rejected. The output differs from stock in exactly these places:
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
 form the profile's `samples` service: a build applies those edits, and links
-the SDK code behind them, only when it includes a sample engine. Otherwise
-their sites stay stock. Everything else must reconstruct byte for byte. Protected ranges in
+the SDK code behind them, only when it includes a sample engine or synthesis drum kit. Synthesis drum
+transport is the `drums` service, used only by drum kits. Otherwise their sites
+stay stock. Everything else must reconstruct byte for byte. Protected ranges in
 [`pipeline.py`](../tooling/pipeline.py) admit only hooks into the module and
 the reviewed startup label.
 The bootloader is never modified.
@@ -652,6 +654,79 @@ supplies only wet audio. The generated adapter exposes the machine's declared
 `dryParameter`, or returns `INT32_MAX` when none is declared, matching stock's
 absent-object fallback. This is a source-mixer control, not a wet/dry crossfade
 inside the effect. See the [effect API](api.md#effects).
+
+## Synthesis drum transport
+
+An owned `drum` registration uses flag 1, its own engine ID and drawing page.
+The SDK aliases only the local Drumline classification branches to engine 4;
+stock and occupied registrations retain their behavior. Twelve exact hooks cover
+the drum predicate, region lookup, note start, project load, editor dispatch and
+preset import/export. Project load's track check at `8d588ec8` resets a
+Drumline track's eight parameters to neutral offsets (`0x40000000`); without
+the alias a loaded kit kept zero offsets and every note decoded 64 below its
+stored values. Note start tests for Drumline at `8d595a4c`; only that branch
+finds the played pad's region and packs its index into bits 16..23 of the note
+word, which `8d51a820` stores in voice `+0x5c` and the constructor turns into
+the region pointer at `+0x10`. Without the alias every note carries index 0.
+The shared sample note hook selects the Drumline payload only for owned kits.
+Drum classification checks exact engine-record ownership without requiring a
+GUI screen: the audio role registers engines but does not construct their pages.
+Catalog and screen readiness retain their loaded-page checks.
+The classifier result is stored in voice byte `+0x4e` at `8d51ae48`.
+The renderer chooser at `8d51bbaa` selects the drum renderer `8d51b274`
+when that byte is nonzero. Its call at `8d51b55a` uses vtable `+12` with
+`(self, output, region, track_parameters)`; the fourth argument is on the
+stack. The payload is passed directly, rather than through the normal
+renderer's published region pointer. The constructor calls vtable `+20`
+at `8d51af48` with `(self, key, velocity, region, track_parameters)` to start
+the note. Both calls have dedicated SDK adapters. Vtable `+24` reports whether
+the handle still owns a voice. Zero causes the renderer to report completion;
+the caller at `8d51c7a6` retires it after mixing that block. Active handles
+remain allocated until the stock amplitude envelope completes or the SDK
+steals their slot. The SDK also reports zero, having already destroyed and
+freed the voice, once a `chokeSameKey` fade has rendered its last frame or the
+engine's optional `finished` hook returns true: the same state as a stolen or
+destroyed handle, which renders silence and whose later `+0` destroy finds no
+voice. Vtable `+32` returns zero
+for mono output; the unused normal-render entry `+8` fills its output with
+silence. The kit never calls stock Drumline synthesis.
+Unlike the normal synth path, this renderer leaves amplitude application to
+the drum DSP. The SDK multiplies normalized output by each Q31 envelope/gain
+word at `11903400` exactly once, using the native fixed-point multiply. It
+retains the SDK's normal gain query; Drumline's private output-level shifts
+do not apply to the public Q31 contract.
+The drum renderer writes the pitch buffer at `11902c00` with each phase
+increment shifted right by 16 (`8d51b440`–`8d51b444`). The SDK expands those
+64 values back to the public `Pitch` units before the contributor callback;
+the lower 16 bits are zero because stock has already quantized them.
+
+Each key's four parameter words store 60 bits that stock exports as positive
+Q15 integers and restores with a left shift of 16. The SDK packs the key's
+eight 7-bit controls into 56 bits and its model into the other 4. A kit of more
+than 16 models (up to 64) uses a prefix code over the same 60 bits: a key on one
+of its at most 15 full models (eight controls) stores its rank among them in
+bits 56..59 and its eight controls in 0..55; a key on any other stores 15 in
+bits 56..59, its model in 49..54 and its first seven controls in 0..48. The pad's
+model byte (record `+0x18`: Drumline's instrument type in the low nibble, its
+choke group in the high one) marks the layout with type 7, which stock's
+editor skips (`8d4d6028`) and its default kit never uses; the choke group is
+kept unless Shift and the second encoder choose one. The high nibble is the
+pad's play mode, which presets name in a region's `playmode`: 0 `gate`,
+1 `oneshot` (the default, omitted), 2 `mute1`, 3 `loop`, 4 `mute2`,
+5 `mute3`. Pads sharing a mute cut each other off. Stock's default kit has BD
+and SD in `mute2`, CH, OH and RC in `mute1`, the rest `oneshot`. A preset
+names type 7 `fm slap`, and its `params` are the top halves of the four
+words. On the audio side the note payload's first word is stock's reading of
+that byte, `(6 type + group)` over 66 bins (`8d5ad6ec`), so type 7 is bins
+42..47. Every other saved pad field is audible (`pan`, `gain`, `tune`,
+`group`) or not exported in presets (`+0x19`), so the layout holds at most 16
+models. Unmarked pads, including the earlier tag-10 eight-value layout, use
+the key's defaults. Stock's per-key editor (`8d4d5f60`, jump table at
+`84039070`) gives controls 0..3 the four words and Shift's encoders 4..7 the
+type, `+0x14`, pan (`+0x1e`) and gain (`+0x1d`); the SDK gives Shift's first
+encoder the model and the others their shown control. Track modulation is
+applied after decoding. GUI edits repack and use the stock dirty/publication
+calls; no audio callback writes preset state or performs file I/O.
 
 ## Effect pages and shift rows
 

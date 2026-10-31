@@ -16,6 +16,12 @@ STOCK = [('prism', 18), ('simple', 32), ('hardsync', 19), ('dissolve', 20),
          ('axis', 22), ('organ', 6), ('epiano', 7), ('wavetable', 31), ('chord', 13)]
 
 
+def benchmarked(machines):
+    # A drum kit renders through stock's drum voice (+12/+20), which no workload drives
+    # yet: its builds run without it.
+    return [m for m in machines if m.kind in METHODS]
+
+
 def sweep_settings(m):
     """A synth's swept settings in run order, as (control, its label, Q31 value, the
     option's name for a list control, else None): each control through its positions
@@ -34,7 +40,7 @@ def cases(machines, sweep=False):
     build a synth's swept settings follow its standard run, then one run with every
     control at the position that ran heaviest (combined_positions)."""
     result = [dict(name=name, engine=engine, source='stock') for name, engine in STOCK]
-    for m in machines:
+    for m in benchmarked(machines):
         case = dict(name=m.id, engine=m.identity.get('engine', m.identity.get('effect')), source='sdk',
                     kind=m.kind, benchmark=METHODS[m.kind][0], metric=METHODS[m.kind][1])
         result.append(case)
@@ -94,7 +100,7 @@ def combined_positions(results):
 
 def generate(directory, machines, sweep=False):
     declarations, rows, settings, defaults = [], [], [], []
-    for index, m in enumerate(machines):
+    for index, m in enumerate(benchmarked(machines)):
         swept = sweep_settings(m) if sweep and m.kind == 'synth' else []
         if swept:
             # A row per setting holds only its control and value; the defaults beside it

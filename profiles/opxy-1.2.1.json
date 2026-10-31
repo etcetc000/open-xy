@@ -92,10 +92,14 @@
   "screen_template_sha256": "d71b110ac905c1bcfcecc9ad94237aa72fe12c531e651f170bb5a1042547fb16",
   "services": {
     "samples": [
-      "sample"
+      "sample",
+      "drum"
     ],
     "extensions": [
       "extension"
+    ],
+    "drums": [
+      "drum"
     ]
   },
   "patches": [
@@ -1163,6 +1167,126 @@
       "length": 4,
       "before": "fce385b7",
       "symbol": "sdk_lfo_label",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5b79f0",
+      "file_offset": "0x1eec48",
+      "length": 6,
+      "before": "980d00e80000",
+      "symbol": "extensions_drum_classify",
+      "service": "drums",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e36a8",
+      "file_offset": "0x11a904",
+      "length": 6,
+      "before": "08e44a001808",
+      "symbol": "extensions_drum_preset_import",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e39c0",
+      "file_offset": "0x11ac1c",
+      "length": 4,
+      "before": "21600808",
+      "symbol": "extensions_drum_compare_r0",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e74b0",
+      "file_offset": "0x11e70c",
+      "length": 4,
+      "before": "21600808",
+      "symbol": "extensions_drum_compare_r0",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e6aa8",
+      "file_offset": "0x11dd04",
+      "length": 6,
+      "before": "216088a10808",
+      "symbol": "extensions_drum_export_empty",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e6bd0",
+      "file_offset": "0x11de2c",
+      "length": 4,
+      "before": "88a10808",
+      "symbol": "extensions_drum_export_parameters",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e6e08",
+      "file_offset": "0x11e064",
+      "length": 4,
+      "before": "88a11008",
+      "symbol": "extensions_drum_export_gain",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d589296",
+      "file_offset": "0x1c04f2",
+      "length": 4,
+      "before": "8ba1299b",
+      "symbol": "extensions_drum_region_lookup",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d595a4c",
+      "file_offset": "0x1ccca8",
+      "length": 4,
+      "before": "22601008",
+      "symbol": "extensions_drum_note_region",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d588ec8",
+      "file_offset": "0x1c0124",
+      "length": 4,
+      "before": "88a10808",
+      "symbol": "extensions_drum_load_parameters",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b1456",
+      "file_offset": "0xe8692",
+      "length": 8,
+      "before": "2160baa00a081810",
+      "symbol": "extensions_drum_editor_classify",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b147a",
+      "file_offset": "0xe86b6",
+      "length": 8,
+      "before": "00de4d8d605f0000",
+      "symbol": "sdk_drum_edit",
+      "service": "drums",
       "call": true
     },
     {

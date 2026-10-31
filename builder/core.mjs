@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '496fe6dff677a8e0bad9d6599f8ce1665c0c2b0e905a65eef694cc7c90001323';
+export const PROFILE_SHA256 = 'e65fe6c661202c1ff3de089e16f0f71ef51f15f9b6dbc0c32eae0355d532e60a';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -119,7 +119,7 @@ export function validIdentity(rules, kind, identity) {
   if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages);
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
-    : kind === 'synth' && page > rules.page_none && page < rules.pages;
+    : ['synth', 'drum'].includes(kind) && page > rules.page_none && page < rules.pages;
 }
 
 // The numbers a kit machine asks for (tooling.machines.check_request): valid ones,
@@ -217,7 +217,7 @@ export function numberLayout(rules, fixed, layout, machines) {
         `${name} now forks another stock sampler; the layout holds its numbers for the old one`);
     } else {
       fresh.push([name, kind, {...requested},
-        kind === 'effect' ? (ownPage ? ['effect', 'page'] : ['effect']) : kind === 'synth' ? ['engine', 'page'] : ['engine']]);
+        kind === 'effect' ? (ownPage ? ['effect', 'page'] : ['effect']) : ['synth', 'drum'].includes(kind) ? ['engine', 'page'] : ['engine']]);
     }
   }
   // An effect number is also held as an engine number (occupied).
@@ -390,6 +390,8 @@ export async function openKit(kit) {
     check(!names.has(o.name) && (o.owner === null || ids.has(o.owner)), 'Duplicate or unowned object');
     check(o.service === undefined || (o.owner === null && Object.hasOwn(kit.profile.services ?? {}, o.service)),
       'Undeclared service: ' + o.service);
+    check(o.runtime === undefined || (o.runtime === true && o.owner === null && o.service === undefined &&
+      /^sdk\/runtime\/_[A-Za-z0-9_]+\.o$/.test(o.name)), 'Invalid arithmetic runtime object');
     check(o.extension === undefined || (o.owner === null && o.service === undefined && extensionIds.has(o.extension)),
       'Undeclared extension object');
     names.add(o.name);
@@ -413,6 +415,40 @@ export function activeServices(profile, machines) {
     .filter(([, kinds]) => machines.some(m => kinds.includes(m.kind))).map(([name]) => name));
 }
 
+// Same lazy arithmetic-member closure as tooling.runtime.select. Keeping this
+// separate from ordinary SDK objects preserves integer-only selections exactly.
+export function selectRuntime(objects, candidates, definitions = {}) {
+  const defined = new Set(Object.keys(definitions)), undefinedNames = new Set();
+  const names = o => {
+    const exports = new Set(), imports = new Set();
+    for (const s of o.symbols) {
+      if (!s.binding || !s.name || s.type === 4) continue;
+      check(s.binding === 1, 'Weak object symbols are unsupported');
+      (s.section ? exports : imports).add(s.name);
+    }
+    return {exports, imports};
+  };
+  for (const o of objects) {
+    const s = names(o);
+    for (const n of s.exports) defined.add(n);
+    for (const n of s.imports) undefinedNames.add(n);
+  }
+  const entries = candidates.map(o => ({o, ...names(o)})).sort((a, b) => a.o.name < b.o.name ? -1 : 1);
+  const chosen = new Set();
+  while (true) {
+    const pending = new Set([...undefinedNames].filter(n => !defined.has(n)));
+    const additions = entries.filter(e => !chosen.has(e.o) && [...e.exports].some(n => pending.has(n)));
+    if (!additions.length) break;
+    for (const e of additions) {
+      check(![...e.exports].some(n => defined.has(n)), 'Runtime member replaces an existing definition: ' + e.o.name);
+      chosen.add(e.o);
+      for (const n of e.exports) defined.add(n);
+      for (const n of e.imports) undefinedNames.add(n);
+    }
+  }
+  return entries.filter(e => chosen.has(e.o)).map(e => e.o);
+}
+
 // Extensions are linked only when named: omitting them builds none.
 export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const extensions = new Set(extensionSelection(kit, extensionIds));
@@ -423,8 +459,9 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(extensions.size ? [{kind: 'extension'}] : [])]);
-  const objects = kit.objects.filter(o => (o.extension === undefined || extensions.has(o.extension)) &&
+  const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
+  objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];
   let cursor = kit.profile.module_base, initializedEnd;
   for (const group of ['text', 'rodata', 'data', 'bss']) {
@@ -708,7 +745,7 @@ export async function recoverFirmware(kit, input, layout = null) {
 
 export function presetPath(machine) {
   if (machine.kind === 'effect') return null;
-  check(['synth', 'sample'].includes(machine.kind) && /^[a-z][a-z0-9_]{0,14}$/.test(machine.id),
+  check(['synth', 'drum', 'sample'].includes(machine.kind) && /^[a-z][a-z0-9_]{0,14}$/.test(machine.id),
     'Invalid preset instrument');
   return `content/presets/${machine.id}/default.json`;
 }
