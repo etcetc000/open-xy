@@ -13,6 +13,7 @@ struct Player {
     const void* const* vtable;
     const char* page;        // absolute symbol: its own page ID, or null without one
     int (*page_ready)();     // 1 while that page is in its slot
+    u8 steps[4];            // enum choice counts; zero keeps stock editing
     u32 type() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(type_id)); }
 };
 struct Record;
@@ -42,6 +43,7 @@ const u32 kMaestroVtable = 0x8409f6d0;
 const u32 kMaestroRelease = 0x8d57d744;  // +0x18 (object, note)
 const u32 kMaestroReset = 0x8d57d9a2;    // +0x1c (object)
 const u32 kMaestroAllOff = 0x8d57d414;   // +0x28 (object)
+const u32 kMaestroStep = 0x8d57d8cc;     // +0x34 (object), sequencer role
 }}
 
 extern "C" {

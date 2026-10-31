@@ -77,7 +77,7 @@ class PlayerContracts(unittest.TestCase):
         self.assertLess(source.index('refresh_keyboard_octaves()'), source.index('if (selected != kMaestroPage)'))
         self.assertEqual(len(vtable()), 16)
         for i, entry in enumerate(vtable()):
-            self.assertEqual('0x' not in entry, i in {2, 3, 5, 6, 7, 10})
+            self.assertEqual('0x' not in entry, i in {2, 3, 5, 6, 7, 10, 13})
 
     def test_catalog_player_is_not_an_instrument(self):
         profile = config()
@@ -88,6 +88,17 @@ class PlayerContracts(unittest.TestCase):
         self.assertEqual(after['fx_types'], before['fx_types'])
         self.assertEqual(after['seq_types'][-1]['id'], self.machine.identity['player'] + 4)
         self.assertEqual(after['seq_types'][-1]['type'], 'probeplayer')
+
+    def test_player_panel_can_omit_the_entire_output_keyboard(self):
+        nodes = [f'<circle id="probeplayer_dot_{i}" transform="matrix(1 0 0 1 20 80)" '
+                 'r="4" fill="#000000" stroke="#000000" stroke-width="1"/>' for i in range(24)]
+        nodes.append('<text id="probeplayer_text" transform="matrix(1 0 0 1 240 215)" '
+                     'fill="#FFFFFF" font-family="UniversNextPro-Light" font-size="22">chords</text>')
+        native.validate_panel(self.machine, '<g>' + ''.join(nodes) + '</g>')
+        nodes.append('<path id="probeplayer_key_0" transform="matrix(1 0 0 1 20 174)" '
+                     'd="M0 0 H10 V44 H0 Z" fill="#FFFFFF" stroke="#000000" stroke-width="1"/>')
+        with self.assertRaisesRegex(ValueError, 'all 128 keys and activity dots, or none'):
+            native.validate_panel(self.machine, '<g>' + ''.join(nodes) + '</g>')
 
     def test_player_code_and_octave_hook_are_selection_gated(self):
         m = self.machine
@@ -139,6 +150,45 @@ template<class Function> Function* stock(u32 address) { return reinterpret_cast<
         binary = self.root / ('plans.exe' if os.name == 'nt' else 'plans')
         subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
                         '-I'+str(PLATFORM), str(ROOT/'tests/fixtures/player_plans.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_player_enum_detents(self):
+        binary = self.root / ('controls.exe' if os.name == 'nt' else 'controls')
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
+                        '-I'+str(PLATFORM), str(ROOT/'tests/fixtures/player_controls.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_owned_turns_never_enter_stock_hold_mode(self):
+        (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
+        (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
+#include <opxy/types.hpp>
+extern opxy::u32 fake_track;
+extern volatile opxy::i32 sdk_track_octaves[8];
+namespace opxy { namespace platform {
+const u32 kLowestKey=53, kTracks=8;
+inline u32 selected_track() { return fake_track; }
+inline void refresh_keyboard_octaves() {}
+}}
+''', encoding='utf-8')
+        (self.root / 'registration.hpp').write_text('''#pragma once
+#include "players.hpp"
+const void* stock_address(opxy::u32);
+namespace opxy { namespace platform {
+using Address=__UINTPTR_TYPE__;
+template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+struct Record {}; struct Screen {};
+inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
+namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('turn.exe' if os.name == 'nt' else 'turn')
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',
+                        '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_turn.cpp'), '-o', str(binary)],
                        check=True, capture_output=True, timeout=120)
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
 
@@ -197,6 +247,30 @@ template<class F> F* stock(u32 address) { return reinterpret_cast<F*>(const_cast
 
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
 class StockPlayer(unittest.TestCase):
+    def test_enum_turn_hook_matches_stock_frame_and_continuations(self):
+        from tooling.formats import sha
+        from tooling.firmware import decode_branch
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        blocks = ldr(data)
+
+        def read_at(address, size):
+            offset = mapped_offset(blocks, address, size)
+            return data[offset:offset + size]
+
+        patch = next(p for p in config()['patches'] if p.get('symbol') == 'extensions_player_turn')
+        self.assertTrue(patch['call'])
+        self.assertEqual(patch['length'], 8)
+        site = int(patch['address'], 16)
+        self.assertEqual(site, 0x8c084d18)
+        # Existing LINK frame, saved registers, index in R5, and outgoing space.
+        self.assertEqual(read_at(0x8c084d0c, 12), bytes.fromhex('00e80000e50529302030a66f'))
+        self.assertEqual(read_at(site, 4), bytes.fromhex('05301930'))  # R0=R5; R3=R1
+        self.assertEqual(decode_branch(site + 4, read_at(site + 4, 4)), (0x8c084afc, True))
+        # Handled enums skip stock's mode-transition helper and return through
+        # the original frame: SP+=12, restore registers, UNLINK, RTS.
+        self.assertEqual(read_at(0x8c084d46, 10), bytes.fromhex('666ca50501e800001000'))
+
     def test_effective_keyboard_octave_scales_the_stored_value(self):
         from tooling.formats import sha
         data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
@@ -238,9 +312,9 @@ class StockPlayer(unittest.TestCase):
         at = mapped_offset(ldr(data), 0x8409f6d0, 64)
         words = struct.unpack('<16I', data[at:at+64])
         for i, entry in enumerate(vtable()):
-            if i not in {2, 3, 5, 6, 7, 10}:
+            if i not in {2, 3, 5, 6, 7, 10, 13}:
                 self.assertEqual(int(entry.split('(')[1].rstrip(')'), 16), words[i])
         header = (PLATFORM / 'players.hpp').read_text(encoding='utf-8')
-        for index, name in ((6, 'Release'), (7, 'Reset'), (10, 'AllOff')):
+        for index, name in ((6, 'Release'), (7, 'Reset'), (10, 'AllOff'), (13, 'Step')):
             address = int(re.search(r'kMaestro'+name+r' = (0x[0-9a-f]+)', header)[1], 16)
             self.assertEqual(address, words[index])

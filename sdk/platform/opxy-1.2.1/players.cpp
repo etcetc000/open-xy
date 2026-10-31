@@ -13,6 +13,7 @@
 #include "players.hpp"
 #include "player_activity.hpp"
 #include "player_plans.hpp"
+#include "player_controls.hpp"
 #include "registration.hpp"
 
 extern "C" {
@@ -22,6 +23,7 @@ opxy::u32 sdk_player_ui_type() __asm__("sdk_player_ui_type");
 const char* sdk_player_name(opxy::u32 type) __asm__("sdk_player_name");
 opxy::u32 sdk_player_id(const void* name) __asm__("sdk_player_id");
 opxy::u32 sdk_player_substitute(opxy::u32 selected) __asm__("sdk_player_substitute");
+opxy::u32 sdk_player_turn(opxy::u32 index, const opxy::i32* event) __asm__("sdk_player_turn");
 extern opxy::u32 (*sdk_screen_substitute)(opxy::u32) __asm__("sdk_screen_substitute");
 }
 
@@ -144,6 +146,30 @@ u32 sdk_player_ui_type() {
     const u32 type = stock<u32()>(kSelectedType)();
     if (type < kStockTypes) return type;
     return owned(type) ? kMaestro : kArpeggio;
+}
+
+// Maestro's GUI turn handler supplies (controller, index, event). The turn
+// shim preserves it for stock unless an owned player takes the turn. All
+// owned turns bypass Maestro's post-edit hold-mode callback: parameter 3 is
+// a machine control, never stock's hold-mode switch.
+// event[1] is signed detents; event[0] is continuous motion. Stock's setter
+// updates the live parameter and the saved pattern, including dirty state.
+u32 sdk_player_turn(u32 index, const opxy::i32* event) {
+    if (index >= 4 || !event) return 0;
+    const Player* p = owned(stock<u32()>(kSelectedType)());
+    if (!p) return 0;
+    const u32 track = selected_track();
+    if (track >= kTracks) return 0;
+    const u32 inherited[4] = {128, 8, 0, 4}; // stock's doubled buckets
+    const u32 choices = p->steps[index] >= 2 ? p->steps[index] : inherited[index];
+    if (!choices) {
+        stock<void(u32, u32, const opxy::i32*)>(0x8d586538)(track, index, event);
+    } else if (event[1]) {
+        const opxy::i32 value = stock<const opxy::i32*(u32)>(kParameters)(track)[index];
+        stock<void(u32, u32, opxy::i32)>(0x8d586474)(track, index,
+            player_enum_turn(value, choices, event[1]));
+    }
+    return 1;
 }
 
 const char* sdk_player_name(u32 type) {

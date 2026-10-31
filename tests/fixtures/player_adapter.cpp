@@ -16,7 +16,7 @@ void stock_reset(void*) {}
 const void* stock_address(opxy::u32 address) {
     using namespace opxy::platform;
     if (address == kMaestroRelease) return reinterpret_cast<const void*>(&stock_release);
-    require(address == kMaestroReset || address == kMaestroAllOff);
+    require(address == kMaestroReset || address == kMaestroAllOff || address == kMaestroStep);
     return reinterpret_cast<const void*>(&stock_reset);
 }
 namespace opxy { namespace platform {

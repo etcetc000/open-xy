@@ -31,7 +31,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines and note players |
-| Note players | 6 | Routes owned player construction, project loading, controllers and names |
+| Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 1 | Paints a selected owned synth page before stock overlays |
@@ -658,12 +658,12 @@ inside the effect. See the [effect API](api.md#effects).
 
 ## Note players
 
-The `players` service adds six hooks only when a collection includes a player:
+The `players` service adds seven hooks only when a collection includes a player:
 factory construction, the project-load type guard, two controller lookups,
-and type/name conversion. The authenticated preimages and destinations are
+enum editing, and type/name conversion. The authenticated preimages and destinations are
 in the profile. The factory delegates stock types unchanged. An owned type
 uses a stock Maestro object with its type, routing mode, note-on, note-off,
-reset and all-notes-off methods replaced; the other ten method pointers are checked against authenticated
+reset, all-notes-off and step methods replaced; the other nine method pointers are checked against authenticated
 stock OS 1.2.1 during release verification.
 Reset and all-notes-off call their authenticated stock methods before clearing
 machine-held state through its optional reset callback.
@@ -675,15 +675,24 @@ The stock player object occupies one 64 KiB slot per track. The SDK reserves
 eight bounded Maestro chord records, each holding at most eight tones. The
 record array starts at `+0x10c`, with its count at `+0x34c`; release checks
 authenticate both offsets against stock's step and note-off instructions. The
-unchanged stock step emits zero-delay tones and decrements their delays;
+step wrapper drains machine updates, then calls the authenticated stock step
+to emit zero-delay tones and decrement their delays;
 note-off removes the root's record. The GUI snapshots negative-delay tones
 from these records for the output keyboard, bounding every observed count.
 It neither calls the audio renderer nor allocates.
 Optional machine updates replace or extend existing root records after input
-events. Replacements first call the stock root-release method; additions keep
+events and before stock stepping. Replacements first call the stock root-release method; additions keep
 existing attacks and queued delays. Cleared records can be reused before the
 next stock compaction step. Updates cannot revive a released root and remain
-bounded to eight records of eight tones, with at most eight updates per event.
+bounded to eight records of eight tones, with at most eight updates per event or step.
+
+The Maestro turn hook handles all controls of an owned player, bypassing the
+post-edit hold-mode callback that would interpret its fourth control as stock
+hold mode. Declared enums use the event's signed detent word without
+continuous-motion acceleration, clamp to the choice range, and publish the
+bucket centre through stock's player-parameter setter. Other mappings retain
+stock's bucket counts or continuous editor. Both preserve pattern storage and
+dirty state. Stock players replay the displaced step-count query and continue stock.
 
 Player types use the profile's unused 6..31 range and `seq_types` catalog IDs
 are type + 4. The UI selects Maestro's controller for owned types, keeping

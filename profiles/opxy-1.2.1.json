@@ -1550,6 +1550,16 @@
       "symbol": "extensions_sample_slice_receive",
       "service": "samples",
       "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c084d18",
+      "file_offset": "0xbbf54",
+      "length": 8,
+      "before": "05301930ffe3f0fe",
+      "symbol": "extensions_player_turn",
+      "service": "players",
+      "call": true
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

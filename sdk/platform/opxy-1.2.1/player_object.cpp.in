@@ -63,6 +63,12 @@ static void all_off(void* object) {
     opxy::platform::stock<void(void*)>(opxy::platform::kMaestroAllOff)(object);
     clear_state(state(object), 0);
 }
+// Run control-driven edits on the same role as note input and stock stepping,
+// before sounding the next tones. The GUI never edits chord records or State.
+static void step_player(void* object) {
+    apply_updates(object);
+    opxy::platform::stock<void(void*)>(opxy::platform::kMaestroStep)(object);
+}
 // Stock Maestro's method table with type, mode, note-on and note-off replaced.
 const void* const @PREFIX@_player_vtable[16] = {
     reinterpret_cast<const void*>(0x8d57d7b4), reinterpret_cast<const void*>(0x8d57d834),
@@ -71,10 +77,10 @@ const void* const @PREFIX@_player_vtable[16] = {
     reinterpret_cast<const void*>(&release), reinterpret_cast<const void*>(&reset_player),
     reinterpret_cast<const void*>(0x8d57d408), reinterpret_cast<const void*>(0x8d57d3e4),
     reinterpret_cast<const void*>(&all_off), reinterpret_cast<const void*>(0x8d57d464),
-    reinterpret_cast<const void*>(0x8d57d3fc), reinterpret_cast<const void*>(0x8d57d8cc),
+    reinterpret_cast<const void*>(0x8d57d3fc), reinterpret_cast<const void*>(&step_player),
     reinterpret_cast<const void*>(0x8d57d3cc), reinterpret_cast<const void*>(0x8d57d3c0)
 };
 }
-static const opxy::platform::Player player = {@PREFIX@_player_id, "@NAME@", @PREFIX@_player_vtable, @PAGE@, @PAGE_READY@};
+static const opxy::platform::Player player = {@PREFIX@_player_id, "@NAME@", @PREFIX@_player_vtable, @PAGE@, @PAGE_READY@, {@STEPS@}};
 const opxy::platform::Player* @PREFIX@_player() { return &player; }
 @PAGE_UNIT@

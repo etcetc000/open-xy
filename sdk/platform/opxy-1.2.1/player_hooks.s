@@ -14,6 +14,34 @@
 .extern stock_player_load_kept
 .extern stock_player_name_tail
 .extern stock_player_id_tail
+.extern sdk_player_turn
+
+/* Inside Maestro's turn frame, replacing its step-count call and argument
+ * moves: R5 = index, R2 = event. Owned players return through the existing
+ * epilogue; others replay the moves and tail-call the stock step-count helper.
+ * Both GUI destinations are outside relative branch range. P0 is dead across
+ * this site and the stock epilogue. No player State is accessed on this role. */
+.global extensions_player_turn
+.type extensions_player_turn, STT_FUNC
+extensions_player_turn:
+    HOOK_SAVE
+    R0 = R5;
+    R1 = R2;
+    CALL sdk_player_turn;
+    CC = R0 == 0;
+    IF CC JUMP .Lturn_stock;
+    HOOK_RESTORE
+    P0.H = 0x8c08;
+    P0.L = 0x4d46;
+    JUMP (P0);
+.Lturn_stock:
+    HOOK_RESTORE
+    R0 = R5;
+    R3 = R1;
+    P0.H = 0x8c08;
+    P0.L = 0x4afc;
+    JUMP (P0);
+.size extensions_player_turn, .-extensions_player_turn
 
 /* Entry of stock's player factory (R0 = track, R1 = type, R2 = flag). An
  * owned type returns its object or null; others continue stock. */

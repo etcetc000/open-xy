@@ -561,9 +561,10 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
     for m in machines:
         table, slot = {'effect': (f'_{m.prefix}_fx_vtable', 0x10),
                        'player': (f'_{m.prefix}_player_vtable', 0x14)}.get(m.kind, (f'_{m.prefix}_vtable', 8))
-        entry = word(symbols[table]['value'] + slot)
-        require(entry in body, 'Audio entry of ' + m.id + ' is not a function start')
-        bounds[m.id] = depth(entry)
+        slots = (0x14, 0x18, 0x1c, 0x28, 0x34) if m.kind == 'player' else (slot,)
+        entries = [word(symbols[table]['value'] + offset) for offset in slots]
+        require(all(entry in body for entry in entries), 'Audio entry of ' + m.id + ' is not a function start')
+        bounds[m.id] = max(depth(entry) for entry in entries)
     return bounds
 
 
@@ -725,8 +726,12 @@ def validate_panel(m, fragment=None):
     if m.display == 'player':
         # A player page: dots that show or hide, and the line its text replaces.
         names = player_page_ids(m.prefix)
+        output = names[25:]
+        has_output = any(name in by_id for name in output)
+        require(not has_output or all(name in by_id for name in output),
+                'Player output keyboard needs all 128 keys and activity dots, or none')
         translate = r'matrix\(1 0 0 1 (%s) (%s)\)' % (NUMBER, NUMBER)
-        for name in names[:24] + names[25:]:
+        for name in names[:24] + (output if has_output else []):
             visible(name)
             require(re.fullmatch(translate, by_id[name].get('transform', '')),
                     'Player page dots need transform="matrix(1 0 0 1 x y)": ' + name)

@@ -691,7 +691,9 @@ State holds no resources. Display reads are advisory while sequencing runs.
 
 For live changes to held chords, optionally implement
 `bool update(State&, const Controls&, Update&)`. After a taken press or any
-release, the SDK drains at most eight updates, stopping when it returns false.
+release, and before every stock player step, the SDK drains at most eight
+updates, stopping when it returns false. Calls run on the sequencer role,
+so held chords can follow control changes without GUI-side note operations.
 An update names an existing `root`, a `plan`, and mode `Replace` or `Add`.
 `Replace` releases the old tones and schedules the new plan; an empty plan
 silences that root. `Add` keeps sounding and queued tones and appends only
@@ -704,8 +706,10 @@ all-notes-off; it can preserve machine settings. Without it, the SDK zeroes
 State. Keep machine root tracking bounded to eight and clear it on root
 release and reset. These callbacks share the same restrictions as `press`.
 
-`Controls.value` contains the four Q31 parameter words. The Maestro controller
-edits them in 64 steps, four choices, continuously, and off/on, respectively.
+`Controls.value` contains the four Q31 parameter words. Declared enums with
+2..255 choices move one choice per encoder detent, storing the choice's centre.
+Other mappings retain the Maestro controller's editing: 64 steps, four choices,
+continuous, and off/on, respectively.
 `lowest_key` is the track keyboard's lowest F at its current octave. Stock's
 octave setter publishes this independently of sample-engine selection.
 
@@ -716,7 +720,8 @@ All strings must terminate within their fixed arrays. The SDK then fills
 `played[4]` from emitted, still-held stock chord records, ignoring queued
 strum tones, and supplies `lowest_key` for the output keyboard.
 
-The output keyboard binds `<id>_key_0..127` paths and
+The output keyboard is optional: omit all its key and activity nodes for an
+input-only page. When present, it binds `<id>_key_0..127` paths and
 `<id>_played_0..127` circles or filled paths. Author white keys as 10 by 44
 paths and black keys as 6 by 27 paths at the origin, white keys before black
 keys in SVG order, then activity dots. Use explicit fill and stroke and a

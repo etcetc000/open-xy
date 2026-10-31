@@ -29,8 +29,9 @@ struct Plan {
 };
 
 // Optional update(State&, const Controls&, Update&) yields changes to roots
-// already sounding after a press or release. At most eight updates are drained
-// per event. Replace retriggers the chord; Add preserves existing/queued tones
+// already sounding after a press or release, and before every player step.
+// At most eight updates are drained per event/step, on the sequencer role.
+// Replace retriggers the chord; Add preserves existing/queued tones
 // and appends pitches not already present, up to max_tones. Updates never start
 // a released root. Optional reset(State&) clears held inputs on stock reset or
 // all-notes-off; without it the SDK zeroes State.
@@ -41,8 +42,9 @@ struct Update {
     Plan plan;
 };
 
-// The player page's four encoders, Q31 0..1. Encoder 1 moves in 64 steps,
-// encoder 2 in 4, encoder 3 continuously and encoder 4 between off and on.
+// The player page's four encoders, Q31 0..1. Declared enums with 2..255 choices
+// move one choice per detent. Other mappings retain stock editing: encoder 1
+// in 64 steps, encoder 2 in 4, encoder 3 continuously and encoder 4 off/on.
 // lowest_key is the note the keyboard's lowest key (F) plays at the track's
 // current octave, so note - lowest_key is a key's position: 0..11 the lower
 // octave, 12..23 the upper. Sequenced notes keep the pitch they were recorded
