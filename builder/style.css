@@ -465,3 +465,7 @@ footer details[open] { flex-basis:100%; }
 .extension-inspector .machine-facts dd { text-align:left; margin-bottom:8px; }
 @media(max-width:800px) { #extensions { height:auto; max-height:40dvh; } }
 @media(max-width:560px) { .steps { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+/* Local machine packs share the catalog's existing file-picker controls. */
+.machine-import { margin-bottom: 1.5rem; }
+.machine-import p { max-width: 70ch; }
+.machine-import input[type="file"] { max-width: 100%; }

@@ -149,7 +149,8 @@ def write_builder(kit, output):
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes openKit linkKit readLdr '
-               'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles buildAssets zipFiles sourceUrl sourceName').split()
+               'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles buildAssets zipFiles sourceUrl sourceName '
+               'MACHINE_PACK_LIMIT readMachinePack importMachinePack').split()
     bundled = 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
     bundled += 'const {editedShown, shownControls, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {editedShown, shownControls, inputWords};\n})();\n'
@@ -207,8 +208,12 @@ def main(argv=None):
     parser.add_argument('--host-cxx', default='g++', help='host C++11 compiler for the release fixtures')
     parser.add_argument('--personal', action='store_true',
                         help='a kit for your own collection on any pinned host, without release verification')
+    parser.add_argument('--machine-pack', action='store_true',
+                        help='also export machines.zip for catalog import (requires --personal)')
     native.add_collection_arguments(parser)
     args = parser.parse_args(argv)
+    if args.machine_pack and not args.personal:
+        parser.error('--machine-pack requires --personal')
     try:
         if not args.personal:
             require_release_host()
@@ -231,16 +236,21 @@ def main(argv=None):
         if not args.personal:  # independent rebuild against the reference bytes
             subprocess.run([sys.executable, str(ROOT / 'sdk.py'), 'check', '--native-package', str(package), *options,
                             '--host-cxx', args.host_cxx], cwd=ROOT, check=True)
-        export(package, out, tool_paths(args.toolchain), args.preview_cxx,
+        kit = export(package, out, tool_paths(args.toolchain), args.preview_cxx,
                stock_catalog=read(Path(args.stock_content) / 'op1_factory.json'), personal=args.personal)
         # Validate firmware and content output against the independent Python writer.
         subprocess.run([sys.executable, str(ROOT / 'tools/check_browser_firmware.py'), str(out),
                         args.stock_os, args.stock_content], cwd=ROOT, check=True)
+        if args.machine_pack:
+            from .machine_pack import write
+            write(kit, out)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         # The unnamed builder and its inputs stay in --out for inspection.
         parser.exit(1, f'ERROR: {error}\nIncomplete export left in {out}; use a new --out to retry.\n')
     (out / 'builder.pending.html').rename(out / 'opxy-builder.html')
     print('Browser builder: ' + str(out / 'opxy-builder.html'))
+    if args.machine_pack:
+        print('Machine pack: ' + str(out / 'machines.zip'))
     if args.personal:
         print('Personal kit: for your own collection and device; published kits come from release verification.')
     return 0

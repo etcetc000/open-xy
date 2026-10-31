@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -26,6 +26,97 @@ function fixture() {
   const object = {...readObject(elf()), name:'a.o',owner:'a'};
   return {version:'0.0.2',profile:JSON.parse(profileBytes),definitions:{},fixed:{a:{engine:34,page:82}},machines:[machine('a',34,82)],objects:[object]};
 }
+
+async function packFixture() {
+  const k = fixture();
+  Object.assign(k, {format:'opxy-browser-kit/1', profileSource:profileBytes.toString('base64'), notices:'SDK',
+    stockCatalog:'', screenTemplate:readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8')});
+  async function object(name, owner, symbol) {
+    const bytes = elf(); bytes.set(new TextEncoder().encode(symbol), 89);
+    return {name, owner, bytes:Buffer.from(bytes).toString('base64'), sha256:await sha256(bytes)};
+  }
+  k.objects = [await object('a/voice.o', 'a', 'entry'), await object('sdk/memory.o', null, 'share'),
+    await object('sdk/startup.o', null, 'start')];
+  const base = await openKit(k);
+  const custom = id => ({...machine(id, null, null), name:id, description:'A custom machine',
+    controls:['A', 'B', 'C', 'D'], positions:[0, 1, 2, 3], pages:false,
+    catalog:', {"type":"' + id + '","default_params":[0,0,0,0,0,0,0,0]}',
+    artwork:'<rect id="panel" width="1" height="1"/>', asset:id + '.svg'});
+  const pack = {format:'opxy-machine-pack/1', version:k.version, profileSha256:await sha256(profileBytes),
+    definitions:k.definitions, fixed:k.fixed, machines:[...k.machines, custom('custom'), custom('another')],
+    objects:[k.objects[0], await object('custom/voice.o', 'custom', 'other'),
+      await object('another/voice.o', 'another', 'third'), ...k.objects.slice(1)], extensions:[], notices:'Author license'};
+  return {base, pack};
+}
+
+test('machine ZIP adds several selectable machines without changing the base kit or saved numbers', async () => {
+  const {base, pack} = await packFixture(), before = structuredClone(base);
+  const zip = zipFiles({'machines.json':new TextEncoder().encode(JSON.stringify(pack))});
+  const candidate = await importMachinePack(base, readMachinePack(zip));
+  assert.deepEqual(base, before);
+  assert.deepEqual(candidate.machines.map(m => m.id), ['a', 'custom', 'another']);
+  assert.equal(candidate.profile, base.profile);
+  assert.equal(candidate.stockCatalog, base.stockCatalog);
+  assert.match(candidate.notices, /Author license/);
+  const layout = {a:{engine:34, page:82}, custom:{engine:55, page:105}, removed:{engine:56, page:106}};
+  const linked = linkKit(candidate, ['a', 'custom', 'another'], layout);
+  assert.deepEqual(linked.numbers.custom, layout.custom);
+  assert.deepEqual(linked.numbers.removed, layout.removed);
+  assert.ok(linked.globals.has('other') && linked.globals.has('third'));
+  assert.ok(!linkKit(candidate, ['a']).globals.has('other'));
+});
+
+test('machine packs reject catalog replacement, runtime changes and malformed imported machines atomically', async () => {
+  const {base, pack} = await packFixture(), before = structuredClone(base);
+  const changes = [
+    p => { p.version = '99.0.0'; }, p => { p.profileSha256 = '0'.repeat(64); },
+    p => { p.definitions.changed = 123; }, p => { p.fixed.changed = {engine:40, page:90}; },
+    p => { p.extensions.push({id:'injected'}); }, p => { p.stockCatalog = 'injected'; },
+    p => { p.machines[0].name = 'replacement'; }, p => { p.machines.reverse(); },
+    p => { p.machines[1].origin = 'official'; }, p => { p.machines[1].source = {repository:'https://evil.test'}; },
+    p => { p.machines[1].id = 'a'; }, p => { p.machines[1].prefix = 'a'; },
+    p => { p.machines[1].asset = '../outside.svg'; }, p => { p.machines[1].artwork = '<script>bad()</script>'; },
+    p => { p.machines[1].icon = '\"/><image href="https://evil.test"/>'; },
+    p => { p.machines[1].catalog = ', {"type":"a","default_params":[]}'; },
+    p => { p.machines[1].absent = {sdk_startup_synth:'kit_absent'}; },
+    p => { p.objects[0].bytes = p.objects[1].bytes; },
+    p => { p.objects[3].sha256 = '0'.repeat(64); }, p => { p.objects[4].owner = 'custom'; },
+    p => { p.objects[1].sha256 = '0'.repeat(64); },
+    p => { p.objects[1].name = 'sdk/injected.o'; },
+    p => { p.objects.splice(1, 1); }, p => { p.objects.push(p.objects[0]); },
+    p => { p.objects[1].service = 'samples'; },
+    p => { p.objects[1].bytes = p.objects[3].bytes; p.objects[1].sha256 = p.objects[3].sha256; },
+  ];
+  for (const change of changes) {
+    const changed = structuredClone(pack); change(changed);
+    await assert.rejects(importMachinePack(base, changed), undefined, change.toString());
+    assert.deepEqual(base, before);
+  }
+});
+
+test('only the collection-specific glue may differ in a compatible machine pack', async () => {
+  const {base, pack} = await packFixture();
+  const bytes = Buffer.from(pack.objects.at(-1).bytes, 'base64'); bytes[52] ^= 1;
+  pack.objects.at(-1).bytes = bytes.toString('base64'); pack.objects.at(-1).sha256 = await sha256(bytes);
+  await importMachinePack(base, pack);
+  pack.objects.at(-1).service = 'samples';
+  await assert.rejects(importMachinePack(base, pack), /SDK runtime/);
+});
+
+test('machine ZIP reader rejects corruption, archive ambiguities and source/firmware archives', () => {
+  const encode = value => new TextEncoder().encode(value);
+  const good = zipFiles({'machines.json':encode('{"format":"test"}')});
+  assert.equal(readMachinePack(good).format, 'test');
+  for (let length = 0; length < good.length; length++) assert.throws(() => readMachinePack(good.slice(0, length)));
+  for (const at of [6, 8, 14, 18, 22, 26, 28, 30, 44, good.length - 22, good.length - 14, good.length - 2]) {
+    const corrupt = good.slice(); corrupt[at] ^= 1;
+    assert.throws(() => readMachinePack(corrupt), undefined, 'offset ' + at);
+  }
+  for (const files of [{'machine.json':encode('{}')}, {'os.ldr':encode('not firmware')},
+    {'machines.json':encode('{}'), 'extra.txt':encode('x')},
+    {'machines.json':encode('{"__proto__":{"x":true}}')}]) assert.throws(() => readMachinePack(zipFiles(files)));
+  assert.throws(() => readMachinePack(new Uint8Array([...good, 0])));
+});
 
 // An authored loader with two diagnostic hooks and one ordinary hook. No stock
 // instructions or firmware bytes are needed to exercise full reconstruction.
