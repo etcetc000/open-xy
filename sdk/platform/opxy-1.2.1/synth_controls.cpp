@@ -237,9 +237,10 @@ u32 sdk_effect_turn(u32 project, u32 track, u32 index, u32 event) {
 // the word) with 0x8d6011f0(widget, text). An owned effect on a send track may
 // name the value instead; the text is copied before this returns.
 // The page then draws its bars from the vector at [P5 + 4]. While any position
-// shows an alternate, the call for position 0 returns a stand-in vector of the
-// shown words, which the hook stub puts in P5 for the rest of that draw, so the
-// bars follow the alternates too. Zero keeps stock's vector, which is never written.
+// shows an alternate, or Shift shows a shift row, the call for position 0 returns
+// a stand-in vector of the shown words, which the hook stub puts in P5 for the
+// rest of that draw, so the bars follow them too. Zero keeps stock's vector, which
+// is never written.
 namespace {
 struct ShownVector { u32 allocator, begin, end, capacity; };
 opxy::i32 shown_words[opxy::parameter_slots];
@@ -250,22 +251,16 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
     Track* t;
     const u32 track = selected_track();
     const SynthControls* m = index < opxy::page_controls ? send_effect(track, t) : nullptr;
-    if (m && m->shift && shift_held()) {
-        // While Shift is held, the shift row's choices.
-        u32 fields[shift_row::kControls];
-        shift_row::decode(current_value(track, shift_row::kWord), m->shift_choices, m->shift, fields);
-        caption[0] = 0;
-        if (index < m->shift)
-            m->format(8 + index, shift_row::midpoint(fields[index], m->shift_choices[index]), caption);
-        // Stock ignores this call's result, so answer zero, not the text call's own.
-        stock<u32(u32, const char*)>(0x8d6011f0)(widget, caption);
-        return 0;
-    }
+    // While Shift is held, the shift row's choices, in the captions and the bars.
+    const bool row = m && m->shift && shift_held();
+    u32 fields[shift_row::kControls];
+    if (row) shift_row::decode(current_value(track, shift_row::kWord), m->shift_choices, m->shift, fields);
     u32 stand_in = 0;
     if (m && index == 0) {
-        bool alternate = false;
+        bool alternate = row;
         for (u32 i = 0; i < opxy::page_controls; ++i) {
-            const opxy::i32 word = current_value(track, t->slots[i]);
+            const opxy::i32 word = !row ? current_value(track, t->slots[i])
+                                 : i < m->shift ? shift_row::midpoint(fields[i], m->shift_choices[i]) : 0;
             shown_words[i] = shown_words[i + opxy::page_controls] = word;
             alternate = alternate || t->slots[i] != i;
         }
@@ -275,6 +270,14 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
             shown_vector.end = shown_vector.capacity = shown_vector.begin + sizeof(shown_words);
             stand_in = static_cast<u32>(reinterpret_cast<Address>(&shown_vector));
         }
+    }
+    if (row) {
+        caption[0] = 0;
+        if (index < m->shift)
+            m->format(8 + index, shift_row::midpoint(fields[index], m->shift_choices[index]), caption);
+        // The stub takes a nonzero result as the vector, so never the text call's own.
+        stock<u32(u32, const char*)>(0x8d6011f0)(widget, caption);
+        return stand_in;
     }
     if (m) {
         // A position showing an alternate reads its current value.

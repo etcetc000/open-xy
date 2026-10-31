@@ -638,13 +638,16 @@ controller edits words 0..3, 8..15, 16..19 and 24..27; the instrument
 controller's Shift + M2 row is 32..35), and no stock code reads it: no GUI
 reference to its pattern offset (`+0x38f4`) and no audio-side load near the
 per-track table at `84eab39c`. Words 29..33 hold stock defaults on aux tracks,
-37 has audio-side readers and 46 GUI ones.
+37 has audio-side readers and 46 GUI ones. That is a static reading, which can't
+see an access computed at run time. Stock's reload and its copy of a send track
+have not been checked on the device for this word.
 
 With Shift held, the send page's turn hook (`8c08fade`) steps the turned
 control's choice by the event's sign and stores the word through stock's set
 (`8d5acf28`), which saves it with the pattern and sends it to the audio side
 (message 0xa1). The title and value hooks (`8d53b642`, `8d53b636`) name the
-row's controls and their choices while Shift is held. The effect's adapter
+row's controls and their choices while Shift is held, and on a stock-drawn page
+the value hook's stand-in vector puts the same choices in the bars. The effect's adapter
 keeps its slot from `init(object, slot)`, reads word 36 of track 14 or 15
 from `84eab39c + slot × 0xe8`, and passes the DSP its eight words and each
 control's choice as a ninth to twelfth.
