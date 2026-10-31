@@ -566,6 +566,16 @@ stock `save`, and when it succeeds reads the saved file back with stock's
 newlib `fopen`, `fread` and `fclose` (`0x8fed0348`, `0x8fed05bc`,
 `0x8fed00ae`) for its size and CRC-32, then writes the companion beside it with
 `fwrite` (`0x8fed0780`) ([`project_companion.cpp`](../sdk/platform/opxy-1.2.1/project_companion.cpp)).
+The writer checks `fwrite` and `fclose` results, then publishes `.oxy.tmp` with
+stock's replace helper (`0x8c040c78`, one on success), which checks the destination
+with `0x8c040c24`, removes it with `0x8c0409c4` if present, then calls newlib
+`rename` (`0x8fed0908`, zero on success). A failed replacement may remove the
+old destination; the complete temporary remains available for recovery. The reader's native FILE flags
+start with a 16-bit field: bit 8 is EOF and bit 9 is a read error (`fread` at
+`0x8fed05bc`); a zero read is accepted only with EOF and no error. Project
+measurement rejects files larger than 16 MiB. A complete, validated temporary
+is a recovery candidate only when the published companion does not apply.
+These calls provide no two-file atomicity or power-loss durability guarantee.
 The machines it lists are the collection's, from their link-time numbers; a
 kit leaves out machines with number 0. A failed save writes nothing.
 
