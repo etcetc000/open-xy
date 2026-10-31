@@ -21,9 +21,9 @@ function signed(value) {
 const vector = items => [...unsigned(items.length), ...items.flat()];
 const section = (id, bytes) => [id, ...unsigned(bytes.length), ...bytes];
 const name = value => [...unsigned(value.length), ...new TextEncoder().encode(value)];
-function fixture(abi = 2, inputBytes = abi === 2 ? 76 : 68) {
+function fixture(abi = 2, inputBytes = abi === 2 ? 76 : 68, frameBytes = 100) {
   const constants = {opxy_display_abi:abi, opxy_display_state_bytes:16,
-    opxy_display_input_bytes:inputBytes, opxy_display_frame_bytes:100,
+    opxy_display_input_bytes:inputBytes, opxy_display_frame_bytes:frameBytes,
     opxy_display_state:1024, opxy_display_input:2048, opxy_display_frame:4096, opxy_display_valid:1};
   const functions = Object.entries(constants).map(([name, value]) => ({name, type:0, body:[0x41, ...signed(value)]}));
   functions.push({name:'opxy_display_reset', type:1, body:[]}, {name:'opxy_display_render', type:1, body:[]});
@@ -117,4 +117,10 @@ test('partial second pages repeat the same saved controls without switching page
   assert.deepEqual(editedShown([0, 1, 2, 3], drone, 4, true), [0, 4, 5, 6]);
   assert.deepEqual(editedShown([0, 4, 5, 6], drone, 0, true), [0, 4, 5, 6]);
   assert.deepEqual(editedShown([0, 4, 5, 6], drone, 3, true), [0, 1, 2, 3]);
+});
+
+test('browser WASM frame transport accepts the bounded expanded frame', () => {
+  const display = new PreviewDisplay(fixture(2, 76, 16384));
+  assert.equal(display.frame.length, 4096);
+  assert.throws(() => new PreviewDisplay(fixture(2, 76, 16388)), /drawing frame size/);
 });

@@ -66,7 +66,9 @@ RESOURCES = {
 # A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
 # declares its frame's budget within these limits.
 DISPLAY_FIELDS = ('stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'texts', 'palette')
-DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 16), palette=(1, 16))
+DISPLAY_LIMITS = dict(paths=(0, 128), points=(0, 64), nodes=(1, 256), texts=(0, 80), palette=(1, 16))
+DISPLAY_TOTAL_POINTS = 1024
+DISPLAY_FRAME_BYTES = 16384
 # More text slots than this need SDK 1.3 (tooling.machines).
 SDK_1_2_TEXTS = 4
 # Analysis storage is allocated from the stock heap at runtime, which also holds
@@ -187,6 +189,12 @@ def validate_synth_resources(resources):
     validate_display(resources['display'])
 
 
+def display_frame_bytes(display):
+    # draw::Frame keeps one unused path/text when that count is zero.
+    return (max(display['paths'], 1) * (4 + 8 * display['points']) +
+            28 * display['nodes'] + 36 * max(display['texts'], 1) + 32)
+
+
 def validate_display(display):
     require(not (isinstance(display, dict) and 'kind' in display),
             'This display uses a contract from before SDK 1.0: see docs/display.md#migrating-from-before-sdk-10')
@@ -194,9 +202,11 @@ def validate_display(display):
     for name, (low, high) in DISPLAY_LIMITS.items():
         require(type(display[name]) is int and low <= display[name] <= high,
                 'Display %s must be %d..%d' % (name, low, high))
-    require((display['points'] >= 2) == (display['paths'] > 0),
+    require((2 <= display['points'] <= 64 if display['paths'] else display['points'] == 0),
             'Paths have 2..64 points; a display without paths declares 0 points')
     require(display['paths'] <= display['nodes'], 'Each path is also a node')
+    require(display['paths'] * display['points'] <= DISPLAY_TOTAL_POINTS, 'Display has more than 1024 path points')
+    require(display_frame_bytes(display) <= DISPLAY_FRAME_BYTES, 'Display frame exceeds 16384 bytes')
     require(type(display['stateBytes']) is int and type(display['stateAlignment']) is int and
             4 <= display['stateBytes'] and display['stateAlignment'] in (4, 8, 16) and
             display['stateBytes'] % display['stateAlignment'] == 0,
