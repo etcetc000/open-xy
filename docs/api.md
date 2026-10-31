@@ -419,7 +419,8 @@ is not in tracks 1-8's engine list: it is chosen on its aux track only.
   up to 31 in one build, which the build checks.
   As tracks 1-8 hold an engine, each pattern holds its own choice: it applies
   to the current pattern, is copied with it and saved with the project, and
-  chained patterns switch between CV and the machine. While a machine holds the
+  changing patterns (by hand, or through a song's scenes) switches between CV
+  and the machine. While a machine holds the
   playing pattern, CV and gate stay silent. A new project starts with `cv`.
 - **Its interface:** M1 shows the machine's display. Its encoders, clicks,
   fine turns and parameter locks use the machine's controls directly; CV's
