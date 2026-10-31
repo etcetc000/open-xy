@@ -57,9 +57,8 @@ class ProfileParity(unittest.TestCase):
         cases += [('effect', {'effect': n, 'page': page}) for n in range(-1, 24) for page in (0, 2, 7, 20, 21, 22, 82)]
         cases += [('synth', {'engine': 34}), ('synth', {'engine': 34, 'page': 82, 'effect': 1}),
                   ('synth', {'engine': True, 'page': 82}), ('effect', {'engine': 11, 'page': 21})]
-        # A sample engine's own screen: only on page 2, on a relocated page.
-        cases += [(kind, {'engine': 40, 'page': page, 'screen': screen}) for kind in ('synth', 'sample')
-                  for page in (2, 7) for screen in (-1, 0, 2, 81, 82, 127, 128, True)]
+        # Before SDK 1.10 a sample engine's own screen had a key of its own; no longer.
+        cases += [('sample', {'engine': 40, 'page': 2, 'screen': 90})]
         expected = [python_accepts(rules, kind, identity) for kind, identity in cases]
         self.assertEqual(browser(dict(rules=rules, identities=cases, redirects=[]))['identities'], expected)
         self.assertTrue(any(expected) and not all(expected))
@@ -73,15 +72,13 @@ class ProfileParity(unittest.TestCase):
         cases += [('effect', {'effect': n, 'page': page}) for n in (None, 0, 1, 8, 9) for page in pages]
         cases += [('synth', {'engine': None}), ('sample', {'page': 7}), ('effect', {'engine': None, 'page': 21}),
                   ('synth', None), ('sample', {'engine': None, 'page': 7, 'base': 'drumSampler'})]
-        # A sample engine forking the sampler may also leave its own screen's page to the layout.
-        cases += [(kind, {'engine': n, 'page': page, 'screen': screen}) for kind in ('synth', 'sample')
-                  for n in (None, 40) for page in (None, 2, 7) for screen in (None, 90)]
+        cases += [('sample', {'engine': None, 'page': 2, 'screen': None})]
         expected = [python_request(rules, kind, identity) for kind, identity in cases]
         self.assertEqual(browser(dict(rules=rules, identities=[], requests=cases, redirects=[]))['requests'], expected)
         self.assertEqual([request for request, accepted in zip(cases, expected) if accepted and None in request[1].values()],
-                         [('synth', {'engine': None, 'page': None}), ('sample', {'engine': None, 'page': 2}),
-                          ('sample', {'engine': None, 'page': 7}), ('effect', {'effect': None, 'page': 21}),
-                          ('sample', {'engine': None, 'page': 2, 'screen': None})])
+                         [('synth', {'engine': None, 'page': None}), ('sample', {'engine': None, 'page': None}),
+                          ('sample', {'engine': None, 'page': 2}), ('sample', {'engine': None, 'page': 7}),
+                          ('effect', {'effect': None, 'page': 21})])
 
     def test_redirect_encodings_agree(self):
         low = self.profile['module_base']

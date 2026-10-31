@@ -270,7 +270,7 @@ def generate_sample_voice(directory, m, benchmark=False):
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   LABELS=stock_labels(m), CAPACITY=resources['voiceCapacity'],
                   ANALYSIS=resources.get('sampleAnalysis', 0), STEREO=resources.get('stereoOutput', 0),
-                  CHOKE=resources.get('chokeSameKey', 0), DRUM_KEYS=int(m.identity['page'] == 7),
+                  CHOKE=resources.get('chokeSameKey', 0), DRUM_KEYS=int(m.sample_page == 7),
                   PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0),
                   # The drum page edits outer markers only; an engine with its own screen spans them.
                   OUTER_MARKERS=int(bool(resources.get('drumControls', 0)) or 'display' in resources))
@@ -288,7 +288,7 @@ def generate_sample_callbacks(directory, machines):
         declarations.append(f'int {p}_ready() __asm__("{p}_ready");')
         # The engine ID is an absolute symbol the linker supplies; the stock page is the machine's own.
         declarations.append(f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");')
-        fields = [p + '_engine_id', str(m.identity['page']), p + '_ready']
+        fields = [p + '_engine_id', str(m.sample_page), p + '_ready']
         for flag, entries in SAMPLE_SERVICES:
             declared = bool(resources.get(flag, 0))
             if flag == 'sampleAnalysis':
