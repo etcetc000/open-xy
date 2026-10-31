@@ -100,9 +100,32 @@ class CustomPreviewTests(unittest.TestCase):
                     if count < 8:
                         with self.assertRaisesRegex(ValueError, 'partially filled second page'):
                             machine_at(folder)
-        with self.assertRaisesRegex(ValueError, 'effects use 4'):
-            custom.scaffold(self.root / 'bad-effect', 'badfx', 'Bad FX', 'effect', controls=8)
+        with self.assertRaisesRegex(ValueError, 'effects use 4 or 8'):
+            custom.scaffold(self.root / 'bad-effect', 'badfx', 'Bad FX', 'effect', controls=6)
         self.assertFalse((self.root / 'bad-effect').exists())
+
+    def test_eight_control_effect_draws_the_sdk_effect_page(self):
+        folder = self.root / 'paged-effect'
+        with redirect_stdout(io.StringIO()):
+            custom.scaffold(folder, 'pagedfx', 'Paged FX', 'effect', controls=8)
+        m = machine_at(folder)
+        self.assertEqual((m.kind, m.dry_parameter), ('effect', 7))
+        self.assertEqual(m.definition['press'], 'page')
+        self.assertEqual(m.definition['resources']['display'],
+                         {'stateBytes': 20, 'stateAlignment': 4, 'paths': 0, 'points': 0,
+                          'nodes': 20, 'texts': 16, 'palette': 1})
+        self.assertIn('effect_page(', (folder / 'display.cpp').read_text())
+        artwork = (folder / 'panel.svg.fragment').read_text()
+        self.assertIn('>paged fx</text>', artwork)
+        self.assertNotIn('@', artwork)
+        # As in stock's artwork, every shape is a plain fill: only the spare palette entry has a stroke.
+        shapes = [line for line in artwork.splitlines() if line.startswith('<path')]
+        self.assertEqual(len(shapes), 22)
+        self.assertFalse([line for line in shapes if 'stroke' in line])
+        if not HOST_CXX:
+            self.skipTest('No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+        from tooling.machine_test import host_tests
+        self.assertEqual(host_tests(m, HOST_CXX, self.root), 1)
 
     def test_repository_cli_keeps_machine_at_root_and_adds_agent_and_ci_entry_points(self):
         for kind in custom.STARTERS:

@@ -3,9 +3,9 @@
 import { inputWords } from './controls.mjs';
 
 // draw::Input: parameters[4], elapsed, track, note_serial, reduced_motion,
-// shown[4 bytes], slots[8], held_notes, note_off_serial, shift, choices[4 bytes].
-// ABI 1 ends after slots, ABI 2 after note_off_serial.
-const INPUT_BYTES = {1: 68, 2: 76, 3: 84};
+// shown[4 bytes], slots[8], held_notes, note_off_serial, shift, choices[4 bytes],
+// level_in, level_out. ABI 1 ends after slots, ABI 2 after note_off_serial, ABI 3 after choices.
+const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 92};
 const integer = (value, low, high, name) => {
   if (!Number.isInteger(value) || value < low || value > high) throw new Error(`Invalid ${name}`);
   return value;
@@ -83,6 +83,7 @@ export class PreviewDisplay {
     if (INPUT_BYTES[abi] !== inputBytes) throw new Error('Unsupported drawing ABI');
     this.noteActivity = abi >= 2;
     this.effectRow = abi >= 3;
+    this.sendLevels = abi >= 4;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
     // Largest declared frame: 4 paths of 64 points, 256 nodes, 32 texts and the header.
     const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 32 * 36 + 32, 'drawing frame size');
@@ -105,7 +106,8 @@ export class PreviewDisplay {
   reset() { this.api.opxy_display_reset(); }
   // input: shownControls(words, shown) from controls.mjs.
   // shiftRow: an effect's {shift, choices[4]}; a synth's page leaves it null.
-  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, shiftRow = null) {
+  // levels: an effect's send {in, out} as Q31 amplitudes; null reads as silence.
+  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, shiftRow = null, levels = null) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -117,10 +119,13 @@ export class PreviewDisplay {
     const shift = shiftRow === null ? 0 : Number(Boolean(shiftRow.shift));
     const choices = shiftRow === null ? [0, 0, 0, 0] : shiftRow.choices.map(c => integer(c, 0, 255, 'shift choice'));
     if (choices.length !== 4) throw new Error('Invalid shift row');
+    const level = name => levels === null ? 0 : integer(levels[name], 0, 0x7fffffff, 'send level');
+    const [levelIn, levelOut] = [level('in'), level('out')];
     if (this.api.memory.buffer !== this.memory) throw new Error('Display memory changed');
     this.input.set([p0, p1, p2, p3, elapsed >>> 0, track, serial, Number(reducedMotion), shown, ...slots]);
     if (this.noteActivity) this.input.set([held, released], 17);
     if (this.effectRow) this.input.set([shift, choices[0] | choices[1] << 8 | choices[2] << 16 | (choices[3] << 24) >>> 0], 19);
+    if (this.sendLevels) this.input.set([levelIn, levelOut], 21);
     this.api.opxy_display_render();
     if (this.api.opxy_display_valid() !== 1) throw new Error('Display emitted an invalid drawing frame');
     return this.frame;

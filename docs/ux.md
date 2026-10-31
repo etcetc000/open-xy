@@ -37,6 +37,13 @@ is the reference for each of them.
   `sdk.py new` when `--controls` is 5, 6, 7 or 8. Choose the actual parameter
   count; the default is four controls with the stock header. Macro Osc remains
   the two-page visual reference.
+- **Effects use the effect page.** A send effect with eight controls that
+  draws its own page starts from [`opxy/effect_page.hpp`](display.md#effect-page),
+  wired up by `sdk.py new --kind effect --controls 8`. It is laid out as
+  stock's FX page rather than the synth header: both rows of controls in place
+  under a badge naming the send, the edited row on a white band that slides to
+  the other row on a press, the other row dimmed, and captions that read 00..99
+  as that page's do.
 - **Show both pages in place.** Page 1 stays on top and page 2 under it; a
   press does not swap them. The page the encoders edit is the stock header's
   size and sits on the stepped bar; the other is smaller and grey. Cover the

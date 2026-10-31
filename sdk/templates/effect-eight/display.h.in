@@ -1,0 +1,8 @@
+#pragma once
+#include <opxy/effect_page.hpp>
+
+namespace @ID@ {
+// Matches resources.display in definition.json: paths, points, nodes, texts, palette.
+using Frame = opxy::draw::Frame<0, 0, 20, 16, 1>;
+struct DisplayState { opxy::draw::PageHeader page; };
+}
