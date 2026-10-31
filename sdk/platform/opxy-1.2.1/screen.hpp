@@ -140,6 +140,7 @@ struct Controls {
     i32 slots[parameter_slots];
     u32 shift;      // an effect's page: Shift held on its shift row
     u8 choices[4];  // and the row's choices
+    i32 level_in, level_out;  // and its send's meters
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -175,6 +176,8 @@ inline bool send_controls(Base* o, Controls& controls) {
     }
     controls.shift = view.shift;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = view.choices[i];
+    controls.level_in = view.level_in;
+    controls.level_out = view.level_out;
     controls.valid = true;
     return true;
 }
@@ -189,6 +192,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     controls.track = selected_track();
     controls.shift = 0;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = 0;
+    controls.level_in = controls.level_out = 0;
     if (send_controls(o, controls)) return true;
     sdk_synth_shown(controls.track, controls.shown);
     for (u32 i = 0; i < page_controls; ++i) controls.values[i] = 0;

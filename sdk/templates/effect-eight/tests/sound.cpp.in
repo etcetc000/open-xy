@@ -1,0 +1,54 @@
+// The machine's own sound checks, compiled for the host and run by
+// python sdk.py test --machine <folder>. Extend them as the sound grows.
+#include "../fx.cpp"
+#include <cstdio>
+
+namespace {
+opxy::i32 line[4096];
+opxy::i32 left[opxy::block_frames], right[opxy::block_frames];
+
+bool silent() {
+    for (unsigned i = 0; i < opxy::block_frames; ++i)
+        if (left[i] || right[i]) return false;
+    return true;
+}
+}
+
+int main() {
+    static @ID@::State state;
+    // Full depth and feedback, 5 ms delay, level at full.
+    const opxy::i32 parameters[8] = {0x7fffffff, 0x7fffffff, 0, 0x7fffffff, 0, 0x7fffffff, 0x7fffffff, 0x7fffffff};
+    // The buffer is never cleared: stale words must not reach the output.
+    for (unsigned i = 0; i < 4096; ++i) line[i] = 0x40000000;
+    const opxy::Buffer buffer = {line, 4096};
+    @ID@::initialize(state);
+    for (unsigned block = 0; block < 64; ++block) {
+        @ID@::process(state, buffer, left, right, parameters);
+        if (!silent()) { std::puts("FAIL sound out of silence or a stale buffer"); return 1; }
+    }
+    // Without depth, a click comes back 5 ms (220 frames) later, in block 3.
+    const opxy::i32 still[8] = {0, 0, 0, 0, 0, 0, 0x7fffffff, 0x7fffffff};
+    @ID@::initialize(state);
+    for (unsigned block = 0; block < 5; ++block) {
+        for (unsigned i = 0; i < opxy::block_frames; ++i) left[i] = right[i] = block == 0 && i == 0 ? 0x40000000 : 0;
+        @ID@::process(state, buffer, left, right, still);
+        if (block < 3 && !silent()) { std::puts("FAIL the chorus answers before its delay"); return 1; }
+        if (block == 3 && silent()) { std::puts("FAIL the chorus never repeats its input"); return 1; }
+    }
+    // A quarter of the delay's travel, where its caption reads 25, is 10 ms:
+    // 441 frames, in block 6.
+    const opxy::i32 quarter[8] = {0, 0, 0x20000000, 0, 0, 0, 0x7fffffff, 0x7fffffff};
+    @ID@::initialize(state);
+    for (unsigned block = 0; block < 8; ++block) {
+        for (unsigned i = 0; i < opxy::block_frames; ++i) left[i] = right[i] = block == 0 && i == 0 ? 0x40000000 : 0;
+        @ID@::process(state, buffer, left, right, quarter);
+        if (block < 6 && !silent()) { std::puts("FAIL a 10 ms chorus answers early"); return 1; }
+        if (block == 6 && silent()) { std::puts("FAIL a 10 ms chorus never repeats its input"); return 1; }
+    }
+    // Outside a send there is no buffer: silence.
+    const opxy::Buffer none = {0, 0};
+    for (unsigned i = 0; i < opxy::block_frames; ++i) left[i] = right[i] = 0x40000000;
+    @ID@::process(state, none, left, right, parameters);
+    if (!silent()) { std::puts("FAIL sound without a buffer"); return 1; }
+    return 0;
+}

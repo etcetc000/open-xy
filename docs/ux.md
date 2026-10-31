@@ -12,10 +12,42 @@ is the reference for each of them.
 - **Defaults are clean.** A new sound starts at the machine's plainest useful
   setting. A control that colours or degrades the sound (crush, drift,
   modulation depth) defaults to off.
-- **Real units in the header.** A [header value](display.md#frame), or the
-  machine's own header text when it draws one, shows what the musician thinks in: `2.0` for a ratio, `16` for bits, `11k` for a rate,
-  a model's short code. Amounts are 0 to 100 without a percent sign. Keep it
-  to about five characters.
+- **Count 00 to 99.** Every number a stock page shows is the control's place in
+  its travel, `floor(100 × value)` as two digits, whatever the control does:
+  a delay's feedback, a filter's cutoff and a synth's ratio all read 00 to 99.
+  Caption a machine's own numbers the same way with
+  [`header_number`](display.md#effect-page), so a value reads the same on every
+  page. Text is for choices only: an `enum`'s label, a `division`'s note
+  length, at most about five characters.
+- **Significant values on the quarters.** Put what the musician aims for at
+  00, 25, 50, 75 and 99, where the caption says so: unison, an octave, a fifth,
+  a neutral or centred setting, a round ratio or time. Stock does this where it
+  steps: delay's size reads `1/16` from 25, `1/8` from 50 and `1/4` from 75,
+  with the dotted lengths between, and reverb's size reads `small`, `large` and
+  `huge` from the same points. Its defaults sit there too: delay's fine and
+  feedback, chorus's depth, feedback and stereo, the lowpass, highpass, svf
+  and ladder filters' cutoff and every drumline control start at 50, epiano's
+  punch at 25, dry levels at 99. Declare five [`anchors`](api.md#definition)
+  for such a control and map it in C++ with `opxy::q31::anchored` and the same
+  values, so each anchor is exact on its caption; a linear range whose quarters
+  are already round (5 to 25 ms) needs none. Between anchors, move smoothly.
+  Stock's own synth curves don't all follow this (Prism's ratio, below), so
+  treat it as the convention for new machines, not a description of every
+  stock engine.
+- **Stepped, split and curved controls still count 00 to 99.** Stock 1.2.1
+  captions every synth control with the same `%02i`, whatever it does inside:
+  - *Stepped:* Wavetable's table moves one of nine tables per detent, and
+    Prism's shape picks one of eight presets in equal eighths of the travel
+    (`word >> 28`, so a new shape at 00, 12, 25, 37, 50, 62, 75 and 87) with
+    no detents. For a handful of settings the musician names, use an `enum`,
+    which steps one choice per detent and shows its label. Otherwise split
+    the travel evenly, so each step starts where the caption says.
+  - *Split:* Axis's ratio is a detune from 00 to 50 and ascending fifths
+    above it. Put the boundary at 50 and make both halves start there.
+  - *Curved:* Prism's ratio crossfades each shape's settings with quadratic
+    weights, so its intervals move with the shape; Dissolve shapes a control
+    through a nine-point curve. A curve is fine as long as it rises with the
+    number and has no jumps the caption doesn't show.
 - **Short labels.** One or two words, at most eight characters; the stock
   header writes them in lower case.
 - **The OP-XY already modulates.** Its envelopes, LFOs, filter and FX have
@@ -37,6 +69,13 @@ is the reference for each of them.
   `sdk.py new` when `--controls` is 5, 6, 7 or 8. Choose the actual parameter
   count; the default is four controls with the stock header. Macro Osc remains
   the two-page visual reference.
+- **Effects use the effect page.** A send effect with eight controls that
+  draws its own page starts from [`opxy/effect_page.hpp`](display.md#effect-page),
+  wired up by `sdk.py new --kind effect --controls 8`. It is laid out as
+  stock's FX page rather than the synth header: both rows of controls in place
+  under a badge naming the send, the edited row on a white band that slides to
+  the other row on a press, the other row dimmed, and captions that read 00..99
+  as that page's do.
 - **Show both pages in place.** Page 1 stays on top and page 2 under it; a
   press does not swap them. The page the encoders edit is the stock header's
   size and sits on the stepped bar; the other is smaller and grey. Cover the

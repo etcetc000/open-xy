@@ -1,0 +1,45 @@
+<!-- SDK effect page (opxy/effect_page.hpp), after stock's FX page: keep this block first.
+     As in stock's artwork, every shape is a plain fill on whole pixels, with no stroke.
+     Bright and dim boxes and bars trade rows; the meters are 1 px lines on the band. -->
+<path d="M0,0 L480,0 L480,220 L0,220 Z" fill="#000000"/>
+<path d="M186,3 L222,3 L222,23 L186,23 Z M187,4 L187,22 L221,22 L221,4 Z" fill="#CDCDCD"/>
+<text transform="matrix(1 0 0 1 191 18)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="13px">FX</text>
+<text transform="matrix(1 0 0 1 230 18)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="13px">@LABEL@</text>
+<path id="@ID@_node_@NODE_0@" transform="matrix(1 0 0 1 0 36)" d="M0,0 L480,0 L480,65 L0,65 Z" fill="#CDCDCD"/>
+<path id="@ID@_node_@NODE_1@" transform="matrix(1 0 0 1 40 36)" d="M0,0 L100,0 L100,65 L0,65 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_2@" transform="matrix(1 0 0 1 140 36)" d="M0,0 L100,0 L100,65 L0,65 Z" fill="#323232"/>
+<path id="@ID@_node_@NODE_3@" transform="matrix(1 0 0 1 240 36)" d="M0,0 L100,0 L100,65 L0,65 Z" fill="#969696"/>
+<path id="@ID@_node_@NODE_4@" transform="matrix(1 0 0 1 40 133)" d="M0,0 L100,0 L100,65 L0,65 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_5@" transform="matrix(1 0 0 1 140 133)" d="M0,0 L100,0 L100,65 L0,65 Z" fill="#0F0F0F"/>
+<path id="@ID@_node_@NODE_6@" transform="matrix(1 0 0 1 240 133)" d="M0,0 L100,0 L100,65 L0,65 Z" fill="#2D2D2D"/>
+<path id="@ID@_node_@NODE_7@" transform="matrix(1 0 0 1 340 133)" d="M0,0 L100,0 L100,65 L0,65 Z" fill="#3C3C3C"/>
+<path id="@ID@_node_@NODE_8@" transform="matrix(1 0 0 1 40 93)" d="M0,0 L100,0 L100,8 L0,8 Z" fill="#CDCDCD"/>
+<path id="@ID@_node_@NODE_9@" transform="matrix(1 0 0 1 140 93)" d="M0,0 L100,0 L100,8 L0,8 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_10@" transform="matrix(1 0 0 1 240 93)" d="M0,0 L100,0 L100,8 L0,8 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_11@" transform="matrix(1 0 0 1 340 93)" d="M0,0 L100,0 L100,8 L0,8 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_12@" transform="matrix(1 0 0 1 40 190)" d="M0,0 L100,0 L100,8 L0,8 Z" fill="#3C3C3C"/>
+<path id="@ID@_node_@NODE_13@" transform="matrix(1 0 0 1 140 190)" d="M0,0 L100,0 L100,8 L0,8 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_14@" transform="matrix(1 0 0 1 240 190)" d="M0,0 L100,0 L100,8 L0,8 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_15@" transform="matrix(1 0 0 1 340 190)" d="M0,0 L100,0 L100,8 L0,8 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_16@" transform="matrix(1 0 0 1 0 68)" d="M0,0 L40,0 L40,1 L0,1 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_17@" transform="matrix(1 0 0 1 440 68)" d="M0,0 L40,0 L40,1 L0,1 Z" fill="#000000"/>
+<path id="@ID@_node_@NODE_18@" transform="matrix(1 0 0 1 213 9)" d="M0,0 L2,0 L2,9 L0,9 Z" fill="#CDCDCD"/>
+<path id="@ID@_node_@NODE_19@" transform="matrix(1 0 0 1 640 320)" d="M0,0 L2,0 L2,9 L0,9 Z" fill="#CDCDCD"/>
+<text id="@ID@_text_0" transform="matrix(1 0 0 1 40 31)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_1" transform="matrix(1 0 0 1 140 31)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_2" transform="matrix(1 0 0 1 240 31)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_3" transform="matrix(1 0 0 1 340 31)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_4" transform="matrix(1 0 0 1 40 116)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_5" transform="matrix(1 0 0 1 140 116)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_6" transform="matrix(1 0 0 1 240 116)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_7" transform="matrix(1 0 0 1 340 116)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_8" transform="matrix(1 0 0 1 40 128)" fill="#3C3C3C" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_9" transform="matrix(1 0 0 1 140 128)" fill="#3C3C3C" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_10" transform="matrix(1 0 0 1 240 128)" fill="#3C3C3C" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_11" transform="matrix(1 0 0 1 340 128)" fill="#3C3C3C" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_12" transform="matrix(1 0 0 1 40 213)" fill="#3C3C3C" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_13" transform="matrix(1 0 0 1 140 213)" fill="#3C3C3C" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_14" transform="matrix(1 0 0 1 240 213)" fill="#3C3C3C" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<text id="@ID@_text_15" transform="matrix(1 0 0 1 340 213)" fill="#3C3C3C" font-family="UniversNextPro-Light" font-size="10px">-</text>
+<!-- One palette entry for the effect's own drawing; the page paints none. -->
+<circle id="@ID@_palette_@PALETTE_0@" cx="640" cy="0" r="1" fill="#CDCDCD" stroke="#CDCDCD" stroke-width="1"/>
