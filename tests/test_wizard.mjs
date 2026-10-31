@@ -20,7 +20,7 @@ class Element {
   focus() {}
 }
 
-function sourceFlow(t, {fake, bytes, hash, usb = true}) {
+function sourceFlow(t, {fake, bytes, hash, usb = true, files = {}}) {
   const html = readFileSync(new URL('../builder/index.html', import.meta.url), 'utf8');
   const elements = new Map([...html.matchAll(/<[^>]*\bid="([^"]+)"[^>]*>/g)].map(([tag, id]) =>
     [id, Object.assign(new Element(), {hidden: /\bhidden\b/.test(tag)})]));
@@ -39,7 +39,7 @@ function sourceFlow(t, {fake, bytes, hash, usb = true}) {
     t.after(() => previous ? Object.defineProperty(globalThis, name, previous) : delete globalThis[name]);
   }
   const wizard = createWizard({getKit: () => ({profile: {stock_bytes: bytes.length, stock_sha256: hash}, machines: []}),
-    getSelected: () => [], hasDownload: () => true, getFiles: () => ({}),
+    getSelected: () => [], hasDownload: () => true, getFiles: () => files,
     onFirmware: async (file, isCurrent) => { assert.equal(isCurrent(), true); accepted.push(new Uint8Array(await file.arrayBuffer())); return true; }});
   const click = label => {
     const button = $('flow-actions').children.find(b => b.id === label || b.textContent === label);
@@ -461,4 +461,59 @@ test('installation links preview the edited steps without a build or device acce
   assert.equal($('risk-gate').hidden, true);
   assert.equal(action('mtp-read').disabled, true);
   assert.equal(pages[0].hidden, false);
+});
+
+
+test('expert build-and-copy chooses USB in the gesture, builds before opening, verifies content then OS', async t => {
+  const fake = fakeDevice({files: {'user/keep.txt': Uint8Array.of(42)}}), files = {};
+  const f = sourceFlow(t, {fake, bytes: new Uint8Array(1), hash: '', files});
+  await f.wizard.quickInstall(async () => {
+    assert.equal(f.requests(), 1);
+    assert.equal(fake.state.opened, false);
+    files['os.ldr'] = Uint8Array.of(1, 2, 3);
+    files['content/op1_factory.json'] = Uint8Array.of(4, 5);
+    return true;
+  });
+  assert.deepEqual(fake.state.read('os.ldr'), files['os.ldr']);
+  assert.deepEqual(fake.state.read('user/keep.txt'), Uint8Array.of(42));
+  const log = f.$('mtp-log').children.map(e => e.textContent).join('\n');
+  assert.match(log, /op1_factory.json.*verified/);
+  assert.match(log, /os.ldr.*verified/);
+  assert.ok(log.indexOf('Added content/') < log.indexOf('Added os.ldr'));
+  assert.match(f.$('flow-title').textContent, /Files verified/);
+  assert.equal(f.$('device-flow').dataset.quick, 'true');
+  assert.equal(f.$('flow-exit').textContent, 'Back to expert mode');
+  assert.equal(fake.state.opened, false);
+});
+
+test('expert build failures and cancellation before completion cannot write any files', async t => {
+  const fake = fakeDevice(), files = {'os.ldr': Uint8Array.of(1)};
+  const f = sourceFlow(t, {fake, bytes: new Uint8Array(1), hash: '', files});
+  await f.wizard.quickInstall(async () => false);
+  assert.deepEqual(fake.state.ops, []);
+  assert.match(f.$('dev-status').textContent, /Build failed/);
+  let finish;
+  const waiting = f.wizard.quickInstall(() => new Promise(resolve => { finish = resolve; }));
+  while (!finish) await new Promise(resolve => setImmediate(resolve));
+  f.$('dev-cancel').onclick(); finish(true); await waiting;
+  assert.deepEqual(fake.state.ops, []);
+  assert.equal(fake.state.opened, false);
+});
+
+test('expert copy stops on corrupt readback before writing the OS', async t => {
+  const fake = fakeDevice({corrupt: bytes => { bytes[12] ^= 1; }});
+  const files = {'content/op1_factory.json': Uint8Array.of(4, 5), 'os.ldr': Uint8Array.of(1)};
+  const f = sourceFlow(t, {fake, bytes: new Uint8Array(1), hash: '', files});
+  await f.wizard.quickInstall(async () => true);
+  assert.match(f.$('dev-status').textContent, /Readback mismatch/);
+  assert.equal(fake.state.read('os.ldr'), undefined);
+  assert.doesNotMatch(f.$('flow-title').textContent, /Files verified/);
+  assert.equal(fake.state.opened, false);
+});
+
+test('expert copy without WebUSB never builds or requests a device', async t => {
+  const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: '', usb: false});
+  assert.equal(f.wizard.supportsQuickInstall(), false);
+  await f.wizard.quickInstall(() => { throw new Error('Should not build'); });
+  assert.equal(f.requests(), 0);
 });
