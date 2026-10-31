@@ -791,14 +791,152 @@ export async function buildAssets(kit, selection, catalog, numbers) {
   return files;
 }
 
+export const MACHINE_PACK_LIMIT = 64 * 1024 ** 2;
+const packFile = 'machines.json';
+const collectionObjects = new Set(['sdk/startup.o', 'sdk/benchmark.o', 'sdk/sample_callbacks.o',
+  'sdk/synth_control_table.o', 'sdk/project_companion_table.o']);
+const canonical = value => JSON.stringify(value, (_key, v) => v && typeof v === 'object' && !Array.isArray(v)
+  ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
+const sameValue = (a, b) => canonical(a) === canonical(b);
+// Preview compilers can differ between hosts. Existing previews and provenance
+// always come from the site; only its native machine contract must match.
+function machineContract(m) {
+  const contract = Object.fromEntries(Object.entries(m ?? {})
+    .filter(([key]) => !['preview', 'origin', 'source', 'cpu'].includes(key)));
+  if (typeof contract.catalog === 'string') {
+    contract.catalog = JSON.parse(contract.catalog.trim().replace(/^,/, ''));
+    // This is the author's collection-assigned number, not the machine's
+    // requested identity. The receiver uses its own saved per-selection layout.
+    if (contract.kind === 'effect') delete contract.catalog.id;
+  }
+  return contract;
+}
+const objectRecord = o => Object.fromEntries(['name', 'owner', 'bytes', 'sha256', 'service', 'extension']
+  .filter(key => o[key] !== undefined).map(key => [key, o[key]]));
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const b of bytes) { c ^= b; for (let i = 0; i < 8; i++) c = c >>> 1 ^ (c & 1 ? 0xedb88320 : 0); }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// SDK packs contain exactly one stored JSON entry. Reject compressed, encrypted,
+// multi-disk, ZIP64, duplicate/traversal entries and trailing data before parsing.
+export function readMachinePack(bytes) {
+  check(bytes instanceof Uint8Array && bytes.length >= 124 && bytes.length <= MACHINE_PACK_LIMIT,
+    'Choose an SDK machine ZIP smaller than 64 MiB.');
+  const d = view(bytes), u16 = at => d.getUint16(at, true), u32 = at => d.getUint32(at, true);
+  const end = bytes.length - 22;
+  check(u32(end) === 0x06054b50 && u16(end + 4) === 0 && u16(end + 6) === 0 &&
+    u16(end + 8) === 1 && u16(end + 10) === 1 && u16(end + 20) === 0,
+    'Expected an SDK machine pack with one manifest. Source and firmware ZIPs cannot be imported.');
+  const central = u32(end + 16), directoryBytes = 46 + packFile.length;
+  check(central >= 30 + packFile.length && central + directoryBytes === end && u32(end + 12) === directoryBytes,
+    'Invalid machine ZIP directory');
+  check(u32(central) === 0x02014b50 && u16(central + 8) === 0 && u16(central + 10) === 0 &&
+    u16(central + 28) === packFile.length && u16(central + 30) === 0 && u16(central + 32) === 0 &&
+    u16(central + 34) === 0 && u32(central + 42) === 0 &&
+    decoder.decode(bytes.subarray(central + 46, end)) === packFile, 'Invalid machine ZIP entry');
+  const start = 30 + packFile.length, size = u32(central + 24), crc = u32(central + 16);
+  check(u32(0) === 0x04034b50 && u16(6) === 0 && u16(8) === 0 && u16(26) === packFile.length &&
+    u16(28) === 0 && u32(14) === crc && u32(18) === size && u32(22) === size &&
+    u32(central + 20) === size && start + size === central &&
+    decoder.decode(bytes.subarray(30, start)) === packFile, 'Invalid machine ZIP header');
+  const data = bytes.subarray(start, central);
+  check(crc32(data) === crc, 'Machine ZIP is damaged');
+  return JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(data), (key, value) => {
+    check(!['__proto__', 'prototype', 'constructor'].includes(key), 'Invalid machine manifest key');
+    return value;
+  });
+}
+
+function checkPackMachine(m) {
+  const identifier = value => typeof value === 'string' && /^[a-z][a-z0-9_]{0,31}$/.test(value) &&
+    !Object.hasOwn(Object.prototype, value);
+  check(m && identifier(m.id) && identifier(m.prefix) && ['synth', 'effect', 'sample'].includes(m.kind) &&
+    m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
+    typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
+    typeof m.description === 'string' && m.description.length <= 2000,
+    'Invalid custom machine metadata');
+  check(Array.isArray(m.controls) && m.controls.length >= (m.kind === 'synth' ? 4 : 1) && m.controls.length <= 8 &&
+    m.controls.every(c => typeof c === 'string' && c.length <= 80) &&
+    Array.isArray(m.positions) && m.positions.length === m.controls.length &&
+    m.positions.every(p => m.kind === 'synth' && p === null || Number.isInteger(p) && p >= 0 && p <= 3) &&
+    typeof m.pages === 'boolean',
+    'Invalid custom machine controls');
+  check(m.absent && typeof m.absent === 'object' && !Array.isArray(m.absent) &&
+    Object.entries(m.absent).every(([symbol, fallback]) => symbol.startsWith(m.prefix + '_') &&
+      /^[a-z][a-z0-9_]*$/.test(symbol) && fallback === 'kit_absent'), 'Invalid machine callbacks');
+  check(m.icon === undefined || typeof m.icon === 'string' && m.icon.length <= 4096 &&
+    /^[MmZzLlHhVvCcSsQqTtAa0-9eE+.,\s-]*$/.test(m.icon), 'Invalid machine icon');
+  check(typeof m.catalog === 'string' && m.catalog.length < 4096 && m.catalog.trim().startsWith(','),
+    'Invalid machine menu');
+  const entry = JSON.parse(m.catalog.trim().slice(1));
+  check(entry.type === m.id && Array.isArray(entry.default_params) && entry.default_params.length === 8 &&
+    entry.default_params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767) &&
+    Object.keys(entry).every(key => ['type', 'id', 'default_params'].includes(key)), 'Invalid machine menu');
+  presetFiles(m);
+  check(m.artwork === undefined || typeof m.artwork === 'string' && m.artwork.length <= 65536 &&
+    m.asset === m.id + '.svg' && !/<!DOCTYPE|<!ENTITY|<\/?(?:script|foreignObject|iframe|image|use|style)\b|\bon\w+\s*=|\bhref\s*=/i.test(m.artwork),
+    'Invalid machine artwork');
+  check(m.kind !== 'synth' || typeof m.artwork === 'string', 'Missing synth artwork');
+  check(m.preview === undefined || m.preview && typeof m.preview.wasm === 'string' &&
+    m.preview.wasm.length <= 16 * 1024 ** 2 && /^[a-f0-9]{64}$/.test(m.preview.sha256) &&
+    Array.isArray(m.preview.defaults) && m.preview.defaults.length === m.controls.length &&
+    m.preview.defaults.every(n => Number.isInteger(n) && n >= 0 && n <= 0x7fffffff), 'Invalid machine preview');
+}
+
+// Import a complete compiled extension of the site's collection. Never replace
+// its firmware profile, stock content, fixed numbers, runtime or existing machines.
+// The five collection-specific objects must accompany the added machines: they
+// carry their registration, controls, sample callbacks and project identities.
+export async function importMachinePack(base, pack) {
+  const fields = ['format', 'version', 'profileSha256', 'definitions', 'fixed', 'machines', 'objects', 'extensions', 'notices'];
+  check(pack && typeof pack === 'object' && Object.keys(pack).sort().join() === fields.sort().join() &&
+    pack.format === 'opxy-machine-pack/1', 'Unsupported machine pack');
+  check(pack.version === base.version && pack.profileSha256 === await sha256(decode64(base.profileSource)) &&
+    sameValue(pack.definitions, base.definitions) && sameValue(pack.fixed, base.fixed) &&
+    sameValue(pack.extensions, base.extensions ?? []),
+    'This pack targets a different Open-XY release or extension collection. Ask its author for a matching pack.');
+  check(Array.isArray(pack.machines) && pack.machines.length > base.machines.length &&
+    pack.machines.length <= base.profile.identities.engines &&
+    base.machines.every((m, i) => sameValue(machineContract(m), machineContract(pack.machines[i]))),
+    'This pack must extend the current catalog without replacing its machines. Ask its author for a matching pack.');
+  const added = pack.machines.slice(base.machines.length);
+  for (const m of added) checkPackMachine(m);
+  check(new Set(pack.machines.map(m => m.id)).size === pack.machines.length &&
+    new Set(pack.machines.map(m => m.prefix)).size === pack.machines.length, 'Duplicate machine identity');
+  check(Array.isArray(pack.objects) && pack.objects.length <= 4096 &&
+    pack.objects.every(o => o && sameValue(o, objectRecord(o)) && typeof o.name === 'string' &&
+      typeof o.bytes === 'string' && /^[a-f0-9]{64}$/.test(o.sha256)) &&
+    new Set(pack.objects.map(o => o.name)).size === pack.objects.length, 'Invalid machine objects');
+  const existingIds = new Set(base.machines.map(m => m.id));
+  const existingObjects = base.objects.map(objectRecord);
+  const preserved = pack.objects.filter(o => o.owner === null || existingIds.has(o.owner));
+  check(preserved.length === existingObjects.length && preserved.every((o, i) => {
+    const old = existingObjects[i];
+    return o.owner === null && collectionObjects.has(o.name)
+      ? sameValue({...o, bytes:'', sha256:''}, {...old, bytes:'', sha256:''}) : sameValue(o, old);
+  }), 'This pack changes the existing machines or SDK runtime. Rebuild it with the matching SDK and catalog.');
+  const addedIds = new Set(added.map(m => m.id));
+  check(pack.objects.every(o => o.owner === null || existingIds.has(o.owner) || addedIds.has(o.owner) &&
+    o.name.startsWith(o.owner + '/') && /^[A-Za-z0-9_./-]+\.o$/.test(o.name) && !o.name.split('/').includes('..') &&
+    o.service === undefined && o.extension === undefined) &&
+    added.every(m => pack.objects.some(o => o.owner === m.id)), 'Missing or unowned machine objects');
+  check(typeof pack.notices === 'string' && pack.notices.length <= 1024 ** 2, 'Invalid machine notices');
+  const candidate = await openKit({...base, linked:undefined, machines:[...base.machines, ...added], objects:pack.objects,
+    notices:base.notices + '\n\nImported machine pack\n\n' + pack.notices});
+  for (const m of added) {
+    if (m.preview) check(await sha256(decode64(m.preview.wasm)) === m.preview.sha256, 'Machine preview hash mismatch');
+    // Catch missing imports, duplicate exports and machines that cannot fit even
+    // alone. The user's combined selection is checked by the normal memory meter.
+    linkKit(candidate, [m.id]);
+  }
+  return candidate;
+}
+
 // Stored ZIP: no dependencies or compression worker, deterministic metadata.
 export function zipFiles(files) {
   const locals = [], central = []; let offset = 0;
-  const crc32 = bytes => {
-    let c = 0xffffffff;
-    for (const b of bytes) { c ^= b; for (let i = 0; i < 8; i++) c = c >>> 1 ^ (c & 1 ? 0xedb88320 : 0); }
-    return (c ^ 0xffffffff) >>> 0;
-  };
   for (const [name, bytes] of Object.entries(files)) {
     check(/^[a-zA-Z0-9_./-]+$/.test(name) && !name.includes('..') && !name.startsWith('/'), 'Invalid bundle path');
     const path = utf8.encode(name), crc = crc32(bytes), local = new Uint8Array(30 + path.length), d = view(local);

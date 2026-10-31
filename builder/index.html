@@ -98,7 +98,13 @@
       <aside class="inspector" aria-label="Machine details"><div class="summary-space"><div id="machine-summary"><div class="inspector-top"><span id="detail-kind" class="eyebrow detail-kind">Synth</span><span class="tag">Experimental</span></div><h2 id="detail-name" class="detail-name"></h2><p id="detail-description" class="detail-description"></p><p id="detail-source" class="detail-source"></p><p id="community-notice" class="community-notice" hidden>Community machines aren’t officially supported by the Open-XY SDK. Use at your own risk; instability or unexpected audio may occur.</p></div></div><div class="preview-space"><div id="art-preview" class="art-preview"></div></div><p id="art-caption" class="caption"></p><div id="controls" class="controls"></div><div id="audition-controls" class="audition-controls" aria-label="Sound preview"></div><details><summary>Machine details</summary><dl class="machine-facts" id="machine-facts"></dl></details></aside>
     </div>
 
-    <div class="actions"><button data-step="1" class="secondary">← OS</button><button id="choose-extensions" class="primary" disabled>Choose extensions <span aria-hidden="true">→</span></button></div>
+    <div class="actions machine-actions"><button data-step="1" class="secondary">← OS</button><div class="action-buttons"><label class="file-button">Import machines ZIP<input id="machine-pack" type="file" accept=".zip,application/zip" disabled></label><button id="choose-extensions" class="primary" disabled>Choose extensions <span aria-hidden="true">→</span></button></div></div>
+    <p id="machine-pack-result" role="status" aria-live="polite"></p>
+    <details class="machine-import"><summary>About machine ZIPs</summary>
+      <p>Import an SDK machine pack made for this catalog. Files stay in this browser. Only import code from authors you trust.</p>
+      <p>One pack can contain several machines. Importing another replaces the current pack. Reloading clears imported machines.</p>
+      <button id="remove-machine-pack" type="button" class="secondary" hidden>Remove imported machines</button>
+    </details>
   </section>
   <section data-page="3" hidden aria-labelledby="extensions-title">
     <div class="page-header"><div><span class="eyebrow">Step 3 of 4 · Extensions</span><h1 id="extensions-title" tabindex="-1">Choose extensions</h1><p>Add optional features to how your OP–XY works. Leave them off to keep your current workflow.</p></div><span id="extension-count" class="counter">None selected</span></div>

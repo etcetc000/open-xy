@@ -32,6 +32,50 @@ backfilled with host estimates.
 IDs are unique across the catalog. Open-XY's own machines are entries like
 any other, published from the [core machines](https://github.com/etcetc000/open-xy-core-machines).
 
+## Import custom machines
+
+On the builder's **Choose machines** page, choose **Import machines ZIP** beside
+**Choose extensions**. An SDK-built pack adds one or more machines
+marked **Yours**, initially unselected. The file stays in the browser; importing
+does not publish a catalog entry. Import code only from authors you trust:
+native machine code is not sandboxed or reviewed by Open-XY.
+
+A pack extends the site's exact machine collection. It cannot replace existing
+machines, change the SDK runtime or add extensions. Its compiled registration,
+control and sample callback tables accompany the added machines, so independent
+packs cannot be combined: export the desired custom machines together. Importing
+another pack replaces the previous pack. **Remove imported machines** under
+**About machine ZIPs** restores
+the site's collection. Both operations keep saved machine numbers reserved.
+Reloading clears the imported pack; keep its ZIP and your saved layout to use it
+again. Import the pack before loading a layout that selects its machines.
+
+### Export a machine pack
+
+Use the SDK revision and catalog shipped by the destination site, the pinned
+native tools and your own stock OS. Fetch its catalog, then append your custom
+machine folders in one export (repeat `--machine` for additional machines):
+
+```sh
+python sdk.py catalog fetch --tags
+python sdk.py kit --personal --machine-pack --collection local/catalog/collection.json --machine ../mymachine --stock-os <stock-1.2.1>/os.ldr --out <external-builds>/machine-pack-001
+```
+
+After native and browser verification passes, share only `machines.zip` from
+the output directory. It contains compiled objects, machine metadata, artwork,
+available browser previews and notices, with no firmware or stock content.
+The surrounding kit and build directory contain stock inputs and must stay
+outside every checkout. The pack limit is 64 MiB. A source repository ZIP or
+firmware installation ZIP is not a machine pack.
+
+The importer rejects changed catalog machines, mismatched releases/runtime,
+duplicate identities, damaged objects and machines that cannot link or fit
+individually. The normal memory meter checks the combined selection. After a
+site release or catalog update, its author may need to export a matching pack.
+Checks do not certify an author's native code, measure CPU or establish device
+recovery. The format is a single stored `machines.json` entry in ZIP, identified
+as `opxy-machine-pack/1`; use the exporter rather than assembling it by hand.
+
 [Firmware extensions](extensions.md) have a catalog of their own,
 `catalog/extensions.json`, in the same format under `"extensions"`: `kind` is
 `extension`, `path` is the extension's folder, and there is no `cpu` record
