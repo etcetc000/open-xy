@@ -1,0 +1,13 @@
+{
+  "id": "arrangement_probe",
+  "name": "Arrangement probe",
+  "description": "SDK fixture exercising the retained Arrange surface and paired GUI input.",
+  "claims": [
+    "arrangement_surface"
+  ],
+  "actions": [
+    "read_patterns",
+    "surface_reply"
+  ],
+  "arrangement": true
+}

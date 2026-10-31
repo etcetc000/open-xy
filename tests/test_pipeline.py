@@ -86,7 +86,7 @@ class Services(unittest.TestCase):
         profile = config()
         self.assertEqual(active_services(profile, ['synth', 'effect']), set())
         self.assertEqual(active_services(profile, ['sample']), {'samples'})
-        self.assertEqual(active_services(profile, ['synth', 'extension']), {'extensions'})
+        self.assertEqual(active_services(profile, ['synth', 'extension']), {'extensions', 'arrangement'})
         from tooling.extensions import extension_at
         from tooling.pipeline import ROOT
         probe = extension_at(ROOT / 'tests/fixtures/extension_probe')
@@ -98,7 +98,7 @@ class Services(unittest.TestCase):
         self.assertEqual(steps(machines), list(native.SDK_UNITS))  # full collections keep the link order
         without = [m for m in machines if m.kind != 'sample']  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
-        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'extensions'})
+        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'extensions', 'arrangement'})
         self.assertEqual(native.object_services(without), {})
 
     def test_only_a_service_edit_may_stay_stock(self):

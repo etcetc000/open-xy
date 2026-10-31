@@ -283,3 +283,5 @@ int main() {
     CHECK(!extension_discover_pattern(2,1,info));
     return 0;
 }
+
+bool sdk_arrangement_post_reply(const extensions::ArrangementContext&, const u8*, u32) { return false; }

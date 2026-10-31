@@ -1,4 +1,6 @@
 #include "extension_runtime.hpp"
+#include "arrangement_descriptor.hpp"
+extern "C" const opxy::extensions::ArrangementSurface* sdk_arrangement_owner() __asm__("sdk_arrangement_owner");
 
 namespace opxy { namespace platform {
 namespace {
@@ -6,7 +8,7 @@ extensions::Context current;
 const ExtensionEntry* entries;
 const ExtensionRegistry* registry;
 u32 entry_count;
-bool initialized, dispatching;
+bool initialized, dispatching, surface_reply_scope;
 char notification[32];
 
 // The actions one callback may take, and what it has done with them: one stock
@@ -44,7 +46,7 @@ bool ready() {
         const ExtensionEntry& entry = list[i];
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
             (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count)) ||
-            (entry.claims && !entry.hooks->queued_control)) return false;
+            (entry.claims && !entry.hooks->queued_control && !(entry.hooks->arrangement && entry.hooks->arrangement->intent))) return false;
         for (u32 a = 0; a < known.action_count; ++a) {
             if (!(entry.actions & (1u << a))) continue;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
@@ -117,14 +119,34 @@ bool read_pattern(const extensions::PatternRef& ref, RecordedNote* out, u32 capa
 }
 u32 request_pattern_read(const extensions::PatternRef& ref) {
     if (!(transaction.granted & action_read_patterns) || !transaction.owner || pending_read.state ||
-        ref.track >= 8 || ref.index >= 16 || !entries[transaction.owner-1].hooks->pattern_read_result) return 0;
+        ref.track >= 8 || ref.index >= 16 || (!entries[transaction.owner-1].hooks->pattern_read_result &&
+         !(entries[transaction.owner-1].hooks->arrangement && entries[transaction.owner-1].hooks->arrangement->pattern_result))) return 0;
     if (!++read_ticket) ++read_ticket;
     pending_read.owner=transaction.owner; pending_read.ticket=read_ticket; pending_read.ref=ref;
     pending_read.success=false;pending_read.count=0;
     extension_barrier();pending_read.state=1;
     return read_ticket;
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes, discover_pattern, read_pattern, request_pattern_read};
+bool post_arrangement_reply(const extensions::ArrangementContext& expected, const u8* data, u32 size) {
+    if (!surface_reply_scope || !(transaction.granted & action_surface_reply) || !transaction.owner || transaction.owner > entry_count ||
+        entries[transaction.owner - 1].hooks->arrangement != sdk_arrangement_owner()) return false;
+    return sdk_arrangement_post_reply(expected, data, size);
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, discover_pattern, read_pattern, request_pattern_read, post_arrangement_reply};
+void deliver_arrangement_intent() {
+    extensions::ArrangementIntent intent;
+    const auto* surface = sdk_arrangement_owner();
+    if (!surface || !surface->intent || !sdk_arrangement_take_intent(&intent)) return;
+    for (u32 i = 0; i < entry_count; ++i) {
+        if (entries[i].hooks->arrangement != surface) continue;
+        transaction = {entries[i].actions & ~action_edit_notes, false, false, i + 1};
+        surface_reply_scope = true;
+        surface->intent(current, intent, actions);
+        surface_reply_scope = false;
+        transaction = {0, false, false, 0};
+        return;
+    }
+}
 void deliver_pattern_read() {
     if (pending_read.state != 2) return;
     extension_barrier();
@@ -137,6 +159,16 @@ void deliver_pattern_read() {
         success ? pending_read.notes : nullptr,success ? pending_read.count : 0};
     if(owner && owner<=entry_count && entries[owner-1].hooks->pattern_read_result)
         entries[owner-1].hooks->pattern_read_result(result);
+    if (owner && owner <= entry_count) {
+        const auto* surface = entries[owner - 1].hooks->arrangement;
+        if (surface && surface == sdk_arrangement_owner() && surface->pattern_result) {
+            transaction = {entries[owner - 1].actions & action_surface_reply, false, false, owner};
+            surface_reply_scope = true;
+            surface->pattern_result(result, actions);
+            surface_reply_scope = false;
+            transaction = {0, false, false, 0};
+        }
+    }
     extension_barrier();pending_read.state=0;
 }
 }
@@ -148,6 +180,7 @@ void extensions_sync() {
     for (u32 i = 0; i < entry_count; ++i)
         if (entries[i].hooks->context) entries[i].hooks->context(current);
     deliver_pattern_read();
+    deliver_arrangement_intent();
     dispatching = false;
 }
 void extensions_gui_poll() {

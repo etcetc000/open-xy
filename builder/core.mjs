@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '61a0f259aaef79554df27ea0679c907584f032675bf61cc391d339623ce4cab2';
+export const PROFILE_SHA256 = '9902a008a4b5bf640ebdd21539254f16c0616bb1345da196680c87efe0080f20';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -311,6 +311,7 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
 
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
 export function sharedClaim(extensions) {
+  if (extensions.filter(e => e.arrangement).length > 1) return 'arrangement';
   const seen = new Set();
   for (const e of extensions) for (const claim of e.claims ?? []) {
     if (seen.has(claim)) return claim;
@@ -360,6 +361,7 @@ export async function openKit(kit) {
       Object.entries({name: 32, description: 140, note: 100}).every(([key, limit]) => key === 'note' && e[key] === undefined ||
         typeof e[key] === 'string' && e[key].length > 0 && e[key].length <= limit) &&
       EXTENSION_ORIGINS.includes(e.origin) &&
+      (e.arrangement === undefined || typeof e.arrangement === 'boolean') &&
       e.claim_labels && typeof e.claim_labels === 'object' &&
       Object.keys(e.claim_labels).sort().join() === [...(e.claims ?? [])].sort().join() &&
       Object.values(e.claim_labels).every(l => typeof l === 'string' && l.length > 0 && l.length <= 40) &&
@@ -457,6 +459,11 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
     const symbol = 'sdk_extension_' + e.id + '_hooks';
     check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
     aliases.set(symbol, globals.get('kit_absent'));
+    if (e.arrangement) {
+      const surface = 'sdk_extension_' + e.id + '_surface';
+      check(!globals.has(surface), 'Invalid absent surface accessor');
+      aliases.set(surface, globals.get('kit_absent'));
+    }
   }
   for (const m of kit.machines) if (!selected.has(m.id)) {
     for (const [symbol, fallback] of Object.entries(m.absent)) {

@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, screen, startup_label, stock_tables
+from . import arrangement, benchmark, extensions, screen, startup_label, stock_tables
 from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
@@ -205,13 +205,14 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'extension_gui', 'extension_gui_stock', 'presets')
+             'extension_runtime', 'extension_collection', 'extension_stock', 'extension_gui', 'extension_gui_stock', 'arrangement_registry', 'arrangement_hooks', 'arrangement_stock', 'presets')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
-UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'extension_gui', 'extension_gui_stock'), 'extensions'))
+UNIT_SERVICES.update(dict.fromkeys(('arrangement_hooks', 'arrangement_stock'), 'arrangement'))
+UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_stock', 'extension_gui', 'extension_gui_stock'), 'extensions'))
 
 
 def service_users(machines):
@@ -369,7 +370,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step.startswith('extension:'):
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
-                return cxx(str(extensions.generate_extension(folder, extension)), obj)
+                return compile_cxx(gcc['cxx'], tools['as'], str(extensions.generate_extension(folder, extension)), obj, includes() + [folder])
+            if step == 'arrangement_stock':
+                return assemble_unit(arrangement.generate(folder), obj)
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
             if step == 'extension_collection':
@@ -393,7 +396,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines])), obj)
+                                                [x.prefix for x in sample_engines], True)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -580,6 +583,7 @@ def check_module(directory, tools, profile, machines, profiling=True):
     verified_ranges = [(label['value'], label['value'] + label['size'])] + ([gui] if gui else [])
     undecoded = [int(line.split(':')[0], 16) for line in disassembly.splitlines()
                  if 'ILLEGAL' in line and re.match(r'\s*[0-9a-f]+:', line)]
+    verified_ranges += arrangement.checked_ranges(profile, module, symbols, allocated['.text'])
     require(all(any(begin <= at < end for begin, end in verified_ranges) for at in undecoded) and
             'R_BFIN_' not in disassembly, 'Invalid or unresolved instructions')
     require(startup_label.thunk_ok(read(directory / 'module.bin'), label['value'] - profile['module_base'],
