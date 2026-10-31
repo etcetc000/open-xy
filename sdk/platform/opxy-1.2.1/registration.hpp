@@ -84,7 +84,8 @@ int sdk_register_engine(const opxy::platform::Record*) __asm__("sdk_register_eng
 int sdk_register_effect(const opxy::platform::Record*) __asm__("sdk_register_effect");
 int sdk_register_screen(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_register_screen");
 int sdk_engine_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_engine_ready");
-int sdk_effect_ready(const opxy::platform::Record*) __asm__("sdk_effect_ready");
+// An effect with its own page (SDK 1.7) passes its screen; one on stock's FX page, null.
+int sdk_effect_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_effect_ready");
 int sdk_name_matches(const opxy::platform::Record*, const void* string) __asm__("sdk_name_matches");
 int sdk_stock_engine_known(const void* name) __asm__("sdk_stock_engine_known");
 }

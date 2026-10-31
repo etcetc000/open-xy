@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -248,6 +249,24 @@ def fetch(entry, cache=CACHE):
     return m
 
 
+def remove_tree(folder):
+    """Deletes a fetched folder, including the files git keeps read-only on Windows."""
+    def writable(function, path, _info):
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+    shutil.rmtree(folder, onerror=writable)
+
+
+def prune(cache, kept):
+    """Deletes the cache's fetched folders that hold none of `kept`; their names."""
+    cache = Path(cache).resolve()
+    keep = {Path(folder).resolve().relative_to(cache).parts[0] for folder in kept}
+    removed = [folder for folder in sorted(cache.iterdir()) if folder.is_dir() and folder.name not in keep]
+    for folder in removed:
+        remove_tree(folder)
+    return [folder.name for folder in removed]
+
+
 def head(folder):
     """The commit a git folder has checked out, or None."""
     try:
@@ -279,6 +298,20 @@ def pinned(m, entries):
         return False
 
 
+def base_entries(base, listed, path):
+    """A catalog file's entries at a git revision; a revision without the file held none."""
+    name = path.relative_to(ROOT).as_posix()
+    present = git('ls-tree', '--name-only', base, name, cwd=ROOT).strip()
+    before = json.loads(git('show', f'{base}:{name}', cwd=ROOT)) if present else None
+    if not before:
+        return []
+    # Entries before layouts gave machine numbers also listed an identity.
+    for entry in before.get(listed, []):
+        if isinstance(entry, dict):
+            entry.pop('identity', None)
+    return validate(before, listed)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='sdk.py catalog', description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -295,24 +328,22 @@ def main(argv=None):
     for sub in (fetching, testing):
         sub.add_argument('--cache', type=Path, default=CACHE, help='fetched machines (default: local/catalog)')
         sub.add_argument('--tags', action='store_true', help='also confirm each release tag still names its commit')
+        sub.add_argument('--prune', action='store_true',
+                         help='then delete fetched folders the catalog no longer pins, such as earlier releases')
     testing.add_argument('--cxx', default='clang++', help='Clang++ with wasm32/wasm-ld, for synth previews')
     testing.add_argument('--host-cxx', default='c++', help="host C++11 compiler for each machine's tests")
+    testing.add_argument('--changed-from', metavar='REVISION',
+                         help='test only the entries that differ from the catalog at this git revision '
+                              '(every entry is still fetched and in the collection)')
+    testing.add_argument('--jobs', type=int, default=1, help='folders checked at once (default: 1)')
+    testing.add_argument('--no-cpu', action='store_true', help='skip the CPU estimates')
     args = parser.parse_args(argv)
     try:
         catalogs = (('machines', CATALOG, load()), ('extensions', EXTENSION_CATALOG, load_extensions()))
         if args.command == 'check':
             for listed, path, entries in catalogs:
                 if args.base:
-                    # A base without a catalog held nothing yet.
-                    name = path.relative_to(ROOT).as_posix()
-                    present = git('ls-tree', '--name-only', args.base, name, cwd=ROOT).strip()
-                    before = json.loads(git('show', f'{args.base}:{name}', cwd=ROOT)) if present else None
-                    if before:
-                        # Entries before layouts gave machine numbers also listed an identity.
-                        for entry in before.get(listed, []):
-                            if isinstance(entry, dict):
-                                entry.pop('identity', None)
-                    before = validate(before, listed) if before else []
+                    before = base_entries(args.base, listed, path)
                     changes(before, entries, args.allow_carried_cpu)
                     # A moved release is fetched at both commits to compare its controls.
                     if listed == 'machines':
@@ -329,15 +360,19 @@ def main(argv=None):
                 print(f'PASS: {len(entries)} {listed[:-1]} entr{"y" if len(entries) == 1 else "ies"}; '
                       'IDs are unique.')
             return 0
-        found = {}
-        for listed, _path, entries in catalogs:
-            found[listed] = []
+        found, tested = {}, {}
+        for listed, path, entries in catalogs:
+            found[listed], tested[listed] = [], []
+            earlier = ({e['id']: e for e in base_entries(args.changed_from, listed, path)}
+                       if getattr(args, 'changed_from', None) else {})
             for entry in (e for e in entries if e['status'] == 'published'):
                 if args.tags:
                     require(tag_commit(entry['repository'], entry['tag']) == entry['commit'],
                             f"{entry['id']}: tag {entry['tag']} no longer names the catalog's commit")
                 fetched = fetch(entry, args.cache)
                 found[listed].append(fetched.root)
+                if not earlier or earlier.get(entry['id']) != entry:
+                    tested[listed].append(fetched.root)
                 print(f"Fetched {fetched.id} {entry['tag']} ({entry['commit'][:12]}): {fetched.root}")
         # Every published machine and extension, in catalog order: a collection for any build command.
         collection = Path(args.cache) / 'collection.json'
@@ -347,11 +382,21 @@ def main(argv=None):
                                           'extensions': relative(found['extensions'])}, indent=2) + '\n',
                               encoding='utf-8')
         print(f'Collection: {collection} (pass it to build, compile or kit with --collection)')
-        if args.command == 'test' and (found['machines'] or found['extensions']):
+        if args.prune:
+            for name in prune(args.cache, [f for folders in found.values() for f in folders]):
+                print(f'Removed {name}: the catalog no longer pins it')
+        if args.command != 'test':
+            return 0
+        if args.changed_from:
+            # For a change to the catalog alone: the other entries passed against this same SDK.
+            print(f"Testing {len(tested['machines'])} machine and {len(tested['extensions'])} extension "
+                  f'entries that differ from {args.changed_from}')
+        if tested['machines'] or tested['extensions']:
             from .machine_test import main as test
-            return test([*(f'--machine={folder}' for folder in found['machines']),
-                         *(f'--extension={folder}' for folder in found['extensions']),
-                         '--cxx', args.cxx, '--host-cxx', args.host_cxx])
+            return test([*(f'--machine={folder}' for folder in tested['machines']),
+                         *(f'--extension={folder}' for folder in tested['extensions']),
+                         '--cxx', args.cxx, '--host-cxx', args.host_cxx, '--jobs', str(args.jobs),
+                         *(['--no-cpu'] if args.no_cpu else [])])
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

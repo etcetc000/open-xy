@@ -15,7 +15,7 @@ from machine_fixtures import fixture
 class Generation(unittest.TestCase):
     def test_optional_services_are_explicit_integer_flags(self):
         definition = copy.deepcopy(fixture('probesample').definition)
-        for key in ('sampleAnalysis', 'chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput'):
+        for key in ('sampleAnalysis', 'chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming'):
             for value in (True, -1, 2, '1', None):
                 invalid = copy.deepcopy(definition)
                 invalid['resources'][key] = value
@@ -30,6 +30,12 @@ class Generation(unittest.TestCase):
         del drum_only['resources']['padSettings']
         with self.assertRaisesRegex(ValueError, 'padSettings'):
             validate_definition(drum_only, 'sample')
+        timed = copy.deepcopy(definition)
+        timed['resources']['sliceTiming'] = 1
+        validate_definition(timed, 'sample')
+        timed['resources']['drumControls'] = 0
+        with self.assertRaisesRegex(ValueError, 'sliceTiming needs drumControls'):
+            validate_definition(timed, 'sample')
         definition['resources'] = {'voiceCapacity': 256}
         validate_definition(definition, 'sample')
 

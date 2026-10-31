@@ -54,6 +54,23 @@ struct DrumPanel {
     char shifted[2][16];  // two NUL-terminated Shift captions of at most 15 characters
 };
 
+// Frozen controls for a forward, one-pass lazy-chop audition. The source range
+// is the waveform's outer range; live trim/reverse/loop controls do not change
+// that range while taps divide it. No PCM or analysis is accessed by this
+// GUI-side timing callback.
+struct SampleSlice {
+    u32 frames, rate, bpm_x10;
+    SampleRegion region;
+    PadSettings settings;
+    const i32* parameters;
+    i32 track_transpose;
+};
+// Source frames per 44.1 kHz output frame, multiplied by unsigned Q12 tuning.
+// Denominator and tuning must be positive; a zero numerator means no advance.
+// The same frozen inputs drive audition audio; the GUI converts this ratio
+// into source frames per elapsed second.
+struct SampleSliceRate { u32 numerator, denominator, tuning; };
+
 // One audio block. All pointers are borrowed for this call. Analysis is
 // immutable and can be absent while preparation is pending, unsupported or out
 // of cache budget; it belongs to the same retained PCM as the voice.
@@ -70,5 +87,6 @@ struct SampleBlock {
     // Page 7: semitones from the note's canonical pad to the played note (a
     // multiple of 12), captured at note start. 0 on page 2.
     i32 drum_transpose;
+    bool slicing;          // forward, one-pass audition using frozen outer bounds
 };
 }
