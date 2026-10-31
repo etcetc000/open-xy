@@ -76,7 +76,7 @@ class SynthSteps(unittest.TestCase):
                 stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                       'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
             (folder / 'stock.hpp').write_text(stock, encoding='utf-8')
-            (folder / 'synth_controls.cpp').write_bytes((platform / 'synth_controls.cpp').read_bytes())
+            (folder / 'synth_controls.cpp').write_text((platform / 'synth_controls.cpp').read_text().replace('stock<u32(u32)>(0x8d587708)', 'stock<Address(u32)>(0x8d587708)'))
             binary = folder / ('test.exe' if os.name == 'nt' else 'test')
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
             result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',

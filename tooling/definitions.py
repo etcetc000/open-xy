@@ -66,9 +66,9 @@ RESOURCES = {
 # A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
 # declares its frame's budget within these limits.
 DISPLAY_FIELDS = ('stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'texts', 'palette')
-DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 16), palette=(1, 16))
-# More text slots than this need SDK 1.3 (tooling.machines).
-SDK_1_2_TEXTS = 4
+DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 32), palette=(1, 16))
+# More text slots than these need SDK 1.3 and 1.7 (tooling.machines).
+SDK_1_2_TEXTS, SDK_1_6_TEXTS = 4, 16
 # Analysis storage is allocated from the stock heap at runtime, which also holds
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
@@ -77,7 +77,8 @@ SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', '
 SAMPLE_OPTIONS = ('sampleAnalysis', 'display', *SAMPLE_FLAGS)
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
-EFFECT_OPTIONS = ('bufferBytes', 'transport')
+# An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
+EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 EFFECT_BUFFER_LIMIT = 524288
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
@@ -88,6 +89,9 @@ CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
 SYNTH_POSITIONS = 4
+# An effect's shift row (SDK 1.7) packs its choices into one Q31 word; this many
+# combinations keep each one's bucket over a thousand codes wide.
+SHIFT_STATES = 1 << 20
 
 
 def control_positions(definition):
@@ -107,8 +111,8 @@ def paged(definition):
 
 
 def validate_definition(value, kind):
-    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *(('press',) if 'press' in value else ())),
-         'definition')
+    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources',
+                 *(k for k in ('press', 'shift') if k in value)), 'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
@@ -144,6 +148,8 @@ def validate_definition(value, kind):
                 % EFFECT_BUFFER_LIMIT)
     if kind == 'effect':
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
+        if 'display' in resources:
+            validate_display(resources['display'])
     if kind == 'synth':
         validate_synth_resources(resources)
         require(resources.get('noteStart', 0) in (0, 1), 'noteStart must be 0 or 1')
@@ -160,15 +166,37 @@ def validate_definition(value, kind):
     # Two pages share positions with no alternate; no duplicate saved parameters.
     if 'press' in value:
         alternates = control_positions(value)[SYNTH_POSITIONS:]
-        require((kind == 'synth' or resources.get('sampleDisplay')) and ((value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+        require((kind in ('synth', 'effect') or resources.get('sampleDisplay')) and ((value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 len(set(alternates)) == len(alternates)) or
                 (kind == 'synth' and value['press'] == 'action' and len(parameters) == 4)),
                 'press needs page with five to eight synth parameters, or action with exactly four')
+    if 'shift' in value:
+        validate_shift(value['shift'], kind, set(names))
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     for name, preset in value['presets'].items():
         label(name); keys(preset, names, 'preset')
         for default in preset.values(): number(default, 0, 1, 'preset value')
     return value
+
+
+def validate_shift(shift, kind, names):
+    # An effect's shift row: one to four enum controls that Shift and the send
+    # page's encoders choose, packed into one send-track word (synth_controls.cpp).
+    require(kind == 'effect' and isinstance(shift, list) and 1 <= len(shift) <= SYNTH_POSITIONS,
+            'An effect\'s shift row holds one to four controls')
+    count = 1
+    for parameter in shift:
+        validate_parameter(parameter)
+        require(parameter['mapping']['kind'] == 'enum', 'A shift-row control is an enum')
+        require(parameter['id'] not in names, 'Duplicate parameter identity')
+        names.add(parameter['id'])
+        count *= len(parameter['mapping']['labels'])
+    require(count <= SHIFT_STATES, 'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
+
+
+def shift_parameters(definition):
+    """An effect's shift-row controls (SDK 1.7), or none."""
+    return definition.get('shift', [])
 
 
 def validate_synth_resources(resources):

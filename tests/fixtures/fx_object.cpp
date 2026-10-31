@@ -20,7 +20,7 @@ int main() {
         // Without a declared control, the fourth word must not become Dry.
         if (slot < 0) params[3] = values[n];
         else params[static_cast<unsigned>(slot)] = values[n];
-        const opxy::i32 expected = slot < 0 ? 0x7fffffff : values[n];
+        const opxy::i32 expected = slot < 0 ? @DRY_LEVEL@ : values[n];
         if (dry(object, params) != expected) return 3;
         opxy::i32 left[64] = {}, right[64] = {};
         process(object, left, right, params);

@@ -3,8 +3,9 @@
 import { inputWords } from './controls.mjs';
 
 // draw::Input: parameters[4], elapsed, track, note_serial, reduced_motion,
-// shown[4 bytes], slots[8], held_notes, note_off_serial. ABI 1 ends after slots.
-const INPUT_BYTES = 76;
+// shown[4 bytes], slots[8], held_notes, note_off_serial, shift, choices[4 bytes].
+// ABI 1 ends after slots, ABI 2 after note_off_serial.
+const INPUT_BYTES = {1: 68, 2: 76, 3: 84};
 const integer = (value, low, high, name) => {
   if (!Number.isInteger(value) || value < low || value > high) throw new Error(`Invalid ${name}`);
   return value;
@@ -79,11 +80,12 @@ export class PreviewDisplay {
     this.api = new WebAssembly.Instance(module).exports;
     const e = this.api;
     const abi = e.opxy_display_abi(), inputBytes = e.opxy_display_input_bytes();
-    if (!(abi === 1 && inputBytes === 68 || abi === 2 && inputBytes === INPUT_BYTES)) throw new Error('Unsupported drawing ABI');
-    this.noteActivity = abi === 2;
+    if (INPUT_BYTES[abi] !== inputBytes) throw new Error('Unsupported drawing ABI');
+    this.noteActivity = abi >= 2;
+    this.effectRow = abi >= 3;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
-    // Largest declared frame: 4 paths of 64 points, 256 nodes, 16 texts and the header.
-    const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 16 * 36 + 32, 'drawing frame size');
+    // Largest declared frame: 4 paths of 64 points, 256 nodes, 32 texts and the header.
+    const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 32 * 36 + 32, 'drawing frame size');
     this.memory = e.memory.buffer;
     const ranges = [
       [e.opxy_display_state(), this.stateBytes], [e.opxy_display_input(), inputBytes], [e.opxy_display_frame(), frameBytes],
@@ -102,7 +104,8 @@ export class PreviewDisplay {
   }
   reset() { this.api.opxy_display_reset(); }
   // input: shownControls(words, shown) from controls.mjs.
-  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null) {
+  // shiftRow: an effect's {shift, choices[4]}; a synth's page leaves it null.
+  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, shiftRow = null) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -111,9 +114,13 @@ export class PreviewDisplay {
     integer(track, 0, 0xffffffff, 'track identity');
     const held = activity === null ? 0xffffffff : integer(activity.held_notes, 0, 128, 'held note count');
     const released = activity === null ? 0 : integer(activity.note_off_serial, 0, 0xffffffff, 'note-off serial');
+    const shift = shiftRow === null ? 0 : Number(Boolean(shiftRow.shift));
+    const choices = shiftRow === null ? [0, 0, 0, 0] : shiftRow.choices.map(c => integer(c, 0, 255, 'shift choice'));
+    if (choices.length !== 4) throw new Error('Invalid shift row');
     if (this.api.memory.buffer !== this.memory) throw new Error('Display memory changed');
     this.input.set([p0, p1, p2, p3, elapsed >>> 0, track, serial, Number(reducedMotion), shown, ...slots]);
     if (this.noteActivity) this.input.set([held, released], 17);
+    if (this.effectRow) this.input.set([shift, choices[0] | choices[1] << 8 | choices[2] << 16 | (choices[3] << 24) >>> 0], 19);
     this.api.opxy_display_render();
     if (this.api.opxy_display_valid() !== 1) throw new Error('Display emitted an invalid drawing frame');
     return this.frame;
@@ -159,7 +166,7 @@ export class SvgDisplay {
     if (!Array.isArray(nodes) || !Array.isArray(texts) || !Array.isArray(palette) ||
         !Number.isInteger(paths) || paths < 0 || paths > 4 || paths > nodes.length ||
         !Number.isInteger(points) || (paths ? points < 2 || points > 64 : points !== 0) ||
-        nodes.length < 1 || nodes.length > 256 || texts.length > 16 || palette.length < 1 || palette.length > 16) {
+        nodes.length < 1 || nodes.length > 256 || texts.length > 32 || palette.length < 1 || palette.length > 16) {
       throw new Error('Unsupported retained asset bindings');
     }
     this.points = points;

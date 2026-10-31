@@ -32,7 +32,9 @@ sdk_screen_advance:
  * parameter vector, whose first field [P5 + 4] points to its Q31 words (stock
  * reads word i there and prints it as 00-99); R7 and P5 are callee-saved, so
  * they are intact here. Pass the position and its word to C++
- * (synth_controls.cpp), which makes the call itself. */
+ * (synth_controls.cpp), which makes the call itself. Its nonzero result is a
+ * stand-in parameter vector for the remainder of this draw; zero keeps P5.
+ * The enclosing stock page preserves/restores its caller's P5. */
 .extern sdk_fx_value_text
 .global sdk_fx_value
 .type sdk_fx_value, STT_FUNC
@@ -46,6 +48,10 @@ sdk_fx_value:
     [SP + 12] = R3;
     R2 = R7;
     CALL sdk_fx_value_text;
+    CC = R0 == 0;
+    IF CC JUMP .Lfx_value_done;
+    P5 = R0;
+.Lfx_value_done:
     SP += 16;
     UNLINK;
     RTS;

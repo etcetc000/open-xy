@@ -21,6 +21,16 @@ class Startup(unittest.TestCase):
             self.assertIn(f'__asm__("{prefix}_engine_id")', text)
         self.assertNotIn('probesample_screen_register', text)
 
+    def test_fixed_effect_pages_precede_dynamic_sample_slots(self):
+        text = render(['probesynth', 'probesample'], ['probefx'], ['probesample'],
+                      ['probesample'], ['probefx'])
+        self.assertLess(text.index('    probefx_screen_register();'),
+                        text.index('    probesample_screen_register();'))
+        self.assertIn('page == value(probefx_fx_page_id)', text)
+        self.assertIn('page && page == probesample_display_page()', text)
+        with self.assertRaises(ValueError):
+            render(['probesynth'], ['probefx'], effect_screens=['foreign'])
+
     def test_rejects_invalid_machine_lists(self):
         for prefixes in ([], ['probesynth', 'probesynth'], ['Bad'], ['x%d' % i for i in range(MAX_ENGINES + 1)]):
             with self.subTest(prefixes=prefixes[:3]), self.assertRaises(ValueError):
