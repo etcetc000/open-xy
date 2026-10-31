@@ -36,6 +36,20 @@ for line in sys.stdin:
         with self.assertRaisesRegex(ValueError, 'sequence'):
             device.rpc('open')
 
+    def test_interrupt_finishes_request_before_rollback_rpc(self):
+        device = self.session('''import json,sys,os,signal,time
+for line in sys.stdin:
+ q=json.loads(line)
+ if q['op']=='interrupt':
+  os.kill(os.getppid(),signal.SIGINT)
+  time.sleep(.02)
+ print(json.dumps({'seq':q['seq'],'result':None}),flush=True)
+ if q['op']=='close': break
+''')
+        with self.assertRaises(KeyboardInterrupt):
+            device.rpc('interrupt')
+        self.assertIsNone(device.rpc('close'))
+
     def test_exited_adapter_is_reported(self):
         device = self.session('import sys;sys.stdin.readline()')
         with self.assertRaisesRegex(ValueError, 'exited'):
