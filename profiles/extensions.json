@@ -18,6 +18,7 @@
     "read_patterns": {},
     "surface_reply": {
       "requires": "arrangement_surface"
-    }
+    },
+    "project_state": {}
   }
 }

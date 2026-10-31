@@ -28,6 +28,11 @@ void render(const ArrangementContext&, i32, ArrangementFrame& f) {
 ArrangementContext controller_origin;
 u32 reply_notes;
 void intent(const Context&, const ArrangementIntent& event, const Actions& actions) {
+    if (event.code == 2) {
+        const u8 value = static_cast<u8>(event.values[0]);
+        actions.publish_project_state({event.origin.project, event.origin.identity}, &value, 1);
+        return;
+    }
     PatternInfo info{};
     if (event.code == 1 && actions.discover_pattern(event.values[0], event.values[1], info) &&
         actions.request_pattern_read(info.ref)) controller_origin = event.origin;

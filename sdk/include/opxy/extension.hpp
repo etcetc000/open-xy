@@ -1,5 +1,6 @@
 #pragma once
 #include <opxy/types.hpp>
+#include <opxy/project_state.hpp>
 
 namespace opxy { namespace extensions {
 struct ArrangementSurface;
@@ -77,6 +78,8 @@ struct Actions {
     // Copies <=2048 bytes into one pending GUI reply; false means busy/stale.
     // Needs surface_reply. Never retain an Actions table for later use.
     bool (*post_arrangement_reply)(const ArrangementContext&, const u8*, u32);
+    // Replace only the declared owner section; generation-bound and nonblocking.
+    bool (*publish_project_state)(const ProjectToken&, const u8*, u32 size);
 };
 
 using OnPatternReadResult = void (*)(const PatternReadResult&);
@@ -115,39 +118,43 @@ struct Hooks {
     OnQueuedControl queued_control;
     OnPatternReadResult pattern_read_result;
     const ArrangementSurface* arrangement;
+    void (*project_state)(const ProjectState&);
 
     constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f, OnPatternReadResult g = nullptr, const ArrangementSurface* surface = nullptr)
+                    OnInputActivity e, OnQueuedControl f, OnPatternReadResult g = nullptr, const ArrangementSurface* surface = nullptr, void (*state)(const ProjectState&) = nullptr)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f), pattern_read_result(g), arrangement(surface) {}
+          input_activity(e), queued_control(f), pattern_read_result(g), arrangement(surface), project_state(state) {}
 
     constexpr Hooks surface(const ArrangementSurface* value) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, pattern_read_result, value);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, pattern_read_result, value, project_state);
     }
 
     constexpr Hooks with_context(OnContext f) const {
-        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, pattern_read_result, arrangement);
+        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, pattern_read_result, arrangement, project_state);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, pattern_read_result, arrangement);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, pattern_read_result, arrangement, project_state);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, pattern_read_result, arrangement);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, pattern_read_result, arrangement, project_state);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, pattern_read_result, arrangement);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, pattern_read_result, arrangement, project_state);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, pattern_read_result, arrangement);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, pattern_read_result, arrangement, project_state);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, pattern_read_result, arrangement);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, pattern_read_result, arrangement, project_state);
     }
     constexpr Hooks with_pattern_read_result(OnPatternReadResult f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f, arrangement);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f, arrangement, project_state);
     }
 
+    constexpr Hooks with_project_state(void (*f)(const ProjectState&)) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, pattern_read_result, arrangement, f);
+    }
 };
 }}

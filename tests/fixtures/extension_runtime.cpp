@@ -9,6 +9,8 @@ bool playing = true;
 u32 reads, discoveries, gui_calls, completions, foreign_completions, snapshot_generation=2;
 bool in_gui, result_success;
 u32 completed_ticket, completed_count;
+u32 state_writes;
+const ProjectStateSpec state_spec = {"test.writer", 1, 16};
 u32 writes, notices, observations, order[16], order_count, result, mode, written_track;
 extensions::Actions saved;
 extensions::Context saved_context;
@@ -37,6 +39,7 @@ void edit_control(const extensions::Context& context, const extensions::Control&
         result = actions.discover_pattern(3,1,info) && actions.read_pattern(info.ref,&out,1,count) && count==1;
         return;
     }
+    if (mode == 13) { result = actions.publish_project_state({1, 2}, nullptr, 0); return; }
     RecordedNote note = good;
     u32 track = context.recording.track;
     if (mode == 1) ++stock_context.pattern;
@@ -64,8 +67,8 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
                                                     .with_queued_control(edit_control).with_pattern_read_result(second_result);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0, 0};
-const ExtensionRegistry tables = {claim_keys, 2, action_claims, 4};
+u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0, 0, 0};
+const ExtensionRegistry tables = {claim_keys, 2, action_claims, 5};
 ExtensionEntry collection[] = {{"observer", 0, 0, &first},
                                {"writer", 1u, action_edit_notes | action_notify, &second}};
 }
@@ -171,6 +174,14 @@ int main() {
     // An action whose claim its holder lacks disables the collection.
     initialized = false; entries = nullptr; action_claims[0] = 1u;
     control(51, true); CHECK(writes == before + 1);
+    initialized = false; entries = nullptr; action_claims[0] = 0;
+    collection[1].state = &state_spec;
+    collection[1].actions |= action_project_state;
+    mode = 13;
+    control(51, true); CHECK(result == 1 && state_writes == 1);
+    CHECK(!saved.publish_project_state({1, 2}, nullptr, 0) && state_writes == 1);
+    control(51, false); CHECK(!result && state_writes == 1);
+    control(12, true); CHECK(!result && state_writes == 1);
     return 0;
 }
 
@@ -192,3 +203,12 @@ bool sdk_arrangement_post_reply(const extensions::ArrangementContext& context, c
     for (u32 i = 0; i < count; ++i) reply_bytes[i] = bytes[i];
     reply_size = count; reply_pending = true; return true;
 }
+
+namespace opxy { namespace platform {
+const char* project_state_status() { return nullptr; }
+void project_state_observe(const ProjectStateSpec&, void (*)(const extensions::ProjectState&)) {}
+bool project_state_publish(const ProjectStateSpec& spec, const extensions::ProjectToken& token, const u8*, u32) {
+    if (&spec != &state_spec || token.generation != 1 || token.identity != 2) return false;
+    ++state_writes; return true;
+}
+}}

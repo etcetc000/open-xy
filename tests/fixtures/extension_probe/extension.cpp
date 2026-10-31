@@ -4,7 +4,8 @@
 // reads what it saw. It is a test fixture, not a shipped extension.
 namespace opxy { namespace extensions { namespace probe {
 struct Seen {
-    u32 contexts, notes_on, notes_off, ticks, activity, controls;
+    u32 contexts, notes_on, notes_off, ticks, activity, controls, project_states;
+    ProjectToken project_token;
     Context context;
     LiveNote note;
     NoteOff off;
@@ -21,6 +22,7 @@ namespace {
 void pattern_read_result(const PatternReadResult& result) {
     completed_id=result.request;read_success=result.success;written=result.count;
 }
+void project_state(const ProjectState& state) { ++seen.project_states; seen.project_token = state.token; }
 void context(const Context& c) { ++seen.contexts; seen.context = c; }
 void recordable_note_on(const Context&, const LiveNote& n) { ++seen.notes_on; seen.note = n; }
 void selected_note_off(const Context&, const NoteOff& n) { ++seen.notes_off; seen.off = n; }
@@ -48,6 +50,7 @@ void queued_control(const Context& c, const Control& k, const Actions& actions) 
 }
 extern constexpr Hooks hooks = Hooks()
     .with_pattern_read_result(pattern_read_result)
+    .with_project_state(project_state)
     .with_context(context)
     .with_recordable_note_on(recordable_note_on)
     .with_selected_note_off(selected_note_off)

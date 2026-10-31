@@ -1196,7 +1196,11 @@
       "symbol": "sdk_extensions_controller_update",
       "call": true,
       "service": "extensions",
-      "events": ["context", "pattern_read_result"]
+      "events": [
+        "context",
+        "pattern_read_result",
+        "project_state"
+      ]
     },
     {
       "kind": "hook",
@@ -1208,7 +1212,9 @@
       "call": false,
       "encoding": "absolute_jump",
       "service": "extensions",
-      "events": ["pattern_read_result"]
+      "events": [
+        "pattern_read_result"
+      ]
     },
     {
       "kind": "hook",
@@ -1500,6 +1506,60 @@
       "call": false,
       "encoding": "pointer",
       "service": "arrangement"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4de0ac",
+      "file_offset": "0x115308",
+      "length": 4,
+      "before": "05e30258",
+      "symbol": "sdk_project_load_begin",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d598b14",
+      "file_offset": "0x1cfd70",
+      "length": 4,
+      "before": "ffe3ce82",
+      "symbol": "sdk_project_load_begin",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d573074",
+      "file_offset": "0x1aa2d0",
+      "length": 4,
+      "before": "00e33496",
+      "symbol": "sdk_project_new_commit",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d57309c",
+      "file_offset": "0x1aa2f8",
+      "length": 4,
+      "before": "00e32096",
+      "symbol": "sdk_project_new_commit",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d598b6a",
+      "file_offset": "0x1cfdc6",
+      "length": 4,
+      "before": "ffe3b968",
+      "symbol": "sdk_project_new_commit",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d572966",
+      "file_offset": "0x1a9bc2",
+      "length": 8,
+      "before": "00de048c780c0000",
+      "symbol": "sdk_project_rename",
+      "call": true
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

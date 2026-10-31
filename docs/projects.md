@@ -82,8 +82,8 @@ rest.
 
 The host writer rewrites its own sections and keeps other owners' sections
 unchanged while the previous companion still matches the project, dropping
-them otherwise. Firmware currently rewrites only `open-xy.machines` and does
-not retain other sections.
+them otherwise. Firmware retains sections from the committed source project and rewrites
+`open-xy.machines` plus sections explicitly published by their owners.
 
 ### Canonical form
 
@@ -146,13 +146,38 @@ never supply machine mappings. Project measurement is bounded to 16 MiB.
 
 This is recovery for a completed companion awaiting publication, not an atomic
 transaction across the project and its companion. There is no filesystem sync
-or power-loss durability guarantee. Stock's save result remains authoritative;
-a companion error does not turn a successful stock save into a failed one.
+or power-loss durability guarantee. Preflight protection or a size limit can refuse a save before stock changes
+the project. Once stock has saved successfully, a later companion publication
+error cannot roll that project write back; the native success result is retained.
 Keep both project and companion in backups.
 
-This checked publication is a prerequisite for extension-owned project state.
-The firmware writer currently emits only `open-xy.machines`; it does not yet
-preserve other sections. A future state service must bind retained sections to
-the committed source project, including New, Save As and rename, before offering
-extension persistence. Tooling section preservation does not establish that
-firmware lifecycle contract.
+## Extension state and project ownership
+
+Firmware retains up to 32 valid sections, including sections whose extensions
+are absent from the current collection. Retained values are copied verbatim;
+`open-xy.machines` is regenerated for the current collection. A registered
+extension's opaque payload uses `{"version": 1, "data": "lowercasehex"}` under
+its owned namespace. The version is its declared schema version; the SDK does
+not decode the binary payload. Changing that version preserves the old section
+and reports it as unsupported. Explicit schema migration is not exposed.
+
+A companion is staged against the loaded candidate and becomes active only for
+its matching committed project identity and generation. New invalidates an
+abandoned candidate. Save As copies the active source's sections, regardless of
+what previously occupied the destination. Native named Save moves both `.oxy`
+and `.oxy.tmp` alongside the renamed `.xy`. The complete output must fit the
+64 KiB envelope before stock serialization starts; otherwise the save is refused.
+
+A valid companion bound to different project bytes is stale, as after editing
+in stock firmware: it supplies no extension state and does not block saving.
+An opened but corrupt companion, or a bound unsupported envelope, instead
+protects the loaded project's original files from subsequent saves. The SDK
+shows **project data: reload or New** on the controller and delivers an
+`unavailable` state notification. Restore a valid project/companion pair and
+reload, or choose New to start an independent project. The SDK does not silently
+discard that recovery data. A valid load or New clears protection.
+
+Native `fopen` failure has no verified missing-versus-I/O-error distinction;
+it is treated as an absent companion. Read and close errors after opening are
+detected. File publication and two-file rename are not atomic transactions, and
+host tests do not establish power-loss durability or device scheduling behavior.

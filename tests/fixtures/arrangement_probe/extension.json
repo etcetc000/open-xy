@@ -7,7 +7,13 @@
   ],
   "actions": [
     "read_patterns",
-    "surface_reply"
+    "surface_reply",
+    "project_state"
   ],
-  "arrangement": true
+  "arrangement": true,
+  "project_state": {
+    "namespace": "sdk.arrangement-probe",
+    "version": 1,
+    "capacity": 16
+  }
 }

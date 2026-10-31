@@ -285,3 +285,8 @@ int main() {
 }
 
 bool sdk_arrangement_post_reply(const extensions::ArrangementContext&, const u8*, u32) { return false; }
+namespace opxy { namespace platform {
+const char* project_state_status() { return nullptr; }
+void project_state_observe(const ProjectStateSpec&, void (*)(const extensions::ProjectState&)) {}
+bool project_state_publish(const ProjectStateSpec&, const extensions::ProjectToken&, const u8*, u32) { return false; }
+}}
