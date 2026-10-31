@@ -42,6 +42,7 @@ PATCH_KINDS = ('heap', 'table', 'text', 'hook', 'startup')
 def check_patch_boundaries(profile, count):
     """Well-formed, non-overlapping edits; hooks are the only kind whose bytes the build computes."""
     from .startup_label import allowed as startup_label_allowed
+    from .firmware import hook_instruction
     occupied = set()
     require(len(profile['patches']) == count, f'Expected {count} reviewed edit intervals')
     for patch in profile['patches']:
@@ -70,6 +71,9 @@ def check_patch_boundaries(profile, count):
         if kind == 'hook':
             require(isinstance(patch.get('symbol'), str) and patch['symbol'] and type(patch.get('call')) is bool,
                     'A hook names its module symbol and call/jump form')
+            hook_instruction(patch, start)  # Validate the reviewed encoding even for an inactive service.
+        else:
+            require('encoding' not in patch, 'Only hooks declare an encoding')
         # Protected code is only ever redirected into the module by a hook whose
         # destination the build verifies, or by the separately reviewed startup label.
         require(kind != 'startup' or startup_label_allowed(profile, patch), 'Unexpected startup label edit')

@@ -451,6 +451,20 @@ canonical pad, and checked before DSP or analysis lookup.
 
 ### Hooks
 
+A reviewed hook normally uses a relative branch or an absolute call. The profile
+can also declare `encoding: "pointer"` for a four-byte, word-aligned function
+pointer, or `encoding: "absolute_jump"` for an eight-, ten- or twelve-byte entry
+jump. Both require `call: false`. Pointer values retain the full 32-bit target;
+absolute jumps use `JUMP.A` followed by zero NOP padding. Python and the browser
+emit the same bytes. The verifier checks the encoding policy, footprint,
+alignment, padding and destination in addition to the exact stock preimage.
+Native targets must still resolve to bounded module functions.
+
+These encodings do not add patch sites or allow a contributor to declare hooks.
+A new service must separately authenticate and review each site. An entry jump
+also needs an explicitly verified stock continuation if it can delegate back to
+stock; copying displaced instructions is unsafe when they are PC-relative.
+
 Hooks that replace a CALL are C++ with the C ABI. Hooks entered inside a stock
 function are tiny assembly stubs: they save everything compiled C++ may
 clobber through one routine pair ([`hook.s`](../sdk/platform/opxy-1.2.1/hook.s):
