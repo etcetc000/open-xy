@@ -434,13 +434,12 @@ no machine overlays any more, unless stock has written there since. Values writt
 way are live values only: the saved project keeps stock's base values. With no
 such synth on a track, the hook makes only the original call.
 
-The sequencer's steps reach the live values through `8d58c5b8(track, index,
-value)`, which `8d58ca10` calls for each parameter of a step (from the
-sequencer's tick `8d5986b8`, right after the GUI tick above, and from notes
-played live, `8d595738`). Its call of `8d5acea8` at `8d58c5d8` routes through
-`sdk_param_step_set`: on a parameter a machine overlays, the step's value (a
-parameter lock, say) becomes stock's value beneath the overlay and the overlay
-is written instead, so the lock is never heard over it. Other parameters reach
+The sequencer writes a step's parameter locks to the live values in
+`8d5936c0` (from `8d593a78`, for every track, and `8d593980`), plain or sliding
+toward the next lock, with three calls of `8d5acea8` (`8d5937b4`, `8d5938c2`,
+`8d59396a`). They route through `sdk_param_step_set`: on a parameter a machine
+overlays, the lock becomes stock's value beneath the overlay and the overlay is
+written instead, so the lock is never heard over it. Other parameters reach
 stock unchanged.
 
 Stock's controllers reach encoder edits through `8d5ad5bc`, which reads the

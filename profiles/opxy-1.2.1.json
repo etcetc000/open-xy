@@ -1219,10 +1219,30 @@
     },
     {
       "kind": "hook",
-      "address": "0x8d58c5d8",
-      "file_offset": "0x1c3834",
+      "address": "0x8d5937b4",
+      "file_offset": "0x1caa10",
       "length": 4,
-      "before": "01e36804",
+      "before": "00e37acb",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5938c2",
+      "file_offset": "0x1cab1e",
+      "length": 4,
+      "before": "00e3f3ca",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59396a",
+      "file_offset": "0x1cabc6",
+      "length": 4,
+      "before": "00e39fca",
       "symbol": "sdk_param_step_set",
       "call": true,
       "service": "control"
