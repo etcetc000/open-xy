@@ -19,7 +19,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, screen, startup_label, stock_tables
-from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
+from .adapters import (catalog_entry, generate_display, generate_extension_palette_stock, generate_fx_object, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_voice,
@@ -205,13 +205,14 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'presets')
+             'extension_runtime', 'extension_palette', 'extension_palette_stock', 'extension_collection', 'extension_stock', 'presets')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
-UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
+UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_palette', 'extension_palette_stock',
+                                   'extension_collection', 'extension_stock'), 'extensions'))
 
 
 def service_users(machines):
@@ -372,6 +373,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(extensions.generate_extension(folder, extension)), obj)
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
+            if step == 'extension_palette':
+                return cxx('sdk/platform/extension_palette.cpp', obj)
+            if step == 'extension_palette_stock':
+                return cxx(str(generate_extension_palette_stock(folder)), obj)
             if step == 'extension_collection':
                 return cxx(str(extensions.generate_collection(folder, extensions_of(machines))), obj)
             if step == 'screen_order':

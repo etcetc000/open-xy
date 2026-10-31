@@ -3,6 +3,7 @@
 #include "../extension_runtime.hpp"
 #include "note_container.hpp"
 #include "stock.hpp"
+#include "stock_browser.hpp"
 
 extern "C" {
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
@@ -119,6 +120,33 @@ u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replac
 }
 void extension_notify(const char* text) {
     stock<void(const char*, u32, u32, u32)>(0x8d549168)(text, 1, 0, 0x3f000000u);
+}
+extensions::Time extension_monotonic_time() {
+    extensions::Time value = 0;
+    stock<void(extensions::Time*)>(0x8d5be3a0)(&value);
+    return value;
+}
+
+namespace {
+const u32 kChoiceRows = 16;
+struct ChoiceSession {
+    stock_browser::detail::Row rows[kChoiceRows];
+    stock_browser::detail::Session session;
+    void (*confirm)(u32);
+};
+ChoiceSession choice_session;
+void choice_confirm(void* context, u32 selected) {
+    ChoiceSession* session = static_cast<ChoiceSession*>(context);
+    if (session && session->confirm) session->confirm(selected);
+}
+}
+
+bool extension_select_choice(const extensions::Choice& choice) {
+    if (!choice.confirm || !choice.labels || !choice.count || choice.count > kChoiceRows || choice.selected >= choice.count)
+        return false;
+    choice_session.confirm = choice.confirm;
+    return stock_browser::detail::open(choice_session.session, choice_session.rows, choice.count, choice.title,
+        choice.labels, choice.selected, stock_browser::Callbacks{&choice_session, choice_confirm, nullptr});
 }
 }}
 

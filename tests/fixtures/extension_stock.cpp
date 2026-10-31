@@ -3,7 +3,12 @@
 #include <extension_runtime.cpp>
 #include <extension_probe.cpp>
 #include <extension_collection.cpp>
+#include <stock_browser.cpp>
 #include <extension_stock.cpp>
+
+namespace opxy { namespace platform {
+void extension_palette_sync(const ExtensionEntry*, u32) {}
+}}
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 using namespace opxy;

@@ -12,7 +12,7 @@ import tempfile
 import unittest
 
 from tooling import pipeline, projects, stock_tables as tables
-from tooling.adapters import generate_registration_stock
+from tooling.adapters import generate_extension_palette_stock, generate_registration_stock
 from tooling.firmware import hooks
 from tooling.formats import ldr, mapped_offset
 from tooling.machines import FIXED_NUMBERS, number_pools
@@ -150,6 +150,14 @@ class Registration(unittest.TestCase):
         self.assertNotIn('%#x' % tables.STOCK_EFFECT_RECORDS, text)
         # The engine validity hook compares against the relocated count.
         self.assertIn('R1 = %d (X);' % tables.ENGINE_COUNT, text)
+
+    def test_extension_palette_adapter_uses_the_relocated_screen_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_extension_palette_stock(directory).read_text(encoding='utf-8')
+        self.assertIn('const u32 kScreenSlots = %#x, kScreenCount = %d;' %
+                      (tables.SCREEN_SLOTS, tables.SCREEN_COUNT), text)
+        self.assertNotIn('%#x' % tables.STOCK_SCREEN_SLOTS, text)
+        self.assertIn('address < 0x90000000u', text)
 
     def test_a_companion_lists_every_machine_one_firmware_numbers(self):
         # Effects above 33 hold engine numbers too, so engines and effects together never

@@ -207,6 +207,11 @@ def generate_registration_stock(directory):
     return expand('registration_stock.cpp.in', RELOCATED, Path(directory) / 'registration_stock.cpp')
 
 
+def generate_extension_palette_stock(directory):
+    """The version adapter that enumerates loaded SVG palettes from the relocated screen table."""
+    return expand('extension_palette_stock.cpp.in', RELOCATED, Path(directory) / 'extension_palette_stock.cpp')
+
+
 def generate_screen_order(directory):
     """The compositor traversal over the relocated screen slots."""
     return expand('screen_order.cpp.in', RELOCATED, Path(directory) / 'screen_order.cpp')

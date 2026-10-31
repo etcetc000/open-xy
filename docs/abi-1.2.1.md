@@ -146,6 +146,15 @@ named for the stock calls they replace; they are adapter entry points, not
 extension APIs. Capture ([open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture)) is the first
 subscriber: it owns the bounded current-track ghost pattern and the Record gesture.
 
+The optional palette surface adds no patch site. After the stock GUI tick, the
+extension runtime scans the relocated screen-slot table for validated loaded
+SVG documents. It saves each fill/stroke's original RGBA bytes in module RAM,
+then composes selected palette callbacks in collection order when a revision
+changes. It never rewrites SVG files or calls parser code; documents loaded
+later are picked up by the same bounded scan. The stock choice selector is an
+action entered only from the existing queued-control hook, with no global input
+handler or menu patch.
+
 The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key
 dispatch at `0x8c0b6184`, normalized live onset/release at `0x8d594376` and
 `0x8d59420a`, accepted-note bookkeeping at `0x8d595844`, recorder tick at

@@ -5,10 +5,13 @@ using namespace opxy::platform;
 namespace {
 RecordingContext stock_context = {1, 2, 0, 7680, 3, 255, true, true};
 bool playing = true;
-u32 writes, notices, observations, order[16], order_count, result, mode, written_track;
+u32 writes, notices, selections, observations, order[16], order_count, result, mode, written_track;
 extensions::Actions saved;
 extensions::Context saved_context;
 const RecordedNote good = {-12, 60, 60, 100};
+const char* const choice_labels[] = {"one", "two"};
+void chosen(u32) {}
+const extensions::Choice choice = {"choice", choice_labels, 2, 0, chosen};
 void first_note(const extensions::Context&, const extensions::LiveNote& note) {
     order[order_count++] = 1;
     observations += note.position == -12 && note.collision_radius == 180;
@@ -31,7 +34,8 @@ void edit_control(const extensions::Context& context, const extensions::Control&
     if (mode == 8) track = 3;  // another instrument track
     if (mode == 9) track = 7;  // a track whose pattern cannot be edited
     if (mode == 10) track = 8;
-    result = mode == 6 ? actions.replace_notes(context, track, &note, 1) : actions.insert_notes(context, track, &note, 1);
+    if (mode == 11) result = actions.select_choice(choice) ? 1 : 0;
+    else result = mode == 6 ? actions.replace_notes(context, track, &note, 1) : actions.insert_notes(context, track, &note, 1);
     actions.notify("done");
     actions.notify("duplicate");  // one notification per callback
     if (mode == 5) result += actions.insert_notes(context, track, &good, 1);
@@ -43,10 +47,10 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
                                                     .with_queued_control(edit_control);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0};
-const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2};
+u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0};
+const ExtensionRegistry tables = {claim_keys, 2, action_claims, 3};
 ExtensionEntry collection[] = {{"observer", 0, 0, &first},
-                               {"writer", 1u, action_edit_notes | action_notify, &second}};
+                               {"writer", 1u, action_edit_notes | action_notify | action_select_choice, &second}};
 }
 namespace opxy { namespace platform {
 const ExtensionEntry* extension_collection(u32& count) { count = 2; return collection; }
@@ -63,6 +67,9 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
     ++writes; replaced = replace; written_track = track; return count;
 }
 void extension_notify(const char*) { ++notices; }
+bool extension_select_choice(const extensions::Choice&) { ++selections; return true; }
+void extension_palette_sync(const ExtensionEntry*, u32) {}
+extensions::Time extension_monotonic_time() { return 123456789u; }
 }}
 void control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};
@@ -91,6 +98,9 @@ int main() {
     mode = 7;
     control(50, true);
     CHECK(result == 1 && writes == 4 && !replaced);
+    mode = 11;
+    control(50, true);
+    CHECK(result == 1 && selections == 1);
     // Writes reach any editable instrument track, not only the selected one.
     mode = 8;
     control(50, true);
