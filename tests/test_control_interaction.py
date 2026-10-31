@@ -48,7 +48,8 @@ u32 word(u32 a){
  CHECK(false);return 0;
 }
 u32 byte(u32 a){
- if(a==0x86c05ca4)return role;if(a==kSelectedTrack)return current;
+ if(a==0x86c05ca4)return role;
+ if(a==kSelectedTrack)return current;
  if(a==project_base+0xc)return pattern_mask&255;
  if(a==project_base+0xd)return pattern_mask>>8;
  if(a==project_base+6)return scene;
