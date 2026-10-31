@@ -678,7 +678,18 @@
       "id": "grainfield",
       "kind": "effect",
       "maintainer": "colorsinspace1",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/grainfield",
+      "tag": "1.2",
+      "commit": "9f5c8fbefd6452ea685b3665a5d37e8e26058329",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "9f5c8fbefd6452ea685b3665a5d37e8e26058329",
+        "firmware_sha256": "1768956831002dd837f5a55be1f047fff0544d8aad3243f5a141f552f5e4413e",
+        "runs": 3,
+        "block_percent": 9.3019
+      }
     },
     {
       "id": "ohmonk",
@@ -738,6 +749,57 @@
         "firmware_sha256": "55a804f847e15dde5c20ae01fda02af09964628b8e979cecfd9be8448d2a7ff7",
         "runs": 3,
         "block_percent": 3.758297
+      }
+    },
+    {
+      "id": "wander",
+      "kind": "synth",
+      "maintainer": "colorsinspace1",
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/wander",
+      "tag": "1.0",
+      "commit": "8e3b0e63479cdd40ea48a6af8cb478fc05a251fc",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "8e3b0e63479cdd40ea48a6af8cb478fc05a251fc",
+        "firmware_sha256": "c4e9870e510b3382231e9d5319f105399e8aa3be3848ea6bce4808eb34647482",
+        "runs": 3,
+        "block_percent": 1.744106
+      }
+    },
+    {
+      "id": "hkeys",
+      "kind": "synth",
+      "maintainer": "colorsinspace1",
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/halcyon-keys",
+      "tag": "1.0",
+      "commit": "5a881377532ccbef13bf6d945e8f565a72604e5f",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "5a881377532ccbef13bf6d945e8f565a72604e5f",
+        "firmware_sha256": "c4e9870e510b3382231e9d5319f105399e8aa3be3848ea6bce4808eb34647482",
+        "runs": 3,
+        "block_percent": 5.252155
+      }
+    },
+    {
+      "id": "hwander",
+      "kind": "synth",
+      "maintainer": "colorsinspace1",
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/halcyon-wander",
+      "tag": "1.0",
+      "commit": "86d5cac347c84dff9aecadbf4ec34ff5d000efad",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "86d5cac347c84dff9aecadbf4ec34ff5d000efad",
+        "firmware_sha256": "c4e9870e510b3382231e9d5319f105399e8aa3be3848ea6bce4808eb34647482",
+        "runs": 3,
+        "block_percent": 6.688029
       }
     }
   ]
