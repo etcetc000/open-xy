@@ -1,11 +1,23 @@
 {
   "schema": 3,
   "claims": {
-    "record_double_tap": {"label": "Record double-tap", "key": 50}
+    "record_double_tap": {
+      "label": "Record double-tap",
+      "key": 50
+    },
+    "arrangement_surface": {
+      "label": "Arrange surface",
+      "key": 4
+    }
   },
   "actions": {
-    "edit_notes": {"requires": "record_double_tap"},
+    "edit_notes": {
+      "requires": "record_double_tap"
+    },
     "notify": {},
-    "read_patterns": {}
+    "read_patterns": {},
+    "surface_reply": {
+      "requires": "arrangement_surface"
+    }
   }
 }

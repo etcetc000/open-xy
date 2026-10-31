@@ -274,3 +274,76 @@ returning data from the old project. Do not wait or spin for completion.
 The SDK holds one snapshot until its result callback returns. Another request
 cannot replace it, including from another extension. This service reads existing
 sources; it does not allocate, clone or edit patterns.
+
+## Owning the Arrange surface
+
+An extension can replace the stock Song page while its `enabled` callback is
+true. Declare `"arrangement": true` and the exclusive `arrangement_surface`
+claim in `extension.json`, include `<opxy/arrangement.hpp>`, and attach a
+`const ArrangementSurface` with `Hooks().surface(&surface)`. Only one owner
+can be included. A disabled, omitted or failed initialized surface leaves the
+stock Song page; the SDK never changes the selected instrument on entry.
+
+The SDK supplies neutral SVG artwork and the existing retained renderer for
+`ArrangementFrame` (`128` four-point paths, `128` nodes, `80` texts and `16`
+grayscale palette entries). All existing coordinate, transform and frame
+validation rules apply. Path keys must be nonzero and change when geometry
+changes. The generated screen registers in a vacant relocated page slot;
+its validated SVG markup, renderer and state belong to the selected extension.
+The SVG is embedded and parsed in memory during GUI initialization, so no
+external surface file can be missing or collide with machine artwork. Omitting that
+extension omits the frame storage too. This is a drawing and input service,
+not an arranger, project format or playback engine. Mutable paths are outlines;
+this does not add arbitrary filled geometry. It lets an extension such
+as Linear draw clips and a cursor without writing private SVG objects.
+
+Input ownership is declared with three key-mask words and a four-bit encoder
+mask. `ArrangementKey` names supported physical controls. Keyboard keys26–49 are not capturable: their immediate input path is outside
+the queued controller producer. A mask containing them disables the surface.
+Unclaimed keys and turns reach stock unchanged. The SDK captures a complete press/release pair
+before stock held-key bookkeeping; releases for presses already forwarded to
+stock always stay stock. Repeated captured presses are suppressed. A full
+queue forwards a new press instead of stealing it; reserved slots ensure the
+releases of captured presses still fit. Encoder queue overflow forwards that
+turn. Choose masks deliberately: capturing Play or Record prevents
+their stock behavior and does not itself implement a replacement.
+
+The controller task decides ownership and copies input into a bounded queue.
+It never calls the extension's GUI callbacks. The GUI poll drains at most
+32 events from a 256-entry queue per iteration, discarding old-project events.
+`key`, `turn`, `context`, `tick`, `reply` and `render` callbacks all execute on
+the GUI task. `render` receives the frame by reference; `presented` advances
+only after a valid frame reaches the stock drawing call. GUI transactions can
+wait for that counter in `tick`; no writes should run inside rendering.
+Visibility requires initialized artwork and the Arrange controller, including
+when another page was selected since the previous GUI poll.
+
+A GUI key/turn/tick callback receives `ArrangementActions::submit`: it copies
+an application-defined code and up to four words into **one pending intent**.
+False means busy or outside the permitted callback. An intent carries its
+opaque project generation/identity and selected track. On the controller task,
+the SDK revalidates its project and calls only that owner's `intent` callback
+with its declared `Actions`, excluding native `insert_notes`/`replace_notes`.
+This permits deferred pattern requests without running project work during
+input or painting. Do not share mutable GUI state with this callback.
+
+For responses, declare `surface_reply` and use
+`Actions::post_arrangement_reply(origin, bytes, size)`. The SDK copies at most
+**2048 bytes** into **one pending reply**; busy, oversized or stale-project
+responses fail without overwriting the prior reply. The GUI `reply` callback
+borrows those copied bytes only for its duration. `pattern_result`, when
+supplied on the surface, runs on the controller after an owned deferred
+pattern request and receives only this reply permission. The existing
+`Hooks::pattern_read_result` observer remains grantless. Stored `Actions`
+cannot be used after their callback. Use separate controller-owned request
+state and GUI-owned editor state, connected only by these copied messages.
+
+The SDK fixture `tests/fixtures/arrangement_probe` demonstrates a captured
+control requesting a stopped pattern snapshot and returning note bytes to
+the GUI. Host tests cover ownership, queue exhaustion, generation checks and
+action scopes; native compilation is not hardware timing or acceptance.
+
+If stock clears or replaces an already constructed surface slot during a later
+initializer pass, the SDK fails closed instead of reconstructing a possibly
+live loader or claiming an occupied slot. That surface remains unavailable
+until restart.

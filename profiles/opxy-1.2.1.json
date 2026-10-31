@@ -96,6 +96,9 @@
     ],
     "extensions": [
       "extension"
+    ],
+    "arrangement": [
+      "extension"
     ]
   },
   "patches": [
@@ -1216,7 +1219,9 @@
       "symbol": "sdk_extensions_key_queue",
       "call": true,
       "service": "extensions",
-      "events": ["queued_control"]
+      "events": [
+        "queued_control"
+      ]
     },
     {
       "kind": "hook",
@@ -1227,7 +1232,10 @@
       "symbol": "sdk_extensions_live_note_on",
       "call": true,
       "service": "extensions",
-      "events": ["input_activity", "recordable_note_on"]
+      "events": [
+        "input_activity",
+        "recordable_note_on"
+      ]
     },
     {
       "kind": "hook",
@@ -1238,7 +1246,9 @@
       "symbol": "sdk_extensions_live_note_off",
       "call": true,
       "service": "extensions",
-      "events": ["selected_note_off"]
+      "events": [
+        "selected_note_off"
+      ]
     },
     {
       "kind": "hook",
@@ -1249,7 +1259,9 @@
       "symbol": "sdk_extensions_recorder_tick",
       "call": true,
       "service": "extensions",
-      "events": ["recording_tick"]
+      "events": [
+        "recording_tick"
+      ]
     },
     {
       "kind": "hook",
@@ -1260,7 +1272,9 @@
       "symbol": "sdk_extensions_stop",
       "call": true,
       "service": "extensions",
-      "events": ["context"]
+      "events": [
+        "context"
+      ]
     },
     {
       "kind": "hook",
@@ -1271,7 +1285,9 @@
       "symbol": "sdk_extensions_note_accepted",
       "call": true,
       "service": "extensions",
-      "events": ["recordable_note_on"]
+      "events": [
+        "recordable_note_on"
+      ]
     },
     {
       "kind": "startup",
@@ -1451,6 +1467,39 @@
       "symbol": "extensions_sample_slice_receive",
       "service": "samples",
       "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b5d58",
+      "file_offset": "0xecf94",
+      "length": 8,
+      "before": "00e80000fd052832",
+      "symbol": "sdk_arrangement_raw",
+      "call": false,
+      "encoding": "absolute_jump",
+      "service": "arrangement"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b5c0c",
+      "file_offset": "0xece48",
+      "length": 8,
+      "before": "00e800006805a66f",
+      "symbol": "sdk_arrangement_encoder",
+      "call": false,
+      "encoding": "absolute_jump",
+      "service": "arrangement"
+    },
+    {
+      "kind": "hook",
+      "address": "0x803fdf8",
+      "file_offset": "0x1f2c",
+      "length": 4,
+      "before": "fc59098c",
+      "symbol": "sdk_arrangement_page",
+      "call": false,
+      "encoding": "pointer",
+      "service": "arrangement"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

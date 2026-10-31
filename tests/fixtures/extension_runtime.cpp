@@ -64,8 +64,8 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
                                                     .with_queued_control(edit_control).with_pattern_read_result(second_result);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0};
-const ExtensionRegistry tables = {claim_keys, 2, action_claims, 3};
+u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0, 0};
+const ExtensionRegistry tables = {claim_keys, 2, action_claims, 4};
 ExtensionEntry collection[] = {{"observer", 0, 0, &first},
                                {"writer", 1u, action_edit_notes | action_notify, &second}};
 }
@@ -172,4 +172,23 @@ int main() {
     initialized = false; entries = nullptr; action_claims[0] = 1u;
     control(51, true); CHECK(writes == before + 1);
     return 0;
+}
+
+namespace {
+const extensions::ArrangementSurface* test_surface;
+extensions::ArrangementIntent test_intent;
+bool intent_pending, reply_pending;
+u32 reply_size; u8 reply_bytes[2048];
+}
+extern "C" const extensions::ArrangementSurface* sdk_arrangement_owner() { return test_surface; }
+extern "C" void sdk_arrangement_poll() {}
+bool sdk_arrangement_take_intent(extensions::ArrangementIntent* out) {
+    if (!intent_pending) return false;
+    intent_pending = false; *out = test_intent;
+    return out->origin.project == snapshot_generation && out->origin.identity == stock_context.project;
+}
+bool sdk_arrangement_post_reply(const extensions::ArrangementContext& context, const u8* bytes, u32 count) {
+    if (reply_pending || count > 2048 || context.project != snapshot_generation || context.identity != stock_context.project) return false;
+    for (u32 i = 0; i < count; ++i) reply_bytes[i] = bytes[i];
+    reply_size = count; reply_pending = true; return true;
 }

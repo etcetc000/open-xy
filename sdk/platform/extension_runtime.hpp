@@ -11,6 +11,7 @@ using RecordedNote = extensions::Note;
 const u32 action_edit_notes = 1u << 0;
 const u32 action_notify = 1u << 1;
 const u32 action_read_patterns = 1u << 2;
+const u32 action_surface_reply = 1u << 3;
 
 struct ExtensionEntry {
     const char* id;

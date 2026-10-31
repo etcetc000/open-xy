@@ -57,6 +57,7 @@ class Extension:
     claims: tuple
     actions: tuple
     text: dict  # name, description and optional note: the site's row and details
+    arrangement: bool = False
 
     def sources(self):
         """Every file of the extension, by name relative to its folder."""
@@ -71,8 +72,9 @@ def extension_at(folder):
             f'{root}: an extension folder holds extension.json and extension.cpp')
     data = document(root / 'extension.json')
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and an optional note')
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'arrangement'}, f'{root}: extension.json fields are '
+            'id, name, description, claims, actions, optional note and arrangement')
+    require(type(data.get("arrangement", False)) is bool, "arrangement must be a boolean")
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -84,6 +86,8 @@ def extension_at(folder):
         require(isinstance(values, list) and len(set(values)) == len(values) and
                 all(isinstance(v, str) and v in known for v in values),
                 f'{name}: unknown or repeated {field[:-1]}; the SDK declares them in {PROFILE} and {RUNTIME}')
+    require(data.get('arrangement', False) == ('arrangement_surface' in data['claims']),
+            'An arrangement surface declares its arrangement_surface claim')
     for action in data['actions']:
         needed = actions[action].get('requires')
         require(needed is None or needed in data['claims'], f'{name}: {action} requires the {needed} claim')
@@ -92,12 +96,13 @@ def extension_at(folder):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data})
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, data.get('arrangement', False))
 
 
 def check_collection(extensions):
     """A build's extensions: distinct, within the limit, and no claim held twice."""
     require(len(extensions) <= MAX_EXTENSIONS, f'At most {MAX_EXTENSIONS} extensions')
+    require(sum(e.arrangement for e in extensions) <= 1, "Arrangement surface has multiple owners")
     ids, owners = set(), {}
     claims, _actions = registry()
     for e in extensions:
@@ -140,10 +145,13 @@ def generate_collection(folder, extensions):
     action_bit = {name: 1 << i for i, name in enumerate(actions)}
     mask = lambda table, names: '0x%xu' % sum(table[n] for n in names)
     table = lambda values: ', '.join(values) or '0'
-    lines = ['#include "extension_runtime.hpp"']
+    lines = ['#include "extension_runtime.hpp"', '#include "arrangement.hpp"', '#include "arrangement_descriptor.hpp"']
     for e in extensions:
         symbol = 'sdk_extension_' + e.id + '_hooks'
         lines.append('extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");')
+        if e.arrangement:
+            symbol = 'sdk_extension_' + e.id + '_surface'
+            lines.append('extern "C" const opxy::platform::ArrangementDescriptor* ' + symbol + '() __asm__("' + symbol + '");')
     lines += ['namespace opxy { namespace platform {', 'namespace {',
               'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
@@ -161,6 +169,21 @@ def generate_collection(folder, extensions):
                   '        collection_entries[count++] = {"%s", %s, %s, hooks};' % (
                       e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions))]
     lines += ['    return collection_entries;', '}', '}}', '']
+    lines += ['extern "C" const opxy::extensions::ArrangementSurface* sdk_arrangement_owner() {']
+    for e in extensions:
+        if e.arrangement:
+            lines += ['    const auto* hooks = sdk_extension_' + e.id + '_hooks();',
+                      '    return hooks ? hooks->arrangement : nullptr;']
+    if not any(e.arrangement for e in extensions):
+        lines += ['    return nullptr;']
+    lines += ['}', '']
+    lines += ['extern "C" const opxy::platform::ArrangementDescriptor* sdk_arrangement_descriptor() {']
+    for e in extensions:
+        if e.arrangement:
+            lines += ['    return sdk_extension_' + e.id + '_surface();']
+    if not any(e.arrangement for e in extensions):
+        lines += ['    return nullptr;']
+    lines += ['}', '']
     target = folder / 'extension_collection.cpp'
     target.write_text('\n'.join(lines), encoding='utf-8')
     return target
@@ -175,6 +198,16 @@ def generate_extension(folder, extension):
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");\n'
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() {\n'
                       '    return &opxy::extensions::' + extension.id + '::hooks;\n}\n', encoding='utf-8')
+    if extension.arrangement:
+        from . import arrangement
+        arrangement.header(folder)
+        surface = 'sdk_extension_' + extension.id + '_surface'
+        with target.open('a', encoding='utf-8') as file:
+            file.write('#include "' + (ROOT / 'sdk/platform/opxy-1.2.1/arrangement.cpp').as_posix() + '"\n' +
+                       'extern "C" const opxy::platform::ArrangementDescriptor* ' + surface +
+                       '() __asm__("' + surface + '");\n' +
+                       'extern "C" const opxy::platform::ArrangementDescriptor* ' + surface +
+                       '() { return &arrangement_descriptor; }\n')
     return target
 
 
@@ -182,7 +215,7 @@ def metadata(extensions, origins):
     """The kit's extension entries: the site's text, claims and actions, and an origin
     (official, catalog or personal, as for machines) from `origins` by ID."""
     claims, _actions = registry()
-    return [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
+    return [dict(id=e.id, origin=origins[e.id], arrangement=e.arrangement, claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
 
 
