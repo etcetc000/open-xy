@@ -11,6 +11,22 @@
 .extern stock_sample_classify_tail
 .extern stock_sample_key_tail
 
+.extern stock_sample_slice_receive_tail
+.extern sdk_sample_slice_receive
+
+/* Audio message receiver entry. R0 is its controller, R1 is a complete stock
+ * framed packet. Read the optional slicer extension before stock consumes the
+ * ordinary note prefix; replay the displaced LINK after restoring all state. */
+.global extensions_sample_slice_receive
+.type extensions_sample_slice_receive, STT_FUNC
+extensions_sample_slice_receive:
+    HOOK_SAVE
+    CALL sdk_sample_slice_receive;
+    HOOK_RESTORE
+    LINK 28;
+    JUMP.L stock_sample_slice_receive_tail;
+.size extensions_sample_slice_receive, .-extensions_sample_slice_receive
+
 /* Entry of stock's sample predicate (R0 = engine). Replays the two displaced
  * instructions with the aliased engine, then continues stock. */
 .global extensions_sample_classify
@@ -24,6 +40,22 @@ extensions_sample_classify:
     LINK 0;
     JUMP.L stock_sample_classify_tail;
 .size extensions_sample_classify, .-extensions_sample_classify
+
+/* 8d4e6a7e: the preset writer has a separate engine-ID switch before its
+ * 24-region serializer. Alias only that switch; the track's real ID has
+ * already supplied the saved type and remains intact for region metadata.
+ * Replaces R0 = [P1 + 24]; CC = R0 == 3. */
+.global sdk_sample_preset_regions
+.type sdk_sample_preset_regions, STT_FUNC
+sdk_sample_preset_regions:
+    HOOK_SAVE
+    R0 = [P1 + 24];
+    CALL sdk_sample_alias;
+    HOOK_RESULT R0
+    HOOK_RESTORE
+    CC = R0 == 3;
+    RTS;
+.size sdk_sample_preset_regions, .-sdk_sample_preset_regions
 
 /* Replaces R5 = 30; CC = R7 == R5 in stock's note-region dispatcher (R7 =
  * engine; stock's frame restores R7 on return). sdk_sample_note_route decides:

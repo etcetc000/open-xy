@@ -1,7 +1,8 @@
 // Stock OS 1.2.1 instrument-track encoders for synths with alternate controls.
-// Both hooks replace a CALL.A of a C function, so stock calls them with the C
+// Each hook replaces a CALL.A of a C function, so stock calls it with the C
 // ABI. A press of an owned synth's encoder selects the position's next
-// parameter; a turn edits the selected one, an enum one choice per detent. Everything else reaches stock as before.
+// parameter; a turn edits the selected one, an enum one choice per detent; the
+// track menu's scramble also randomizes the alternates. Everything else reaches stock as before.
 #include "synth_controls.hpp"
 #include <opxy/effect.hpp>
 #include "stock.hpp"
@@ -12,6 +13,7 @@ extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
 opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_synth_turn");
 opxy::u32 sdk_effect_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_effect_turn");
+opxy::u32 sdk_synth_scramble(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("sdk_synth_scramble");
 const char* sdk_fx_title(opxy::u32, opxy::u32) __asm__("sdk_fx_title");
 const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 }
@@ -85,10 +87,13 @@ const SynthControls* machine(u32 track, Track*& t) {
     return m;
 }
 
+// The owned synth on instrument track 0..7, or null.
+const SynthControls* synth(u32 track) { return track < kTracks ? owned(track_engine(track)) : nullptr; }
+
 // The owned synth on instrument track 0..7, or the owned effect on send track
 // 14 or 15: the machines whose parameters stock edits by slot.
 const SynthControls* editor(u32 track) {
-    if (track < kTracks) return owned(track_engine(track));
+    if (track < kTracks) return synth(track);
     return track == 14 || track == 15 ? owned(track_engine(track), true) : nullptr;
 }
 
@@ -295,6 +300,22 @@ const char* sdk_fx_title(u32 effect, u32 index) {
     return stock<const char*(u32, u32)>(0x8d506c90)(effect, index);
 }
 
+// 8c0b541c: the track menu's scramble (hold the track key) randomizes the
+// selected track's parameters 0..3 and its other preset groups, but never 4..7,
+// where an owned synth keeps its alternates; this is its last write, through
+// stock's set. After it, give every alternate (a slot 4..7 that
+// a press reaches, so next[s] != s) except an empty placeholder a value from
+// stock's own generator (8c0b5230), as stock does for slots 0..3.
+u32 sdk_synth_scramble(u32 project, u32 track, u32 index, opxy::i32 value) {
+    const u32 result = set_parameter(project, track, index, value);
+    const SynthControls* m = synth(track);
+    if (!m) return result;
+    for (u32 s = opxy::page_controls; s < opxy::parameter_slots; ++s)
+        if (m->next[s] != s && !(m->absent & (1u << s)))
+            set_parameter(project, track, s, stock<opxy::i32(u32, u32)>(0x8c0b5230)(s, 0));
+    return result;
+}
+
 bool sdk_synth_value(u32 track, u32 slot, opxy::i32 value, char* text) {
     Track* t;
     const SynthControls* m = machine(track, t);
@@ -302,9 +323,8 @@ bool sdk_synth_value(u32 track, u32 slot, opxy::i32 value, char* text) {
 }
 
 // Once a frame on the GUI: when an owned effect is new on a send, its controls
-// 5..8 that stock has not stored, through stock's set (0x8d5acf28), which
-// stores the word and sends it to the audio side (0x8d5acd9c) as it does for
-// every edit. Only then: a parameter lock may later move a current value away
+// 5..8 that stock has not stored, through stock's set. Only then: a parameter
+// lock may later move a current value away
 // from the stored one on purpose.
 void sdk_send_refresh() {
     for (u32 s = 0; s < 2; ++s) {
@@ -315,7 +335,7 @@ void sdk_send_refresh() {
         for (u32 slot = opxy::page_controls; slot < opxy::parameter_slots; ++slot) {
             const opxy::i32 current = current_value(track, slot);
             if (stored_value(track, slot) != current)
-                stock<void(u32, u32, u32, opxy::i32)>(0x8d5acf28)(kProject, track, slot, current);
+                set_parameter(kProject, track, slot, current);
         }
     }
 }
