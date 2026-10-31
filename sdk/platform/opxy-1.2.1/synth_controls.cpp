@@ -166,6 +166,11 @@ u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
         *scale = 1;
         return m->steps[index];
     }
+    // Stock's step table covers a send's four shown positions only, so a turn
+    // would not move an owned effect's continuous slots 4..7: answer
+    // "continuous" (-1) with scale left at its preset (tested on hardware).
+    if (m && index >= opxy::page_controls && (track == kSendTracks || track == kSendTracks + 1))
+        return 0xffffffffu;
     return stock<u32(u32, u32, u32*)>(0x8c0b2468)(track, index, scale);
 }
 
@@ -231,6 +236,15 @@ u32 sdk_effect_turn(u32 project, u32 track, u32 index, u32 event) {
 // 8d53b636: the send page sets each position's value text (stock's "%02i" of
 // the word) with 0x8d6011f0(widget, text). An owned effect on a send track may
 // name the value instead; the text is copied before this returns.
+// The page then draws its bars from the vector at [P5 + 4]. While any position
+// shows an alternate, the call for position 0 returns a stand-in vector of the
+// shown words, which the hook stub puts in P5 for the rest of that draw, so the
+// bars follow the alternates too. Zero keeps stock's vector, which is never written.
+namespace {
+struct ShownVector { u32 allocator, begin, end, capacity; };
+opxy::i32 shown_words[opxy::parameter_slots];
+ShownVector shown_vector;
+}
 u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) {
     static char caption[16];
     Track* t;
@@ -247,6 +261,21 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
         stock<u32(u32, const char*)>(0x8d6011f0)(widget, caption);
         return 0;
     }
+    u32 stand_in = 0;
+    if (m && index == 0) {
+        bool alternate = false;
+        for (u32 i = 0; i < opxy::page_controls; ++i) {
+            const opxy::i32 word = current_value(track, t->slots[i]);
+            shown_words[i] = shown_words[i + opxy::page_controls] = word;
+            alternate = alternate || t->slots[i] != i;
+        }
+        if (alternate) {
+            shown_vector.allocator = 0;
+            shown_vector.begin = static_cast<u32>(reinterpret_cast<Address>(shown_words));
+            shown_vector.end = shown_vector.capacity = shown_vector.begin + sizeof(shown_words);
+            stand_in = static_cast<u32>(reinterpret_cast<Address>(&shown_vector));
+        }
+    }
     if (m) {
         // A position showing an alternate reads its current value.
         const u32 slot = t->slots[index];
@@ -262,8 +291,10 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
             text = caption;
         }
     }
-    return stock<u32(u32, const char*)>(0x8d6011f0)(widget, text);
+    stock<u32(u32, const char*)>(0x8d6011f0)(widget, text);
+    return stand_in;
 }
+
 
 // 8d53b642: the send page names each position through the effect record's
 // parameter-name callback (0x8d506c90). An owned effect's position names its

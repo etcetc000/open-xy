@@ -627,13 +627,49 @@
       "id": "mmsaw",
       "kind": "synth",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-MNMD",
+      "tag": "v1.1.6",
+      "commit": "d6b40f13e580bf81485b7c1c22a14323606aba56",
+      "path": "machines/mmsaw",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "d6b40f13e580bf81485b7c1c22a14323606aba56",
+        "firmware_sha256": "506dd8a8e3ced755d0bc22e6272c79fcc1fcd1edc93c5db096971a6a9ec54eed",
+        "runs": 3,
+        "block_percent": 4.060426,
+        "midpoint_percent": 3.979553,
+        "combined_percent": 3.99939,
+        "worst_setting": {
+          "control": 7,
+          "label": "TUNE",
+          "value": 2147483647
+        }
+      }
     },
     {
       "id": "mmsin",
       "kind": "synth",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-MNMD",
+      "tag": "v1.1.6",
+      "commit": "d6b40f13e580bf81485b7c1c22a14323606aba56",
+      "path": "machines/mmsin",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "d6b40f13e580bf81485b7c1c22a14323606aba56",
+        "firmware_sha256": "506dd8a8e3ced755d0bc22e6272c79fcc1fcd1edc93c5db096971a6a9ec54eed",
+        "runs": 3,
+        "block_percent": 1.751736,
+        "midpoint_percent": 1.6907,
+        "combined_percent": 1.675441,
+        "worst_setting": {
+          "control": 3,
+          "label": "TUNE",
+          "value": 2147483647
+        }
+      }
     },
     {
       "id": "mmnois",
@@ -745,7 +781,18 @@
       "id": "grainfield",
       "kind": "effect",
       "maintainer": "colorsinspace1",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/grainfield",
+      "tag": "1.2",
+      "commit": "9f5c8fbefd6452ea685b3665a5d37e8e26058329",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "9f5c8fbefd6452ea685b3665a5d37e8e26058329",
+        "firmware_sha256": "1768956831002dd837f5a55be1f047fff0544d8aad3243f5a141f552f5e4413e",
+        "runs": 3,
+        "block_percent": 9.3019
+      }
     },
     {
       "id": "ohmonk",
@@ -764,6 +811,43 @@
         "block_percent": 2.644388,
         "report": "https://github.com/hatchman/open-xy-ohmonk/releases/tag/v1.0.0"
       }
+    },
+    {
+      "id": "chimes",
+      "kind": "synth",
+      "maintainer": "carlosedp",
+      "status": "published",
+      "repository": "https://github.com/carlosedp/open-xy-eurorack",
+      "tag": "v1.2.0",
+      "commit": "7cfff890307688fe281969ab8d3144a0c510b0d5",
+      "path": "machines/chimes",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "7cfff890307688fe281969ab8d3144a0c510b0d5",
+        "firmware_sha256": "b2ee8d2c09392b38c38b829dec5ae609040d4317567a4bf4cb053cf36dcdc9fe",
+        "runs": 3,
+        "block_percent": 6.015106,
+        "midpoint_percent": 4.93019,
+        "combined_percent": 4.953079,
+        "worst_setting": {
+          "control": 4,
+          "label": "Model",
+          "value": 805306367,
+          "option": "sympathetic"
+        }
+      }
+    },
+    {
+      "id": "cirrus",
+      "kind": "sample",
+      "maintainer": "carlosedp",
+      "status": "reserved"
+    },
+    {
+      "id": "stratus",
+      "kind": "effect",
+      "maintainer": "carlosedp",
+      "status": "reserved"
     }
   ]
 }
