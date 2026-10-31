@@ -89,6 +89,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         if m.display != 'stock':
             entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
             entry['asset'] = m.native_name + '.svg'
+        if m.display != 'stock' and m.kind == 'synth':
             preview_dir = output / ('preview-' + m.id)
             preview.build(preview_cxx, m, preview_dir)
             preview.preview_bundle(preview_dir, require_reference=True)

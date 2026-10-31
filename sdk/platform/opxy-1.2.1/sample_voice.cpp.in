@@ -6,6 +6,7 @@
 #include "sample_machines.hpp"
 #include "stock_sample.hpp"
 #include "sample_cache.hpp"
+#include "sample_preview.hpp"
 #include "stock.hpp"
 #include <opxy/transport.hpp>
 extern "C" {
@@ -19,6 +20,8 @@ using Voice = @NAMESPACE@::Voice;
 struct Slot {
     const void* const* vtable;
     Voice voice;
+    opxy::platform::SamplePreview preview;
+    opxy::platform::SamplePreviewRange slice;
     opxy::u32 frames;
     const void* sample_object;
     const opxy::SampleAnalysis* analysis;
@@ -66,6 +69,12 @@ void @PREFIX@_drum_panel(opxy::PadSettings, const opxy::SampleRegion*, const opx
 void @PREFIX@_drum_control(opxy::PadSettings* value, const opxy::DrumControl* event) { @NAMESPACE@::drum_control(*value, *event); }
 void @PREFIX@_drum_panel(opxy::PadSettings value, const opxy::SampleRegion* saved, const opxy::i32* parameters,
                           opxy::DrumPanel* panel) { @NAMESPACE@::drum_panel(value, *saved, parameters, *panel); }
+#endif
+#if @SLICE_TIMING@
+void @PREFIX@_slice_clock(const opxy::SampleSlice*, opxy::SampleSliceRate*) __asm__("@PREFIX@_slice_clock");
+void @PREFIX@_slice_clock(const opxy::SampleSlice* input, opxy::SampleSliceRate* output) {
+    @NAMESPACE@::slice_clock(*input, *output);
+}
 #endif
 #if @ANALYSIS@
 // One preparation at a time, on the stock file worker (sample_cache.cpp).
@@ -133,8 +142,14 @@ void* @PREFIX@_factory(opxy::u32 index, opxy::u32 track) {
     slot->retry = 0;
     slot->sample_object = published_sample();
     const opxy::SampleView sample = opxy::platform::stock_sample_view(slot->sample_object);
+    const opxy::platform::SamplePreviewRange* source = sdk_sample_slice_preview(engine_id(), track);
+    slot->slice = source ? *source : opxy::platform::SamplePreviewRange{};
+    const bool processed = @SLICE_TIMING@ && source && source->processed &&
+        source->frames == sample.frames && source->begin < source->end && source->end <= sample.frames;
+    slot->slice.processed = processed;
+    slot->preview = opxy::platform::sample_preview(sample, processed ? nullptr : source);
     slot->frames = sample.frames;
-    slot->analysis = @ANALYSIS@ ? sdk_sample_cache_find(slot->sample_object, engine_id()) : nullptr;
+    slot->analysis = @ANALYSIS@ && !slot->preview.active ? sdk_sample_cache_find(slot->sample_object, engine_id()) : nullptr;
     @NAMESPACE@::initialize(slot->voice, sample);
     slot->vtable = @PREFIX@_vtable;
     return slot;
@@ -145,6 +160,13 @@ static int render(void* self, opxy::i32* output, const opxy::i32* parameters) {
         for (unsigned i = 0; i < (@STEREO@ ? 128u : 64u); ++i) output[i] = 0;
         return 0;
     }
+    if (slot->preview.active) {
+        const opxy::i32* region = *reinterpret_cast<const opxy::i32* const volatile*>(kVoiceRegion);
+        const opxy::u32 level = region && region[opxy::platform::audio_region::kLevel] > 0 ?
+            static_cast<opxy::u32>(region[opxy::platform::audio_region::kLevel]) : 0;
+        opxy::platform::render_sample_preview(slot->preview, output, @STEREO@ ? 2u : 1u, level);
+        return 0;
+    }
     if (@ANALYSIS@ && !slot->analysis) {
         if (slot->retry) --slot->retry;
         else {
@@ -152,6 +174,15 @@ static int render(void* self, opxy::i32* output, const opxy::i32* parameters) {
             slot->analysis = sdk_sample_cache_find(slot->sample_object, engine_id());
             slot->retry = !slot->analysis && sdk_sample_cache_failed(slot->sample_object, engine_id()) ? 255 : 7;
         }
+    }
+    if (slot->slice.processed) {
+        const opxy::platform::SamplePreviewRange& source = slot->slice;
+        const opxy::SampleBlock block{output, source.parameters, increments,
+            opxy::Transport{source.bpm_x10, 0, false},
+            opxy::SampleRegion{source.begin, source.end, source.level, false, source.pitch_cents},
+            slot->analysis, source.settings, @STEREO@ ? 2u : 1u, source.track_transpose, 0, true};
+        @NAMESPACE@::render_sample(slot->voice, block);
+        return 0;
     }
     const opxy::i32* region = *reinterpret_cast<const opxy::i32* const volatile*>(kVoiceRegion);
     const opxy::u32 factor = region ? static_cast<opxy::u32>(region[opxy::platform::audio_region::kTuning]) : 0;
@@ -162,7 +193,7 @@ static int render(void* self, opxy::i32* output, const opxy::i32* parameters) {
     // The drum page edits outer markers only; hidden inner loop markers do not narrow playback.
     const opxy::SampleBlock block{output, parameters, increments, opxy::platform::audio_transport(),
         opxy::platform::sample_region(region, slot->frames, slot->pitch_cents, @DRUM_CONTROLS@ != 0), slot->analysis,
-        settings(region), @STEREO@ ? 2u : 1u, track_transpose(slot->track), slot->drum_transpose};
+        settings(region), @STEREO@ ? 2u : 1u, track_transpose(slot->track), slot->drum_transpose, false};
     @NAMESPACE@::render_sample(slot->voice, block);
     return 0;
 }
