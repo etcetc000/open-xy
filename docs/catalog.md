@@ -34,8 +34,8 @@ any other, published from the [core machines](https://github.com/etcetc000/open-
 
 ## Import custom machines
 
-On the builder's **Choose machines** page, open **Add custom machines** and
-choose **Import machines ZIP**. An SDK-built pack adds one or more machines
+On the builder's **Choose machines** page, choose **Import machines ZIP** beside
+**Choose extensions**. An SDK-built pack adds one or more machines
 marked **Yours**, initially unselected. The file stays in the browser; importing
 does not publish a catalog entry. Import code only from authors you trust:
 native machine code is not sandboxed or reviewed by Open-XY.
@@ -44,7 +44,8 @@ A pack extends the site's exact machine collection. It cannot replace existing
 machines, change the SDK runtime or add extensions. Its compiled registration,
 control and sample callback tables accompany the added machines, so independent
 packs cannot be combined: export the desired custom machines together. Importing
-another pack replaces the previous pack. **Remove imported machines** restores
+another pack replaces the previous pack. **Remove imported machines** under
+**About machine ZIPs** restores
 the site's collection. Both operations keep saved machine numbers reserved.
 Reloading clears the imported pack; keep its ZIP and your saved layout to use it
 again. Import the pack before loading a layout that selects its machines.
