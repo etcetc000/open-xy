@@ -33,6 +33,17 @@ template <u32 Points> struct Path { u32 key; Point points[Points]; };
 struct Node { i32 x, y, scale, cos, sin; u32 shade; Paint paint; };
 // A text slot: its characters, placed like a node without turning.
 struct Text { i32 x, y, scale; char chars[text_capacity]; };
+// Independent editor rectangles use short paths rather than arbitrary SVG transforms.
+// Counts and aggregate storage are checked by metadata, native and browser adapters.
+const u32 max_frame_bytes = 16384, max_path_points = 1024;
+constexpr u32 frame_bytes(u32 paths, u32 points, u32 nodes, u32 texts) {
+    return (paths ? paths : 1) * (4 + 8 * points) + 28 * nodes + 36 * (texts ? texts : 1) + 32;
+}
+constexpr bool frame_budget(u32 paths, u32 points, u32 nodes, u32 texts, u32 palette) {
+    return paths <= 128 && nodes >= 1 && nodes <= 256 && paths <= nodes && texts <= 80 &&
+        palette >= 1 && palette <= 16 && (paths ? points >= 2 && points <= 64 : points == 0) &&
+        paths * points <= max_path_points && frame_bytes(paths, points, nodes, texts) <= max_frame_bytes;
+}
 // Paths are nodes 0..Paths-1: mutable outlines of exactly Points points.
 // Without paths or text slots, their array keeps one unused element, so every
 // frame is standard C++ with the layout the renderers expect.
@@ -40,6 +51,7 @@ struct Text { i32 x, y, scale; char chars[text_capacity]; };
 // string keeps the stock value.
 template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette>
 struct Frame {
+    static_assert(frame_budget(Paths, Points, Nodes, Texts, Palette), "Drawing frame budget exceeded");
     static const u32 path_count = Paths;
     static const u32 point_count = Points;
     static const u32 node_count = Nodes;

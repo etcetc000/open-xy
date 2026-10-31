@@ -37,6 +37,19 @@ export class NoteActivity {
   }
 }
 
+// Same retained-frame layout and aggregate limits as draw.hpp / definitions.py.
+export const MAX_FRAME_BYTES = 16384;
+export function drawingFrameBytes(paths, points, nodes, texts, palette) {
+  if (![paths, points, nodes, texts, palette].every(Number.isInteger) ||
+      paths < 0 || paths > 128 || nodes < 1 || nodes > 256 || paths > nodes ||
+      texts < 0 || texts > 80 || palette < 1 || palette > 16 ||
+      (paths ? points < 2 || points > 64 : points !== 0) || paths * points > 1024)
+    throw new Error('Unsupported retained drawing budget');
+  const bytes = Math.max(paths, 1) * (4 + 8 * points) + 28 * nodes + 36 * Math.max(texts, 1) + 32;
+  if (bytes > MAX_FRAME_BYTES) throw new Error('Drawing frame exceeds 16384 bytes');
+  return bytes;
+}
+
 // Outlines the OP-XY draws as streaks: a line traced out and back over itself,
 // which has no area, or an outline that turns straight back on itself at a point.
 // `frame` is a PreviewDisplay frame with `paths` outlines of `points` points.
@@ -82,8 +95,7 @@ export class PreviewDisplay {
     if (!(abi === 1 && inputBytes === 68 || abi === 2 && inputBytes === INPUT_BYTES)) throw new Error('Unsupported drawing ABI');
     this.noteActivity = abi === 2;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
-    // Largest declared frame: 4 paths of 64 points, 256 nodes, 16 texts and the header.
-    const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 256 * 28 + 16 * 36 + 32, 'drawing frame size');
+    const frameBytes = integer(e.opxy_display_frame_bytes(), 32, MAX_FRAME_BYTES, 'drawing frame size');
     this.memory = e.memory.buffer;
     const ranges = [
       [e.opxy_display_state(), this.stateBytes], [e.opxy_display_input(), inputBytes], [e.opxy_display_frame(), frameBytes],
@@ -156,12 +168,9 @@ export class SvgDisplay {
       throw new Error('Invalid drawing asset');
     }
     const { nodes, texts, palette, paths, points } = bindings;
-    if (!Array.isArray(nodes) || !Array.isArray(texts) || !Array.isArray(palette) ||
-        !Number.isInteger(paths) || paths < 0 || paths > 4 || paths > nodes.length ||
-        !Number.isInteger(points) || (paths ? points < 2 || points > 64 : points !== 0) ||
-        nodes.length < 1 || nodes.length > 256 || texts.length > 16 || palette.length < 1 || palette.length > 16) {
+    if (!Array.isArray(nodes) || !Array.isArray(texts) || !Array.isArray(palette))
       throw new Error('Unsupported retained asset bindings');
-    }
+    drawingFrameBytes(paths, points, nodes.length, texts.length, palette.length);
     this.points = points;
     // Frame words: paths (key, points), nodes (7 words), texts (3 words and 24
     // bytes), then the header's four 8-byte strings. An empty path or text

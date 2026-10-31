@@ -34,12 +34,26 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 
 | Field | Limits |
 | --- | --- |
-| `paths` | 0..4 mutable outlines; they are nodes `0..paths-1` |
+| `paths` | 0..128 mutable outlines; they are nodes `0..paths-1` |
 | `points` | 2..64 points per outline; 0 when there are no paths |
 | `nodes` | `paths`..256 transformable elements |
-| `texts` | 0..16 text slots; more than 4 need `"sdk": "1.3"` |
+| `texts` | 0..80 text slots; more than 4 need `"sdk": "1.3"` |
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
+
+More than four mutable paths or sixteen text slots requires SDK 1.7. A frame
+has at most **1024 mutable path points in total** and **16384 bytes** of retained
+frame data, including nodes, texts, keys and the four header strings. These
+aggregate bounds apply in metadata validation, C++ and the browser renderer.
+Not every combination of the individual maxima fits.
+
+For a multi-clip editor such as Linear, 64 independently sized rectangles can
+use four-point paths and separate labels. A path spans at most 256 pixels
+(the existing ±64 point extent at scale 2); split wider rectangles into two
+paths. A frame with 128 four-point paths, 128 nodes and 80 text slots fits
+the aggregate limits. This avoids private SVG matrix writes while preserving the existing uniform-scale contract. This
+drawing budget does not itself add extension pages, input ownership or a Linear
+implementation. Each path still uses the coordinate and transform bounds below.
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) is the format definition.
 `DisplayState` is trivial, standard-layout data. Put it, with the frame type,
