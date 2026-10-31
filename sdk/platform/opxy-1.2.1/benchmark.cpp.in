@@ -6,6 +6,11 @@ using namespace opxy::platform;
 
 extern "C" {
 void sdk_benchmark_run() __asm__("sdk_benchmark_run");
+// While set, the synth whose engine ID is sdk_benchmark_engine renders with these
+// controls (voice.cpp.in); other machines' voices keep their own. The diagnostic runs
+// with playback stopped (docs/profiling.md), so no track of that synth is sounding.
+const i32* volatile sdk_benchmark_parameters __asm__("sdk_benchmark_parameters") = nullptr;
+const char* volatile sdk_benchmark_engine __asm__("sdk_benchmark_engine") = nullptr;
 @DECLARATIONS@
 }
 
@@ -17,6 +22,38 @@ const Machine machines[] = {
 @MACHINES@
     {0, 0, 0, 0, 0}
 };
+// A build with --sweep: after a synth's standard run, one run per setting, each
+// control in turn through its positions with the others at their defaults
+// (tooling/benchmark.py sweep), then one with every control at the position that
+// ran heaviest. `machine` indexes machines[]; none otherwise.
+struct Setting { u32 machine; u32 control; i32 value; };
+struct Defaults { u32 machine; i32 controls[8]; };
+const u32 kNoMachine = 0xffffffffu;
+const Setting settings[] = {
+@SETTINGS@
+    {kNoMachine, 0, 0}
+};
+const Defaults defaults[] = {
+@DEFAULTS@
+    {kNoMachine, {0}}
+};
+const Defaults* defaults_of(u32 machine) {
+    for (const Defaults* d = defaults; d->machine != kNoMachine; ++d)
+        if (d->machine == machine) return d;
+    return nullptr;
+}
+// The whole-voice timing record (metric 5) a stock run leaves behind until the next
+// one clears it: total cycles (high and low words) over the blocks it timed. Its
+// average per block is what the run's report encodes, so the host ranks the same way.
+// Stock's timing record for a metric: words 4-10 hold maximum, minimum, total and blocks.
+volatile u32* timing_record(u32 metric) { return at<volatile u32>(0x08034f3c + 0x2c * metric); }
+u32 whole_voice_average() {
+    volatile u32* record = timing_record(5);
+    const u32 count = record[10];
+    if (!count) return 0;
+    if (record[9]) return 0xffffffffu;  // beyond 2^32 cycles: heavier than any that fit
+    return record[8] / count;
+}
 // 0x8d57c848: stock benchmark-one(controller, record, index, total).
 // It sets knobs 0..3 to midpoint, holds note 60/velocity 127 for 1000
 // 64-sample blocks, releases for 500, and emits one 120-byte report.
@@ -44,7 +81,7 @@ static void callback_report(const Machine& machine) {
     const opxy::benchmark::Stats value = machine.callback();
     stock<void()>(0x8c0c7908)();
     if (value.audible && value.count == opxy::benchmark::blocks) {
-        volatile u32* record = at<volatile u32>(0x08034f3c + 0x2c * machine.metric);
+        volatile u32* record = timing_record(machine.metric);
         record[4] = value.maximum; record[5] = 0;
         record[6] = value.minimum; record[7] = 0;
         record[8] = value.total_low; record[9] = value.total_high;
@@ -55,8 +92,13 @@ static void callback_report(const Machine& machine) {
 
 void sdk_benchmark_run() {
     u32 total = 9;
-    for (u32 i = 0; machines[i].ready; ++i)
-        if (machines[i].ready() == 1) ++total;
+    for (u32 i = 0; machines[i].ready; ++i) {
+        if (machines[i].ready() != 1) continue;
+        ++total;
+        for (const Setting* s = settings; s->machine != kNoMachine; ++s)
+            if (s->machine == i) ++total;
+        if (defaults_of(i)) ++total;  // the heaviest positions together
+    }
     for (u32 i = 0; i < 9; ++i) run(at<const Test>(0x8409f3b4) + i, i, total);
     u32 index = 9;
     for (u32 i = 0; machines[i].ready; ++i) {
@@ -68,5 +110,34 @@ void sdk_benchmark_run() {
         const Test test = {static_cast<u32>(reinterpret_cast<Address>(machine.id)),
                            machine.name, 19, 0x40000000};
         run(&test, index++, total);
+        // Each control's heaviest setting: the first of equal totals, as the host
+        // reads the reports (tooling/benchmark.py combined_positions).
+        const Defaults* base = defaults_of(i);
+        if (!base) continue;
+        const Setting* heaviest[8] = {};
+        u32 most[8] = {};
+        // Stock's run renders every block before it returns; static storage keeps the
+        // controls valid for any voice that reads them, whatever its timing.
+        static i32 controls[8];
+        sdk_benchmark_engine = machine.id;
+        for (const Setting* s = settings; s->machine != kNoMachine; ++s) {
+            if (s->machine != i) continue;
+            for (u32 c = 0; c < 8; ++c) controls[c] = base->controls[c];
+            controls[s->control] = s->value;
+            sdk_benchmark_parameters = controls;
+            run(&test, index++, total);
+            sdk_benchmark_parameters = nullptr;
+            const u32 spent = whole_voice_average();
+            if (!heaviest[s->control] || spent > most[s->control]) {
+                heaviest[s->control] = s;
+                most[s->control] = spent;
+            }
+        }
+        // Every swept control at its heaviest position; the others keep their defaults.
+        for (u32 c = 0; c < 8; ++c) controls[c] = heaviest[c] ? heaviest[c]->value : base->controls[c];
+        sdk_benchmark_parameters = controls;
+        run(&test, index++, total);
+        sdk_benchmark_parameters = nullptr;
+        sdk_benchmark_engine = nullptr;
     }
 }

@@ -15,6 +15,8 @@ int kit_absent() __asm__("kit_absent");
 u32 stock_catalog_insert(void*, const void*, u32) __asm__("stock_catalog_insert");
 u32 stock_gui_role() __asm__("stock_gui_role");
 int sdk_screen_owned(u32) __asm__("sdk_screen_owned");
+int sdk_engine_installed(const void*) __asm__("sdk_engine_installed");
+int sdk_stock_engine_known(const void*) __asm__("sdk_stock_engine_known");
 @DECLARATIONS@
 }
 
@@ -51,5 +53,14 @@ u32 extensions_catalog_checked(void* catalog, const void* name, u32 id) {
 // 1 when page is the own screen of a machine that is ready (screen_order.cpp.in).
 int sdk_screen_owned(u32 page) {
 @OWNED_SCREENS@
+    return 0;
+}
+
+// 1 when this build installs the engine named (presets.cpp): a stock engine, or
+// one of this build's machines by name, since the preset scan can run before
+// they register. An unselected machine's name check is kit_absent.
+int sdk_engine_installed(const void* name) {
+    if (sdk_stock_engine_known(name)) return 1;
+@INSTALLED@
     return 0;
 }

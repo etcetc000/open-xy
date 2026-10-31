@@ -109,6 +109,62 @@ void process(State&, opxy::Buffer buffer, opxy::Channel left, opxy::Channel, opx
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
             self.assertEqual(result.returncode, 0, 'fixture step %d failed' % result.returncode)
 
+    def test_a_shift_row_reaches_the_dsp_as_four_more_words(self):
+        enum = lambda i, labels: dict(id=f's{i}', label=f'S {i}', default=0, display='enum',
+                                      mapping=dict(kind='enum', labels=labels))
+        definition = dict(fixture('probefx').definition, shift=[enum(0, ['a', 'b', 'c']), enum(1, ['x', 'y'])])
+        effect = replace(fixture('probefx'), definition=definition)
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_fx_object(Path(directory), effect).read_text()
+            table = adapters.generate_synth_controls(Path(directory), [effect]).read_text()
+        # The slot finds the send's packed word on the audio side; the DSP gets 12 words.
+        self.assertIn('struct Object { const void* const* vtable; State state; opxy::u32 slot; };', text)
+        self.assertIn('static_assert(sizeof(State) + 4 <= opxy::effect_state_bytes', text)
+        self.assertIn('object->slot = slot;', text)
+        self.assertIn('static const opxy::u8 kShiftChoices[2] = {3, 2};', text)
+        self.assertIn('process(object->state, left, right, words)', text)
+        # The control table names the row and captions its choices as slots 8 and 9.
+        self.assertIn('static const char* const probefx_shift_titles[] = {"s 0", "s 1"};', table)
+        self.assertIn('probefx_format, true, false, 0, 2, {3, 2, 1, 1}, probefx_shift_titles},', table)
+        self.assertIn('case 8: {', table)
+        self.assertIn('case 9: {', table)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_shift_row_packs_and_unpacks_every_choice(self):
+        source = r'''#include "shift_row.hpp"
+#include <cstdio>
+using namespace opxy;
+namespace row = opxy::platform::shift_row;
+int main() {
+    const u8 choices[4] = {6, 4, 4, 3};
+    for (u32 a = 0; a < 6; ++a) for (u32 b = 0; b < 4; ++b) for (u32 c = 0; c < 4; ++c) for (u32 d = 0; d < 3; ++d) {
+        const u32 fields[4] = {a, b, c, d};
+        u32 back[4];
+        row::decode(row::encode(fields, choices, 4), choices, 4, back);
+        for (u32 i = 0; i < 4; ++i) {
+            if (back[i] != fields[i]) { std::printf("field %u of %u %u %u %u", i, a, b, c, d); return 1; }
+            // A machine reads each choice's word as any enum control.
+            const i32 word = row::midpoint(back[i], choices[i]);
+            if ((((static_cast<u32>(word) >> 16) * choices[i]) >> 15) != fields[i]) return 2;
+        }
+    }
+    u32 low[4];
+    row::decode(0, choices, 4, low);  // a fresh project's word: every first choice
+    return low[0] || low[1] || low[2] || low[3] ? 3 : 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / 'test.cpp').write_text(source)
+            binary = folder / ('test.exe' if os.name == 'nt' else 'test')
+            hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+            command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(ROOT / 'sdk/include'),
+                       '-I' + str(ROOT / 'sdk/platform/opxy-1.2.1'), str(folder / 'test.cpp'), '-o', str(binary)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
+            self.assertEqual(result.returncode, 0, result.stdout + 'step %d' % result.returncode)
+
     def test_a_tempo_effect_reads_the_audio_transport(self):
         definition = dict(fixture('probefx').definition, resources={'transport': 1})
         with tempfile.TemporaryDirectory() as directory:

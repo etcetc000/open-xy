@@ -7,8 +7,8 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.6.0",
-      "commit": "aa6b8bcfb688004368573a5b4b80a68cadb7ec5e",
+      "tag": "v1.6.1",
+      "commit": "efa880a9063b4eb06a72fbae0362b94bbed0b37b",
       "path": "extensions/capture"
     }
   ]

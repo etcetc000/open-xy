@@ -7,7 +7,7 @@
 
 #define require(value) do { if (!(value)) { std::fprintf(stderr, "line %d\n", __LINE__); std::abort(); } } while (0)
 
-static const opxy::u32 kSlots = 128;
+static const opxy::u32 kSlots = 256;  // the relocated screen slots (stock_tables.SCREENS)
 static opxy::u32 owned_page, asked, refreshes;
 static int ready = 1;
 int sdk_screen_owned(opxy::u32 page) { ++asked; return page == owned_page ? ready : 0; }
@@ -36,7 +36,7 @@ int main() {
     for (int state : {1, 0, 2}) {
         ready = state;
         for (opxy::u32 owned = 0; owned <= kSlots + 1; ++owned)
-            for (opxy::u32 selected : {0u, 1u, 2u, 7u, 80u, 81u, 82u, 83u, 126u, 127u, 128u, 200u, owned}) {
+            for (opxy::u32 selected : {0u, 1u, 2u, 7u, 80u, 81u, 82u, 83u, 126u, 127u, 128u, 200u, 254u, 255u, 256u, 300u, owned}) {
                 owned_page = owned;
                 asked = refreshes = 0;
                 require(frame(selected, order) == kSlots);

@@ -104,6 +104,11 @@ int ready(const Registry& registry, const Pages& pages, const Record& r, const S
     return identity(*screen, page) && object[2] != 0;
 }
 
+int known(const Registry& registry, const StockString* name) {
+    if (!at<const volatile u32>(registry.map)[1]) return 1;
+    return resolve(registry, name) != registry.missing;
+}
+
 // Honors inline and heap storage without reading past the length.
 int name_matches(const Record& r, const StockString* string) {
     const u32 length = name_length(r.name);

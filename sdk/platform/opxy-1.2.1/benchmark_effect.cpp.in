@@ -12,7 +12,8 @@ opxy::benchmark::Stats @PREFIX@_benchmark() {
     u32* scratch = static_cast<u32*>(memory.data);
     for (u32 i = 0; i < @BUFFER_BYTES@ / 4u; ++i) scratch[i] = 0;
     @NAMESPACE@::initialize(state);
-    const i32 parameters[8] = {@DEFAULTS@};
+    // The eight controls, then a shift row's choices (words 8..11), as the adapter passes them.
+    const i32 parameters[12] = {@DEFAULTS@};
     i32 left[64], right[64];
     for (u32 block = 0; block < blocks; ++block) {
         for (u32 i = 0; i < 64; ++i) {

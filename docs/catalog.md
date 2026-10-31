@@ -22,7 +22,9 @@ effect and page numbers are not the catalog's: each firmware's
 | `repository`, `tag`, `commit`, `path` | A draft or published machine's release: `https://github.com/<owner>/<repo>`, the tag, its full commit SHA, and the machine's folder in the repository (`.` at the root). A retired entry may keep them |
 
 New or changed draft/published entries also require a `cpu` record generated
-from [hardware profiling](profiling.md), for every machine kind. That guide owns
+from [hardware profiling](profiling.md), for every machine kind; a synth's is a
+control sweep that records its heaviest setting. Results above the recommended
+3.5% of the block budget are accepted with a warning. That guide owns
 the field schema, workloads and contributor commands. Unchanged legacy entries
 may remain without a record until their next update; measurements are never
 backfilled with host estimates.
@@ -47,8 +49,8 @@ show a short notice about support and possible instability or unexpected audio.
 | Command | Does |
 | --- | --- |
 | `python sdk.py catalog check [--base <ref>] [--allow-control-changes]` | Validates the catalog. With `--base`, also against an earlier catalog: every entry stays, with its kind, and its status only moves forward, except published back to draft; a published machine whose commit moved is fetched at both commits and its [controls compared](#controls) |
-| `python sdk.py catalog fetch [--tags]` | Fetches every published machine at exactly its commit into `local/catalog/`, checks it matches its entry and writes `local/catalog/collection.json`: every published machine, in catalog order. `--tags` also confirms each tag still names its commit |
-| `python sdk.py catalog test [--tags]` | Fetches, then runs [`sdk.py test`](first-machine.md#what-you-own) on every published machine |
+| `python sdk.py catalog fetch [--tags] [--prune]` | Fetches every published machine at exactly its commit into `local/catalog/`, checks it matches its entry and writes `local/catalog/collection.json`: every published machine, in catalog order. `--tags` also confirms each tag still names its commit; `--prune` then deletes fetched folders the catalog no longer pins |
+| `python sdk.py catalog test [--tags] [--changed-from <revision>] [--jobs <n>] [--no-cpu]` | Fetches, then runs [`sdk.py test`](first-machine.md#what-you-own) on every published machine. `--changed-from` tests only the entries that differ from the catalog at that git revision, as CI does for a pull request that changes only the catalog; `--jobs` checks several folders at once |
 
 A fetched folder that changed is refused; delete it to fetch again. Pass the
 collection to any build command:
@@ -75,7 +77,7 @@ python sdk.py compile --collection local/catalog/collection.json --out <folder>
    budget printed by the build. Host CPU estimates guide development.
 4. **Commit and measure on hardware.** Follow [hardware profiling](profiling.md)
    for the exact machine revision: build with profiling enabled, install when
-   authorized, confirm reboot, collect three runs, and publish the generated
+   authorized, confirm reboot, collect a run ([one is enough](profiling.md#collect-a-run)), and publish the generated
    readout. Keep all firmware outside every checkout. A maintainer can run this
    for authors without an XY. A reserved entry can stay reserved while hardware
    evidence is pending; `draft` and `published` submissions both need it.

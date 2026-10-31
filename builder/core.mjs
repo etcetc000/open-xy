@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = 'c2c95ee6da8f4eb7301213878267aaf869a78ec6f761df74dce946fa56472e34';
+export const PROFILE_SHA256 = '496fe6dff677a8e0bad9d6599f8ce1665c0c2b0e905a65eef694cc7c90001323';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -96,16 +96,17 @@ export function readObject(bytes) {
   return {sections, symbols, relocations};
 }
 
-// The selections the release checks link, as bit masks over kit.machines: every
-// combination of Open-XY's own machines, each other machine with all of those, and
-// the machines the native package links (kit.linked; all of them when they fit).
+// The selections the release checks link, as BigInt bit masks over kit.machines (a
+// kit holds more machines than a 32-bit mask): every combination of Open-XY's own
+// machines, each other machine with all of those, and the machines the native package
+// links (kit.linked; all of them when they fit).
+export const selectionBit = i => 1n << BigInt(i);
 export function checkedSelections(machines, linked = machines.map(m => m.id)) {
-  const bit = i => 2 ** i;
-  const core = machines.reduce((mask, m, i) => m.origin === 'official' ? mask + bit(i) : mask, 0);
-  const masks = new Set([machines.reduce((mask, m, i) => linked.includes(m.id) ? mask + bit(i) : mask, 0)]);
-  for (let mask = core; mask; mask = (mask - 1) & core) masks.add(mask);
-  machines.forEach((m, i) => { if (!(core & bit(i))) masks.add(core + bit(i)); });
-  return [...masks].sort((a, b) => a - b);
+  const core = machines.reduce((mask, m, i) => m.origin === 'official' ? mask | selectionBit(i) : mask, 0n);
+  const masks = new Set([machines.reduce((mask, m, i) => linked.includes(m.id) ? mask | selectionBit(i) : mask, 0n)]);
+  for (let mask = core; mask; mask = (mask - 1n) & core) masks.add(mask);
+  machines.forEach((m, i) => { if (!(core & selectionBit(i))) masks.add(core | selectionBit(i)); });
+  return [...masks].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 // The profile's identity rules, as tooling.machines.check_identity applies them.
@@ -114,7 +115,8 @@ export function validIdentity(rules, kind, identity) {
   if (!identity || typeof identity !== 'object' || Object.keys(identity).sort().join() !== [slot, 'page'].sort().join()) return false;
   const n = identity[slot], page = identity.page;
   if (!Number.isInteger(n) || !Number.isInteger(page)) return false;
-  if (kind === 'effect') return rules.effects.includes(n) && page === rules.effect_page;
+  // An effect is on the stock FX page, or on a relocated page when it draws its own (SDK 1.7).
+  if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages);
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
     : kind === 'synth' && page > rules.page_none && page < rules.pages;
@@ -128,7 +130,8 @@ export function validRequest(rules, kind, identity) {
   const slot = kind === 'effect' ? 'effect' : 'engine';
   if (Object.keys(identity).sort().join() !== [slot, 'page'].sort().join() || identity[slot] !== null)
     return validIdentity(rules, kind, identity);
-  return kind === 'effect' ? identity.page === rules.effect_page
+  // An effect that draws its own page (SDK 1.7) asks for a page as a synth does.
+  return kind === 'effect' ? identity.page === rules.effect_page || identity.page === null
     : kind === 'sample' ? rules.sample_pages.includes(identity.page) : kind === 'synth' && identity.page === null;
 }
 // Whether numbers are what a machine asks for: the same fields, equal where it names one.
@@ -176,7 +179,7 @@ export function occupied(rules, identity) {
   const keys = ['engine', 'effect'].filter(slot => Object.hasOwn(identity, slot)).map(slot => slot + ' ' + identity[slot]);
   // Stock reads a send track's effect number as its engine: no engine shares it.
   if (Object.hasOwn(identity, 'effect')) keys.push('engine ' + identity.effect);
-  if (!Object.hasOwn(identity, 'effect') && !rules.sample_pages.includes(identity.page)) keys.push('page ' + identity.page);
+  if (!rules.sample_pages.includes(identity.page) && identity.page !== rules.effect_page) keys.push('page ' + identity.page);
   return keys;
 }
 const sameNumbers = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => a[k] === b[k]);
@@ -201,12 +204,20 @@ export function numberLayout(rules, fixed, layout, machines) {
   }
   const fresh = [];
   for (const [name, kind, requested] of [...machines].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
-    if (Object.hasOwn(numbers, name)) {
+    const ownPage = kind === 'effect' && requested.page !== rules.effect_page;
+    if (Object.hasOwn(numbers, name) && kind === 'effect' && ownPage !== (numbers[name].page !== rules.effect_page)) {
+      // An effect that came to draw its own page (SDK 1.7), or stopped: it
+      // keeps its effect number and is given a page, or gives its page up.
+      for (const [key, holder] of [...holders]) if (holder === name && key.startsWith('page ')) holders.delete(key);
+      if (ownPage) fresh.push([name, kind, {...numbers[name], page: null}, ['page']]);
+      else numbers[name] = {...numbers[name], page: rules.effect_page};
+    } else if (Object.hasOwn(numbers, name)) {
       check(validIdentity(rules, kind, numbers[name]), `${name}: the layout gives it numbers it cannot use`);
       check(kind !== 'sample' || numbers[name].page === requested.page,
         `${name} now forks another stock sampler; the layout holds its numbers for the old one`);
     } else {
-      fresh.push([name, kind, {...requested}, kind === 'effect' ? ['effect'] : kind === 'synth' ? ['engine', 'page'] : ['engine']]);
+      fresh.push([name, kind, {...requested},
+        kind === 'effect' ? (ownPage ? ['effect', 'page'] : ['effect']) : kind === 'synth' ? ['engine', 'page'] : ['engine']]);
     }
   }
   // An effect number is also held as an engine number (occupied).
@@ -338,14 +349,15 @@ export const moduleBytes = profile => profile.reserved_bytes - profile.table_byt
 const screenTemplateOk = async kit => typeof kit.screenTemplate === 'string' &&
   await sha256(utf8.encode(kit.screenTemplate)) === kit.profile.screen_template_sha256;
 export async function openKit(kit) {
-  check(kit.format === 'opxy-browser-kit/1' && kit.machines.length > 0 && kit.machines.length <= 32,
-    'Unsupported curated kit');
+  check(kit.format === 'opxy-browser-kit/1', 'Unsupported curated kit');
   // The release version, which every build's boot label shows (tooling.startup_label).
   check(typeof kit.version === 'string' && /^\d+\.\d+\.\d+$/.test(kit.version), 'Unsupported curated kit version');
   const profileBytes = decode64(kit.profileSource);
   check(await sha256(profileBytes) === PROFILE_SHA256 &&
     JSON.stringify(JSON.parse(decoder.decode(profileBytes))) === JSON.stringify(kit.profile),
     'Firmware edit profile is not the reviewed profile');
+  // No more machines than the relocated engine table holds (tooling/stock_tables.py).
+  check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
   const extensions = kit.extensions ?? [];

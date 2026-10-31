@@ -122,7 +122,7 @@ class SourceContracts(unittest.TestCase):
 
     def test_profile_is_authenticated(self):
         original = pipeline.read
-        changed = original(ROOT / pipeline.PROFILE).replace(b'"table_bytes": 8192', b'"table_bytes": 4096')
+        changed = original(ROOT / pipeline.PROFILE).replace(b'"table_bytes": 16384', b'"table_bytes": 4096')
         with mock.patch.object(pipeline, 'read', side_effect=lambda path: changed if Path(path).name.endswith(
                 '.json') else original(path)), self.assertRaisesRegex(ValueError, 'profile changed'):
             config()

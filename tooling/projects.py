@@ -14,6 +14,7 @@ import zlib
 from .formats import require
 from .machines import check_layout_numbers, read_layout, reject_constant
 from .pipeline import config
+from .stock_tables import EFFECT_COUNT, ENGINE_COUNT
 
 FORMAT = 'open-xy-project'
 VERSION = 1
@@ -26,10 +27,12 @@ SECTION_NAME = re.compile(r'[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+')
 # The machine IDs a companion may list, the firmware reader's rule (project_companion.cpp
 # machine_name): a lowercase letter, then lowercase letters, digits or _, at most 15.
 MACHINE_ID = re.compile(r'[a-z][a-z0-9_]{0,14}')
-# Distinct machines one section may list, as many as the firmware reader holds.
-MACHINE_LIMIT = 128
-# Engine and effect numbers a pattern can hold registered; others are never mapped.
-NUMBERS = 63
+# Distinct machines one section may list, as many as the firmware reader holds: more
+# than one firmware numbers (test_stock_tables), so it reads every companion it writes.
+MACHINE_LIMIT = 256
+# Engine and effect numbers a pattern can hold registered, the relocated tables' counts
+# (project_companion.cpp kNumbers and kEffectNumbers); others are never mapped.
+NUMBERS, EFFECT_NUMBERS = ENGINE_COUNT, EFFECT_COUNT
 # What a listed machine missing here, or a number two listed machines claim, becomes:
 # Prism on an instrument track, no effect on a send.
 FALLBACK = {'engine': 18, 'effect': 0}
@@ -103,7 +106,7 @@ def translation(saved, layout):
     """Each saved (slot, number) and what it is in `layout`: the machine's own number
     there, or None when the machine is not in it, which a reader opens as FALLBACK.
     An engine or effect number two listed machines claim is None too: neither can be
-    trusted. Numbers not listed, or outside the records (NUMBERS), stay as they are.
+    trusted. Numbers not listed, or outside the records (NUMBERS, EFFECT_NUMBERS), stay as they are.
     Pages, which projects do not save and sample engines share, map without that rule."""
     result, claims = {}, {}
     for name, identity in saved.items():
@@ -112,7 +115,7 @@ def translation(saved, layout):
             # Effects share stock's FX page; a page means nothing without its engine.
             if slot == 'page' and 'effect' in identity:
                 continue
-            if slot != 'page' and not 0 <= number < NUMBERS:
+            if slot != 'page' and not 0 <= number < (EFFECT_NUMBERS if slot == 'effect' else NUMBERS):
                 continue
             claims[(slot, number)] = claims.get((slot, number), 0) + 1
             result[(slot, number)] = here.get(slot) if here and set(here) == set(identity) else None

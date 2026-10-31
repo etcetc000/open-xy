@@ -72,6 +72,9 @@ int add_screen(const Pages&, const Record&, const Screen&);
 int ready(const Registry&, const Pages&, const Record&, const Screen*);
 // 1 when a stock string holds exactly the record's name.
 int name_matches(const Record&, const StockString*);
+// 1 when the name resolves to a registered entry, or before the name map exists
+// (so nothing is refused while stock is still starting).
+int known(const Registry&, const StockString*);
 }
 
 }}
@@ -81,6 +84,8 @@ int sdk_register_engine(const opxy::platform::Record*) __asm__("sdk_register_eng
 int sdk_register_effect(const opxy::platform::Record*) __asm__("sdk_register_effect");
 int sdk_register_screen(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_register_screen");
 int sdk_engine_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_engine_ready");
-int sdk_effect_ready(const opxy::platform::Record*) __asm__("sdk_effect_ready");
+// An effect with its own page (SDK 1.7) passes its screen; one on stock's FX page, null.
+int sdk_effect_ready(const opxy::platform::Record*, const opxy::platform::Screen*) __asm__("sdk_effect_ready");
 int sdk_name_matches(const opxy::platform::Record*, const void* string) __asm__("sdk_name_matches");
+int sdk_stock_engine_known(const void* name) __asm__("sdk_stock_engine_known");
 }

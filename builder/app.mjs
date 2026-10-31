@@ -538,6 +538,7 @@ try {
   // A tap opens the memory breakdown on screens without hover.
   document.querySelector('.memory-bar').onclick = e => e.currentTarget.classList.toggle('open');
   $('builder-version').textContent = 'v' + kit.version;
+  $('capacity-foot').textContent = kib(Core.moduleBytes(kit.profile)) + ' for machines; CPU load is not measured';
   selected = kit.machines.filter(Core.chosenByDefault).map(machine => machine.id);
   try {
     const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');
