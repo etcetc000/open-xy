@@ -808,6 +808,15 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c0b541c",
+      "file_offset": "0xec658",
+      "length": 8,
+      "before": "00de5a8d28cf0000",
+      "symbol": "sdk_synth_scramble",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8d4eed56",
       "file_offset": "0x125fb2",
       "length": 4,
