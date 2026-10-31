@@ -1219,6 +1219,16 @@
     },
     {
       "kind": "hook",
+      "address": "0x8d58c5d8",
+      "file_offset": "0x1c3834",
+      "length": 4,
+      "before": "01e36804",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
       "address": "0x8d5ad5ae",
       "file_offset": "0x1e4806",
       "length": 4,

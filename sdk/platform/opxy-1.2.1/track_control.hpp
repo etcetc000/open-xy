@@ -32,6 +32,9 @@ extern "C" {
 extern const opxy::platform::ControlMachine sdk_control_machines[] __asm__("sdk_control_machines");
 extern const opxy::u32 sdk_control_machine_count __asm__("sdk_control_machine_count");
 void sdk_gui_tick() __asm__("sdk_gui_tick");
+// Stock's step values reaching the live parameters: an overlay stays over them.
+void sdk_param_step_set(opxy::u32 project, opxy::u32 track, opxy::u32 index, opxy::i32 value)
+    __asm__("sdk_param_step_set");
 // A project replacement invalidates transient edits/overlays without touching stock's buffers.
 void sdk_control_forget() __asm__("sdk_control_forget");
 // Whether each machine of the table has had its reset for this project: a unique

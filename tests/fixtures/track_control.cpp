@@ -181,6 +181,18 @@ int main() {
     tick(1, "Overlay not restored over a stock edit");
     require(seen == 120 && value(0, 1) == 500, "Stock edit not seen");
 
+    // A step's parameter lock reaching the live values: an overlaid parameter
+    // keeps its overlay and the lock becomes the value beneath it; a parameter no
+    // machine overlays takes the lock.
+    writes = 0;
+    sdk_param_step_set(kProject, 0, 1, 900);
+    sdk_param_step_set(kProject, 4, 2, 900);
+    require(writes == 2 && value(0, 1) == 500 && value(4, 2) == 900, "Lock heard over the overlay");
+    tick(0, "Overlay rewritten after the lock");
+    require(seen == 900 && value(0, 1) == 500, "Lock not the value beneath the overlay");
+    value(0, 1) = 120;
+    tick(1, "Overlay not restored over a stock edit");
+
     // Dropping a parameter restores stock's value; negatives clamp to 0.
     plan({{3, 9, 0, -5}});
     tick(2, "Release and new overlay not written");
@@ -208,7 +220,7 @@ int main() {
     require(resets == 2, "Unique machine not reset after a project change");
     engines[5] = 0;
     tick(1, "Overlay not restored when the machine left");
-    require(value(0, 1) == 120 && ticks == 11, "Removal not restored");
+    require(value(0, 1) == 120 && ticks == 13, "Removal not restored");
 
     // Edits pass through untouched while nothing captures.
     bases[0][5] = 50;

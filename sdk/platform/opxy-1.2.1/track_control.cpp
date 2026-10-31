@@ -245,6 +245,23 @@ extern "C" void sdk_control_forget() {
     }
 }
 
+// 8d58c5d8: where stock's step values reach the live parameters, through the live
+// setter (8d58c5b8, called by 8d58ca10 for each parameter of a step: the sequencer's
+// steps with their parameter locks, from its tick 8d5986b8, and notes played live,
+// from 8d595738). Without this, a lock on an overlaid parameter would sound until
+// the next tick puts the overlay back: a click. An overlaid parameter keeps its
+// overlay instead, and the step's value becomes stock's value beneath it, as the
+// next tick would have found it.
+extern "C" void sdk_param_step_set(u32 project, u32 track, u32 index, i32 value) {
+    if (track < control::tracks)
+        if (Applied* a = find(track, index))
+            if (a->block == stock<u32(u32)>(0x8d587708)(track)) {
+                a->underlying = value < 0 ? 0 : value;
+                value = a->written;
+            }
+    stock<void(u32, u32, u32, i32)>(0x8d5acea8)(project, track, index, value);
+}
+
 extern "C" void sdk_gui_tick() {
     stock<void()>(0x8d580074)();
     ++gui_ticks;
