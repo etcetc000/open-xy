@@ -28,16 +28,18 @@ static unsigned char last_packet[256];
 static unsigned packet_size, extended_packets, plain_packets;
 extern "C" {
 opxy::u32 sdk_sample_alias(opxy::u32) __asm__("sdk_sample_alias");
+opxy::u32 sdk_sample_neutral_engine(opxy::u32) __asm__("sdk_sample_neutral_engine");
 const SampleMachine sdk_sample_machines[] = {
     {reinterpret_cast<const char*>(35), 7, owned, defaults, assign, control, nullptr, 0, nullptr, nullptr, nullptr, nullptr, slice_clock},
     {reinterpret_cast<const char*>(36), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr},
-    {reinterpret_cast<const char*>(37), 7, owned, defaults, assign, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, slice_clock}
+    {reinterpret_cast<const char*>(37), 7, owned, defaults, assign, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, slice_clock},
+    {reinterpret_cast<const char*>(38), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr}
 };
-const opxy::u32 sdk_sample_machine_count = 3;
-// No engine here draws its own screen.
+const opxy::u32 sdk_sample_machine_count = 4;
+// Only engine 38 draws its own screen.
 const SynthControls sdk_synth_controls[] = {
-    {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false}};
-const opxy::u32 sdk_synth_control_count = 0;
+    {reinterpret_cast<const char*>(38), nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false}};
+const opxy::u32 sdk_synth_control_count = 1;
 void sdk_synth_shown(opxy::u32, opxy::u8* shown) { for (opxy::u32 i = 0; i < 4; ++i) shown[i] = opxy::u8(i); }
 void sdk_sample_slice_config(SamplePreviewRange* range, unsigned id, unsigned track, const void*) {
     check((id == 35 || id == 37) && track == 0);
@@ -154,7 +156,10 @@ static unsigned paste_pad(unsigned track, unsigned key) {
     ++publishes;
     return 1;
 }
+// Stock's sample predicate after its entry hook: an owned engine through its alias.
+static unsigned sample_predicate(unsigned id) { unsigned alias = sdk_sample_alias(id); return alias == 2 || alias == 3 || alias == 30; }
 Address opxy::platform::host_stock_address(Address address) {
+    if (address == 0x8d5b79c0) return reinterpret_cast<Address>(&sample_predicate);
     if (address == 0x11a00ec0) return reinterpret_cast<Address>(&queue_packet);
     if (address == 0x8d4dc490) return reinterpret_cast<Address>(&plain_note);
     if (address >= 0x11b01d48 && address < 0x11b01d48 + 8 * 4) return reinterpret_cast<Address>(&engine);
@@ -186,8 +191,8 @@ int main() {
     for (bool registered : {false, true}) {
         ready = registered;
         for (unsigned id = 0; id < 256; ++id) {
-            const bool sample = registered && (id == 35 || id == 36 || id == 37);
-            check(sdk_sample_alias(id) == (sample ? id == 36 ? 2u : 30u : id));
+            const bool sample = registered && (id == 35 || id == 36 || id == 37 || id == 38);
+            check(sdk_sample_alias(id) == (sample ? id == 36 || id == 38 ? 2u : 30u : id));
         }
     }
     ready = true;
@@ -433,5 +438,9 @@ int main() {
         check(sdk_sample_create_voice(35, output, 23, 0) == 1 && !preview_seen);
         ready = true;
     }
+    // Where stock sets a sampler's eight words to neutral: stock samplers and engines
+    // on a stock page still say yes, an engine with its own screen no, a synth no.
+    check(sdk_sample_neutral_engine(2) == 1 && sdk_sample_neutral_engine(35) == 1 && sdk_sample_neutral_engine(36) == 1);
+    check(sdk_sample_neutral_engine(38) == 0 && sdk_sample_neutral_engine(50) == 0);
     check(plain_packets > 0 && extended_packets > 0);
 }
