@@ -57,6 +57,7 @@ class Extension:
     claims: tuple
     actions: tuple
     text: dict  # name, description and optional note: the site's row and details
+    state: dict | None = None
 
     def sources(self):
         """Every file of the extension, by name relative to its folder."""
@@ -71,8 +72,8 @@ def extension_at(folder):
             f'{root}: an extension folder holds extension.json and extension.cpp')
     data = document(root / 'extension.json')
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and an optional note')
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'project_state'}, f'{root}: extension.json fields are '
+            'id, name, description, claims, actions, optional note and project_state')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -88,21 +89,37 @@ def extension_at(folder):
         needed = actions[action].get('requires')
         require(needed is None or needed in data['claims'], f'{name}: {action} requires the {needed} claim')
     require(not data['actions'] or data['claims'], f'{name}: actions are granted through a claim it holds')
+    state = data.get('project_state')
+    if state is not None:
+        require(isinstance(state, dict) and set(state) == {'namespace', 'version', 'capacity'},
+                f'{name}: project_state needs namespace, version and capacity')
+        require(isinstance(state['namespace'], str) and len(state['namespace']) <= 64 and
+                re.fullmatch(r'[a-z0-9-]+\.[a-z0-9-]+', state['namespace']) and
+                not state['namespace'].startswith('open-xy.'), f'{name}: invalid project namespace')
+        require(type(state['version']) is int and 1 <= state['version'] <= 0xffffffff and
+                type(state['capacity']) is int and 1 <= state['capacity'] <= 8192,
+                f'{name}: invalid project_state version or capacity')
+    require('project_state' not in data['actions'] or state is not None,
+            f'{name}: project_state action needs its declared namespace')
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data})
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, state)
 
 
 def check_collection(extensions):
     """A build's extensions: distinct, within the limit, and no claim held twice."""
     require(len(extensions) <= MAX_EXTENSIONS, f'At most {MAX_EXTENSIONS} extensions')
-    ids, owners = set(), {}
+    ids, owners, namespaces = set(), {}, set()
+    require(sum(e.state['capacity'] for e in extensions if e.state) <= 16384, 'Project state capacities exceed 16384 bytes')
     claims, _actions = registry()
     for e in extensions:
         require(e.id not in ids, 'Duplicate extension ID: ' + e.id)
         ids.add(e.id)
+        if e.state:
+            require(e.state['namespace'] not in namespaces, 'Duplicate project namespace: ' + e.state['namespace'])
+            namespaces.add(e.state['namespace'])
         for claim in e.claims:
             require(claim not in owners, f'{claims[claim]["label"]} has multiple owners: {owners.get(claim)}, {e.id}')
             owners[claim] = e.id
@@ -157,9 +174,12 @@ def generate_collection(folder, extensions):
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
               'const ExtensionEntry* extension_collection(u32& count) {', '    count = 0;']
     for e in extensions:
+        if e.state:
+            lines += ['    static const ProjectStateSpec state_%s = {"%s", %du, %du};' % (
+                e.id, e.state['namespace'], e.state['version'], e.state['capacity'])]
         lines += ['    if (const auto* hooks = sdk_extension_' + e.id + '_hooks())',
-                  '        collection_entries[count++] = {"%s", %s, %s, hooks};' % (
-                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions))]
+                  '        collection_entries[count++] = {"%s", %s, %s, hooks, %s};' % (
+                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions), '&state_' + e.id if e.state else 'nullptr')]
     lines += ['    return collection_entries;', '}', '}}', '']
     target = folder / 'extension_collection.cpp'
     target.write_text('\n'.join(lines), encoding='utf-8')

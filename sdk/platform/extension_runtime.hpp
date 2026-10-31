@@ -1,5 +1,6 @@
 #pragma once
 #include <opxy/extension.hpp>
+#include "project_state.hpp"
 
 namespace opxy { namespace platform {
 using extensions::RecordingContext;
@@ -10,11 +11,16 @@ using RecordedNote = extensions::Note;
 // each claim's key, and each action the claims that grant it (0: any claim).
 const u32 action_edit_notes = 1u << 0;
 const u32 action_notify = 1u << 1;
+const u32 action_project_state = 1u << 2;
 
 struct ExtensionEntry {
     const char* id;
     u32 claims, actions;  // Bits in registry order.
     const extensions::Hooks* hooks;
+    const ProjectStateSpec* state;
+    constexpr ExtensionEntry(const char* a = nullptr, u32 b = 0, u32 c = 0,
+                             const extensions::Hooks* d = nullptr, const ProjectStateSpec* e = nullptr)
+        : id(a), claims(b), actions(c), hooks(d), state(e) {}
 };
 struct ExtensionRegistry {
     const u32* claim_keys;

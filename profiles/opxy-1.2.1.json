@@ -1193,7 +1193,10 @@
       "symbol": "sdk_extensions_controller_update",
       "call": true,
       "service": "extensions",
-      "events": ["context"]
+      "events": [
+        "context",
+        "project_state"
+      ]
     },
     {
       "kind": "hook",
@@ -1204,7 +1207,9 @@
       "symbol": "sdk_extensions_key_queue",
       "call": true,
       "service": "extensions",
-      "events": ["queued_control"]
+      "events": [
+        "queued_control"
+      ]
     },
     {
       "kind": "hook",
@@ -1215,7 +1220,10 @@
       "symbol": "sdk_extensions_live_note_on",
       "call": true,
       "service": "extensions",
-      "events": ["input_activity", "recordable_note_on"]
+      "events": [
+        "input_activity",
+        "recordable_note_on"
+      ]
     },
     {
       "kind": "hook",
@@ -1226,7 +1234,9 @@
       "symbol": "sdk_extensions_live_note_off",
       "call": true,
       "service": "extensions",
-      "events": ["selected_note_off"]
+      "events": [
+        "selected_note_off"
+      ]
     },
     {
       "kind": "hook",
@@ -1237,7 +1247,9 @@
       "symbol": "sdk_extensions_recorder_tick",
       "call": true,
       "service": "extensions",
-      "events": ["recording_tick"]
+      "events": [
+        "recording_tick"
+      ]
     },
     {
       "kind": "hook",
@@ -1248,7 +1260,10 @@
       "symbol": "sdk_extensions_stop",
       "call": true,
       "service": "extensions",
-      "events": ["context"]
+      "events": [
+        "context",
+        "project_state"
+      ]
     },
     {
       "kind": "hook",
@@ -1259,7 +1274,9 @@
       "symbol": "sdk_extensions_note_accepted",
       "call": true,
       "service": "extensions",
-      "events": ["recordable_note_on"]
+      "events": [
+        "recordable_note_on"
+      ]
     },
     {
       "kind": "startup",
@@ -1439,6 +1456,60 @@
       "symbol": "extensions_sample_slice_receive",
       "service": "samples",
       "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4de0ac",
+      "file_offset": "0x115308",
+      "length": 4,
+      "before": "05e30258",
+      "symbol": "sdk_project_load_begin",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d598b14",
+      "file_offset": "0x1cfd70",
+      "length": 4,
+      "before": "ffe3ce82",
+      "symbol": "sdk_project_load_begin",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d573074",
+      "file_offset": "0x1aa2d0",
+      "length": 4,
+      "before": "00e33496",
+      "symbol": "sdk_project_new_commit",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d57309c",
+      "file_offset": "0x1aa2f8",
+      "length": 4,
+      "before": "00e32096",
+      "symbol": "sdk_project_new_commit",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d598b6a",
+      "file_offset": "0x1cfdc6",
+      "length": 4,
+      "before": "ffe3b968",
+      "symbol": "sdk_project_new_commit",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d572966",
+      "file_offset": "0x1a9bc2",
+      "length": 8,
+      "before": "00de048c780c0000",
+      "symbol": "sdk_project_rename",
+      "call": true
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

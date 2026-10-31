@@ -5,6 +5,7 @@
   },
   "actions": {
     "edit_notes": {"requires": "record_double_tap"},
-    "notify": {}
+    "notify": {},
+    "project_state": {}
   }
 }

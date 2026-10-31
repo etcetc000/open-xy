@@ -36,7 +36,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Synth and effect controls | 8 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page; extends the track menu's scramble to an owned synth's alternates |
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
-| Project companions | 5 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, and shows companions beside projects over MTP |
+| Project companions | 11 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, and shows companions beside projects over MTP |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
@@ -662,3 +662,25 @@ supplies only wet audio. The generated adapter exposes the machine's declared
 `dryParameter`, or returns `INT32_MAX` when none is declared, matching stock's
 absent-object fallback. This is a source-mixer control, not a wet/dry crossfade
 inside the effect. See the [effect API](api.md#effects).
+
+
+### Extension-state lifecycle
+
+The shared companion adapter stages namespaced state inside its existing
+`0x8d58913e` deserializer hook. Outer-load call sites `0x8d4de0ac` and
+`0x8d598b14` wrap `0x8d5890b0` to distinguish a validated pending/committed
+candidate from a rejected deserialize. Candidate pointers are compared with
+`0x840a0528` (pending) and `0x840a0524` (current); `0x8d584224` supplies the
+project generation. New/default commit calls at `0x8d573074`, `0x8d57309c` and
+`0x8d598b6a` invalidate abandoned staged state before forwarding `0x8d585cdc`.
+Named Save's call at `0x8d572966` wraps `0x8c040c78` to move companions too.
+All hooks preserve stock call signatures and authenticated preimages.
+
+Project-state operations use a nonblocking BF70x byte `TESTSET` lock with
+`SSYNC` ordering. Controller publication rejects contention; file operations
+never invoke contributor callbacks. Three bounded section stores separate
+active state, a pending candidate and the save snapshot. Controller mutations
+call native dirty marker `0x8d585ee8` after releasing the lock. Notifications
+run through normal extension sync; file-error messages use the existing
+controller notification adapter. Native commits can run from the sequencer's
+completion pump, so GUI-only serialization is not assumed.

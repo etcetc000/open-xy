@@ -1,5 +1,6 @@
 #pragma once
 #include <opxy/types.hpp>
+#include <opxy/project_state.hpp>
 
 namespace opxy { namespace extensions {
 
@@ -52,6 +53,9 @@ struct Actions {
     // Replace an instrument track's pattern notes with these. Refused, changing
     // nothing, while stock is still recording a held note there. Needs edit_notes.
     u32 (*replace_notes)(const Context&, u32 track, const Note*, u32 count);
+    // Replace this extension's declared project bytes; stale tokens, unsupported
+    // schemas and protected loads fail without changing state. Needs project_state.
+    bool (*publish_project_state)(const ProjectToken&, const u8*, u32 size);
 };
 
 using OnContext = void (*)(const Context&);
@@ -87,31 +91,36 @@ struct Hooks {
     // A queued control (Record and other queued keys; not keyboard keys
     // 26-49) after stock handled it. Actions act only for their claim owner.
     OnQueuedControl queued_control;
+    void (*project_state)(const ProjectState&);
 
     constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f)
+                    OnInputActivity e, OnQueuedControl f, void (*g)(const ProjectState&) = nullptr)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f) {}
+          input_activity(e), queued_control(f), project_state(g) {}
 
     constexpr Hooks with_context(OnContext f) const {
-        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, project_state);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, project_state);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, project_state);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, project_state);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, project_state);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, project_state);
     }
+    constexpr Hooks with_project_state(void (*f)(const ProjectState&)) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f);
+    }
+
 };
 }}

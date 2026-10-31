@@ -17,6 +17,9 @@
 // problem leaves the project as saved; the load never fails because of its companion.
 #include "project_companion.hpp"
 #include "stock.hpp"
+#include "project_sections.hpp"
+#include "project_state_lock.hpp"
+#include "../project_state.hpp"
 
 using opxy::u32;
 using opxy::platform::CompanionMachine;
@@ -43,10 +46,10 @@ int file_close(File* file) { return stock<int(File*)>(0x8fed00ae)(file); }
 bool file_eof(File* file) {
     return (*static_cast<const opxy::u16*>(file) & 0x300u) == 0x100u;
 }
-void file_publish(const char* from, const char* to) {
+bool file_publish(const char* from, const char* to) {
     // Stock removes an existing destination before rename. If replacement fails,
     // the complete temporary remains a bound recovery candidate.
-    stock<u32(const char*, const char*)>(0x8c040c78)(from, to);
+    return stock<u32(const char*, const char*)>(0x8c040c78)(from, to) != 0;
 }
 u32 save(void* project, const char* path) { return stock<u32(void*, const char*)>(0x8d599074)(project, path); }
 u32 deserialize(void* project, const char* path) {
@@ -130,7 +133,7 @@ public:
         if (ok_) text[length_++] = c;
     }
     void flush() {
-        if (ok_ && length_ && file_write(text, 1, length_, file_) != length_) ok_ = false;
+        if (ok_ && length_ && file_ && file_write(text, 1, length_, file_) != length_) ok_ = false;
         length_ = 0;
     }
     bool ok() const { return ok_; }
@@ -150,11 +153,9 @@ private:
     bool ok_ = true;
 };
 
-void write_companion(u32 bytes, u32 crc) {
-    temporary_path(companion, temporary);
-    File* file = file_open(temporary, "wb");
-    if (!file) return;
-    Writer w(file);
+void write_project_sections(Writer& writer);
+bool project_save_current();
+void emit_companion(Writer& w, u32 bytes, u32 crc) {
     w.put("{\n  \"format\": \"open-xy-project\",\n  \"project\": {\n    \"bytes\": ");
     w.number(bytes);
     w.put(",\n    \"crc32\": \"");
@@ -173,10 +174,25 @@ void write_companion(u32 bytes, u32 crc) {
         w.put("\n        }");
     }
     w.put(listed ? "\n      },\n" : "},\n");
-    w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }\n  },\n  \"version\": 1\n}\n");
+    w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }");
+    write_project_sections(w);
+    w.put("\n  },\n  \"version\": 1\n}\n");
+}
+bool companion_size_fits() {
+    Writer writer(nullptr);
+    emit_companion(writer, 0xffffffffu, 0);
+    writer.flush();
+    return writer.ok();
+}
+bool write_companion(u32 bytes, u32 crc) {
+    temporary_path(companion, temporary);
+    File* file = file_open(temporary, "wb");
+    if (!file) return false;
+    Writer w(file);
+    emit_companion(w, bytes, crc);
     w.flush();
     const bool complete = w.ok();
-    if (file_close(file) == 0 && complete) file_publish(temporary, companion);
+    return file_close(file) == 0 && complete && project_save_current() && file_publish(temporary, companion);
 }
 
 // Reading, as tooling/projects.py parse() and translation() do. The document streams
@@ -223,9 +239,13 @@ u32 listed_count;
 
 class Source {
 public:
-    explicit Source(File* file) : file_(file) {}
+    explicit Source(File* file, opxy::platform::project_sections::Document* capture = nullptr)
+        : file_(file), capture_(capture) {}
+    Source(const unsigned char* data, u32 length) : file_(nullptr), memory_(data), memory_size_(length) {}
+    u32 position() const { return position_; }
     // The next byte, or -1 at the end or past the 64 KiB limit.
     int peek() {
+        if (memory_) return position_ < memory_size_ ? memory_[position_] : -1;
         if (at_ == have_) {
             if (ended_) return -1;
             at_ = 0;
@@ -242,13 +262,19 @@ public:
     }
     int next() {
         const int c = peek();
-        if (c >= 0) ++at_;
+        if (c >= 0) {
+            if (capture_) capture_->bytes[position_] = static_cast<unsigned char>(c);
+            ++position_; if (!memory_) ++at_;
+        }
         return c;
     }
     bool over() const { return over_; }
 
 private:
     File* file_;
+    opxy::platform::project_sections::Document* capture_ = nullptr;
+    const unsigned char* memory_ = nullptr;
+    u32 memory_size_ = 0, position_ = 0;
     u32 at_ = 0, have_ = 0, total_ = 0;
     bool ended_ = false, over_ = false;
 };
@@ -278,7 +304,9 @@ struct Number {
 // A strict JSON (RFC 8259) reader over the stream, building no document tree.
 class Parser {
 public:
-    explicit Parser(File* file) : source_(file) {}
+    explicit Parser(File* file, opxy::platform::project_sections::Document* capture = nullptr) : source_(file, capture) {}
+    Parser(const unsigned char* data, u32 length) : source_(data, length) {}
+    u32 position() { peek(); return source_.position(); }
 
     int peek() {
         for (int c = source_.peek(); c == ' ' || c == '\t' || c == '\n' || c == '\r'; c = source_.peek())
@@ -707,8 +735,10 @@ bool note_section(const Text& name, bool ok) {
 
 // Reads the companion: true when it is valid and its machines section applies to this
 // firmware, the maps then filled, with the binding it gives.
-bool read_document(File* file, u32& bytes, u32& crc, bool& authoritative) {
-    Parser p(file);
+bool read_document(File* file, u32& bytes, u32& crc, bool& authoritative,
+                   opxy::platform::project_sections::Document* capture = nullptr, u32* schema = nullptr) {
+    if (capture) capture->clear();
+    Parser p(file, capture);
     bool format = false, version = false, binding = false, sections = false, applies = false, valid = false;
     u32 envelope_version = 0;
     authoritative = false;
@@ -730,6 +760,7 @@ bool read_document(File* file, u32& bytes, u32& crc, bool& authoritative) {
         if (key.is("project")) return binding_member(p, bytes, crc, binding);
         if (!key.is("sections")) return p.skip();
         // Only the last sections object counts.
+        if (capture) capture->count = 0;
         applies = false;
         valid = true;
         invalid_count = 0;
@@ -742,18 +773,134 @@ bool read_document(File* file, u32& bytes, u32& crc, bool& authoritative) {
                 valid = false;
                 return p.skip();
             }
-            if (name.is("open-xy.machines")) return machines_section(p, applies, machines_ok);
-            bool ok;
-            if (!other_section(p, ok)) return false;
-            if (!note_section(name, ok)) valid = false;
-            return true;
+            const u32 begin = p.position();
+            bool read_section;
+            if (name.is("open-xy.machines")) read_section = machines_section(p, applies, machines_ok);
+            else {
+                bool ok;
+                read_section = other_section(p, ok);
+                if (read_section && !note_section(name, ok)) valid = false;
+            }
+            const u32 end = p.position();
+            if (read_section && capture && !capture->record(name.bytes, name.length, begin, end - begin)) valid = false;
+            return read_section;
         });
         valid = valid && machines_ok && !invalid_count;
         return members;
     });
     authoritative = read && p.end() && format && version && binding &&
         (envelope_version > 1 || (sections && valid));
+    if (schema) *schema = envelope_version;
+    if (capture && authoritative) capture->compact();
     return authoritative && envelope_version == 1 && applies;
+}
+
+// SDK-owned state: no contributor code is called by the file worker.
+using StateDocument = opxy::platform::project_sections::Document;
+using StateSpec = opxy::platform::ProjectStateSpec;
+using StateStatus = opxy::extensions::ProjectStateStatus;
+using StateToken = opxy::extensions::ProjectToken;
+StateDocument project_live, project_staged, project_saved;
+volatile opxy::u8 project_state_busy;
+volatile u32 project_reset_serial;
+bool project_state_initialized, project_loading, project_stage_ready;
+bool project_protected, project_stage_protected, project_save_failed, project_retry;
+u32 project_revision, project_stage_generation, project_stage_pointer, project_stage_reset;
+u32 project_stage_bytes, project_stage_crc;
+bool project_stage_bound;
+StateToken project_token;
+opxy::u8 project_decoded[8192];
+struct StateObservation { const StateSpec* spec; u32 revision; };
+StateObservation project_observations[16];
+u32 project_observation_count;
+u32 project_reported_status, project_reported_generation;
+
+u32 current_generation() { return stock<u32()>(0x8d584224)(); }
+u32 current_project() { return opxy::platform::word(0x840a0524); }
+bool pending_project() { return opxy::platform::word(0x840a0528) != 0; }
+bool same_token(const StateToken& a, const StateToken& b) {
+    return a.generation == b.generation && a.identity == b.identity;
+}
+StateToken native_token() { return StateToken{current_generation(), current_project()}; }
+bool project_save_current() { return !project_state_initialized || same_token(project_token, native_token()); }
+void state_unlock() { opxy::platform::project_state_unlock(&project_state_busy); }
+bool state_lock() { return opxy::platform::project_state_try_lock(&project_state_busy); }
+
+bool resolve_state() {
+    if (project_loading) return false;
+    const StateToken now = native_token();
+    if (!now.identity) return false;
+    if (!project_state_initialized || !same_token(now, project_token)) {
+        if (project_stage_ready && project_stage_generation == now.generation &&
+            project_stage_pointer == now.identity && project_stage_reset == project_reset_serial) {
+            project_live = project_staged;
+            project_protected = project_stage_protected;
+        } else {
+            project_live.clear();
+            project_protected = false;
+        }
+        project_stage_ready = false;
+        project_token = now;
+        project_state_initialized = true;
+        project_save_failed = false;
+        project_retry = false;
+        ++project_revision;
+    }
+    return true;
+}
+
+// Opaque extension payload format: {"version": positive integer, "data": "hex"}.
+// All unknown fields remain in the retained raw section until its owner publishes.
+bool decode_state(const StateDocument& document, const StateSpec& spec,
+                  u32& version, u32& size, StateStatus& status) {
+    version = size = 0;
+    const opxy::i32 index = document.find(spec.name);
+    if (index < 0) { status = StateStatus::empty; return true; }
+    const auto& section = document.sections[index];
+    Parser parser(document.bytes + section.offset, section.size);
+    bool have_version = false, have_data = false;
+    u32 begin = 0, end = 0;
+    const bool parsed = parser.object([&](const Text& key) {
+        if (key.is("version")) return parser.natural(version, have_version);
+        if (!key.is("data")) return parser.skip();
+        begin = parser.position();
+        Text ignored;
+        have_data = parser.peek() == '"';
+        if (!have_data) return parser.skip();
+        const bool ok = parser.string(ignored);
+        end = parser.position();
+        return ok;
+    }) && parser.end();
+    if (!parsed || !have_version || !version) { status = StateStatus::unavailable; return false; }
+    if (version != spec.version) { status = StateStatus::unsupported; return false; }
+    while (end > begin && document.bytes[section.offset + end - 1] != '"') --end;
+    if (!have_data || end < begin + 2 || (end - begin - 2) % 2 ||
+        (end - begin - 2) / 2 > spec.capacity || (end - begin - 2) / 2 > sizeof(project_decoded)) {
+        status = StateStatus::unavailable; return false;
+    }
+    size = (end - begin - 2) / 2;
+    for (u32 i = 0; i < size; ++i) {
+        u32 value = 0;
+        for (u32 n = 0; n < 2; ++n) {
+            const unsigned char c = document.bytes[section.offset + begin + 1 + i * 2 + n];
+            const u32 digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : 16;
+            if (digit == 16) { size = 0; status = StateStatus::unavailable; return false; }
+            value = value * 16 + digit;
+        }
+        project_decoded[i] = static_cast<opxy::u8>(value);
+    }
+    status = StateStatus::ready;
+    return true;
+}
+
+void write_project_sections(Writer& writer) {
+    if (!project_state_initialized) return;
+    for (u32 i = 0; i < project_saved.count; ++i) {
+        const auto& section = project_saved.sections[i];
+        if (project_saved.find("open-xy.machines") == static_cast<opxy::i32>(i)) continue;
+        writer.put(",\n    \""); writer.put(section.name); writer.put("\": ");
+        for (u32 n = 0; n < section.size; ++n) writer.byte(static_cast<char>(project_saved.bytes[section.offset + n]));
+    }
 }
 
 // Rewrites every pattern's machine number on the instrument and send tracks
@@ -773,36 +920,73 @@ void remap(unsigned char* project) {
     }
 }
 
-enum class Document { unusable, ignored, applies };
-Document read_bound(const char* path, u32 measured_bytes, u32 measured_crc) {
+enum class Document { unusable, unbound, ignored, applies };
+Document read_bound(const char* path, u32 measured_bytes, u32 measured_crc, StateDocument* capture = nullptr, u32* schema = nullptr, bool* present = nullptr) {
     File* file = file_open(path, "rb");
     if (!file) return Document::unusable;
+    if (present) *present = true;
     u32 bytes = 0, crc = 0;
     bool authoritative = false;
-    const bool applies = read_document(file, bytes, crc, authoritative);
+    const bool applies = read_document(file, bytes, crc, authoritative, capture, schema);
     const bool closed = file_close(file) == 0;
-    if (!authoritative || !closed || bytes != measured_bytes || crc != measured_crc) return Document::unusable;
+    if (!authoritative || !closed) return Document::unusable;
+    if (bytes != measured_bytes || crc != measured_crc) return Document::unbound;
     return applies ? Document::applies : Document::ignored;
 }
 
 void apply_companion(void* project, const char* path) {
     if (!companion_path(path, read_companion_path)) return;
     u32 bytes, crc;
-    if (!measure(path, read_chunk, bytes, crc)) return;
+    if (!measure(path, read_chunk, bytes, crc)) {
+        if (project_loading) project_stage_protected = true;
+        return;
+    }
     temporary_path(read_companion_path, read_temporary_path);
     // A bound published document is authoritative even if its version/profile
     // is unsupported or it intentionally contains no machine mappings.
-    Document result = read_bound(read_companion_path, bytes, crc);
-    if (result == Document::unusable) result = read_bound(read_temporary_path, bytes, crc);
+    bool present = false; u32 schema = 0;
+    StateDocument* capture = project_loading ? &project_staged : nullptr;
+    Document result = read_bound(read_companion_path, bytes, crc, capture, &schema, &present);
+    if (result == Document::unusable || result == Document::unbound) {
+        const bool primary_present = present;
+        const Document fallback = read_bound(read_temporary_path, bytes, crc, capture, &schema, &present);
+        if (fallback == Document::applies || fallback == Document::ignored ||
+            (fallback == Document::unbound && !primary_present)) result = fallback;
+    }
+    if (project_loading) {
+        project_stage_bound = result == Document::applies || result == Document::ignored;
+        project_stage_bytes = bytes; project_stage_crc = crc;
+        project_stage_protected = (present && result == Document::unusable) || (project_stage_bound && schema != 1);
+        if (!project_stage_bound) project_staged.clear();
+    }
     if (result == Document::applies) remap(static_cast<unsigned char*>(project));
 }
 }
 
 u32 sdk_project_save(void* project, const char* path) {
+    if (!project) {
+        const u32 saved = save(project, path);
+        u32 bytes, crc;
+        if (saved && path && companion_path(path, companion) && measure(path, chunk, bytes, crc)) write_companion(bytes, crc);
+        return saved;
+    }
+    if (!state_lock()) return 0;
+    if (!resolve_state() || project_protected || current_project() != static_cast<u32>(reinterpret_cast<opxy::platform::Address>(project))) {
+        state_unlock(); return 0;
+    }
+    const StateToken token = project_token;
+    project_saved = project_live;
+    if (!companion_size_fits()) {
+        project_save_failed = true; ++project_revision;
+        state_unlock(); return 0;
+    }
     const u32 saved = save(project, path);
     u32 bytes, crc;
-    if (saved && path && companion_path(path, companion) && measure(path, chunk, bytes, crc))
-        write_companion(bytes, crc);
+    const bool complete = saved && same_token(token, native_token()) && path && companion_path(path, companion) &&
+        measure(path, chunk, bytes, crc) && write_companion(bytes, crc);
+    if (!complete) { project_save_failed = true; project_retry = true; ++project_revision; }
+    else if (project_save_failed) { project_save_failed = false; ++project_revision; }
+    state_unlock();
     return saved;
 }
 
@@ -810,6 +994,143 @@ u32 sdk_project_save(void* project, const char* path) {
 // which nothing reads until stock validates it and makes it pending.
 u32 sdk_project_load(void* project, const char* path) {
     const u32 loaded = deserialize(project, path);
-    if (loaded && project && path) apply_companion(project, path);
+    if (loaded && project && path) {
+        if (project_loading) project_stage_pointer = static_cast<u32>(reinterpret_cast<opxy::platform::Address>(project));
+        apply_companion(project, path);
+    }
     return loaded;
+}
+
+
+namespace opxy { namespace platform {
+const char* project_state_status() {
+    if (!state_lock()) return nullptr;
+    if (!resolve_state() || pending_project()) { state_unlock(); return nullptr; }
+    const u32 status = project_protected ? 2 : project_save_failed ? 1 : 0;
+    const bool changed = status != project_reported_status || project_reported_generation != project_token.generation;
+    project_reported_status = status; project_reported_generation = project_token.generation;
+    const bool retry = project_retry && !project_protected;
+    project_retry = false;
+    state_unlock();
+    if (retry) stock<void()>(0x8d585ee8)();
+    return !changed || !status ? nullptr : status == 2 ? "project data: reload or New" : "project data save failed";
+}
+void project_state_observe(const ProjectStateSpec& spec, void (*callback)(const extensions::ProjectState&)) {
+    if (!callback || !spec.name || !spec.version || !spec.capacity || spec.capacity > sizeof(project_decoded) || !state_lock()) return;
+    if (!resolve_state() || pending_project()) { state_unlock(); return; }
+    u32 index = 0;
+    while (index < project_observation_count && project_observations[index].spec != &spec) ++index;
+    if (index == project_observation_count) {
+        if (index == 16) { state_unlock(); return; }
+        project_observations[index] = StateObservation{&spec, project_revision - 1};
+        ++project_observation_count;
+    }
+    if (project_observations[index].revision == project_revision) { state_unlock(); return; }
+    u32 version = 0, size = 0;
+    StateStatus status = StateStatus::unavailable;
+    if (!project_protected) decode_state(project_live, spec, version, size, status);
+    if (project_save_failed && !project_protected) status = StateStatus::save_failed;
+    const extensions::ProjectState event = {project_token, status, version, size, size ? project_decoded : nullptr};
+    project_observations[index].revision = project_revision;
+    callback(event);
+    state_unlock();
+}
+
+bool project_state_publish(const ProjectStateSpec& spec, const extensions::ProjectToken& token,
+                           const u8* data, u32 size) {
+    if (!spec.name || !spec.version || !spec.capacity || spec.capacity > sizeof(project_decoded) ||
+        size > spec.capacity || (size && !data) || !state_lock()) return false;
+    if (!resolve_state() || pending_project() || project_protected || !same_token(token, project_token)) {
+        state_unlock(); return false;
+    }
+    u32 old_version, old_size;
+    StateStatus old_status;
+    if (!decode_state(project_live, spec, old_version, old_size, old_status)) { state_unlock(); return false; }
+    char version[10]; u32 digits = 0, number = spec.version;
+    do { version[digits++] = static_cast<char>('0' + number % 10); number /= 10; } while (number);
+    const char prefix[] = "{\"version\":";
+    const char middle[] = ",\"data\":\"";
+    const u32 required = sizeof(prefix) - 1 + digits + sizeof(middle) - 1 + 2 * size + 2;
+    const i32 previous = project_live.find(spec.name);
+    const u32 previous_size = previous < 0 ? 0 : project_live.sections[previous].size;
+    if ((previous < 0 && project_live.count == project_sections::section_limit) ||
+        required > project_sections::byte_limit - project_live.size + previous_size) { state_unlock(); return false; }
+    if (previous >= 0) project_live.erase(static_cast<u32>(previous));
+    const u32 begin = project_live.size;
+    for (u32 i = 0; i < sizeof(prefix) - 1; ++i) project_live.bytes[project_live.size++] = prefix[i];
+    while (digits) project_live.bytes[project_live.size++] = version[--digits];
+    for (u32 i = 0; i < sizeof(middle) - 1; ++i) project_live.bytes[project_live.size++] = middle[i];
+    for (u32 i = 0; i < size; ++i) {
+        project_live.bytes[project_live.size++] = "0123456789abcdef"[data[i] >> 4];
+        project_live.bytes[project_live.size++] = "0123456789abcdef"[data[i] & 15];
+    }
+    project_live.bytes[project_live.size++] = '"'; project_live.bytes[project_live.size++] = '}';
+    u32 length = 0; while (spec.name[length]) ++length;
+    const bool stored = project_live.record(spec.name, length, begin, required) && same_token(token, native_token());
+    ++project_revision;
+    state_unlock();
+    if (stored) stock<void()>(0x8d585ee8)();
+    return stored;
+}
+}}
+
+extern "C" u32 sdk_project_load_begin(const char* path, u32 commit) __asm__("sdk_project_load_begin");
+extern "C" void sdk_project_new_commit() __asm__("sdk_project_new_commit");
+extern "C" u32 sdk_project_rename(const char*, const char*) __asm__("sdk_project_rename");
+
+u32 sdk_project_load_begin(const char* path, u32 commit) {
+    if (!path || pending_project() || !state_lock()) return 0;
+    // A previous successful commit may still await controller notification.
+    // Adopt it before a new candidate can replace the staging buffer.
+    resolve_state();
+    const u32 before = current_generation(), reset = project_reset_serial;
+    project_loading = true;
+    project_stage_ready = false;
+    project_staged.clear();
+    project_stage_pointer = 0;
+    project_stage_protected = false;
+    project_stage_bound = false;
+    const u32 loaded = stock<u32(const char*, u32)>(0x8d5890b0)(path, commit);
+    if (loaded) {
+        u32 bytes, crc;
+        if (project_stage_bound && (!measure(path, read_chunk, bytes, crc) ||
+            bytes != project_stage_bytes || crc != project_stage_crc)) project_stage_protected = true;
+        project_stage_generation = before + 1;
+        project_stage_reset = reset;
+        const bool candidate = project_stage_pointer &&
+            (project_stage_pointer == opxy::platform::word(0x840a0528) ||
+             (project_stage_pointer == current_project() && current_generation() == before + 1));
+        project_stage_ready = reset == project_reset_serial && candidate;
+    }
+    project_loading = false;
+    state_unlock();
+    return loaded;
+}
+
+void sdk_project_new_commit() {
+    // New may reuse an abandoned load's pointer and next generation. Its explicit
+    // commit invalidates that candidate without blocking the native controller.
+    ++project_reset_serial;
+    stock<void()>(0x8d585cdc)();
+}
+
+u32 sdk_project_rename(const char* from, const char* to) {
+    if (!from || !to || !state_lock()) return 0;
+    if (project_state_initialized && (!resolve_state() || project_protected || project_save_failed)) {
+        state_unlock(); return 0;
+    }
+    char old_path[kPathBytes], new_path[kPathBytes];
+    if (!companion_path(from, old_path) || !companion_path(to, new_path)) { state_unlock(); return 0; }
+    const u32 result = stock<u32(const char*, const char*)>(0x8c040c78)(from, to);
+    if (result) {
+        for (u32 i = 0; i < 2; ++i) {
+            File* file = file_open(old_path, "rb");
+            if (file && (file_close(file) != 0 || !file_publish(old_path, new_path))) {
+                project_protected = true; project_save_failed = true; ++project_revision;
+            }
+            if (!i) { temporary_path(old_path, old_path); temporary_path(new_path, new_path); }
+        }
+    }
+    state_unlock();
+    return result;
 }

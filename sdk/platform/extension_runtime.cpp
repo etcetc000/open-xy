@@ -13,6 +13,7 @@ char notification[32];
 // undo transaction and at most one notification per callback.
 struct Transaction { u32 granted; bool attempted, notified; };
 Transaction transaction;
+const ProjectStateSpec* transaction_state;
 
 bool same_text(const char* a, const char* b) {
     if (!a || !b) return false;
@@ -30,12 +31,31 @@ bool ready() {
     const ExtensionEntry* list = extension_collection(count);
     const ExtensionRegistry& known = extension_registry();
     if (!list || count > 16 || known.claim_count > 32 || known.action_count > 32) return false;
-    u32 claimed = 0;
+    u32 claimed = 0, state_capacity = 0;
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
             (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count)) ||
             (entry.claims && !entry.hooks->queued_control)) return false;
+        if ((entry.actions & action_project_state) && !entry.state) return false;
+        if (entry.hooks->project_state && !entry.state) return false;
+        if (entry.state) {
+            if (!entry.state->name || !entry.state->version || !entry.state->capacity || entry.state->capacity > 8192) return false;
+            u32 length = 0, dots = 0;
+            while (length < 65 && entry.state->name[length]) {
+                const char c = entry.state->name[length++];
+                if (c == '.') ++dots;
+                else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) return false;
+            }
+            if (!length || length > 64 || dots != 1 || entry.state->name[0] == '.' || entry.state->name[length - 1] == '.') return false;
+            const char reserved[] = "open-xy.";
+            u32 prefix = 0; while (prefix < sizeof(reserved) - 1 && entry.state->name[prefix] == reserved[prefix]) ++prefix;
+            if (prefix == sizeof(reserved) - 1) return false;
+            state_capacity += entry.state->capacity;
+            if (state_capacity > 16384) return false;
+            for (u32 j = 0; j < i; ++j)
+                if (list[j].state && same_text(list[j].state->name, entry.state->name)) return false;
+        }
         for (u32 a = 0; a < known.action_count; ++a) {
             if (!(entry.actions & (1u << a))) continue;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
@@ -99,15 +119,22 @@ u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedN
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes};
+bool publish_project_state(const extensions::ProjectToken& token, const u8* data, u32 size) {
+    return transaction_state && (transaction.granted & action_project_state) &&
+        project_state_publish(*transaction_state, token, data, size);
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, publish_project_state};
 }
 
 void extensions_sync() {
     if (dispatching || !ready()) return;
+    if (const char* status = project_state_status()) extension_notify(status);
     current.recording = extension_context(current.playing);
     dispatching = true;
-    for (u32 i = 0; i < entry_count; ++i)
+    for (u32 i = 0; i < entry_count; ++i) {
+        if (entries[i].state) project_state_observe(*entries[i].state, entries[i].hooks->project_state);
         if (entries[i].hooks->context) entries[i].hooks->context(current);
+    }
     dispatching = false;
 }
 void extensions_input_activity() {
@@ -161,8 +188,10 @@ void extensions_queued_control(const extensions::Control& control) {
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i) {
         transaction = {granted(entries[i], control), false, false};
+        transaction_state = entries[i].state;
         if (entries[i].hooks->queued_control) entries[i].hooks->queued_control(current, control, actions);
         transaction = {0, false, false};
+        transaction_state = nullptr;
     }
     dispatching = false;
 }

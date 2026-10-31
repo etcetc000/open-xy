@@ -71,6 +71,31 @@ class Extensions(unittest.TestCase):
             with mock.patch.object(extensions, 'document', return_value=data), self.assertRaises(ValueError):
                 extensions.registry()
 
+    def test_project_state_namespaces_and_capacity_are_validated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = ROOT / 'tests/fixtures/extension_probe'
+            target = Path(directory) / 'probe'
+            shutil.copytree(source, target)
+            path = target / 'extension.json'
+            data = json.loads(path.read_text())
+            data['project_state'] = {'namespace': 'demo.timeline', 'version': 1, 'capacity': 8192}
+            data['actions'].append('project_state')
+            path.write_text(json.dumps(data))
+            entry = extensions.extension_at(target)
+            self.assertEqual(entry.state, data['project_state'])
+            for state in ({'namespace': 'open-xy.machines', 'version': 1, 'capacity': 1},
+                          {'namespace': 'demo.timeline', 'version': 0, 'capacity': 1},
+                          {'namespace': 'demo.timeline', 'version': 1, 'capacity': 8193},
+                          {'namespace': 'bad', 'version': 1, 'capacity': 1}):
+                data['project_state'] = state
+                path.write_text(json.dumps(data))
+                with self.assertRaises(ValueError):
+                    extensions.extension_at(target)
+            data.pop('project_state')
+            path.write_text(json.dumps(data))
+            with self.assertRaises(ValueError):
+                extensions.extension_at(target)
+
     def test_actions_match_the_runtime_bits_and_claims_are_data(self):
         # An action is SDK code: one registry entry and one runtime constant, in
         # registry order. A claim is data: a registry entry naming its key.
@@ -85,7 +110,7 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control', 'project_state'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),

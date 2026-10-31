@@ -99,7 +99,9 @@ def host_writer(folder, fixture='project_companion.cpp'):
     stock = (platform / 'stock.hpp').read_text(encoding='utf-8')
     stock = stock.replace('typedef __UINTPTR_TYPE__ Address;', 'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
     stock = stock.replace('reinterpret_cast<T*>(address)', 'reinterpret_cast<T*>(host_stock_address(address))')
+    stock = stock.replace('reinterpret_cast<const volatile u32*>(address)', 'reinterpret_cast<const volatile u32*>(host_stock_address(address))')
     (folder / 'stock.hpp').write_text(stock, encoding='utf-8')
+    (folder / 'project_state_lock.hpp').write_text("#pragma once\n#include <opxy/types.hpp>\nnamespace opxy { namespace platform { inline bool project_state_try_lock(volatile u8* p) { return !__atomic_test_and_set(p, __ATOMIC_ACQUIRE); } inline void project_state_unlock(volatile u8* p) { __atomic_clear(p, __ATOMIC_RELEASE); } }}\n")
     (folder / 'project_companion.cpp').write_bytes((platform / 'project_companion.cpp').read_bytes())
     binary = folder / (Path(fixture).stem + ('.exe' if os.name == 'nt' else ''))
     result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(folder),

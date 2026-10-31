@@ -228,3 +228,50 @@ data, every hook's events, stale-context and unauthorized edits, and the
 adapter end to end with stock boundary doubles and the SDK's probe extension
 ([`tests/fixtures/extension_probe`](../tests/fixtures/extension_probe/extension.cpp)). Device scheduling still requires
 testing the exact built image.
+
+### Per-project extension state
+
+An extension can declare one owned section in `extension.json`:
+
+```json
+"project_state": {"namespace": "your-owner.timeline", "version": 1, "capacity": 4096}
+```
+
+Use your GitHub owner's namespace, not `open-xy.*`. Names are at most 64
+characters, with one dot separating nonempty lowercase letters, digits or
+hyphens. A collection cannot repeat a namespace. Capacity is 1–8192 payload
+bytes per extension and at most 16384 declared bytes across the collection.
+The SDK owns the storage and native file operations.
+
+Register `Hooks().with_project_state(on_project_state)`. Controller sync sends
+`ProjectState` before the ordinary context callback when the project, payload or
+save status changes. This also happens at startup and on project changes,
+without pressing a claimed key. Its `token` is an opaque, temporary project
+identity. Copy the borrowed `data` bytes during the callback; do not retain its
+pointer. The callback runs with a nonblocking SDK state lock held; reentrant
+state operations fail rather than wait. Native file workers never call extension
+code. No allocation, I/O or blocking is allowed in callbacks.
+
+`status` is `empty` for a project without this section, `ready` for readable
+payload bytes, `unsupported` for a different section version, `unavailable` for
+invalid state, or `save_failed` when publication failed. A save failure can still
+include the current readable payload. Unsupported sections remain preserved;
+they cannot be overwritten or migrated through this API. The SDK does not
+interpret a payload's internal format.
+
+To edit, declare the `project_state` action and call
+`actions.publish_project_state(token, bytes, size)` from an accepted claimed
+`queued_control` callback. This replaces only the caller's section and marks the
+native project dirty, so persistence does not depend on a later note edit. A
+zero-byte payload is valid. A stale token, pending load, busy state service,
+invalid payload section, unsupported version or exceeded capacity returns false
+without publishing. Retained `Actions` grant no permission outside the callback.
+Use the copied state on the controller context. A GUI renderer needs an SDK
+snapshot/reply handoff across task contexts; directly sharing a mutable global
+copy with the renderer is not a safe snapshot.
+
+Persistence uses the shared [project companion](projects.md), including
+workspace autosave. State follows the committed source project during Save As;
+it never inherits sections from the destination's previous project. New resets
+state even when native project memory is reused. A validated committed load is
+available to immediate workspace saves before any extension callback runs.
