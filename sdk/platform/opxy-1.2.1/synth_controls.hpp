@@ -22,7 +22,25 @@ struct SynthControls {
     bool effect;
     bool page;
     u8 absent;  // bit s: slot s is an empty placeholder, shown blank and never edited
+    // An effect's shift row (SDK 1.7, shift_row.hpp): its control count, each
+    // one's choice count, and titles; formats caption it as slots 8..11.
+    u8 shift;
+    u8 shift_choices[4];
+    const char* const* shift_titles;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
+};
+// An owned effect on send track 14 or 15 as its own page shows it (SDK 1.7):
+// each position's shown slot, value, title and caption, every control's
+// current value, and its shift row. While Shift is held on an effect with a
+// shift row, the titles and captions are the row's. GUI only.
+struct SendView {
+    u8 shown[page_controls];
+    i32 values[page_controls];
+    i32 slots[parameter_slots];
+    const char* titles[page_controls];
+    char texts[page_controls][16];
+    bool shift;
+    u8 choices[4];
 };
 // GUI-only, bounded one-decimal formatting. Caller provides 16 bytes.
 void control_tenths(char* text, u32 tenths, const char* suffix);
@@ -61,4 +79,6 @@ void sdk_send_refresh() __asm__("sdk_send_refresh");
 // The send page's title for position `index` of the effect on the selected send
 // track: the name of the slot it shows, which a press may have moved to an alternate.
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");
+// The view of the owned effect on send track 14 or 15; false for any other track or effect.
+bool sdk_send_view(opxy::u32 track, opxy::platform::SendView* view) __asm__("sdk_send_view");
 }

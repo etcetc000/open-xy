@@ -727,3 +727,32 @@ type, `+0x14`, pan (`+0x1e`) and gain (`+0x1d`); the SDK gives Shift's first
 encoder the model and the others their shown control. Track modulation is
 applied after decoding. GUI edits repack and use the stock dirty/publication
 calls; no audio callback writes preset state or performs file I/O.
+
+## Effect pages and shift rows
+
+A paged effect's press, on a send page, moves every position to its next
+slot, through the same press handler as a synth's (`sdk_synth_press`).
+
+A shift row is up to four enum controls packed into one word of the send
+track, word 36 of its 58: index × bucket + bucket / 2, the first control most
+significant, a bucket being `0x7fffffff / combinations`
+([`shift_row.hpp`](../sdk/platform/opxy-1.2.1/shift_row.hpp)). Word 36 is 0
+on all 16 tracks in every project examined, no stock page edits it (the aux
+controller edits words 0..3, 8..15, 16..19 and 24..27; the instrument
+controller's Shift + M2 row is 32..35), and no stock code reads it: no GUI
+reference to its pattern offset (`+0x38f4`) and no audio-side load near the
+per-track table at `84eab39c`. Words 29..33 hold stock defaults on aux tracks,
+37 has audio-side readers and 46 GUI ones. That is a static reading, which can't
+see an access computed at run time. Stock's reload and its copy of a send track
+have not been checked on the device for this word.
+
+With Shift held, the send page's turn hook (`8c08fade`) steps the turned
+control's choice by the event's sign and stores the word through stock's set
+(`8d5acf28`), which saves it with the pattern and sends it to the audio side
+(message 0xa1). The title and value hooks (`8d53b642`, `8d53b636`) name the
+row's controls and their choices while Shift is held, and on a stock-drawn page
+the value hook's stand-in vector puts the same choices in the bars. The effect's adapter
+keeps its slot from `init(object, slot)`, reads word 36 of track 14 or 15
+from `84eab39c + slot × 0xe8`, and passes the DSP its eight words and each
+control's choice as a ninth to twelfth.
+

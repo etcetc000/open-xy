@@ -156,7 +156,7 @@ template <class Machine> struct Drawing {
         }
         for (u32 i = 0; i < parameter_slots; ++i) display_input.slots[i] = controls.slots[i];
         display_input.model = controls.model;
-        display_input.shift = controls.choosing ? 1 : 0;
+        display_input.shift = controls.choosing ? 1 : controls.shift;
         for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         display_input.elapsed = o->delta;
         display_input.track = controls.track;

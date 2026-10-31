@@ -3,6 +3,7 @@ from pathlib import Path
 import struct
 
 from .cpu import control_defaults, sweep
+from .definitions import shift_parameters
 from .pipeline import ROOT
 from .formats import require
 
@@ -155,6 +156,10 @@ def append_callback(path, m):
     values = dict(PREFIX=m.prefix, NAMESPACE=m.id, DEFAULTS=', '.join(map(str, control_defaults(m.definition['parameters']))))
     if m.kind == 'effect':
         size = resources.get('bufferBytes', 0)
+        # Words 8..11: a shift row starts on each list's first choice, at its bucket's
+        # middle (shift_row::midpoint), as a new project plays it.
+        row = [0x7fffffff // len(p['mapping']['labels']) // 2 for p in shift_parameters(m.definition)]
+        values['DEFAULTS'] += ', ' + ', '.join(map(str, row + [0] * (4 - len(row))))
         values.update(BUFFER_BYTES=str(size)+'u', BUFFER=f'Buffer{{static_cast<i32*>(memory.data), {size//4}u}}, ' if size else '',
                       TRANSPORT='time, ' if resources.get('transport') else '')
     else:

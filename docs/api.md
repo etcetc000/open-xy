@@ -8,7 +8,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
 | `drum` | The synth callbacks and drawing display, plus per-key model/control callbacks ([synthesis drum kits](#synthesis-drum-kits)), from SDK 1.9 | Independent model selection on 24 keys |
 | `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
-| `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
+| `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.7) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
 and previews it without native integration. SDK adapters own allocation,
@@ -96,7 +96,8 @@ host does fast and the Blackfin does not:
 - **Division** has no hardware instruction and costs tens of cycles on the
   device. Divide once per block, or use a table or a reciprocal.
 - **Floating point** has no hardware either. Keep audio in integers;
-  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers.
+  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
+  saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
@@ -565,7 +566,52 @@ declared controls. Do not depend on the absolute level of the send buffers.
 `State` is at most `opxy::effect_state_bytes` (476) with alignment at most 4.
 No destructor ever runs, so it holds no resources. The generated adapter
 checks both limits at compile time. Effects use the stock FX page, with any controls after the fourth as
-[alternates](#alternate-controls), and have no browser preview.
+[alternates](#alternate-controls) or a [second page](#effect-pages-and-shift-rows), and have no browser preview.
+
+### Effect pages and shift rows
+
+An effect with five to eight controls may declare `"press": "page"` (SDK 1.7),
+as a synth does: a press of any encoder on its send page switches all four
+positions between its first four controls and the rest.
+
+An effect may also declare a **shift row** (SDK 1.7): one to four enum
+controls in `"shift"` in `definition.json`, which Shift and the send page's
+four encoders choose, one choice per detent, while the page shows their names
+and choices. They suit routing and modes, such as an order or a source. All
+their choices together are at most 1,048,576 combinations; the first choice of
+each is what a new project starts with. With a shift row, Shift no longer
+turns the effect's continuous controls in fine steps.
+
+`process` then receives twelve words: the eight controls, then each shift-row
+control's chosen word, read as any enum control:
+
+```json
+"shift": [
+  {"id": "order", "label": "Order", "default": 0, "display": "enum",
+   "mapping": {"kind": "enum", "labels": ["TPES", "TEPS", "PTES"]}}
+]
+```
+
+```cpp
+const opxy::u32 order = ((static_cast<opxy::u32>(parameters[8]) >> 16) * 3) >> 15;
+```
+
+Its `State` is then 4 bytes smaller than otherwise (the slot keeps the send's
+number). See the [firmware contract](abi-1.2.1.md#effect-pages-and-shift-rows).
+
+### Effect pages
+
+An effect may draw its own page on the send tracks (SDK 1.7): it declares
+`resources.display` and supplies `display.h`, `display.cpp` and
+`panel.svg.fragment`, exactly as a synth does ([display API](display.md)).
+Each build's layout then gives it a page from 82..255 beside its effect
+number, as it gives a synth its own. Stock shows the page an effect's
+record names on M1 of a send, so the page replaces stock's FX page there; its
+header names and captions the effect's controls, or its shift row's while
+Shift is held, and the display reads them all, the shift row too
+([input](display.md#effect-pages-sdk-17)). Effects have no browser preview
+yet. An effect that comes to draw its own page keeps its effect number and is
+given a page in its firmware's layout.
 
 ### Effect buffers
 
@@ -617,6 +663,9 @@ send weight `s` and Dry `d`, the source dry factor is `1 - s*(1-d)`. At full sen
 Dry zero removes the source dry and Dry one retains it; at zero send, dry stays
 unchanged. Do not add clean audio inside `process` to implement this control.
 Without `dryParameter`, the adapter returns unity to preserve the source dry.
+Instead, an effect may fix its Dry with `dryLevel` in `machine.json` (SDK 1.7),
+a number from 0 to 1. An effect that mixes its own dry, as a box of effects
+inline does, declares 0: at full send a track then goes wholly through it.
 
 ## Registration boundary
 
@@ -673,7 +722,7 @@ build gives every machine the stock numbers projects save, an engine number
 | --- | --- | --- |
 | `synth` | Engine 34..255 | Its own, 82..255 |
 | `sample` | Engine 34..255 | Its base's: the stock sampler's or drum sampler's |
-| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen |
+| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen, or its own, 82..255 (SDK 1.7) |
 
 These numbers exist only in the relocated stock tables, so no machine shares
 one with stock. Four core machines, which the first Open-XY firmware shipped,
