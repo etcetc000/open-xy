@@ -14,6 +14,19 @@ PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 
 
 class MasterFilter(unittest.TestCase):
+    def test_shared_mutable_paths_can_start_with_an_opaque_fill(self):
+        import xml.etree.ElementTree as ET
+        from tooling.native import check_outlines
+        display = dict(paths=1, points=4, nodes=1, texts=0, palette=1)
+        node = ET.fromstring('<path id="probe_node_0" d="M 0 0 L 20 0 L 20 20 L 0 20 Z" '
+                             'fill="#2F2F2F" stroke="#CCCCCC" stroke-width="1"/>')
+        check_outlines({'probe_node_0': node}, 'probe', display)
+        node.set('d', 'M 0 0 L 10 0 L 20 0 L 30 0 Z')
+        with self.assertRaisesRegex(ValueError, 'enclose area'):
+            check_outlines({'probe_node_0': node}, 'probe', display)
+        node.set('fill', 'none')
+        check_outlines({'probe_node_0': node}, 'probe', display)
+
     @unittest.skipUnless(services.HOST_CXX, 'No working host C++ compiler')
     def test_multi_parameter_companion_and_defaults(self):
         import json

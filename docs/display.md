@@ -206,9 +206,13 @@ Elements bind by index and the machine's symbol prefix:
 
 | Frame part | Artwork |
 | --- | --- |
-| Node `i` | `<prefix>_node_<i>`: a `path` or `circle`. Path nodes are a `path` of exactly `M`, `points - 1` `L` and `Z` with no fill, every point distinct: the OP-XY's SVG parser merges repeated points, leaving fewer than the frame binds, and the device then no longer reshapes the outline. |
+| Node `i` | `<prefix>_node_<i>`: a `path` or `circle`. Path nodes are a `path` of exactly `M`, `points - 1` `L` and `Z`, every point distinct: the OP-XY's SVG parser merges repeated points, leaving fewer than the frame binds, and the device then no longer reshapes the outline. |
 | Text slot `i` | `<prefix>_text_<i>`: a `text` with explicit font, positioned by its transform, with no `x` or `y` |
 | Palette entry `i` | `<prefix>_palette_<i>`: a `path` or `circle` with explicit `#RRGGBB` fill and stroke and a stroke width; it lends them to the nodes that select it. Park entries off screen. |
+
+Mutable paths may have an explicit `#RRGGBB` fill when their authored geometry encloses area.
+Use a nonzero initial fill for shapes that must stay opaque: both renderers
+preserve `fill="none"` as disabled when applying palette changes.
 
 Every outline a frame draws must enclose area. A line traced out and back over
 itself, or an outline that turns straight back at a point, has none there, and the

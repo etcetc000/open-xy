@@ -647,21 +647,27 @@ def panel_root(fragment, source):
 
 
 def check_outlines(by_id, prefix, display):
-    """Drawing paths are the first nodes: exactly M, (points - 1) L and Z, unfilled."""
+    """Drawing paths are the first nodes: exactly M, (points - 1) L and Z; filled paths must enclose area."""
     points = display['points']
     for name in display_ids(prefix, display)[:display['paths']]:
         node = by_id.get(name)
         commands = re.findall(r'[A-Za-z]', node.get('d', '')) if node is not None else []
         coordinates = re.findall(NUMBER, node.get('d', '')) if node is not None else []
         require(node is not None and node.tag == 'path' and commands == ['M'] + ['L'] * (points - 1) + ['Z'] and
-                len(coordinates) == 2 * points and node.get('fill') == 'none',
-                'Mutable outline must contain exactly M, %d L and Z, with no fill: %s' % (points - 1, name))
+                len(coordinates) == 2 * points,
+                'Mutable outline must contain exactly M, %d L and Z: %s' % (points - 1, name))
         # The stock parser merges repeated points, leaving fewer than the frame
         # binds, and the device then no longer reshapes the outline. Points are
         # compared as the Q10 coordinates the device holds.
         pairs = [(round(float(x) * 1024), round(float(y) * 1024)) for x, y in zip(coordinates[::2], coordinates[1::2])]
         require(len(set(pairs)) == points,
                 'Mutable outline repeats a point; the device merges repeated points, so keep each distinct: ' + name)
+        if node.get('fill') != 'none':
+            require(re.fullmatch(r'#[0-9A-Fa-f]{6}', node.get('fill', '')),
+                    'Filled mutable paths need an explicit #RRGGBB fill: ' + name)
+            area = sum(x * pairs[(i + 1) % points][1] - pairs[(i + 1) % points][0] * y
+                       for i, (x, y) in enumerate(pairs))
+            require(area != 0, 'Filled mutable paths must enclose area: ' + name)
 
 
 def check_bindings(by_id, prefix, display):
