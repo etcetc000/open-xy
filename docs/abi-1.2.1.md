@@ -26,9 +26,10 @@ version is rejected. The output differs from stock in exactly these places:
 | Reservation | 2 | Shrinks the application heap by 2 MiB (20 MiB to 18 MiB); the module lives in the freed tail |
 | Hooks | 5 | Branches from the synth initializer, both screen factories and both catalog-insertion calls into SDK startup code |
 | Sample dispatch | 2 | Recognizes owned SDK sample registrations and selects the stock sampler's (page 2) or multisampler's (page 7) audio payload |
+| Preset serialization | 1 | Includes owned sample engines in sample-file and slice-region export while preserving the saved engine identity |
 | Sampler page | 9 | Shows an owned page-2 engine's track as the stock sampler's page, with its one sample in region 0 for every key |
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
-| Drum-page services | 20 | Routes controls, octave publication, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
+| Drum-page services | 30 | Routes controls, octave publication, assignment, waveform projection, source audition and held-pad slice/copy/paste and multi-edit actions |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 1 | Paints a selected owned synth page before stock overlays |
@@ -432,6 +433,12 @@ absent and conflicting registrations follow the original paths. The first
 sample machine in a build enables the `samples` service; further ones add no
 firmware patch sites.
 
+The preset writer has a separate engine-ID switch before its sample-region
+serializer. The SDK aliases only that switch to the owned engine's sampler
+base. The writer retains the machine's saved type and exports the sample paths,
+outer and inner markers, tuning, level, flags and tagged settings. This also
+preserves the live sample when stock reloads a newly saved preset.
+
 Stock starts these voices through a separate note-start method; factory
 creation alone does not start or choke a voice. Page 7 maps notes to
 the stock 24 canonical pads. Optional same-key choke is scoped to track and
@@ -469,6 +476,23 @@ copies the complete pad record for each slice. The clipboard bridge preserves
 settings within the same machine, uses destination defaults across machines,
 and removes SDK tags when pasting into stock. It restores the clipboard after
 each paste, including failure, so subsequent pastes retain the source settings.
+
+The tap slicer auditions an owned drum-page source once, forwards. Machines
+with `sliceTiming` supply a source clock matching frozen settings, live
+parameters, track transpose and project tempo. Other machines audition raw PCM
+at the original file rate. The SDK extends only the scoped source note's stock
+packet with a versioned snapshot, keeping the original note prefix unchanged.
+The audio receiver validates length, tag, engine ownership, track, key and range
+before publishing role-local state; GUI globals are not a transport. Snapshots
+are retained per track/key because stock can construct a pending voice even
+after its note-off. A new ordinary manual note clears only its matching slot.
+
+The factory matches the parent note's identity and manual provenance, then
+copies the snapshot into the voice. Subsequent cuts cannot move that audition's
+playhead; later control and tempo edits apply to the next audition. Scoped
+source note-on/off calls preserve the source pad through stock keyboard
+remapping and project transpose. Ordinary and sequencer notes retain their
+normal routing and playback. No audition state is saved in a preset or project.
 
 Pad settings occupy the stock pad record's fade word as a tagged 18-bit value,
 padded to survive stock's integer/float serialization. Values up to 65535

@@ -1320,6 +1320,116 @@
       "symbol": "sdk_sample_multi_press_engine",
       "service": "samples",
       "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a5e34",
+      "file_offset": "0xdd070",
+      "length": 8,
+      "before": "00de598d78420000",
+      "symbol": "sdk_sample_slice_start",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a5f48",
+      "file_offset": "0xdd184",
+      "length": 8,
+      "before": "00de598dac410000",
+      "symbol": "sdk_sample_slice_stop",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0a5eb0",
+      "file_offset": "0xdd0ec",
+      "length": 8,
+      "before": "00de0204c01a0000",
+      "symbol": "sdk_sample_slice_rate",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d51aeb6",
+      "file_offset": "0x152112",
+      "length": 4,
+      "before": "ffe3ee5f",
+      "symbol": "sdk_sample_create_voice",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e6a7e",
+      "file_offset": "0x11dcda",
+      "length": 4,
+      "before": "88a1180c",
+      "symbol": "sdk_sample_preset_regions",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d595a40",
+      "file_offset": "0x1ccc9c",
+      "length": 4,
+      "before": "ffe3ecb4",
+      "symbol": "sdk_sample_slice_note_key",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5955b8",
+      "file_offset": "0x1cc814",
+      "length": 4,
+      "before": "ffe330b7",
+      "symbol": "sdk_sample_slice_note_key",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5942cc",
+      "file_offset": "0x1cb528",
+      "length": 4,
+      "before": "ffe3fdfe",
+      "symbol": "sdk_sample_slice_note_route",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5941e2",
+      "file_offset": "0x1cb43e",
+      "length": 4,
+      "before": "ffe372ff",
+      "symbol": "sdk_sample_slice_note_route",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d595aa4",
+      "file_offset": "0x1ccd00",
+      "length": 4,
+      "before": "fae3f634",
+      "symbol": "sdk_sample_slice_send",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5b1260",
+      "file_offset": "0x1e84b8",
+      "length": 4,
+      "before": "00e80700",
+      "symbol": "extensions_sample_slice_receive",
+      "service": "samples",
+      "call": false
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

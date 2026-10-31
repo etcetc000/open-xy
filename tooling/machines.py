@@ -32,7 +32,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.5 drops identity numbers: the layout gives every number, and a sample engine
 # names its base instead of a stock page.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
-SDK_VERSION = (1, 6)
+# 1.7 supplies a frozen source-audition clock for tempo-aware sample slicing.
+SDK_VERSION = (1, 7)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -252,6 +253,8 @@ def machine_at(root, identity=None):
     icon = value.get('icon', '')
     require(icon == '' or isinstance(icon, str) and ICON.fullmatch(icon), 'icon is SVG path data')
     definition = validate_definition(json.loads((root / 'definition.json').read_text(encoding='utf-8')), kind)
+    if definition['resources'].get('sliceTiming'):
+        require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:
         require_sdk(version, (1, 2), 'An effect buffer (bufferBytes)')
     if definition['resources'].get('transport'):

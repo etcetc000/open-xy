@@ -163,6 +163,25 @@ class OutsideMachines(unittest.TestCase):
         self.assertFalse(any('.git' in name for name in m.files()))
         self.assertTrue(m.contains(self.folder / 'out') and not m.contains(self.folder.parent / 'out'))
 
+    def test_slice_clock_requires_its_public_sdk_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary).resolve() / 'sample'
+            shutil.copytree(FOLDER / 'probesample', folder)
+            definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+            definition['resources'].update(padSettings=1, drumControls=1, sliceTiming=1)
+            (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+            record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
+            record.pop('identity', None)
+            record['base'] = 'drumSampler'
+            for version in ('1.5', '1.6', '1.7'):
+                record['sdk'] = version
+                (folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
+                if version != '1.7':
+                    with self.assertRaisesRegex(ValueError, 'sliceTiming.*1.7'):
+                        machines.machine_at(folder)
+                else:
+                    self.assertEqual(machines.machine_at(folder).definition['resources']['sliceTiming'], 1)
+
     def test_collections_list_machine_folders(self):
         # Paths are relative to the collection's folder; both stay on its drive, as relpath needs on Windows.
         probefx = self.folder.parent / 'shelf' / 'probefx'
@@ -195,7 +214,8 @@ class OutsideMachines(unittest.TestCase):
         for version in ('1.5', '1.6'):
             self.numberless(self.folder, sdk=version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-        for version in ('0.9', '2.0', '1.7', '1', 'latest', None):
+        future = '%d.%d' % (machines.SDK_VERSION[0], machines.SDK_VERSION[1] + 1)
+        for version in ('0.9', '2.0', future, '1', 'latest', None):
             with self.subTest(version=version):
                 self.rename('fmcopy', self.free, version)
                 with self.assertRaises(ValueError):
