@@ -80,9 +80,10 @@ SDK's. A section changes `version` only when an older reader would misread it,
 and a reader ignores a section with a version it does not know, using the
 rest.
 
-A writer replacing a project rewrites its own sections. It keeps other owners'
-sections unchanged while the previous companion still matched the project it
-replaces, and drops them otherwise. The firmware writes only `open-xy.machines` for now.
+The host writer rewrites its own sections and keeps other owners' sections
+unchanged while the previous companion still matches the project, dropping
+them otherwise. Firmware currently rewrites only `open-xy.machines` and does
+not retain other sections.
 
 ### Canonical form
 
@@ -129,3 +130,28 @@ read as saved. A section for another profile is ignored.
 | --- | --- |
 | `python sdk.py project write --layout layout.json <song.xy>...` | Writes each project's companion from the layout of the firmware that saved it, for projects saved before companions |
 | `python sdk.py project check <song.xy>...` | Reports whether each project's companion applies to it, and which machines it names |
+
+## Interrupted firmware saves
+
+Firmware writes `song.oxy.tmp` after stock successfully saves `song.xy`, checks
+all writes and close, then renames the completed temporary over `song.oxy`.
+A failed write or close leaves the published companion untouched. Stock's
+replacement removes the old destination before rename; if rename then fails,
+the complete temporary remains available for recovery.
+Loading prefers the published companion when it validates and matches the
+project bytes and CRC-32; otherwise it also checks the temporary with the same
+validation. Partial files, read errors and companions for other project bytes
+never supply machine mappings. Project measurement is bounded to 16 MiB.
+
+This is recovery for a completed companion awaiting publication, not an atomic
+transaction across the project and its companion. There is no filesystem sync
+or power-loss durability guarantee. Stock's save result remains authoritative;
+a companion error does not turn a successful stock save into a failed one.
+Keep both project and companion in backups.
+
+This checked publication is a prerequisite for extension-owned project state.
+The firmware writer currently emits only `open-xy.machines`; it does not yet
+preserve other sections. A future state service must bind retained sections to
+the committed source project, including New, Save As and rename, before offering
+extension persistence. Tooling section preservation does not establish that
+firmware lifecycle contract.

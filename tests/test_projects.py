@@ -153,6 +153,27 @@ class FirmwareWriter(unittest.TestCase):
             self.assertEqual(subprocess.run([str(writer), str(folder / 'song.bin'), '1'], timeout=30).returncode, 0)
             self.assertEqual(sorted(p.name for p in folder.glob('song*')), ['song.bin'])
 
+    def test_failed_companion_publication_preserves_previous_document(self):
+        with tempfile.TemporaryDirectory(prefix='companion-') as directory:
+            folder = Path(directory)
+            writer, project = host_writer(folder), folder / 'song.xy'
+            previous = b'previous companion remains byte-for-byte'
+            for fault in ('write', 'close', 'read'):
+                with self.subTest(fault=fault):
+                    target = folder / 'song.oxy'
+                    target.write_bytes(previous)
+                    env = dict(os.environ, OPXY_COMPANION_FAULT=fault)
+                    run = subprocess.run([str(writer), str(project), '1'], env=env, timeout=30)
+                    self.assertEqual(run.returncode, 0, 'native save result is preserved')
+                    self.assertEqual(target.read_bytes(), previous)
+            self.assertEqual(subprocess.run([str(writer), str(project), '1'], timeout=30).returncode, 0)
+            self.assertEqual(target.read_bytes(), companion(project.read_bytes(), SAVED))
+            self.assertFalse((folder / 'song.oxy.tmp').exists())
+            env = dict(os.environ, OPXY_COMPANION_FAULT='rename')
+            self.assertEqual(subprocess.run([str(writer), str(project), '1'], env=env, timeout=30).returncode, 0)
+            self.assertFalse(target.exists(), 'stock replacement may remove the old destination')
+            self.assertEqual((folder / 'song.oxy.tmp').read_bytes(), companion(project.read_bytes(), SAVED))
+
     def test_every_save_reaches_the_writer_through_one_reviewed_call(self):
         hooks = [p for p in config()['patches'] if p.get('symbol') == 'sdk_project_save']
         self.assertEqual([(p['address'], p['before'], p['call']) for p in hooks], [('0x8d585eda', '00e3cd98', True)])
@@ -236,15 +257,18 @@ class FirmwareReader(unittest.TestCase):
     def tearDownClass(cls):
         cls.folder.cleanup()
 
-    def load(self, raw, data=PROJECT, tracks=TRACKS, result=1, project=PROJECT):
+    def load(self, raw, data=PROJECT, tracks=TRACKS, result=1, project=PROJECT, temporary=None, fault=None):
         """The tracks after the firmware loads `project` beside companion bytes `raw`."""
         with tempfile.TemporaryDirectory(prefix='companion-') as directory:
             song = Path(directory) / 'song.xy'
             song.write_bytes(project)
             if raw is not None:
                 (Path(directory) / 'song.oxy').write_bytes(raw)
+            if temporary is not None:
+                (Path(directory) / 'song.oxy.tmp').write_bytes(temporary)
             specs = [f"{t}:{','.join(map(str, n))}" for t, n in tracks.items()]
-            run = subprocess.run([str(self.reader), str(song), str(result), *specs], capture_output=True, text=True,
+            run = subprocess.run([str(self.reader), str(song), str(result), *specs],
+                                 env=dict(os.environ, OPXY_COMPANION_FAULT=fault or ""), capture_output=True, text=True,
                                  timeout=30)
         self.assertEqual(run.returncode, 0, run.stderr)
         return {int(t): [int(n) for n in numbers.split(',')]
@@ -254,6 +278,19 @@ class FirmwareReader(unittest.TestCase):
         loaded = self.load(raw, **kwargs)
         self.assertEqual(loaded, expected)
         self.assertEqual(loaded, reference(raw, PROJECT, kwargs.get('tracks', TRACKS)), 'tooling/projects.py agrees')
+
+    def test_complete_bound_temporary_recovers_failed_publication(self):
+        valid = companion(PROJECT, SAVED)
+        expected = self.load(valid)
+        for primary in (None, b'{partial', companion(b'old project', SAVED)):
+            with self.subTest(primary=primary):
+                self.assertEqual(self.load(primary, temporary=valid), expected)
+        for temporary in (valid[:-2], companion(b'other project', SAVED), b''):
+            with self.subTest(temporary=temporary):
+                self.assertEqual(self.load(None, temporary=temporary), TRACKS)
+        different = companion(PROJECT, {'karplus': {'engine': 50, 'page': 84}})
+        self.assertEqual(self.load(valid, temporary=different), expected, 'published document wins')
+        self.assertEqual(self.load(valid, temporary=valid, fault='read'), TRACKS, 'I/O error is not EOF')
 
     def test_maps_listed_numbers_by_machine_id_per_track_kind(self):
         self.check(companion(PROJECT, SAVED), {
