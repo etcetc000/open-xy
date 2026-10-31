@@ -165,11 +165,14 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl',)}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback')}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls')),
             'Numeric resource requirements must be integers')
+    if kind == 'synth':
+        for flag in ('stereoOutput', 'releaseCallback'):
+            require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
     # Stock creates a voice object for every index 0..255 and never checks for a
