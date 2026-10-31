@@ -1,5 +1,6 @@
 """Compare browser output to independent GNU ELF and Python container readers."""
 import copy
+from dataclasses import replace
 import json
 from pathlib import Path
 import subprocess
@@ -10,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tooling.formats import elf32, ldr, mapped_offset, require, sha
 from tooling import screen, startup_label
-from tooling.adapters import catalog_defaults
+from tooling.adapters import catalog_defaults, catalog_entry
+from tooling.machines import assign_numbers
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
 from tooling.native import configuration, package_collection
 
@@ -37,12 +39,25 @@ def check_fallbacks(module, symbols, base):
             'Absent-machine callback differs from its source')
 
 
+def selection_catalog(machines, selected, stock_catalog):
+    """Number this selection independently, as a fresh Python build does."""
+    requested = [replace(m, identity=m.requested or m.identity, requested=None)
+                 for m in machines if m.id in selected]
+    numbered, _ = assign_numbers(requested)
+    catalog = copy.deepcopy(stock_catalog)
+    for machine in numbered:
+        key = 'fx_types' if machine.kind == 'effect' else 'engine_types'
+        catalog[key].append(json.loads(catalog_entry(machine).strip().lstrip(',')))
+    return catalog
+
+
 def main():
     directory, stock_file, content = map(lambda p: Path(p).resolve(), sys.argv[1:])
     subprocess.run(['node', str(ROOT / 'tools/check_browser_firmware.mjs'), str(directory), str(stock_file), str(content)], check=True)
     kit = json.loads((directory / 'kit.json').read_text(encoding='utf-8'))
     # Definitions of the machines the kit was built from, wherever they live.
-    definitions = {m.id: m.definition for m in configuration(package_collection(directory / 'source'))[1]}
+    machines = configuration(package_collection(directory / 'source'))[1]
+    definitions = {m.id: m.definition for m in machines}
     stock = stock_file.read_bytes()
     require(sha(stock) == kit['profile']['stock_sha256'], 'Unexpected stock input')
     # 0x8c0c7d04 measures the text using this stock width table, adding
@@ -109,10 +124,8 @@ def main():
         require(bytes(restored) == modes[True], 'Profiling mode changed unrelated bytes')
         expected = modes[True]
         selected = [m for m in kit['machines'] if m['id'] in result['selected']]
-        catalog = json.loads((content / 'op1_factory.json').read_bytes())
-        for machine in selected:
-            key = 'fx_types' if machine['kind'] == 'effect' else 'engine_types'
-            catalog[key].append(json.loads(machine['catalog'].strip().lstrip(',')))
+        catalog = selection_catalog(machines, result['selected'],
+                                    json.loads((content / 'op1_factory.json').read_bytes()))
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
