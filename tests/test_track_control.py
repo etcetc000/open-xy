@@ -253,7 +253,7 @@ class TrackControl(unittest.TestCase):
         hooks = [p for p in config()['patches'] if p.get('service') == 'control' and p['kind'] == 'hook']
         self.assertEqual(sorted(p['symbol'] for p in hooks),
                          ['sdk_gui_tick', 'sdk_param_edit_set', 'sdk_param_shown_hook', 'sdk_param_step_set',
-                          'sdk_project_clear', 'sdk_project_clear_random'])
+                          'sdk_param_step_set', 'sdk_param_step_set', 'sdk_project_clear', 'sdk_project_clear_random'])
         # Aux tracks are a service of their own: its hooks and MTP allowlist edits.
         aux_edits = [p for p in config()['patches'] if p.get('service') == 'aux']
         self.assertEqual(sorted(p.get('symbol', p['address']) for p in aux_edits),
@@ -289,10 +289,11 @@ class TrackControl(unittest.TestCase):
         hooks = [p for p in config()['patches']
                  if p.get('symbol') in ('sdk_gui_tick', 'sdk_param_step_set', 'sdk_param_edit_set', 'sdk_param_shown_hook')]
         self.assertEqual([(int(p['address'], 16), p['length'], p['call']) for p in hooks],
-                         [(0x8c0baade, 8, True), (0x8d58c5d8, 4, True), (0x8d5ad5ae, 4, True), (0x8d5aca48, 4, False)])
+                         [(0x8c0baade, 8, True), (0x8d5937b4, 4, True), (0x8d5938c2, 4, True), (0x8d59396a, 4, True),
+                          (0x8d5ad5ae, 4, True), (0x8d5aca48, 4, False)])
         self.assertTrue(all(p.get('service') == 'control' for p in hooks))
         # CC = R0 == 0; IF CC JUMP 8d5aca80: the getter's choice of live or base value.
-        self.assertEqual(hooks[3]['before'], '000c1b18')
+        self.assertEqual(hooks[5]['before'], '000c1b18')
         for unit in ('track_control', 'track_control_hooks'):
             self.assertIn(unit, native.SDK_UNITS)
             self.assertEqual(native.UNIT_SERVICES[unit], 'control')
@@ -356,11 +357,12 @@ class TrackControl(unittest.TestCase):
         offset = mapped_offset(ldr(stock), int(patch['address'], 16), patch['length'])
         self.assertEqual(offset, int(patch['file_offset'], 16))
         self.assertEqual(absolute_target(stock[offset:offset + 8]), 0x8d580074)
-        patch = next(p for p in profile['patches'] if p.get('symbol') == 'sdk_param_step_set')
-        address = int(patch['address'], 16)
-        offset = mapped_offset(ldr(stock), address, patch['length'])
-        self.assertEqual(offset, int(patch['file_offset'], 16))
-        self.assertEqual(decode_branch(address, stock[offset:offset + 4]), (0x8d5acea8, True))
+        # The sequencer's three lock writes (8d5936c0) all reach the live setter.
+        for patch in (p for p in profile['patches'] if p.get('symbol') == 'sdk_param_step_set'):
+            address = int(patch['address'], 16)
+            offset = mapped_offset(ldr(stock), address, patch['length'])
+            self.assertEqual(offset, int(patch['file_offset'], 16))
+            self.assertEqual(decode_branch(address, stock[offset:offset + 4]), (0x8d5acea8, True))
         patch = next(p for p in profile['patches'] if p.get('symbol') == 'sdk_param_edit_set')
         address = int(patch['address'], 16)
         offset = mapped_offset(ldr(stock), address, patch['length'])
