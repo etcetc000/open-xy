@@ -8,6 +8,7 @@ object layouts, method tables, storage, registration and menu entries:
 - sample: flag-1 synth registration that receives the track's sample;
 - effect: send-FX registry object with in-place stereo processing.
 """
+import copy
 import json
 import math
 from pathlib import Path
@@ -21,6 +22,10 @@ from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
 
 TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
+# The init preset's authored settings, shared with builder/core.mjs's defaultPreset
+# (which embeds this same file's content at its import). Engine params, the
+# machine's type and its amp overrides are merged in at default_preset below.
+DEFAULT_PRESET_TEMPLATE = json.loads((Path(__file__).parent / 'default_preset.json').read_text(encoding='utf-8'))
 
 
 def expand(template, values, destination, root=TEMPLATES):
@@ -485,4 +490,47 @@ def catalog_entry(m):
                 ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }')
     return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
             ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }\n')
+
+
+def preset_path(m):
+    """content/presets/<id>/default.json for an instrument; None for an effect or a
+    machine on an aux track (builder/core.mjs presetPath). An aux machine has no
+    catalog entry and keeps its presets under content/aux_presets/ instead (#234,
+    not yet merged; track_control is a placeholder until that PR defines its shape)."""
+    return None if m.kind == 'effect' or track_control(m).get('aux') else f'content/presets/{m.id}/default.json'
+
+
+def track_control(m):
+    """A machine's track-control declaration (definition.json `trackControl`), or {}
+    if it has none. Placeholder pending #234 (machines on aux tracks); revisit once
+    that PR lands and defines the real shape."""
+    return m.definition.get('trackControl') or {}
+
+
+def default_preset(m):
+    """The generated init preset: catalog defaults merged into the shared template
+    (tooling/default_preset.json, also embedded into builder/core.mjs's defaultPreset).
+    Engine controls come from the catalog, never from a copied factory sound."""
+    entry = json.loads(catalog_entry(m).strip().lstrip(','))
+    amp = m.preset_defaults.get('amp', {})
+    preset = copy.deepcopy(DEFAULT_PRESET_TEMPLATE)
+    preset['engine']['params'] = list(entry['default_params'])
+    # Match a device-saved minimum amp release: the stored endpoint is 32767.
+    preset['envelope']['amp'].update(amp)
+    preset['type'] = entry['type']
+    return preset
+
+
+def preset_files(m):
+    """The machine's init preset, then its own presets (tooling.machines.read_presets):
+    each a version 4 preset of this machine, pointing at no samples. Its own
+    default replaces the generated init preset (builder/core.mjs presetFiles)."""
+    path = preset_path(m)
+    if not path:
+        return {}
+    presets = m.presets or {}
+    files = {} if 'default' in presets else {path: default_preset(m)}
+    for name, preset in presets.items():
+        files[f'content/presets/{m.id}/{name}.json'] = preset
+    return files
 

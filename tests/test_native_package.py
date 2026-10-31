@@ -15,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from tooling import native
+from tooling.adapters import preset_files
 from tooling.formats import elf32, elf_sections, sha
 from tooling.pipeline import document, read, save_json
 
@@ -129,13 +130,15 @@ class PackageVerification(unittest.TestCase):
         self.assertEqual(current['engine_types'][:-len(names)], original['engine_types'])
         self.assertEqual([e['type'] for e in current['engine_types'][-len(names):]], names)
         displays = [m.native_name for m in self.linked if m.display != 'stock']
+        presets = {path for m in self.linked for path in preset_files(m)}
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
-        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays})
+        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} | presets)
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',
-                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock')]
+                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock'),
+                 *(f'candidate/{path}' for m in self.linked for path in preset_files(m))]
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name

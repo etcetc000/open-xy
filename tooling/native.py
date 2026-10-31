@@ -23,7 +23,7 @@ from .adapters import (catalog_entry, generate_display, generate_fx_object, gene
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_voice,
-                       sample_callbacks)
+                       preset_files, sample_callbacks)
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
@@ -744,6 +744,8 @@ def prepare_assets(catalog, profile, machines):
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
+        for path, preset in preset_files(m).items():
+            outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
     return outputs
 
 
@@ -949,6 +951,8 @@ def main(argv=None, command=None):
             for path in sorted(p for p in candidate.rglob('*') if p.is_file()):
                 print('  ' + path.relative_to(candidate).as_posix())
             print('Machine numbers: ' + str(output / 'layout.json') + ' (pass it as --layout to your next build)')
+            print('With aft-mtp-cli (android-file-transfer-linux) installed, copy everything in one step: ' +
+                  f"aft-mtp-cli 'put {candidate / 'os.ldr'}' 'mkdir content' 'cd content' 'put {candidate / 'content/display'}' 'put {candidate / 'content/op1_factory.json'}' 'mkdir presets' 'cd presets' 'put {candidate / 'content/presets'}'")
         return 0
     except (ValueError, OSError, KeyError, ET.ParseError, subprocess.SubprocessError) as error:
         print('ERROR: ' + str(error), file=sys.stderr)
