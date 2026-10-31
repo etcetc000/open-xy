@@ -98,3 +98,29 @@ test('preset generation rejects unsafe paths, foreign kinds and invalid engine p
   const {kit,catalog}=await fixture([{id:'example',kind:'synth',catalog:',{"type":"../bad","default_params":[0,0,0,0,0,0,0,0]}'}]);
   await assert.rejects(buildAssets(kit,['example'],catalog,numbers),/preset engine or defaults/);
 });
+
+test("track control's marks: the SDK's, then each selected machine's own", async () => {
+  const steering = {...machines[0], features: ['trackControl'],
+    marks: '<g id="probesynth_marks"><circle id="probesynth_capture_0"/></g>'};
+  const plain = {...machines[1], features: ['trackControl']};
+  const {kit, catalog} = await fixture([steering, plain, ...machines.slice(2)]);
+  kit.controlArtwork = '<svg><path id="overlay_line"/></svg>';
+  const marks = async selected => new TextDecoder().decode(
+    (await buildAssets(kit, selected, catalog, numbers))['content/display/openxy_overlay.svg']);
+  assert.equal(await marks(['probesources']), kit.controlArtwork);
+  assert.equal(await marks(['probesynth', 'probesources']),
+    '<svg><path id="overlay_line"/><g id="probesynth_marks"><circle id="probesynth_capture_0"/></g></svg>');
+  const files = await buildAssets(kit, ['probesample'], catalog, numbers);
+  assert.equal(files['content/display/openxy_overlay.svg'], undefined);
+});
+
+test("an aux machine's presets install as files, with the init of the role it replaces", () => {
+  const preset = type => JSON.stringify({params: Array(8).fill(0), platform: 'OP-XY', type, version: 1});
+  const auxPresets = {'content/aux_presets/cv/init.json': JSON.stringify({platform: 'OP-XY', type: 'cv', version: 1}),
+    'content/aux_presets/morph/soft.json': preset('morph')};
+  assert.deepEqual(Object.keys(presetFiles({id: 'morph', catalog: '', auxPresets})).sort(), Object.keys(auxPresets).sort());
+  for (const [path, type] of [['content/aux_presets/cv/init.json', 'morph'], ['content/aux_presets/morph/a.json', 'cv'],
+    ['content/aux_presets/brain/init.json', 'brain'], ['content/aux_presets/other/a.json', 'other'],
+    ['content/aux_presets/morph/../a.json', 'morph']])
+    assert.throws(() => presetFiles({id: 'morph', catalog: '', auxPresets: {[path]: preset(type)}}), /Invalid aux preset/);
+});

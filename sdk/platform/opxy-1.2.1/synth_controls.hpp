@@ -76,6 +76,10 @@ opxy::u32 sdk_param_steps(opxy::u32 track, opxy::u32 index, opxy::u32* scale) __
 // values hold them. Stock stores and sends only the first four of an effect's
 // defaults when it is put on a send; every later edit it stores and sends itself.
 void sdk_send_refresh() __asm__("sdk_send_refresh");
+// The machine holding an aux track, as its engine, or 0: set by track control's
+// aux tracks (aux_tracks.cpp) in builds that link them, null in others.
+extern opxy::u32 (*sdk_aux_engine)(opxy::u32) __asm__("sdk_aux_engine");
+extern bool (*sdk_aux_owns_page)(opxy::u32) __asm__("sdk_aux_owns_page");
 // The send page's title for position `index` of the effect on the selected send
 // track: the name of the slot it shows, which a press may have moved to an alternate.
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");

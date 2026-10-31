@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '496fe6dff677a8e0bad9d6599f8ce1665c0c2b0e905a65eef694cc7c90001323';
+export const PROFILE_SHA256 = '450b319624eb9c9c8dfb95840df9cccc762e13bb51e0ead564bcf435564e2ee7';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -119,7 +119,7 @@ export function validIdentity(rules, kind, identity) {
   if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages);
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
-    : kind === 'synth' && page > rules.page_none && page < rules.pages;
+    : kind === 'synth' && page > rules.page_none && page < rules.pages - 1;  // the last page: track control's marks
 }
 
 // The numbers a kit machine asks for (tooling.machines.check_request): valid ones,
@@ -222,7 +222,9 @@ export function numberLayout(rules, fixed, layout, machines) {
   }
   // An effect number is also held as an engine number (occupied).
   const keys = (slot, n) => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
-  const free = (slot, n) => !keys(slot, n).some(key => holders.has(key));
+  // The last page is track control's marks: in the pool, so every other machine keeps
+  // its own place, but never given out (tooling.machines.number_layout).
+  const free = (slot, n) => !(slot === 'page' && n === rules.pages - 1) && !keys(slot, n).some(key => holders.has(key));
   const take = (name, identity, slot, n) => {
     identity[slot] = n;
     for (const key of keys(slot, n)) holders.set(key, name);
@@ -405,12 +407,14 @@ export async function openKit(kit) {
   return {...kit, objects};
 }
 
-// Profile services a selection needs: each names the machine kinds that use it,
-// and 'extension' for any selected extension. tooling.firmware.active_services
+// Profile services a selection needs: each names the machine kinds, the features
+// machines declare, and 'extension' for any selected extension, that use it.
+// tooling.firmware.active_services
 // applies the same rule.
 export function activeServices(profile, machines) {
   return new Set(Object.entries(profile.services ?? {})
-    .filter(([, kinds]) => machines.some(m => kinds.includes(m.kind))).map(([name]) => name));
+    .filter(([, users]) => machines.some(m => users.includes(m.kind) || (m.features ?? []).some(f => users.includes(f))))
+    .map(([name]) => name));
 }
 
 // Extensions are linked only when named: omitting them builds none.
@@ -471,6 +475,14 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   for (const m of kit.machines) if (!selected.has(m.id)) {
     for (const [symbol, fallback] of Object.entries(m.absent)) {
       check(!globals.has(symbol) && globals.has(fallback), 'Invalid absent-machine callback');
+      aliases.set(symbol, globals.get(fallback));
+    }
+  }
+  // Shared objects may import a service's entry points, which resolve to their
+  // fallbacks while the selection does not use the service.
+  for (const [service, fallbacks] of Object.entries(kit.serviceFallbacks ?? {})) if (!services.has(service)) {
+    for (const [symbol, fallback] of Object.entries(fallbacks)) {
+      check(!globals.has(symbol) && globals.has(fallback), 'Invalid service fallback');
       aliases.set(symbol, globals.get(fallback));
     }
   }
@@ -574,7 +586,8 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
       covering[0].offset + 16 + site - covering[0].target === offset &&
       equal(stock.subarray(offset, offset + before.length), before), 'Patch preimage/mapping mismatch');
     let after;
-    check(edit.service === undefined || (edit.kind === 'hook' && Object.hasOwn(p.services ?? {}, edit.service)),
+    // A service's hooks, and its text edits (the MTP allowlist), apply only with it.
+    check(edit.service === undefined || (['hook', 'text'].includes(edit.kind) && Object.hasOwn(p.services ?? {}, edit.service)),
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
@@ -707,7 +720,8 @@ export async function recoverFirmware(kit, input, layout = null) {
 }
 
 export function presetPath(machine) {
-  if (machine.kind === 'effect') return null;
+  // An aux machine (no catalog entry) is never an instrument, so it has no instrument presets.
+  if (machine.kind === 'effect' || machine.catalog === '') return null;
   check(['synth', 'sample'].includes(machine.kind) && /^[a-z][a-z0-9_]{0,14}$/.test(machine.id),
     'Invalid preset instrument');
   return `content/presets/${machine.id}/default.json`;
@@ -717,6 +731,18 @@ export function presetPath(machine) {
 // each a version 4 preset of this machine, pointing at no samples. Its own
 // default replaces the generated init preset.
 export function presetFiles(machine) {
+  // An aux machine's presets: the files the kit generated (tooling.adapters.aux_preset_files).
+  if (machine.catalog === '') {
+    const files = {};
+    for (const [path, text] of Object.entries(machine.auxPresets ?? {})) {
+      // The machine's own presets, and the init of a stock role it can replace (tooling.adapters.AUX_ROLES).
+      const type = JSON.parse(text).type, folder = type === machine.id ? machine.id : ['cv'].includes(type) ? type : null;
+      check(folder !== null && new RegExp(`^content/aux_presets/${folder}/[a-z0-9][a-z0-9 _-]{0,14}\\.json$`).test(path),
+        'Invalid aux preset: ' + path);
+      files[path] = JSON.parse(text);
+    }
+    return files;
+  }
   const path = presetPath(machine);
   if (!path) return {};
   const presets = machine.presets ?? {};
@@ -774,7 +800,9 @@ export async function buildAssets(kit, selection, catalog, numbers) {
   const machines = kit.machines.filter(m => selection.includes(m.id));
   // Each machine's entry ends its stock list; the offsets are bound to the
   // authenticated stock catalog (tooling.native.extend_catalog).
-  const groups = {engine_types: machines.filter(m => m.kind !== 'effect'), fx_types: machines.filter(m => m.kind === 'effect')};
+  // Aux machines have no entry: they are chosen on their aux track, never in tracks 1-8's list.
+  const listed = machines.filter(m => m.catalog !== '');
+  const groups = {engine_types: listed.filter(m => m.kind !== 'effect'), fx_types: listed.filter(m => m.kind === 'effect')};
   const inserts = Object.entries(kit.profile.stock_catalog_inserts).sort((a, b) => b[1] - a[1]);
   check(inserts.map(([key]) => key).sort().join() === Object.keys(groups).sort().join(), 'Unexpected catalog insertion points');
   let extended = catalog;
@@ -797,6 +825,14 @@ export async function buildAssets(kit, selection, catalog, numbers) {
       check(/^[a-z][a-z0-9_]*\.svg$/.test(m.asset), 'Invalid artwork filename');
       files['content/display/' + m.asset] = utf8.encode(baseSvg.replace('</svg>', m.artwork + '</svg>'));
     }
+  }
+  // Track control's marks over every page (tooling.native.prepare_assets).
+  if (machines.some(m => (m.features ?? []).includes('trackControl'))) {
+    check(typeof kit.controlArtwork === 'string' && kit.controlArtwork.split('</svg>').length === 2,
+          'The site’s machine data is damaged. Reload this page.');
+    // The SDK's marks, then each selected machine's own (tooling.native.control_artwork).
+    const own = machines.filter(m => typeof m.marks === 'string').map(m => m.marks).join('');
+    files['content/display/openxy_overlay.svg'] = utf8.encode(kit.controlArtwork.replace('</svg>', own + '</svg>'));
   }
   return files;
 }

@@ -1,0 +1,14 @@
+// Generated: the collection's synths with track control.
+#include "track_control.hpp"
+extern "C" {
+@CONTROL_DECLS@
+}
+using opxy::platform::ControlMachine;
+
+const ControlMachine sdk_control_machines[] = {
+@MACHINES@
+    {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}, false}
+};
+// The terminating entry keeps the array nonempty for a collection without any.
+const opxy::u32 sdk_control_machine_count = sizeof(sdk_control_machines) / sizeof(sdk_control_machines[0]) - 1;
+bool sdk_control_prepared[sizeof(sdk_control_machines) / sizeof(sdk_control_machines[0])];

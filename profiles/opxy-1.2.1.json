@@ -94,6 +94,12 @@
     "samples": [
       "sample"
     ],
+    "control": [
+      "trackControl"
+    ],
+    "aux": [
+      "auxTrack"
+    ],
     "extensions": [
       "extension"
     ]
@@ -889,6 +895,26 @@
       "call": true
     },
     {
+      "kind": "hook",
+      "address": "0x8d572f70",
+      "file_offset": "0x1aa1cc",
+      "length": 4,
+      "before": "00e3d2a8",
+      "symbol": "sdk_project_clear",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d572ff8",
+      "file_offset": "0x1aa254",
+      "length": 4,
+      "before": "00e3c8ac",
+      "symbol": "sdk_project_clear_random",
+      "call": true,
+      "service": "control"
+    },
+    {
       "kind": "text",
       "name": "MTP path allowlist: project companion (.oxy) beside each project (.xy)",
       "address": "0x840ae494",
@@ -914,6 +940,46 @@
       "length": 88,
       "before": "5e2f70726f6a656374732f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e78792400",
       "after": "5e2f70726f6a656374732f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e6f3f78792400"
+    },
+    {
+      "kind": "text",
+      "name": "MTP path allowlist (folders): the user's aux presets folder and its folders, in the slot the next edit frees",
+      "address": "0x840ae308",
+      "file_offset": "0x5c878",
+      "length": 36,
+      "before": "5e2f73616d706c65732f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b240000",
+      "after": "5e2f6175785f707265736574732f3f5b5c775c2d20232d295d2a24000000000000000000",
+      "service": "aux"
+    },
+    {
+      "kind": "text",
+      "name": "MTP path allowlist (folders): both sample folder depths in one pattern",
+      "address": "0x840ae32c",
+      "file_offset": "0x5c89c",
+      "length": 60,
+      "before": "5e2f73616d706c65732f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b240000",
+      "after": "5e2f73616d706c65732f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2b2f3f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2a240000000000",
+      "service": "aux"
+    },
+    {
+      "kind": "text",
+      "name": "MTP path allowlist (files): .aiff and .aifc in a preset folder in one pattern",
+      "address": "0x840aedfc",
+      "file_offset": "0x5d36c",
+      "length": 112,
+      "before": "5e2f707265736574732f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e7072657365742f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e5b61415d5b69495d5b66465d5b66465d2400000000",
+      "after": "5e2f707265736574732f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e7072657365742f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e5b61415d5b69495d5b66465d5b664663435d240000000000000000",
+      "service": "aux"
+    },
+    {
+      "kind": "text",
+      "name": "MTP path allowlist (files): the user's aux preset files, in the slot the previous edit frees",
+      "address": "0x840aee6c",
+      "file_offset": "0x5d3dc",
+      "length": 112,
+      "before": "5e2f707265736574732f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e7072657365742f5b5c775c645c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e5b61415d5b69495d5b66465d5b63435d2400000000",
+      "after": "5e2f6175785f707265736574732f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2b2f5b5c775c215c2b5c2d5c405c5b5c5d20232d295d2b5c2e6a736f6e24000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "service": "aux"
     },
     {
       "kind": "hook",
@@ -1186,6 +1252,144 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c0baade",
+      "file_offset": "0xf1d1a",
+      "length": 8,
+      "before": "00de588d74000000",
+      "symbol": "sdk_gui_tick",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5937b4",
+      "file_offset": "0x1caa10",
+      "length": 4,
+      "before": "00e37acb",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5938c2",
+      "file_offset": "0x1cab1e",
+      "length": 4,
+      "before": "00e3f3ca",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59396a",
+      "file_offset": "0x1cabc6",
+      "length": 4,
+      "before": "00e39fca",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5ad5ae",
+      "file_offset": "0x1e4806",
+      "length": 4,
+      "before": "ffe3bdfc",
+      "symbol": "sdk_param_edit_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "name": "The aux LFO's telemetry also carries the machine track's own amount",
+      "address": "0x8d50f422",
+      "file_offset": "0x14667e",
+      "length": 4,
+      "before": "fee34b3a",
+      "symbol": "sdk_lfo_aux_publish",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
+      "name": "Displayed parameter values follow track control overlays",
+      "address": "0x8d5aca48",
+      "file_offset": "0x1e3ca0",
+      "length": 4,
+      "before": "000c1b18",
+      "symbol": "sdk_param_shown_hook",
+      "call": false,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "name": "Shift + M1 on an aux track opens the machine chooser",
+      "address": "0x8c08f6ec",
+      "file_offset": "0xc6928",
+      "length": 8,
+      "before": "01e8000008601000",
+      "symbol": "sdk_aux_shift_m1_hook",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
+      "name": "An aux track a machine holds shows the machine's page",
+      "address": "0x8c08f540",
+      "file_offset": "0xc677c",
+      "length": 8,
+      "before": "09da0a8434050000",
+      "symbol": "sdk_aux_page_hook",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
+      "name": "Shift + track key on an aux track a machine holds lists its presets",
+      "address": "0x8c08f610",
+      "file_offset": "0xc684c",
+      "length": 8,
+      "before": "6005213039307160",
+      "symbol": "sdk_aux_shift_track_hook",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
+      "name": "CV output stays silent while a machine holds the CV track",
+      "address": "0x8d512214",
+      "file_offset": "0x149470",
+      "length": 4,
+      "before": "ffe3dce7",
+      "symbol": "sdk_cv_output",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
+      "name": "CV gate stays low while a machine holds the CV track",
+      "address": "0x8d50e95c",
+      "file_offset": "0x145bb8",
+      "length": 4,
+      "before": "05e3423b",
+      "symbol": "sdk_cv_gate_on",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
+      "name": "The aux LFO names its engine destinations after the machine holding the track",
+      "address": "0x8d53d2a0",
+      "file_offset": "0x1744fc",
+      "length": 8,
+      "before": "0ada0584506d0000",
+      "symbol": "sdk_aux_lfo_label_hook",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
       "address": "0x8c0baaf0",
       "file_offset": "0xf1d2c",
       "length": 8,
@@ -1439,6 +1643,28 @@
       "symbol": "extensions_sample_slice_receive",
       "service": "samples",
       "call": false
+    },
+    {
+      "kind": "hook",
+      "name": "Aux replacement owns page keys and encoder clicks",
+      "address": "0x8c08fd30",
+      "file_offset": "0xc6f6c",
+      "length": 12,
+      "before": "926982ce00c4419100003830",
+      "symbol": "sdk_aux_key_hook",
+      "call": true,
+      "service": "aux"
+    },
+    {
+      "kind": "hook",
+      "name": "Aux replacement owns encoder routing before stock page translation",
+      "address": "0x8c08fa14",
+      "file_offset": "0xc6c50",
+      "length": 8,
+      "before": "0dda0a8434050000",
+      "symbol": "sdk_aux_turn_hook",
+      "call": true,
+      "service": "aux"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

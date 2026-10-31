@@ -4,7 +4,9 @@
 // saved file's size and CRC-32, then this firmware's machine numbers, in the canonical
 // form tooling/projects.py writes. It runs where stock saves, never on the audio role.
 // A failure leaves the previous companion, which no longer matches, or a partial
-// one; readers ignore both.
+// one; readers ignore both. What track control machines keep (open-xy.control, which
+// sorts before open-xy.machines) comes from the control service, through startup.cpp,
+// which writes nothing in a build without it.
 //
 // Stock loads every project, the workspace included, through load_project (8d5890b0),
 // which deserializes the file into the inactive project buffer with one call of
@@ -12,9 +14,12 @@
 // pending. That call is hooked too: after a load that succeeds, the reader opens the
 // .oxy beside the .xy, requires its binding to match the file's size and CRC-32, and
 // maps each number its open-xy.machines section lists, by machine ID, to this
-// firmware's number in every pattern of the instrument tracks (engines) and send
-// tracks (effects), and a machine this firmware lacks to Prism or no effect. Any
+// firmware's number in every pattern of the instrument tracks and the CV track
+// (engines, aux_tracks.cpp) and send tracks (effects), and a machine this firmware
+// lacks to Prism (18, also what stock keeps on the CV track) or no effect. Any
 // problem leaves the project as saved; the load never fails because of its companion.
+// Then track control machines get back what they kept, through startup.cpp, which
+// does nothing in a build without the control service.
 #include "project_companion.hpp"
 #include "stock.hpp"
 
@@ -24,6 +29,9 @@ using opxy::platform::stock;
 
 extern "C" u32 sdk_project_save(void* project, const char* path) __asm__("sdk_project_save");
 extern "C" u32 sdk_project_load(void* project, const char* path) __asm__("sdk_project_load");
+// The control service's sections, or nothing: generated in startup.cpp.
+extern "C" u32 sdk_project_kept(void* file) __asm__("sdk_project_kept");
+extern "C" void sdk_project_loaded(const char* path) __asm__("sdk_project_loaded");
 
 namespace {
 typedef void File;
@@ -136,7 +144,11 @@ void write_companion(u32 bytes, u32 crc) {
     w.number(bytes);
     w.put(",\n    \"crc32\": \"");
     w.hex(crc);
-    w.put("\"\n  },\n  \"sections\": {\n    \"open-xy.machines\": {\n      \"machines\": {");
+    w.put("\"\n  },\n  \"sections\": {\n");
+    // Track control's section goes here, before open-xy.machines, written to the file directly.
+    w.flush();
+    sdk_project_kept(file);
+    w.put("    \"open-xy.machines\": {\n      \"machines\": {");
     u32 listed = 0;
     for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m) {
         const u32 number = value(m->number);
@@ -729,13 +741,13 @@ bool read_document(File* file, u32& bytes, u32& crc) {
     return read && p.end() && format && version && binding && sections && valid && applies;
 }
 
-// Rewrites every pattern's machine number on the instrument and send tracks
+// Rewrites every pattern's machine number on the instrument, CV and send tracks
 // (docs/abi-1.2.1.md, project companions).
 void remap(unsigned char* project) {
     for (u32 track = 0; track < 16; ++track) {
-        if (track >= 8 && track < 14) continue;  // tracks 8-13 hold no machine number
-        const u32* map = track < 8 ? engine_map : effect_map;
-        const u32 limit = track < 8 ? kNumbers : kEffectNumbers;
+        if (track >= 8 && track < 14 && track != 11) continue;  // the other aux tracks hold no machine number
+        const u32* map = track < 14 ? engine_map : effect_map;
+        const u32 limit = track < 14 ? kNumbers : kEffectNumbers;
         unsigned char* base = project + 0xd7c + track * 0x53f44;
         u32 patterns = *reinterpret_cast<u32*>(base + 0x53f40);
         if (patterns > 16) patterns = 16;
@@ -773,6 +785,9 @@ u32 sdk_project_save(void* project, const char* path) {
 // which nothing reads until stock validates it and makes it pending.
 u32 sdk_project_load(void* project, const char* path) {
     const u32 loaded = deserialize(project, path);
-    if (loaded && project && path) apply_companion(project, path);
+    if (loaded && project && path) {
+        apply_companion(project, path);
+        sdk_project_loaded(path);
+    }
     return loaded;
 }

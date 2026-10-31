@@ -14,7 +14,7 @@ using opxy::platform::control_label;
 
 const SynthControls sdk_synth_controls[] = {
 @MACHINES@
-    {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false}
+    {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false, 0}
 };
 // The terminating entry keeps the array nonempty for a sample-only collection.
 const opxy::u32 sdk_synth_control_count = sizeof(sdk_synth_controls) / sizeof(sdk_synth_controls[0]) - 1;

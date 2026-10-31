@@ -6,9 +6,12 @@ belong to the layout of the firmware that saved them. A companion records them b
 machine ID, so firmware with another layout can open the project with the right
 machines. Stock never reads it. The format is in docs/projects.md."""
 import argparse
+import base64
+import binascii
 import json
 from pathlib import Path
 import re
+import struct
 import zlib
 
 from .formats import require
@@ -22,6 +25,11 @@ SUFFIX = '.oxy'
 LIMIT = 64 * 1024
 MACHINES = 'open-xy.machines'
 MACHINES_VERSION = 1
+# What track control machines keep with a project, base64 by machine ID, and
+# the stock role's controls kept aside for each aux track pattern a machine took
+# over, by track and pattern index.
+CONTROL = 'open-xy.control'
+CONTROL_VERSION = 1
 # owner.name: the owner is a GitHub user or organisation, lowercased; `open-xy` is the SDK's.
 SECTION_NAME = re.compile(r'[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+')
 # The machine IDs a companion may list, the firmware reader's rule (project_companion.cpp
@@ -72,6 +80,15 @@ def parse(raw):
         require(isinstance(machines.get('profile'), str) and isinstance(machines.get('machines'), dict),
                 f'{MACHINES}: needs a profile and machines')
         check_machines(machines['machines'])
+    control = sections.get(CONTROL)
+    if control and control['version'] <= CONTROL_VERSION:
+        require(isinstance(control.get('machines'), dict) and
+                all(isinstance(v, str) for v in control['machines'].values()), f'{CONTROL}: needs machines')
+        try:
+            for kept in control['machines'].values():
+                base64.b64decode(kept, validate=True)
+        except binascii.Error as error:
+            raise ValueError(f'{CONTROL}: invalid base64') from error
     return value
 
 
@@ -102,6 +119,26 @@ def saved_numbers(document, data, profile=None):
     return section['machines']
 
 
+def kept_data(document, data):
+    """What each track control machine kept with these project bytes, by machine ID."""
+    section = document['sections'].get(CONTROL)
+    if not describes(document, data) or not section or section['version'] > CONTROL_VERSION:
+        return {}
+    return {name: base64.b64decode(kept) for name, kept in section.get('machines', {}).items()}
+
+
+def aux_kept(document, data):
+    """The stock role's eight controls kept aside for each aux track pattern a machine
+    held in these project bytes, by track and pattern index; the firmware gives them
+    back on release, or after a load when it lacks the machine."""
+    section = document['sections'].get(CONTROL)
+    if not describes(document, data) or not section or section['version'] > CONTROL_VERSION:
+        return {}
+    return {int(track): {int(pattern): list(struct.unpack('<8i', base64.b64decode(controls)))
+                         for pattern, controls in patterns.items()}
+            for track, patterns in section.get('aux', {}).items()}
+
+
 def translation(saved, layout):
     """Each saved (slot, number) and what it is in `layout`: the machine's own number
     there, or None when the machine is not in it, which a reader opens as FALLBACK.
@@ -122,14 +159,24 @@ def translation(saved, layout):
     return {key: None if key[0] != 'page' and claims[key] > 1 else number for key, number in result.items()}
 
 
-def companion(data, layout, previous=None, profile=None):
-    """The companion for project bytes `data` saved with `layout`. Sections other owners
-    wrote are kept from `previous` only while it still describes the same bytes."""
+def companion(data, layout, previous=None, profile=None, kept=None, aux=None):
+    """The companion for project bytes `data` saved with `layout`, what track control
+    machines `kept` (bytes by machine ID) and the role's eight controls kept for `aux`
+    track patterns machines held (by track and pattern index), as the firmware writes it. Other
+    sections are kept from `previous` only while it still describes the same bytes."""
     sections = {}
     if previous and describes(previous, data):
         sections = {name: section for name, section in previous['sections'].items() if name != MACHINES}
     sections[MACHINES] = {'version': MACHINES_VERSION, 'profile': profile or config()['id'],
                           'machines': check_layout_numbers(layout, 'the layout')}
+    if kept or aux:
+        sections[CONTROL] = {'version': CONTROL_VERSION}
+    if kept:
+        sections[CONTROL]['machines'] = {name: base64.b64encode(value).decode() for name, value in kept.items()}
+    if aux:
+        sections[CONTROL]['aux'] = {str(track): {str(pattern): base64.b64encode(struct.pack('<8i', *controls)).decode()
+                                                 for pattern, controls in patterns.items()}
+                                    for track, patterns in aux.items()}
     return canonical({'format': FORMAT, 'version': VERSION, 'project': binding(data), 'sections': sections})
 
 

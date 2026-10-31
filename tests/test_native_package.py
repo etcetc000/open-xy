@@ -12,6 +12,8 @@ import shutil
 import struct
 import tempfile
 import unittest
+
+from tooling.adapters import aux_preset_files, catalog_entry
 from unittest.mock import patch
 
 from tooling import native
@@ -99,22 +101,25 @@ class PackageVerification(unittest.TestCase):
 
     def test_service_hooks_live_in_their_units_and_only_their_users_reach_them(self):
         services = native.object_services(self.machines)
-        kinds = {m.id: m.kind for m in self.machines}
+        uses = {m.id: set(native.service_users([m])) for m in self.machines}
         owner_of, needs = {}, {}
         for name, owner in self.report['objects'].items():
             defined, undefined = object_symbols(read(self.package / 'analysis' / name))
             owner_of.update(dict.fromkeys(defined, name))
             needs[name] = (owner, undefined)
         for patch in self.report['patches']:
-            if patch.get('service') and patch['after'] != patch['before']:
+            # Service hooks call into their service's units; service text edits call nothing.
+            if patch.get('service') and patch['kind'] == 'hook' and patch['after'] != patch['before']:
                 self.assertEqual(services.get(owner_of[patch['symbol']]), patch['service'], patch['symbol'])
-        # Only a service's own units and machines of the kinds it serves may use its symbols.
+        # Only a service's own units and machines of the kinds or features it serves may use its symbols.
         users = self.patch_profile['services']
         for name, (owner, undefined) in needs.items():
             for symbol in undefined:
                 service = services.get(owner_of.get(symbol))
                 if service and name not in services:
-                    self.assertIn(kinds.get(owner), users[service], (name, symbol))
+                    # The startup, generated per selection, starts a service it links.
+                    user = set(native.service_users(self.machines)) if name == 'sdk/startup.o' else uses.get(owner, set())
+                    self.assertTrue(user & set(users[service]), (name, symbol))
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
         _, symbols = elf32(self.elf)
@@ -125,17 +130,23 @@ class PackageVerification(unittest.TestCase):
                                      for m in self.linked})
         original = json.loads(self.catalog)
         current = json.loads((self.package / 'candidate/content/op1_factory.json').read_bytes())
-        names = [m.native_name for m in self.linked if m.kind != 'effect']
-        self.assertEqual(current['engine_types'][:-len(names)], original['engine_types'])
-        self.assertEqual([e['type'] for e in current['engine_types'][-len(names):]], names)
+        # Machines that take over aux tracks are chosen there, not in this list.
+        names = [m.native_name for m in self.linked if m.kind != 'effect' and catalog_entry(m)]
+        stock_count = len(original['engine_types'])
+        self.assertEqual(current['engine_types'][:stock_count], original['engine_types'])
+        self.assertEqual([e['type'] for e in current['engine_types'][stock_count:]], names)
         displays = [m.native_name for m in self.linked if m.display != 'stock']
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
-        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays})
+        marks = {'content/display/openxy_overlay.svg'} if any(map(native.track_control, self.linked)) else set()
+        presets = {path for m in self.linked for path in aux_preset_files(m)}
+        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} |
+                         marks | presets)
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',
-                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock')]
+                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock'),
+                 *(['candidate/content/display/openxy_overlay.svg'] if any(map(native.track_control, self.linked)) else [])]
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name

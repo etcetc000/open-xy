@@ -95,7 +95,9 @@ class Services(unittest.TestCase):
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
-        self.assertEqual(steps(machines), list(native.SDK_UNITS))  # full collections keep the link order
+        # The fixtures declare no track control or aux tracks: those services stay off.
+        control = [u for u, service in native.UNIT_SERVICES.items() if service in ('control', 'aux')]
+        self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if u not in control])  # in link order
         without = [m for m in machines if m.kind != 'sample']  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
         self.assertEqual(set(native.object_services(machines).values()), {'samples', 'extensions'})
@@ -112,6 +114,15 @@ class Services(unittest.TestCase):
             check_patch_boundaries(profile, len(profile['patches']))
         plain.pop('after'); tagged['service'] = 'missing'
         with self.assertRaisesRegex(ValueError, 'Undeclared service'):
+            check_patch_boundaries(profile, len(profile['patches']))
+        # So may a service's text edit (an MTP allowlist edit), but not a fixed one.
+        profile = copy.deepcopy(config())
+        tagged = next(p for p in profile['patches'] if p['kind'] == 'text' and p.get('service'))
+        plain = next(p for p in profile['patches'] if p['kind'] == 'text' and not p.get('service'))
+        tagged['after'] = tagged['before']
+        check_patch_boundaries(profile, len(profile['patches']))
+        plain['after'] = plain['before']
+        with self.assertRaisesRegex(ValueError, 'Invalid instruction edit'):
             check_patch_boundaries(profile, len(profile['patches']))
 
 

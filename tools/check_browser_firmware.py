@@ -82,7 +82,10 @@ def main():
                 sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs')
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
-        services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
+        # Services follow each selected machine's kind and its declared features (trackControl, ...),
+        # as the browser chooses them (builder/core.mjs activeServices).
+        services = active_services(kit['profile'], [user for m in kit['machines'] if m['id'] in result['selected']
+                                                    for user in (m['kind'], *m.get('features', []))] +
                                    (['extension'] if result['extensions'] else []))
         modes = {}
         for profiling in (True, False):
@@ -111,13 +114,20 @@ def main():
         selected = [m for m in kit['machines'] if m['id'] in result['selected']]
         catalog = json.loads((content / 'op1_factory.json').read_bytes())
         for machine in selected:
+            if not machine['catalog'].strip():
+                continue  # a machine on an aux track is not in the engine list
             key = 'fx_types' if machine['kind'] == 'effect' else 'engine_types'
             catalog[key].append(json.loads(machine['catalog'].strip().lstrip(',')))
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
         for machine in selected:
-            if machine['kind'] != 'effect':
+            # A machine on an aux track installs its presets as aux preset files instead.
+            for name, text in machine.get('auxPresets', {}).items():
+                data = (prefix / name).read_bytes()
+                require(json.loads(data) == json.loads(text), 'Aux preset differs: ' + name)
+                expected_files[name] = data
+            if machine['kind'] != 'effect' and machine['catalog'].strip():
                 name = 'content/presets/' + machine['id'] + '/default.json'
                 data = (prefix / name).read_bytes()
                 preset = json.loads(data)
@@ -143,6 +153,13 @@ def main():
                 art = screen.compose(machine['artwork'].encode())
                 require((prefix / name).read_bytes() == art, 'Browser artwork differs')
                 expected_files[name] = art
+        # Track control's marks over every page: the SDK's, then each selected machine's own.
+        if any('trackControl' in m.get('features', []) for m in selected):
+            own = ''.join(m['marks'] for m in selected if isinstance(m.get('marks'), str))
+            name = 'content/display/openxy_overlay.svg'
+            marks = kit['controlArtwork'].replace('</svg>', own + '</svg>').encode()
+            require((prefix / name).read_bytes() == marks, 'Browser marks differ')
+            expected_files[name] = marks
         with zipfile.ZipFile(prefix.with_suffix('.zip')) as archive:
             require(set(archive.namelist()) == set(expected_files) and archive.testzip() is None, 'Invalid ZIP file')
             for name, data in expected_files.items():

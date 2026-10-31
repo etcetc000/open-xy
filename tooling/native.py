@@ -19,11 +19,11 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, screen, startup_label, stock_tables
-from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
-                       generate_registration_stock, generate_sample_voice,
+from .adapters import (aux_preset_files, catalog_entry, generate_control, generate_display, generate_fx_object,
+                       generate_registration, generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
-                       generate_synth_controls, generate_project_companion_table, generate_voice,
-                       sample_callbacks)
+                       generate_synth_controls, generate_project_companion_table, generate_track_controls,
+                       generate_track_control_overlay, generate_voice, mark_ids, sample_callbacks, track_control)
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
@@ -182,7 +182,8 @@ def plan(machines, profile=None):
     units = []
     for m in machines:
         if m.kind == 'synth':
-            steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration')
+            steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration',
+                     *(('control',) if track_control(m) else ()))
         elif m.kind == 'effect':
             steps = ('registration', 'fx_object', *(('display', 'screen') if m.display != 'stock' else ()))
         else:
@@ -205,19 +206,32 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'presets')
+             'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
+             'track_control_table', 'track_control_hooks', 'track_control_overlay', 'track_control_project',
+             'aux_tracks', 'aux_hooks', 'presets')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
+# Track control runs from the GUI tick hook; the marks' screen
+# registers at startup only in builds that link it, and startup stands in for the
+# saved data's entry points in builds that don't.
+UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
+                                    'track_control_overlay', 'track_control_project'), 'control'))
+# Machines that take over aux tracks: the chooser, presets, pages and the stock
+# roles' silencers; startup starts it, and control reaches it through sdk_aux.
+UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 
 def service_users(machines):
-    """What a native build's services are chosen by: its machines' kinds, and
-    'extension' when it links extensions (native builds link all of the collection's)."""
-    return [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    """What a native build's services are chosen by: its machines' kinds, the features
+    they declare ('trackControl', 'auxTrack'), and 'extension' when it links
+    extensions (native builds link all of the collection's)."""
+    users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    return (users + ['trackControl' for m in machines if track_control(m)] +
+            ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')])
 
 
 def module_bytes(profile):
@@ -384,6 +398,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_synth_controls(folder, machines)), obj)
             if step == 'project_companion_table':
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
+            if step == 'track_control_table':
+                return cxx(str(generate_track_controls(folder, machines)), obj)
+            if step == 'track_control_overlay':
+                return cxx(str(generate_track_control_overlay(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
@@ -394,9 +412,11 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
+                services = active_services(profile, service_users(machines))
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
                                                 [x.prefix for x in sample_engines],
-                                                [x.prefix for x in effects if x.display != 'stock'])), obj)
+                                                [x.prefix for x in effects if x.display != 'stock'],
+                                                'control' in services, 'aux' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -405,6 +425,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
+                  'control': lambda: generate_control(folder, m),
                   'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True)}[step]
         return cxx(str(source()), obj, m)
 
@@ -702,6 +723,12 @@ def validate_panel(m, fragment=None):
     palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
     for name in palette:
         donor(name)
+    check_authored(nodes)
+    return fragment
+
+
+def check_authored(nodes):
+    """The authored SVG subset: elements, numbers, paint and no styles, events or references."""
     for node in nodes:
         for attribute in SVG_NUMERIC.intersection(node.attrib):
             value = node.attrib[attribute]
@@ -719,7 +746,32 @@ def validate_panel(m, fragment=None):
             if node.get('fill') == 'none':
                 require(node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
                         'Invisible authored SVG outline')
+
+
+def validate_marks(m):
+    """A track control machine's own marks (marks.svg.fragment): one root group,
+    the authored SVG subset without text, and exactly its declared mark nodes,
+    each a path or circle the overlay can show and hide."""
+    fragment = read(m.root / 'marks.svg.fragment')
+    root = panel_root(fragment, m.source('marks.svg.fragment'))
+    nodes = list(root.iter())
+    require(root.tag == 'g' and root.get('id') == m.id + '_marks', f'marks.svg.fragment must be <g id="{m.id}_marks">')
+    check_authored(nodes)
+    require(all(node.tag != 'text' for node in nodes), 'Track control marks have no text')
+    ids = [node.get('id') for node in nodes[1:] if node.get('id')]
+    require(len(ids) == len(set(ids)) and set(ids) == set(mark_ids(m)),
+            'marks.svg.fragment must hold exactly the declared mark IDs: ' + ', '.join(mark_ids(m)))
+    require(all(node.tag in ('path', 'circle') for node in nodes[1:] if node.get('id')),
+            'Each mark is a path or circle')
     return fragment
+
+
+def control_artwork(machines):
+    """The marks over every page: the SDK's, then each track control machine's own."""
+    template = read(ROOT / TEMPLATES / 'track_control_overlay.svg')
+    require(template.count(b'</svg>') == 1, 'Unexpected marks artwork boundary')
+    own = b''.join(validate_marks(m) for m in machines if track_control(m) and track_control(m).get('marks'))
+    return template.replace(b'</svg>', own + b'</svg>')
 
 
 def extend_catalog(catalog, profile, machines):
@@ -727,7 +779,8 @@ def extend_catalog(catalog, profile, machines):
 
     The insertion offsets are bound to the exact authenticated stock catalog.
     """
-    groups = dict(engine_types=by_kind(machines, 'synth', 'sample'), fx_types=by_kind(machines, 'effect'))
+    listed = [m for m in machines if catalog_entry(m)]  # aux machines are not in tracks 1-8's list
+    groups = dict(engine_types=by_kind(listed, 'synth', 'sample'), fx_types=by_kind(listed, 'effect'))
     result, base = catalog, json.loads(catalog)
     for key, at in sorted(profile['stock_catalog_inserts'].items(), key=lambda item: -item[1]):
         result = result[:at] + ''.join(catalog_entry(m) for m in groups[key]).encode('utf-8') + result[at:]
@@ -744,6 +797,10 @@ def prepare_assets(catalog, profile, machines):
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
+    if any(track_control(m) for m in machines):
+        outputs['content/display/openxy_overlay.svg'] = control_artwork(machines)
+    for m in machines:
+        outputs.update(aux_preset_files(m))
     return outputs
 
 

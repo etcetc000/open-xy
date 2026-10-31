@@ -36,9 +36,11 @@ version is rejected. The output differs from stock in exactly these places:
 | Synth and effect controls | 8 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page; extends the track menu's scramble to an owned synth's alternates |
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
-| Project companions | 5 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, and shows companions beside projects over MTP |
+| Project companions | 7 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, gives track control machines what they kept after every load (and nothing after a new project), and shows companions beside projects over MTP |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
+| Track control | 3 | Runs a synth's track control once per GUI tick, after stock's own call at that site, lets it capture encoder edits, and shows its overlays as parameter values |
+| Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
@@ -47,7 +49,12 @@ version is rejected. The output differs from stock in exactly these places:
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
 form the profile's `samples` service: a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine. Otherwise
-their sites stay stock. Everything else must reconstruct byte for byte. Protected ranges in
+their sites stay stock. The track control rows (and the project read of the
+project companion rows) form the `control` service in the same way: a build
+uses them only when it includes a machine with [track control](api.md#track-control).
+The aux track rows form the `aux`
+service, used only by a machine that [takes over aux tracks](api.md#aux-tracks).
+Everything else must reconstruct byte for byte. Protected ranges in
 [`pipeline.py`](../tooling/pipeline.py) admit only hooks into the module and
 the reviewed startup label.
 The bootloader is never modified.
@@ -129,6 +136,15 @@ method receives highlights, +0x1c handles clicks (0 left, 3 white), +0x24 observ
 close, and +0x30 returns an empty options vector through a hidden result pointer.
 These details remain behind the adapter; clients must not recreate the ABI or
 install global input hooks to use it.
+
+Two further forms serve [aux tracks](#aux-tracks). `open(title, labels, count,
+initial, callbacks, track)` lists the first `count` (1..N) labels and shows
+`track` under the title, as stock's own selectors pass theirs to the heading
+(the effect list passes its send's track). `detail::open_rows` opens rows the
+caller filled, each holding items, as a second column: it shows that column's
+controls (`8d5501ec(screen, 1)`, as stock's preset browser does), where knobs
+2..4 scroll and confirm. An optional `highlight(context, mode, id)` callback
+receives every highlight stock reports.
 
 The shared host fixture exercises two clients, input rejection, both stock
 click paths, cancellation, modal ownership and callback reentry. Native build
@@ -407,6 +423,177 @@ as audio does. Changing from a larger machine therefore keeps a valid name
 and icon until the user edits the destination.
 The [API guide](api.md#alternate-controls) describes saved-selector compatibility.
 
+### Track control
+
+Stock keeps each track's live parameters at `g_project + 0x4080` (`g_project`
+is the object at `86bd027c`), 58 words a track: the engine's eight controls,
+then stock's own track parameters. They are the values edits, parameter locks
+and sequencing set; the project saves separate base values. `8d5acea8(project,
+track, index, value)` writes one live value and publishes it to the audio side
+when it changed.
+
+`8c0baacc`, the GUI's per-tick update, calls the void function `8d580074` (which calls `8d5be290`) just
+before the sequencer tick. That call at `8c0baade` routes through
+`sdk_gui_tick` ([`track_control.cpp`](../sdk/platform/opxy-1.2.1/track_control.cpp)),
+which makes the original call first. After a project load or new project it
+gives machines their data (the [project hook](#project-companions) only records
+it, on the file task). Then it treats any live value that differs from the one
+it last wrote as stock's, and runs the [track control](api.md#track-control)
+machine holding each aux track ([aux tracks](#aux-tracks)), in track order,
+giving each every track's values without overlays. The lower-level runtime
+still runs instrument tracks' track control engines first (from `8d58781c`),
+but the build lets none be chosen there. It writes their overlays through
+`8d5acea8`, the later track's winning a parameter two overlay, and writes
+stock's last value back wherever no machine overlays any more, unless stock
+has written there since. Values written this
+way are live values only: the saved project keeps stock's base values. With no
+such synth on a track, the hook makes only the original call.
+
+The sequencer writes a step's parameter locks to the live values in
+`8d5936c0` (from `8d593a78`, for every track, and `8d593980`), plain or sliding
+toward the next lock, with three calls of `8d5acea8` (`8d5937b4`, `8d5938c2`,
+`8d59396a`). They route through `sdk_param_step_set`: on a parameter a machine
+overlays, the lock becomes stock's value beneath the overlay and the overlay is
+written instead, so the lock is never heard over it. Other parameters reach
+stock unchanged.
+
+Stock's controllers reach encoder edits through `8d5ad5bc`, which reads the
+base value at track data (`8d587708`) + `0x3864` and passes it to `8d5ad564`.
+Unless a step is held for a parameter lock, that calls the setter `8d5acf28`
+with the new value; the setter writes the live value, the base value for synth
+tracks, and publishes. The call at `8d5ad5ae` routes through
+`sdk_param_edit_set`, which always makes the original call. While a synth
+captures (one at a time), an edit of another instrument track's parameter is also recorded for
+the next tick, with the base value from before that parameter's first edit;
+when the capture ends, the SDK sets each of those base values back through
+`8d5acf28`. Lock edits and other setters (MIDI, presets, resets) are not
+captured.
+
+Every page shows a parameter's value through `8d5ac9dc(project, track, index,
+…)`. With a step held it shows that step's lock; otherwise it reads the live
+value while either play flag (`860c9b39`, `860c9b3a`) is set and the base value
+(`8d5ac910`) when not, adds the track's LFO amount when the LFO targets that
+index, and clamps at 0. A jump hook replaces its choice at `8d5aca48` with
+`sdk_param_shown(project, track, index, playing)`
+([`track_control_hooks.s`](../sdk/platform/opxy-1.2.1/track_control_hooks.s)),
+then resumes at `8d5aca8e` to add the LFO amount. An overlaid parameter shows
+its overlay, playing or not, except for 40 GUI ticks after an encoder edit of
+it (`sdk_param_edit_set`), when it shows the base value that edit changed;
+every other parameter shows as stock shows it. The host track's eight engine
+controls reach the synth through the same getter, so their LFO amounts are
+included.
+
+That LFO amount comes from stock's telemetry, a table of 31 words at `080376e4`,
+one table on each board. `8d4d666a(id, value)` sets a word and marks it changed,
+and the audio board sends changed words to the GUI's table (message `0xb4`,
+received at `8d5b1ad2`). Ids 0x16 and 0x17 are the LFO amount: one pair with no
+track in it, published only for the selected track (`11a045d2`, and again in
+`8d4d68b8`). The getter adds it to whichever track's parameter matches its slot,
+so a machine's LFO stops when another track is selected.
+
+For a machine on track 12, the aux evaluator's publish call at `8d50f422`
+(`sdk_lfo_aux_publish`) makes stock's call, then puts the track's own amount in
+id 25: `0xa` in the top four bits, the track in the next four, the slot in the
+next eight, and the amount's top 16 bits. `8d5aca48`'s stub then asks
+`sdk_lfo_held_amount`, which uses that amount for this track in place of the pair
+while the track's LFO is on (track data `+0x24`). No stock code writes or reads
+id 25. Ids 4..11 are the instrument tracks' meters, and 12..19 have no writer but
+are read as `selected + 4`, so they would show on aux pages. One word carries one
+track. Silent machines on instrument tracks are not covered: their LFO is
+evaluated only for the selected track (fallback pass, `8d5123e4`).
+
+Stock keeps mute per scene, in the scene records at the project's data (the
+word at `840a0524`) `+ 0x98`, 33 bytes a scene: each track's pattern, then each
+track's flags, in which `0x02` is muted, then one more byte. The current scene
+is the byte at `+ 6`. Aux + track key and the mixer both set it, and a new scene
+copies the current one's flags (measured on the device with a read-only memory
+probe). While a synth's track is muted in the current scene, the tick hook
+applies none of its overlays, capture or marks, and tells it (`Input.muted`).
+
+### Aux tracks
+
+One controller object serves the aux tracks (method table `0803fb6c`, object
+`08014db4`). The selected track is the byte at `840a0534`; its page tab, M1..M4
+as 0..3, is the word at `0801eae4`, which `8c08f74c(controller, tab)` sets. Its
+sites are in `8c0…`, out of relative-branch range of the module, so each hook
+there replaces eight bytes with an absolute call, and a stub
+([`aux_hooks.s`](../sdk/platform/opxy-1.2.1/aux_hooks.s)) either replays those
+bytes or leaves the stock method as its own epilogue would. No stock branch
+lands inside any of the eight bytes; the M1 handler's call at `8c08fd5a` is not
+usable for that reason (its branches share `8c08fd60`).
+
+| Site | Replaces | Does |
+| --- | --- | --- |
+| `8c08f6ec` | `UNLINK; R0 = 1; RTS`: Shift + M1 in the shifted-key method (+0x10, `8c08f6b0`), which ignores Shift + M1..M4 | Opens the chooser on track 12; on the sends, stock's effect list (`8c08f60c`) |
+| `8c08f610` | Just after the `LINK` of `8c08f60c(controller, track)`, Shift + track key, which acts on the sends only | Opens the preset list on track 12; otherwise replays the four instructions and returns into stock |
+| `8c08f540` | `P1 = 840a0534` in the page method (+0x2c, `8c08f53c`) | Returns the machine's page on every tab except its explicitly enabled shared M4 LFO |
+| `8d512214` | The audio loop's call of the CV output `8d50f1cc` (voltage from word 0, mode from word 14) | Skipped while a machine holds track 12; once, clears stock's held CV notes (`8d5b59a0`) and lowers the gate (`8d5b5f78(0)`) |
+| `8d50e95c` | Note on's call of the CV gate `8d5b5fe0` | Skipped while a machine holds track 12 |
+| `8d53d2a0` | `P2 = 84056d50` in the aux LFO's destination label `8d53d160(track, group, slot)`, for group 0: stock's fixed `param1`..`param4` | While a machine holds the track, returns its parameter's name from the engine record (`8d506c4c`), as tracks 1-8 show theirs; otherwise replays the load |
+
+A track holds a machine per pattern, as tracks 0–7 hold an engine: by its
+engine number in the pattern's engine word (`+0x18`), which `8d58781c` reads
+and `8d5877e4` sets, marking the project changed. Stock keeps 18 there on aux
+tracks, copies the word with a pattern and saves it; its readers on aux tracks
+only compare it with stock engines (MIDI 29, Drumline 4, the sample engines).
+Taking a pattern over keeps the role's eight controls aside, with the project
+in its [companion](projects.md#open-xycontrol)
+([`aux_tracks.cpp`](../sdk/platform/opxy-1.2.1/aux_tracks.cpp)). GUI and
+audio share no memory: while a machine holds track 12, the GUI writes the mark
+`0x4f584155` to its last live word (57), which stock never locks, through
+`8d5acea8`, which publishes it; the audio hooks read it from the audio side's
+copy of the track's words (`84eab39c + track × 0xe8`). The mark is never a
+stored value: the base setter (`8d5acf28`, then `8d587a20`) bounds no index,
+and stock re-publishes live values now and then (when the sequencer starts),
+so the audio side stays silent until the mark has been missing for 512 of its
+blocks. Giving the track back publishes `0x4f58524c` there instead for a few GUI
+ticks, which ends that hold at once; machines see the stored value of word 57,
+never either mark. Taking the track over keeps the role's eight controls aside and sets
+the machine's defaults through `8d5acf28`; giving it back restores them.
+
+A project load reaches the SDK from inside stock's read (`8d58913e`), before
+the loaded project is in use: touching a track there (`8d587708` and the
+setters above) fails stock's assertion `data.cpp:985` at boot. The restore only
+records the holder; the next GUI tick marks the track.
+
+A held aux track owns its input before stock's CV dispatch. The hook at
+`8c08fd30` covers 12 complete bytes after the unshifted key handler's prologue
+(`P2 = 50`, the parallel `R2 = R0; P1 = [P0]`, and `R7 = R0`). It consumes
+M1?M4 and machine-page encoder clicks. The hook at `8c08fa14` covers the
+complete eight-byte `P5 = 840a0534` load after the encoder handler's prologue.
+It sends machine-page turns directly to the SDK editor. Neither interval has
+an internal branch target. Both stubs preserve stock's input arguments and
+replay replaced instructions on fallback; handled paths unwind the original
+method's saved registers and frame. Only `sharedLfo: true` delegates M4's
+page and input to stock. The shared LFO retains the track's existing LFO settings.
+
+Capture originals include their pattern block, engine and last edited value.
+A current pattern restores through stock's setter; an inactive pattern restores
+only its stored word, without publishing into the playing pattern. Project
+load/new-project callbacks discard transient capture and overlay bookkeeping
+without dereferencing stock's project during deserialization.
+
+**Presets.** Stock's instrument preset browser is a folder browser: the
+factory's `content/presets/<category>/<name>.json` and the user's
+`/fat32/presets/<folder>/` (presets as `<name>.preset/patch.json`), each naming
+its engine in `type`. It lists any `.json` in the user's folders, so aux
+presets live apart: `content/aux_presets/<folder>/<name>.json` (installed) and
+`/fat32/aux_presets/<folder>/<name>.json` (the user's). The SDK lists them with
+stock's folder calls, as its preset scan (`8d56db50`) makes them:
+`8c0be54a(path)` opens a folder, `8c0be6a4(folder)` gives the next entry (its
+name inline at +0xb), `8c0be7b2(folder)` closes it. The list is the [stock
+browser](#stock-browser) with a second column: folders as rows, presets as
+their items. Stock's preset browser shows that column's controls with
+`8d5501ec(screen, 1)`; knobs 2..4 then scroll and press it. Moving onto a
+folder highlights its first preset.
+
+**MTP.** Stock's MTP allowlist is a table of 16 folder patterns, then file
+patterns (pointers at `os.ldr` offset `0x5c538`). Four text edits make room
+without losing a stock path: both sample folder depths share one folder
+pattern (`840ae32c`), freeing `840ae308` for `^/aux_presets/?[\w\- #-)]*$`; the
+`.aiff` and `.aifc` patterns of preset folders share one file pattern
+(`840aedfc`), freeing `840aee6c` for the user's aux preset files.
+
 ## Sample engines
 
 Stock's sampler, multisampler, drum and drumline engines are synth
@@ -576,19 +763,43 @@ A project holds its machine per pattern: track `t` (0–15) starts at
 `+ 0x53f40`, pattern `k` starts at track `+ k * 0x53f4`, and the pattern's
 machine number is the word at pattern `+ 0x18`, the one stock's track-engine
 getter reads. Instrument tracks 0–7 hold engine numbers there and send tracks
-14 and 15 effect numbers; tracks 8–13 hold none. Projects store no page number.
-The reader maps every pattern's number on tracks 0–7 through the companion's
-engines and on 14–15 through its effects, all at once, so two machines can
-trade numbers. A number the companion does not list, a stock machine's, stays.
+14 and 15 effect numbers. Stock keeps 18 on tracks 8–13; on the CV track (11) a
+pattern a machine [took over](#aux-tracks) holds its engine number. Projects
+store no page number. The reader maps every pattern's number on tracks 0–7 and
+11 through the companion's engines and on 14–15 through its effects, all at
+once, so two machines can trade numbers. A number the companion does not list,
+a stock machine's, stays.
 
 A listed machine this firmware lacks (absent, left out of a kit, or now the
 other kind) gets stock's own fallback written into every pattern: Prism (18)
-on an instrument track and no effect (0) on a send. No pattern is left with a
+on an instrument track, which on the CV track is stock's own value, so the
+pattern is CV again, and no effect (0) on a send. No pattern is left with a
 number stock would have to correct, and none can open the machine this
 firmware's layout gave the old number. A number two listed machines claim is
 treated the same way, and a machine listed twice counts once, by its last
 entry, as in `tooling/projects.py`. The firmware shows no notice for a missing
 machine yet.
+
+After those numbers, the same hook finds what track control machines kept: in
+builds with the control service (through `startup.cpp`), it reads the
+`open-xy.control` section from a companion whose binding matches. The hook runs
+on stock's background file task (`bg_file_bfm.cpp` queues the request at
+`0x8d4df754`, and its run method `0x8d4de07c` calls the load at `0x8d4de0ac`),
+so it only records the section. The next GUI tick ends the old project's capture
+and overlays, resets each unique machine and calls its `control_load` with its
+decoded entry, or 0 bytes without one. A failed read changes nothing. A file
+that reads but then fails stock's validation (`0x8d589024`, after the hook)
+leaves the old project open, but its machines already have the new file's data
+and their overlays and capture end without restoring: the old project keeps
+the values they had overlaid until something changes them.
+
+A new project reads no file. Stock clears the project through `0x8d588114`, or
+clears it at random through `0x8d588988`, called for a new project only at
+`0x8d572f70` and `0x8d572ff8` (the clear's other caller is the boot fallback, when
+no machine has kept anything yet). Both calls are hooked: unless a project is
+loading (the word at `0x840a0528`, which makes both clears do nothing), every
+unique track control machine is then reset on the next GUI tick, and one that keeps
+data gets 0 bytes from `control_load`.
 
 Stock's MTP view lists only paths matching a table of regular expressions
 (`0x840ae0c4`…), and under `/projects` only `.xy`. Three text edits rewrite

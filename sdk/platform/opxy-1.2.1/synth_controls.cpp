@@ -16,6 +16,8 @@ opxy::u32 sdk_synth_scramble(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__
 const char* sdk_fx_title(opxy::u32, opxy::u32) __asm__("sdk_fx_title");
 const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 }
+opxy::u32 (*sdk_aux_engine)(opxy::u32) = nullptr;
+bool (*sdk_aux_owns_page)(opxy::u32) = nullptr;
 
 namespace {
 using opxy::u32;
@@ -30,7 +32,10 @@ const u32 kInstrumentPage = 0x080238bc;
 // The auxiliary-track controller, which shows a send track's FX page: its
 // vtable, laid out as the instrument controller's (its turn handler at entry 6).
 const u32 kAuxController = 0x0803fb6c;
+const u32 kAuxTab = 0x0801eae4;  // the aux page shown: M1..M4 as 0..3
 const u32 kSendTracks = 14;  // send tracks 14 and 15
+const u32 kAllTracks = 16;
+u32 aux_engine(u32 track) { return sdk_aux_engine ? sdk_aux_engine(track) : 0; }
 // The controller on top of the GUI stack, which receives key events.
 u32 top_controller_vtable() { return *stock<const u32*()>(0x8c0944b0)(); }
 
@@ -43,16 +48,17 @@ const SynthControls* owned(u32 engine, bool effect = false) {
 }
 
 // The slot each position shows, per track, while the track keeps an owned
-// engine. Engine 0 is never a synth, so zeroed state starts on slots 0..3.
+// engine: an instrument track's, or the machine holding an aux track. Engine 0
+// is never a synth, so zeroed state starts on slots 0..3.
 struct Track { u32 engine; u8 slots[opxy::page_controls]; };
-Track tracks[kTracks];
+Track tracks[kAllTracks];
 // The same for the effects on the two send tracks, and whether an owned effect
 // newly on a send still has its controls 5..8 to store (sdk_send_refresh).
 Track sends[2];
 bool unstored[2];
 
 Track* state(u32 track, u32 engine) {
-    if (track >= kTracks) return nullptr;
+    if (track >= kAllTracks) return nullptr;
     Track& t = tracks[track];
     if (t.engine != engine) {
         t.engine = engine;
@@ -64,8 +70,9 @@ Track* state(u32 track, u32 engine) {
 // The owned machine on the track and its state, or null. Any other engine
 // clears the track's selection.
 const SynthControls* machine(u32 track, Track*& t) {
-    if (track >= kTracks) return nullptr;
-    const u32 engine = track_engine(track);
+    if (track >= kAllTracks) return nullptr;
+    const u32 engine = track < kTracks ? track_engine(track) : aux_engine(track);
+    if (track >= kTracks && !engine) return nullptr;
     const SynthControls* m = owned(engine);
     t = state(track, m ? engine : 0);
     return m;
@@ -74,10 +81,12 @@ const SynthControls* machine(u32 track, Track*& t) {
 // The owned synth on instrument track 0..7, or null.
 const SynthControls* synth(u32 track) { return track < kTracks ? owned(track_engine(track)) : nullptr; }
 
-// The owned synth on instrument track 0..7, or the owned effect on send track
-// 14 or 15: the machines whose parameters stock edits by slot.
+// The owned synth on instrument track 0..7 or holding an aux track, or the
+// owned effect on send track 14 or 15: the machines whose parameters stock
+// edits by slot.
 const SynthControls* editor(u32 track) {
     if (track < kTracks) return synth(track);
+    if (const u32 engine = aux_engine(track)) return owned(engine);
     return track == 14 || track == 15 ? owned(track_engine(track), true) : nullptr;
 }
 
@@ -122,13 +131,16 @@ void sdk_synth_shown(u32 track, u8* slots) {
 // Reads only the selection the screen shell refreshed for this frame.
 u32 sdk_synth_title_slot(u32 engine, u32 index) {
     const u32 track = byte(kSelectedTrack);
-    if (track >= kTracks || index >= opxy::page_controls || !engine || tracks[track].engine != engine) return index;
+    if (track >= kAllTracks || index >= opxy::page_controls || !engine || tracks[track].engine != engine) return index;
     return tracks[track].slots[index];
 }
 
 // 8d5466f6: only the engine screen's four titles follow alternate selection.
 // The record callback itself keeps real slot names for modulation destinations.
+// Stock asks for the selected track's engine, which on an aux track a machine
+// holds is the machine's.
 const char* sdk_synth_title(u32 engine, u32 index) {
+    if (const u32 held = aux_engine(byte(kSelectedTrack))) engine = held;
     return stock<const char*(u32, u32)>(0x8d506c4c)(engine, sdk_synth_title_slot(engine, index));
 }
 
@@ -144,6 +156,14 @@ void sdk_synth_press(u32 encoder) {
     if (encoder >= opxy::page_controls) return;
     const u32 controller = top_controller_vtable();
     if (controller == kInstrumentController && word(kInstrumentPage) == 0 && (m = machine(byte(kSelectedTrack), t))) {
+        for (u32 i = 0; i < opxy::page_controls; ++i) {
+            if (i != encoder && !m->page) continue;
+            const u32 next = m->next[t->slots[i]];
+            if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
+        }
+    } else if (controller == kAuxController && sdk_aux_owns_page && sdk_aux_owns_page(byte(kSelectedTrack)) &&
+               (m = machine(byte(kSelectedTrack), t))) {
+        // The page of a machine holding an aux track, as on an instrument track.
         for (u32 i = 0; i < opxy::page_controls; ++i) {
             if (i != encoder && !m->page) continue;
             const u32 next = m->next[t->slots[i]];
@@ -212,10 +232,12 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
 
 // 8c08fade: auxiliary-track page, including send FX tracks 14/15. Its controller
 // folds Shift into the same 0..3 positions before this call, unlike instruments.
-// Ownership is checked against the FX registry, not the synth registry.
+// Ownership is checked against the FX registry, not the synth registry, except
+// for a machine holding an aux track, whose page (tab 0) edits it as a synth.
 u32 sdk_effect_turn(u32 project, u32 track, u32 index, u32 event) {
     Track* t;
-    const SynthControls* m = index < opxy::page_controls ? send_effect(track, t) : nullptr;
+    const SynthControls* m = nullptr;
+    if (index < opxy::page_controls) m = aux_engine(track) ? machine(track, t) : send_effect(track, t);
     // With Shift, an effect's shift row: one choice per detent, packed into
     // the send track's shift-row word through stock's set.
     if (m && m->shift && shift_held()) {

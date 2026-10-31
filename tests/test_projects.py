@@ -12,8 +12,8 @@ from tooling import native
 from tooling.adapters import generate_project_companion_table
 from tooling.pipeline import ROOT, config
 from machine_fixtures import NAMES, fixture
-from tooling.projects import (FALLBACK, LIMIT, MACHINE_LIMIT, MACHINES, binding, canonical, companion, companion_path, main, parse,
-                              saved_numbers, translation)
+from tooling.projects import (FALLBACK, LIMIT, MACHINE_LIMIT, MACHINES, aux_kept, binding, canonical, companion,
+                              companion_path, kept_data, main, parse, saved_numbers, translation)
 
 PROJECT = bytes(range(256)) * 4
 SAVED = {'karplus': {'engine': 36, 'page': 84}, 'pingpong': {'effect': 40, 'page': 21},
@@ -98,9 +98,12 @@ def host_writer(folder, fixture='project_companion.cpp'):
     platform = ROOT / 'sdk/platform/opxy-1.2.1'
     stock = (platform / 'stock.hpp').read_text(encoding='utf-8')
     stock = stock.replace('typedef __UINTPTR_TYPE__ Address;', 'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
-    stock = stock.replace('reinterpret_cast<T*>(address)', 'reinterpret_cast<T*>(host_stock_address(address))')
+    for pointer in ('T*', 'const volatile u32*'):
+        stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                              'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
     (folder / 'stock.hpp').write_text(stock, encoding='utf-8')
-    (folder / 'project_companion.cpp').write_bytes((platform / 'project_companion.cpp').read_bytes())
+    for name in ('project_companion.cpp', 'track_control_project.cpp', 'project_files.hpp'):
+        (folder / name).write_bytes((platform / name).read_bytes())
     binary = folder / (Path(fixture).stem + ('.exe' if os.name == 'nt' else ''))
     result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(folder),
                              '-I' + str(ROOT / 'sdk/include'), '-I' + str(platform),
@@ -122,8 +125,67 @@ class FirmwareWriter(unittest.TestCase):
             folder = Path(directory)
             writer, project = host_writer(folder), folder / 'song.xy'
             self.assertEqual(subprocess.run([str(writer), str(project), '1'], timeout=30).returncode, 0)
-            # The fixture's table: what its numbers mean, a kit machine left out omitted.
-            self.assertEqual((folder / 'song.oxy').read_bytes(), companion(project.read_bytes(), SAVED))
+            # The fixture's table: what its numbers mean, a kit machine left out omitted, and
+            # what its track control machine keeps.
+            self.assertEqual((folder / 'song.oxy').read_bytes(),
+                             companion(project.read_bytes(), SAVED, kept={'morph': b'stat\xff'}))
+
+    def test_track_control_keeps_its_bytes_with_the_project(self):
+        with tempfile.TemporaryDirectory(prefix='companion-') as directory:
+            folder = Path(directory)
+            writer, project = host_writer(folder), folder / 'song.xy'
+            run = lambda *args: subprocess.run([str(writer), str(project), *args], capture_output=True, text=True,
+                                               timeout=30)
+            # Without a companion, a load gives the machine nothing.
+            project.write_bytes(b'xy')
+            self.assertEqual(run('1', 'read').stdout, '/0\n')
+            self.assertEqual(run('1').returncode, 0)
+            raw = (folder / 'song.oxy').read_bytes()
+            self.assertEqual(raw, companion(project.read_bytes(), SAVED, kept={'morph': b'stat\xff'}))
+            self.assertEqual(kept_data(parse(raw), project.read_bytes()), {'morph': b'stat\xff'})
+            self.assertEqual(run('1', 'read').stdout, '73746174ff/5\n')
+            # A new project, clean or random, gives the machine nothing; nor does a new
+            # project stock refuses while one is loading, which leaves the machine alone.
+            self.assertEqual(run('1', 'clear').stdout, '/0\n')
+            self.assertEqual(run('1', 'random').stdout, '/0\n')
+            self.assertEqual(run('1', 'busy').stdout, 'none\n')
+            # Any writer's spacing reads the same; a failed load gives nothing either way.
+            (folder / 'song.oxy').write_bytes(json.dumps(json.loads(raw)).encode())
+            self.assertEqual(run('1', 'read').stdout, '73746174ff/5\n')
+            self.assertEqual(run('0', 'read').stdout, 'none\n')
+            # A project saved since, or a section version this firmware does not know, gives nothing.
+            project.write_bytes(project.read_bytes() + b'!')
+            self.assertEqual(run('1', 'read').stdout, '/0\n')
+            document = json.loads(raw)
+            document['sections']['open-xy.control']['version'] = 2
+            project.write_bytes(project.read_bytes()[:-1])
+            (folder / 'song.oxy').write_bytes(json.dumps(document).encode())
+            self.assertEqual(run('1', 'read').stdout, '/0\n')
+
+    def test_the_role_controls_of_aux_patterns_a_machine_holds_are_kept_with_the_project(self):
+        with tempfile.TemporaryDirectory(prefix='companion-') as directory:
+            folder = Path(directory)
+            writer, project = host_writer(folder), folder / 'song.xy'
+            held = dict(os.environ, HOLD='1')
+            run = lambda *args, env=None: subprocess.run([str(writer), str(project), *args], capture_output=True,
+                                                         text=True, timeout=30, env=env)
+            self.assertEqual(run('1', env=held).returncode, 0)
+            raw = (folder / 'song.oxy').read_bytes()
+            kept = {11: {0: [1, 2, 3, -4, 0x7fffffff, 6, 7, 8], 10: [9, 0, 0, 0, 0, 0, 0, -1]}}
+            # The reference writer's bytes: aux patterns sort as strings, before what machines keep.
+            self.assertEqual(raw, companion(project.read_bytes(), SAVED, kept={'morph': b'stat\xff'}, aux=kept))
+            self.assertEqual(aux_kept(parse(raw), project.read_bytes()), kept)
+            # Loading gives back each pattern's role controls, after what the machine
+            # kept; with no pattern held, nothing is restored.
+            self.assertEqual(run('1', 'read').stdout, 'aux 11 0 1 2 3 -4 2147483647 6 7 8\n'
+                                                      'aux 11 10 9 0 0 0 0 0 0 -1\n73746174ff/5\n')
+            self.assertEqual(run('1').returncode, 0)
+            self.assertEqual(run('1', 'read').stdout, '73746174ff/5\n')
+            self.assertEqual(aux_kept(parse((folder / 'song.oxy').read_bytes()), project.read_bytes()), {})
+            # A build without the aux service keeps no aux track, and loading restores none.
+            noaux = dict(os.environ, HOLD='1', NOAUX='1')
+            self.assertEqual(run('1', env=noaux).returncode, 0)
+            self.assertEqual(aux_kept(parse((folder / 'song.oxy').read_bytes()), project.read_bytes()), {})
 
     def test_a_companion_larger_than_the_write_buffer_is_written_whole(self):
         # 220 machines numbered past the stock imm7 bound: the writer streams through its
@@ -143,7 +205,8 @@ class FirmwareWriter(unittest.TestCase):
             self.assertEqual(subprocess.run([str(writer), str(project), '1'], timeout=30).returncode, 0)
             written = (folder / 'song.oxy').read_bytes()
             self.assertGreater(len(written), 8 * 1024)  # several writer buffers
-            self.assertEqual(written, companion(project.read_bytes(), layout))
+            # With what the fixture's track control machine keeps, written between them.
+            self.assertEqual(written, companion(project.read_bytes(), layout, kept={'morph': b'stat\xff'}))
 
     def test_a_failed_save_or_other_name_writes_nothing(self):
         with tempfile.TemporaryDirectory(prefix='companion-') as directory:
@@ -156,12 +219,26 @@ class FirmwareWriter(unittest.TestCase):
     def test_every_save_reaches_the_writer_through_one_reviewed_call(self):
         hooks = [p for p in config()['patches'] if p.get('symbol') == 'sdk_project_save']
         self.assertEqual([(p['address'], p['before'], p['call']) for p in hooks], [('0x8d585eda', '00e3cd98', True)])
-        self.assertIn('project_companion', native.SDK_UNITS)
-        self.assertIn('project_companion_table', native.SDK_UNITS)
+
+    def test_track_control_loads_through_the_companions_load_hook(self):
+        # Track control has no hook of its own there: startup routes the companion's
+        # load hook (sdk_project_load) to it in builds with the control service.
+        self.assertFalse([p for p in config()['patches'] if p.get('symbol') == 'sdk_project_read'])
+        self.assertIn('track_control_project', native.SDK_UNITS)
+        self.assertEqual(native.UNIT_SERVICES['track_control_project'], 'control')
+
+    def test_a_new_project_reaches_the_reader_through_two_reviewed_calls(self):
+        # A new project reads no file: CALL 0x8d588114 (clear) in 8d572f6c and CALL
+        # 0x8d588988 (clear at random) in 8d572ff4, their only callers but the boot
+        # fallback, which starts with every machine empty anyway.
+        hooks = [(p['address'], p['before'], p['symbol'], p['call'], p.get('service')) for p in config()['patches']
+                 if p.get('symbol') in ('sdk_project_clear', 'sdk_project_clear_random')]
+        self.assertEqual(hooks, [('0x8d572f70', '00e3d2a8', 'sdk_project_clear', True, 'control'),
+                                 ('0x8d572ff8', '00e3c8ac', 'sdk_project_clear_random', True, 'control')])
 
     def test_mtp_shows_companions_beside_projects(self):
         import re
-        edits = [p for p in config()['patches'] if p['kind'] == 'text']
+        edits = [p for p in config()['patches'] if p['kind'] == 'text' and 'service' not in p]
         self.assertEqual(len(edits), 3)
         for edit in edits:
             before = bytes.fromhex(edit['before']).rstrip(b'\0').decode()
@@ -185,9 +262,10 @@ class FirmwareWriter(unittest.TestCase):
 HERE = {'fm2op': {'engine': 35, 'page': 60}, 'karplus': {'engine': 41, 'page': 90},
         'macroosc': {'engine': 36, 'page': 61}, 'pingpong': {'effect': 40, 'page': 21},
         'ringmod': {'effect': 36, 'page': 21}}
-# Saved patterns by track: instrument tracks 0-7 hold engines, sends 14 and 15 effects,
-# tracks 8-13 no machine. 36 is karplus's old engine and ringmod's effect here.
-TRACKS = {0: [36, 35, 18, 41, 50], 7: [36], 9: [36, 35], 14: [40, 36, 5], 15: [36]}
+# Saved patterns by track: instrument tracks 0-7 and the CV track 11 hold engines, sends
+# 14 and 15 effects, the other aux tracks no machine. 36 is karplus's old engine and
+# ringmod's effect here.
+TRACKS = {0: [36, 35, 18, 41, 50], 7: [36], 9: [36, 35], 11: [36, 18], 14: [40, 36, 5], 15: [36]}
 PRISM, NO_EFFECT = FALLBACK['engine'], FALLBACK['effect']
 
 
@@ -201,8 +279,8 @@ def reference(raw, data, tracks):
     if saved is None:
         return tracks
     table = translation(saved, HERE)
-    slot = lambda track: 'engine' if track < 8 else 'effect'
-    return {t: [n if 8 <= t < 14 or (slot(t), n) not in table else
+    slot = lambda track: 'engine' if track < 14 else 'effect'
+    return {t: [n if (8 <= t < 14 and t != 11) or (slot(t), n) not in table else
                 FALLBACK[slot(t)] if table[(slot(t), n)] is None else table[(slot(t), n)] for n in numbers]
             for t, numbers in tracks.items()}
 
@@ -259,7 +337,8 @@ class FirmwareReader(unittest.TestCase):
         self.check(companion(PROJECT, SAVED), {
             0: [41, PRISM, 18, 41, 50],       # karplus renumbered; timestretch missing, its 35 now fm2op's
             7: [41],                            # every instrument track
-            9: [36, 35],                        # tracks 8-13 hold no machine
+            9: [36, 35],                        # the other aux tracks hold no machine
+            11: [41, 18],                       # the CV track: a machine per pattern, or CV (18)
             14: [40, 36, 5],                    # pingpong kept; effect 36 is not karplus's engine 36
             15: [36]})
 

@@ -104,8 +104,8 @@
      "layout": {"held254": {"engine": 254, "page": 120}, "held255": {"engine": 255, "page": 121}},
      "machines": [["choir12", "synth", {"engine": null, "page": null}]],
      "numbers": {"held254": {"engine": 254, "page": 120}, "held255": {"engine": 255, "page": 121}, "choir12": {"engine": 36, "page": 213}}},
-    {"name": "a number a machine asks for goes before any machine's preferred place",
+    {"name": "a number a machine asks for goes before any machine's preferred place; the last page is never given (track control's marks)",
      "machines": [["pluck", "synth", {"engine": null, "page": null}], ["zzz", "synth", {"engine": 68, "page": 254}]],
-     "numbers": {"pluck": {"engine": 69, "page": 255}, "zzz": {"engine": 68, "page": 254}}}
+     "numbers": {"pluck": {"engine": 69, "page": 84}, "zzz": {"engine": 68, "page": 254}}}
   ]
 }
