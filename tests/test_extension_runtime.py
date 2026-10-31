@@ -59,6 +59,9 @@ class Runtime(unittest.TestCase):
     def test_extension_observers_order_and_write_ownership(self):
         self.run_fixture('extension_runtime')
 
+    def test_palette_composes_loaded_svg_colours_and_reapplies_from_source(self):
+        self.run_fixture('extension_palette')
+
     def test_generated_registry_omits_disabled_extensions_and_preserves_order(self):
         from tooling.extensions import Extension, generate_collection
         def prepare(folder):
@@ -78,6 +81,8 @@ class Runtime(unittest.TestCase):
                 stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                       'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
             (folder / 'stock.hpp').write_text(stock)
+            for name in ('stock_browser.hpp', 'stock_browser.cpp'):
+                (folder / name).write_text((PLATFORM / name).read_text())
             (folder / 'extension_stock.cpp').write_text((PLATFORM / 'extension_stock.cpp').read_text().replace(
                 '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
             probe = extension_at(PROBE)

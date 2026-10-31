@@ -1,0 +1,50 @@
+// Stock 1.2.1 adapter for the extension palette surface. The relocated screen
+// table supplies only page objects; this validates a loaded document's vectors
+// before exposing its RGBA cells to the generic runtime.
+#include "../extension_palette.hpp"
+#include "screen.hpp"
+
+namespace opxy { namespace platform {
+namespace {
+using namespace opxy::screen;
+const u32 kScreenSlots = @SCREEN_SLOTS@, kScreenCount = @PAGE_LIMIT@;
+const u32 kMaxPaletteEntries = 256;
+struct Stroke { extensions::Color color; u32 rest[4]; };
+static_assert(sizeof(extensions::Color) == 4 && sizeof(Stroke) == 20, "Stock SVG colour records");
+
+// Stock's live GUI allocation may sit in either lower RAM (0x84/0x86) or
+// the mapped application arena (0x8c/0x8d). The earlier 0x88 ceiling silently
+// excluded the latter, so every otherwise-valid loaded document was skipped.
+bool ram(u32 address) { return address >= 0x80000000u && address < 0x90000000u; }
+bool range(const Vector& vector, u32 stride, PaletteRange& out) {
+    out = {};
+    if (!vector.begin && !vector.end && !vector.capacity) return true;
+    if (!vector.begin || vector.begin & 3u || vector.end < vector.begin || vector.capacity < vector.end ||
+        !ram(vector.begin) || !ram(vector.end - 1) || !ram(vector.capacity - 1)) return false;
+    const u32 bytes = vector.end - vector.begin;
+    if (bytes % stride || bytes / stride > kMaxPaletteEntries) return false;
+    out = {reinterpret_cast<extensions::Color*>(vector.begin), bytes / stride, stride};
+    return true;
+}
+}
+
+u32 extension_palette_documents(PaletteDocument* out, u32 capacity) {
+    if (!out || !capacity) return 0;
+    const Base* const* slots = reinterpret_cast<const Base* const*>(kScreenSlots);
+    u32 count = 0;
+    for (u32 page = 0; page < kScreenCount && count < capacity; ++page) {
+        const Base* screen = slots[page];
+        if (!screen || !ram(reinterpret_cast<Address>(screen))) continue;
+        const Document* raw = screen->svg;
+        if (!raw || !ram(reinterpret_cast<Address>(raw))) continue;
+        bool duplicate = false;
+        for (u32 prior = 0; prior < count; ++prior) duplicate = duplicate || out[prior].identity == raw;
+        if (duplicate) continue;
+        PaletteDocument document = {raw, {}, {}};
+        if (!range(raw->fills, sizeof(extensions::Color), document.fills) ||
+            !range(raw->strokes, sizeof(Stroke), document.strokes)) continue;
+        if (document.fills.count || document.strokes.count) out[count++] = document;
+    }
+    return count;
+}
+}}
