@@ -127,6 +127,43 @@ class Identity(unittest.TestCase):
                                lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
             self.assertIsNone(fixture('probefx').dry_parameter)
 
+    def test_dry_level_fixes_the_source_dry_instead(self):
+        real = Path.read_text
+        path = FOLDER / 'probefx/machine.json'
+        plain = {k: v for k, v in json.loads(real(path)).items() if k not in ('dryParameter', 'identity')}
+        cases = ((dict(plain, sdk='1.7', dryLevel=0), 0), (dict(plain, sdk='1.7', dryLevel=0.5), 0x40000000),
+                 (dict(plain, sdk='1.7', dryLevel=1.5), 'dryLevel'), (dict(plain, sdk='1.7', dryLevel='0'), 'dryLevel'),
+                 (dict(plain, sdk='1.7', dryLevel=0, dryParameter='dry'), 'dryLevel'),
+                 (dict(plain, sdk='1.6', dryLevel=0), '"sdk": "1.7"'))
+        for value, expected in cases:
+            with self.subTest(value=value), mock.patch.object(
+                    Path, 'read_text', lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
+                if isinstance(expected, str):
+                    with self.assertRaisesRegex(ValueError, expected):
+                        fixture('probefx')
+                else:
+                    self.assertEqual(fixture('probefx').dry_level, expected)
+
+    def test_more_than_sixteen_text_slots_need_sdk_1_7(self):
+        real = Path.read_text
+        root = FOLDER / 'probesynth'
+        plain = {k: v for k, v in json.loads(real(root / 'machine.json')).items() if k != 'identity'}
+        definition = json.loads(real(root / 'definition.json'))
+        for version, texts, expected in (('1.6', 16, None), ('1.6', 17, '"sdk": "1.7"'), ('1.7', 32, None),
+                                         ('1.7', 33, 'Display texts must be 0..32')):
+            files = {'machine.json': json.dumps(dict(plain, sdk=version)),
+                     'definition.json': json.dumps(dict(definition, resources=dict(definition['resources'], display=dict(
+                         definition['resources']['display'], texts=texts))))}
+            with self.subTest(version=version, texts=texts), mock.patch.object(
+                    Path, 'read_text',
+                    lambda self, *a, **k: files[self.name] if self.parent == root and self.name in files
+                    else real(self, *a, **k)):
+                if expected:
+                    with self.assertRaisesRegex(ValueError, expected):
+                        machines.machine_at(root)
+                else:
+                    self.assertEqual(machines.machine_at(root).id, 'probesynth')
+
 
 class OutsideMachines(unittest.TestCase):
     """A machine in a folder of its own, such as its own repository."""

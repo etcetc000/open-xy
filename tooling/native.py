@@ -184,7 +184,7 @@ def plan(machines, profile=None):
         if m.kind == 'synth':
             steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration')
         elif m.kind == 'effect':
-            steps = ('registration', 'fx_object')
+            steps = ('registration', 'fx_object', *(('display', 'screen') if m.display != 'stock' else ()))
         else:
             steps = ('registration', 'sample_voice')
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
@@ -273,6 +273,8 @@ def absent_symbols(m):
     startup skips it and its menu name is left to stock."""
     if m.kind == 'effect':
         absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_fx_register', '_ready')}
+        if m.display != 'stock':
+            absent[m.prefix + '_screen_register'] = 'kit_absent'
     else:
         absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_register', '_name_matches', '_ready', '_record_ready')}
         if m.display == 'stock':
@@ -393,7 +395,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines])), obj)
+                                                [x.prefix for x in sample_engines],
+                                                [x.prefix for x in effects if x.display != 'stock'])), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
