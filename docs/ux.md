@@ -75,6 +75,65 @@ is the reference for each of them.
 - **Grey is inactive, bright is active**: the page row, unlit segments, a dial
   not being edited.
 
+## Color design guidance
+
+These are optional suggestions for authors who want colorful machines. Adapt
+the palette and visual identity to the user's intent. Palette size, visual
+metaphors and contrast targets here are design advice, with no new validation
+or catalog acceptance criteria. The control conventions above and the
+[SVG contract](display.md#artwork) still apply.
+
+The [OP-1 reference](https://teenage.engineering/guides/op-1/original/reference)
+offers examples of distinctive engine visuals with recurring control colors.
+Its [layout guide](https://teenage.engineering/guides/op-1/original/layout)
+connects colored graphics to the corresponding encoders. For OP-XY, consider
+that relationship between controls and artwork while retaining its grayscale
+encoders, established header and positional conventions.
+
+- **Give color a role.** A starting palette of two to four accent hues often
+  works well for oscillators, parameter groups or signal paths. More colors
+  can be useful when they convey additional information. Consider sketching a
+  small role table: role, color, intended gray tone and another identifying cue.
+- **Keep roles consistent.** The same oscillator or parameter group can keep
+  its hue across pages, presets and animation states. Names and placement help
+  connect the graphic to its encoder. Brightness, outlines or markers can show
+  activity and selection while preserving the role's identity; follow the
+  existing [motion conventions](#motion).
+- **Keep the frame quiet.** Consider pure black backgrounds, neutral readable
+  labels and subdued guides, with accents concentrated on meaningful graphics.
+  This also keeps decorative tints from consuming the automatic converter's
+  hue-separation budget. Preserve existing black backgrounds when designing a
+  grayscale counterpart.
+- **Choose a useful visual metaphor.** Connected nodes can explain routing,
+  curves can explain waveform shaping, and boundaries can explain sample
+  regions. Original artwork can give each machine its own character while
+  helping the musician understand what changes when a control moves.
+- **Plan grayscale alongside color.** Aim to preserve distinctions carried by
+  hue before matching the source's brightness. Different hues with similar
+  luminance may need deliberately different gray tones. Labels, shapes,
+  spatial groups and outlines can reinforce those distinctions. A black gap
+  around a selection outline can keep it visible beside bright fills.
+- **Budget tones for the complete palette.** Count distinct hues and meaningful
+  shades throughout the SVG and every animation palette, including off-screen
+  donors; repeated colors and aliases do not need extra tones. With few roles,
+  consider widely separated grays across the usable range. Reserve within-role
+  shading for information it actually conveys. Dense palettes may benefit from
+  fewer redundant shades or additional labels and shapes.
+- **Review the rendered result.** Compare color and grayscale at the native
+  480 × 220 size, including control extremes, notes and releases, page changes,
+  selection and reduced motion. Check the closest tones against one another
+  and their actual neighboring backgrounds. Useful review targets are at least
+  [4.5:1 for small text](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)
+  and [3:1 for essential graphical marks](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html).
+  These are practical targets borrowed from web accessibility guidance; visual
+  review on the device remains useful, especially for thin strokes and small
+  labels.
+- **Review again when the palette changes.** Adding a color or animation donor
+  can change the automatic tonal allocation. Consider offering a
+  [developer-authored grayscale SVG](display.md#grayscale-artwork) when more
+  control is useful. Review that version when supplied, or the automatic
+  fallback otherwise, while keeping the same sound and controls in both modes.
+
 ## Saved sounds
 
 Projects and presets store all eight parameter slots, and older sounds can

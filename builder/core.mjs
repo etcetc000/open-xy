@@ -1,3 +1,7 @@
+import * as Graphics from '../sdk/browser/graphics.mjs';
+export const artworkForGraphics = Graphics.artworkForGraphics;
+export const selectArtwork = Graphics.selectArtwork;
+
 // Browser-only linker and container writer for a maintainer-curated kit.
 // No compiler, device access, network requests, or arbitrary address input.
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
@@ -350,6 +354,7 @@ export async function openKit(kit) {
   check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
+  for (const machine of kit.machines) if (Object.hasOwn(machine, 'grayscaleArtwork')) selectArtwork(machine, 'colorful');
   const extensions = kit.extensions ?? [];
   check(Array.isArray(extensions) && extensions.length <= 16, 'Invalid extension collection');
   check(!kit.objects.some(o => o.name === 'sdk/extension_collection.o') || Array.isArray(kit.extensions),
@@ -759,7 +764,18 @@ function defaultPreset(machine) {
   };
 }
 
-export async function buildAssets(kit, selection, catalog, numbers) {
+export function graphicsForMachine(machine, {graphics = 'colorful', graphicsOverrides = {}} = {}) {
+  const mode = machine.artwork && Object.hasOwn(graphicsOverrides, machine.id) ? graphicsOverrides[machine.id] : graphics;
+  check(['colorful', 'grayscale'].includes(mode), 'Invalid machine graphics setting');
+  return machine.artwork ? mode : 'colorful';
+}
+
+export async function buildAssets(kit, selection, catalog, numbers, {graphics = 'colorful', graphicsOverrides = {}} = {}) {
+  check(['colorful', 'grayscale'].includes(graphics), 'Invalid machine graphics setting');
+  check(graphicsOverrides && typeof graphicsOverrides === 'object' && !Array.isArray(graphicsOverrides), 'Invalid machine graphics overrides');
+  for (const [id, mode] of Object.entries(graphicsOverrides))
+    check(kit.machines.some(machine => machine.id === id && machine.artwork) && ['colorful', 'grayscale'].includes(mode),
+      'Invalid graphics override: ' + id);
   check(await sha256(catalog) === kit.profile.stock_catalog_sha256, 'The site’s machine data is damaged. Reload this page.');
   const machines = kit.machines.filter(m => selection.includes(m.id));
   // Each machine's entry ends its stock list; the offsets are bound to the
@@ -785,7 +801,13 @@ export async function buildAssets(kit, selection, catalog, numbers) {
     check(baseSvg.split('</svg>').length === 2, 'Unexpected stock artwork boundary');
     for (const m of machines.filter(m => m.artwork)) {
       check(/^[a-z][a-z0-9_]*\.svg$/.test(m.asset), 'Invalid artwork filename');
-      files['content/display/' + m.asset] = utf8.encode(baseSvg.replace('</svg>', m.artwork + '</svg>'));
+      try {
+        const fragment = selectArtwork(m, graphicsForMachine(m, {graphics, graphicsOverrides}));
+        const artwork = baseSvg.replace('</svg>', fragment + '</svg>');
+        files['content/display/' + m.asset] = utf8.encode(artwork);
+      } catch (error) {
+        throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');
+      }
     }
   }
   return files;

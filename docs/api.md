@@ -539,6 +539,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
+| `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
 
 An effect's optional `dryParameter` field names the control used by the stock
 source dry mixer, as described under [effects](#effects).

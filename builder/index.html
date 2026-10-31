@@ -95,15 +95,28 @@
     <div class="page-header"><div><span class="eyebrow">Step 2 of 4 · Choose machines</span><h1 id="machines-title" tabindex="-1">Choose machines</h1><p>Select the instruments and effects to install.</p></div><span id="selection-count" class="counter">0 selected</span></div>
     <div class="workspace">
       <div><div class="filters" role="group" aria-label="Filter machines"><button data-filter="all" aria-pressed="true">All</button><button data-filter="synth" aria-pressed="false">Synths</button><button data-filter="effect" aria-pressed="false">Effects</button><button data-filter="sample" aria-pressed="false">Samplers</button></div><div id="machines" class="machine-list"></div><div id="machine-capacity-host"><section id="selection-capacity" class="capacity" aria-label="Memory"><div class="capacity-heading"><h2>Memory usage</h2><strong id="room-value">Choose a machine</strong></div><div class="memory-bar" tabindex="0" aria-describedby="memory-breakdown"><div id="memory-map" class="memory-map" role="img" aria-label="Memory used by each machine"></div><div id="memory-breakdown" class="memory-breakdown" role="tooltip"><div id="memory-legend" class="memory-legend"></div><dl id="capacity-details" class="machine-facts"></dl><p id="capacity-foot" class="capacity-foot">CPU load is not measured</p></div></div></section></div></div>
-      <aside class="inspector" aria-label="Machine details"><div class="summary-space"><div id="machine-summary"><div class="inspector-top"><span id="detail-kind" class="eyebrow detail-kind">Synth</span><span class="tag">Experimental</span></div><h2 id="detail-name" class="detail-name"></h2><p id="detail-description" class="detail-description"></p><p id="detail-source" class="detail-source"></p><p id="community-notice" class="community-notice" hidden>Community machines aren’t officially supported by the Open-XY SDK. Use at your own risk; instability or unexpected audio may occur.</p></div></div><div class="preview-space"><div id="art-preview" class="art-preview"></div></div><p id="art-caption" class="caption"></p><div id="controls" class="controls"></div><div id="audition-controls" class="audition-controls" aria-label="Sound preview"></div><details><summary>Machine details</summary><dl class="machine-facts" id="machine-facts"></dl></details></aside>
+      <aside class="inspector" aria-label="Machine details"><div class="summary-space"><div id="machine-summary"><div class="inspector-top"><span id="detail-kind" class="eyebrow detail-kind">Synth</span><span class="tag">Experimental</span></div><h2 id="detail-name" class="detail-name"></h2><p id="detail-description" class="detail-description"></p><p id="detail-source" class="detail-source"></p><p id="community-notice" class="community-notice" hidden>Community machines aren’t officially supported by the Open-XY SDK. Use at your own risk; instability or unexpected audio may occur.</p></div></div><div class="preview-space"><div id="art-preview" class="art-preview"></div></div><p id="art-caption" class="caption"></p>
+        <details id="preview-controls-panel" class="preview-options">
+          <summary>Preview controls</summary>
+          <div class="preview-options-body"><div id="controls" class="controls"></div><div id="audition-controls" class="audition-controls" aria-label="Sound preview"></div></div>
+        </details>
+        <details><summary>Machine details</summary><dl class="machine-facts" id="machine-facts"></dl></details>
+      </aside>
     </div>
 
     <div class="actions"><button data-step="1" class="secondary">← OS</button><button id="choose-extensions" class="primary" disabled>Choose extensions <span aria-hidden="true">→</span></button></div>
   </section>
   <section data-page="3" hidden aria-labelledby="extensions-title">
-    <div class="page-header"><div><span class="eyebrow">Step 3 of 4 · Extensions</span><h1 id="extensions-title" tabindex="-1">Choose extensions</h1><p>Add optional features to how your OP–XY works. Leave them off to keep your current workflow.</p></div><span id="extension-count" class="counter">None selected</span></div>
+    <div class="page-header"><div><span class="eyebrow">Step 3 of 4 · Extensions</span><h1 id="extensions-title" tabindex="-1">Choose extensions</h1><p>Choose optional changes to your OP–XY’s look and workflow.</p></div><span id="extension-count" class="counter">None selected</span></div>
     <div class="workspace extension-workspace">
-      <div><div id="extensions" class="machine-list"></div><p id="extensions-empty" hidden>No extensions are available in this collection. Continue with your selected machines.</p><div id="extension-capacity-host"></div></div>
+      <div class="extension-list-column"><div id="graphics-extension" class="machine graphics-extension">
+        <label class="graphics-extension-check"><input id="grayscale-graphics" type="checkbox" aria-label="Grayscale machine graphics" aria-describedby="graphics-note"></label>
+        <span class="machine-icon" data-icon="settings"></span>
+        <div class="graphics-extension-copy"><label for="grayscale-graphics" class="graphics-extension-name">Grayscale machine graphics</label>
+          <p id="graphics-note">Changes all selected custom machine screens to grayscale. Stock screens and grayscale designs stay unchanged.</p>
+          <div class="graphics-extension-actions"><button id="preview-selected" type="button" class="secondary preview-selected" aria-haspopup="dialog" disabled>Configure</button><span id="graphics-overrides-count" aria-live="polite">All machines use the default.</span></div>
+        </div>
+      </div><div id="extensions" class="machine-list"></div><p id="extensions-empty" hidden>No other extensions are available in this collection.</p><div id="extension-capacity-host"></div></div>
       <aside class="inspector extension-inspector" aria-label="Extension details">
         <div id="extension-details"><div class="inspector-top"><span class="eyebrow">Extension</span><span class="tag">Experimental</span></div><h2 id="extension-name"></h2><p id="extension-description" class="detail-description"></p><p id="extension-note" class="extension-note"></p></div>
         <section class="selection-summary" aria-label="Your firmware"><h3>Your firmware</h3><dl id="build-selection" class="machine-facts"></dl><p id="extension-memory" class="caption" role="status"></p></section>
@@ -111,8 +124,25 @@
     </div>
     <div class="actions"><button data-step="2" class="secondary">← Machines</button><button id="build" class="primary" disabled>Build firmware <span aria-hidden="true">→</span></button></div>
   </section>
+  <dialog id="selected-previews" aria-labelledby="selected-previews-title" aria-describedby="selected-previews-note">
+    <div class="selected-previews-heading"><div class="selected-previews-title-group"><h2 id="selected-previews-title">Machine graphics</h2><span id="selected-previews-count"></span></div><button id="close-selected-previews" type="button" class="secondary" autofocus>Done</button></div>
+    <div class="graphics-bulk-actions" role="group" aria-label="Apply graphics to all selected machines">
+      <button id="graphics-all-grayscale" type="button" class="secondary">Make all grayscale</button>
+      <button id="graphics-all-original" type="button" class="secondary">Restore all originals</button>
+    </div>
+    <p id="selected-previews-note">Change all machines together, or customize each below.</p>
+    <div id="selected-previews-list" class="selected-previews-list"></div>
+    <p class="selected-previews-footnote">Your choices apply to the build. Previews are static and silent.</p>
+    <details class="graphics-example-disclosure"><summary>Comparison examples</summary>
+    <section class="graphics-examples" aria-labelledby="graphics-examples-title">
+      <h2 id="graphics-examples-title">Compare the look</h2>
+      <div id="graphics-examples"></div>
+      <p class="examples-note">Illustrative screens. Your machines may provide their own grayscale designs.</p>
+    </section>
+    </details>
+  </dialog>
   <section data-page="4" class="download-page" hidden aria-labelledby="download-title">
-    <div class="page-header"><div><span class="eyebrow">Step 4 of 4 · Install</span><h1 id="download-title" tabindex="-1">Install</h1><p id="download-summary"></p></div></div>
+    <div class="page-header"><div><span class="eyebrow">Step 4 of 4 · Install</span><h1 id="download-title" tabindex="-1">Install</h1><p id="download-summary"></p><p id="download-graphics"></p></div></div>
     <div id="download-overview" class="download-overview flow-shell">
     <div class="download-card"><div id="bundle-art" tabindex="0" role="region" aria-label="Build ZIP contents"></div><h2>Ready to install</h2>
       <div id="route-choice" class="route-choice"><p id="route-title">Which computer will you install from?</p><div class="route-options">
@@ -123,7 +153,7 @@
     <details><summary>What was checked</summary><ul><li>Your OS file matched OP–XY OS 1.2.1 exactly</li><li>Only the reviewed changes were made, and the machines fit their memory</li><li>The original OS can be rebuilt from the new one</li></ul><p id="output-hash" class="hash"></p></details>
     </div>
     <div id="install-flow-host" class="flow-shell"></div>
-    <div id="download-actions" class="actions flow-shell"><button data-step="3" class="secondary">← Change selection</button><button id="save-layout" class="secondary">Save layout</button></div>
+    <div id="download-actions" class="actions flow-shell"><button data-step="3" class="secondary">← Extensions</button><button id="save-layout" class="secondary">Save layout</button></div>
   </section>
   </div>
   <footer>

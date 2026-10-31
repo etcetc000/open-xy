@@ -243,6 +243,64 @@ See [2op display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/ma
 glow, dials and header text) for implementations.
 How screens reach stock is described in the [firmware ABI](abi-1.2.1.md#screens).
 
+## Grayscale artwork
+
+A synth targeting SDK 1.5 can offer its own grayscale design:
+
+```json
+"sdk": "1.5",
+"graphics": {"grayscale": "panel.grayscale.svg.fragment"}
+```
+
+This is an optional machine.json entry. The path names a separate SVG fragment
+inside the machine, at most 64 KiB; redirects and paths outside the machine are
+rejected. Start with a copy of `panel.svg.fragment`, then choose grayscale fills,
+strokes, text colors and off-screen palette donors. Retain every bound node,
+text and palette ID and its element type. Retain bound origins, ancestor
+transforms, fill versus none, and mutable-outline topology and distinct points.
+Static geometry, stroke widths, labels and brightness can be designed for
+grayscale. Both versions use the same display.cpp, resource budget and sound.
+For palette choices and visual review, consider the optional
+[color design guidance](ux.md#color-design-guidance): prioritize meaningful
+hue-based distinctions over matching source brightness, with consistent roles
+across static artwork and animation palettes.
+
+`sdk.py test --machine <folder>` and preview builds validate both SVGs. All paint
+in the alternate, including decorative elements and animation palettes, must be
+grayscale. Invalid variants fail with an error; they are never silently converted.
+The workbench's Graphics selector previews both versions using the current
+controls and animation state. Check notes, releases, control extremes, page
+changes and reduced motion in both modes. Review meaningful hue-based
+distinctions, the closest gray tones and their backgrounds across the full
+animation palette. Validation alone cannot judge clarity.
+
+On the installer's **Extensions** page, **Grayscale machine graphics** keeps
+an already-grayscale original byte for byte; otherwise it uses the validated
+developer variant unchanged, or automatic conversion when no variant is declared.
+The checkbox reflects whether any selected custom screen is configured for
+grayscale. **Configure** can set individual screens to grayscale or original;
+checking or unchecking the option applies that choice to all selected custom screens.
+The automatic fallback builds one palette from every fill and stroke, including
+off-screen animation donors. It groups strongly chromatic colors into hue
+families and assigns separate gray ranges to those families, prioritizing hue
+distinctions over matching original brightness. Brightness remains a secondary
+cue within each range. Allocation adapts to the number of unique chromatic
+colors, hue families and shades: smaller palettes distinguish closer hues;
+single-color families consume no shade band, and multi-shade families share
+at most a quarter of the usable range. The rest separates hue families across
+gray levels 96–248, retaining visibility on black backgrounds. Repeated colors
+and aliases do not consume extra tones. Exact neutral grays remain unchanged;
+weak tints and palettes with only one hue family retain luminance-based
+conversion. This keeps subdued backgrounds and grids from becoming bright
+accents. The mapping is
+independent of SVG order and repeated paint usage, and stays fixed throughout
+animation. It is a palette heuristic: many hues, opacity and overlapping shapes
+can still limit visible separation. Supply a deliberate grayscale variant when
+automatic conversion does not preserve the intended distinctions.
+The selection happens while packaging, without a firmware drawing ABI change or
+a new saved sound parameter. Preview artifacts authenticate the variant's hash
+and source alongside the original; rebuilding is required after editing either.
+
 ## Migrating from before SDK 1.0
 
 Machines written for the earlier beta use two display contracts that SDK 1.0

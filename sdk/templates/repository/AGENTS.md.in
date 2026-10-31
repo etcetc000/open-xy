@@ -18,15 +18,39 @@ Adjust that path if the user already has the SDK elsewhere.
    same saved parameter in columns without alternates; never invent filler
    parameters. Format captions in real units and keep artwork below y=38.
    Preserve licences and attribution when reusing code.
+   When the user wants colorful artwork, consider the optional
+   [color design guidance](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md#color-design-guidance).
+   Adapt it to the user's visual intent; palette size, metaphors and contrast
+   targets are suggestions rather than additional validation or catalog rules.
 2. Implement through public `<opxy/...>` headers. Keep code, metadata, artwork
    and sound tests here. Do not edit the SDK to make the machine work; explain
    missing interfaces and propose a separate SDK PR against `staging`.
    Contributor code has no assembly, raw firmware addresses, OS headers or
    platform conditionals. Audio callbacks must not allocate, block, log, do I/O
    or call graphics.
+   For a colorful synth, offer a developer-authored grayscale variant following
+   [grayscale artwork](https://github.com/etcetc000/open-xy/blob/staging/docs/display.md#grayscale-artwork).
+   Declare SDK 1.5 and `"graphics": {"grayscale": "panel.grayscale.svg.fragment"}`
+   in machine.json. Start from a copy of the original artwork; preserve bound
+   node/text/palette IDs, types, origins, fill/none behavior and mutable-path
+   topology. Author the grayscale fills, strokes, text and every animation
+   palette donor deliberately. Prioritize meaningful hue-based distinctions
+   over matching source brightness, with consistent roles across static art
+   and animation. The optional color design guidance covers palette size,
+   neutral backgrounds, additional cues and review targets. Keep one display.cpp
+   and unchanged audio, controls, IDs and presets. Existing grayscale artwork
+   needs no variant.
+   The installer uses automatic conversion when no variant is declared; a
+   declared invalid variant is an error, never a silent fallback.
 3. Run `python ../open-xy/sdk.py test --machine .` and extend `tests/` for the
    machine's promised sound and behavior. Offer browser audition where supported.
    Use the host CPU estimate to guide iteration; it is not a hardware measurement.
+   In the workbench, use Graphics to compare Colorful and Grayscale. Check note
+   starts/releases, control extremes, page changes and reduced motion in both.
+   Review meaningful hue-based distinctions, close gray tones and backgrounds
+   across the full animation palette, including after palette changes.
+   `sdk.py test --machine .` validates both declared SVGs and their bindings;
+   browser appearance still needs visual review.
 4. After local testing and audition, propose hardware validation. Follow the SDK's
    [build guide](https://github.com/etcetc000/open-xy/blob/staging/docs/build.md)
    and [hardware profiling guide](https://github.com/etcetc000/open-xy/blob/staging/docs/profiling.md).

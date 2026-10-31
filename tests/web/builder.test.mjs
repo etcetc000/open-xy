@@ -22,12 +22,12 @@ test('dev server serves browser sources and rejects private paths and writes', a
     const html = await page.text();
     assert.match(html,/@vite\/client/);
     assert.match(html,/src="\/entry.mjs"/);
-    for (const path of ['/entry.mjs','/style.css','/app.mjs','/browser.mjs','/wizard.mjs','/ferret.mjs','/mtp.mjs','/visuals.mjs','/audition.mjs']) {
+    for (const path of ['/entry.mjs','/style.css','/app.mjs','/graphics-configuration.mjs','/machine-snapshots.mjs','/graphics-dialog.mjs','/browser.mjs','/wizard.mjs','/ferret.mjs','/mtp.mjs','/visuals.mjs','/audition.mjs']) {
       const response = await fetch(url+path); assert.equal(response.status,200,path);
     }
     // Vite's client and the shared renderers load through /@fs/ on every platform.
     const clientEnv = fileURLToPath(new URL('../../node_modules/vite/dist/client/env.mjs', import.meta.url));
-    const shared = ['display.mjs','controls.mjs'].map(name =>
+    const shared = ['display.mjs','controls.mjs','graphics.mjs'].map(name =>
       fileURLToPath(new URL('../../sdk/browser/' + name, import.meta.url)));
     for (const file of [clientEnv, ...shared]) {
       const path = '/@fs/' + file.replaceAll('\\', '/').replace(/^\//, '');
@@ -62,7 +62,7 @@ test('collection builds require fresh external output, including config override
   const screenTemplate = await readFile(new URL('../../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
   const collection = {format:'opxy-browser-kit/1',version:'0.0.2',profile:JSON.parse(profileSource),
     profileSource:profileSource.toString('base64'),objects:[],stockCatalog:'',screenTemplate,
-    fixed:{fixture:{engine:34,page:82}},
+    fixed:{fixture:{engine:34,page:82}}, linked:['fixture'],
     machines:[{id:'fixture',kind:'synth',identity:{engine:34,page:82},origin:'personal'}]};
   const source = join(directory,'kit.json');
   const external = join(directory,'site');

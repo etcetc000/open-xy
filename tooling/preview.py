@@ -21,7 +21,7 @@ DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes'
 MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
 SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
-               'tooling/contributors.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
+               'tooling/contributors.py', 'tooling/graphics.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
                'sdk/host/display_preview.cpp', 'sdk/platform/blackfin/memory.cpp')
 SDK_FOLDERS = ('sdk/include', 'sdk/browser', 'sdk/platform/blackfin/freestanding')
 FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-exceptions', '-fno-rtti',
@@ -75,7 +75,10 @@ def graphics_metadata(m):
     from .native import display_ids
     asset = sha((m.root / 'panel.svg.fragment').read_bytes())
     display = m.definition['resources']['display']
-    return dict(drawing_bindings(display_ids(m.prefix, display), display), asset_sha256=asset)
+    result = dict(drawing_bindings(display_ids(m.prefix, display), display), asset_sha256=asset)
+    if m.grayscale:
+        result['grayscale_sha256'] = sha((m.root / m.grayscale).read_bytes())
+    return result
 
 
 def drawing_bindings(ids, display):
@@ -99,6 +102,8 @@ def build(compiler, m, out):
     out = fresh_output(out)
     compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes)
     (out / 'panel.svg').write_bytes((m.root / 'panel.svg.fragment').read_bytes())
+    if m.grayscale:
+        (out / 'panel.grayscale.svg').write_bytes((m.root / m.grayscale).read_bytes())
     require(source_hashes(m) == before, 'Source changed during preview build')
     version = subprocess.check_output([str(compiler), '--version'], text=True, timeout=30).splitlines()[0]
     manifest = dict(schema=1, kind='cpp-browser-preview', engine=m.id, root=str(m.root),
@@ -113,7 +118,7 @@ def build(compiler, m, out):
 
 
 def preview_bundle(directory, *, require_reference=False):
-    """Authenticate exactly three artifacts; return an immutable serving snapshot."""
+    """Authenticate preview artifacts, including a declared grayscale variant."""
     directory = Path(directory).absolute()
     require(directory.resolve() == directory, 'Redirected preview directory')
     files = {}
@@ -123,6 +128,14 @@ def preview_bundle(directory, *, require_reference=False):
                 'Missing, oversized or redirected preview artifact')
         files[name] = path.read_bytes()
     manifest = json.loads(files['manifest.json'])
+    require(isinstance(manifest, dict) and isinstance(manifest.get('graphics'), dict), 'Invalid preview manifest')
+    if 'grayscale_sha256' in manifest.get('graphics', {}):
+        path = directory / 'panel.grayscale.svg'
+        require(path.resolve() == path and path.is_file() and 0 < path.stat().st_size <= 65536,
+                'Missing, oversized or redirected grayscale preview artifact')
+        files['panel.grayscale.svg'] = path.read_bytes()
+        require(sha(files['panel.grayscale.svg']) == manifest['graphics']['grayscale_sha256'],
+                'Grayscale preview artwork identity mismatch')
     require(isinstance(manifest, dict), 'Invalid preview manifest')
     if manifest.get('kind') == 'cpp-browser-custom-preview':
         require(not require_reference, 'Custom previews are local auditions, not qualified collection inputs')
@@ -143,14 +156,18 @@ def preview_bundle(directory, *, require_reference=False):
             'Preview controls or description differ from the machine')
     require(manifest['graphics'] == graphics_metadata(m), 'Preview graphics identity mismatch')
     require(sha(files['panel.svg']) == manifest['graphics']['asset_sha256'], 'Preview artwork identity mismatch')
+    if m.grayscale:
+        require(files.get('panel.grayscale.svg') == (m.root / m.grayscale).read_bytes(),
+                'Grayscale preview differs from source')
     require(files['engine.wasm'][:8] == b'\0asm\x01\0\0\0' and
             sha(files['engine.wasm']) == manifest['wasm_sha256'], 'Preview module identity mismatch')
     return artifact_bundle(files)
 
 
 def artifact_bundle(files):
-    return {'/preview/' + name: (mime, files[name]) for name, mime in (
-        ('manifest.json', 'application/json'), ('engine.wasm', 'application/wasm'), ('panel.svg', 'image/svg+xml'))}
+    mime = {'manifest.json': 'application/json', 'engine.wasm': 'application/wasm',
+            'panel.svg': 'image/svg+xml', 'panel.grayscale.svg': 'image/svg+xml'}
+    return {'/preview/' + name: (mime[name], data) for name, data in files.items()}
 
 
 def main(argv=None):

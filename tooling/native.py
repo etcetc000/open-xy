@@ -678,6 +678,7 @@ def check_bindings(by_id, prefix, display):
 
 def validate_panel(m, fragment=None):
     """The authored SVG subset plus the display contract's required node bindings."""
+    check_variant = fragment is None and getattr(m, 'grayscale', None)
     fragment = read(m.root / 'panel.svg.fragment') if fragment is None else fragment
     nodes = list(panel_root(fragment, m.source('panel.svg.fragment')).iter())
     ids = [node.get('id') for node in nodes if node.get('id')]
@@ -716,6 +717,9 @@ def validate_panel(m, fragment=None):
             if node.get('fill') == 'none':
                 require(node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
                         'Invisible authored SVG outline')
+    if check_variant:
+        from .graphics import validate_grayscale
+        validate_grayscale(m, fragment, read(m.root / m.grayscale))
     return fragment
 
 

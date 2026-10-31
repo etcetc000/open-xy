@@ -21,7 +21,7 @@ from .pipeline import config
 
 KINDS = ('synth', 'sample', 'effect')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources', 'includes', 'icon', 'presetDefaults',
-          'presets', 'dryParameter'}
+          'presets', 'dryParameter', 'graphics'}
 # The public machine contract: headers, definition schema, artwork rules and
 # callbacks. A machine names the version it was written for; the SDK builds a
 # machine of the same major version and an equal or older minor version.
@@ -31,6 +31,7 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.4 adds the reusable header and partial second pages sharing unassigned controls.
 # 1.5 drops identity numbers: the layout gives every number, and a sample engine
 # names its base instead of a stock page.
+# 1.5 also supports optional developer-authored grayscale artwork.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
 # 1.7 supplies a frozen source-audition clock for tempo-aware sample slicing.
 SDK_VERSION = (1, 7)
@@ -75,6 +76,7 @@ class Machine:
     icon: str = ''
     dry_parameter: int | None = None
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
+    grayscale: str | None = None
 
     # The stock name and the symbol prefix are the machine's name.
     @property
@@ -110,6 +112,20 @@ def _relative(machine_root, value):
     path = (machine_root / value).resolve()
     require(path.is_relative_to(machine_root.resolve()) and path.exists(), 'Missing machine path: ' + value)
     return value
+
+
+def graphics_path(record):
+    """The optional grayscale source, explicitly opted into by SDK 1.5 synths."""
+    if 'graphics' not in record:
+        return None
+    require_sdk(sdk_version(record.get('sdk')), (1, 5), 'Developer grayscale artwork')
+    graphics = record['graphics']
+    require(record.get('kind') == 'synth' and isinstance(graphics, dict) and set(graphics) == {'grayscale'},
+            'graphics requires a synth and exactly one grayscale artwork path')
+    path = graphics['grayscale']
+    require(relative_path(path) and path.endswith('.svg.fragment') and path != 'panel.svg.fragment',
+            'graphics.grayscale names a separate local .svg.fragment file')
+    return path
 
 
 def check_preset(value, identity):
@@ -268,6 +284,7 @@ def machine_at(root, identity=None):
     if kind == 'synth' and definition['resources']['display']['texts'] > SDK_1_2_TEXTS:
         require_sdk(version, (1, 3), 'More than %d display text slots' % SDK_1_2_TEXTS)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
+    grayscale = graphics_path(value)
     # After the feature checks, which name the SDK version each feature needs.
     requested = requested_numbers(config()['identities'], kind, value, version)
     dry_parameter = None
@@ -298,11 +315,19 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), "A machine's own presets")
         require(kind != 'effect' and isinstance(value['presets'], str), 'presets names a folder; effects have none')
         presets = read_presets(root, value['presets'], identity)
-    return Machine(id=identity, kind=kind, name=definition['name'], description=value['description'],
+    if grayscale:
+        path = root / grayscale
+        require(path.resolve() == path and path.is_file() and 0 < path.stat().st_size <= 65536,
+                'Missing, redirected or oversized grayscale artwork: ' + grayscale)
+    result = Machine(id=identity, kind=kind, name=definition['name'], description=value['description'],
                    display=display, sources=sources, includes=includes,
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
-                   root=root, icon=icon, dry_parameter=dry_parameter, presets=presets)
+                   root=root, icon=icon, dry_parameter=dry_parameter, presets=presets, grayscale=grayscale)
+    if grayscale:
+        from .native import validate_panel
+        validate_panel(result)
+    return result
 
 
 # Machine numbers. Projects store a track's engine, effect and page numbers, so a

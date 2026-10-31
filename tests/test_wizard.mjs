@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createWizard} from '../builder/wizard.mjs';
+import {createBuilder} from '../builder/app.mjs';
 import {Session} from '../builder/ferret.mjs';
 import {supportsDeviceApis} from '../builder/browser.mjs';
 import * as Visuals from '../builder/visuals.mjs';
@@ -359,6 +360,7 @@ test('installation links preview the edited steps without a build or device acce
 
   for (const hash of ['#preview/mac/transfer', '#preview/windows/transfer']) {
     assert.equal(wizard.previewLink(hash), true);
+    assert.equal(wizard.previewPage(), 4);
     assert.equal($('flow-install-reminder').hidden, false);
     assert.equal($('flow-preview-note').hidden, false);
     assert.equal($('flow-download').hidden, true);
@@ -418,11 +420,9 @@ test('installation links preview the edited steps without a build or device acce
 
   // Run the actual app startup against the same DOM. It must render a valid
   // preview before waiting for acknowledgement, without booting the builder.
-  const source = readFileSync(new URL('../builder/app.mjs', import.meta.url), 'utf8').replace(/^import .*\r?\n/gm, '');
-  const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
   let startupError;
   navigator.usb = undefined; // Unsupported browser; previews must still work.
-  new AsyncFunction('Wizard', 'Visuals', 'supportsDeviceApis', source)({createWizard}, Visuals, supportsDeviceApis).catch(error => { startupError = error; });
+  createBuilder({wizardApi:{createWizard}, visuals:Visuals, supportsBrowser:supportsDeviceApis}).catch(error => { startupError = error; });
   await Promise.resolve();
   assert.ifError(startupError);
   assert.equal($('risk-gate').hidden, true);
