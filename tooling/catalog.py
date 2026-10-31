@@ -32,7 +32,7 @@ from .pipeline import NO_WINDOW, ROOT
 CATALOG = ROOT / 'catalog/machines.json'
 EXTENSION_CATALOG = ROOT / 'catalog/extensions.json'
 # Each catalog file's list and the kinds its entries may have.
-KINDS = {'machines': ('synth', 'sample', 'effect'), 'extensions': ('extension',)}
+KINDS = {'machines': ('synth', 'sample', 'effect', 'player'), 'extensions': ('extension',)}
 # Fetched machine sources: third-party code, never firmware, so it may live in local/.
 CACHE = ROOT / 'local/catalog'
 STATUSES = ('reserved', 'draft', 'published', 'retired')
@@ -72,7 +72,7 @@ def validate(value, listed='machines'):
         if status == 'retired' and RELEASE & set(entry):
             required = COMMON | RELEASE
         if 'cpu' in entry:
-            require(listed == 'machines', f'{name}: extensions carry no cpu measurement')
+            require(listed == 'machines' and entry.get('kind') != 'player', f'{name}: extensions and players carry no audio cpu measurement')
             require('commit' in entry and status != 'reserved', f'{name}: cpu needs a pinned release')
             cpu_measurement.validate(entry['cpu'], entry.get('kind'))
             required = required | {'cpu'}
@@ -114,7 +114,7 @@ def changes(before, after, allow_carried_cpu=False):
     previous = {e['id']: e for e in before}
     for entry in after:
         # Extensions run on the controller path, not in audio: they carry no cpu record.
-        if entry['kind'] == 'extension':
+        if entry['kind'] in ('extension', 'player'):
             continue
         if entry['status'] in ('draft', 'published') and entry != previous.get(entry['id']):
             require('cpu' in entry, f"{entry['id']}: new or updated submissions require hardware cpu measurements (docs/profiling.md)")

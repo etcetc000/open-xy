@@ -19,7 +19,7 @@ from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS
 from .formats import require
 from .pipeline import config
 
-KINDS = ('synth', 'sample', 'effect')
+KINDS = ('synth', 'sample', 'effect', 'player')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources', 'includes', 'icon', 'presetDefaults',
           'presets', 'dryParameter', 'dryLevel'}
 # The public machine contract: headers, definition schema, artwork rules and
@@ -35,7 +35,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.7 supplies a frozen source-audition clock for tempo-aware sample slicing, lets an
 # effect page its controls, have a shift row, draw its own page and fix its source dry
 # (dryLevel), and adds a saturating Q31 add and up to 32 display text slots.
-SDK_VERSION = (1, 7)
+# 1.8 adds note players and their input/output keyboard page.
+SDK_VERSION = (1, 8)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -161,6 +162,12 @@ def check_identity(rules, kind, value, display=None):
     page, or, drawing its own (display "drawing"), on a relocated page.
     """
     require(isinstance(value, dict), 'machine.json needs an identity')
+    if kind == 'player':
+        require(set(value) == {'player', 'page'} and all(type(v) is int for v in value.values()),
+                'Players need a player type and their own page')
+        require(value['player'] in rules['players'], 'Players use a type stock leaves unused')
+        require(rules['page_none'] < value['page'] < rules['pages'], 'Players need a relocated page')
+        return dict(value)
     slot = 'effect' if kind == 'effect' else 'engine'
     require(set(value) == {slot, 'page'}, 'Unexpected identity fields')
     number, page = value[slot], value['page']
@@ -187,6 +194,10 @@ def requested_numbers(rules, kind, value, version, display='stock'):
     layout gives when free; from 1.5 it lists none (None) and a sample engine names its
     base, the stock sampler whose page it shares. An effect uses the stock FX page, or
     (SDK 1.7, display "drawing") asks for a page of its own as a synth does."""
+    if kind == 'player':
+        require_sdk(version, (1, 8), 'Note players')
+        require('identity' not in value and 'base' not in value, 'Players leave their type and page to the layout')
+        return {'player': None, 'page': None}
     if version < (1, 5):
         if 'base' in value:
             require_sdk(version, (1, 5), 'A sample base ("base")')
@@ -208,7 +219,9 @@ def requested_numbers(rules, kind, value, version, display='stock'):
 def check_request(rules, kind, value):
     """Numbers a machine may ask for, as a builder kit lists them (builder/core.mjs
     validRequest): valid ones, or the SDK 1.5 forms that leave them to the layout."""
-    if kind == 'effect':
+    if kind == 'player':
+        forms = [{'player': None, 'page': None}]
+    elif kind == 'effect':
         forms = [{'effect': None, 'page': rules['effect_page']}, {'effect': None, 'page': None}]
     else:
         forms = [{'engine': None, 'page': page} for page in SAMPLE_BASES.values()] if kind == 'sample' else [
@@ -307,13 +320,13 @@ def machine_at(root, identity=None):
         dry_level = round(level * 0x7fffffff)
     # A synth draws its own screen, and so may an effect (SDK 1.7); sample
     # engines and other effects use a stock page.
-    display = 'drawing' if kind == 'synth' or 'display' in definition['resources'] else 'stock'
+    display = 'player' if kind == 'player' else 'drawing' if kind == 'synth' or 'display' in definition['resources'] else 'stock'
     if kind == 'effect' and display == 'drawing':
         require_sdk(version, (1, 7), "An effect's own page (resources.display)")
     # The native plan compiles extra translation units only into synths.
     if kind != 'synth':
         require(not sources and not includes,
-                'Sample engines and effects compile one fx.cpp or sample.cpp (and an effect its display.cpp)')
+                'Sample engines, effects and players compile one sample.cpp, fx.cpp or player.cpp (and an effect its display.cpp)')
     # Pad settings live in the stock drum page's pad records, whose fade the SDK then owns.
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
         require(requested['page'] == SAMPLE_BASES['drumSampler'],
@@ -326,7 +339,7 @@ def machine_at(root, identity=None):
     presets = None
     if 'presets' in value:
         require_sdk(version, (1, 3), "A machine's own presets")
-        require(kind != 'effect' and isinstance(value['presets'], str), 'presets names a folder; effects have none')
+        require(kind in ('synth', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
         presets = read_presets(root, value['presets'], identity)
     return Machine(id=identity, kind=kind, name=definition['name'], description=value['description'],
                    display=display, sources=sources, includes=includes,
@@ -356,7 +369,7 @@ def number_pools(rules):
     from the relocated table above stock's "none" value: the gaps in stock's own table
     below it are left for stock."""
     engines = [n for n in range(rules['engine_none'] + 1, rules['engines']) if n not in rules['stock_engines']]
-    return dict(engine=engines, page=list(range(rules['page_none'] + 1, rules['pages'])), effect=list(rules['effects']))
+    return dict(engine=engines, page=list(range(rules['page_none'] + 1, rules['pages'])), effect=list(rules['effects']), player=list(rules['players']))
 
 
 def fnv1a(text):
@@ -379,7 +392,7 @@ def occupied(rules, identity):
     """What an identity holds: its engine or effect number, and its own page. Effects share
     the FX page and sample engines a stock sample page. Stock reads a send track's effect
     number as its engine, so an effect also holds that engine number: no engine shares it."""
-    keys = [(slot, identity[slot]) for slot in ('engine', 'effect') if slot in identity]
+    keys = [(slot, identity[slot]) for slot in ('engine', 'effect', 'player') if slot in identity]
     if 'effect' in identity:
         keys.append(('engine', identity['effect']))
     if identity['page'] not in rules['sample_pages'] and identity['page'] != rules['effect_page']:
@@ -403,7 +416,7 @@ def check_layout_numbers(machines, where):
     """Layout numbers by machine ID: an engine and page, or an effect and page, each."""
     for name, identity in machines.items():
         stock_name(name)
-        require(isinstance(identity, dict) and set(identity) in ({'engine', 'page'}, {'effect', 'page'}) and
+        require(isinstance(identity, dict) and set(identity) in ({'engine', 'page'}, {'effect', 'page'}, {'player', 'page'}) and
                 all(type(n) is int for n in identity.values()), f'{name}: invalid numbers in {where}')
     return machines
 
@@ -454,7 +467,7 @@ def number_layout(rules, fixed, layout, machines):
             require(kind != 'sample' or numbers[name]['page'] == requested['page'],
                     f'{name} now forks another stock sampler; the layout holds its numbers for the old one')
         else:
-            slots = (('effect', 'page') if own_page else ('effect',)) if kind == 'effect' else \
+            slots = ('player', 'page') if kind == 'player' else (('effect', 'page') if own_page else ('effect',)) if kind == 'effect' else \
                 ('engine', 'page') if kind == 'synth' else ('engine',)
             new.append((name, kind, dict(requested), slots))
     # An effect number is also held as an engine number (occupied).

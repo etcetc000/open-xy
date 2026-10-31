@@ -3,6 +3,7 @@
 // the press and key hooks arrive through drum_page.s and sample_hooks.s.
 // Machine policy is in the generated sample callbacks.
 #include "sample_machines.hpp"
+#include "keyboard_octaves.hpp"
 #include "stock.hpp"
 #include "stock_sample.hpp"
 #include "sample_preview.hpp"
@@ -22,7 +23,6 @@ opxy::u32 sdk_sample_press_engine_owned(opxy::u32, opxy::u32) __asm__("sdk_sampl
 opxy::u32 sdk_sample_region_control(opxy::u32, opxy::u32, const opxy::u32*, opxy::u32) __asm__("sdk_sample_region_control");
 opxy::u32 sdk_sample_selected_engine() __asm__("sdk_sample_selected_engine");
 opxy::u32 sdk_sample_live_pitch_kind(opxy::u32) __asm__("sdk_sample_live_pitch_kind");
-opxy::u32 sdk_sample_octave_store(opxy::u32, opxy::i32) __asm__("sdk_sample_octave_store");
 opxy::u32 sdk_sample_key(opxy::u32, opxy::u32) __asm__("sdk_sample_key");
 opxy::u32 sdk_sample_slice_start(void*, opxy::u32, opxy::u32, opxy::u32, const void*) __asm__("sdk_sample_slice_start");
 opxy::u32 sdk_sample_slice_stop(void*, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_sample_slice_stop");
@@ -35,7 +35,6 @@ void sdk_sample_slice_config(opxy::platform::SamplePreviewRange*, opxy::u32, opx
 opxy::u32 sdk_sample_slice_clock_rate(opxy::u32, const opxy::platform::SamplePreviewRange*, opxy::u32) __asm__("sdk_sample_slice_clock_rate");
 opxy::u32 sdk_sample_create_voice(opxy::u32, void**, opxy::u32, opxy::u32) __asm__("sdk_sample_create_voice");
 }
-volatile opxy::i32 sdk_sample_drum_octaves[8];
 
 namespace {
 using opxy::i32;
@@ -118,11 +117,6 @@ u32 region_control(u32 key, u32 control, const u32* event, u32 fine) {
 u32 publish(u32 key) {
     const u32 zero[3] = {0, 0, 0};
     return region_control(key, 5, zero, 0);
-}
-void publish_octave(u32 track, i32 octave) {
-    if (track >= kTracks) return;
-    sdk_sample_drum_octaves[track] = octave;
-    barrier();
 }
 // The multi editor enumerates canonical pad indices; the region lookup and
 // publisher expect played notes and apply the track octave themselves.
@@ -330,15 +324,6 @@ u32 sdk_sample_pad_paste(u32 track, u32 key) {
     return result;
 }
 
-// 8d58f5c2: after stock clamps the octave, mirror its stored value immediately.
-// SDK IDs use stock's single-octave keyboard spacing. No engine/project getter:
-// this setter also runs while loading a project or preset. A sample lookup may
-// be cached, so it cannot be the only place that publishes octave changes.
-u32 sdk_sample_octave_store(u32 track, i32 octave) {
-    const u32 result = stock<u32(u32, i32)>(0x8d58573c)(track, octave);
-    publish_octave(track, octave);
-    return result;
-}
 
 // Stock's key-to-region lookup (through sample_hooks.s): stock's sampler (2)
 // keeps its one sample in region 0 for every key, the multisampler a region
@@ -350,7 +335,7 @@ u32 sdk_sample_key(u32 track, u32 key) {
     if (track < kTracks && sample_page(track_engine(track)) == 2) return 0;
     if (track >= kTracks || sample_page(track_engine(track)) != 7) return kNotOwned;
     const i32 octave = stock<i32(u32)>(0x8d58f65c)(track);
-    publish_octave(track, octave);
+    sdk_publish_octave(track, octave);
     return stock<u32(u32, i32)>(0x8d5b8688)(key, octave) + 53;
 }
 

@@ -19,9 +19,9 @@ const numbers = {probefx: {effect: 6, page: 21}};
 
 async function fixture(selectedMachines = machines) {
   // Authored menu fixture with its own insertion points; no captured firmware or factory content.
-  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ]}';
+  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ],"seq_types":[{"type":"maestro"}\n    ]}';
   const catalog = new TextEncoder().encode(text);
-  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.lastIndexOf('\n    ]')};
+  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.indexOf('\n    ]', text.indexOf('fx_types')), seq_types: text.lastIndexOf('\n    ]')};
   return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts}}, catalog};
 }
 

@@ -193,7 +193,7 @@ test('declared callbacks of unselected machines resolve to fallbacks only for SD
 test('SDK objects of a profile service link only when a selected machine uses it', () => {
   const k=fixture();
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'effect'}])],[]);
-  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])],['samples']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])],['samples', 'octaves']);
   // The service object redefines `entry`, so linking it would be a duplicate global.
   k.objects.push({...k.objects[0],name:'service.o',owner:null,service:'samples'});
   const linked=linkKit(k,['a']);
@@ -372,4 +372,17 @@ test('the release checks the linked machines, each other machine beside the offi
   assert.deepEqual(selections.slice(0, 3), [1n << 33n, 1n << 39n, core]);
   assert.equal(selections.length, 3 + 38);
   assert.ok(selections.slice(3).every(mask => (mask & core) === core));
+});
+
+
+test('players have stable separate types and share the relocated page pool', () => {
+  const profile = JSON.parse(readFileSync(new URL('../profiles/opxy-1.2.1.json', import.meta.url), 'utf8'));
+  const rules = profile.identities;
+  const machines = [['probeplayer', 'player', {player: null, page: null}], ['second', 'player', {player: null, page: null}]];
+  const layout = numberLayout(rules, [], null, machines);
+  assert.notEqual(layout.probeplayer.player, layout.second.player);
+  assert.notEqual(layout.probeplayer.page, layout.second.page);
+  assert.deepEqual(numberLayout(rules, [], layout, machines.slice().reverse()), layout);
+  assert.deepEqual([...activeServices(profile, [{kind: 'player'}])].sort(), ['octaves', 'players']);
+  assert.throws(() => numberLayout(rules, [], {probeplayer: {player: 4, page: 84}}, machines), /cannot use/);
 });

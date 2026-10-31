@@ -80,14 +80,43 @@
       61,
       62
     ],
-    "effect_page": 21
+    "effect_page": 21,
+    "players": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ]
   },
   "layout_profiles": [
     "opxy-1.2.0"
   ],
   "stock_catalog_inserts": {
     "fx_types": 1583,
-    "engine_types": 4435
+    "engine_types": 4435,
+    "seq_types": 2565
   },
   "screen_template_sha256": "d71b110ac905c1bcfcecc9ad94237aa72fe12c531e651f170bb5a1042547fb16",
   "services": {
@@ -96,6 +125,13 @@
     ],
     "extensions": [
       "extension"
+    ],
+    "players": [
+      "player"
+    ],
+    "octaves": [
+      "sample",
+      "player"
     ]
   },
   "patches": [
@@ -775,8 +811,8 @@
       "file_offset": "0x1c681e",
       "length": 4,
       "before": "ffe3bdb0",
-      "symbol": "sdk_sample_octave_store",
-      "service": "samples",
+      "symbol": "sdk_octave_store",
+      "service": "octaves",
       "call": true
     },
     {
@@ -1193,7 +1229,9 @@
       "symbol": "sdk_extensions_controller_update",
       "call": true,
       "service": "extensions",
-      "events": ["context"]
+      "events": [
+        "context"
+      ]
     },
     {
       "kind": "hook",
@@ -1204,7 +1242,9 @@
       "symbol": "sdk_extensions_key_queue",
       "call": true,
       "service": "extensions",
-      "events": ["queued_control"]
+      "events": [
+        "queued_control"
+      ]
     },
     {
       "kind": "hook",
@@ -1215,7 +1255,10 @@
       "symbol": "sdk_extensions_live_note_on",
       "call": true,
       "service": "extensions",
-      "events": ["input_activity", "recordable_note_on"]
+      "events": [
+        "input_activity",
+        "recordable_note_on"
+      ]
     },
     {
       "kind": "hook",
@@ -1226,7 +1269,9 @@
       "symbol": "sdk_extensions_live_note_off",
       "call": true,
       "service": "extensions",
-      "events": ["selected_note_off"]
+      "events": [
+        "selected_note_off"
+      ]
     },
     {
       "kind": "hook",
@@ -1237,7 +1282,9 @@
       "symbol": "sdk_extensions_recorder_tick",
       "call": true,
       "service": "extensions",
-      "events": ["recording_tick"]
+      "events": [
+        "recording_tick"
+      ]
     },
     {
       "kind": "hook",
@@ -1248,7 +1295,9 @@
       "symbol": "sdk_extensions_stop",
       "call": true,
       "service": "extensions",
-      "events": ["context"]
+      "events": [
+        "context"
+      ]
     },
     {
       "kind": "hook",
@@ -1259,7 +1308,9 @@
       "symbol": "sdk_extensions_note_accepted",
       "call": true,
       "service": "extensions",
-      "events": ["recordable_note_on"]
+      "events": [
+        "recordable_note_on"
+      ]
     },
     {
       "kind": "startup",
@@ -1329,6 +1380,66 @@
       "symbol": "sdk_sample_multi_press_engine",
       "service": "samples",
       "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d57ee6c",
+      "file_offset": "0x1b60c8",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "extensions_player_build",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d588d94",
+      "file_offset": "0x1bfff0",
+      "length": 4,
+      "before": "48a3a80d",
+      "symbol": "extensions_player_load",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0af13a",
+      "file_offset": "0xe6376",
+      "length": 8,
+      "before": "00de578db8ef0000",
+      "symbol": "sdk_player_ui_type",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0af43e",
+      "file_offset": "0xe667a",
+      "length": 8,
+      "before": "00de578db8ef0000",
+      "symbol": "sdk_player_ui_type",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5bddd8",
+      "file_offset": "0x1f5030",
+      "length": 4,
+      "before": "00e80500",
+      "symbol": "extensions_player_name",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5bde60",
+      "file_offset": "0x1f50b8",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "extensions_player_id",
+      "service": "players",
+      "call": false
     },
     {
       "kind": "hook",
@@ -1439,6 +1550,16 @@
       "symbol": "extensions_sample_slice_receive",
       "service": "samples",
       "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c084d18",
+      "file_offset": "0xbbf54",
+      "length": 8,
+      "before": "05301930ffe3f0fe",
+      "symbol": "extensions_player_turn",
+      "service": "players",
+      "call": true
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

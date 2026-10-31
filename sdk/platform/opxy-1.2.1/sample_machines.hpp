@@ -39,7 +39,7 @@ const opxy::platform::SampleMachine* sdk_sample_machine(opxy::u32 engine) __asm_
 // Each track's keyboard octave as last stored or looked up on the GUI
 // (drum_controls_stock.cpp); audio maps drum notes with it instead of calling
 // GUI project getters.
-extern volatile opxy::i32 sdk_sample_drum_octaves[8] __asm__("sdk_sample_drum_octaves");
+extern volatile opxy::i32 sdk_track_octaves[8] __asm__("sdk_track_octaves");
 }
 
 namespace opxy { namespace platform {

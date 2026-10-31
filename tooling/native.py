@@ -19,7 +19,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, screen, startup_label, stock_tables
-from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
+from .adapters import (generate_player_object, generate_player_table, catalog_entry, generate_display, generate_fx_object, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_voice,
@@ -38,7 +38,9 @@ TARGET = 'opxy-1.2.1'
 # development: the builder distributes it too. Firmware always comes from the device.
 STOCK_CONTENT = ROOT / 'profiles/opxy-1.2.1/content'
 DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, stock_sample_classify_tail=0x8d5b79c6,
-                   stock_sample_key_tail=0x8d589214, stock_sample_slice_receive_tail=0x8d5b1264)
+                   stock_sample_key_tail=0x8d589214, stock_player_factory_tail=0x8d57ee70,
+                   stock_player_load_tail=0x8d588d98, stock_player_load_kept=0x8d588da2,
+                   stock_player_name_tail=0x8d5bdddc, stock_player_id_tail=0x8d5bde64, stock_sample_slice_receive_tail=0x8d5b1264)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
 ALLOWED_SECTIONS = {'.text', '.rodata', '.data', '.bss'}
@@ -89,7 +91,10 @@ def configuration(entries=None, layout=None):
         [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
     definitions = dict(DEFINITIONS)
     for m in machines:
-        if m.kind == 'effect':
+        if m.kind == 'player':
+            definitions[m.prefix + '_player_id'] = m.identity['player']
+            definitions[m.prefix + '_page_id'] = m.identity['page']
+        elif m.kind == 'effect':
             definitions[m.prefix + '_fx_id'] = m.identity['effect']
             definitions[m.prefix + '_fx_page_id'] = m.identity['page']
         else:
@@ -183,6 +188,8 @@ def plan(machines, profile=None):
     for m in machines:
         if m.kind == 'synth':
             steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration')
+        elif m.kind == 'player':
+            steps = ('player_object',)
         elif m.kind == 'effect':
             steps = ('registration', 'fx_object', *(('display', 'screen') if m.display != 'stock' else ()))
         else:
@@ -205,12 +212,15 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'presets')
+             'extension_runtime', 'extension_collection', 'extension_stock', 'presets',
+             'players', 'player_hooks', 'player_table', 'keyboard_octaves')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
+UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
+UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
 
 
@@ -271,6 +281,8 @@ def object_services(machines, profile=None):
 def absent_symbols(m):
     """The callbacks of an unselected machine, each resolving to kit_absent, which declines:
     startup skips it and its menu name is left to stock."""
+    if m.kind == 'player':
+        return {m.prefix + suffix: 'kit_absent' for suffix in ('_player', '_screen_register')}
     if m.kind == 'effect':
         absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_fx_register', '_ready')}
         if m.display != 'stock':
@@ -294,7 +306,7 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
     # Unselected machines have no numbers (builder/core.mjs numberSymbols).
     definitions = {**definitions, **{m.prefix + suffix: 0 for m in absent for suffix in (
-        ('_fx_id', '_fx_page_id') if m.kind == 'effect' else ('_engine_id', '_page_id'))}}
+        ('_player_id', '_page_id') if m.kind == 'player' else ('_fx_id', '_fx_page_id') if m.kind == 'effect' else ('_engine_id', '_page_id'))}}
     # GNU ld synthesizes FILE symbols from object arguments; relative names keep
     # independent rebuilds byte-identical.
     command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',
@@ -382,6 +394,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_sample_callbacks(folder, machines)), obj)
             if step == 'synth_control_table':
                 return cxx(str(generate_synth_controls(folder, machines)), obj)
+            if step == 'player_table':
+                return cxx(str(generate_player_table(folder, machines)), obj)
             if step == 'project_companion_table':
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
             if step == 'registration_stock':
@@ -396,7 +410,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
                                                 [x.prefix for x in sample_engines],
-                                                [x.prefix for x in effects if x.display != 'stock'])), obj)
+                                                effect_screens=[x.prefix for x in effects if x.display != 'stock'],
+                                                player_pages=[x.prefix for x in by_kind(machines, 'player')])), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -405,7 +420,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
-                  'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True)}[step]
+                  'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
+                  'player_object': lambda: generate_player_object(folder, m)}[step]
         return cxx(str(source()), obj, m)
 
     for name, m, step in plan(machines, profile):
@@ -543,10 +559,12 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
 
     bounds = {}
     for m in machines:
-        table, slot = (f'_{m.prefix}_fx_vtable', 0x10) if m.kind == 'effect' else (f'_{m.prefix}_vtable', 8)
-        entry = word(symbols[table]['value'] + slot)
-        require(entry in body, 'Audio entry of ' + m.id + ' is not a function start')
-        bounds[m.id] = depth(entry)
+        table, slot = {'effect': (f'_{m.prefix}_fx_vtable', 0x10),
+                       'player': (f'_{m.prefix}_player_vtable', 0x14)}.get(m.kind, (f'_{m.prefix}_vtable', 8))
+        slots = (0x14, 0x18, 0x1c, 0x28, 0x34) if m.kind == 'player' else (slot,)
+        entries = [word(symbols[table]['value'] + offset) for offset in slots]
+        require(all(entry in body for entry in entries), 'Audio entry of ' + m.id + ' is not a function start')
+        bounds[m.id] = max(depth(entry) for entry in entries)
     return bounds
 
 
@@ -624,6 +642,12 @@ def check_module(directory, tools, profile, machines, profiling=True):
     return module, sizes, patch_profile, hooks, stack, usage
 
 
+def player_page_ids(prefix):
+    """A player page's artwork IDs: input dots, the chord line, output keys and activity dots."""
+    return ([f'{prefix}_dot_{i}' for i in range(24)] + [f'{prefix}_text'] +
+            [f'{prefix}_key_{i}' for i in range(128)] + [f'{prefix}_played_{i}' for i in range(128)])
+
+
 def display_ids(prefix, display):
     """Artwork IDs of a display: its nodes (the first are the mutable paths), its
     text slots, then its palette entries."""
@@ -699,9 +723,25 @@ def validate_panel(m, fragment=None):
         require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', by_id[name].get(k)) for k in ('fill', 'stroke')),
                 'Palette donors need #RRGGBB fill and stroke: ' + name)
 
-    palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
-    for name in palette:
-        donor(name)
+    if m.display == 'player':
+        # A player page: dots that show or hide, and the line its text replaces.
+        names = player_page_ids(m.prefix)
+        output = names[25:]
+        has_output = any(name in by_id for name in output)
+        require(not has_output or all(name in by_id for name in output),
+                'Player output keyboard needs all 128 keys and activity dots, or none')
+        translate = r'matrix\(1 0 0 1 (%s) (%s)\)' % (NUMBER, NUMBER)
+        for name in names[:24] + (output if has_output else []):
+            visible(name)
+            require(re.fullmatch(translate, by_id[name].get('transform', '')),
+                    'Player page dots need transform="matrix(1 0 0 1 x y)": ' + name)
+        line = by_id.get(names[24])
+        require(line is not None and line.tag == 'text' and re.fullmatch(translate, line.get('transform', '')),
+                'Player page line must be a text node with transform="matrix(1 0 0 1 x y)"')
+    else:
+        palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
+        for name in palette:
+            donor(name)
     for node in nodes:
         for attribute in SVG_NUMERIC.intersection(node.attrib):
             value = node.attrib[attribute]
@@ -727,7 +767,8 @@ def extend_catalog(catalog, profile, machines):
 
     The insertion offsets are bound to the exact authenticated stock catalog.
     """
-    groups = dict(engine_types=by_kind(machines, 'synth', 'sample'), fx_types=by_kind(machines, 'effect'))
+    groups = dict(engine_types=by_kind(machines, 'synth', 'sample'), fx_types=by_kind(machines, 'effect'),
+                  seq_types=by_kind(machines, 'player'))
     result, base = catalog, json.loads(catalog)
     for key, at in sorted(profile['stock_catalog_inserts'].items(), key=lambda item: -item[1]):
         result = result[:at] + ''.join(catalog_entry(m) for m in groups[key]).encode('utf-8') + result[at:]

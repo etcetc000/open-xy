@@ -3,6 +3,7 @@
 #include <initializer_list>
 static void host_barrier() {}
 #include <drum_controls_stock.cpp>
+#include <keyboard_octaves.cpp>
 
 using namespace opxy::platform;
 static void check(bool value) { if (!value) std::abort(); }

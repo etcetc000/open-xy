@@ -4,6 +4,7 @@
 // record holds the reference. The engine sees only a validated read-only SampleView.
 #include "sample.cpp"
 #include "sample_machines.hpp"
+#include "keyboard_octaves.hpp"
 #include "stock_sample.hpp"
 #include "sample_cache.hpp"
 #include "sample_preview.hpp"
@@ -114,7 +115,7 @@ static int start(void* self, opxy::u32 key) {
     // The GUI's sample lookup publishes the track octave. Calling its project
     // getters here can assert on the audio role's unavailable pattern state.
     slot->key = keyed ? (@DRUM_KEYS@ ? opxy::platform::sample_drum_key(
-        key, sdk_sample_drum_octaves[slot->track]) : key) : 128;
+        key, sdk_track_octaves[slot->track]) : key) : 128;
     slot->drum_transpose = keyed && @DRUM_KEYS@ ? opxy::i32(key) - opxy::i32(slot->key) : 0;
     if (slot->started) {
         if (@CHOKE@ && keyed) active[slot->track][slot->key] = slot;
