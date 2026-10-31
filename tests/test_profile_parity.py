@@ -9,7 +9,7 @@ import subprocess
 import unittest
 
 from tooling import startup_label
-from tooling.firmware import hook_instruction, hooks
+from tooling.firmware import hook_instruction, hook_target, hooks
 from tooling.machines import check_identity, check_request
 from tooling.pipeline import ROOT, config
 
@@ -90,6 +90,53 @@ class ProfileParity(unittest.TestCase):
         self.assertEqual(browser(dict(rules=self.profile['identities'], identities=[], redirects=requests))['redirects'],
                          expected)
 
+
+    def test_pointer_and_absolute_jump_encodings_agree(self):
+        edits = [dict(kind='hook', encoding='pointer', address='0x0803fdf8', length=4, call=False)]
+        edits += [dict(kind='hook', encoding='absolute_jump', address='0x8c000000', length=n, call=False)
+                  for n in (8, 10, 12)]
+        requests = [(edit, target) for edit in edits for target in (0, 0x8d2d1234, 0xfffffffe)]
+        encoded = [hook_instruction(edit, target) for edit, target in requests]
+        self.assertEqual(browser(dict(rules={}, identities=[], redirects=requests))['redirects'],
+                         [value.hex() for value in encoded])
+        for (edit, target), value in zip(requests, encoded):
+            self.assertEqual(hook_target(edit, value), (target, False))
+        self.assertEqual(encoded[1].hex(), '34122d8d')
+        self.assertEqual(encoded[4].hex(), '00dc2d8d34120000')
+
+    def test_explicit_hook_encodings_reject_invalid_forms(self):
+        edits = [dict(kind='hook', encoding='pointer', address='0x0803fdf8', length=4, call=False),
+                 dict(kind='hook', encoding='absolute_jump', address='0x8c000000', length=10, call=False)]
+        for edit in edits:
+            valid = hook_instruction(edit, 0x8d2d1234)
+            for changes in (dict(call=True), dict(call=0), dict(length=6), dict(address='0x1001'),
+                            dict(address='0x100000000'), dict(encoding='unknown'), dict(encoding=None)):
+                altered = dict(edit, **changes)
+                with self.subTest(edit=altered), self.assertRaises(ValueError):
+                    hook_instruction(altered, 0x8d2d1234)
+                with self.assertRaises(ValueError):
+                    hook_target(altered, valid)
+                with self.assertRaises(subprocess.CalledProcessError):
+                    browser(dict(rules={}, identities=[], redirects=[(altered, 0x8d2d1234)]))
+            for target in (-2, 1, 0x100000000, False):
+                with self.assertRaises(ValueError):
+                    hook_instruction(edit, target)
+                with self.assertRaises(subprocess.CalledProcessError):
+                    browser(dict(rules={}, identities=[], redirects=[(edit, target)]))
+            for bad in (valid[:-1], valid + b'\0'):
+                with self.assertRaises(ValueError):
+                    hook_target(edit, bad)
+        jump = edits[1]
+        valid = hook_instruction(jump, 0x8d2d1234)
+        for offset in (0, 4, 6, 8, 9):
+            changed = bytearray(valid)
+            changed[offset] ^= 1
+            with self.assertRaises(ValueError):
+                hook_target(jump, changed)
+        with self.assertRaises(ValueError):
+            hook_target(edits[0], b'\x01\0\0\0')
+        with self.assertRaises(ValueError):
+            hook_instruction(dict(edits[0], address='0x1002'), 0x8d2d1234)
 
     def test_released_open_xy_os_remains_recoverable(self):
         # The builder rebuilds stock OS from an uploaded open-xy OS by undoing this
