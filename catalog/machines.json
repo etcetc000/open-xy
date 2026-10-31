@@ -17,16 +17,9 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.5.0",
-      "commit": "09c86cb49689223dbecad556a43034350ecdc59e",
-      "path": "machines/macroosc",
-      "cpu": {
-        "benchmark": "opxy-synth-c8-v1",
-        "commit": "725052b8d0512bc6646636d25766ce06dbe48601",
-        "firmware_sha256": "20086c70a89158f46d831468cf81a017ed94a817a9b3022721c6b2219a87b04d",
-        "runs": 3,
-        "block_percent": 2.639811
-      }
+      "tag": "v1.8.0",
+      "commit": "25336d7945aa91b275549d3c357670b2e510c9a8",
+      "path": "machines/macroosc"
     },
     {
       "id": "timestretch",
