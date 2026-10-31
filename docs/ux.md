@@ -126,7 +126,8 @@ How a screen looks is the machine's own. These hold whatever it draws.
   redraw is the cost; host time per frame doesn't show it. Aim for about 20
   changed nodes a frame on average while notes sound, with a low peak, at
   every control setting including the heaviest, and none at rest. Moving fills
-  are expensive: fill only what stays still. A path whose `key` includes time
+  are expensive, so use them where they earn it, and check a heavy one on the
+  device. A path whose `key` includes time
   redraws the whole path every frame; change the key only when its points
   change ([frame](display.md#frame)). To measure, run `display()` on the host
   and count the nodes that differ from the previous frame.
