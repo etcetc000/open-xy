@@ -63,6 +63,10 @@ u32 track_engine(u32 t){CHECK(t<8);++engine_reads;return engine[t];}u32 selected
 }}
 int main(){
 using control_interaction::detail::native_latest;
+Track* missing = &tracks[0];
+CHECK(machine(8, missing) == nullptr && missing == nullptr);
+missing = &sends[0];
+CHECK(send_effect(0, missing) == nullptr && missing == nullptr);
 auto rejected=[&](u32 track){const u32 before=engine_reads;CHECK(!native_latest(track).available);CHECK(engine_reads==before);};
 // SVG reset requests a baseline before project/pattern initialization. No
 // unsafe stock engine getter may be reached for any failed precondition.

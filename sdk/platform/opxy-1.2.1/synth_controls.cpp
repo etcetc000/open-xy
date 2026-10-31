@@ -65,6 +65,7 @@ Track* state(u32 track, u32 engine) {
 // The owned machine on the track and its state, or null. Any other engine
 // clears the track's selection.
 const SynthControls* machine(u32 track, Track*& t) {
+    t = nullptr;
     if (track >= kTracks) return nullptr;
     const u32 engine = track_engine(track);
     const SynthControls* m = owned(engine);
@@ -85,6 +86,7 @@ const SynthControls* editor(u32 track) {
 // The owned effect on a send track and its selection, or null. Any other
 // effect clears the selection.
 const SynthControls* send_effect(u32 track, Track*& t) {
+    t = nullptr;
     if (track != kSendTracks && track != kSendTracks + 1) return nullptr;
     const u32 effect = track_engine(track);
     const SynthControls* m = owned(effect, true);
