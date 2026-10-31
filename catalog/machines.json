@@ -34,8 +34,8 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.1.0",
-      "commit": "32b257d924f65338ac6eb82639647ade90e8ac05",
+      "tag": "v1.7.0-rc.1",
+      "commit": "600ff0554369f3ff20336f64fb55bb8ad805f58e",
       "path": "machines/timestretch"
     },
     {
