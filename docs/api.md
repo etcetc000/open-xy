@@ -333,10 +333,9 @@ stock's value. Overlays are live values only: saved projects keep stock's
 values, and an edit or parameter lock under an overlay reaches `values` on the
 next tick. Pages show an overlaid parameter's overlay, whether or not the
 sequencer plays; for a moment after the parameter's encoder is turned, they
-show the track's own value, which the turn changes. Stock's sequencer runs right
-after the machines in each GUI tick, so a step's parameter lock on an overlaid
-parameter is heard until the next tick puts the overlay back: a sharp change
-there can click.
+show the track's own value, which the turn changes. A step's parameter lock on
+an overlaid parameter is not heard: the overlay stays, and the lock reaches
+`values` on the next tick, as stock's value beneath it.
 
 Setting `overlay.capture` to 1 asks to capture encoder edits for the next tick:
 they still play and show as usual, and arrive in `edits`. One copy captures at a
