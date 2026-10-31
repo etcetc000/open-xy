@@ -302,12 +302,21 @@ GUI code calls `opxy::sample_display_snapshot(input.track, snapshot)`. A false
 result means pending or unavailable: hide old markers and waveform. A successful
 `SampleDisplaySnapshot` contains `track`, the voice lifetime `generation`, source
 `frames`, `flags`, 128 signed `minimum`/`maximum` pairs, and at most four markers.
-It represents the latest started voice, not an aggregate of polyphonic voices.
+On a single-sample base, the assigned sample's waveform is prepared by a bounded
+stock file-worker job from the already loaded sample cache, before the first note.
+The SDK binds it to the selected source path and project identity; browser audition,
+reassignment and project changes invalidate it. No GUI or audio render callback
+loads files or acquires sample-cache locks. The worker retains one sample reference
+until the subscription changes or expires.
+Markers represent the latest started matching voice, not an aggregate of polyphony.
+The drum base continues to provide a live-voice waveform.
 Only draw the waveform with `sample_waveform_ready`; `sample_voice_live` describes
 whether that voice is still alive. The `sample_waveform_approximate` waveform uses
 512 distributed source frames, so brief peaks may be missed. No PCM pointer is
 exposed. Native transport copies complete generation-bound snapshots over IPC;
-updates may lag audio and stale snapshots become unavailable.
+updates may lag audio. A source-bound assigned waveform remains visible at rest;
+live markers expire after 500 ms without updates. Unbound live-voice snapshots
+become unavailable when stale.
 
 Browser audio audition remains synth-only. Browser builds without a sample
 provider link `sdk/host/sample_display_stub.cpp`, which returns false. Host tests

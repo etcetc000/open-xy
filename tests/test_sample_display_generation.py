@@ -62,7 +62,7 @@ class SampleDisplayGeneration(unittest.TestCase):
 
     def test_synth_only_retains_dispatch_dependencies_not_sample_services(self):
         steps = {step for _, owner, step in native.plan([fixture('probesynth')]) if owner is None}
-        self.assertTrue({'module_events', 'sample_display_controls', 'sample_display_telemetry',
+        self.assertTrue({'module_events', 'sample_display_controls', 'sample_display_telemetry', 'sample_display_preview',
                          'sample_machines', 'sample_callbacks'} <= steps)
         self.assertFalse({'drum_controls_stock', 'sample_hooks', 'sample_cache'} & steps)
         with tempfile.TemporaryDirectory() as directory:

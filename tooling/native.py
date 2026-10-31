@@ -208,7 +208,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock',
              'arranger_state', 'arranger_ui', 'arranger_transport', 'arranger_stock', 'arranger_project',
-             'arranger_bounce', 'arranger_bounce_remote', 'arranger_bounce_job', 'arranger_bounce_destination', 'module_events', 'sample_display_controls', 'sample_display_telemetry',
+             'arranger_bounce', 'arranger_bounce_remote', 'arranger_bounce_job', 'arranger_bounce_destination', 'module_events', 'sample_display_controls', 'sample_display_telemetry', 'sample_display_preview',
              'aux_modules', 'aux_module_table', 'aux_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_hooks', 'sample_cache',
