@@ -3,6 +3,7 @@
 #include <extension_runtime.cpp>
 #include <extension_probe.cpp>
 #include <extension_collection.cpp>
+#define __builtin_bfin_ssync() ((void)0)
 #include <extension_stock.cpp>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
@@ -260,6 +261,11 @@ int main() {
     CHECK(extension_read_pattern(info.ref,output,120,count) && count==2 && output[0].pitch==72);
     CHECK(last_track==selected_before_read && undos==3 && publishes==3);
     command=4;record();CHECK(written==2 && undos==3 && publishes==3); // No scene selection or edits.
+    command=5;record();CHECK(extensions::probe::request_id && written==0);
+    extensions_gui_poll();CHECK(written==0);extensions_sync();
+    CHECK(written==2 && extensions::probe::completed_id==extensions::probe::request_id && extensions::probe::read_success);
+    record();++generation;extensions_gui_poll();extensions_sync();
+    CHECK(!written && !extensions::probe::read_success);--generation;
     CHECK(!extension_read_pattern(info.ref,output,1,count) && count==0 && output[0].pitch==72);
     change_during_read=true;CHECK(!extension_read_pattern(info.ref,output,120,count) && !count);--generation;
     ++generation; CHECK(!extension_read_pattern(info.ref,output,120,count) && !count);--generation;

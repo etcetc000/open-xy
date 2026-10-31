@@ -27,6 +27,8 @@ struct PatternRef { u32 project, generation, track, index; };
 struct PatternInfo { PatternRef ref; u32 length, scale; };
 // Pattern notes use the same stock tick units as Note.
 const u32 pattern_note_capacity = 120;
+// Borrowed only during pattern_read_result. Failure has count zero and notes null.
+struct PatternReadResult { u32 request; PatternRef ref; bool success; const Note* notes; u32 count; };
 struct LiveNote { u32 track, pitch, velocity; i32 position; u32 collision_radius; };
 struct NoteOff { u32 track, pitch; };
 struct Tick { u32 delta_q8; bool discontinuity; };
@@ -65,8 +67,13 @@ struct Actions {
     // A stale handle, held note, malformed list or insufficient capacity fails.
     // A successful empty pattern has count zero. No stock pointers escape.
     bool (*read_pattern)(const PatternRef&, Note* out, u32 capacity, u32& count);
+    // Queue a stopped snapshot on the GUI service. Zero means refused/busy.
+    // Needs read_patterns and a pattern_read_result callback. One SDK request
+    // may be outstanding; its owner receives completion on the controller path.
+    u32 (*request_pattern_read)(const PatternRef&);
 };
 
+using OnPatternReadResult = void (*)(const PatternReadResult&);
 using OnContext = void (*)(const Context&);
 using OnRecordableNoteOn = void (*)(const Context&, const LiveNote&);
 using OnSelectedNoteOff = void (*)(const Context&, const NoteOff&);
@@ -100,31 +107,36 @@ struct Hooks {
     // A queued control (Record and other queued keys; not keyboard keys
     // 26-49) after stock handled it. Actions act only for their claim owner.
     OnQueuedControl queued_control;
+    OnPatternReadResult pattern_read_result;
 
     constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f)
+                    OnInputActivity e, OnQueuedControl f, OnPatternReadResult g = nullptr)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f) {}
+          input_activity(e), queued_control(f), pattern_read_result(g) {}
 
     constexpr Hooks with_context(OnContext f) const {
-        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, pattern_read_result);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, pattern_read_result);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, pattern_read_result);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, pattern_read_result);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, pattern_read_result);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, pattern_read_result);
     }
+    constexpr Hooks with_pattern_read_result(OnPatternReadResult f) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f);
+    }
+
 };
 }}
