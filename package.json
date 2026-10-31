@@ -17,5 +17,8 @@
   "devDependencies": {
     "vite": "8.3.5",
     "wrangler": "4.151.3"
+  },
+  "optionalDependencies": {
+    "usb": "3.2.1"
   }
 }

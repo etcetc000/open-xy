@@ -13,8 +13,8 @@ backed-up files (folders it created stay, empty of new files). It never deletes
 anything it did not replace, never writes
 firmware to the boot partition and never ejects. The record folder (default
 under the private OPXY-SDK folder; always outside every checkout, since backups
-hold stock firmware) keeps transfer.json and the backups. Windows only
-(tooling/wpd.py); on a Mac use the browser builder's transfer.
+hold stock firmware) keeps transfer.json and the backups. Windows uses WPD;
+macOS uses the browser's MTP module through Node WebUSB (run npm ci first).
 """
 import argparse
 from datetime import datetime
@@ -300,7 +300,10 @@ def entry_at(device, path):
 
 
 def open_device():
-    from .wpd import Device
+    if sys.platform == 'darwin':
+        from .mtp import Device
+    else:
+        from .wpd import Device
     return Device()
 
 
