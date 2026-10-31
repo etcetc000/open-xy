@@ -265,6 +265,9 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), 'A press that switches the page ("press": "page")')
         if len(definition['parameters']) < 8:
             require_sdk(version, (1, 4), 'A partially filled second page')
+    display_budget = definition['resources'].get('display')
+    if display_budget and (display_budget['paths'] > 4 or display_budget['texts'] > 16):
+        require_sdk(version, (1, 7), 'More than four paths or sixteen display text slots')
     if kind == 'synth' and definition['resources']['display']['texts'] > SDK_1_2_TEXTS:
         require_sdk(version, (1, 3), 'More than %d display text slots' % SDK_1_2_TEXTS)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')

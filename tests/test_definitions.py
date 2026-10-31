@@ -116,8 +116,8 @@ class Definitions(unittest.TestCase):
     def test_displays_declare_their_shape_within_limits(self):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
-                           ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
-                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 17), ('texts', True),
+                           ('paths', 0), ('paths', 129), ('points', 1), ('points', 65),
+                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 81), ('texts', True),
                            ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value
@@ -315,7 +315,8 @@ class Definitions(unittest.TestCase):
     def test_renderers_generate_for_every_declared_shape(self):
         """Each shape's renderer is data for the SDK renderer: artwork IDs in binding order, and an
         object whose C++ size equals the registered size (checked by the generated static_assert)."""
-        shapes = [dict(stateBytes=60, stateAlignment=4, paths=1, points=2, nodes=64, texts=0, palette=1),
+        shapes = [dict(stateBytes=60, stateAlignment=4, paths=128, points=4, nodes=128, texts=80, palette=16),
+                  dict(stateBytes=60, stateAlignment=4, paths=1, points=2, nodes=64, texts=0, palette=1),
                   dict(stateBytes=60, stateAlignment=4, paths=4, points=64, nodes=4, texts=4, palette=16),
                   dict(stateBytes=60, stateAlignment=4, paths=0, points=0, nodes=256, texts=1, palette=8)]
         for display in shapes:
