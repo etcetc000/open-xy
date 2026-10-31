@@ -104,6 +104,19 @@ host does fast and the Blackfin does not:
   members; their code counts toward module memory.
 - **Per-sample work that changes only per block**, such as coefficients and
   increments, belongs outside the sample loop.
+- **Loops inside a large render** often aren't compiled as hardware loops: GCC
+  then tests and branches on every sample. Give each hot sample loop a small
+  function of its own (`__attribute__((noinline))`), with the state it needs
+  copied into locals and written back after.
+- **Rare branches** in a sample loop, such as a wrap or a discontinuity, are
+  predicted taken and cost several cycles on every sample they aren't. Mark
+  them `__builtin_expect(condition, 0)`, or make them branch-free.
+- **16 x 16 products** that GCC widens into 32-bit multiplies cost more:
+  [`q15.hpp`](../sdk/include/opxy/q15.hpp)'s `product` is always the one
+  16-bit multiply.
+- **Dispatch per sample** through a chain of sections or modes (`switch` on
+  an order, an on/off test) costs branches on every sample. Run each section
+  over the whole block in turn instead.
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
 submitting a catalog entry: add both average cost (`block_percent`) and worst
