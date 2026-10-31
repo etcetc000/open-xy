@@ -33,7 +33,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 1 | Paints a selected owned synth page before stock overlays |
-| Synth and effect controls | 7 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page |
+| Synth and effect controls | 8 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page; extends the track menu's scramble to an owned synth's alternates |
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 5 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, and shows companions beside projects over MTP |
@@ -310,6 +310,11 @@ of the turn event with its step divided by ten, keeping detents and
 acceleration. Stock consumes the event synchronously and still owns lock
 editing and publication. The selection is GUI state per track, reset when the
 track's engine changes. Other pages and unowned engines retain stock routing.
+
+Holding the track key and choosing scramble randomizes the track's parameters
+0..3 and its other preset groups, but never 4..7. Its last stock write is
+hooked: for an owned synth, every alternate then gets a value from the same
+stock generator.
 
 The auxiliary-track controller already folds Shift into positions 0..3; owned
 send effects on tracks 14/15 get the same fine scaling. Encoder turns clear the

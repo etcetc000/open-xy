@@ -144,7 +144,8 @@ parameter, then its alternates in parameter order; turning it edits the one
 shown, whose title and stock percentage the page shows. Every parameter keeps
 its own slot in the eight-word vector, so `render` receives all of them and
 presets, projects and the catalog's defaults store each one. The selection is
-per track, starts on the position's own parameter and is not saved. Display
+per track, starts on the position's own parameter and is not saved. The track
+menu's scramble randomizes alternates along with the first four. Display
 inputs carry each position's shown value, its parameter index (`shown`) and
 every parameter's value (`slots`), so a [header value](display.md#frame)
 can format whichever is shown while dials follow their own parameters.
