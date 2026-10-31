@@ -78,6 +78,7 @@ class ProfileParity(unittest.TestCase):
         self.assertEqual([request for request, accepted in zip(cases, expected) if accepted and None in request[1].values()],
                          [('synth', {'engine': None, 'page': None}), ('sample', {'engine': None, 'page': None}),
                           ('sample', {'engine': None, 'page': 2}), ('sample', {'engine': None, 'page': 7}),
+                          ('effect', {'effect': None, 'page': None}),
                           ('effect', {'effect': None, 'page': 21})])
 
     def test_redirect_encodings_agree(self):

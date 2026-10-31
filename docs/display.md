@@ -38,7 +38,7 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | `paths` | 0..4 mutable outlines; they are nodes `0..paths-1` |
 | `points` | 2..64 points per outline; 0 when there are no paths |
 | `nodes` | `paths`..256 transformable elements |
-| `texts` | 0..16 text slots; more than 4 need `"sdk": "1.3"` |
+| `texts` | 0..32 text slots; more than 4 need `"sdk": "1.3"`, more than 16 `"sdk": "1.7"` |
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
 
@@ -122,6 +122,17 @@ a 76-byte input; the browser host also accepts existing ABI 1 previews, which
 retain their 68-byte input and do not receive activity. Rebuild old preview
 modules to use the new fields.
 
+### Effect pages (SDK 1.7)
+
+An effect may draw its own page on the send tracks, as a synth draws its
+engine page (see [the API](api.md#effect-pages)). Its input's `slots` hold all
+eight of its controls, `track` is the send (14 or 15), and two fields follow
+the note activity: `shift`, 1 while Shift is held on an effect with a
+[shift row](api.md#effect-pages-and-shift-rows), and `choices`, each shift
+control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
+Previews use drawing ABI 3 with an 84-byte input; the browser host still
+accepts ABI 1 and 2.
+
 ## Frame
 
 The frame persists between calls; the first call after reset must set every
@@ -165,7 +176,8 @@ the [UX layout](ux.md#more-than-four-controls).
 
 Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
 `display_reset`. It occupies 20 bytes with four-byte alignment. Reserve eight
-consecutive bar nodes and all sixteen text slots; keep the authored header
+consecutive bar nodes and text slots 0..15 (a machine on `"sdk": "1.7"`
+may declare up to 32 and use 16 onward for its own); keep the authored header
 block from the generated `panel.svg.fragment`. That block includes the stock
 header cover, stepped bar and bright/grey text at their resting sizes. If
 moving its node bindings, update both the artwork IDs and `first_node` below.

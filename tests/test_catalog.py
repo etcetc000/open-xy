@@ -143,6 +143,17 @@ class Fetching(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'changed'):
             catalog.fetch(self.entry, self.cache)
 
+    def test_prune_keeps_only_the_pinned_folders(self):
+        m = catalog.fetch(self.entry, self.cache)
+        earlier = self.cache / 'probe-0123456789ab'
+        catalog.git('clone', '-q', str(self.repository), str(earlier))
+        (self.cache / 'probe-fedcba987654.partial').mkdir()
+        (self.cache / 'collection.json').write_text('{}', encoding='utf-8')
+        self.assertEqual(catalog.prune(self.cache, [m.root]), ['probe-0123456789ab', 'probe-fedcba987654.partial'])
+        self.assertEqual(sorted(p.name for p in self.cache.iterdir()),
+                         sorted(['collection.json', m.root.relative_to(self.cache.resolve()).parts[0]]))
+        self.assertEqual(catalog.fetch(self.entry, self.cache).root, m.root)
+
     def test_an_interrupted_fetch_is_started_again(self):
         broken = self.cache / f"probe-{self.entry['commit'][:12]}"
         broken.mkdir(parents=True)
