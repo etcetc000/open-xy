@@ -34,7 +34,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
 # 1.7 to 1.9 are held for send-effect screens (#230), aux machines (#221, #234, #198)
 # and synthesis drum kits (#121); 1.10 lets a sample engine forking the sampler draw its
-# own screen. If they haven't landed when this merges, the number moves down.
+# own screen and read its sample's overview. If they haven't landed when this merges, the
+# number moves down.
 SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -246,6 +247,13 @@ def require_sdk(version, minimum, feature):
     require(version >= minimum, f'{feature} needs "sdk": "%d.%d" in machine.json' % minimum)
 
 
+def reads_sample_overview(root):
+    """Whether a machine's own C++, its tests and tools aside, includes the overview header."""
+    include = re.compile(r'^\s*#\s*include\s*[<"]opxy/sample_overview\.hpp[>"]', re.M)
+    return any(include.search(path.read_text(encoding='utf-8', errors='replace')) for path in tree(root)
+               if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
+
+
 def machine_at(root, identity=None):
     """The machine in a folder; its definition names it."""
     root = Path(os.path.abspath(root))
@@ -301,6 +309,9 @@ def machine_at(root, identity=None):
     # A synth draws its own screen, and so may a sample engine (SDK 1.10); other
     # sample engines and effects use a stock page.
     display = 'drawing' if kind == 'synth' or 'display' in definition['resources'] else 'stock'
+    if reads_sample_overview(root):
+        require_sdk(version, (1, 10), 'A sample overview (opxy/sample_overview.hpp)')
+        require(kind == 'sample' and display == 'drawing', "Only a sample engine's own screen reads a sample overview")
     # The native plan compiles extra translation units only into synths.
     if kind != 'synth':
         require(not sources and not includes, 'Sample engines and effects compile one fx.cpp or sample.cpp')

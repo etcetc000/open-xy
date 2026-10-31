@@ -197,7 +197,7 @@ column is shared. It does not touch the machine's audio or parameter state.
 
 ### Sample overview
 
-A sample engine's [own screen](api.md#own-screen) can draw its sample.
+From SDK 1.10, a sample engine's [own screen](api.md#own-screen) can draw its sample.
 [sample_overview.hpp](../sdk/include/opxy/sample_overview.hpp) gives display
 code `opxy_sample_overview()`, never null: the selected track's sample as the
 engine plays it.

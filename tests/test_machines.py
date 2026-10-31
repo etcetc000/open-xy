@@ -343,6 +343,39 @@ class OutsideMachines(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'stock sample page'):
             machines.machine_at(folder)
 
+    def test_only_a_sample_engines_own_screen_reads_the_overview_from_sdk_1_10(self):
+        include = '#include <opxy/sample_overview.hpp>\n'
+        # A synth at its own version, or one the header doesn't yet exist in.
+        synth = self.copy('probesynth')
+        source = synth / 'display.cpp'
+        source.write_text(include + source.read_text(encoding='utf-8'), encoding='utf-8')
+        self.numberless(synth, sdk='1.9')
+        with self.assertRaisesRegex(ValueError, r'A sample overview \(opxy/sample_overview.hpp\) needs "sdk": "1.10"'):
+            machines.machine_at(synth)
+        self.numberless(synth, sdk='1.10')
+        with self.assertRaisesRegex(ValueError, "Only a sample engine's own screen"):
+            machines.machine_at(synth)
+        # In its tests or tools it's the machine's own business.
+        (synth / 'tests').mkdir(exist_ok=True)
+        (synth / 'tests/screen.cpp').write_text(include, encoding='utf-8')
+        source.write_text(source.read_text(encoding='utf-8').replace(include, ''), encoding='utf-8')
+        self.assertEqual(machines.machine_at(synth).id, synth.name)
+        # A sample engine without a display of its own has none to read it from.
+        folder = self.copy('probesample')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        definition['resources'].pop('padSettings')
+        definition['resources'].pop('drumControls')
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        (folder / 'display.cpp').write_text(include, encoding='utf-8')
+        self.numberless(folder, base='sampler', sdk='1.10')
+        with self.assertRaisesRegex(ValueError, "Only a sample engine's own screen"):
+            machines.machine_at(folder)
+        # With one, it may.
+        synth_definition = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+        definition['resources']['display'] = synth_definition['resources']['display']
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.assertEqual(machines.machine_at(folder).display, 'drawing')
+
     def preset(self, **changes):
         value = {'engine': {'params': [0, 16384, 32767, 0, 0, 0, 0, 0], 'volume': 16384}, 'platform': 'OP-XY',
                  'regions': [], 'type': 'fmcopy', 'version': 4}
