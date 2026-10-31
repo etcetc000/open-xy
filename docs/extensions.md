@@ -228,3 +228,34 @@ data, every hook's events, stale-context and unauthorized edits, and the
 adapter end to end with stock boundary doubles and the SDK's probe extension
 ([`tests/fixtures/extension_probe`](../tests/fixtures/extension_probe/extension.cpp)). Device scheduling still requires
 testing the exact built image.
+
+### Read a stopped pattern source
+
+An extension with the `read_patterns` action can inspect an existing instrument
+pattern inside its accepted, claimed `queued_control` callback. These read actions
+do not change the selected scene, create undo entries or publish edits.
+
+```cpp
+opxy::extensions::PatternInfo source{};
+opxy::extensions::Note notes[opxy::extensions::pattern_note_capacity];
+opxy::u32 count = 0;
+if (actions.discover_pattern(2, 1, source) &&
+    actions.read_pattern(source.ref, notes, opxy::extensions::pattern_note_capacity, count)) {
+    // Track 3, source B, independently of the scene's selected pattern.
+    // count == 0 is a successful empty pattern.
+}
+```
+
+Tracks are zero-based 0–7 and source indices 0–15; only existing sources can be
+read. `PatternInfo` supplies length in stock ticks (480 per step at scale 1) and
+the stock scale index. `PatternRef` is an equality-only project-generation-bound
+identity, not a pointer or persistent identifier. Discover it again after loading
+or creating a project, including when stock reuses the same memory address.
+
+Reads require stopped transport, no held or latched Record, normal recorder mode
+and no pending project load. They copy and validate the bounded native note list;
+held notes and malformed lists fail. This is a stopped controller-path inspection
+service, not an atomic live editor subscription. `read_pattern` copies all notes
+or none: insufficient capacity returns false with count zero and leaves the
+output buffer unchanged. The maximum capacity is 120. The actions are unavailable
+outside the granted callback, including through a retained `Actions` value.

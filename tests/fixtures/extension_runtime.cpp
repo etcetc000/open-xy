@@ -5,6 +5,7 @@ using namespace opxy::platform;
 namespace {
 RecordingContext stock_context = {1, 2, 0, 7680, 3, 255, true, true};
 bool playing = true;
+u32 reads, discoveries;
 u32 writes, notices, observations, order[16], order_count, result, mode, written_track;
 extensions::Actions saved;
 extensions::Context saved_context;
@@ -19,9 +20,16 @@ void second_note(const extensions::Context&, const extensions::LiveNote&) { orde
 void observe_control(const extensions::Context& context, const extensions::Control&, const extensions::Actions& actions) {
     result = actions.insert_notes(context, 0, &good, 1);
     actions.notify("unauthorized");
+    extensions::PatternInfo info{};
+    actions.discover_pattern(0,0,info);
 }
 void edit_control(const extensions::Context& context, const extensions::Control&, const extensions::Actions& actions) {
     saved = actions; saved_context = context;
+    if (mode == 11) {
+        extensions::PatternInfo info{}; RecordedNote out{}; u32 count=99;
+        result = actions.discover_pattern(3,1,info) && actions.read_pattern(info.ref,&out,1,count) && count==1;
+        return;
+    }
     RecordedNote note = good;
     u32 track = context.recording.track;
     if (mode == 1) ++stock_context.pattern;
@@ -43,8 +51,8 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
                                                     .with_queued_control(edit_control);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0};
-const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2};
+u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0};
+const ExtensionRegistry tables = {claim_keys, 2, action_claims, 3};
 ExtensionEntry collection[] = {{"observer", 0, 0, &first},
                                {"writer", 1u, action_edit_notes | action_notify, &second}};
 }
@@ -63,6 +71,12 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
     ++writes; replaced = replace; written_track = track; return count;
 }
 void extension_notify(const char*) { ++notices; }
+bool extension_discover_pattern(u32 track,u32 index,extensions::PatternInfo& out) {
+    ++discoveries; out={{1,2,track,index},7680,3}; return true;
+}
+bool extension_read_pattern(const extensions::PatternRef&,RecordedNote* out,u32,u32& count) {
+    ++reads; *out=good;count=1;return true;
+}
 }}
 void control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};
@@ -118,6 +132,13 @@ int main() {
     control(50, true); CHECK(writes == before);
     control(51, true); CHECK(writes == before + 1);
     control(51, false); CHECK(writes == before + 1);
+    mode=11; control(51,true); CHECK(!result && !reads && !discoveries);
+    collection[1].actions |= action_read_patterns;
+    control(51,true); CHECK(result && reads==1 && discoveries==1);
+    control(51,false); CHECK(!result && reads==1 && discoveries==1);
+    extensions::PatternInfo info{}; RecordedNote out{};u32 count=99;
+    CHECK(!saved.discover_pattern(3,1,info));
+    CHECK(!saved.read_pattern(info.ref,&out,1,count) && count==0 && reads==1);
     // An action whose claim its holder lacks disables the collection.
     initialized = false; entries = nullptr; action_claims[0] = 1u;
     control(51, true); CHECK(writes == before + 1);
