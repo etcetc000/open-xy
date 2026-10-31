@@ -531,6 +531,26 @@
     },
     {
       "kind": "hook",
+      "address": "0x8d588df2",
+      "file_offset": "0x1c004e",
+      "length": 4,
+      "before": "01e3e775",
+      "symbol": "sdk_sample_neutral_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d581eb2",
+      "file_offset": "0x1b910e",
+      "length": 4,
+      "before": "01e387ad",
+      "symbol": "sdk_sample_neutral_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8c0b2730",
       "file_offset": "0xe996c",
       "length": 8,

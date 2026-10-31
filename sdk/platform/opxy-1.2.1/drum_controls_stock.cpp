@@ -23,6 +23,7 @@ opxy::u32 sdk_sample_press_engine_owned(opxy::u32, opxy::u32) __asm__("sdk_sampl
 opxy::u32 sdk_sample_region_control(opxy::u32, opxy::u32, const opxy::u32*, opxy::u32) __asm__("sdk_sample_region_control");
 opxy::u32 sdk_sample_page_turn(opxy::u32, opxy::u32, const opxy::u32*) __asm__("sdk_sample_page_turn");
 opxy::u32 sdk_sample_param_engine(opxy::u32) __asm__("sdk_sample_param_engine");
+opxy::u32 sdk_sample_neutral_engine(opxy::u32) __asm__("sdk_sample_neutral_engine");
 opxy::u32 sdk_sample_selected_engine() __asm__("sdk_sample_selected_engine");
 opxy::u32 sdk_sample_live_pitch_kind(opxy::u32) __asm__("sdk_sample_live_pitch_kind");
 opxy::u32 sdk_sample_octave_store(opxy::u32, opxy::i32) __asm__("sdk_sample_octave_store");
@@ -462,6 +463,15 @@ u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
 u32 sdk_sample_param_engine(u32 track) {
     const u32 id = track_engine(track);
     return own_controls(id) ? 0 : id;
+}
+
+// 8d588df2, project load's check of each track, and 8d581eb2, where a stored
+// track's words are copied back in: both ask the sample predicate, through its
+// alias for a sample engine, and on a yes set the track's eight words to neutral
+// (0x40000000), which a stock sampler's page doesn't use. An owned page-2 engine
+// drawing its own screen holds its controls in them, so it answers no, as a synth does.
+u32 sdk_sample_neutral_engine(u32 id) {
+    return own_controls(id) ? 0 : stock<u32(u32)>(0x8d5b79c0)(id);
 }
 
 // 8c094710: stock's edit-multiple controller already iterates its selection
