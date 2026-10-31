@@ -23,7 +23,9 @@ import { createAudioActivation } from './audio-activation.mjs';
 import { createOutputMute } from './audio-output.mjs';
 import { PreviewDisplay, SvgDisplay, NoteActivity } from '../sdk/browser/display.mjs';
 const noteActivity = new NoteActivity();
-const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header);
+import { EncoderActivity } from '../sdk/browser/encoder_activity.mjs';
+const encoderActivity = new EncoderActivity();
+const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header, previewManifest.definition.resources?.display?.fullCanvas === 1);
 const $ = id => document.getElementById(id);
 const controlId = id => customPreview ? `custom-control-${parameters.findIndex(p => p.id === id)}` : id;
 // Page copy comes from the machine: its definition and machine.json description.
@@ -42,6 +44,8 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let context, processor, gain, muteGain, analyser, samples, starting;
 let audioBackend = null;
 const outputMute = createOutputMute();
+let globalMeter = null;
+let audioTelemetry = null;
 const parameterWords = () => q31(values);
 const held = new Map(), timers = new Set();
 const keys = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k'];
@@ -65,6 +69,16 @@ function playbackStatus() {
     ? `Audio on · ${context.sampleRate.toLocaleString()} Hz · 8 preview voices`
     : 'Play a key or phrase to start audio';
 }
+let snapshotSerial = 0, pendingSnapshot = null, pendingDraw = false, pendingElapsed = 0;
+function takeAudio() {
+  if (!processor || !audioBackend || context?.state !== 'running') return Promise.resolve(null);
+  const id = ++snapshotSerial;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { pendingSnapshot = null; reject(new Error('Audio telemetry timed out')); }, 1000);
+    pendingSnapshot = {id, resolve, timer};
+    send({type:'audioSnapshot', id, track:0, reset:display?.audioResetRequested() ?? false, resetTarget:display?.audioResetTarget() ?? 1});
+  });
+}
 
 for (const [i, param] of parameters.entries()) {
   const id = controlId(param.id);
@@ -73,12 +87,21 @@ for (const [i, param] of parameters.entries()) {
   item.dataset.controlPosition = positions[i] + 1;
   item.innerHTML = `<label for="${id}">${param.label}</label><svg id="knob-${id}" class="dial" viewBox="0 0 60 60" role="slider" tabindex="0" aria-label="${param.label} knob" aria-valuemin="0" aria-valuemax="1" aria-orientation="vertical"><title>Drag up or down to adjust. Hold Shift for fine control.</title><circle class="dial-ring" cx="30" cy="30" r="27"/><circle class="dial-cap" cx="30" cy="30" r="18"/><line id="dial-${id}" x1="30" y1="16" x2="30" y2="23"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${param.label}">`;
   $('controls').append(item);
+  for (const type of ['pointerdown', 'keydown']) $(id).addEventListener(type, event => {
+    display?.controlInteraction(0,positions[i],i,parameterWords()[i],event);
+    if (encoderActivity.record(positions[i], event)) draw();
+  });
   $(id).addEventListener('input', event => {
+    encoderActivity.record(positions[i], event);
     values[param.id] = Number(event.target.value);
+    display?.controlInteraction(0,positions[i],i,parameterWords()[i],event);
     shown = editedShown(shown, positions, i, previewManifest.definition.press === 'page');
     update();
   });
-  bindKnob($(`knob-${id}`), $(id));
+  bindKnob($(`knob-${id}`), $(id), event => {
+    display?.controlInteraction(0, positions[i], i, parameterWords()[i], event);
+    if (encoderActivity.record(positions[i], event)) draw();
+  });
 }
 for (const [name, preset] of Object.entries(presets)) {
   const button = document.createElement('button');
@@ -87,14 +110,28 @@ for (const [name, preset] of Object.entries(presets)) {
   $('presets').append(button);
 }
 function draw(elapsed = 0) {
-  if (display) {
-    const input = shownControls(parameterWords(), shown);
-    try {
-      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity));
+  pendingElapsed = Math.min(8192, pendingElapsed + elapsed);
+  if (pendingDraw) return;
+  const apply = snapshot => {
+    globalMeter=snapshot?.globalMeter??null;
+    audioTelemetry=snapshot?{count:snapshot.count,sequence:snapshot.sequence,requested:snapshot.requested,applied:snapshot.applied,resetSupported:snapshot.resetSupported}:null;
+    const dt = pendingElapsed; pendingElapsed = 0;
+    if (display) {
+      const input = shownControls(parameterWords(), shown);
+      try {
+        scene.apply(display.tick(input, dt, visualNotes, 0, reducedMotion.matches, noteActivity, null, snapshot, encoderActivity.snapshot()));
+        // Immediate parameter redraws use dt0; retain activity until the next
+        // timed GUI frame so the original elapsed-time smoother can observe it.
+        if (dt > 0) encoderActivity.clear();
+      }
+      catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
     }
-    catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
-  }
-  $('screen').innerHTML = renderScreen(values, view, samples, scene?.svg() || '');
+    $('screen').innerHTML = renderScreen(values, view, samples, scene?.svg() || '');
+  };
+  if (display?.audioWords) {
+    pendingDraw = true;
+    takeAudio().then(apply).catch(error => status(error.message)).finally(() => { pendingDraw = false; });
+  } else apply(null);
 }
 async function loadPreview() {
   const manifest = previewManifest;
@@ -144,7 +181,8 @@ async function enableAudio() {
         const [{ manifest, digest, module }] = await Promise.all([preview, context.resume()]);
         await context.audioWorklet.addModule('/harness/processor.mjs');
         processor = new AudioWorkletNode(context, 'opxy-engine', { numberOfInputs: 0, numberOfOutputs: 1,
-          outputChannelCount: [1], processorOptions: { module, parameters: parameterWords() } });
+          outputChannelCount: [new WebAssembly.Instance(module).exports.opxy_output_channels?.() ?? 1],
+          processorOptions: { module, parameters: parameterWords() } });
         const ready = new Promise((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error('Audio processor did not start.')), 5000);
           processor.onprocessorerror = () => {
@@ -152,6 +190,10 @@ async function enableAudio() {
             audioBackend = null; panic(); status('Audio processor stopped. Reload to retry.');
           };
           processor.port.onmessage = ({ data }) => {
+            if (pendingSnapshot && data.audioSnapshot === pendingSnapshot.id) {
+              const pending = pendingSnapshot; pendingSnapshot = null;
+              clearTimeout(pending.timer); pending.resolve(data.snapshot);
+            }
             if (data.ready) {
               clearTimeout(timeout); audioBackend = { ...data, wasmSha256: digest }; resolve();
             }
@@ -311,7 +353,7 @@ window.machineLab = Object.freeze({
   noteOn: (note, velocity = 0.8) => noteOn(`api-${note}`, note, velocity),
   noteOff: note => noteOff(`api-${note}`), panic,
   getStatus: () => ({ audio: context?.state || 'off', muted: outputMute.muted, heldNotes: held.size, sampleRate: context?.sampleRate || null,
-    audioBackend, displayBackend,
+    audioBackend, displayBackend, globalMeter, audioTelemetry, shownControls:shown.slice(),
     visualNotes, noteActivity: { held_notes: display?.input[17] ?? null, note_off_serial: display?.input[18] ?? null },
     rms: !outputMute.muted && samples ? Math.sqrt(samples.reduce((sum, x) => sum + x * x, 0) / samples.length) : 0 }),
 });
@@ -326,7 +368,7 @@ function animate(time) {
     lastFrame = time;
     if (analyser && context?.state === 'running') analyser.getFloatTimeDomainData(samples);
     else samples?.fill(0);
-    if (view === 'waveform' || !reducedMotion.matches) draw(elapsed);
+    if (view === 'waveform' || !reducedMotion.matches || encoderActivity.mask) draw(elapsed);
   }
   requestAnimationFrame(animate);
 }

@@ -36,6 +36,21 @@ def obj(sections, symbols):
 
 
 class Normalize(unittest.TestCase):
+    def test_native_telemetry_linkage_preserves_shared_groups_and_weak_definitions(self):
+        data = obj([('.group', 17, 0, struct.pack('<II', 1, 2)),
+                    ('.text.shared', 1, ALLOC | 0x4 | GROUP, b'\x01\x02'),
+                    ('.rodata.str', 1, ALLOC | MERGE_STRINGS, b'a\0')], [(2, 2)])
+        out = normalize_object(data, keep_comdat=True)
+        before = [h for _at, h in elf_sections(data)]
+        after = [h for _at, h in elf_sections(out)]
+        self.assertEqual(after[1], before[1])
+        self.assertEqual(after[2], before[2])
+        self.assertEqual(after[3][2], ALLOC)
+        table = after[4][4]
+        self.assertEqual(out[table + 16 + 12] >> 4, 2)
+        self.assertEqual(normalize_object(out, keep_comdat=True), out)
+
+
     def test_comdat_groups_become_plain_sections_and_global_definitions(self):
         # An out-of-line inline function: .group naming it, its .text.* member and a weak symbol.
         data = obj([('.group', 17, 0, struct.pack('<II', 1, 2)),

@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {PreviewEngine} from '../sdk/browser/engine.mjs';
+import {PreviewDisplay} from '../sdk/browser/display.mjs';
+import {shownControls} from '../sdk/browser/controls.mjs';
+const module=new WebAssembly.Module(readFileSync(process.argv[2]));
+const audio=new PreviewEngine(module,44100,Array(8).fill(0));const display=new PreviewDisplay(module);
+audio.noteOn(60);audio.render(new Float32Array(128));
+const first=audio.takeAudio();assert.equal(first.count,33);assert.equal(first.words[0],0x00040006);assert.equal(first.words[32],0x10203060);
+const repeat=audio.takeAudio();assert.equal(repeat.words[0],0);assert.deepEqual(repeat.words.slice(1),first.words.slice(1));
+const input=shownControls(Array(8).fill(0),[0,1,2,3]);display.tick(input,17,1,0,false,null,null,first);assert.ok(display.audioResetRequested());
+const pending=audio.takeAudio(0,true);assert.ok(pending.requested);assert.equal(pending.applied,0);
+audio.render(new Float32Array(64));const applied=audio.takeAudio();assert.equal(applied.words[0],0x00020003);assert.equal(applied.applied,pending.requested);
+assert.deepEqual(applied.words.slice(1),first.words.slice(1));
+console.log('PASS: actual mixed33-word WASM snapshot, consumed packed prefix, persistent waveform and reset acknowledgment.');

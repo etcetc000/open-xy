@@ -21,6 +21,7 @@
 #include "stock.hpp"
 #include "synth_controls.hpp"
 #include <opxy/q31.hpp>
+@AUDIO_INCLUDE@
 // Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
 extern "C" {
 void* @PREFIX@_factory(opxy::u32) __asm__("@PREFIX@_factory");
@@ -39,7 +40,7 @@ const opxy::u32 kVoiceIndices = 256;
 // seen: the block it last rendered in; asked: the block its note began to wait
 // for a voice; slot: its voice plus one, or 0; wants: its note started but lost
 // its wait for a voice.
-struct Handle { const void* const* vtable; opxy::u16 seen, asked; opxy::u8 slot, wants; };
+struct Handle { const void* const* vtable; opxy::u16 seen, asked; opxy::u8 slot, wants@RELEASE_STATE@; };
 static_assert(sizeof(void*) != 4 || sizeof(Handle) == 12, "Handle layout");
 // owner: a voice ID, or 0 when free. born: the block its note started in,
 // since: the tick. next: the voice ID of a note waiting while this one fades.
@@ -52,6 +53,7 @@ const opxy::u32 kStockVoices = 27;
 const opxy::u32 kVoices = (@CAPACITY@ < kStockVoices ? @CAPACITY@ : kStockVoices) + 1;
 static Slot voices[kVoices];
 static Shared shared;
+@AUDIO_STORAGE@
 static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
 static_assert(alignof(Voice) == @VOICE_ALIGNMENT@, "Declared voice alignment differs from the compiled type");
 static_assert(@SHARED_BYTES@ == 0 ? __is_empty(Shared) : sizeof(Shared) == @SHARED_BYTES@,
@@ -100,6 +102,7 @@ static void begin(Slot& slot, Handle* handle, opxy::u32 now) {
     handle->wants = 0;
     @NAMESPACE@::initialize(slot.voice, shared, id);
     @NAMESPACE@::start(slot.voice, shared, id);
+@RELEASE_PENDING@
 }
 // Ends a voice's note; a note waiting for the voice starts in it.
 static void release(Slot& slot, opxy::u32 now) {
@@ -181,6 +184,7 @@ extern const void* const @PREFIX@_vtable[];
 // A note keeps its handle's voice or takes one (see acquire).
 int @PREFIX@_start(void* self) {
     Handle* handle = static_cast<Handle*>(self);
+@RELEASE_CLEAR@
     const opxy::u32 now = sdk_voice_ticks();
     // Once the machine has stopped rendering, no block counts and sweep has not
     // run: release every ended voice before the new note takes one.
@@ -202,6 +206,7 @@ int @PREFIX@_start(void* self) {
 }
 // A note that ends or restarts gives up its voice, or its wait for one.
 static void end(Handle* handle) {
+@RELEASE_CLEAR@
     if (Slot* slot = held(handle)) {
         release(*slot, sdk_voice_ticks());  // a note waiting for the voice starts in it
     } else if (Slot* slot = pending(handle)) {
@@ -239,19 +244,20 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* parameters) 
     // A note that lost its wait takes a voice once one is free.
     if (handle->wants && !held(handle) && !pending(handle)) acquire(handle, now, false);
     if (Slot* slot = held(handle)) {
-@SWEEP_CONTROLS@        @NAMESPACE@::render(slot->voice, shared, slot->owner, output, controls, increments);
+@SWEEP_CONTROLS@@AUDIO_CONTEXT@        @NAMESPACE@::render(slot->voice, shared, slot->owner, output, controls, increments@AUDIO_ARGUMENT@);
+@AUDIO_END@
         // A taken note's last block fades linearly to silence, as stock fades one.
         if (slot->next) {
             const opxy::i32 frames = static_cast<opxy::i32>(opxy::block_frames), step = 0x7fffffff / (frames - 1);
-            for (opxy::i32 i = 0; i < frames; ++i) output[i] = opxy::q31::multiply(output[i], step * (frames - 1 - i));
+            @FADE_OUTPUT@
             release(*slot, now);
         }
     } else {
-        for (unsigned i = 0; i < opxy::block_frames; ++i) output[i] = 0;
+        for (unsigned i = 0; i < @OUTPUT_FRAMES@; ++i) output[i] = 0;
     }
     return 0;
 }
-static int zero() { return 0; }
+@RELEASE_FUNCTION@@STEREO_FUNCTION@static int zero() { return 0; }
 static void noop() {}
 const char @PREFIX@_name[] = "@NAME@";
 // Stable parameter-slot names for LFO destinations and other stock callers.
@@ -264,8 +270,8 @@ const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&@PREFIX@_destroy), reinterpret_cast<const void*>(&@PREFIX@_destroy),
     reinterpret_cast<const void*>(&@PREFIX@_render), reinterpret_cast<const void*>(&noop),
     reinterpret_cast<const void*>(&@PREFIX@_start), reinterpret_cast<const void*>(&noop),
-    reinterpret_cast<const void*>(&zero), reinterpret_cast<const void*>(&noop),
-    reinterpret_cast<const void*>(&zero), reinterpret_cast<const void*>(&zero),
+    reinterpret_cast<const void*>(&zero), reinterpret_cast<const void*>(&@RELEASE_METHOD@),
+    reinterpret_cast<const void*>(&@STEREO_METHOD@), reinterpret_cast<const void*>(&zero),
     reinterpret_cast<const void*>(opxy::platform::kVoiceDefaultMethod)
 };
 }

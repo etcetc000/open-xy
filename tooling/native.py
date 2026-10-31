@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, screen, startup_label, stock_tables
+from . import audio_telemetry, benchmark, extensions, screen, startup_label, stock_tables
 from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
@@ -87,7 +87,10 @@ def configuration(entries=None, layout=None):
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
         [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
+    profile = audio_telemetry.extend_profile(profile, machines)
     definitions = dict(DEFINITIONS)
+    if "telemetry" in profile["services"]:
+        definitions.update(stock_telemetry_tick=0x8d4d6a10, stock_telemetry_receive=0x8d4d669e)
     for m in machines:
         if m.kind == 'effect':
             definitions[m.prefix + '_fx_id'] = m.identity['effect']
@@ -188,8 +191,8 @@ def plan(machines, profile=None):
         else:
             steps = ('registration', 'sample_voice')
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
-    services = active_services(profile or config(), service_users(machines))
-    units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
+    services = active_services(profile or audio_telemetry.extend_profile(config(), machines), service_users(machines))
+    units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS + TELEMETRY_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
     names = [name for name, _m, _step in units]
@@ -211,6 +214,8 @@ UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callba
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
+TELEMETRY_UNITS = ('telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry')
+UNIT_SERVICES.update(dict.fromkeys(TELEMETRY_UNITS, 'telemetry'))
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
 
 
@@ -366,6 +371,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
+            if step == 'telemetry_registry':
+                return cxx(str(audio_telemetry.generate_registry(folder, machines)), obj)
+            if step == 'telemetry_protocol':
+                return cxx(TEMPLATES + 'telemetry/protocol.cpp', obj)
             if step == 'benchmark':
                 return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
             if step.startswith('extension:'):
@@ -412,10 +421,15 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         obj = directory / name
         build_unit(obj, m, step)
         # Disable string pooling so the browser linker places sections exactly as GNU ld does.
-        obj.write_bytes(normalize_object(read(obj)))
+        obj.write_bytes(normalize_object(read(obj), keep_comdat=any(m.kind == 'synth' and audio_telemetry.enabled(m.definition) for m in machines)))
         require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
     stack_usage(directory)
-    linked = linked_machines(directory, tools, profile, machines, definitions)
+    if any(m.kind == 'synth' and audio_telemetry.enabled(m.definition) for m in machines):
+        overflow = link(directory, tools, profile, definitions, machines, machines)
+        require(overflow is None, 'Machines exceed the shared module memory, ' + str(overflow))
+        linked = machines
+    else:
+        linked = linked_machines(directory, tools, profile, machines, definitions)
     module, sizes, patch_profile, hooks, stack, usage = check_module(directory, tools, profile, linked, profiling)
     require(provenance(machines) == before, 'Sources changed during compilation')
     report = dict(schema=1, target=TARGET, status='experimental-unqualified', sources=before,
@@ -429,11 +443,14 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   linked=[m.id for m in linked],
                   services=sorted(active_services(profile, service_users(linked))), device_operations=False,
                   hardware_tested=False, cpu_timing_measured=False)
+    if any(m.kind == 'synth' and audio_telemetry.enabled(m.definition) for m in machines):
+        report['object_linkage'] = 'gnu-comdat'
+        report['native_audio_transport'] = dict(protocol=2, maximum_words=256, queue_in_render=False, hardware_tested=False)
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
 
 
-def normalize_object(data):
+def normalize_object(data, *, keep_comdat=False):
     """Disable GNU string pooling and COMDAT groups for reproducible, simple section placement.
 
     An inline function the compiler keeps out of line, or a static inside one, comes
@@ -446,6 +463,12 @@ def normalize_object(data):
     require(struct.unpack_from('<H', data, 16)[0] == 1, 'Expected Blackfin ET_REL')
     out = bytearray(data)
     for at, (_name, kind, flags, _addr, offset, size, *_rest) in sections:
+        if keep_comdat:
+            # Native telemetry builds retain GNU deduplication of inline functions
+            # and their shared state. The browser exporter refuses this mode.
+            if flags & 2:
+                struct.pack_into('<I', out, at + 8, flags & ~0x30)
+            continue
         if kind == 17:  # SHT_GROUP: deactivate the header without moving section indices
             # PROGBITS leaves multiple orphan .group sections in GNU's final ELF.
             # SHT_NULL makes the linker ignore the obsolete group records entirely.
@@ -640,21 +663,76 @@ def panel_root(fragment, source):
         raise ValueError(f'{source} must be one SVG element, such as <g id="..._panel">...</g> ({error})') from None
 
 
+def glyph_commands(node):
+    """Bounded absolute M/L/C/Z grammar; no implicit commands or transforms."""
+    require(node is not None and node.tag == 'path' and not node.get('transform'), 'Glyph source must be an untransformed path')
+    data = node.get('d', '')
+    tokens = re.findall(r'[MLCZ]|[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)', data)
+    remainder = re.sub(r'[MLCZ]|[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)', '', data)
+    require(re.fullmatch(r'[\s,]*', remainder) is not None, 'Unsupported glyph command grammar')
+    result, i, closed = [], 0, True
+    while i < len(tokens):
+        verb = tokens[i]; i += 1
+        require(verb in ('M', 'L', 'C', 'Z') and (not closed or verb == 'M'), 'Invalid glyph contour')
+        n = {'M': 2, 'L': 2, 'C': 6, 'Z': 0}[verb]
+        require(i+n <= len(tokens), 'Truncated glyph command')
+        values = tokens[i:i+n]; i += n
+        require(all(re.fullmatch(NUMBER, v) for v in values), 'Invalid glyph coordinate')
+        require(all(abs(float(v)) <= 8192 for v in values), 'Glyph coordinate outside bound')
+        result.append((verb, values)); closed = verb == 'Z'
+        require(len(result) <= 16, 'Glyph command capacity exceeded')
+    require(result, 'Empty glyph source')
+    return result
+
+
+def glyph_ids(prefix, display):
+    return [f'{prefix}_glyph_{d}_{p}' for d in range(display.get('glyphDefinitions', 0)) for p in range(2)]
+
+
+def check_glyphs(by_id, prefix, display):
+    if not display.get('glyphs'): return
+    for index, name in enumerate(glyph_ids(prefix, display)):
+        commands = glyph_commands(by_id.get(name))
+        require(index % 2 or len(commands) >= 2, 'First glyph path must contain ink')
+    for index in range(display['glyphStart'], display['glyphStart'] + 2*display['glyphs']):
+        name = f'{prefix}_node_{index}'
+        node = by_id.get(name)
+        require(node is not None and node.tag == 'path' and node.get('fill') == 'none',
+                'Glyph instance must own a stroke-only path')
+        # A scaffold has sixteen distinct endpoints: the stock parser merges repeats.
+        clone = ET.Element('path', {'d': node.get('d', '')})
+        commands = glyph_commands(clone)
+        require(len(commands) == 16 and [v for v, _ in commands] == ['M'] + ['L']*15 and
+                len({tuple(float(x) for x in values) for _, values in commands}) == 16,
+                'Glyph instance needs sixteen distinct reserved commands')
+
+
 def check_outlines(by_id, prefix, display):
-    """Drawing paths are the first nodes: exactly M, (points - 1) L and Z, unfilled."""
+    """Authenticate immutable retained topology before native coordinate updates."""
     points = display['points']
-    for name in display_ids(prefix, display)[:display['paths']]:
+    for index, name in enumerate(display_ids(prefix, display)[:display['paths']]):
         node = by_id.get(name)
         commands = re.findall(r'[A-Za-z]', node.get('d', '')) if node is not None else []
         coordinates = re.findall(NUMBER, node.get('d', '')) if node is not None else []
-        require(node is not None and node.tag == 'path' and commands == ['M'] + ['L'] * (points - 1) + ['Z'] and
-                len(coordinates) == 2 * points and node.get('fill') == 'none',
-                'Mutable outline must contain exactly M, %d L and Z, with no fill: %s' % (points - 1, name))
+        cubic = bool(display.get('cubic'))
+        quadratic = bool(display.get('quadratic'))
+        segments = bool(display.get('segmentPaths', 0) & (1 << index))
+        opened = cubic or bool(display.get('openPaths', 0) & (1 << index))
+        expected = ['M'] + ['Q'] * (display['commands'] - 1) if quadratic else ['M', 'C'] if cubic else ['M', 'L'] * (points - 1) if segments else ['M'] + ['L'] * (points - 1) + ([] if opened else ['Z'])
+        coordinate_pairs = 2 * display['commands'] - 1 if quadratic else 2 * (points - 1) if segments else points
+        topology = 'M and %d Q' % (display['commands'] - 1) if quadratic else 'M and C' if cubic else '%d separate M/L pairs' % (points - 1) if segments else 'M, %d L%s' % (points - 1, '' if opened else ' and Z')
+        require(node is not None and node.tag == 'path' and commands == expected and
+                len(coordinates) == 2 * coordinate_pairs and (display.get('affine') or cubic or node.get('fill') == 'none'),
+                'Mutable path must contain exactly %s with %d coordinate pairs: %s' % (topology, coordinate_pairs, name))
         # The stock parser merges repeated points, leaving fewer than the frame
         # binds, and the device then no longer reshapes the outline. Points are
         # compared as the Q10 coordinates the device holds.
         pairs = [(round(float(x) * 1024), round(float(y) * 1024)) for x, y in zip(coordinates[::2], coordinates[1::2])]
-        require(len(set(pairs)) == points,
+        if segments:
+            require(all(pairs[2*i+1] == pairs[2*i+2] for i in range(points - 2)),
+                    'Separate segments must reuse adjacent frame vertices: ' + name)
+            pairs = pairs[::2] + pairs[-1:]
+        require(quadratic or cubic or len(set(pairs)) == points,
                 'Mutable outline repeats a point; the device merges repeated points, so keep each distinct: ' + name)
 
 
@@ -666,6 +744,7 @@ def check_bindings(by_id, prefix, display):
     count = display['nodes'] + display['texts']
     bound, texts, palette = ids[:display['nodes']], ids[display['nodes']:count], ids[count:]
     check_outlines(by_id, prefix, display)
+    check_glyphs(by_id, prefix, display)
     for name in bound + texts:
         node = by_id.get(name)
         kind = ('text',) if name in texts else ('path', 'circle')
@@ -702,6 +781,19 @@ def validate_panel(m, fragment=None):
     palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
     for name in palette:
         donor(name)
+    display = m.definition['resources']['display']
+    if display.get('rgba'):
+        for name in display_ids(m.prefix, display)[:display['nodes']]:
+            node = by_id[name]
+            require('opacity' not in node.attrib, 'RGBA nodes require separate fill/stroke opacity: ' + name)
+            for paint in ('fill', 'stroke'):
+                value = node.get(paint, 'none')
+                require(value == 'none' or re.fullmatch(r'#[0-9A-Fa-f]{6}', value),
+                        'RGBA nodes require explicit #RRGGBB or none: ' + name)
+                if value != 'none':
+                    require(0 < float(node.get(paint + '-opacity', '1')) <= 1,
+                            'RGBA paint must have an initially allocated visible style: ' + name)
+
     for node in nodes:
         for attribute in SVG_NUMERIC.intersection(node.attrib):
             value = node.attrib[attribute]
@@ -743,7 +835,7 @@ def prepare_assets(catalog, profile, machines):
     outputs = {'content/op1_factory.json': extend_catalog(catalog, profile, machines)}
     for m in machines:
         if m.display != 'stock':
-            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
+            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m), bool(m.definition['resources']['display'].get('fullCanvas')))
     return outputs
 
 

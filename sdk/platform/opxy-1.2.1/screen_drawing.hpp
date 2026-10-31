@@ -5,6 +5,8 @@
 #pragma once
 #include "screen.hpp"
 #include "note_activity.hpp"
+#include "rgba_palette.hpp"
+#include "glyph_atlas.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 
@@ -12,8 +14,34 @@ namespace opxy { namespace screen { namespace {
 // One typed GUI state, input and frame; never accessed by audio callbacks.
 binding::DisplayState display_state;
 u32 display_activation;
-draw::Input display_input;
+binding::DisplayInput display_input;
 binding::Frame display_frame;
+
+// Standard-layout objects keep the stock screen prefix at byte zero.
+// The zero-glyph specialization preserves the existing renderer allocation.
+template<u32 N,u32 T,u32 P,u32 Paths,u32 Glyphs,u32 Definitions> struct DrawingObject {
+    Base base;
+    PathNode* nodes[N];
+    u8 authored_visibility[N];
+    Leaf* texts[T > 0 ? T : 1];
+    char shown[T > 0 ? T : 1][draw::text_capacity];
+    u32 palette[P > 0 ? P : 1];
+    i32 delta;
+    u32 geometry[Paths > 0 ? Paths : 1];
+    u32 keys[Paths > 0 ? Paths : 1];
+    glyph_detail::State<Glyphs,Definitions> glyph_state;
+};
+template<u32 N,u32 T,u32 P,u32 Paths> struct DrawingObject<N,T,P,Paths,0,0> {
+    Base base;
+    PathNode* nodes[N];
+    u8 authored_visibility[N];
+    Leaf* texts[T > 0 ? T : 1];
+    char shown[T > 0 ? T : 1][draw::text_capacity];
+    u32 palette[P > 0 ? P : 1];
+    i32 delta;
+    u32 geometry[Paths > 0 ? Paths : 1];
+    u32 keys[Paths > 0 ? Paths : 1];
+};
 
 // Machine: ids[] names the artwork's nodes (the first are the mutable paths),
 // then its text slots, then its palette entries.
@@ -23,70 +51,97 @@ template <class Machine> struct Drawing {
            text_count = Frame::text_count, palette_count = Frame::palette_count };
     static_assert(sizeof(Machine::ids) / sizeof(Machine::ids[0]) == node_count + text_count + palette_count,
                   "Drawing artwork IDs");
-    struct Object {
-        Base base;
-        PathNode* nodes[node_count];  // path leaves, or 0 when missing or foreign
-        Leaf* texts[text_count > 0 ? text_count : 1];  // text leaves, or 0
-        char shown[text_count > 0 ? text_count : 1][draw::text_capacity];  // each slot's applied text
-        u32 palette[palette_count];    // packed palette entry IDs, or 0
-        i32 delta;               // elapsed time of the current frame, Q10 seconds
-        u32 geometry[path_count > 0 ? path_count : 1];  // each path's command vector as validated at init
-        u32 keys[path_count > 0 ? path_count : 1];      // each path's last applied key
-    };
+    typedef DrawingObject<node_count,text_count,palette_count,path_count,
+        Frame::glyph_count,Frame::glyph_definition_count> Object;
 
-    // The path's command vector begin if it is exactly M, (points - 1) L, Z, or 0.
-    static u32 geometry(void* raw) {
+    static PathKind kind(u32 path) {
+        return Frame::cubic ? cubic_curve : (Frame::segment_paths & (u32(1) << path)) ? separate_segments :
+            (Frame::open_paths & (u32(1) << path)) ? open_polyline : closed_polyline;
+    }
+    // Validate all retained command types and bounds before any coordinate write.
+    static u32 geometry(void* raw, u32 path, bool initial = false) {
         const PathNode* node = path_node(raw);
         if (!node) return 0;
         const Vector& v = node->commands;
         if (!v.begin || v.begin & 3 || v.end < v.begin || v.capacity < v.end) return 0;
-        if (v.end - v.begin != 32 * (point_count + 1) || v.capacity - v.begin > 4096) return 0;
+        if (v.capacity - v.begin > 16384 || (v.end - v.begin) % 32) return 0;
         const Command* command = reinterpret_cast<const Command*>(v.begin);
-        for (u32 i = 0; i < point_count; ++i)
-            if (command[i].type != (i ? 2 : 1)) return 0;
-        return command[point_count].type == 5 ? v.begin : 0;
+        if (Frame::quadratic) {
+            if (v.capacity - v.begin < 32 * Frame::command_capacity) return 0;
+            return quadratic_types(command, (v.end - v.begin) / 32, Frame::command_capacity, initial) ? v.begin : 0;
+        }
+        if (Frame::counted) {
+            if (v.capacity - v.begin < 32 * command_count(point_count, kind(path))) return 0;
+            return counted_types(command, (v.end - v.begin) / 32, point_count, kind(path), initial) ? v.begin : 0;
+        }
+        if (v.end - v.begin != 32 * command_count(point_count, kind(path))) return 0;
+        return command_types(command, point_count, kind(path)) ? v.begin : 0;
     }
 
     static void init(Object* o) {
         clear(o);
         display_activation = 0;
+        binding::audio_screen_reset();
         binding::display_reset(&display_state, &display_frame);
         if (!o->base.svg) return;
-        bind_controls(&o->base);
-        for (u32 i = 0; i < node_count; ++i) o->nodes[i] = path_node(find(&o->base, Machine::ids[i]));
+        if (!binding::full_canvas) bind_controls(&o->base);
+        for (u32 i = 0; i < node_count; ++i) {
+            o->nodes[i] = path_node(find(&o->base, Machine::ids[i]));
+            o->authored_visibility[i] = o->nodes[i] ? reinterpret_cast<u8*>(o->nodes[i])[92] : 0;
+        }
         for (u32 i = 0; i < text_count; ++i) {
             o->texts[i] = text_node(find(&o->base, Machine::ids[node_count + i]));
             o->shown[i][0] = 1;  // apply every slot on the first frame
         }
         for (u32 i = 0; i < palette_count; ++i)
             o->palette[i] = palette_ids(find(&o->base, Machine::ids[node_count + text_count + i]), o->base.svg);
-        for (u32 i = 0; i < path_count; ++i) o->geometry[i] = geometry(o->nodes[i]);
+        for (u32 i = 0; i < path_count; ++i) o->geometry[i] = geometry(o->nodes[i], i, true);
+        glyph_detail::Binder<Frame>::template init<Machine>(o);
     }
 
-    // Copies a changed path's coordinates only while its topology is still the
-    // one validated at init; types and vector metadata stay intact.
+    // Ordinary paths retain topology. Quadratic command streams change only
+    // validated M/L/Q records and end within their original reserved capacity.
     static void apply_path(Object* o, u32 p) {
         const typename Frame::path_type& path = display_frame.paths[p];
         if (path.key == o->keys[p]) return;
-        const u32 begin = geometry(o->nodes[p]);
+        const u32 begin = geometry(o->nodes[p], p);
         if (!begin || begin != o->geometry[p]) return;
         Command* command = reinterpret_cast<Command*>(begin);
-        for (u32 i = 0; i < point_count; ++i) {
-            command[i].x = path.points[i].x;
-            command[i].y = path.points[i].y;
-        }
+        const u32 count = path_coordinates(command, path, kind(p));
+        if (Frame::quadratic || Frame::counted) o->nodes[p]->commands.end = begin + 32 * count;
         invalidate(o->nodes[p]);
         o->keys[p] = path.key;
     }
 
+    static void apply_rgba(Object* o, u32 i, u32 color, draw::Paint mode) {
+        PathNode* node = o->nodes[i];
+        if (!node || !o->base.svg) return;
+        bool changed = false;
+        if (mode != draw::rgba_fill && rgba_detail::unique(o->nodes, node_count, i, false)) {
+            const Vector& v = o->base.svg->strokes;
+            changed = rgba_detail::set_color(v.begin, v.end, v.capacity, 20, node->stroke, color);
+        }
+        if (mode != draw::rgba_stroke && static_cast<__INT16_TYPE__>(node->fill) > 0 &&
+            rgba_detail::unique(o->nodes, node_count, i, true)) {
+            const Vector& v = o->base.svg->fills;
+            changed = rgba_detail::set_color(v.begin, v.end, v.capacity, 4, node->fill, color) || changed;
+        }
+        if (changed) invalidate(node);
+    }
+
     // Each node's matrix is its scale times its turn, at (x, y).
     static void apply_node(Object* o, u32 i) {
-        const draw::Node& node = display_frame.nodes[i];
-        if (node.paint != draw::keep) paint(o->nodes[i], o->palette[node.shade], node.paint == draw::fill_and_stroke);
+        const auto& node = display_frame.nodes[i];
         if (!o->nodes[i]) return;
-        const i32 a = draw::floor_q10(node.scale * node.cos), b = draw::floor_q10(node.scale * node.sin);
+        // Stock path_draw checks this byte before allocating/rasterizing cells.
+        reinterpret_cast<u8*>(o->nodes[i])[92] = node.paint == draw::hidden ? 0 : o->authored_visibility[i];
+        if (node.paint == draw::hidden) return;
+        if (Frame::rgba && node.paint >= draw::rgba_stroke) apply_rgba(o, i, node.shade, node.paint);
+        else if (node.paint != draw::keep) paint(o->nodes[i], o->palette[node.shade], node.paint == draw::fill_and_stroke);
+        if (!o->nodes[i]) return;
+        const draw::Matrix m = draw::matrix(node);
         const u32 at[6] = {0, 1, 3, 4, 6, 7};
-        const i32 value[6] = {a, b, -b, a, node.x, node.y};
+        const i32 value[6] = {m.a, m.b, m.c, m.d, m.x, m.y};
         set_words(&o->nodes[i]->leaf, at, value);
     }
 
@@ -126,14 +181,18 @@ template <class Machine> struct Drawing {
         display_input.reduced_motion = 0;
         display_input.shift = controls.shift;
         for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
+        binding::snapshot_audio(display_input);
+        binding::snapshot_encoders(display_input);
         binding::display_render(&display_state, &display_input, &display_frame);
+        binding::finish_audio(display_input);
         if (!binding::display_valid(&display_frame)) return;
+        if (!glyph_detail::Binder<Frame>::apply(o, display_frame)) return;
         for (u32 p = 0; p < path_count; ++p) apply_path(o, p);
         for (u32 i = 0; i < node_count; ++i) apply_node(o, i);
         for (u32 i = 0; i < text_count; ++i) apply_text(o, i);
         // Stock wrote every value this frame; a header string replaces its own.
         for (u32 i = 0; i < page_controls; ++i)
-            if (display_frame.header[i][0])
+            if (!binding::full_canvas && display_frame.header[i][0])
                 if (Leaf* value = text_node(o->base.values[i])) set_text(value, display_frame.header[i]);
     }
 
@@ -141,7 +200,7 @@ template <class Machine> struct Drawing {
     static void frame(Object* o, i32 elapsed) {
         o->delta = elapsed;
         Controls controls;
-        if (!refresh_controls(&o->base, controls)) return;
+        if (!refresh_controls(&o->base, controls, binding::full_canvas)) return;
         animate(o, controls);
         draw(&o->base);
     }

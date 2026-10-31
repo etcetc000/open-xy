@@ -6,6 +6,7 @@
 #include "synth_controls.hpp"
 #include <opxy/effect.hpp>
 #include "shift_row.hpp"
+#include <opxy/control_interaction.hpp>
 #include "stock.hpp"
 
 extern "C" {
@@ -64,6 +65,7 @@ Track* state(u32 track, u32 engine) {
 // The owned machine on the track and its state, or null. Any other engine
 // clears the track's selection.
 const SynthControls* machine(u32 track, Track*& t) {
+    t = nullptr;
     if (track >= kTracks) return nullptr;
     const u32 engine = track_engine(track);
     const SynthControls* m = owned(engine);
@@ -84,6 +86,7 @@ const SynthControls* editor(u32 track) {
 // The owned effect on a send track and its selection, or null. Any other
 // effect clears the selection.
 const SynthControls* send_effect(u32 track, Track*& t) {
+    t = nullptr;
     if (track != kSendTracks && track != kSendTracks + 1) return nullptr;
     const u32 effect = track_engine(track);
     const SynthControls* m = owned(effect, true);
@@ -114,6 +117,8 @@ u32 shown(u32 track, u32 position) {
     return position < opxy::page_controls && machine(track, t) ? t->slots[position] : position;
 }
 }
+
+#include "control_interaction_native.inc"
 
 void sdk_synth_shown(u32 track, u8* slots) {
     for (u32 i = 0; i < opxy::page_controls; ++i) slots[i] = static_cast<u8>(shown(track, i));
@@ -149,6 +154,7 @@ void sdk_synth_press(u32 encoder) {
             const u32 next = m->next[t->slots[i]];
             if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
         }
+        capture_interaction(0x86bd027cu,byte(kSelectedTrack),m->engine(),encoder,t->slots[encoder]);
     } else if (controller == kAuxController && (m = send_effect(selected_track(), t))) {
         // An owned effect's send page: the click selects the position's next
         // parameter, or every position's on a paged effect.
@@ -190,6 +196,7 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     // an alternate selected by a click. Other pages keep stock routing.
     const bool fine_turn = index >= 4 && index < 8 && word(kInstrumentPage) == 0 && shift_held();
     const u32 original_index = index;
+    const u32 physical = fine_turn ? index-4 : index;
     if (fine_turn) index -= 4;
     const SynthControls* m = index < opxy::page_controls ? machine(track, t) : nullptr;
     if (m) {
@@ -204,10 +211,14 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
             // acceleration intact for its parameter-lock/quantized paths.
             const opxy::i32* source = reinterpret_cast<const opxy::i32*>(event);
             const opxy::i32 fine[3] = {source[0] / 10, source[1], source[2]};
-            return stock<u32(u32, u32, u32, const opxy::i32*)>(0x8d5ad5bc)(project, track, index, fine);
+            const u32 result=stock<u32(u32, u32, u32, const opxy::i32*)>(0x8d5ad5bc)(project, track, index, fine);
+            capture_interaction(project,track,m->engine(),physical,index);
+            return result;
         }
     } else index = original_index;
-    return stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(project, track, index, event);
+    const u32 result=stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(project, track, index, event);
+    if(m && event && word(kInstrumentPage)==0)capture_interaction(project,track,m->engine(),physical,index);
+    return result;
 }
 
 // 8c08fade: auxiliary-track page, including send FX tracks 14/15. Its controller

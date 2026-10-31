@@ -76,19 +76,22 @@ template <class Setup, class Block> double worst_block(Setup setup, Block block)
 
 SYNTH = r'''
 #include "engine.cpp"
+#include <opxy/audio_transport.hpp>
 ''' + HARNESS + r'''
 // One voice at 440 Hz, its note started again before each run.
 int main() {
     static @NS@::Voice voice;
     static @NS@::Shared shared;
+    static opxy::HostTelemetryBank<(@AUDIO_WORDS@ > 0 ? @AUDIO_WORDS@ : 1), 0, false> audio;
+    const opxy::AudioContext audio_context = audio.context(0);
     opxy::u32 pitch[opxy::block_frames];
     for (unsigned i = 0; i < opxy::block_frames; ++i) pitch[i] = 42852281u;
-    static opxy::i32 output[opxy::block_frames];
+    static opxy::i32 output[opxy::block_frames * @CHANNELS@];
     volatile opxy::i32 sink = 0;
     @NS@::initialize(voice, shared, 1);
     std::printf("%.1f\n", worst_block([&] { @NS@::start(voice, shared, 1); }, [&](const opxy::i32* parameters, int b) {
-        @NS@::render(voice, shared, 1, output, parameters, pitch);
-        sink = sink + output[b & (opxy::block_frames - 1)];
+        @NS@::render(voice, shared, 1, output, parameters, pitch@AUDIO_ARGUMENT@);
+        sink = sink + output[b & (opxy::block_frames * @CHANNELS@ - 1)];
     }));
     return 0;
 }
@@ -201,6 +204,9 @@ def block_cost(m, host_cxx, scratch):
     positions = [sweep(p) for p in parameters]
     counts = [len(values) for values in positions] + [0] * (8 - len(positions))
     source = (template.replace('@NS@', m.definition['id']).replace('@BLOCKS@', '400')
+              .replace('@CHANNELS@', '2' if m.definition['resources'].get('stereoOutput') else '1')
+              .replace('@AUDIO_WORDS@', str(m.definition['resources'].get('display', {}).get('audioWords', 0)))
+              .replace('@AUDIO_ARGUMENT@', ', audio_context' if m.definition['resources'].get('display', {}).get('audioWords') else '')
               .replace('@POSITIONS@', ', '.join(str(v) for values in positions for v in values))
               .replace('@COUNTS@', ', '.join(map(str, counts)))
               .replace('@POSITION_COUNT@', str(sum(counts)))
@@ -213,7 +219,8 @@ def block_cost(m, host_cxx, scratch):
     binary = folder / ('bench.exe' if os.name == 'nt' else 'bench')
     includes = [ROOT / 'sdk/include', m.root, *(m.root / extra for extra in m.includes)]
     command = [host_cxx, '-std=c++11', '-O2', *('-I' + str(path) for path in includes),
-               str(folder / 'bench.cpp'), *(str(m.root / s) for s in m.sources), '-o', str(binary)]
+               str(folder / 'bench.cpp'), *(str(m.root / s) for s in m.sources),
+               '-o', str(binary)]
     result = subprocess.run(command, capture_output=True, text=True, timeout=600, creationflags=NO_WINDOW)
     require(result.returncode == 0, f'{m.id}: the CPU estimate does not compile:\n{result.stdout}{result.stderr}')
     result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=600, creationflags=NO_WINDOW)

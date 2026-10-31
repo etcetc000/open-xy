@@ -54,6 +54,8 @@ def extension_origins(extensions_, personal):
 
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
     profile, machines, definitions = native.configuration(native.package_collection(package))
+    require(not any(m.kind == 'synth' and m.definition['resources']['display'].get('audioWords') for m in machines),
+            'Audio/display transport currently requires a native build; browser firmware export is unsupported')
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     owners, services = native.object_owners(machines, profile), native.object_services(machines, profile)
@@ -66,6 +68,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                      identity=requested, controls=[p['label'] for p in m.definition['parameters']],
                      positions=control_positions(m.definition), pages=paged(m.definition))
         entry['catalog'] = catalog_entry(m)
+        if m.display != 'stock':
+            entry['fullCanvas'] = m.definition['resources']['display'].get('fullCanvas', 0)
         # Where the machine comes from, for the builder to show (core.mjs validOrigin): a
         # catalog machine is Open-XY's own only when maintainers list it (catalog.OFFICIAL).
         entry['origin'] = ('personal' if m.id not in sources

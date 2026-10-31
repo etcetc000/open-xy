@@ -20,17 +20,34 @@ const i32 node_left = -64, node_right = 640, node_top = -64, node_bottom = 320;
 const i32 hidden_x = node_right, hidden_y = node_bottom;
 // Terminated text: a text slot holds at most 23 characters, a header value 7.
 const u32 text_capacity = 24, header_capacity = 8;
-enum Paint : u32 { keep = 0, stroke = 1, fill_and_stroke = 2 };
+enum Paint : u32 { keep = 0, stroke = 1, fill_and_stroke = 2,
+                   rgba_stroke = 3, rgba_fill_and_stroke = 4, rgba_fill = 5, hidden = 6 };
+// Call after transform/paint setters. A later ordinary frame restores authored visibility.
+template <class F> inline void conceal(F& frame, u32 index) {
+    if (index < F::node_count) { frame.nodes[index].paint = hidden; frame.nodes[index].shade = 0; }
+}
 struct Point { i32 x, y; };
 // A clockwise rotation as a Q10 unit vector; {unit, 0} is no rotation.
 struct Turn { i32 cos, sin; };
 template <u32 Points> struct Path { u32 key; Point points[Points]; };
+enum PathVerb : u32 { move_to = 1, line_to = 2, quadratic_to = 3 };
+struct QuadraticCommand { PathVerb kind; Point control, end; };
+template <u32 Commands> struct QuadraticPath { u32 key, count; QuadraticCommand commands[Commands]; };
+template <u32 Points> struct CountedPath { u32 key, count; Point points[Points]; };
+template <u32 Size, bool Quadratic, bool Counted> struct PathStorage { using type = Path<Size>; };
+template <u32 Size> struct PathStorage<Size, true, false> { using type = QuadraticPath<Size>; };
+template <u32 Size> struct PathStorage<Size, false, true> { using type = CountedPath<Size>; };
 // Every frame sets each node's whole transform: its origin at (x, y), with a
 // uniform scale, turned by {cos, sin}. An element authored at its place on
 // screen, with no transform, stays there at (0, 0), unit scale and no turn.
 // Paint selects palette entry `shade` for its stroke, or its fill and stroke;
 // keep leaves the paint as it is.
 struct Node { i32 x, y, scale, cos, sin; u32 shade; Paint paint; };
+// Opt-in affine nodes preserve nonuniform scale, shear and reflection. Matrix
+// words are Q10 and match SVG matrix(a,b,c,d,x,y); immutable paint uses keep.
+struct AffineNode { i32 a, b, c, d, x, y; u32 shade; Paint paint; };
+template <bool Affine> struct NodeKind { using type = Node; };
+template <> struct NodeKind<true> { using type = AffineNode; };
 // A text slot: its characters, placed like a node without turning.
 struct Text { i32 x, y, scale; char chars[text_capacity]; };
 // Paths are nodes 0..Paths-1: mutable outlines of exactly Points points.
@@ -38,19 +55,91 @@ struct Text { i32 x, y, scale; char chars[text_capacity]; };
 // frame is standard C++ with the layout the renderers expect.
 // header replaces the stock value shown for each control position; an empty
 // string keeps the stock value.
-template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette>
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette, bool Affine = false,
+          bool Cubic = false, u32 OpenPaths = 0, u32 SegmentPaths = 0, bool Quadratic = false, bool Counted = false>
 struct Frame {
+    static const u32 glyph_count = 0, glyph_definition_count = 0, glyph_start = 0;
+    static const bool rgba = false;
+    static const bool affine = Affine;
+    static const bool cubic = Cubic;
+    static const bool quadratic = Quadratic;
+    static const bool counted = Counted;
+    static const u32 open_paths = OpenPaths;
+    static const u32 segment_paths = SegmentPaths;
+    static_assert(Paths <= 32 && Points <= 256 &&
+                  (Counted ? Paths * (8 + 8 * Points) <= 2816 : Paths * Points * (Quadratic ? 2 : 1) <= 256),
+                  "Retained path storage budget");
+    static_assert(!Counted || (Affine && Paths > 0 && Points >= 2 && !Cubic && !Quadratic),
+                  "Counted paths require affine polylines");
+    static_assert(!Quadratic || (Affine && Paths > 0 && Points >= 2 && !Cubic && !OpenPaths && !SegmentPaths), "Quadratic command paths require affine nodes and no topology masks");
+    static_assert(!Cubic || (Paths > 0 && Points == 4 && !OpenPaths && !SegmentPaths), "Cubic paths contain start, two controls and endpoint");
+    static_assert(Paths == 32 || (OpenPaths >> (Paths % 32)) == 0, "Open path mask exceeds path count");
+    static_assert(Paths == 32 || (SegmentPaths >> (Paths % 32)) == 0, "Segment path mask exceeds path count");
+    static_assert(!(OpenPaths & SegmentPaths), "Path topology masks overlap");
+    using node_type = typename NodeKind<Affine>::type;
     static const u32 path_count = Paths;
-    static const u32 point_count = Points;
+    static const u32 point_count = Quadratic ? 0 : Points;
+    static const u32 command_capacity = Quadratic ? Points : 0;
     static const u32 node_count = Nodes;
     static const u32 text_count = Texts;
     static const u32 palette_count = Palette;
-    using path_type = draw::Path<Points>;
+    using path_type = typename PathStorage<Points, Quadratic, Counted>::type;
     path_type paths[Paths > 0 ? Paths : 1];
-    Node nodes[Nodes];
+    node_type nodes[Nodes];
     Text texts[Texts > 0 ? Texts : 1];
     char header[page_controls][header_capacity];
 };
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette, u32 OpenPaths = 0, u32 SegmentPaths = 0>
+using AffineFrame = Frame<Paths, Points, Nodes, Texts, Palette, true, false, OpenPaths, SegmentPaths>;
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette>
+using CubicFrame = Frame<Paths, Points, Nodes, Texts, Palette, false, true>;
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette>
+using AffineCubicFrame = Frame<Paths, Points, Nodes, Texts, Palette, true, true>;
+template <u32 Paths, u32 Commands, u32 Nodes, u32 Texts, u32 Palette>
+using AffineQuadraticFrame = Frame<Paths, Commands, Nodes, Texts, Palette, true, false, 0, 0, true>;
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette, u32 OpenPaths = 0, u32 SegmentPaths = 0>
+using AffineCountedFrame = Frame<Paths, Points, Nodes, Texts, Palette, true, false, OpenPaths, SegmentPaths, false, true>;
+// Opt-in color capability wraps any retained frame without changing its layout.
+template <class Base> struct RgbaFrame : Base {
+    static_assert(Base::affine && Base::palette_count == 0, "RGBA requires affine nodes and palette zero");
+    static const bool rgba = true;
+};
+// Bounded immutable outlines selected into two owned path leaves per instance.
+// The Frame prefix is repeated, preserving standard-layout data and every offset.
+template <class Base, u32 Instances, u32 Definitions, u32 Start> struct GlyphFrame {
+    static const bool rgba = Base::rgba, affine = Base::affine, cubic = Base::cubic, quadratic = Base::quadratic, counted = Base::counted;
+    static const u32 open_paths = Base::open_paths, segment_paths = Base::segment_paths;
+    static const u32 path_count = Base::path_count, point_count = Base::point_count,
+        command_capacity = Base::command_capacity, node_count = Base::node_count,
+        text_count = Base::text_count, palette_count = Base::palette_count;
+    static const u32 glyph_count = Instances, glyph_definition_count = Definitions, glyph_start = Start;
+    static_assert(Base::glyph_count == 0 && affine && Instances > 0 && Instances <= 64 &&
+        Definitions > 0 && Definitions <= 16 && Start >= path_count && Start <= node_count &&
+        2 * Instances <= node_count - Start, "Glyph atlas exceeds owned node budget");
+    using path_type = typename Base::path_type;
+    using node_type = typename Base::node_type;
+    path_type paths[path_count > 0 ? path_count : 1];
+    node_type nodes[node_count];
+    Text texts[text_count > 0 ? text_count : 1];
+    char header[page_controls][header_capacity];
+    u32 glyphs[Instances];
+};
+template <class F> inline void glyph(F& frame, u32 instance, u32 definition) {
+    if (instance < F::glyph_count) frame.glyphs[instance] = definition;
+}
+template <class F, u32 Count = F::glyph_count> struct GlyphValidation {
+    static bool valid(const F& frame) {
+        for (u32 i = 0; i < Count; ++i) if (frame.glyphs[i] >= F::glyph_definition_count) return false;
+        return true;
+    }
+};
+template <class F> struct GlyphValidation<F, 0> { static bool valid(const F&) { return true; } };
+inline u32 color(u8 red, u8 green, u8 blue, u8 alpha = 255) {
+    return u32(red) | u32(green) << 8 | u32(blue) << 16 | u32(alpha) << 24;
+}
+template <class F> inline void rgba(F& frame, u32 index, u32 color, Paint paint = rgba_stroke) {
+    if (index < F::node_count) { frame.nodes[index].shade = color; frame.nodes[index].paint = paint; }
+}
 struct Input {
     i32 parameters[page_controls];
     i32 elapsed;             // Q10 seconds; the author clamps late/invalid frames.
@@ -68,6 +157,10 @@ struct Input {
     u8 choices[4];
 };
 const u32 notes_unavailable = 0xffffffffu;
+// Opt-in audio telemetry input. A zero count means no audio snapshot is
+// available; it is distinct from a valid silent/zero-valued snapshot.
+struct AudioInput : Input { u32 audio_words[16]; u32 audio_count; };
+static_assert(sizeof(AudioInput) == 152, "Audio drawing input layout");
 static_assert(sizeof(Input) == 84 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
@@ -206,21 +299,77 @@ inline bool rotation_valid(i32 cos, i32 sin) {
     const i32 length = cos * cos + sin * sin;
     return length >= unit * unit / 16 * 15 && length <= unit * unit / 16 * 17;
 }
+inline bool node_valid(const Node& node) {
+    return placement(node.x, node.y, node.scale) && rotation_valid(node.cos, node.sin);
+}
+inline bool node_valid(const AffineNode& node) {
+    const i32 limit = 16 * unit, translation = 8192 * unit;
+    return node.a >= -limit && node.a <= limit && node.b >= -limit && node.b <= limit &&
+           node.c >= -limit && node.c <= limit && node.d >= -limit && node.d <= limit &&
+           node.x >= -translation && node.x <= translation && node.y >= -translation && node.y <= translation;
+}
+struct Matrix { i32 a, b, c, d, x, y; };
+inline Matrix matrix(const Node& node) {
+    const i32 a = floor_q10(node.scale * node.cos), b = floor_q10(node.scale * node.sin);
+    return Matrix{a, b, -b, a, node.x, node.y};
+}
+inline Matrix matrix(const AffineNode& node) { return Matrix{node.a, node.b, node.c, node.d, node.x, node.y}; }
+template <class F>
+inline void affine(F& frame, u32 index, Matrix value, u32 shade = 0, Paint paint = keep) {
+    if (index < F::node_count)
+        frame.nodes[index] = AffineNode{value.a, value.b, value.c, value.d, value.x, value.y, shade, paint};
+}
+inline bool path_point_valid(Point point, i32 extent) {
+    return point.x >= -extent * unit && point.x <= extent * unit &&
+           point.y >= -extent * unit && point.y <= extent * unit;
+}
+template <u32 Points> inline bool path_valid(const Path<Points>& path, bool extended) {
+    if (!path.key) return false;
+    for (u32 i = 0; i < Points; ++i)
+        if (!path_point_valid(path.points[i], extended ? 8192 : path_extent)) return false;
+    return true;
+}
+template <u32 Commands> inline bool path_valid(const QuadraticPath<Commands>& path, bool) {
+    if (!path.key || path.count < 2 || path.count > Commands) return false;
+    for (u32 i = 0; i < path.count; ++i) {
+        const QuadraticCommand& command = path.commands[i];
+        if ((i == 0 ? command.kind != move_to : command.kind != line_to && command.kind != quadratic_to) ||
+            !path_point_valid(command.end, 8192)) return false;
+        if (command.kind == quadratic_to && !path_point_valid(command.control, 8192)) return false;
+    }
+    return true;
+}
+template <u32 Points> inline bool path_valid(const CountedPath<Points>& path, bool) {
+    if (!path.key || path.count < 2 || path.count > Points) return false;
+    for (u32 i = 0; i < path.count; ++i)
+        if (!path_point_valid(path.points[i], 8192)) return false;
+    return true;
+}
+template <u32 Points> inline u32 active_pairs(const Path<Points>&) { return Points; }
+template <u32 Points> inline u32 active_pairs(const CountedPath<Points>& path) { return path.count; }
+template <u32 Commands> inline u32 active_pairs(const QuadraticPath<Commands>& path) { return 2 * path.count; }
 // Both backends check the complete frame before applying it.
 template <class F>
 inline bool valid(const F& frame) {
+    if (!GlyphValidation<F>::valid(frame)) return false;
+    u32 active = 0;
     for (u32 p = 0; p < F::path_count; ++p) {
-        if (!frame.paths[p].key) return false;
-        for (u32 i = 0; i < F::point_count; ++i) {
-            const Point& point = frame.paths[p].points[i];
-            if (point.x < -path_extent * unit || point.x > path_extent * unit ||
-                point.y < -path_extent * unit || point.y > path_extent * unit) return false;
-        }
+        if (!path_valid(frame.paths[p], F::affine || F::cubic)) return false;
+        if (F::counted && (active += active_pairs(frame.paths[p])) > 256) return false;
     }
     for (u32 i = 0; i < F::node_count; ++i) {
-        const Node& node = frame.nodes[i];
-        if (!placement(node.x, node.y, node.scale) || !rotation_valid(node.cos, node.sin) ||
-            node.shade >= F::palette_count || node.paint > fill_and_stroke) return false;
+        const auto& node = frame.nodes[i];
+        if (!node_valid(node)) return false;
+        if (node.paint == hidden) {
+            if (node.shade != 0) return false;
+            continue;
+        }
+        if (F::rgba) {
+            if (F::palette_count || (node.paint != keep &&
+                (node.paint < rgba_stroke || node.paint > rgba_fill)) ||
+                (node.paint == keep && node.shade != 0)) return false;
+        } else if (node.paint > fill_and_stroke ||
+            (F::palette_count ? node.shade >= F::palette_count : node.paint != keep || node.shade != 0)) return false;
     }
     for (u32 i = 0; i < F::text_count; ++i) {
         const Text& text = frame.texts[i];

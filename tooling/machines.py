@@ -35,7 +35,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.7 supplies a frozen source-audition clock for tempo-aware sample slicing, lets an
 # effect page its controls, have a shift row, draw its own page and fix its source dry
 # (dryLevel), and adds a saturating Q31 add and up to 32 display text slots.
-SDK_VERSION = (1, 7)
+# 1.8 adds stereo synths, release callbacks, audio/display transport and retained drawing capabilities.
+SDK_VERSION = (1, 8)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -263,6 +264,12 @@ def machine_at(root, identity=None):
     icon = value.get('icon', '')
     require(icon == '' or isinstance(icon, str) and ICON.fullmatch(icon), 'icon is SVG path data')
     definition = validate_definition(json.loads((root / 'definition.json').read_text(encoding='utf-8')), kind)
+    resources = definition['resources']
+    display = resources.get('display', {})
+    if (kind == 'synth' and any(k in resources for k in ('stereoOutput', 'releaseCallback')) or
+            any(k not in ('stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'texts', 'palette') for k in display) or
+            display.get('paths', 0) > 4 or display.get('points', 0) > 64):
+        require_sdk(version, (1, 8), 'Extended synth and display capabilities')
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:

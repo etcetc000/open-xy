@@ -305,13 +305,23 @@ async function inspect(id) {
       level.oninput = () => audio.setVolume(Number(level.value) / 100);
       $('audition-controls').append(keyboard, volume);
       const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+      let framePending = false, pendingElapsed = 0;
       function frame(dt = 34) {
-        const input = shownControls(parameters, shown);
-        // The preview is one track: a changing track would tell the machine to start over.
-        renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity));
-        // The machine's header text, or the stock percentage of the shown parameter.
-        header.innerHTML = Retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
-          shown.map((slot, i) => renderer.header[i] || String(Math.round(parameters[slot] / 0x7fffffff * 100))));
+        pendingElapsed = Math.min(8192, pendingElapsed + dt);
+        if (framePending || cancelled) return;
+        const apply = snapshot => {
+          if (cancelled) return;
+          const elapsed = pendingElapsed; pendingElapsed = 0;
+          const input = shownControls(parameters, shown);
+          renderer.apply(display.tick(input, elapsed, serial, 0, reduced.matches, noteActivity, null, snapshot));
+          header.innerHTML = renderer.fullCanvas ? '' : Retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
+            shown.map((slot, i) => renderer.header[i] || String(Math.round(parameters[slot] / 0x7fffffff * 100))));
+        };
+        if (display.audioWords) {
+          framePending = true;
+          audio.takeAudio().then(apply).catch(error => { if (!cancelled) $('art-caption').textContent = error.message; })
+            .finally(() => { framePending = false; });
+        } else apply(null);
       }
       const controls = m.controls.map((name, i) => {
         const label = node('label', undefined, 'preview-control'), input = node('input');

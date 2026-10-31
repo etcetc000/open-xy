@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { createControls } from '../sdk/browser/controls.mjs';
 
 function port(name, fallback) {
@@ -54,7 +55,9 @@ async function click(id) {
   await command('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
   await command('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
 }
-const screenshots = fileURLToPath(new URL(`../local/harness-review-${Date.now()}/`, import.meta.url));
+// Field-derived screenshots/SVG exports can be directed outside the checkout.
+const screenshots = process.env.OPXY_REVIEW_DIR ? resolve(process.env.OPXY_REVIEW_DIR)
+  : fileURLToPath(new URL(`../local/harness-review-${Date.now()}/`, import.meta.url));
 mkdirSync(screenshots, { recursive: true });
 try {
   await command('Runtime.enable'); await command('Log.enable'); await command('Page.enable');
@@ -75,6 +78,38 @@ try {
   assert.equal(await evaluate('machineLab.getStatus().audio'), 'off');
   for (const [i, p] of controls.parameters.entries()) {
     assert.equal(await shown(controlId(p.id, i)), controls.displayValue(p.id, controls.defaults()));
+  }
+  if (manifest.definition.resources?.display?.encoderActivity === 1) {
+    await evaluate(`(async () => {
+      const {PreviewDisplay} = await import('/sdk/browser/display.mjs');
+      window.encoderChecks = [];
+      window.originalEncoderTick = PreviewDisplay.prototype.tick;
+      PreviewDisplay.prototype.tick = function(...args) {
+        window.encoderChecks.push({...args[7], elapsed:args[1]});
+        return window.originalEncoderTick.apply(this,args);
+      };
+    })()`);
+    await delay(80);
+    await evaluate('window.encoderChecks=[]; machineLab.setParameters(machineLab.getPatch().parameters)');
+    await delay(40);
+    assert.ok(await evaluate('encoderChecks.length>0 && encoderChecks.every(x=>x?.available===1 && x.mask===0)'), 'Automation must not create encoder activity');
+    const position = controls.positions[0];
+    await evaluate(`window.encoderChecks=[];document.getElementById(${JSON.stringify(firstId)}).focus()`);
+    await command('Input.dispatchKeyEvent',{type:'keyDown',key:'End',code:'End'});
+    await command('Input.dispatchKeyEvent',{type:'keyUp',key:'End',code:'End'});
+    await delay(40);
+    await evaluate('window.encoderChecks=[]');
+    await command('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+    await command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight'});
+    await command('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowRight',code:'ArrowRight'});
+    await delay(40);
+    assert.ok(await evaluate(`encoderChecks.some(x=>x?.available===1 && x.elapsed>0 && (x.mask & ${1<<position}))`), 'Trusted turn at limit must remain active');
+    await evaluate(`(async()=>{ const {PreviewDisplay}=await import('/sdk/browser/display.mjs');
+      PreviewDisplay.prototype.tick=window.originalEncoderTick;
+      delete window.originalEncoderTick; delete window.encoderChecks;
+      document.activeElement.blur(); document.getElementById("reset").click(); })()`);
+    await command('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+    console.log('PASS: trusted encoder event at limit reaches timed frame with reduced motion; automation excluded');
   }
   // The first keyboard gesture must initialize audio and preserve its held note.
   await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA' });
@@ -146,6 +181,11 @@ try {
   await evaluate('window.dispatchEvent(new Event("blur"))');
   assert.equal(await evaluate('machineLab.getStatus().heldNotes'), 0);
   await click('waveform');
+  // Telemetry-backed draws complete after the bounded worklet snapshot RPC.
+  for (let attempt=0; attempt<20; ++attempt) {
+    if (await evaluate('Boolean(document.querySelector("#screen polyline"))')) break;
+    await delay(50);
+  }
   assert.ok(await evaluate('Boolean(document.querySelector("#screen polyline"))'));
   await click('routing');
   const preset = Object.values(controls.presets).at(-1) ?? controls.defaults();

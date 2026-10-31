@@ -5,7 +5,7 @@ import { headerSvg } from '../sdk/browser/display.mjs';
 // harness's waveform view. Each of the four positions shows the parameter
 // shown[i] (its own or an alternate); header holds the display's own text for
 // a position, or '' for the formatted value.
-export function renderScreen(values, view, samples = null, graphics = '', controls, shown = [0, 1, 2, 3], header = ['', '', '', '']) {
+export function renderScreen(values, view, samples = null, graphics = '', controls, shown = [0, 1, 2, 3], header = ['', '', '', ''], fullCanvas = false) {
   const selected = controls;
   const title = selected.definition.name;
   let drawing;
@@ -24,6 +24,6 @@ export function renderScreen(values, view, samples = null, graphics = '', contro
   const shownValues = parameters.map((p, i) => header[i] || selected.displayValue(p.id, values));
   return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220" role="img" aria-label="${title} ${view} screen">
     <rect width="480" height="220" fill="#000000"/>
-    ${view === 'waveform' ? drawing + headerSvg(titles, shownValues) : headerSvg(titles, shownValues) + drawing}
+    ${fullCanvas ? drawing : view === 'waveform' ? drawing + headerSvg(titles, shownValues) : headerSvg(titles, shownValues) + drawing}
     </svg>`;
 }

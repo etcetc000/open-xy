@@ -6,7 +6,7 @@ import {openKit} from './builder/core.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const browserRoot = resolve(root, 'builder');
-const renderers = ['controls.mjs', 'display.mjs', 'engine.mjs', 'processor.mjs'].map(name => resolve(root, 'sdk/browser', name));
+const renderers = ['controls.mjs', 'display.mjs', 'encoder_activity.mjs', 'engine.mjs', 'processor.mjs'].map(name => resolve(root, 'sdk/browser', name));
 const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs'];
 // Vite's /@fs/ URLs: C:/x becomes /@fs/C:/x and /x becomes /@fs/x.
 const fsUrl = path => posix.join('/@fs/', normalizePath(path));
