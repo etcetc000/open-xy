@@ -145,7 +145,9 @@ parameter, then its alternates in parameter order; turning it edits the one
 shown, whose title and stock percentage the page shows. Every parameter keeps
 its own slot in the eight-word vector, so `render` receives all of them and
 presets, projects and the catalog's defaults store each one. The selection is
-per track, starts on the position's own parameter and is not saved. Display
+per track, starts on the position's own parameter and is not saved. The track
+menu's scramble randomizes alternates along with the first four; an empty
+placeholder among the alternates keeps its value. Display
 inputs carry each position's shown value, its parameter index (`shown`) and
 every parameter's value (`slots`), so a [header value](display.md#frame)
 can format whichever is shown while dials follow their own parameters.
@@ -316,8 +318,9 @@ means 0. Callbacks are functions in the machine's namespace.
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
-| `padSettings` | 0 or 1; drum sampler base | The SDK saves 16 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
+| `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
+| `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
 | `sampleAnalysis` | Budget in bytes, 4096..2 MiB, whole words | Prepared per-sample data | `analysis_words`, `prepare_begin`, `prepare_step`, `prepared` |
 
 ### Audio block
@@ -337,9 +340,32 @@ means 0. Callbacks are functions in the machine's namespace.
 | `output_channels` | 1, or 2 with `stereoOutput` |
 | `track_transpose` | The track settings transpose, -36..36 semitones |
 | `drum_transpose` | Drum sampler base: semitones from the note's pad to the played note (whole octaves), fixed at note start. 0 with the sampler base |
+| `slicing` | A lazy-chop audition: traverse the supplied outer range once, forwards, using frozen settings, parameters and tempo. Ignore live trims, reverse and loop settings |
 
 Source and output channel counts are independent. Stock envelopes, mixing and
 project voice settings follow the callback.
+
+### Slice timing
+
+```cpp
+void slice_clock(const opxy::SampleSlice&, opxy::SampleSliceRate&);
+```
+
+With `sliceTiming`, the GUI calls `slice_clock` with the loaded frame count and
+file rate, outer range, pad settings, eight live parameters, track transpose and
+project tempo captured when lazy chop starts. Return a nonnegative `numerator`
+and positive `denominator` and `tuning`: source frames per 44.1 kHz output frame
+are `numerator / denominator * tuning / 4096`. Account for the same timing and
+pitch arithmetic as the audio renderer. This callback accesses no PCM or analysis.
+
+The SDK sends the frozen configuration with the audition note. Audio receives
+it in `SampleBlock` with `slicing=true`, transport stopped at tick zero, and
+drum transpose zero. Subsequent cuts cannot change the audition range; control,
+automation and master-tempo edits apply to the next audition. A renderer that
+waits for analysis must keep the audition's source clock advancing while silent,
+then resume at its elapsed position. Without this service, lazy chop uses one
+forward pass of raw PCM at the original file rate. Ordinary notes use normal
+machine playback.
 
 ### Pad settings
 
@@ -554,7 +580,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.6 and builds 1.0 to 1.6 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.7 and builds 1.0 to 1.7 machines |
 | `kind` | `synth`, `sample` or `effect` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

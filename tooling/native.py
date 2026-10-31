@@ -38,7 +38,7 @@ TARGET = 'opxy-1.2.1'
 # development: the builder distributes it too. Firmware always comes from the device.
 STOCK_CONTENT = ROOT / 'profiles/opxy-1.2.1/content'
 DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, stock_sample_classify_tail=0x8d5b79c6,
-                   stock_sample_key_tail=0x8d589214)
+                   stock_sample_key_tail=0x8d589214, stock_sample_slice_receive_tail=0x8d5b1264)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
 ALLOWED_SECTIONS = {'.text', '.rodata', '.data', '.bss'}
@@ -202,7 +202,7 @@ def plan(machines, profile=None):
 SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
              'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
-             'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
+             'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'presets')
@@ -210,7 +210,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
-                               'drum_controls_stock', 'drum_display_stock'), 'samples')
+                               'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
 
 

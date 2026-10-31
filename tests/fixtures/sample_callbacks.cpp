@@ -22,6 +22,7 @@ extern "C" unsigned probe_analysis_words(const opxy::SampleView*) { return 0; }
 extern "C" unsigned probe_prepare_begin(const opxy::SampleView*, unsigned*, unsigned) { return 0; }
 extern "C" unsigned probe_prepare_step(unsigned, unsigned*) { return 0; }
 extern "C" unsigned probe_prepared(opxy::SampleAnalysis*) { return 0; }
+extern "C" void probe_slice_clock(const opxy::SampleSlice*, opxy::SampleSliceRate*) {}
 static opxy::SampleAssignment assigned;
 extern "C" opxy::PadSettings probe_sample_defaults() { return 77; }
 extern "C" opxy::PadSettings probe_sample_assign(const opxy::SampleAssignment* input) {
@@ -51,6 +52,8 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     std::abort();
 }
 int main() {
+    check(sdk_sample_machine(kProbe)->slice_clock == &probe_slice_clock);
+    check(sdk_sample_machine(kSampler)->slice_clock == nullptr);
     // A GUI tempo edit must reach assignment even when the audio clock has
     // not caught up. Playback must continue reading the audio clock.
     check(opxy::platform::audio_bpm_x10() == 1200);

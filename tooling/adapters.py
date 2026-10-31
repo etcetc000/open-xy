@@ -250,6 +250,7 @@ SAMPLE_SERVICES = (
                         ('_prepare_begin', 'opxy::u32', 'const opxy::SampleView*, opxy::u32*, opxy::u32'),
                         ('_prepare_step', 'opxy::u32', 'opxy::u32, opxy::u32*'),
                         ('_prepared', 'opxy::u32', 'opxy::SampleAnalysis*'))),
+    ('sliceTiming', (('_slice_clock', 'void', 'const opxy::SampleSlice*, opxy::SampleSliceRate*'),)),
 )
 
 
@@ -265,7 +266,8 @@ def generate_sample_voice(directory, m, benchmark=False):
                   LABELS=stock_labels(m), CAPACITY=resources['voiceCapacity'],
                   ANALYSIS=resources.get('sampleAnalysis', 0), STEREO=resources.get('stereoOutput', 0),
                   CHOKE=resources.get('chokeSameKey', 0), DRUM_KEYS=int(m.identity['page'] == 7),
-                  PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0))
+                  PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0),
+                  SLICE_TIMING=resources.get('sliceTiming', 0))
     path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
 
