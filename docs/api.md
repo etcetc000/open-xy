@@ -108,9 +108,10 @@ host does fast and the Blackfin does not:
   then tests and branches on every sample. Give each hot sample loop a small
   function of its own (`__attribute__((noinline))`), with the state it needs
   copied into locals and written back after.
-- **Rare branches** in a sample loop, such as a wrap or a discontinuity, are
-  predicted taken and cost several cycles on every sample they aren't. Mark
-  them `__builtin_expect(condition, 0)`, or make them branch-free.
+- **Rare branches** in a sample loop, such as a wrap or a discontinuity, can
+  cost several cycles on every sample if GCC makes the common path the taken
+  one. Mark them `__builtin_expect(condition, 0)` so the common path falls
+  through, or make them branch-free.
 - **16 x 16 products** that GCC widens into 32-bit multiplies cost more:
   [`q15.hpp`](../sdk/include/opxy/q15.hpp)'s `product` is always the one
   16-bit multiply.
