@@ -722,6 +722,23 @@
         },
         "report": "https://github.com/SammiBabe666/Daath-OP-XY-WitchHouse-engine/releases/tag/1.0"
       }
+    },
+    {
+      "id": "halcyon",
+      "kind": "synth",
+      "maintainer": "colorsinspace1",
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/halcyon",
+      "tag": "1.0",
+      "commit": "2328e77d601c96c41a8a958fd31d0a1aa13a987e",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "2328e77d601c96c41a8a958fd31d0a1aa13a987e",
+        "firmware_sha256": "55a804f847e15dde5c20ae01fda02af09964628b8e979cecfd9be8448d2a7ff7",
+        "runs": 3,
+        "block_percent": 3.758297
+      }
     }
   ]
 }
