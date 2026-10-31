@@ -34,12 +34,18 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 
 | Field | Limits |
 | --- | --- |
-| `paths` | 0..4 mutable outlines; they are nodes `0..paths-1` |
-| `points` | 2..64 points per outline; 0 when there are no paths |
+| `paths` | 0..32 mutable paths; they are nodes `0..paths-1` |
+| `points` | 2..256 points per path; 0 when there are no paths; `paths * points` must not exceed 256 |
 | `nodes` | `paths`..256 transformable elements |
 | `texts` | 0..32 text slots; more than 4 need `"sdk": "1.3"`, more than 16 `"sdk": "1.7"` |
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
+
+More than four paths or 64 points per path requires `"sdk": "1.8"`.
+The extended drawing options below also require SDK 1.8. `affine: 1` selects
+full affine node transforms. `fullCanvas: 1` omits the SDK header so the
+machine owns the entire 480 by 220 canvas; parameter and alternate-row inputs
+still arrive normally. Both synth and effect displays support this option.
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) is the format definition.
 `DisplayState` is trivial, standard-layout data. Put it, with the frame type,
@@ -53,6 +59,54 @@ starts with reset state; use this for an entrance or to establish fresh
 note-activity baselines. Continuing to show the same page and track does not
 reset it. Browser hosts call `PreviewDisplay.reset()` when reactivating a
 preview. Audio state, note routing and the drawing input ABI are unchanged.
+The retained-curves extension adds three optional topology fields:
+
+| Field | Meaning |
+| --- | --- |
+| `cubic: 1` | Every mutable path has four frame points: start, first control, second control, endpoint. Its authored path is exactly `M ... C ...`, without `Z`. Use `CubicFrame` or `AffineCubicFrame` with the usual five dimensions. |
+| `openPaths` | A 32-bit mask selecting open polylines (`M`, then `points-1` `L`, without `Z`). |
+| `segmentPaths` | A 32-bit mask selecting independent adjacent segments (`M p0 L p1 M p1 L p2 ...`). The frame stores each of its `points` vertices once. This preserves separate caps and avoids polyline joins. |
+
+Masks cannot overlap, include absent paths, or accompany `cubic: 1`.
+For affine polylines the optional final template arguments are the two masks:
+`AffineFrame<2,120,28,0,0,0,1>` makes path 0 independent segments and path 1 closed.
+The declaration uses `affine: 1, segmentPaths: 1`. Affine/cubic paths may retain
+their authored fill; ordinary default outlines remain unfilled. Paint and
+stroke width remain independent of point updates.
+
+The native renderer validates the original path's complete command topology,
+retains its allocation, and changes only coordinate words when its nonzero key
+changes. Cubic control points are not flattened into line segments. All path
+coordinates, including browser output for these extended frames, preserve Q10
+precision. A frame can store at most 256 coordinate pairs plus 32 path keys;
+the renderer does not allocate or parse SVG during animation. Browser and XY
+vector rasterization can differ at edges from a source instrument's direct
+framebuffer drawing; matching geometry is not a claim of identical pixels.
+
+### Variable quadratic command streams
+
+For an open path whose original line/quadratic sequence changes, declare
+`quadratic: 1, commands: C, paths: P, points: 0, affine: 1` and use
+`AffineQuadraticFrame<P,C,Nodes,Texts,Palette>`. Each `paths[i]` contains a
+nonzero `key`, an active `count` and `commands[C]`. A command contains
+`kind`, `control` and `end`; `kind` is `draw::move_to`, `draw::line_to` or
+`draw::quadratic_to`. The first command must move; subsequent commands may
+only line or quadratic. Every active endpoint and quadratic control uses Q10.
+Move/line control fields are ignored. Counts must be 2..C.
+
+The authored path must reserve exactly `M` followed by `C-1` explicit `Q`
+commands. Quadratics retain both original coordinate pairs; repeated controls
+are allowed. Native initialization validates this complete storage shape.
+Each changed frame then validates the current vector and updates command types,
+coordinates and its active end inside the reserved capacity. It neither
+reallocates nor changes begin/capacity, styling or segment metadata.
+
+Command paths reserve two coordinate pairs per command, so `P*C*2 <= 256`;
+`C <= 128`. An eight-path, sixteen-command frame fits the 256-point budget.
+Maximum command-path storage is2816bytes, including keys, counts and command
+tags. The complete frame bound, including the glyph tail, is 12,448 bytes. Existing fixed-topology frame
+ABIs stay unchanged. Quadratic mode cannot combine with cubic/open/segment
+topology flags; it composes with `RgbaFrame` for explicit dynamic color.
 
 ## Input
 
@@ -116,7 +170,7 @@ workbench and builder both supply activity, including releases with reduced
 motion enabled.
 
 Machines using these additions declare `"sdk": "1.1"` in `machine.json`.
-Existing SDK 1.0 source remains supported. New previews use drawing ABI 2 with
+Existing SDK 1.0 source remains supported. Drawing ABI 2 introduced
 a 76-byte input; the browser host also accepts existing ABI 1 previews, which
 retain their 68-byte input and do not receive activity. Rebuild old preview
 modules to use the new fields.
@@ -146,7 +200,7 @@ element. Both renderers apply only what changed.
 
 | Field | Bounds |
 | --- | --- |
-| Path coordinates | ±`path_extent` (64) pixels, Q10 |
+| Path coordinates | ±`path_extent` (64) pixels, Q10; affine/cubic frames permit ±8192 pixels |
 | Node and text x / y | `node_left`..`node_right` / `node_top`..`node_bottom` (-64..640 / -64..320) pixels, Q10 |
 | Scale | Positive, at most 2, Q10 |
 | Turn | A unit vector, Q10; `{unit, 0}` is upright |
@@ -277,3 +331,80 @@ replaced with this one. To bring one up to date:
   `place`, `shade` and `turn` do this for you.
 
 Then run `python sdk.py test --machine <folder>`.
+
+Affine browser output uses a self-contained 480x220 SVG image. Bound leaves
+use non-scaling strokes inside that logical viewport, matching XY's geometry
+transform before fixed-width stroke. The outer responsive screen scales the
+whole image, including widths. Ordinary display serialization is unchanged.
+Only the localhost preview CSP permits the required data-image source; scripts
+and external artwork references remain excluded by the existing asset copier.
+
+### Active point counts
+
+`countedPaths:1` selects `AffineCountedFrame<Paths,Capacity,Nodes,Texts,Palette,
+OpenMask,SegmentMask>`. Each path stores a key, active count and fixed-capacity
+point array. Counts range from2 through capacity, and all active counts together
+must be at most 256. Set a new nonzero key whenever count or coordinates change.
+The topology masks keep their existing meanings, including independent M/L
+subpaths for each adjacent pair when segmentPaths selects a path.
+
+Frozen SVG reserves the full capacity using the existing open, closed or
+separate-segment topology. Native rendering changes only active records and
+vector end within that original allocation. Browser output likewise includes
+only active points. No padded segments are drawn. Reserved storage is bounded
+by Paths*(8+8*Capacity)<=2816 bytes, the maximum already allowed for quadratic
+paths; the maximum complete frame does not increase. Counted mode requires
+affine nodes and excludes cubic/quadratic mode. Defaults retain their ABI.
+
+
+## Audio snapshots (SDK 1.8)
+
+New drawing options and budgets above the SDK 1.7 limits require
+`"sdk": "1.8"`. A synth can declare `audioWords: 1..16` to publish a bounded
+snapshot to its browser display. Its `render` callback takes a final
+`const opxy::AudioContext&` argument; publish through `publish_word` or
+`add_packed16`. The display receives `draw::AudioInput` (ABI 4, 152 bytes).
+Without the native transport below, device snapshots report unavailable.
+
+For device snapshots, also declare `audioTransport: 1` and `audioMode`:
+0 retains words, 1 consumes one packed accumulator, and 2 combines
+`audioAccumulators: 1..24` consumed words with a retained tail. The maximum
+is 256 words. `audioReset: 1` enables a request/acknowledgment handshake in
+modes 0 and 2; the producer applies it inside its own callback. More than
+16 words or reset support selects `draw::TelemetryInput` (ABI 5, 1132 bytes)
+from `opxy/audio_transport.hpp`.
+
+The native transport snapshots owned producer storage through bounded
+messages between processors. Sending and receiving run outside render;
+GUI code does not read producer storage directly. A zero `audio_count`
+means unavailable, distinct from a silent snapshot. Track changes and stale
+messages are checked against the selected engine and generation.
+
+Audio-transport firmware currently requires a native build. Browser firmware
+export rejects these machines until the additional hooks and object linking
+have browser parity verification. Browser audition supports their snapshots.
+
+## Physical encoder input (SDK 1.8)
+
+Declare `encoderActivity: 1` to receive `draw::EncoderInput`,
+`draw::EncoderAudioInput`, or `draw::EncoderTelemetryInput` from
+`opxy/encoder_activity.hpp`. These append an eight-byte `encoders` record to
+unchanged base inputs. ABIs 6/7/8 have 92/160/1140 bytes; legacy ABIs remain valid.
+`encoders.available == 1` distinguishes a real zero activity mask from a
+missing source. Bits 0..3 are physical positions before alternate/page mapping.
+`valid()` rejects malformed records; `active(position)` reads a position.
+
+Native capture calls the pinned stock read-only getter during the screen frame
+callback. Existing stock input dispatch records presses and enabled turns,
+including turns at a parameter limit. Stock owns frame clearing; the SDK does
+not write those flags or add event hooks. This does not describe note gates,
+voice allocation, knob touch sensing, or parameter automation.
+
+The localhost harness records trusted range-input gestures, encoder-equivalent
+pointer presses and control-navigation keys. Programmatic parameter edits,
+preset loads, synthetic DOM events and automation do not set the mask. A bank
+is read throughout a synchronous frame and cleared after successful display
+application with positive elapsed time. Immediate zero-time parameter redraws
+retain flags for the next timed frame, including with reduced motion enabled. Each page/track must own its own bank. Hosts that do not implement
+this service leave the record unavailable; the browser builder currently does.
+Physical device event timing remains a hardware qualification requirement.

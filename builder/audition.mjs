@@ -13,6 +13,16 @@ export class Audition {
     this.volume = 0.5; this.revision = 0; this.disposed = false; this.playing = false;
     // The note a key holds, from its press: a release during audio setup still ends it.
     this.held = null;
+    this.snapshotSerial = 0; this.snapshots = new Map();
+  }
+  takeAudio() {
+    if (!this.processor || !this.audioReady || this.context?.state !== 'running') return Promise.resolve(null);
+    const id = ++this.snapshotSerial;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.snapshots.delete(id); reject(new Error('Audio telemetry timed out')); }, 1000);
+      this.snapshots.set(id, {resolve, reject, timer});
+      this.processor.port.postMessage({type:'audioSnapshot', id, track:0});
+    });
   }
   async start() {
     const context = this.context = new AudioContext({sampleRate:44100, latencyHint:'interactive'});
@@ -26,7 +36,8 @@ export class Audition {
     finally { if (!offline) URL.revokeObjectURL(url); }
     if (this.disposed) return;
     const processor = this.processor = new AudioWorkletNode(context, 'opxy-audition', {
-      numberOfInputs:0, numberOfOutputs:1, outputChannelCount:[1],
+      numberOfInputs:0, numberOfOutputs:1,
+      outputChannelCount:[new WebAssembly.Instance(this.module).exports.opxy_output_channels?.() ?? 1],
       processorOptions:{module:this.module, parameters:this.parameters},
     });
     const gain = this.gain = context.createGain(); gain.gain.value = 0;
@@ -36,7 +47,11 @@ export class Audition {
       const fail = message => { clearTimeout(timer); this.stop(); reject(new Error(message)); this.onState(false, message); };
       processor.onprocessorerror = () => fail('Audio preview stopped. Select the machine again to retry.');
       processor.port.onmessage = ({data}) => {
-        if (data.ready) { clearTimeout(timer); resolve(); }
+        if (data.ready) { this.audioReady = true; clearTimeout(timer); resolve(); }
+        if (data.audioSnapshot !== undefined) {
+          const pending = this.snapshots.get(data.audioSnapshot);
+          if (pending) { clearTimeout(pending.timer); this.snapshots.delete(data.audioSnapshot); pending.resolve(data.snapshot); }
+        }
         if (data.error) fail(data.error);
       };
     });
@@ -87,6 +102,9 @@ export class Audition {
     if (this.gain && this.playing) this.gain.gain.value = value;
   }
   destroy() {
+    this.audioReady = false;
+    for (const request of this.snapshots.values()) { clearTimeout(request.timer); request.resolve(null); }
+    this.snapshots.clear();
     this.disposed = true; this.stop();
     this.processor?.disconnect(); this.processor?.port.close();
     this.context?.close().catch(() => {});

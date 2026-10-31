@@ -89,6 +89,7 @@ class HarnessServerTests(unittest.TestCase):
                     self.assertEqual(result.read(), b'\0asm\x01\0\0\0')
                     self.assertEqual(result.headers['Content-Type'], 'application/wasm')
                     self.assertIn("'wasm-unsafe-eval'", result.headers['Content-Security-Policy'])
+                    self.assertIn("img-src 'self' data:", result.headers['Content-Security-Policy'])
                     self.assertNotIn("'unsafe-eval'", result.headers['Content-Security-Policy'])
                 with urlopen(Request(base + '/preview/engine.wasm', method='HEAD')) as result:
                     self.assertEqual(result.read(), b''); self.assertEqual(result.headers['Content-Length'], '8')

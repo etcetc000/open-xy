@@ -58,6 +58,21 @@ test('all selections include only their instrument presets with native names and
 const own = (changes = {}) => ({engine: {params: [1, 2, 3, 4, 5, 6, 7, 8], volume: 9000}, platform: 'OP-XY',
   regions: [], type: 'probesynth', version: 4, ...changes});
 
+test('full-canvas effect assets match native composition without synth preview metadata', async () => {
+  const effect = {...machines[3], artwork:'<g id="probefx_panel"/>', asset:'probefx.svg', fullCanvas:1};
+  const {kit, catalog} = await fixture([effect]);
+  kit.screenTemplate = read('sdk/platform/opxy-1.2.1/screen.svg');
+  kit.profile.screen_template_sha256 = JSON.parse(read('profiles/opxy-1.2.1.json')).screen_template_sha256;
+  const files = await buildAssets(kit, ['probefx'], catalog, numbers);
+  assert.equal(new TextDecoder().decode(files['content/display/probefx.svg']),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"><g id="probefx_panel"/></svg>');
+  effect.fullCanvas = 0;
+  const ordinary = await buildAssets(kit, ['probefx'], catalog, numbers);
+  assert.match(new TextDecoder().decode(ordinary['content/display/probefx.svg']), /id="titles"/);
+  effect.fullCanvas = true;
+  await assert.rejects(buildAssets(kit, ['probefx'], catalog, numbers), /full canvas/);
+});
+
 test("a machine's own presets install beside its init preset, unchanged", async () => {
   const synth = {...machines[0], presets: {'warm-pad': own(), bass_2: own({octave: -1})}};
   const {kit, catalog} = await fixture([synth, ...machines.slice(1)]);

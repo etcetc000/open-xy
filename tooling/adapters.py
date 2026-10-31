@@ -12,6 +12,7 @@ import json
 import math
 from pathlib import Path
 
+from . import audio_telemetry
 from .benchmark import append_callback
 from .definitions import ROOT, SYNTH_POSITIONS, control_positions, paged, shift_parameters, validate_definition
 
@@ -42,7 +43,10 @@ def voice_values(definition):
     resources = definition['resources']
     return dict(NAMESPACE=definition['id'], VOICE_BYTES=resources['voiceBytes'],
                 VOICE_ALIGNMENT=resources['voiceAlignment'], SHARED_BYTES=resources['sharedBytes'],
-                PEAK=resources['outputPeakQ31'])
+                PEAK=resources['outputPeakQ31'], CHANNELS=2 if resources.get('stereoOutput') else 1,
+                AUDIO_WORDS=resources['display'].get('audioWords', 0),
+                RELEASE_CALLBACK=f"{definition['id']}::release(*voice, shared, owner(voice));" if resources.get('releaseCallback') else '',
+                AUDIO_ARGUMENT=', audio_context' if resources['display'].get('audioWords') else '')
 
 
 def generate_voice(directory, m, sweep=False):
@@ -63,26 +67,84 @@ def generate_voice(directory, m, sweep=False):
                   PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
                   CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
+    values.pop('RELEASE_CALLBACK')
+    release = m.definition['resources'].get('releaseCallback', 0)
+    values.update(RELEASE_METHOD=f'{m.prefix}_release' if release else 'noop',
+                  RELEASE_FUNCTION=f'''int {m.prefix}_release(void* self) {{
+    Handle* handle = static_cast<Handle*>(self);
+    if (Slot* slot = held(handle))
+        {m.definition['id']}::release(slot->voice, shared, slot->owner);
+    else if (pending(handle) || handle->wants) handle->released = 1;
+    return 0;
+}}
+''' if release else '')
+    values.update(RELEASE_STATE=', released' if release else '',
+                  RELEASE_CLEAR='    handle->released = 0;' if release else '',
+                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release(slot.voice, shared, id);" if release else '')
+    # Expand to the original mono text when omitted, preserving its native code.
+    values.update(OUTPUT_FRAMES='opxy::block_frames' if values['CHANNELS'] == 1 else '2 * opxy::block_frames',
+                  STEREO_METHOD='zero' if values['CHANNELS'] == 1 else 'stereo',
+                  STEREO_FUNCTION='' if values['CHANNELS'] == 1 else 'static int stereo() { return 1; }\n')
+    words = values['AUDIO_WORDS']
+    values.update(AUDIO_INCLUDE='#include "audio_telemetry.hpp"\n' if words else '',
+                  AUDIO_CONTEXT='        const opxy::AudioContext audio_context = audio.context(opxy::platform::synth_audio_track(parameters));\n' if words else '',
+                  AUDIO_STORAGE=f'''static opxy::TelemetryBank<{words}> audio;
+extern "C" unsigned {m.prefix}_take_audio(opxy::u32, opxy::u32*) __asm__("{m.prefix}_take_audio");
+extern "C" unsigned {m.prefix}_take_audio(opxy::u32 track, opxy::u32* out) {{
+    return opxy::platform::take_audio(audio, track, out);
+}}
+''' if words else '')
+    values['FADE_OUTPUT'] = ('            for (opxy::i32 i = 0; i < frames; ++i) output[i] = opxy::q31::multiply(output[i], step * (frames - 1 - i));' if values['CHANNELS'] == 1 else
+        '            for (opxy::i32 i = 0; i < frames; ++i) for (opxy::i32 channel = 0; channel < 2; ++channel)\n'
+        '                output[2 * i + channel] = opxy::q31::multiply(output[2 * i + channel], step * (frames - 1 - i));')
+    values['AUDIO_END'] = ''
+    if audio_telemetry.enabled(m.definition):
+        d = audio_telemetry.display(m.definition)
+        mode, reset = d['audioMode'], str(bool(d.get('audioReset'))).lower()
+        values.update(AUDIO_INCLUDE='#include "audio_transport_native.hpp"\n',
+                      AUDIO_STORAGE=f'''static opxy::platform::telemetry::NativeBank<{words}, {mode}, {reset}, {d.get('audioAccumulators', 1)}> audio;
+extern "C" opxy::platform::telemetry::wire::Bank* {m.prefix}_audio_bank(opxy::u32) __asm__("{m.prefix}_audio_bank");
+extern "C" opxy::platform::telemetry::wire::Bank* {m.prefix}_audio_bank(opxy::u32 track) {{ return audio.resolve(track); }}
+''', AUDIO_CONTEXT='''        const opxy::u32 audio_track = opxy::platform::synth_audio_track(parameters);
+        auto* audio_bank = audio.resolve(audio_track);
+        const opxy::AudioContext audio_context = audio.context(audio_track, audio_bank, opxy::platform::synth_prepared_amplitude(parameters));
+        audio.begin(audio_bank);
+''', AUDIO_END='        audio.end(audio_bank);\n')
     return expand('voice.cpp.in', values, Path(directory) / 'voice.cpp')
 
 
 def generate_voice_preview(directory, definition):
     """Browser preview voices for a synth definition (curated or local)."""
-    return expand('voice_preview.cpp.in', voice_values(validate_definition(definition, 'synth')),
-                  Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
+    values = voice_values(validate_definition(definition, 'synth'))
+    values.update(AUDIO_BANK=f'opxy::TelemetryBank<{values["AUDIO_WORDS"]}>', AUDIO_TAKE='audio.take(track, out)',
+                  AUDIO_EXTRA='')
+    if audio_telemetry.enabled(definition):
+        d = audio_telemetry.display(definition)
+        cap = audio_telemetry.capacity(definition)
+        values.update(AUDIO_BANK=f'opxy::HostTelemetryBank<{d["audioWords"]}, {d["audioMode"]}, {str(bool(d.get("audioReset"))).lower()}, {d.get("audioAccumulators", 1)}>',
+                      AUDIO_TAKE=f'audio.take(track, out, {cap})', AUDIO_EXTRA=f'''
+opxy::u32 opxy_audio_capacity() {{ return {cap}; }}
+opxy::u32 opxy_audio_sequence(opxy::u32 track) {{ return audio.sequence(track); }}
+opxy::u32 opxy_audio_requested(opxy::u32 track) {{ return audio.requested_command(track); }}
+opxy::u32 opxy_audio_applied(opxy::u32 track) {{ return audio.applied_command(track); }}
+opxy::u32 opxy_audio_reset_supported() {{ return {int(bool(d.get('audioReset')))}; }}
+opxy::u32 opxy_audio_reset(opxy::u32 track, opxy::u32 target) {{ return audio.request_reset(track, target); }}
+''')
+    return expand('voice_preview.cpp.in', values, Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
 
 
 def drawing_layout(display):
     """Frame byte layout shared by the C++ frame and the browser."""
     paths, points, nodes, texts, palette = (display[k] for k in ('paths', 'points', 'nodes', 'texts', 'palette'))
-    path_bytes = 4 + 8 * points
+    commands = display.get('commands', 0)
+    path_bytes = 8 + 20 * commands if display.get('quadratic') else (8 if display.get('countedPaths') else 4) + 8 * points
     # An empty path or text array keeps one unused element (draw.hpp).
     nodes_at = max(paths, 1) * path_bytes
-    texts_at = nodes_at + 28 * nodes
+    texts_at = nodes_at + (32 if display.get('affine') else 28) * nodes
     header_at = texts_at + 36 * max(texts, 1)
-    return dict(PATHS=paths, POINTS=points, NODES=nodes, TEXTS=texts, PALETTE=palette, PATH_BYTES=path_bytes,
+    return dict(PATHS=paths, POINTS=points, COMMANDS=commands, NODES=nodes, TEXTS=texts, PALETTE=palette, PATH_BYTES=path_bytes,
                 FRAME_NODES_AT=nodes_at, FRAME_TEXTS_AT=texts_at, FRAME_HEADER_AT=header_at,
-                FRAME_BYTES=header_at + 32)
+                FRAME_GLYPHS_AT=header_at + 32, FRAME_BYTES=header_at + 32 + 4 * display.get('glyphs', 0))
 
 
 def screen_bytes(m):
@@ -92,8 +154,9 @@ def screen_bytes(m):
     # Nodes; text leaves and each slot's applied 24 characters; palette; frame
     # delta; then validated geometry and applied key per path (one word each when absent).
     texts, paths = max(display['texts'], 1), max(display['paths'], 1)
-    words = display['nodes'] + 7 * texts + display['palette'] + 1 + 2 * paths
-    return 76 + 4 * words
+    words = display['nodes'] + 7 * texts + max(display['palette'], 1) + 1 + 2 * paths
+    glyph_bytes = (1032 * display['glyphDefinitions'] + 28 * display['glyphs'] + 4) if display.get('glyphs') else 0
+    return 76 + 4 * words + glyph_bytes + ((display['nodes'] + 3) // 4) * 4
 
 
 def generate_display(directory, *, machine=None, definition=None):
@@ -105,25 +168,43 @@ def generate_display(directory, *, machine=None, definition=None):
         assignment = {'symbol_prefix': 'local_preview'}
     namespace, prefix = definition['id'], assignment['symbol_prefix']
     display = definition['resources']['display']
+    audio_words = display.get('audioWords', 0)
+    encoder_activity = bool(display.get('encoderActivity'))
+    display_input = audio_telemetry.input_type(definition)
+    if encoder_activity: display_input = 'Encoder' + display_input
     layout = drawing_layout(display)
-    frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**layout)
+    frame_kind = 'AffineCountedFrame' if display.get('countedPaths') else 'AffineQuadraticFrame' if display.get('quadratic') else ('Affine' if display.get('affine') else '') + 'CubicFrame' if display.get('cubic') else 'AffineFrame' if display.get('affine') else 'Frame'
+    extra = ''
+    if not display.get('cubic') and (display.get('openPaths') or display.get('segmentPaths')):
+        extra = ('' if display.get('affine') else ', false, false') + f", {display.get('openPaths', 0)}u, {display.get('segmentPaths', 0)}u"
+    capacity = '{COMMANDS}' if display.get('quadratic') else '{POINTS}'
+    frame = ('opxy::draw::' + frame_kind + '<{PATHS}, ' + capacity + ', {NODES}, {TEXTS}, {PALETTE}' + extra + '>').format(**layout)
+    if display.get('rgba'): frame = 'opxy::draw::RgbaFrame<' + frame + '>'
+    if display.get('glyphs'):
+        frame = f"opxy::draw::GlyphFrame<{frame}, {display['glyphs']}, {display['glyphDefinitions']}, {display['glyphStart']}>"
     header = f'''// Generated by the SDK; no renderer addresses in author code.
 #pragma once
 #include "display.h"
+#include <opxy/audio_transport.hpp>
+#include <opxy/encoder_activity.hpp>
 namespace opxy {{ namespace binding {{
 using DisplayState = {namespace}::DisplayState;
+using DisplayInput = draw::{display_input};
 typedef {frame} Frame;
 const unsigned display_bytes = {display['stateBytes']};
 const unsigned display_alignment = {display['stateAlignment']};
+const bool full_canvas = {'true' if display.get('fullCanvas') else 'false'};
+const unsigned audio_words = {audio_words};
+const unsigned display_abi = {(5 if audio_telemetry.extended(definition) else 4 if audio_words else 3) + (3 if encoder_activity else 0)};
 }}}}
 extern "C" {{
 void {prefix}_display_reset(opxy::binding::DisplayState*, opxy::binding::Frame*);
-void {prefix}_display_render(opxy::binding::DisplayState*, const opxy::draw::Input*, opxy::binding::Frame*);
+void {prefix}_display_render(opxy::binding::DisplayState*, const opxy::binding::DisplayInput*, opxy::binding::Frame*);
 unsigned {prefix}_display_validate(const opxy::binding::Frame*);
 }}
 namespace opxy {{ namespace binding {{
 static inline void display_reset(DisplayState* state, Frame* frame) {{ {prefix}_display_reset(state, frame); }}
-static inline void display_render(DisplayState* state, const draw::Input* input, Frame* frame) {{
+static inline void display_render(DisplayState* state, const DisplayInput* input, Frame* frame) {{
     {prefix}_display_render(state, input, frame);
 }}
 static inline bool display_valid(const Frame* frame) {{ return {prefix}_display_validate(frame) != 0; }}
@@ -140,8 +221,8 @@ static_assert(alignof(opxy::binding::DisplayState) == opxy::binding::display_ali
 static_assert(__is_trivial(opxy::binding::DisplayState) && __is_standard_layout(opxy::binding::DisplayState),
               "Display state must be trivial standard-layout data");
 static_assert(sizeof(Frame) == {layout['FRAME_BYTES']} &&
-              sizeof(Frame::path_type) == {layout['PATH_BYTES']} && sizeof(opxy::draw::Node) == 28 &&
-              __builtin_offsetof(Frame::path_type, points) == 4 &&
+              sizeof(Frame::path_type) == {layout['PATH_BYTES']} && sizeof(Frame::node_type) == {32 if display.get('affine') else 28} &&
+              __builtin_offsetof(Frame::path_type, {'commands' if display.get('quadratic') else 'points'}) == {8 if display.get('quadratic') or display.get('countedPaths') else 4} &&
               __builtin_offsetof(Frame, nodes) == {layout['FRAME_NODES_AT']} &&
               __builtin_offsetof(Frame, texts) == {layout['FRAME_TEXTS_AT']} &&
               __builtin_offsetof(Frame, header) == {layout['FRAME_HEADER_AT']} &&
@@ -156,7 +237,7 @@ extern "C" void {prefix}_display_reset(opxy::binding::DisplayState* state, Frame
     for (opxy::u32 i = 0; i < Frame::path_count; ++i) frame->paths[i].key = 0;
 }}
 extern "C" void {prefix}_display_render(opxy::binding::DisplayState* state,
-                                       const opxy::draw::Input* input, Frame* frame) {{
+                                       const opxy::binding::DisplayInput* input, Frame* frame) {{
     {namespace}::display(*state, *input, *frame);
 }}
 extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
@@ -164,8 +245,69 @@ extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
 }}
 '''
     directory = Path(directory)
+    if audio_telemetry.enabled(definition):
+        header += native_audio_binding(definition, prefix)
+    elif audio_words:
+        header += f'''extern "C" unsigned {prefix}_take_audio(opxy::u32, opxy::u32*) __asm__("{prefix}_take_audio");
+namespace opxy {{ namespace binding {{
+inline void snapshot_audio(draw::AudioInput& input) {{
+    input.audio_count = {prefix}_take_audio(input.track, input.audio_words);
+}}
+}}}}
+'''
+    else:
+        header += 'namespace opxy { namespace binding { inline void snapshot_audio(draw::Input&) {} }}\n'
+    if not audio_telemetry.enabled(definition):
+        header += 'namespace opxy { namespace binding { inline void audio_screen_reset() {} inline void finish_audio(DisplayInput&) {} }}\n'
+    if encoder_activity:
+        header += '''#if defined(__bfin__)
+#include "encoder_activity.hpp"
+namespace opxy { namespace binding {
+inline void snapshot_encoders(DisplayInput& input) { input.encoders = platform::encoder_activity(); }
+}}
+#else
+namespace opxy { namespace binding { inline void snapshot_encoders(DisplayInput&) {} }}
+#endif
+'''
+    else:
+        header += 'namespace opxy { namespace binding { inline void snapshot_encoders(DisplayInput&) {} }}\n'
     (directory / 'display_binding.hpp').write_text(header, encoding='utf-8', newline='\n')
     (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
+
+
+def native_audio_binding(definition, prefix):
+    """Native calls are platform-only; host display snapshots enter through WASM."""
+    extended = audio_telemetry.extended(definition)
+    capacity = audio_telemetry.capacity(definition)
+    metadata = '''    input.audio_sequence = snapshot.sequence;
+    input.audio_requested_command = snapshot.requested;
+    input.audio_applied_command = snapshot.applied;
+    input.audio_reset_request = 0;
+''' if extended else ''
+    if extended:
+        metadata += f'    input.audio_reset_supported = {int(bool(audio_telemetry.display(definition).get("audioReset")))};\n'
+    return f'''#if defined(__bfin__)
+#include "audio_transport_native.hpp"
+extern "C" const char {prefix}_engine_id[] __asm__("{prefix}_engine_id");
+namespace opxy {{ namespace binding {{
+inline u32 audio_engine() {{ return reinterpret_cast<u32>({prefix}_engine_id); }}
+inline void audio_screen_reset() {{ platform::telemetry::reset_screen(audio_engine()); }}
+inline void snapshot_audio(DisplayInput& input) {{
+    const auto snapshot = platform::telemetry::capture(audio_engine(), input.track, input.audio_words, {capacity});
+    input.audio_count = snapshot.count;
+{metadata}}}
+inline void finish_audio(DisplayInput& input) {{
+    platform::telemetry::frame_end(audio_engine(), input.track, {'input.audio_reset_request' if extended else '0'});
+}}
+}}}}
+#else
+namespace opxy {{ namespace binding {{
+inline void audio_screen_reset() {{}}
+inline void snapshot_audio(DisplayInput&) {{}}
+inline void finish_audio(DisplayInput&) {{}}
+}}}}
+#endif
+'''
 
 
 def generate_registration(directory, m):
@@ -219,18 +361,23 @@ def generate_screen(directory, m):
     """The machine's renderer: its display shape and artwork IDs as data for the
     SDK renderer (screen_drawing.hpp), and its exported screen symbols. Compiled
     after the display binding it includes."""
-    from .native import display_ids
+    from .native import display_ids, glyph_ids
     ids = display_ids(m.prefix, m.definition['resources']['display'])
     table = ''.join(f'    "{name}",\n' for name in ids)
+    glyphs = glyph_ids(m.prefix, m.definition['resources']['display'])
+    glyph_decl = f'static const char* const glyph_ids[{len(glyphs)}];' if glyphs else ''
+    glyph_table = ('const char* const Machine::glyph_ids[] = {' + ', '.join(json.dumps(x) for x in glyphs) + '};') if glyphs else ''
     source = f'''// Generated by the SDK: {m.native_name}'s declared display as renderer data.
 #include "display_binding.hpp"
 #include "screen_drawing.hpp"
 namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
+    {glyph_decl}
 }};
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};
+{glyph_table}
 }}
 OPXY_SCREEN(opxy::screen::Drawing<Machine>, "{m.prefix}", "{m.native_name}.svg", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
 '''

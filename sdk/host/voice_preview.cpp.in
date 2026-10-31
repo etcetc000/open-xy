@@ -1,6 +1,7 @@
 // SDK preview voices and storage for any synth. Never linked into firmware.
 #include "core.h"
 #include "engine.cpp"
+#include <opxy/audio_transport.hpp>
 using Voice = @NAMESPACE@::Voice;
 using Shared = @NAMESPACE@::Shared;
 static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
@@ -9,6 +10,8 @@ static_assert(@SHARED_BYTES@ == 0 ? __is_empty(Shared) : sizeof(Shared) == @SHAR
               "Declared shared size differs from the compiled type");
 static Voice voices[8];
 static Shared shared;
+static @AUDIO_BANK@ audio;
+static opxy::u32 audio_track;
 static opxy::u32 owner(Voice* voice) { return static_cast<opxy::u32>(voice - voices) + 1; }
 extern "C" {
 opxy::u32 opxy_preview_abi() { return 1; }
@@ -16,14 +19,20 @@ opxy::u32 opxy_state_bytes() { return sizeof(Voice); }
 opxy::u32 opxy_state_alignment() { return alignof(Voice); }
 opxy::u32 opxy_parameter_count() { return opxy::parameter_slots; }
 opxy::u32 opxy_block_frames() { return 64; }
-opxy::u32 opxy_sample_rate() { return 44100; }
+opxy::u32 opxy_output_channels() { return @CHANNELS@; }
+opxy::u32 opxy_audio_words() { return @AUDIO_WORDS@; }
+void opxy_audio_track(opxy::u32 track) { audio_track = track < 8 ? track : 8; }
+opxy::u32 opxy_take_audio(opxy::u32 track, opxy::u32* out) { return @AUDIO_TAKE@; }
+@AUDIO_EXTRA@opxy::u32 opxy_sample_rate() { return 44100; }
 opxy::u32 opxy_output_peak_q31() { return @PEAK@; }
 opxy::u32 opxy_voice_capacity() { return 8; }
 Voice* opxy_voice_state(opxy::u32 index) { return index < 8 ? &voices[index] : nullptr; }
 void opxy_initialize(Voice* voice) { @NAMESPACE@::initialize(*voice, shared, owner(voice)); }
 void opxy_start(Voice* voice) { @NAMESPACE@::start(*voice, shared, owner(voice)); }
+void opxy_release(Voice* voice) { @RELEASE_CALLBACK@ }
 void opxy_destroy(Voice* voice) { @NAMESPACE@::destroy(*voice, shared, owner(voice)); }
 void opxy_render(Voice* voice, opxy::i32* output, const opxy::i32* parameters, const opxy::u32* pitch) {
-    @NAMESPACE@::render(*voice, shared, owner(voice), output, parameters, pitch);
+    const opxy::AudioContext audio_context = audio.context(audio_track);
+    @NAMESPACE@::render(*voice, shared, owner(voice), output, parameters, pitch@AUDIO_ARGUMENT@);
 }
 }

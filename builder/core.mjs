@@ -795,7 +795,10 @@ export async function buildAssets(kit, selection, catalog, numbers) {
     check(baseSvg.split('</svg>').length === 2, 'Unexpected stock artwork boundary');
     for (const m of machines.filter(m => m.artwork)) {
       check(/^[a-z][a-z0-9_]*\.svg$/.test(m.asset), 'Invalid artwork filename');
-      files['content/display/' + m.asset] = utf8.encode(baseSvg.replace('</svg>', m.artwork + '</svg>'));
+      const fullCanvas = m.fullCanvas ?? m.preview?.graphics?.fullCanvas ?? 0;
+      check(fullCanvas === 0 || fullCanvas === 1, 'Invalid full canvas flag');
+      const shell = fullCanvas ? '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>' : baseSvg;
+      files['content/display/' + m.asset] = utf8.encode(shell.replace('</svg>', m.artwork + '</svg>'));
     }
   }
   return files;

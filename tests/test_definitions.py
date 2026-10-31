@@ -116,7 +116,7 @@ class Definitions(unittest.TestCase):
     def test_displays_declare_their_shape_within_limits(self):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
-                           ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
+                           ('paths', 0), ('paths', 5), ('points', 1), ('points', 257),
                            ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 33), ('texts', True),
                            ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)

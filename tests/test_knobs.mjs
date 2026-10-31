@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bindKnob } from '../harness/knobs.mjs';
 
-function fixture(value = 0.5) {
+function fixture(value = 0.5, onGesture) {
   const knob = new EventTarget(), range = new EventTarget(), doc = new EventTarget();
   doc.defaultView = new EventTarget();
   knob.ownerDocument = doc;
@@ -16,7 +16,7 @@ function fixture(value = 0.5) {
   Object.assign(range, { min: '0', max: '1', step: '0.001', value: String(value) });
   const edits = [];
   range.addEventListener('input', () => edits.push(Number(range.value)));
-  bindKnob(knob, range);
+  bindKnob(knob, range, onGesture);
   function pointer(type, clientY = 100, extra = {}) {
     knob.dispatchEvent(Object.assign(new Event(type, { cancelable: true }),
       { pointerId: 1, button: 0, clientY, shiftKey: false, ...extra }));
@@ -26,6 +26,20 @@ function fixture(value = 0.5) {
   }
   return { knob, range, doc, edits, classes, pointer, key };
 }
+
+test('gesture callback receives the original event after the parameter is updated', () => {
+  const seen = [];
+  const f = fixture(0.5, event => seen.push({event, value:Number(f.range.value)}));
+  f.pointer('pointerdown');
+  f.pointer('pointermove', 80);
+  f.key('End');
+  assert.deepEqual(seen.map(x => [x.event.type, x.value]),
+    [['pointerdown',0.5],['pointermove',0.6],['keydown',1]]);
+  assert.ok(seen.every(x => x.event.isTrusted === false), 'synthetic gestures must never become trusted');
+  f.range.value = '0.2';
+  f.range.dispatchEvent(new Event('input'));
+  assert.equal(seen.length, 3, 'automation does not emit a physical gesture');
+});
 
 test('relative dragging uses the existing range input without a jump and releases capture', () => {
   const f = fixture(0.25);

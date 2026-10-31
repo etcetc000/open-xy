@@ -15,6 +15,11 @@ export class PreviewEngine {
     this.sampleRate = bounded(api.opxy_sample_rate(), 8000, 192000, 'kernel sample rate');
     if (sampleRate !== this.sampleRate) throw new Error(`Kernel requires ${this.sampleRate} Hz`);
     this.blockFrames = bounded(api.opxy_block_frames(), 1, 256, 'block length');
+    // Older ABI-1 modules are mono. Stereo output is opt-in per module.
+    this.outputChannels = bounded(api.opxy_output_channels?.() ?? 1, 1, 2, 'output channels');
+    this.audioCapacity = bounded(api.opxy_audio_capacity?.() ?? 16, 16, 256, 'audio telemetry capacity');
+    if (![16,256].includes(this.audioCapacity)) throw new Error('Invalid audio telemetry capacity');
+    this.audioWords = bounded(api.opxy_audio_words?.() ?? 0, 0, this.audioCapacity, 'audio telemetry words');
     this.stateBytes = bounded(api.opxy_state_bytes(), 4, api.memory.buffer.byteLength, 'voice state size');
     this.parameterCount = bounded(api.opxy_parameter_count(), 1, 8, 'parameter count');
     const alignment = bounded(api.opxy_state_alignment(), 4, 64, 'voice alignment');
@@ -32,16 +37,18 @@ export class PreviewEngine {
     };
     this.parameterAddress = allocate(this.parameterCount * 4);
     this.parameters = new Int32Array(memory, this.parameterAddress, this.parameterCount);
+    this.audioAddress = this.audioWords ? allocate(this.audioCapacity * 4) : 0;
+    this.audioSnapshot = this.audioWords ? new Uint32Array(memory, this.audioAddress, this.audioCapacity) : null;
     this.voices = Array.from({ length: voiceCount }, (_, index) => {
       const state = bounded(api.opxy_voice_state(index), 1, Number(api.__heap_base.value) - this.stateBytes,
                             'voice address');
       if (state % alignment) throw new Error('Misaligned voice state');
       const pitchAddress = allocate(this.blockFrames * 4);
-      const outputAddress = allocate(this.blockFrames * 4);
+      const outputAddress = allocate(this.blockFrames * this.outputChannels * 4);
       api.opxy_initialize(state);
       return { state, pitchAddress, outputAddress,
         pitch: new Uint32Array(memory, pitchAddress, this.blockFrames),
-        output: new Int32Array(memory, outputAddress, this.blockFrames),
+        output: new Int32Array(memory, outputAddress, this.blockFrames * this.outputChannels),
         active: false, note: 0, age: 0, velocity: 0, amplitude: 0, releasing: false,
         cursor: this.blockFrames };
     });
@@ -54,6 +61,21 @@ export class PreviewEngine {
     this.attackStep = 1 / (sampleRate * 0.005);
     this.releaseStep = 1 / (sampleRate * 0.12);
     this.setParameters(parameters);
+  }
+
+  // Called by the worklet's message handler between audio quanta, never by render.
+  takeAudio(track = 0, reset = false, target = 1) {
+    if (typeof reset !== "boolean") throw new Error("Invalid audio reset request");
+    bounded(track, 0, 7, 'audio track');
+    if (reset) bounded(target, 1, 0xffffffff, 'audio reset target');
+    if (!this.audioWords) return {count: 0, words: Array(16).fill(0)};
+    if (reset) this.api.opxy_audio_reset?.(track, target);
+    const count = this.api.opxy_take_audio(track, this.audioAddress);
+    if (count !== this.audioWords) throw new Error('Invalid audio telemetry snapshot');
+    if (!this.api.opxy_audio_sequence) return {count, words:Array.from(this.audioSnapshot)};
+    return {count, words: Array.from(this.audioSnapshot), sequence:this.api.opxy_audio_sequence?.(track) ?? 0,
+      requested:this.api.opxy_audio_requested?.(track) ?? 0, applied:this.api.opxy_audio_applied?.(track) ?? 0,
+      resetSupported:this.api.opxy_audio_reset_supported?.() ?? 0};
   }
 
   setParameters(values) {
@@ -83,18 +105,25 @@ export class PreviewEngine {
     return true;
   }
   noteOff(note) {
-    for (const voice of this.voices) if (voice.active && voice.note === note) voice.releasing = true;
+    for (const voice of this.voices) if (voice.active && voice.note === note && !voice.releasing) {
+      // ABI-1 modules made before the opt-in release extension omit this export.
+      this.api.opxy_release?.(voice.state);
+      voice.releasing = true;
+    }
   }
   panic() { for (const voice of this.voices) {
     if (voice.active) this.api.opxy_destroy(voice.state);
     voice.active = false;
   } }
 
-  render(output) {
+  render(output, right) {
+    if (this.outputChannels === 2 && (!right || right.length !== output.length)) {
+      throw new Error('Stereo preview requires equal left and right output buffers');
+    }
     // No typed-array creation, memory growth, transcendental functions or messages
     // here. Each voice retains its partial block across arbitrary host quanta.
     for (let i = 0; i < output.length; ++i) {
-      let sample = 0;
+      let sample = 0, sampleRight = 0;
       for (let j = 0; j < this.voices.length; ++j) {
         const voice = this.voices[j];
         if (!voice.active) continue;
@@ -109,9 +138,14 @@ export class PreviewEngine {
           voice.cursor = 0;
         }
         // Compiled headroom determines audition normalization, peak 0.1/voice.
-        sample += voice.output[voice.cursor++] * this.auditionGain * voice.amplitude * voice.velocity;
+        const at = voice.cursor++ * this.outputChannels;
+        sample += voice.output[at] * this.auditionGain * voice.amplitude * voice.velocity;
+        if (this.outputChannels === 2) {
+          sampleRight += voice.output[at + 1] * this.auditionGain * voice.amplitude * voice.velocity;
+        }
       }
       output[i] = sample;
+      if (right) right[i] = this.outputChannels === 2 ? sampleRight : sample;
     }
   }
 }

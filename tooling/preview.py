@@ -7,6 +7,7 @@ import subprocess
 import sys
 from xml.etree.ElementTree import ParseError
 
+from . import audio_telemetry
 from .formats import require, sha
 from .definitions import ROOT
 from .machines import machine_at
@@ -14,13 +15,16 @@ from .pipeline import NO_WINDOW, fresh_output
 
 
 VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment', 'opxy_parameter_count',
-                 'opxy_block_frames', 'opxy_sample_rate', 'opxy_output_peak_q31', 'opxy_voice_capacity',
-                 'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_destroy', 'opxy_render', '__heap_base')
-DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
+                 'opxy_block_frames', 'opxy_output_channels', 'opxy_sample_rate', 'opxy_output_peak_q31', 'opxy_voice_capacity',
+                 'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_release', 'opxy_destroy', 'opxy_render',
+                 'opxy_audio_words', 'opxy_audio_track', 'opxy_take_audio', '__heap_base')
+AUDIO_EXPORTS = tuple('opxy_audio_' + name for name in ('capacity', 'sequence', 'requested', 'applied', 'reset_supported', 'reset'))
+CONTROL_EXPORTS = ('opxy_control_source','opxy_control_event')
+DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'audio_words', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
                                                             'input', 'frame', 'reset', 'render', 'valid'))
 MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
-SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
+SDK_SOURCES = ('tooling/preview.py', 'tooling/audio_telemetry.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
                'tooling/contributors.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
                'sdk/host/display_preview.cpp', 'sdk/platform/blackfin/memory.cpp')
 SDK_FOLDERS = ('sdk/include', 'sdk/browser', 'sdk/platform/blackfin/freestanding')
@@ -43,7 +47,7 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=()):
              *(root / extra for extra in includes), out]
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={MEMORY}',
-               f'-Wl,--max-memory={MEMORY}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS)]
+               f'-Wl,--max-memory={MEMORY}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS + CONTROL_EXPORTS + (AUDIO_EXPORTS if audio_telemetry.enabled(definition) else ()))]
     result = subprocess.run([str(x) for x in command], capture_output=True, text=True, timeout=120,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
@@ -80,9 +84,13 @@ def graphics_metadata(m):
 
 def drawing_bindings(ids, display):
     """Browser renderer bindings: node, text and palette IDs, how many nodes are paths, and their point count."""
+    from .native import glyph_ids
     count = display['nodes'] + display['texts']
+    glyphs = glyph_ids(ids[0].removesuffix('_node_0'), display)
     return dict(nodes=ids[:display['nodes']], texts=ids[display['nodes']:count], palette=ids[count:],
-                paths=display['paths'], points=display['points'])
+                paths=display['paths'], points=display['points'],
+                **({'glyphSources': glyphs} if glyphs else {}),
+                **{key: display[key] for key in ('affine', 'fullCanvas', 'cubic', 'openPaths', 'segmentPaths', 'rgba', 'quadratic', 'commands', 'countedPaths', 'glyphs', 'glyphDefinitions', 'glyphStart') if key in display})
 
 
 def build(compiler, m, out):

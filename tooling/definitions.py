@@ -51,7 +51,11 @@ def label(value):
             'Labels must be short plain text')
 
 
-def control_label(value):
+def control_label(value, full_canvas=False):
+    if full_canvas:
+        require(isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 _.-]{0,15}',value),
+                'Authored full-canvas control labels are at most sixteen plain ASCII characters')
+        return
     # The stock parameter page shows control names in lower case, at most eight characters.
     require(isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 ]{0,7}', value),
             'Control labels are at most eight letters, digits or spaces')
@@ -66,7 +70,7 @@ RESOURCES = {
 # A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
 # declares its frame's budget within these limits.
 DISPLAY_FIELDS = ('stateBytes', 'stateAlignment', 'paths', 'points', 'nodes', 'texts', 'palette')
-DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 256), texts=(0, 32), palette=(1, 16))
+DISPLAY_LIMITS = dict(paths=(0, 32), points=(0, 256), nodes=(1, 256), texts=(0, 32), palette=(1, 16))
 # More text slots than these need SDK 1.3 and 1.7 (tooling.machines).
 SDK_1_2_TEXTS, SDK_1_6_TEXTS = 4, 16
 # Analysis storage is allocated from the stock heap at runtime, which also holds
@@ -119,11 +123,17 @@ def validate_definition(value, kind):
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
-    options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else ()
+    options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else ('stereoOutput', 'releaseCallback')
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k != 'display'),
             'Numeric resource requirements must be integers')
+    if kind == 'synth':
+        for flag in ('stereoOutput', 'releaseCallback'):
+            require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
+    if kind != 'synth' and 'display' in resources:
+        require(not any(resources['display'].get(k) for k in ('audioWords', 'audioTransport', 'audioReset', 'audioMode', 'audioAccumulators')),
+                'Audio display transport requires a synth producer')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
     # Stock creates a voice object for every index 0..255 and never checks for a
@@ -162,7 +172,8 @@ def validate_definition(value, kind):
         alternate = kind in ('synth', 'effect') and i >= SYNTH_POSITIONS
         require(kind == 'synth' or not (isinstance(parameter, dict) and 'absent' in parameter),
                 'Only a synth leaves a slot absent')
-        validate_parameter(parameter, alternate, required=kind == 'synth')
+        validate_parameter(parameter, alternate, required=kind == 'synth',
+                           full_canvas=kind == 'synth' and resources['display'].get('fullCanvas') == 1)
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
     # Two pages share positions with no alternate; no duplicate saved parameters.
@@ -218,20 +229,71 @@ def validate_synth_resources(resources):
 def validate_display(display):
     require(not (isinstance(display, dict) and 'kind' in display),
             'This display uses a contract from before SDK 1.0: see docs/display.md#migrating-from-before-sdk-10')
-    keys(display, DISPLAY_FIELDS, 'display')
+    optional = tuple(k for k in ('affine', 'fullCanvas', 'audioWords', 'encoderActivity', 'audioTransport', 'audioMode', 'audioReset', 'audioAccumulators', 'cubic', 'openPaths', 'segmentPaths', 'rgba', 'quadratic', 'commands', 'countedPaths', 'glyphs', 'glyphDefinitions', 'glyphStart') if isinstance(display, dict) and k in display)
+    keys(display, (*DISPLAY_FIELDS, *optional), 'display')
+    for name in optional:
+        maximum = 64 if name == 'glyphs' else 16 if name == 'glyphDefinitions' else 255 if name == 'glyphStart' else (256 if display.get('audioTransport') else 16) if name == 'audioWords' else 24 if name == 'audioAccumulators' else 2 if name == 'audioMode' else 128 if name == 'commands' else 0xffffffff if name in ('openPaths', 'segmentPaths') else 1
+        require(type(display[name]) is int and 0 <= display[name] <= maximum,
+                'Display ' + name + ' must be 0..' + str(maximum))
+    if display.get('audioTransport'):
+        require(display.get('audioWords', 0) > 0 and 'audioMode' in display,
+                'Audio transport requires audioWords and explicit audioMode')
+        require(display['audioMode'] != 1 or display['audioWords'] == 1,
+                'Packed accumulation requires exactly one word')
+        require(display['audioMode'] != 2 or 1 <= display.get('audioAccumulators', 1) <= 24 and display['audioWords'] > display.get('audioAccumulators', 1),
+                'Mixed telemetry requires 1..24 packed accumulators and a persistent tail')
+        require('audioAccumulators' not in display or display['audioMode'] == 2,
+                'Explicit accumulator count requires mixed telemetry')
+        require(not display.get('audioReset') or display['audioMode'] != 1,
+                'Audio reset requires persistent or mixed snapshots')
+    else:
+        require('audioMode' not in display and 'audioReset' not in display and 'audioAccumulators' not in display,
+                'Audio mode/reset requires audioTransport')
     for name, (low, high) in DISPLAY_LIMITS.items():
+        if name == 'palette' and display.get('affine'): low = 0
         require(type(display[name]) is int and low <= display[name] <= high,
                 'Display %s must be %d..%d' % (name, low, high))
-    require((display['points'] >= 2) == (display['paths'] > 0),
-            'Paths have 2..64 points; a display without paths declares 0 points')
+    quadratic, commands = display.get('quadratic', 0), display.get('commands', 0)
+    if quadratic:
+        require(display.get('affine') and display['paths'] > 0 and display['points'] == 0 and commands >= 2 and
+                not any(display.get(k) for k in ('cubic', 'openPaths', 'segmentPaths')),
+                'Quadratic streams require affine paths, points0, commands2..128 and no other topology')
+    else:
+        require(not commands, 'Command capacity requires quadratic streams')
+        require((display['points'] >= 2) == (display['paths'] > 0),
+                'Paths have 2..256 points; a display without paths declares 0 points')
+    if display.get('countedPaths'):
+        require(display.get('affine') and display['paths'] > 0 and not quadratic and not display.get('cubic'),
+                'Counted paths require affine polylines')
+        require(display['paths'] * (8 + 8 * display['points']) <= 2816,
+                'Counted path reserved storage exceeds 2816 bytes')
+    else:
+        require(display['paths'] * (2 * commands if quadratic else display['points']) <= 256,
+                'Display total path point budget is 256')
+    opened, segments = display.get('openPaths', 0), display.get('segmentPaths', 0)
+    require(opened < 1 << display['paths'] and segments < 1 << display['paths'] and not opened & segments,
+            'Invalid or overlapping path topology masks')
+    require(not display.get('cubic') or display['paths'] > 0 and display['points'] == 4 and not (opened or segments),
+            'Cubic paths require four points and no topology masks')
+    require(not display.get('rgba') or display.get('affine') == 1 and display['palette'] == 0,
+            'RGBA displays require affine nodes and palette zero')
     require(display['paths'] <= display['nodes'], 'Each path is also a node')
+    glyphs = display.get('glyphs', 0)
+    if glyphs:
+        require(display.get('affine') and 1 <= display.get('glyphDefinitions', 0) <= 16 and
+                display['paths'] <= display.get('glyphStart', -1) and
+                display['glyphStart'] + 2 * glyphs <= display['nodes'], 'Invalid owned glyph atlas budget')
+    else:
+        require(not display.get('glyphDefinitions', 0) and not display.get('glyphStart', 0),
+                'Glyph definitions and start require glyph instances')
+
     require(type(display['stateBytes']) is int and type(display['stateAlignment']) is int and
             4 <= display['stateBytes'] and display['stateAlignment'] in (4, 8, 16) and
             display['stateBytes'] % display['stateAlignment'] == 0,
             'Display state must occupy aligned whole words')
 
 
-def validate_parameter(parameter, alternate=False, required=True):
+def validate_parameter(parameter, alternate=False, required=True, full_canvas=False):
     if isinstance(parameter, dict) and parameter.get('absent') is not None:
         # An empty slot that keeps later parameters at their indices: no label, no
         # position, no presets; its encoder shows nothing and turns nothing. A
@@ -253,7 +315,7 @@ def validate_parameter(parameter, alternate=False, required=True):
     if named:
         require(type(parameter['control']) is int and 0 <= parameter['control'] < SYNTH_POSITIONS,
                 'An alternate parameter names its control position 0..3')
-    identifier(parameter['id']); control_label(parameter['label'])
+    identifier(parameter['id']); control_label(parameter['label'],full_canvas)
     number(parameter['default'], 0, 1, 'normalized default')
     require(parameter['display'] in DISPLAY_FORMATS, 'Unsupported display format')
     require(parameter['display'] != 'division' or parameter['mapping'] == {'kind': 'linear', 'minimum': 0, 'maximum': 1},

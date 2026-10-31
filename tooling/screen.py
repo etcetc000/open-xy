@@ -39,8 +39,11 @@ def template():
     return validate_template(data)
 
 
-def compose(fragment):
-    data = template().replace(b'</svg>', fragment + b'</svg>')
+def compose(fragment, full_canvas=False):
+    data = template()  # Authenticate the pinned baseline even for the opt-in shell.
+    if full_canvas:
+        data = b'<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>'
+    data = data.replace(b'</svg>', fragment + b'</svg>')
     root = ET.fromstring(data)
     ids = [n.attrib['id'] for n in root.iter() if 'id' in n.attrib]
     require(len(ids) == len(set(ids)), 'Duplicate SVG binding IDs')
