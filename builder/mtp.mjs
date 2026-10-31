@@ -141,6 +141,31 @@ export class Device {
     this.#listings.set(parent, files);
     return files;
   }
+  // CLI access uses the same session and protocol as the browser installer.
+  async list(path = '') {
+    let parent = ROOT;
+    for (const name of path ? segments(path) : []) {
+      const folder = (await this.#children(parent)).get(name);
+      if (!folder?.folder) throw new Error(`Your OP–XY does not have the folder ${path}.`);
+      parent = folder.handle;
+    }
+    this.#listings.delete(parent);
+    return [...await this.#children(parent)].map(([name, entry]) => ({name, ...entry}));
+  }
+  async mkdir(path) { await this.#folder(segments(path), () => {}); }
+  async remove(path) {
+    const names = segments(path), name = names.pop();
+    let parent = ROOT;
+    for (const part of names) {
+      const folder = (await this.#children(parent)).get(part);
+      if (!folder?.folder) throw new Error(`Your OP–XY does not have ${path}.`);
+      parent = folder.handle;
+    }
+    const siblings = await this.#children(parent), file = siblings.get(name);
+    if (!file || file.folder) throw new Error(`Refusing to delete a missing file or folder: ${path}.`);
+    this.#expect(await this.#run(DELETE_OBJECT, [file.handle, 0]), 'delete ' + path);
+    siblings.delete(name);
+  }
   // Resolve an existing path without creating folders or changing device files.
   async read(path, {maxBytes = 16 * 1024 ** 2, onProgress = () => {}} = {}) {
     const names = segments(path);
