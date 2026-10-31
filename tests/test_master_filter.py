@@ -68,6 +68,24 @@ class MasterFilter(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'four decimal'):
                 extensions.validate_master_artwork(path)
 
+    def test_stock_loader_rejects_xml_prefixed_element_names(self):
+        from tooling import extensions, native
+        with tempfile.TemporaryDirectory(prefix='master-svg-prefix-') as directory:
+            path = Path(directory) / 'panel.svg'
+            for xml in (
+                '<ns0:svg xmlns:ns0="http://www.w3.org/2000/svg" viewBox="0 0 480 222"/>',
+                '<svg xmlns="http://www.w3.org/2000/svg" xmlns:p="http://www.w3.org/2000/svg" '
+                'viewBox="0 0 480 222"><p:path d="M 0 0 L 1 1" fill="none" stroke="#000000" stroke-width="1"/></svg>',
+            ):
+                path.write_text(xml)
+                with self.subTest(xml=xml), self.assertRaisesRegex(ValueError, 'unprefixed'):
+                    extensions.validate_master_artwork(path)
+                with self.assertRaisesRegex(ValueError, 'unprefixed'):
+                    native.panel_root(xml.encode(), 'probe')
+            path.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 222">'
+                            '<path d="M 0 0 L 1 1" fill="none" stroke="#000000" stroke-width="1"/></svg>')
+            self.assertEqual(extensions.validate_master_artwork(path), path.read_bytes())
+
     @unittest.skipUnless(services.HOST_CXX, 'No working host C++ compiler')
     def test_mix_hooks_selector_transport_and_project_reset(self):
         with tempfile.TemporaryDirectory(prefix='master-hooks-') as folder:

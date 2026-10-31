@@ -224,6 +224,8 @@ def validate_master_artwork(path, definition=None):
     import xml.etree.ElementTree as ET
     data = path.read_bytes()
     require(0 < len(data) <= 65536, 'Master filter SVG exceeds 64 KiB')
+    from .svg_safety import validate_xml
+    validate_xml(data)
     root = ET.fromstring(data)
     require(root.tag == '{http://www.w3.org/2000/svg}svg' and root.get('viewBox') == '0 0 480 222',
             'Master filter SVG needs the 480 x 222 viewport')
@@ -235,8 +237,6 @@ def validate_master_artwork(path, definition=None):
     if definition is not None:
         from .native import check_bindings
         check_bindings({n.get('id'):n for n in leaves if n.get('id')},definition['id'],definition['resources']['display'])
-    return data
-
     return data
 
 

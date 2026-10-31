@@ -49,7 +49,7 @@ CXX_FLAGS = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-excep
              '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-asynchronous-unwind-tables',
              '-fno-unwind-tables', '-fno-common', '-fno-tree-loop-distribute-patterns',
              '-fomit-frame-pointer', '-nostdinc++', '-Wall', '-Werror', '-Wno-unused-variable']
-from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes
+from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes, validate_xml
 
 
 
@@ -639,6 +639,7 @@ def display_ids(prefix, display):
 
 def panel_root(fragment, source):
     """An artwork fragment: one well-formed root element, such as <g id="<prefix>_panel">."""
+    validate_xml(fragment)
     try:
         return ET.fromstring(fragment)
     except ET.ParseError as error:

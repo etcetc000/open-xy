@@ -49,7 +49,9 @@ per outline, 256 nodes, 16 texts and 16 palette entries. Mutable points are loca
 coordinates within ±64 pixels; position and scale their nodes normally. Do not
 pass collapsed filled shapes to stock; hide them while their area is zero.
 Artwork uses the same numeric, paint, binding and reference safety checks as
-instrument artwork, including at most four fractional digits and no exponents.
+instrument artwork, including at most four fractional digits and no exponents. Element names must
+be unprefixed (`<svg>`, `<path>`); use the default SVG namespace, never
+`<ns0:svg>` or `<svg:path>`, which stock does not recognize.
 
 The optional shared GUI callback `display_parameter_reset(DisplayState&, u32)`
 receives an explicit reset of a declared parameter. It can start an animation

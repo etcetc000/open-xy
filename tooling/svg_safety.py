@@ -9,6 +9,14 @@ SVG_NUMERIC = {'viewBox', 'd', 'points', 'transform', 'x', 'y', 'x1', 'y1', 'x2'
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)'
 SVG_INHERITED = {'fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 'style'}
 
+def validate_xml(data):
+    """Stock's loader recognizes literal SVG names, not XML namespace prefixes."""
+    if isinstance(data, str):
+        data = data.encode('utf-8')
+    require(not re.search(rb'<\s*/?\s*[A-Za-z_][A-Za-z0-9_.-]*:', data),
+            'Stock SVG requires unprefixed element names; use the default SVG namespace')
+
+
 def validate_nodes(nodes):
     ids = [n.get("id") for n in nodes if n.get("id")]
     require(len(ids) == len(set(ids)), "Duplicate authored SVG ID")
