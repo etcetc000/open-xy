@@ -51,6 +51,11 @@ inline u32 project_bpm_x10() {
 }
 
 inline u32 track_engine(u32 track) { return stock<u32(u32)>(0x8d58781c)(track); }
+// Stock's set: stores a track's parameter word and sends it to the audio side
+// (0x8d5acd9c), as it does for every edit.
+inline u32 set_parameter(u32 project, u32 track, u32 index, i32 value) {
+    return stock<u32(u32, u32, u32, i32)>(0x8d5acf28)(project, track, index, value);
+}
 inline u32 selected_track() { return stock<u32()>(0x8d4d6f14)(); }
 inline bool shift_held() { return stock<u32()>(0x8d51f184)() != 0; }
 // Stock's held-key list survives encoder turns; its separate pending-click
