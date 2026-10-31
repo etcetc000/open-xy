@@ -175,6 +175,23 @@ void sdk_arranger_bounce_stopped(u32 object) {
     }
 }
 
+void sdk_arranger_bounce_trim(u32 job) {
+    // Worker507e76 normally calls507b84, which changes this queued job's
+    // PCM pointer (+1c) and frame count (+20) by removing leading/trailing
+    // silence. A timeline bounce must retain its explicitly requested rests.
+    // Match the owned queued save; ordinary sample recording keeps auto-trim.
+    if (job && owned && stopped && saving && !writer_done &&
+        word(job + 0x20) == expected_frames && byte(job + 0x24) == 60 &&
+        byte(job + 0x25) == 1) {
+        const u32 size = word(job + 0x14), capacity = word(job + 0x18);
+        if (size && size <= 96 && capacity >= size) {
+            const char* path = at<const char>(capacity >= 16 ? word(job + 4) : job + 4);
+            if (same_path(path)) return;
+        }
+    }
+    stock<void(u32)>(0x8d507b84)(job);
+}
+
 u32 sdk_arranger_bounce_write(const char* path, u32 channels, u32 rate,
     const void* pcm, u32 samples, u32 format, i32 key) {
     const bool ours = owned && saving && !writer_done && same_path(path);

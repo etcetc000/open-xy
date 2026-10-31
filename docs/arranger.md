@@ -275,6 +275,8 @@ The sample is saved in the stock **User** sample directory under a stock-generat
 name, without an added date. The length limit is slightly below **20 seconds**.
 This is not a sample-exact or dry stem export: leading silence and a capture tail
 can remain, and output effects, normalization and edge fades are retained.
+Bounce preserves leading and trailing rests in the requested region; the stock
+sample recorder’s automatic silence trimming still applies to ordinary recordings.
 An audio file can remain in User if later assignment fails or is cancelled.
 The save indicator closes after pending bounce work has finished, including on
 failure or cancellation. A failure reason remains in the footer until the next

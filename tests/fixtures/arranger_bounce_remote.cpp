@@ -29,7 +29,8 @@ using namespace opxy;
 using namespace opxy::platform;
 namespace wire = opxy::platform::bounce_wire;
 const u32 recorder = 0x8429d5b0;
-unsigned char recorder_memory[64];
+unsigned char recorder_memory[64], job_memory[40], job_path[97];
+u32 native_trims;
 std::map<u32, u32> globals;
 std::vector<wire::Message> replies;
 u32 milliseconds, source = 2, enabled, starts, stops, captures, writes, native_messages, completed;
@@ -50,6 +51,18 @@ void process(u32 address, const void*, u32 words) {
 }
 u32 writer(const char*, u32, u32, const void*, u32, u32, i32) { ++writes; return writer_ok; }
 void poll_native() {}
+void trim_native(u32 job) {
+    ++native_trims;
+    // Native507b84 removes silence from both ends of the queued sample.
+    put_word(job+0x1c, fake_word(job+0x1c)+128);
+    put_word(job+0x20, fake_word(job+0x20)-128);
+}
+void setup_job(const char* path, u32 frames) {
+    std::memset(job_memory,0,sizeof(job_memory));
+    std::strcpy(reinterpret_cast<char*>(job_path),path);
+    put_word(0x1004,0x2000);put_word(0x1014,std::strlen(path));put_word(0x1018,96);
+    put_word(0x101c,0x3000);put_word(0x1020,frames);put_byte(0x1024,60);put_byte(0x1025,1);
+}
 void saved_native(u32) { ++completed; }
 void send(u32 endpoint, u32 type, const void* payload, u32 size, u32 zero, u32 first, u32 second) {
     require(!inside_capture, "capture never sends IPC");
@@ -119,6 +132,8 @@ void release(u32 cookie) {
 }
 
 unsigned char* fake_memory(opxy::u32 address) {
+    if (address>=0x1000 && address<0x1028) return test::job_memory+address-0x1000;
+    if (address>=0x2000 && address<0x2061) return test::job_path+address-0x2000;
     if (address >= test::recorder && address < test::recorder + sizeof(test::recorder_memory))
         return test::recorder_memory + address - test::recorder;
     return reinterpret_cast<unsigned char*>(&test::globals[address]);
@@ -131,7 +146,7 @@ void* fake_function(opxy::u32 address) {
     F(0x8d4db404, set_source); F(0x8d4db47c, set_enabled); F(0x8d50713c, stop_native);
     F(0x8d5072d8, process); F(0x8d4fe15c, writer); F(0x8d4d86c0, poll_native);
     F(0x11a00ec0, send); F(0x8d4d83b8, native);
-    F(0x8d4d8910, saved_native);
+    F(0x8d4d8910, saved_native); F(0x8d507b84, trim_native);
 #undef F
     std::printf("unknown stock %x\n", address); std::exit(1);
 }
@@ -212,14 +227,30 @@ int main() {
     release(5); test::writer_ok = true;
 
     begin(6); capture(128); command(wire::Stop, 6); save(path, 64, 8192);
-    sdk_arranger_bounce_write(path, 2, 44100, recorder_memory, 16256, 0, 60);
-    sdk_arranger_bounce_remote_saved(8128);
+    setup_job(path,8128);
+    const u32 trims_before=native_trims;
+    sdk_arranger_bounce_trim(0x1000);
+    require(native_trims==trims_before && fake_word(0x101c)==0x3000 && fake_word(0x1020)==8128,
+        "explicit bounce range retains leading and trailing rests before native writer");
+    sdk_arranger_bounce_write(path, 2, 44100, recorder_memory, fake_word(0x1020)*2, 0, 60);
+    sdk_arranger_bounce_remote_saved(fake_word(0x1020));
     sdk_arranger_bounce_remote_poll();
     const wire::Message result = last_reply(wire::WriteResult, 6);
     require(result.args[0] == 1 && result.args[1] == 8128, "valid writer confirms saved range frames");
     release(6);
+    setup_job(path,8128);sdk_arranger_bounce_trim(0x1000);
+    require(native_trims==trims_before+1 && fake_word(0x1020)==8000,
+        "ordinary sample recording retains native silence trim");
 
     begin(7); capture(128); command(wire::Stop, 7); save(path, 64, 8192);
+    setup_job("/fat32/samples/user/foreign.wav",8128);sdk_arranger_bounce_trim(0x1000);
+    require(fake_word(0x1020)==8000,"foreign queued sample cannot borrow bounce trim exemption");
+    setup_job(path,8192);sdk_arranger_bounce_trim(0x1000);
+    require(fake_word(0x1020)==8064,"wrong queued range cannot borrow bounce trim exemption");
+    setup_job(path,8128);put_byte(0x1024,61);sdk_arranger_bounce_trim(0x1000);
+    require(fake_word(0x1020)==8000,"wrong queued key retains native behavior");
+    setup_job(path,8128);put_byte(0x1025,0);sdk_arranger_bounce_trim(0x1000);
+    require(fake_word(0x1020)==8000,"non-bounce mono job retains native behavior");
     sdk_arranger_bounce_write(path, 2, 44100, recorder_memory, 16384, 0, 60);
     sdk_arranger_bounce_remote_saved(8192);
     sdk_arranger_bounce_remote_poll();

@@ -2391,6 +2391,15 @@
     },
     {
       "kind": "hook",
+      "address": "0x8d507e76",
+      "file_offset": "0x13f0d2",
+      "length": 4,
+      "before": "ffe387fe",
+      "symbol": "sdk_arranger_bounce_trim",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8d507fcc",
       "file_offset": "0x13f228",
       "length": 4,
