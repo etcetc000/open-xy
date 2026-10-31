@@ -5,6 +5,31 @@ of one instrument. Catalog review checks machines against these conventions.
 [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/tree/main/machines/macroosc)
 is the reference for each of them.
 
+## Principles
+
+- **Part of one instrument.** A machine should feel as if the OP-XY made it:
+  its type, its greys, its motion and its page conventions. The sections below
+  say how.
+- **Every control reads.** Turning a control visibly changes the screen, and
+  the change says what the control does to the sound. A player learns a
+  machine by turning it, without a manual.
+- **Seen as much as heard.** A control's visual change is in proportion to
+  how much it changes the sound: one with a big audible effect moves the
+  picture a lot, a subtle one moves it less, but it stays easy to see while
+  it turns. Exaggerating a quiet control misleads the player about what
+  matters; hiding it leaves them guessing.
+- **One clear subject.** A screen shows one object or scene the sound acts on,
+  not a dashboard of meters.
+- **Calm by default.** An idle screen is still; motion answers a note, a press
+  or a turn.
+- **Cheap enough to stack.** A voice or a screen runs beside many others, up
+  to 24 voices across eight tracks, so budget for that: the
+  [screen cost](#screens) and the [recommended CPU](profiling.md#add-the-catalog-field).
+- **Musical first.** Defaults and presets sound good straight away. An extreme
+  setting can be wild, but the settings people land on are usable.
+- **Honest numbers.** CPU, levels and anything in the catalog come from the
+  device, not from estimates.
+
 ## Controls
 
 - **Clockwise goes up.** Turning an encoder clockwise makes its shown number
@@ -74,6 +99,54 @@ is the reference for each of them.
   show the end state at once.
 - **Grey is inactive, bright is active**: the page row, unlit segments, a dial
   not being edited.
+
+## Screens
+
+How a screen looks is the machine's own. These hold whatever it draws.
+
+- **Judge at 1:1.** The screen is 480 × 220 px; look at each frame at that
+  size, not enlarged. Avoid parts under about 3 to 4 px, lines or hatching
+  closer than about 3 px, text under about 8 px, and a difference shown only by
+  a slightly dimmer grey. Prefer fewer, larger, higher-contrast parts.
+- **Measure captions.** The device draws text in Univers Next Pro Light, the
+  font the [screen template](../sdk/platform/opxy-1.2.1/screen.svg) names.
+  Check every caption a control can show by its width in that font, not by
+  counting characters: a 20 px header value has about 53 px before the next
+  column, and `5.5mm` needs 64.
+- **One subject, and every control reads.** Draw the object or scene the sound
+  acts on. At 0, 50 and 100, each control's effect is visible at a glance; a
+  tiny mark or a faint change of grey doesn't count.
+- **Scale motion to the sound.** Judge each control's audible effect across
+  its range, by ear or by the change in level or band energy, and scale its
+  visual travel to match, keeping a generous minimum so the quietest control
+  is still easy to see moving. Too subtle reads as broken. A shade fades
+  through the greys rather than jumping, a moving part eases through its poses
+  rather than snapping, and no control is only an on/off change in the drawing.
+- **Keep the redraw small.** The device redraws only what changed, and that
+  redraw is the cost; host time per frame doesn't show it. Aim for about 20
+  changed nodes a frame on average while notes sound, with a low peak, at
+  every control setting including the heaviest, and none at rest. Moving fills
+  are expensive, so use them where they earn it, and check a heavy one on the
+  device. A path whose `key` includes time
+  redraws the whole path every frame; change the key only when its points
+  change ([frame](display.md#frame)). To measure, run `display()` on the host
+  and count the nodes that differ from the previous frame.
+- **Check on the device.** The preview draws some outlines the device draws
+  differently ([drawing on the device](display.md#drawing-on-the-device)).
+
+## Before you submit
+
+Before a [catalog submission](catalog.md#submit-a-machine), check:
+
+- A contact sheet of every control at 0, 50 and 100, at 1:1, with text in the
+  device's font.
+- Every caption measured; outlines checked across a sweep of every control and
+  of every pair of controls, since a control can switch on the drawing that
+  faults; the redraw measured at the heaviest setting.
+- Photos of the screen on a device: at rest, playing, and at the heaviest
+  settings.
+- CPU from the [hardware readout](profiling.md), for the tagged commit.
+- Presets checked by ear, and [clean defaults](#controls).
 
 ## Saved sounds
 

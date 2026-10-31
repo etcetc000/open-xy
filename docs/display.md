@@ -62,7 +62,9 @@ preference, `shown`, the declared parameter index each position shows (its own,
 or an [alternate](api.md#alternate-controls)), and `slots`, the Q31 value of
 every declared parameter by index (0 beyond the declared ones). A serial is a
 snapshot, not a queue: several note starts between frames can coalesce.
-Initializing or changing track must not fabricate a note.
+Initializing or changing track must not fabricate a note. It counts per track,
+not per key: where keys play different sounds, as a drum kit's do, an
+animation started by the serial alone also plays for keys that weren't hit.
 
 ### Note activity (SDK 1.1)
 
@@ -102,6 +104,8 @@ const bool held = input.held_notes <= 128 && input.held_notes != 0;
 The first update, an update after reset, and a track change establish a
 baseline and emit no events, even if notes are already held. While `held` is
 true, accumulate `elapsed` in the machine's state to measure animation time.
+Animate for as long as notes are held, then release: an animation of fixed
+length after a note start stops while a long note still sounds.
 These are frame snapshots: a complete press/release between frames can leave
 the held count unchanged, while both serials advance. Such a release still
 sets `note_released`; hold edges only describe the observed frames.
@@ -204,16 +208,9 @@ Elements bind by index and the machine's symbol prefix:
 | Text slot `i` | `<prefix>_text_<i>`: a `text` with explicit font, positioned by its transform, with no `x` or `y` |
 | Palette entry `i` | `<prefix>_palette_<i>`: a `path` or `circle` with explicit `#RRGGBB` fill and stroke and a stroke width; it lends them to the nodes that select it. Park entries off screen. |
 
-Every outline a frame draws must enclose area. A line traced out and back over
-itself, or an outline that turns straight back at a point, has none there, and the
-OP-XY draws streaks from its ends. Draw a line as a thin closed ribbon: one edge
-out, the other back a fraction of a pixel away, every point distinct. `sdk.py test`
-warns about outlines that break this in its preview frames.
-
 Every frame sets a bound element's whole transform, so its authored transform
 is `matrix(1 0 0 1 x y)` or none: the pose before the first frame, which the
-frame then replaces. Fill-and-stroke paint changes a node's fill
-only when the artwork gives it one.
+frame then replaces.
 
 Use unique IDs, explicit paint on each leaf and the expected path topology.
 Authored numbers allow at most four fractional digits; exponent notation and
@@ -242,6 +239,38 @@ See [2op display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/ma
 [Macro display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/display.cpp) (segment characters,
 glow, dials and header text) for implementations.
 How screens reach stock is described in the [firmware ABI](abi-1.2.1.md#screens).
+
+### Drawing on the device
+
+The OP-XY draws some artwork differently from the browser preview. Each of
+these was found on hardware:
+
+- **Outlines enclose area.** A line traced out and back over itself, or an
+  outline that turns straight back at a point, has none there, and the OP-XY
+  draws streaks from its ends. Draw a line as a thin closed ribbon: one edge
+  out, the other back a fraction of a pixel away, every point distinct.
+  `sdk.py test` warns about outlines that break this in its preview frames.
+- **Avoid turns close to straight back.** A nearly reversing turn can draw too: on
+  the device, one thin tooth sent a long line up the screen. We treat under about
+  2.5° from straight back as a fault, an inferred limit: 2.57° has drawn fine. Thin,
+  tall shapes are the usual cause, so give a sharp tip a small flat end.
+- **Points stay 1/8 px apart.** Neighbouring points closer than 1/8 px merge,
+  as repeated points do, and the outline then stops reshaping. This holds for
+  a ribbon's two edges too.
+- **Start an outline where both edges are long.** A closing edge, from the
+  last point back to the first, shorter than 1/4 px draws as a long sliver
+  along the next edge.
+- **Fills come from the artwork.** Only an element authored with a fill is
+  ever filled. Fill-and-stroke paint recolours that fill but never adds or
+  removes one, so author solid parts with a fill; mutable outlines have none
+  and always draw hollow.
+- **One subpath, at most 64 points.** Keep every authored `path`, bound or
+  not, to one subpath of at most 64 points: artwork with dozens of subpaths
+  and hundreds of points in a path stopped the device at launch. Split a large
+  part into several elements.
+- **Parts that meet share an outline or a pivot.** Separately transformed
+  parts that touch in the preview can land apart on the device. Draw them as
+  one outline, or as nodes with the same origin and transform.
 
 ## Migrating from before SDK 1.0
 
