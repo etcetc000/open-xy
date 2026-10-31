@@ -694,15 +694,15 @@
       "maintainer": "mmockett",
       "status": "draft",
       "repository": "https://github.com/mmockett/OP-XY-ModFX",
-      "tag": "v1.5.0",
-      "commit": "865594837addf1215a7db6b323c5b84e8c2f5a41",
+      "tag": "v1.6.0",
+      "commit": "cd296e78966651ae5efca0e2b9b242d12fe50e50",
       "path": "lint",
       "cpu": {
         "benchmark": "opxy-effect-callback-v1",
-        "commit": "2d26dc45b4c748c4f987554170de7be8a1230b36",
-        "firmware_sha256": "70abf543da9747452d00d95f20295e799ef474850ed2e3897274d9b14a6cb522",
-        "runs": 3,
-        "block_percent": 7.74548
+        "commit": "cd296e78966651ae5efca0e2b9b242d12fe50e50",
+        "firmware_sha256": "4ccdd168d2e9d8a53f95bc5fb8304358dbb8a8c0d37935b79944384275d06be2",
+        "runs": 1,
+        "block_percent": 4.95613
       }
     },
     {
