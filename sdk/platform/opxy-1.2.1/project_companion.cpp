@@ -707,9 +707,11 @@ bool note_section(const Text& name, bool ok) {
 
 // Reads the companion: true when it is valid and its machines section applies to this
 // firmware, the maps then filled, with the binding it gives.
-bool read_document(File* file, u32& bytes, u32& crc) {
+bool read_document(File* file, u32& bytes, u32& crc, bool& authoritative) {
     Parser p(file);
     bool format = false, version = false, binding = false, sections = false, applies = false, valid = false;
+    u32 envelope_version = 0;
+    authoritative = false;
     clear_maps();
     const bool read = p.object([&](const Text& key) {
         if (key.is("format")) {
@@ -721,9 +723,8 @@ bool read_document(File* file, u32& bytes, u32& crc) {
             return true;
         }
         if (key.is("version")) {
-            u32 number = 0;
-            if (!p.natural(number, version)) return false;
-            version = version && number == 1;  // 0 is invalid; a newer envelope is ignored
+            if (!p.natural(envelope_version, version)) return false;
+            version = version && envelope_version >= 1;
             return true;
         }
         if (key.is("project")) return binding_member(p, bytes, crc, binding);
@@ -750,7 +751,9 @@ bool read_document(File* file, u32& bytes, u32& crc) {
         valid = valid && machines_ok && !invalid_count;
         return members;
     });
-    return read && p.end() && format && version && binding && sections && valid && applies;
+    authoritative = read && p.end() && format && version && binding &&
+        (envelope_version > 1 || (sections && valid));
+    return authoritative && envelope_version == 1 && applies;
 }
 
 // Rewrites every pattern's machine number on the instrument and send tracks
@@ -770,13 +773,16 @@ void remap(unsigned char* project) {
     }
 }
 
-bool read_bound(const char* path, u32 measured_bytes, u32 measured_crc) {
+enum class Document { unusable, ignored, applies };
+Document read_bound(const char* path, u32 measured_bytes, u32 measured_crc) {
     File* file = file_open(path, "rb");
-    if (!file) return false;
+    if (!file) return Document::unusable;
     u32 bytes = 0, crc = 0;
-    const bool applies = read_document(file, bytes, crc);
+    bool authoritative = false;
+    const bool applies = read_document(file, bytes, crc, authoritative);
     const bool closed = file_close(file) == 0;
-    return applies && closed && bytes == measured_bytes && crc == measured_crc;
+    if (!authoritative || !closed || bytes != measured_bytes || crc != measured_crc) return Document::unusable;
+    return applies ? Document::applies : Document::ignored;
 }
 
 void apply_companion(void* project, const char* path) {
@@ -784,9 +790,11 @@ void apply_companion(void* project, const char* path) {
     u32 bytes, crc;
     if (!measure(path, read_chunk, bytes, crc)) return;
     temporary_path(read_companion_path, read_temporary_path);
-    // Prefer the published document. A partial/stale temporary never applies.
-    if (read_bound(read_companion_path, bytes, crc) || read_bound(read_temporary_path, bytes, crc))
-        remap(static_cast<unsigned char*>(project));
+    // A bound published document is authoritative even if its version/profile
+    // is unsupported or it intentionally contains no machine mappings.
+    Document result = read_bound(read_companion_path, bytes, crc);
+    if (result == Document::unusable) result = read_bound(read_temporary_path, bytes, crc);
+    if (result == Document::applies) remap(static_cast<unsigned char*>(project));
 }
 }
 

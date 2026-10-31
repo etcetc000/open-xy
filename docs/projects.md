@@ -139,8 +139,9 @@ A failed write or close leaves the published companion untouched. Stock's
 replacement removes the old destination before rename; if rename then fails,
 the complete temporary remains available for recovery.
 Loading prefers the published companion when it validates and matches the
-project bytes and CRC-32; otherwise it also checks the temporary with the same
-validation. Partial files, read errors and companions for other project bytes
+project bytes and CRC-32, even if its version or profile is unsupported or it
+contains no machine mappings. Only a missing, malformed or mismatched published
+companion permits checking the temporary with the same validation. Partial files, read errors and companions for other project bytes
 never supply machine mappings. Project measurement is bounded to 16 MiB.
 
 This is recovery for a completed companion awaiting publication, not an atomic
