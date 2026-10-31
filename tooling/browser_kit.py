@@ -24,9 +24,10 @@ from . import extensions, native, preview, screen
 def notices(machines):
     texts = ['OP-XY SDK modules\n\n' + read(ROOT / 'LICENSE').decode('utf-8')]
     for m in machines:
-        license_file = child(m.root, 'vendor/LICENSE')
-        if license_file.is_file():
-            texts.append(m.name + '\n\n' + read(license_file).decode('utf-8'))
+        for name in ('LICENSE', 'vendor/LICENSE'):
+            license_file = child(m.root, name)
+            if license_file.is_file():
+                texts.append(m.name + ' (' + name + ')\n\n' + read(license_file).decode('utf-8'))
     return '\n\n'.join(texts)
 
 

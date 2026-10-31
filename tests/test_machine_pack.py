@@ -6,7 +6,9 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+from types import SimpleNamespace
 
+from tooling.browser_kit import notices
 from tooling.machine_pack import write
 from tooling.formats import sha
 
@@ -47,3 +49,17 @@ class MachinePackTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'custom machine'):
                 write(kit, directory)
             self.assertFalse((Path(directory) / 'machines.zip').exists())
+
+    def test_pack_preserves_machine_and_vendor_license_notices(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'vendor').mkdir()
+            (root / 'LICENSE').write_text('Machine author terms', encoding='utf-8')
+            (root / 'vendor/LICENSE').write_text('Vendor attribution', encoding='utf-8')
+            kit = self.kit()
+            kit['notices'] = notices([SimpleNamespace(root=root, name='Custom')])
+            with zipfile.ZipFile(write(kit, root)) as archive:
+                text = json.loads(archive.read('machines.json'))['notices']
+            self.assertIn('Machine author terms', text)
+            self.assertIn('Vendor attribution', text)
+            self.assertIn('OP-XY SDK modules', text)

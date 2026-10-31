@@ -103,6 +103,52 @@ test('only the collection-specific glue may differ in a compatible machine pack'
   await assert.rejects(importMachinePack(base, pack), /SDK runtime/);
 });
 
+test('packs accept the SDK control counts, absent synth slots and source filenames', async () => {
+  for (const kind of ['effect', 'sample']) for (const count of [1, 2, 3]) {
+    const {base, pack} = await packFixture(), m = pack.machines[1];
+    Object.assign(m, {kind, identity:kind === 'effect' ? {effect:null, page:21} : {engine:null, page:7},
+      controls:m.controls.slice(0, count), positions:m.positions.slice(0, count)});
+    await importMachinePack(base, pack);
+    m.positions[0] = null;
+    await assert.rejects(importMachinePack(base, pack), /controls/);
+  }
+  const {base, pack} = await packFixture();
+  pack.machines[1].positions[1] = null; pack.machines[1].controls[1] = '';
+  for (const name of ['Wave.o', 'wave.v2.o', 'wave..v3.o']) {
+    pack.objects[1].name = 'custom/' + name;
+    await importMachinePack(base, pack);
+  }
+  for (const name of ['../Wave.o', 'lib/../../Wave.o', '/Wave.o', 'C:/Wave.o']) {
+    pack.objects[1].name = name;
+    await assert.rejects(importMachinePack(base, pack), /unowned machine objects/);
+  }
+  pack.objects[1].name = 'custom/../Wave.o';
+  await assert.rejects(importMachinePack(base, pack), /unowned machine objects/);
+});
+
+test('existing effects keep site metadata when the author collection assigns a different number', async () => {
+  const {base, pack} = await packFixture();
+  const m = base.machines[0];
+  Object.assign(m, {kind:'effect', identity:{effect:21, page:21},
+    catalog:', {"type":"a", "id":21, "default_params":[0,0,0,0,0,0,0,0]}',
+    preview:{trusted:'site'}, origin:'catalog',
+    source:{repository:'https://github.com/author/machine', tag:'v1.0.0', commit:'a'.repeat(40), maintainer:'author'}});
+  // These fixtures ordinarily share metadata; separate the serialized author copy.
+  pack.machines[0] = structuredClone(m);
+  const entry = JSON.parse(m.catalog.slice(1)); entry.id = 23;
+  pack.machines[0].catalog = ', ' + JSON.stringify(entry);
+  pack.machines[0].preview = {untrusted:'pack'};
+  pack.machines[0].source = {untrusted:'pack'};
+  base.fixed.a = {effect:21, page:21};
+  const candidate = await importMachinePack(base, pack);
+  assert.equal(candidate.machines[0], m);
+  assert.equal(candidate.machines[0].catalog, m.catalog);
+  assert.deepEqual(linkKit(candidate, ['a', 'custom']).numbers.a, {effect:21, page:21});
+  entry.default_params[0] = 42;
+  pack.machines[0].catalog = ', ' + JSON.stringify(entry);
+  await assert.rejects(importMachinePack(base, pack), /without replacing/);
+});
+
 test('machine ZIP reader rejects corruption, archive ambiguities and source/firmware archives', () => {
   const encode = value => new TextEncoder().encode(value);
   const good = zipFiles({'machines.json':encode('{"format":"test"}')});

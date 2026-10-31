@@ -800,8 +800,17 @@ const canonical = value => JSON.stringify(value, (_key, v) => v && typeof v === 
 const sameValue = (a, b) => canonical(a) === canonical(b);
 // Preview compilers can differ between hosts. Existing previews and provenance
 // always come from the site; only its native machine contract must match.
-const machineContract = m => Object.fromEntries(Object.entries(m ?? {})
-  .filter(([key]) => !['preview', 'origin', 'source', 'cpu'].includes(key)));
+function machineContract(m) {
+  const contract = Object.fromEntries(Object.entries(m ?? {})
+    .filter(([key]) => !['preview', 'origin', 'source', 'cpu'].includes(key)));
+  if (typeof contract.catalog === 'string') {
+    contract.catalog = JSON.parse(contract.catalog.trim().replace(/^,/, ''));
+    // This is the author's collection-assigned number, not the machine's
+    // requested identity. The receiver uses its own saved per-selection layout.
+    if (contract.kind === 'effect') delete contract.catalog.id;
+  }
+  return contract;
+}
 const objectRecord = o => Object.fromEntries(['name', 'owner', 'bytes', 'sha256', 'service', 'extension']
   .filter(key => o[key] !== undefined).map(key => [key, o[key]]));
 function crc32(bytes) {
@@ -848,10 +857,11 @@ function checkPackMachine(m) {
     typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
     typeof m.description === 'string' && m.description.length <= 2000,
     'Invalid custom machine metadata');
-  check(Array.isArray(m.controls) && m.controls.length >= 4 && m.controls.length <= 8 &&
+  check(Array.isArray(m.controls) && m.controls.length >= (m.kind === 'synth' ? 4 : 1) && m.controls.length <= 8 &&
     m.controls.every(c => typeof c === 'string' && c.length <= 80) &&
     Array.isArray(m.positions) && m.positions.length === m.controls.length &&
-    m.positions.every(p => Number.isInteger(p) && p >= 0 && p <= 3) && typeof m.pages === 'boolean',
+    m.positions.every(p => m.kind === 'synth' && p === null || Number.isInteger(p) && p >= 0 && p <= 3) &&
+    typeof m.pages === 'boolean',
     'Invalid custom machine controls');
   check(m.absent && typeof m.absent === 'object' && !Array.isArray(m.absent) &&
     Object.entries(m.absent).every(([symbol, fallback]) => symbol.startsWith(m.prefix + '_') &&
@@ -909,7 +919,7 @@ export async function importMachinePack(base, pack) {
   }), 'This pack changes the existing machines or SDK runtime. Rebuild it with the matching SDK and catalog.');
   const addedIds = new Set(added.map(m => m.id));
   check(pack.objects.every(o => o.owner === null || existingIds.has(o.owner) || addedIds.has(o.owner) &&
-    o.name.startsWith(o.owner + '/') && /^[a-z0-9_/-]+\.o$/.test(o.name) && !o.name.includes('..') &&
+    o.name.startsWith(o.owner + '/') && /^[A-Za-z0-9_./-]+\.o$/.test(o.name) && !o.name.split('/').includes('..') &&
     o.service === undefined && o.extension === undefined) &&
     added.every(m => pack.objects.some(o => o.owner === m.id)), 'Missing or unowned machine objects');
   check(typeof pack.notices === 'string' && pack.notices.length <= 1024 ** 2, 'Invalid machine notices');
