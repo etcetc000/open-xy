@@ -1193,7 +1193,19 @@
       "symbol": "sdk_extensions_controller_update",
       "call": true,
       "service": "extensions",
-      "events": ["context"]
+      "events": ["context", "pattern_read_result"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b723c",
+      "file_offset": "0xee478",
+      "length": 12,
+      "before": "00e8030000de4d8d68b40000",
+      "symbol": "sdk_extension_gui_poll",
+      "call": false,
+      "encoding": "absolute_jump",
+      "service": "extensions",
+      "events": ["pattern_read_result"]
     },
     {
       "kind": "hook",

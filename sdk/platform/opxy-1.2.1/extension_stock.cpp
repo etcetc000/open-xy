@@ -3,6 +3,7 @@
 #include "../extension_runtime.hpp"
 #include "note_container.hpp"
 #include "stock.hpp"
+#include "barrier.hpp"
 
 extern "C" {
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
@@ -42,6 +43,8 @@ bool unmodified(u32 key) {
     return true;
 }
 }
+
+void extension_barrier() { barrier(); }
 
 TrackPattern extension_pattern(u32 track) {
     TrackPattern p = {};

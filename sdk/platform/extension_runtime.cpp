@@ -11,7 +11,16 @@ char notification[32];
 
 // The actions one callback may take, and what it has done with them: one stock
 // undo transaction and at most one notification per callback.
-struct Transaction { u32 granted; bool attempted, notified; };
+struct Transaction { u32 granted; bool attempted, notified; u32 owner; };
+// Acknowledged single mailbox: controller publishes request last; GUI publishes
+// completion last; controller keeps storage owned through the result callback.
+struct PendingRead {
+    volatile u32 state; // 0 free, 1 requested, 2 complete
+    u32 owner, ticket; extensions::PatternRef ref;
+    bool success; u32 count; RecordedNote notes[extensions::pattern_note_capacity];
+};
+PendingRead pending_read;
+u32 read_ticket;
 Transaction transaction;
 
 bool same_text(const char* a, const char* b) {
@@ -106,7 +115,30 @@ bool read_pattern(const extensions::PatternRef& ref, RecordedNote* out, u32 capa
     count = 0;
     return (transaction.granted & action_read_patterns) && extension_read_pattern(ref, out, capacity, count);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes, discover_pattern, read_pattern};
+u32 request_pattern_read(const extensions::PatternRef& ref) {
+    if (!(transaction.granted & action_read_patterns) || !transaction.owner || pending_read.state ||
+        ref.track >= 8 || ref.index >= 16 || !entries[transaction.owner-1].hooks->pattern_read_result) return 0;
+    if (!++read_ticket) ++read_ticket;
+    pending_read.owner=transaction.owner; pending_read.ticket=read_ticket; pending_read.ref=ref;
+    pending_read.success=false;pending_read.count=0;
+    extension_barrier();pending_read.state=1;
+    return read_ticket;
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, discover_pattern, read_pattern, request_pattern_read};
+void deliver_pattern_read() {
+    if (pending_read.state != 2) return;
+    extension_barrier();
+    const u32 owner=pending_read.owner;
+    extensions::PatternInfo now{};
+    const extensions::PatternRef& ref=pending_read.ref;
+    const bool success=pending_read.success && extension_discover_pattern(ref.track,ref.index,now) &&
+        now.ref.project==ref.project && now.ref.generation==ref.generation;
+    const extensions::PatternReadResult result={pending_read.ticket,ref,success,
+        success ? pending_read.notes : nullptr,success ? pending_read.count : 0};
+    if(owner && owner<=entry_count && entries[owner-1].hooks->pattern_read_result)
+        entries[owner-1].hooks->pattern_read_result(result);
+    extension_barrier();pending_read.state=0;
+}
 }
 
 void extensions_sync() {
@@ -115,7 +147,14 @@ void extensions_sync() {
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
         if (entries[i].hooks->context) entries[i].hooks->context(current);
+    deliver_pattern_read();
     dispatching = false;
+}
+void extensions_gui_poll() {
+    if (pending_read.state != 1) return;
+    extension_barrier();
+    pending_read.success=extension_read_pattern(pending_read.ref,pending_read.notes,extensions::pattern_note_capacity,pending_read.count);
+    extension_barrier();pending_read.state=2;
 }
 void extensions_input_activity() {
     if (dispatching || !ready()) return;
@@ -167,9 +206,9 @@ void extensions_queued_control(const extensions::Control& control) {
     if (!entries) return;
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i) {
-        transaction = {granted(entries[i], control), false, false};
+        transaction = {granted(entries[i], control), false, false, i+1};
         if (entries[i].hooks->queued_control) entries[i].hooks->queued_control(current, control, actions);
-        transaction = {0, false, false};
+        transaction = {0, false, false, 0};
     }
     dispatching = false;
 }

@@ -13,10 +13,14 @@ struct Seen {
 };
 Seen seen;
 // What an accepted Record release does: 0 nothing, 1 replace, 2 insert, 3 replace track 3.
-u32 command, written;
+u32 command, written, request_id, completed_id;
+bool read_success;
 const Note take[2] = {{-12, 40, 60, 90}, {480, 60, 64, 100}};
 
 namespace {
+void pattern_read_result(const PatternReadResult& result) {
+    completed_id=result.request;read_success=result.success;written=result.count;
+}
 void context(const Context& c) { ++seen.contexts; seen.context = c; }
 void recordable_note_on(const Context&, const LiveNote& n) { ++seen.notes_on; seen.note = n; }
 void selected_note_off(const Context&, const NoteOff& n) { ++seen.notes_off; seen.off = n; }
@@ -26,6 +30,11 @@ void queued_control(const Context& c, const Control& k, const Actions& actions) 
     ++seen.controls;
     seen.control = k;
     if (k.key != keys::record || k.pressed || !command) return;
+    if(command==5) {
+        PatternInfo info{};written=0;
+        request_id=actions.discover_pattern(2,1,info) ? actions.request_pattern_read(info.ref) : 0;
+        return;
+    }
     if (command == 4) {
         PatternInfo info{}; Note snapshot[pattern_note_capacity]; u32 count=0;
         written = actions.discover_pattern(2,1,info) &&
@@ -38,6 +47,7 @@ void queued_control(const Context& c, const Control& k, const Actions& actions) 
 }
 }
 extern constexpr Hooks hooks = Hooks()
+    .with_pattern_read_result(pattern_read_result)
     .with_context(context)
     .with_recordable_note_on(recordable_note_on)
     .with_selected_note_off(selected_note_off)

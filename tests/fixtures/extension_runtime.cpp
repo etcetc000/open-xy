@@ -1,11 +1,14 @@
 #include <extension_runtime.cpp>
+#include <extension_gui.cpp>
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 using namespace opxy;
 using namespace opxy::platform;
 namespace {
 RecordingContext stock_context = {1, 2, 0, 7680, 3, 255, true, true};
 bool playing = true;
-u32 reads, discoveries;
+u32 reads, discoveries, gui_calls, completions, foreign_completions, snapshot_generation=2;
+bool in_gui, result_success;
+u32 completed_ticket, completed_count;
 u32 writes, notices, observations, order[16], order_count, result, mode, written_track;
 extensions::Actions saved;
 extensions::Context saved_context;
@@ -25,6 +28,10 @@ void observe_control(const extensions::Context& context, const extensions::Contr
 }
 void edit_control(const extensions::Context& context, const extensions::Control&, const extensions::Actions& actions) {
     saved = actions; saved_context = context;
+    if(mode==12) {
+        const extensions::PatternRef ref={1,2,3,1};
+        result=actions.request_pattern_read(ref); return;
+    }
     if (mode == 11) {
         extensions::PatternInfo info{}; RecordedNote out{}; u32 count=99;
         result = actions.discover_pattern(3,1,info) && actions.read_pattern(info.ref,&out,1,count) && count==1;
@@ -45,10 +52,16 @@ void edit_control(const extensions::Context& context, const extensions::Control&
     if (mode == 5) result += actions.insert_notes(context, track, &good, 1);
     if (mode == 7) result += actions.replace_notes(context, track, &good, 1);  // one write per callback
 }
+void first_result(const extensions::PatternReadResult&) { ++foreign_completions; }
+void second_result(const extensions::PatternReadResult& result) {
+    ++completions;result_success=result.success;completed_ticket=result.request;completed_count=result.count;
+    if(result.success && (!result.notes || result.notes[0].pitch!=good.pitch)) __builtin_trap();
+    if(!result.success && (result.notes || result.count)) __builtin_trap();
+}
 const extensions::Hooks first = extensions::Hooks().with_recordable_note_on(first_note)
-                                                   .with_queued_control(observe_control);
+                                                   .with_queued_control(observe_control).with_pattern_read_result(first_result);
 const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(second_note)
-                                                    .with_queued_control(edit_control);
+                                                    .with_queued_control(edit_control).with_pattern_read_result(second_result);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
 u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0};
@@ -70,14 +83,17 @@ bool replaced;
 u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
     ++writes; replaced = replace; written_track = track; return count;
 }
+void extension_barrier() {}
 void extension_notify(const char*) { ++notices; }
 bool extension_discover_pattern(u32 track,u32 index,extensions::PatternInfo& out) {
-    ++discoveries; out={{1,2,track,index},7680,3}; return true;
+    ++discoveries; out={{1,snapshot_generation,track,index},7680,3}; return true;
 }
 bool extension_read_pattern(const extensions::PatternRef&,RecordedNote* out,u32,u32& count) {
+    if(pending_read.state==1 && !in_gui) __builtin_trap();
     ++reads; *out=good;count=1;return true;
 }
 }}
+extern "C" void sdk_stock_extension_gui_poll() { ++gui_calls;in_gui=true; }
 void control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};
     extensions_queued_control(event);
@@ -139,6 +155,19 @@ int main() {
     extensions::PatternInfo info{}; RecordedNote out{};u32 count=99;
     CHECK(!saved.discover_pattern(3,1,info));
     CHECK(!saved.read_pattern(info.ref,&out,1,count) && count==0 && reads==1);
+    mode=12;control(51,true);const u32 ticket=result;
+    CHECK(ticket && pending_read.state==1 && reads==1 && !completions);
+    control(51,true);CHECK(!result && reads==1); // bounded one-request admission
+    sdk_extension_gui_poll();in_gui=false;
+    CHECK(gui_calls==1 && reads==2 && !completions && pending_read.state==2);
+    sdk_extension_gui_poll();in_gui=false;CHECK(reads==2); // no repeat processing
+    extensions_sync();CHECK(completions==1 && completed_ticket==ticket && result_success && completed_count==1);
+    CHECK(!foreign_completions && !pending_read.state);
+    control(51,true);const u32 stale_ticket=result;sdk_extension_gui_poll();in_gui=false;
+    ++snapshot_generation;extensions_sync();
+    CHECK(completions==2 && completed_ticket==stale_ticket && !result_success && !completed_count);
+    CHECK(!foreign_completions && !pending_read.state);
+    CHECK(!saved.request_pattern_read({1,2,3,1})); // retained callback cannot submit
     // An action whose claim its holder lacks disables the collection.
     initialized = false; entries = nullptr; action_claims[0] = 1u;
     control(51, true); CHECK(writes == before + 1);

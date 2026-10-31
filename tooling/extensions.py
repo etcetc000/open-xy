@@ -184,3 +184,23 @@ def metadata(extensions, origins):
     claims, _actions = registry()
     return [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
+
+
+def checked_gui_trampoline(profile, module, symbols, text):
+    """Qualify the only undecodable BF+ instructions in the GUI poll trampoline."""
+    symbol = symbols.get('sdk_stock_extension_gui_poll')
+    if symbol is None:
+        return None
+    patch = next((p for p in profile['patches'] if p.get('symbol') == 'sdk_extension_gui_poll'), None)
+    before = bytes.fromhex('00e8030000de4d8d68b40000')
+    expected = before + bytes.fromhex('00dc0b8c48720000')
+    require(patch and patch['address'] == '0x8c0b723c' and patch['length'] == 12 and
+            patch['before'] == before.hex() and patch.get('encoding') == 'absolute_jump' and
+            patch.get('call') is False, 'Unexpected GUI poll hook contract')
+    start, size = symbol['value'], symbol['size']
+    offset = start - profile['module_base']
+    require(size == len(expected) and start % 2 == 0 and
+            text['address'] <= start and start + size <= text['address'] + text['size'] and
+            0 <= offset and offset + size <= len(module) and module[offset:offset + size] == expected,
+            'Unexpected GUI poll trampoline')
+    return start, start + size

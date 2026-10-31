@@ -41,7 +41,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
-| Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
+| Extension events | 8 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
@@ -680,7 +680,7 @@ inside the effect. See the [effect API](api.md#effects).
 ### Extension pattern inspection
 
 The stopped `read_patterns` actions use existing extension control dispatch;
-there are no additional firmware patches. The adapter binds handles to the
+the synchronous read actions need no additional firmware patches. The adapter binds handles to the
 current project (`0x840a0524`) and commit generation (`0x8d584224`), rejects a
 pending project (`0x840a0528`) and recorder/playback activity, then looks up the
 instrument source pool at project + `0xd7c` + track × `0x53f44`. Each pool holds
@@ -689,3 +689,11 @@ length in steps and byte 8 is the scale index. Notes are the existing validated
 120-slot container at source + `0x457c`. The service copies that container before
 following its links and rechecks project identity before returning notes. It
 never redirects stock getters or changes scene, instrument-lock or source data.
+
+The deferred reader also wraps GUI poll entry `0x8c0b723c`. Its twelve-byte
+trampoline replays `LINK 12` and the absolute call to `0x8d4db468`, then resumes
+at `0x8c0b7248`. The wrapper runs the complete original poll before the SDK GUI
+service. An acknowledged single-request mailbox publishes request/result state
+last with SSYNC; GUI and controller tasks run on the master processor. Results
+are delivered only to the requesting collection entry and revalidate project
+identity. Contributor callbacks remain on the controller path.
