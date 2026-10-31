@@ -10,7 +10,7 @@ import json
 import unittest
 
 from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, default_preset, generate_display,
-                               generate_screen, generate_synth_controls, preset_files, screen_bytes)
+                               generate_screen, generate_synth_controls, preset_files, preset_path, screen_bytes)
 from tooling.definitions import ROOT, control_positions, paged, validate_definition
 from machine_fixtures import FOLDER, fixture
 from tooling.native import display_ids
@@ -113,6 +113,13 @@ class Definitions(unittest.TestCase):
         files = preset_files(overridden)
         self.assertEqual(files, {f'content/presets/{synth.id}/default.json': own,
                                  f'content/presets/{synth.id}/warm.json': other})
+
+    def test_an_aux_track_control_machine_keeps_no_instrument_preset_folder(self):
+        # Placeholder pending #234, which defines trackControl's real shape.
+        synth = fixture('probesynth')
+        aux = dataclasses.replace(synth, definition={**synth.definition, 'trackControl': {'aux': [12]}})
+        self.assertIsNone(preset_path(aux))
+        self.assertEqual(preset_files(aux), {})
 
     def test_resource_declarations_reject_unknown_layouts_and_rates(self):
         for key, value in (('voiceBytes', 0), ('voiceBytes', 41),

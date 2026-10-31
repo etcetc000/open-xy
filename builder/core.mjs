@@ -710,7 +710,10 @@ export async function recoverFirmware(kit, input, layout = null) {
 }
 
 export function presetPath(machine) {
-  if (machine.kind === 'effect') return null;
+  // An aux track-control machine has no catalog entry and is never an instrument;
+  // its presets live under content/aux_presets/ instead (#234, not yet merged:
+  // trackControl.aux is a placeholder until that PR defines its real shape).
+  if (machine.kind === 'effect' || machine.trackControl?.aux) return null;
   check(['synth', 'sample'].includes(machine.kind) && /^[a-z][a-z0-9_]{0,14}$/.test(machine.id),
     'Invalid preset instrument');
   return `content/presets/${machine.id}/default.json`;
