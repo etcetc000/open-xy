@@ -24,6 +24,8 @@ struct SampleMachine {
     u32 (*prepare_begin)(const SampleView*, u32*, u32);
     u32 (*prepare_step)(u32, u32*);
     u32 (*prepared)(SampleAnalysis*);
+    // sliceTiming: source-frame clock for a frozen machine audition.
+    void (*slice_clock)(const SampleSlice*, SampleSliceRate*);
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(engine_id)); }
 };
 }}

@@ -32,7 +32,7 @@ class PlayerContracts(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk='1.7', kind='player',
+        (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk='1.8', kind='player',
                                                                description='Player contract fixture.')))
         definition = dict(schema=1, id='probeplayer', name='Player', resources={}, presets={},
                           parameters=[dict(id='p'+str(i), label='P'+str(i), default=0,
@@ -40,6 +40,14 @@ class PlayerContracts(unittest.TestCase):
                                       for i in range(4)])
         (self.root / 'definition.json').write_text(json.dumps(definition))
         self.machine = assign_numbers([machine_at(self.root)])[0][0]
+
+    def test_player_requires_its_own_sdk_revision(self):
+        path = self.root / 'machine.json'
+        value = json.loads(path.read_text(encoding='utf-8'))
+        value['sdk'] = '1.7'
+        path.write_text(json.dumps(value), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'Note players needs.*1.8'):
+            machine_at(self.root)
 
     def test_layout_keeps_player_types_and_shares_page_pool(self):
         m = self.machine

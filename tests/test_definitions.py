@@ -117,7 +117,7 @@ class Definitions(unittest.TestCase):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
                            ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
-                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 17), ('texts', True),
+                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 33), ('texts', True),
                            ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value
@@ -180,6 +180,66 @@ class Definitions(unittest.TestCase):
         sample['parameters'][-1]['control'] = 0
         with self.assertRaisesRegex(ValueError, 'parameter fields'): validate_definition(sample, 'sample')
 
+    def absent(self, identity):
+        return dict(id=identity, label='', default=0, mapping=dict(kind='linear', minimum=0, maximum=1),
+                    display='percent', absent=True)
+
+    def test_an_absent_slot_keeps_later_indices_but_no_position_label_or_preset(self):
+        # Slots: the engine's four, an absent alternate, a real alternate on 3, and slot 3 itself absent.
+        value = copy.deepcopy(self.engine)
+        value['parameters'][3] = self.absent('none3')
+        value['parameters'] += [self.absent('none4'), self.alternate(3, 'tune')]
+        for preset in value['presets'].values():
+            preset.pop(self.engine['parameters'][3]['id'], None)
+            preset.update(tune=0)
+        validate_definition(value, 'synth')
+        self.assertEqual(control_positions(value), [0, 1, 2, None, None, 3])
+        # Position 3 starts on its absent slot and its press reaches the alternate; the absent alternate is unreachable.
+        self.assertEqual(control_cycles(value), [0, 1, 2, 5, 4, 3, 6, 7])
+        rejected = []
+        for key, bad in (('label', 'X'), ('default', 0.5), ('absent', False), ('display', 'enum')):
+            changed = copy.deepcopy(value); changed['parameters'][4][key] = bad
+            rejected.append(changed)
+        positioned = copy.deepcopy(value); positioned['parameters'][4]['control'] = 1
+        rejected.append(positioned)
+        preset = copy.deepcopy(value)
+        for p in preset['presets'].values(): p['none4'] = 0
+        rejected.append(preset)
+        for bad in rejected:
+            with self.subTest(parameter=bad['parameters'][4]), self.assertRaises(ValueError):
+                validate_definition(bad, 'synth')
+        blank = copy.deepcopy(self.engine); blank['parameters'][0]['label'] = ''
+        with self.assertRaises(ValueError): validate_definition(blank, 'synth')
+        effect = copy.deepcopy(fixture('probefx').definition)
+        effect['parameters'].append(self.absent('none'))
+        with self.assertRaisesRegex(ValueError, 'Only a synth'): validate_definition(effect, 'effect')
+        machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+        # The row's last field: the absent slots' mask (slots 3 and 4), which are not continuous either.
+        row = re.search(r'^    \{gap_engine_id, gap_ready, \{([\d, ]+)\}, (\d+), \{[\d, ]+\}, gap_format, false, false, (\d+)\},$', text, re.M)
+        self.assertEqual(row.group(1), '0, 1, 2, 5, 4, 3, 6, 7')
+        self.assertEqual(int(row.group(2)) & 24, 0)
+        self.assertEqual(row.group(3), '24')
+        self.assertNotIn('    case 3:', text.split('gap_format')[1].split('default:')[0])
+
+    def test_a_paged_synth_can_blank_a_position_on_its_second_page(self):
+        # Slots: the engine's four, then page 2: a real alternate on 0, an absent one on 1.
+        value = copy.deepcopy(self.engine)
+        value['parameters'] += [self.alternate(0, 'p0'), dict(self.absent('none5'), control=1)]
+        for preset in value['presets'].values():
+            preset.update(p0=0)
+        value['press'] = 'page'
+        validate_definition(value, 'synth')
+        self.assertEqual(control_positions(value), [0, 1, 2, 3, 0, 1])
+        # Position 1's press reaches the empty slot, whose turns do nothing on the device.
+        self.assertEqual(control_cycles(value), [4, 5, 2, 3, 0, 1, 6, 7])
+        unpaged = copy.deepcopy(value); del unpaged['press']
+        early = copy.deepcopy(value); early['parameters'][3] = dict(self.absent('none3'), control=3)
+        for bad in (unpaged, early):
+            with self.subTest(press=bad.get('press')), self.assertRaises(ValueError):
+                validate_definition(bad, 'synth')
+
     def test_a_paged_synth_has_one_alternate_per_position(self):
         value = copy.deepcopy(self.engine)
         value['parameters'] += [self.alternate(c, 'p%d' % c) for c in (3, 0, 1, 2)]
@@ -218,8 +278,28 @@ class Definitions(unittest.TestCase):
                     SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false)\},$', text, re.M),
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false), \d+\},$', text, re.M),
                          [('paged', 'true'), ('plain', 'false')])
+
+    def test_an_effect_may_page_and_have_a_shift_row(self):
+        effect = copy.deepcopy(fixture('probefx').definition)
+        effect['parameters'] += [self.alternate(i, f'p{i}') for i in range(4)]
+        effect['press'] = 'page'
+        enum = lambda i, labels: dict(id=f's{i}', label=f'S {i}', default=0, display='enum',
+                                      mapping=dict(kind='enum', labels=labels))
+        effect['shift'] = [enum(0, ['a', 'b']), enum(1, ['c', 'd', 'e'])]
+        validate_definition(effect, 'effect')
+        self.assertTrue(paged(effect))
+        rejected = []
+        for shift in ([], [enum(i, ['a', 'b']) for i in range(5)],
+                      [dict(enum(0, ['a', 'b']), display='percent', mapping=dict(kind='linear', minimum=0, maximum=1))],
+                      [dict(enum(0, ['a', 'b']), id='drive')],
+                      [enum(i, [f'c{n}' for n in range(256)]) for i in range(3)]):
+            rejected.append(dict(effect, shift=shift))
+        synth = copy.deepcopy(self.engine); synth['shift'] = [enum(0, ['a', 'b'])]
+        for bad, kind in [(r, 'effect') for r in rejected] + [(synth, 'synth')]:
+            with self.subTest(kind=kind, shift=len(bad['shift'])), self.assertRaises(ValueError):
+                validate_definition(bad, kind)
 
     def test_an_effects_controls_after_four_alternate_on_the_send_page(self):
         # Without `control`, an effect's fifth to eighth controls alternate on positions 0..3.

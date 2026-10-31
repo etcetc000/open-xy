@@ -36,16 +36,19 @@ class SampleServices(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves', 'sample_slice_clock'):
                 probe = replace(fixture('probesample'), id='probe', identity=dict(engine=46, page=7))
                 if name == 'sample_callbacks':
+                    probe = replace(probe, definition=dict(probe.definition,
+                        resources=dict(probe.definition['resources'], sliceTiming=1)))
                     # A page-2 engine with no services beside it: it plays like the sampler.
                     plain = fixture('probesample')
                     sampler = replace(plain, id='sampler', identity=dict(engine=47, page=2),
                                       definition=dict(plain.definition, resources=dict(voiceCapacity=256)))
                     generate_sample_callbacks(folder, [probe, sampler])
-                elif name == 'drum_controls':
-                    source = ROOT / 'sdk/platform/opxy-1.2.1/drum_controls_stock.cpp'
+                elif name in ('drum_controls', 'sample_slice_clock'):
+                    source = ROOT / 'sdk/platform/opxy-1.2.1' / (
+                        'drum_controls_stock.cpp' if name == 'drum_controls' else 'sample_slice_clock.cpp')
                     (Path(folder) / source.name).write_text(source.read_text())
                     shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
                 elif name == 'keyboard_octaves':
@@ -75,7 +78,8 @@ class SampleServices(unittest.TestCase):
                 (Path(folder) / 'screen.hpp').write_bytes(
                     (ROOT / 'tests/fixtures/screen_drawing_host.hpp').read_bytes())
             if name == 'startup':
-                generate_startup(folder, ['first', 'second', 'sampled'], ['effect'], ['sampled'])
+                generate_startup(folder, ['first', 'second', 'sampled'], ['effect'], ['sampled'],
+                                 effect_screens=['effect'], player_pages=['player'])
             # A fixture that includes barrier.hpp supplies host_barrier for the Blackfin SSYNC.
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-D__builtin_bfin_ssync()=host_barrier()',
                        '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'),
@@ -106,6 +110,12 @@ class SampleServices(unittest.TestCase):
 
     def test_pad_shortcuts_clipboard_and_multi_edit(self):
         self.run_fixture('drum_controls', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
+
+    def test_slicer_source_preview_matches_timestamp_rate_and_frozen_bounds(self):
+        self.run_fixture('sample_preview')
+
+    def test_slicer_clock_uses_frozen_gui_controls_and_machine_rate(self):
+        self.run_fixture('sample_slice_clock', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
 
     def test_owned_primary_screen_precedes_stock_overlays(self):
         self.run_fixture('screen_order')

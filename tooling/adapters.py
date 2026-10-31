@@ -13,7 +13,10 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import ROOT, control_positions, paged, validate_definition
+from .definitions import ROOT, SYNTH_POSITIONS, control_positions, paged, shift_parameters, validate_definition
+
+# An effect's shift-row controls follow its eight parameter words (slots 8..11).
+SHIFT_SLOT = 8
 from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
 
@@ -176,19 +179,19 @@ def generate_registration(directory, m):
     declarations = [f'extern const char {symbol}[] __asm__("{symbol}");' for symbol in addresses]
     objects = [f'const opxy::platform::Record record = {{{", ".join(addresses)}, {int(m.kind == "sample")}}};']
     entries, screen = {}, 'nullptr'
+    if m.display != 'stock':
+        declarations += [f'extern char {p}_screen_state[] __asm__("{p}_screen_state");',
+                         *(f'extern const char {p}_screen_{part}[] __asm__("{p}_screen_{part}");'
+                           for part in ('vtable', 'asset')),
+                         f'char* {p}_screen_ctor(char*, opxy::u32) __asm__("{p}_screen_ctor");']
+        objects.append(f'const opxy::platform::Screen screen = {{{p}_screen_state, {screen_bytes(m)}, '
+                       f'{p}_screen_vtable, {p}_screen_asset, {p}_screen_ctor}};')
+        screen = '&screen'
+        entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
     if effect:
         entries[p + '_fx_register()'] = 'sdk_register_effect(&record)'
-        entries[p + '_ready()'] = 'sdk_effect_ready(&record)'
+        entries[p + '_ready()'] = f'sdk_effect_ready(&record, {screen})'
     else:
-        if m.display != 'stock':
-            declarations += [f'extern char {p}_screen_state[] __asm__("{p}_screen_state");',
-                             *(f'extern const char {p}_screen_{part}[] __asm__("{p}_screen_{part}");'
-                               for part in ('vtable', 'asset')),
-                             f'char* {p}_screen_ctor(char*, opxy::u32) __asm__("{p}_screen_ctor");']
-            objects.append(f'const opxy::platform::Screen screen = {{{p}_screen_state, {screen_bytes(m)}, '
-                           f'{p}_screen_vtable, {p}_screen_asset, {p}_screen_ctor}};')
-            screen = '&screen'
-            entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
         entries[p + '_register()'] = 'sdk_register_engine(&record)'
         entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
@@ -247,6 +250,7 @@ SAMPLE_SERVICES = (
                         ('_prepare_begin', 'opxy::u32', 'const opxy::SampleView*, opxy::u32*, opxy::u32'),
                         ('_prepare_step', 'opxy::u32', 'opxy::u32, opxy::u32*'),
                         ('_prepared', 'opxy::u32', 'opxy::SampleAnalysis*'))),
+    ('sliceTiming', (('_slice_clock', 'void', 'const opxy::SampleSlice*, opxy::SampleSliceRate*'),)),
 )
 
 
@@ -262,7 +266,8 @@ def generate_sample_voice(directory, m, benchmark=False):
                   LABELS=stock_labels(m), CAPACITY=resources['voiceCapacity'],
                   ANALYSIS=resources.get('sampleAnalysis', 0), STEREO=resources.get('stereoOutput', 0),
                   CHOKE=resources.get('chokeSameKey', 0), DRUM_KEYS=int(m.identity['page'] == 7),
-                  PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0))
+                  PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0),
+                  SLICE_TIMING=resources.get('sliceTiming', 0))
     path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
 
@@ -299,7 +304,8 @@ def control_cycles(definition):
         return None
     following = list(range(8))
     for position in range(4):
-        cycle = [slot for slot, owner in enumerate(positions) if owner == position]
+        # An absent own slot still starts its position's cycle, so the press reaches the alternates.
+        cycle = [slot for slot, owner in enumerate(positions) if owner == position or (slot == position and owner is None)]
         for i, slot in enumerate(cycle):
             following[slot] = cycle[(i + 1) % len(cycle)]
     return following
@@ -319,13 +325,14 @@ def generate_synth_controls(directory, machines):
         if m.kind in ('synth', 'sample'):
             declarations.append(f'int {m.prefix}_record_ready() __asm__("{m.prefix}_record_ready");')
             declarations.append(f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");')
-            controls = ', '.join(str(position % 4) for position in control_positions(m.definition))
+            controls = ', '.join(str((i if position is None else position) % 4) for i, position in enumerate(control_positions(m.definition)))
             lfo_rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_record_ready, {len(m.definition["parameters"])}, {{{controls}}}}},')
         if m.kind not in ('synth', 'effect'):
             continue
         effect = m.kind == 'effect'
         following = control_cycles(m.definition) or list(range(8))
-        continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum')
+        continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum' and not p.get('absent'))
+        absent = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p.get('absent'))
         steps = [enum_steps(p) for p in m.definition['parameters']]
         steps += [0] * (8 - len(steps))
         declarations.append(f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");')
@@ -334,8 +341,13 @@ def generate_synth_controls(directory, machines):
         if effect:
             declarations.append(f'extern const char {id_symbol}[] __asm__("{id_symbol}");')
         body = [f'static bool {m.prefix}_format(opxy::u32 slot, opxy::i32 value, char* text) {{', '    switch (slot) {']
-        for i, p in enumerate(m.definition['parameters']):
+        # An effect's shift-row controls caption as slots 8..11.
+        captioned = list(enumerate(m.definition['parameters']))
+        captioned += [(SHIFT_SLOT + i, p) for i, p in enumerate(shift_parameters(m.definition))]
+        for i, p in captioned:
             mapping = p['mapping']
+            if p.get('absent'):
+                continue
             # The selected choice's label, on synth and send pages alike.
             if mapping['kind'] == 'enum':
                 labels = ', '.join(json.dumps(label) for label in mapping['labels'])
@@ -362,10 +374,18 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-        page = not effect and paged(m.definition)
+        page = paged(m.definition)
+        # An effect's shift row: its choice counts and titles; other rows leave the fields zero.
+        extra = ''
+        shift = shift_parameters(m.definition)
+        if shift:
+            titles = ', '.join(json.dumps(p['label'].lower()) for p in shift)
+            declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
+            choices = [len(p['mapping']['labels']) for p in shift] + [1] * (SYNTH_POSITIONS - len(shift))
+            extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
-                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}}},")
+                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {absent}{extra}}},")
     return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters), LFO_MACHINES='\n'.join(lfo_rows)),
                   Path(directory) / 'synth_control_table.cpp')
 
@@ -390,6 +410,23 @@ FX_BUFFER_INIT = '''    // Stock's per-send scratch memory, which stock delay an
         ? opxy::platform::stock<opxy::i32*(opxy::u32, opxy::u32)>(0x8d50e048)(slot, {bytes}u) : nullptr;'''
 
 
+# An effect's shift row (SDK 1.7): its choices, packed into the send track's
+# word shift_row::kWord, reach the DSP as enum words 8..11 after the eight.
+SHIFT_DECLS = '''static const opxy::u8 kShiftChoices[{count}] = {{{choices}}};
+static void shift_words(opxy::u32 slot, const opxy::i32* parameters, opxy::i32* words) {{
+    namespace row = opxy::platform::shift_row;
+    for (opxy::u32 i = 0; i < 8; ++i) words[i] = parameters[i];
+    const opxy::i32 packed = slot == 14 || slot == 15
+        ? static_cast<opxy::i32>(opxy::platform::word(row::kAudioWords + slot * row::kTrackBytes + row::kWord * 4)) : 0;
+    opxy::u32 fields[{count}];
+    row::decode(packed, kShiftChoices, {count}, fields);
+    for (opxy::u32 i = 0; i < row::kControls; ++i)
+        words[8 + i] = i < {count} ? row::midpoint(fields[i], kShiftChoices[i]) : 0;
+}}'''
+SHIFT_PRELUDE = '''    opxy::i32 words[12];
+    shift_words(object->slot, parameters, words);'''
+
+
 def generate_fx_object(directory, m, benchmark=False):
     resources = m.definition['resources']
     bytes_ = resources.get('bufferBytes')
@@ -406,13 +443,25 @@ def generate_fx_object(directory, m, benchmark=False):
                       RESET='    object->buffer = nullptr;')
     # A tempo-aware effect reads the audio clock's transport once per block.
     values['TRANSPORT'] = 'opxy::platform::audio_transport(), ' if resources.get('transport') else ''
-    # The buffer's scratch call and the transport both use stock addresses.
-    if bytes_ is not None or resources.get('transport'):
-        values['OBJECT'] = '#include "stock.hpp"\n' + values['OBJECT']
+    values.update(SHIFT_DECLS='', SHIFT_PRELUDE='', PARAMETERS='parameters')
+    shift = shift_parameters(m.definition)
+    if shift:
+        # The slot finds the send track's shift-row word on the audio side.
+        values['OBJECT'] = values['OBJECT'].replace(' };\n', ' opxy::u32 slot; };\n', 1).replace(
+            'sizeof(State) <=', 'sizeof(State) + 4 <=', 1)
+        values['INIT'] = '    object->slot = slot;\n' + values['INIT'].replace('    (void)slot;', '')
+        values['RESET'] += '\n    object->slot = 0;'
+        choices = ', '.join(str(len(p['mapping']['labels'])) for p in shift)
+        values['SHIFT_DECLS'] = SHIFT_DECLS.format(count=len(shift), choices=choices)
+        values['SHIFT_PRELUDE'] = SHIFT_PRELUDE
+        values['PARAMETERS'] = 'words'
+    # The buffer's scratch call, the transport and the shift row use stock addresses.
+    if bytes_ is not None or resources.get('transport') or shift:
+        values['OBJECT'] = '#include "stock.hpp"\n' + ('#include "shift_row.hpp"\n' if shift else '') + values['OBJECT']
     path = expand('fx_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=m.definition['id'],
                                            NAME=m.native_name, LABELS=stock_labels(m),
-                                           DRY_LEVEL='0x7fffffff' if m.dry_parameter is None else
-                                           f'parameters[{m.dry_parameter}]'),
+                                           DRY_LEVEL=f'parameters[{m.dry_parameter}]' if m.dry_parameter is not None
+                                           else f'{m.dry_level:#x}' if m.dry_level is not None else '0x7fffffff'),
                   Path(directory) / f'fx_object_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
 
