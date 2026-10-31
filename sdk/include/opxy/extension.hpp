@@ -3,6 +3,7 @@
 
 namespace opxy { namespace extensions {
 
+using Time = __UINT64_TYPE__;
 // Opaque project/pattern identities are only for equality, never dereferencing.
 // Positions and lengths use stock pattern ticks (480 per step at scale 1).
 struct RecordingContext {
@@ -20,12 +21,13 @@ struct RecordingContext {
             recordable == other.recordable;
     }
 };
-struct Context { RecordingContext recording; bool playing; };
+// The controller's monotonic microsecond time when this context was sampled.
+// It can seed non-audio, per-boot behavior; it is not a scheduling clock.
+struct Context { RecordingContext recording; bool playing; Time time; };
 struct Note { i32 position; u32 length; u8 pitch, velocity; };
 struct LiveNote { u32 track, pitch, velocity; i32 position; u32 collision_radius; };
 struct NoteOff { u32 track, pitch; };
 struct Tick { u32 delta_q8; bool discontinuity; };
-using Time = __UINT64_TYPE__;
 // Key numbers as stock reports them in queued controls.
 namespace keys { const u32 record = 50; }
 struct Control {
@@ -37,6 +39,33 @@ struct Control {
     // No other key and no Shift held when the event arrived.
     bool unmodified;
     Time time;
+};
+
+// A screen colour in SVG order. Palette callbacks run on the GUI/controller
+// path and may alter this value in place; they must not allocate, block or do
+// I/O. The platform keeps the parsed SVG value separately, so a later palette
+// revision always starts from the original colour rather than the last skin.
+struct Color { u8 red, green, blue, alpha; };
+
+// A palette is a GUI surface, not an extension kind. `revision` returns the
+// extension's current palette revision (zero when it never changes); changing
+// it asks the SDK to apply `map` again to every loaded SVG palette entry. The
+// functions and the Palette object must remain alive for the firmware's life.
+struct Palette {
+    u32 (*revision)();
+    void (*map)(Color&);
+};
+
+// A flat, stock-styled choice selector. It is opened through
+// Actions::select_choice from an accepted claimed queued_control callback.
+// Titles and labels are copied while the call opens; `selected` is retained
+// until the selector closes, so it must remain valid. The selected index is
+// only a pending initial highlight until the user confirms it.
+struct Choice {
+    const char* title;
+    const char* const* labels;
+    u32 count, selected;
+    void (*confirm)(u32 selected);
 };
 
 // Each action needs its permission (profiles/extensions.json) and works only in
@@ -52,6 +81,9 @@ struct Actions {
     // Replace an instrument track's pattern notes with these. Refused, changing
     // nothing, while stock is still recording a held note there. Needs edit_notes.
     u32 (*replace_notes)(const Context&, u32 track, const Note*, u32 count);
+    // Open one flat stock choice selector. Needs select_choice and is valid only
+    // in the claimed queued_control callback that received these Actions.
+    bool (*select_choice)(const Choice&);
 };
 
 using OnContext = void (*)(const Context&);
@@ -87,31 +119,41 @@ struct Hooks {
     // A queued control (Record and other queued keys; not keyboard keys
     // 26-49) after stock handled it. Actions act only for their claim owner.
     OnQueuedControl queued_control;
+    // Optional GUI surface applied to every loaded stock SVG document.
+    const Palette* screen_palette;
 
-    constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
+    constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
                     OnInputActivity e, OnQueuedControl f)
+        : Hooks(a, b, c, d, e, f, nullptr) {}
+    constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
+                    OnInputActivity e, OnQueuedControl f, const Palette* g)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f) {}
+          input_activity(e), queued_control(f), screen_palette(g) {}
 
     constexpr Hooks with_context(OnContext f) const {
-        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, screen_palette);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, screen_palette);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, screen_palette);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, screen_palette);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, screen_palette);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, screen_palette);
+    }
+    // Unlike with_* members this is a surface, not an event: profile event
+    // coverage is intentionally derived only from the with_* builders.
+    constexpr Hooks palette(const Palette* value) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, value);
     }
 };
 }}
