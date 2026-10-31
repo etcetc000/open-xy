@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, paged, shift_parameters, stock_name, validate_definition
+from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SAVED_TOTAL, SDK_1_2_TEXTS, SDK_1_6_TEXTS, paged, shift_parameters, stock_name, validate_definition
 from .formats import require
 from .pipeline import config
 
@@ -32,9 +32,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.5 drops identity numbers: the layout gives every number, and a sample engine
 # names its base instead of a stock page.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
-# 1.7 supplies a frozen source-audition clock for tempo-aware sample slicing, lets an
-# effect page its controls, have a shift row, draw its own page and fix its source dry
-# (dryLevel), and adds a saturating Q31 add and up to 32 display text slots.
+# 1.7 adds a synth's track control (resources.trackControl), supplies a frozen
+# source-audition clock for tempo-aware sample slicing, lets an effect page its controls,
+# have a shift row, draw its own page and fix its source dry (dryLevel), and adds a
+# saturating Q31 add and up to 32 display text slots.
 SDK_VERSION = (1, 7)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -178,7 +179,8 @@ def check_identity(rules, kind, value, display=None):
         require(rules['engine_none'] < number and page in rules['sample_pages'],
                 'Sample engines need a relocated-table engine ID and a stock sample page')
     else:
-        require(rules['page_none'] < page < rules['pages'], 'A machine with its own screen needs a relocated page')
+        # The last page holds track control's marks (track_control_overlay.cpp.in).
+        require(rules['page_none'] < page < rules['pages'] - 1, 'A machine with its own screen needs a relocated page')
     return {slot: number, 'page': page}
 
 
@@ -318,6 +320,9 @@ def machine_at(root, identity=None):
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
         require(requested['page'] == SAMPLE_BASES['drumSampler'],
                 'Pad settings and drum controls need the drum sampler base ("base": "drumSampler")')
+    if 'trackControl' in definition['resources']:
+        require_sdk(version, (1, 7), 'Track control (trackControl)')
+        require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
     require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
     amp = defaults.get('amp', {})
@@ -459,7 +464,9 @@ def number_layout(rules, fixed, layout, machines):
             new.append((name, kind, dict(requested), slots))
     # An effect number is also held as an engine number (occupied).
     keys = lambda slot, n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
-    free = lambda slot, n: not any(k in holders for k in keys(slot, n))
+    # The last page is track control's marks: in the pool, so every other
+    # machine keeps its own place, but never given out.
+    free = lambda slot, n: not (slot == 'page' and n == rules['pages'] - 1) and not any(k in holders for k in keys(slot, n))
 
     def take(name, identity, slot, n):
         identity[slot] = n
@@ -534,6 +541,7 @@ def collection(entries=None, layout=None):
     require(len(set(engines)) == len(engines) and len(set(effects)) == len(effects) and len(set(pages)) == len(pages),
             'Conflicting engine, effect or page ID')
     check_analysis_budgets(machines)
+    check_saved_budget(machines)
     return machines
 
 
@@ -542,6 +550,15 @@ def check_analysis_budgets(machines):
     total = sum(m.definition['resources'].get('sampleAnalysis', 0) for m in machines if m.kind == 'sample')
     require(total <= ANALYSIS_HEAP_LIMIT,
             'Sample analysis budgets exceed the collection limit of %d bytes' % ANALYSIS_HEAP_LIMIT)
+
+
+def check_saved_budget(machines):
+    """What track control machines keep with a project fits the companion together."""
+    total = sum(m.definition['resources'].get('trackControl', {}).get('savedBytes', 0)
+                for m in machines if m.kind == 'synth')
+    require(total <= SAVED_TOTAL,
+            'Track control machines keep %d bytes with a project together, more than the build limit of %d'
+            % (total, SAVED_TOTAL))
 
 
 def by_kind(machines, *kinds):

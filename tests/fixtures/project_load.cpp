@@ -8,6 +8,10 @@
 #include <cstring>
 #include <project_companion.cpp>
 
+// What startup.cpp gives a build without the control service.
+extern "C" opxy::u32 sdk_project_kept(void*) { return 0; }
+extern "C" void sdk_project_loaded(const char*) {}
+
 using opxy::platform::Address;
 
 namespace {

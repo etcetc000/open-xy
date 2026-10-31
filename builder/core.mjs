@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '496fe6dff677a8e0bad9d6599f8ce1665c0c2b0e905a65eef694cc7c90001323';
+export const PROFILE_SHA256 = 'f488c19f88a24b8b0b51ffb80462d2f1147f6993035a63dcc089869cda4ff83e';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -119,7 +119,7 @@ export function validIdentity(rules, kind, identity) {
   if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages);
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
-    : kind === 'synth' && page > rules.page_none && page < rules.pages;
+    : kind === 'synth' && page > rules.page_none && page < rules.pages - 1;  // the last page: track control's marks
 }
 
 // The numbers a kit machine asks for (tooling.machines.check_request): valid ones,
@@ -222,7 +222,9 @@ export function numberLayout(rules, fixed, layout, machines) {
   }
   // An effect number is also held as an engine number (occupied).
   const keys = (slot, n) => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
-  const free = (slot, n) => !keys(slot, n).some(key => holders.has(key));
+  // The last page is track control's marks: in the pool, so every other machine keeps
+  // its own place, but never given out (tooling.machines.number_layout).
+  const free = (slot, n) => !(slot === 'page' && n === rules.pages - 1) && !keys(slot, n).some(key => holders.has(key));
   const take = (name, identity, slot, n) => {
     identity[slot] = n;
     for (const key of keys(slot, n)) holders.set(key, name);
@@ -405,12 +407,14 @@ export async function openKit(kit) {
   return {...kit, objects};
 }
 
-// Profile services a selection needs: each names the machine kinds that use it,
-// and 'extension' for any selected extension. tooling.firmware.active_services
+// Profile services a selection needs: each names the machine kinds, the features
+// machines declare, and 'extension' for any selected extension, that use it.
+// tooling.firmware.active_services
 // applies the same rule.
 export function activeServices(profile, machines) {
   return new Set(Object.entries(profile.services ?? {})
-    .filter(([, kinds]) => machines.some(m => kinds.includes(m.kind))).map(([name]) => name));
+    .filter(([, users]) => machines.some(m => users.includes(m.kind) || (m.features ?? []).some(f => users.includes(f))))
+    .map(([name]) => name));
 }
 
 // Extensions are linked only when named: omitting them builds none.
@@ -471,6 +475,14 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   for (const m of kit.machines) if (!selected.has(m.id)) {
     for (const [symbol, fallback] of Object.entries(m.absent)) {
       check(!globals.has(symbol) && globals.has(fallback), 'Invalid absent-machine callback');
+      aliases.set(symbol, globals.get(fallback));
+    }
+  }
+  // Shared objects may import a service's entry points, which resolve to their
+  // fallbacks while the selection does not use the service.
+  for (const [service, fallbacks] of Object.entries(kit.serviceFallbacks ?? {})) if (!services.has(service)) {
+    for (const [symbol, fallback] of Object.entries(fallbacks)) {
+      check(!globals.has(symbol) && globals.has(fallback), 'Invalid service fallback');
       aliases.set(symbol, globals.get(fallback));
     }
   }
@@ -797,6 +809,14 @@ export async function buildAssets(kit, selection, catalog, numbers) {
       check(/^[a-z][a-z0-9_]*\.svg$/.test(m.asset), 'Invalid artwork filename');
       files['content/display/' + m.asset] = utf8.encode(baseSvg.replace('</svg>', m.artwork + '</svg>'));
     }
+  }
+  // Track control's marks over every page (tooling.native.prepare_assets).
+  if (machines.some(m => (m.features ?? []).includes('trackControl'))) {
+    check(typeof kit.controlArtwork === 'string' && kit.controlArtwork.split('</svg>').length === 2,
+          'The site’s machine data is damaged. Reload this page.');
+    // The SDK's marks, then each selected machine's own (tooling.native.control_artwork).
+    const own = machines.filter(m => typeof m.marks === 'string').map(m => m.marks).join('');
+    files['content/display/openxy_overlay.svg'] = utf8.encode(kit.controlArtwork.replace('</svg>', own + '</svg>'));
   }
   return files;
 }

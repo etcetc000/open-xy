@@ -80,6 +80,17 @@ SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS)
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
 EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 EFFECT_BUFFER_LIMIT = 524288
+# A synth's optional GUI-side track control (opxy/track_control.hpp): its state.
+CONTROL_FIELDS = ('stateBytes', 'stateAlignment')
+# Optional: whether only one copy runs, the data kept with a project, and the
+# machine's own marks (marks.svg.fragment): capture nodes, then line nodes.
+CONTROL_OPTIONS = ('unique', 'savedBytes', 'marks')
+MARK_LIMIT = 16
+# The most a track control machine keeps with a project (opxy::control::saved_capacity).
+SAVED_CAPACITY = 8192
+# The most a build's machines keep together: base64 of it, with the rest of the
+# companion, stays within the reader's 32 KiB (track_control_project.cpp) and the format's 64 KiB.
+SAVED_TOTAL = 16384
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
 # A synth's first four fill the four-control page; up to four more are alternates
@@ -119,10 +130,10 @@ def validate_definition(value, kind):
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
-    options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else ()
+    options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'synth': ('trackControl',)}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
-    require(all(type(v) is int for k, v in resources.items() if k != 'display'),
+    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'trackControl')),
             'Numeric resource requirements must be integers')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
@@ -213,6 +224,26 @@ def validate_synth_resources(resources):
             'Shared state must occupy whole words')
     require(0 < resources['outputPeakQ31'] <= 0x7fffffff, 'Invalid oscillator output headroom')
     validate_display(resources['display'])
+    if 'trackControl' in resources:
+        control = resources['trackControl']
+        present = tuple(k for k in CONTROL_OPTIONS if isinstance(control, dict) and k in control)
+        keys(control, CONTROL_FIELDS + present, 'trackControl')
+        require(type(control['stateBytes']) is int and type(control['stateAlignment']) is int and
+                4 <= control['stateBytes'] and control['stateAlignment'] in (4, 8, 16) and
+                control['stateBytes'] % control['stateAlignment'] == 0,
+                'Track control state must occupy aligned whole words')
+        require('savedBytes' not in control or type(control['savedBytes']) is int and
+                1 <= control['savedBytes'] <= SAVED_CAPACITY,
+                f'Track control saves 1 to {SAVED_CAPACITY} bytes with a project')
+        require(type(control.get('unique', False)) is bool, 'Track control unique must be true or false')
+        require('savedBytes' not in control or control.get('unique') is True,
+                'A track control machine that keeps data with projects must be unique')
+        if 'marks' in control:
+            marks = control['marks']
+            keys(marks, ('capture', 'line'), 'trackControl.marks')
+            require(type(marks['capture']) is int and 1 <= marks['capture'] <= MARK_LIMIT and
+                    type(marks['line']) is int and 0 <= marks['line'] <= MARK_LIMIT,
+                    f'Track control marks need 1 to {MARK_LIMIT} capture nodes and 0 to {MARK_LIMIT} line nodes')
 
 
 def validate_display(display):

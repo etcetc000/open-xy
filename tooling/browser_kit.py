@@ -74,6 +74,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['source'] = {key: sources[m.id][key] for key in ('repository', 'tag', 'commit', 'maintainer')}
             if 'cpu' in sources[m.id]:
                 entry['cpu'] = sources[m.id]['cpu']
+        uses = sorted(set(native.service_users([m])) - {m.kind, 'extension'})
+        if uses:
+            entry['features'] = uses
         entry['presetDefaults'] = m.preset_defaults
         if m.presets:
             entry['presets'] = m.presets
@@ -81,6 +84,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['icon'] = m.icon
         # An unselected machine's startup and catalog callbacks decline.
         entry['absent'] = native.absent_symbols(m)
+        if native.track_control(m) and native.track_control(m).get('marks'):
+            entry['marks'] = native.validate_marks(m).decode('utf-8')
         if m.display != 'stock':
             entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
             entry['asset'] = m.native_name + '.svg'
@@ -122,6 +127,12 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
+    # Track control: the marks' artwork, and the startup's call into the marks
+    # screen, which declines while a selection does not use the service.
+    if 'control' in native.active_services(profile, native.service_users(machines)):
+        kit['controlArtwork'] = read(ROOT / native.TEMPLATES / 'track_control_overlay.svg').decode('utf-8')
+        kit['serviceFallbacks'] = {'control': dict.fromkeys(
+            ('sdk_overlay_startup', 'sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')}
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves

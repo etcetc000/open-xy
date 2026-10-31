@@ -94,6 +94,9 @@
     "samples": [
       "sample"
     ],
+    "control": [
+      "trackControl"
+    ],
     "extensions": [
       "extension"
     ]
@@ -889,6 +892,26 @@
       "call": true
     },
     {
+      "kind": "hook",
+      "address": "0x8d572f70",
+      "file_offset": "0x1aa1cc",
+      "length": 4,
+      "before": "00e3d2a8",
+      "symbol": "sdk_project_clear",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d572ff8",
+      "file_offset": "0x1aa254",
+      "length": 4,
+      "before": "00e3c8ac",
+      "symbol": "sdk_project_clear_random",
+      "call": true,
+      "service": "control"
+    },
+    {
       "kind": "text",
       "name": "MTP path allowlist: project companion (.oxy) beside each project (.xy)",
       "address": "0x840ae494",
@@ -1183,6 +1206,67 @@
       "before": "fee3b16f",
       "symbol": "sdk_benchmark_run",
       "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0baade",
+      "file_offset": "0xf1d1a",
+      "length": 8,
+      "before": "00de588d74000000",
+      "symbol": "sdk_gui_tick",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5937b4",
+      "file_offset": "0x1caa10",
+      "length": 4,
+      "before": "00e37acb",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5938c2",
+      "file_offset": "0x1cab1e",
+      "length": 4,
+      "before": "00e3f3ca",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59396a",
+      "file_offset": "0x1cabc6",
+      "length": 4,
+      "before": "00e39fca",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5ad5ae",
+      "file_offset": "0x1e4806",
+      "length": 4,
+      "before": "ffe3bdfc",
+      "symbol": "sdk_param_edit_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "name": "Displayed parameter values follow track control overlays",
+      "address": "0x8d5aca48",
+      "file_offset": "0x1e3ca0",
+      "length": 4,
+      "before": "000c1b18",
+      "symbol": "sdk_param_shown_hook",
+      "call": false,
+      "service": "control"
     },
     {
       "kind": "hook",

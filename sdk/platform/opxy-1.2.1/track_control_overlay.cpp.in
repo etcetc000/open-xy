@@ -1,0 +1,109 @@
+// Track control's marks on every page: an SDK screen object in the last page
+// slot (@PAGE_LIMIT@ - 1), which no machine is given. The compositor
+// (8d5213f4) paints a slot that is the current page, or whose method-table
+// entry +8 says so; stock overlays such as the octave indicator use that.
+// This object answers yes while track control has a mark to show, and its
+// artwork has no background, so it is painted over whatever page is shown.
+// The artwork holds the SDK's marks and any machine's own (marks.svg.fragment);
+// each machine shows its capture nodes while it captures, or its line nodes on
+// the page of a track it overlays.
+#include "screen.hpp"
+#include "registration.hpp"
+#include "track_control.hpp"
+
+using opxy::u32;
+using opxy::i32;
+using opxy::u8;
+
+namespace {
+using namespace opxy::screen;
+namespace platform = opxy::platform;
+
+const u32 kPage = @PAGE_LIMIT@ - 1;
+// Every mark node: the SDK's capture outlines and line, then machines' own.
+const u32 kNodes = @MARK_NODES@;
+const char* const kIds[kNodes] = {
+@MARK_IDS@};
+// Each track control machine's marks, in sdk_control_machines order: its
+// capture nodes and its line nodes, as first index and count.
+struct MachineMarks { u8 capture, captures, line, lines; };
+const MachineMarks kMarks[] = {
+@MARK_MACHINES@
+    {0, 0, 0, 0}};
+const u32 kMarkMachines = sizeof(kMarks) / sizeof(kMarks[0]) - 1;
+const char kAsset[] = "openxy_overlay.svg";
+
+struct Object {
+    Base base;
+    PathNode* nodes[kNodes];  // 0 until bound, or when missing
+    u32 bound;
+    u32 shown;                // the marks last applied, as key()
+};
+u32 key(platform::Marks marks) { return marks.kind ? marks.kind | (marks.machine + 1) << 8 : 0; }
+Object overlay;
+
+// A node shown in place or moved off screen.
+void show(PathNode* node, bool on) {
+    if (!node) return;
+    const u32 at[2] = {6, 7};
+    const i32 value[2] = {on ? 0 : 640 << 10, on ? 0 : 320 << 10};
+    set_words(&node->leaf, at, value);
+}
+
+void apply(Object* o, platform::Marks marks) {
+    u32 first = 0, count = 0;
+    if (marks.kind && marks.machine < kMarkMachines) {
+        const MachineMarks& m = kMarks[marks.machine];
+        const bool capture = marks.kind == platform::kMarkCapture;
+        first = capture ? m.capture : m.line;
+        count = capture ? m.captures : m.lines;
+    }
+    for (u32 i = 0; i < kNodes; ++i) show(o->nodes[i], i >= first && i < first + count);
+    o->shown = key(marks);
+}
+
+void bind(Object* o) {
+    if (o->bound || !o->base.svg) return;
+    for (u32 i = 0; i < kNodes; ++i) o->nodes[i] = path_node(find(&o->base, kIds[i]));
+    o->bound = 1;
+    apply(o, platform::Marks{0, 0});
+}
+
+void destroy(Object* o) { base_destroy(&o->base); }
+// Entry +8: paint this slot now.
+u32 visible(Object*, u32) { return platform::control_marks().kind != 0; }
+void frame(Object* o, i32) {
+    bind(o);
+    const platform::Marks marks = platform::control_marks();
+    if (o->bound && key(marks) != o->shown) apply(o, marks);
+    draw(&o->base);
+}
+void init(Object* o) { bind(o); }
+
+struct VTable {
+    void (*destroy)(Object*);
+    void (*destroy_delete)(Object*);
+    u32 (*visible)(Object*, u32);
+    void (*frame)(Object*, i32);
+    void (*init)(Object*);
+    const void* stock20;
+};
+const VTable kVTable = {destroy, destroy, visible, frame, init, reinterpret_cast<const void*>(0x8c0867f0)};
+
+char* construct(char* state, u32 page) {
+    Object* o = reinterpret_cast<Object*>(state);
+    base_construct(&o->base, page, kAsset);
+    o->base.vtable = &kVTable;
+    return state;
+}
+}
+
+// GUI role, after the machines' screens: only a collection with track control
+// takes the slot.
+extern "C" void sdk_overlay_startup() {
+    if (!sdk_control_machine_count) return;
+    const platform::Record record = {nullptr, nullptr, nullptr, nullptr, reinterpret_cast<const char*>(kPage), 0};
+    const platform::Screen screen = {reinterpret_cast<char*>(&overlay), sizeof(overlay),
+                                     reinterpret_cast<const char*>(&kVTable), kAsset, construct};
+    sdk_register_screen(&record, &screen);
+}

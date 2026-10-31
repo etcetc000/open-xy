@@ -82,7 +82,10 @@ def main():
                 sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs')
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
-        services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
+        # Services follow each selected machine's kind and its declared features (trackControl, ...),
+        # as the browser chooses them (builder/core.mjs activeServices).
+        services = active_services(kit['profile'], [user for m in kit['machines'] if m['id'] in result['selected']
+                                                    for user in (m['kind'], *m.get('features', []))] +
                                    (['extension'] if result['extensions'] else []))
         modes = {}
         for profiling in (True, False):
@@ -143,6 +146,13 @@ def main():
                 art = screen.compose(machine['artwork'].encode())
                 require((prefix / name).read_bytes() == art, 'Browser artwork differs')
                 expected_files[name] = art
+        # Track control's marks over every page: the SDK's, then each selected machine's own.
+        if any('trackControl' in m.get('features', []) for m in selected):
+            own = ''.join(m['marks'] for m in selected if isinstance(m.get('marks'), str))
+            name = 'content/display/openxy_overlay.svg'
+            marks = kit['controlArtwork'].replace('</svg>', own + '</svg>').encode()
+            require((prefix / name).read_bytes() == marks, 'Browser marks differ')
+            expected_files[name] = marks
         with zipfile.ZipFile(prefix.with_suffix('.zip')) as archive:
             require(set(archive.namelist()) == set(expected_files) and archive.testzip() is None, 'Invalid ZIP file')
             for name, data in expected_files.items():

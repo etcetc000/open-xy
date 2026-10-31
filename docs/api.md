@@ -5,7 +5,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 
 | Kind | C++ the machine supplies | Example |
 | --- | --- | --- |
-| `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
+| `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment`; `control.cpp` with [track control](#track-control) | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
 | `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
 | `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.7) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
@@ -224,6 +224,7 @@ A synth declares:
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
 | `display` | The screen's frame budget; see the [display API](display.md) |
+| `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes` and `marks` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -286,6 +287,130 @@ method table and voice pool; none of that belongs in `Voice`.
 ownership; `release` cannot free a stolen lease. The engine decides how a
 voice behaves after losing a resource. This pool has no locks and requires
 serialized access.
+
+## Track control
+
+A synth can steer other tracks (SDK 1.7). A build without such a machine
+applies none of track control's
+firmware edits and links none of its code. It declares
+`"trackControl": {"stateBytes": n, "stateAlignment": a}` in `resources`, with
+`"sdk": "1.7"` in `machine.json`, and supplies `control.cpp` with:
+
+```cpp
+struct ControlState { ... };  // trivial, standard-layout; starts zeroed
+void control_reset(ControlState& state);
+void control(ControlState& state, const opxy::control::Input& input, opxy::control::Overlay& overlay);
+```
+
+[track_control.hpp](../sdk/include/opxy/track_control.hpp) defines the types.
+`control` runs on the GUI side once per stock GUI tick while the machine is on
+an instrument track. Every track control machine on tracks 1-8 runs, in track
+order, so a project can hold several, and several copies of one: each copy has
+its own `ControlState`, which costs `stateBytes` for each of the eight tracks.
+A machine that must run alone adds `"unique": true` to `trackControl`: it has
+one state, and while two or more instrument tracks hold it, none runs and every
+overlay and capture ends as if it had left. A display can tell its user with
+`opxy::control::copies(track)`, the number of instrument tracks holding the
+machine on `track` (browser previews answer 1). `control_reset` runs before a
+copy's first call. A copy of a machine that is not unique is reset again
+whenever it arrives on a track. A unique machine keeps its one state for the
+whole project: it is reset again only after a project is loaded or created,
+just before `control_load` (below), not when it moves to another track or
+comes back to one.
+
+| `Input` field | Contract |
+| --- | --- |
+| `track` | The instrument track this copy is on |
+| `capturing` | 1 while this copy's capture is in effect (below) |
+| `values[track][index]` | Every instrument track's 58 live parameter words, as stock sets them (edits, parameter locks, sequencing), without any machine's overlay. Indices 0..7 are the engine's controls; the rest are stock's own track parameters, in stock's units. The machine's own engine controls are the values its page shows, including its LFO |
+| `edit_count`, `edits` | While capturing: up to 32 encoder edits of other instrument tracks' parameters since the last tick, oldest first, as track, index and edited value |
+| `elapsed_us` | Microseconds since the previous tick, from the core clock: 0 on the first tick after a reset, at most one second |
+| `transport` | The project's tempo in tenths of BPM (0 when unknown), the song position in 96ths of a quarter note, which advances only while playing, and whether the sequencer plays |
+
+`overlay` arrives empty; `opxy::control::add` appends up to 64 entries, each a
+track, parameter index and value for this tick. Entries for the machine's own
+track or outside the table are ignored, the last entry for a parameter wins and
+negative values count as 0. When two machines overlay one parameter, the one on
+the later track wins. A parameter no machine overlays any more returns to
+stock's value. Overlays are live values only: saved projects keep stock's
+values, and an edit or parameter lock under an overlay reaches `values` on the
+next tick. Pages show an overlaid parameter's overlay, whether or not the
+sequencer plays; for a moment after the parameter's encoder is turned, they
+show the track's own value, which the turn changes. A step's parameter lock on
+an overlaid parameter is not heard: the overlay stays, and the lock reaches
+`values` on the next tick, as stock's value beneath it. While the sequencer is
+stopped, stock leaves a track's live values as they were when its pattern
+changes, until play starts; the SDK gives the track its new pattern's stored
+values at once, so `values` and overlaid pages follow the pattern shown.
+
+Setting `overlay.capture` to 1 asks to capture encoder edits for the next tick:
+they still play and show as usual, and arrive in `edits`. One copy captures at a
+time: the one already capturing while it asks, otherwise the first track
+asking; `input.capturing` tells a copy its capture is in effect. When the
+capturing copy returns 0, or leaves its track, every parameter edited during the capture
+returns to its value from before it, so a machine can record edits without
+keeping them. Restoration is tied to the edited pattern, including when another
+pattern is now playing; it does not replace a subsequent external base write.
+Loading or creating a project discards outstanding edits and overlays without
+restoring them into the replacement project. Edits made while a step is held (parameter locks) and changes
+from MIDI or presets are not captured. Like the display, `control` is bounded
+and allocation-free; it is not an audio callback. Browser previews do not run
+it.
+
+An overlay lasts one tick: a machine adds every entry it still wants each tick,
+and a parameter it stops adding gets its underlying value back at the end of
+that tick. The underlying value is stock's: what `values` reports, including
+edits, parameter locks and sequencing under the overlay. Between machines, the
+later track wins a parameter, and the earlier machine's overlay comes back when
+the later one gives it up. All machines together overlay at most 128 different
+parameters in a tick; entries beyond that are ignored. A capture restores at
+most 128 different parameters: further edits during it play and stay as edited,
+and do not arrive in `edits`.
+
+A unique machine can keep data with each project, such as Morphose's states.
+It adds `"savedBytes": n` (1..8192) to `trackControl` and supplies:
+
+```cpp
+u32 control_save(const ControlState& state, u8* data, u32 capacity);  // bytes written, at most capacity (n)
+void control_load(ControlState& state, const u8* data, u32 bytes);
+```
+
+When stock saves a project, the workspace included, `control_save` writes what
+to keep; the SDK stores it in the project's [companion](projects.md). After
+stock loads a project, `control_load` gets those bytes back, or `bytes` 0 when
+the project has none (saved before, on stock, or without the machine) or is a
+new one, so the machine can start empty. Stock loads and saves on its background
+file task, not the GUI task. The SDK gives the data back on the next GUI tick,
+after `control_reset` and before `control`, so the two never overlap.
+`control_save` runs on the file task while stock saves and can overlap
+`control`: keep data that `control` changes in single steps (such as stored
+states), so that a save never catches a half-made change.
+
+All machines' saved data together must fit the companion: the build refuses a
+selection whose `savedBytes` add up to more than 16384.
+
+A machine's control and display are compiled separately, so they share no
+variables. The control can pass four words to its display each tick in
+`overlay.display`, which the display reads with
+`opxy::control::from_control(index)`: the words of the copy on the selected
+track, 0 when it did not run, and always 0 in browser previews.
+
+Track control marks what it does on every page, over stock's: while a machine
+captures, its capture marks; with `overlay.mark` set to 1, its line marks on the
+page of any track it overlays. The SDK's are a red frame fading inward at the
+screen's edge and a thin dark red frame. The SDK draws them in the last screen
+page, which no machine is given.
+
+A machine can draw its own instead, in any colour or shape: it adds
+`"marks": {"capture": c, "line": l}` to `trackControl` (1..16 capture nodes,
+0..16 line nodes; 0 never marks steered tracks) and supplies
+`marks.svg.fragment`, one `<g id="<id>_marks">` holding exactly
+`<id>_capture_0`..`<id>_capture_<c-1>` and `<id>_line_0`..`<id>_line_<l-1>`,
+each a `path` or `circle` in the authored SVG subset, without text. They are
+drawn over every stock page, so keep them to the screen's edges or small, and
+leave the page readable; the capture marks must make clear that edits are being
+recorded. [track_control_overlay.svg](../sdk/platform/opxy-1.2.1/track_control_overlay.svg)
+holds the SDK's, as a starting point.
 
 ## Sample engines
 

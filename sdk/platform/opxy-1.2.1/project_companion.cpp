@@ -4,7 +4,9 @@
 // saved file's size and CRC-32, then this firmware's machine numbers, in the canonical
 // form tooling/projects.py writes. It runs where stock saves, never on the audio role.
 // A failure leaves the previous companion, which no longer matches, or a partial
-// one; readers ignore both.
+// one; readers ignore both. What track control machines keep (open-xy.control, which
+// sorts before open-xy.machines) comes from the control service, through startup.cpp,
+// which writes nothing in a build without it.
 //
 // Stock loads every project, the workspace included, through load_project (8d5890b0),
 // which deserializes the file into the inactive project buffer with one call of
@@ -15,6 +17,8 @@
 // firmware's number in every pattern of the instrument tracks (engines) and send
 // tracks (effects), and a machine this firmware lacks to Prism or no effect. Any
 // problem leaves the project as saved; the load never fails because of its companion.
+// Then track control machines get back what they kept, through startup.cpp, which
+// does nothing in a build without the control service.
 #include "project_companion.hpp"
 #include "stock.hpp"
 
@@ -24,6 +28,9 @@ using opxy::platform::stock;
 
 extern "C" u32 sdk_project_save(void* project, const char* path) __asm__("sdk_project_save");
 extern "C" u32 sdk_project_load(void* project, const char* path) __asm__("sdk_project_load");
+// The control service's sections, or nothing: generated in startup.cpp.
+extern "C" u32 sdk_project_kept(void* file) __asm__("sdk_project_kept");
+extern "C" void sdk_project_loaded(const char* path) __asm__("sdk_project_loaded");
 
 namespace {
 typedef void File;
@@ -136,7 +143,11 @@ void write_companion(u32 bytes, u32 crc) {
     w.number(bytes);
     w.put(",\n    \"crc32\": \"");
     w.hex(crc);
-    w.put("\"\n  },\n  \"sections\": {\n    \"open-xy.machines\": {\n      \"machines\": {");
+    w.put("\"\n  },\n  \"sections\": {\n");
+    // Track control's section goes here, before open-xy.machines, written to the file directly.
+    w.flush();
+    sdk_project_kept(file);
+    w.put("    \"open-xy.machines\": {\n      \"machines\": {");
     u32 listed = 0;
     for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m) {
         const u32 number = value(m->number);
@@ -773,6 +784,9 @@ u32 sdk_project_save(void* project, const char* path) {
 // which nothing reads until stock validates it and makes it pending.
 u32 sdk_project_load(void* project, const char* path) {
     const u32 loaded = deserialize(project, path);
-    if (loaded && project && path) apply_companion(project, path);
+    if (loaded && project && path) {
+        apply_companion(project, path);
+        sdk_project_loaded(path);
+    }
     return loaded;
 }

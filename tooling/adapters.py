@@ -210,6 +210,39 @@ def generate_registration_stock(directory):
     return expand('registration_stock.cpp.in', RELOCATED, Path(directory) / 'registration_stock.cpp')
 
 
+# The SDK's own marks (track_control_overlay.svg): four capture outlines, then the line.
+DEFAULT_MARK_IDS = ('overlay_capture_0', 'overlay_capture_1', 'overlay_capture_2', 'overlay_capture_3', 'overlay_line')
+
+
+def mark_ids(m):
+    """A track control machine's own mark node IDs (marks.svg.fragment), capture then line, or ()."""
+    marks = track_control(m).get('marks')
+    if not marks:
+        return ()
+    return (tuple(f'{m.id}_capture_{i}' for i in range(marks['capture'])) +
+            tuple(f'{m.id}_line_{i}' for i in range(marks['line'])))
+
+
+def generate_track_control_overlay(directory, machines):
+    """Track control's marks over every page, in the last page slot: the SDK's
+    marks, then each machine's own, with each machine's capture and line nodes
+    in the collection's track control order (generate_track_controls)."""
+    ids, rows = list(DEFAULT_MARK_IDS), []
+    for m in machines:
+        if not track_control(m):
+            continue
+        marks = track_control(m).get('marks')
+        if marks:
+            first = len(ids)
+            ids += mark_ids(m)
+            rows.append(f'    {{{first}, {marks["capture"]}, {first + marks["capture"]}, {marks["line"]}}},  // {m.id}')
+        else:
+            rows.append(f'    {{0, 4, 4, 1}},  // {m.id}: the SDK\'s')
+    values = dict(RELOCATED, MARK_NODES=str(len(ids)), MARK_IDS=''.join(f'    "{i}",\n' for i in ids),
+                  MARK_MACHINES='\n'.join(rows))
+    return expand('track_control_overlay.cpp.in', values, Path(directory) / 'track_control_overlay.cpp')
+
+
 def generate_screen_order(directory):
     """The compositor traversal over the relocated screen slots."""
     return expand('screen_order.cpp.in', RELOCATED, Path(directory) / 'screen_order.cpp')
@@ -408,6 +441,80 @@ def generate_project_companion_table(directory, machines):
 FX_BUFFER_INIT = '''    // Stock's per-send scratch memory, which stock delay and reverb use the same way.
     object->buffer = slot == 14 || slot == 15
         ? opxy::platform::stock<opxy::i32*(opxy::u32, opxy::u32)>(0x8d50e048)(slot, {bytes}u) : nullptr;'''
+
+
+def track_control(m):
+    """A synth's declared track control state, or None."""
+    return m.definition['resources'].get('trackControl') if m.kind == 'synth' else None
+
+
+def generate_control(directory, m):
+    """A synth's track control callbacks behind C entry points, with its state."""
+    control, namespace, p = track_control(m), m.definition['id'], m.prefix
+    copies = 1 if control.get('unique') else 8
+    source = f'''// Generated: {m.native_name}'s track control behind C entry points.
+#include "control.cpp"
+static_assert(sizeof({namespace}::ControlState) == {control['stateBytes']},
+              "Declared track control state size differs from C++ type");
+static_assert(alignof({namespace}::ControlState) == {control['stateAlignment']},
+              "Declared track control state alignment differs from C++ type");
+static_assert(__is_trivial({namespace}::ControlState) && __is_standard_layout({namespace}::ControlState),
+              "Track control state must be trivial standard-layout data");
+// One state per copy: a unique machine has one, any other one per instrument track.
+namespace {{ {namespace}::ControlState states[{copies}]; }}
+extern "C" void {p}_control_reset(opxy::u32) __asm__("{p}_control_reset");
+extern "C" void {p}_control(opxy::u32, const opxy::control::Input*, opxy::control::Overlay*) __asm__("{p}_control");
+extern "C" void {p}_control_reset(opxy::u32 copy) {{ {namespace}::control_reset(states[copy]); }}
+extern "C" void {p}_control(opxy::u32 copy, const opxy::control::Input* input, opxy::control::Overlay* overlay) {{
+    {namespace}::control(states[copy], *input, *overlay);
+}}
+'''
+    if 'savedBytes' in control:
+        source += f'''extern "C" opxy::u32 {p}_control_save(opxy::u8*) __asm__("{p}_control_save");
+extern "C" void {p}_control_load(const opxy::u8*, opxy::u32) __asm__("{p}_control_load");
+extern "C" opxy::u32 {p}_control_save(opxy::u8* data) {{
+    const opxy::u32 bytes = {namespace}::control_save(states[0], data, {control['savedBytes']});
+    return bytes <= {control['savedBytes']} ? bytes : 0;
+}}
+extern "C" void {p}_control_load(const opxy::u8* data, opxy::u32 bytes) {{
+    {namespace}::control_load(states[0], data, bytes);
+}}
+'''
+    destination = Path(directory) / 'control_binding.cpp'
+    destination.write_text(source, encoding='utf-8', newline='\n')
+    return destination
+
+
+def control_callbacks(m):
+    """The C entry points a synth with track control exports."""
+    control = track_control(m)
+    if not control:
+        return []
+    suffixes = ('_control_reset', '_control') + (('_control_save', '_control_load') if 'savedBytes' in control else ())
+    return [m.prefix + suffix for suffix in suffixes]
+
+
+def generate_track_controls(directory, machines):
+    """The collection's synths with track control, as one table (track_control.hpp)."""
+    declarations, rows = [], []
+    for m in machines:
+        if not track_control(m):
+            continue
+        p, saved = m.prefix, track_control(m).get('savedBytes', 0)
+        declarations += [f'int {p}_ready() __asm__("{p}_ready");',
+                         f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
+                         f'void {p}_control_reset(opxy::u32) __asm__("{p}_control_reset");',
+                         f'void {p}_control(opxy::u32, const opxy::control::Input*, opxy::control::Overlay*) '
+                         f'__asm__("{p}_control");']
+        if saved:
+            declarations += [f'opxy::u32 {p}_control_save(opxy::u8*) __asm__("{p}_control_save");',
+                             f'void {p}_control_load(const opxy::u8*, opxy::u32) __asm__("{p}_control_load");']
+        callbacks = f'{p}_control_save, {p}_control_load' if saved else 'nullptr, nullptr'
+        unique = 'true' if track_control(m).get('unique') else 'false'
+        rows.append(f'    {{{p}_engine_id, {p}_ready, {p}_control_reset, {p}_control, "{m.id}", {saved}, {callbacks}, '
+                    f'{unique}}},')
+    return expand('track_control_table.cpp.in', dict(CONTROL_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows)),
+                  Path(directory) / 'track_control_table.cpp')
 
 
 # An effect's shift row (SDK 1.7): its choices, packed into the send track's

@@ -36,9 +36,10 @@ version is rejected. The output differs from stock in exactly these places:
 | Synth and effect controls | 8 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page; extends the track menu's scramble to an owned synth's alternates |
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
-| Project companions | 5 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, and shows companions beside projects over MTP |
+| Project companions | 7 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, gives track control machines what they kept after every load (and nothing after a new project), and shows companions beside projects over MTP |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
+| Track control | 3 | Runs a synth's track control once per GUI tick, after stock's own call at that site, lets it capture encoder edits, and shows its overlays as parameter values |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
@@ -47,7 +48,10 @@ version is rejected. The output differs from stock in exactly these places:
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
 form the profile's `samples` service: a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine. Otherwise
-their sites stay stock. Everything else must reconstruct byte for byte. Protected ranges in
+their sites stay stock. The track control rows (and the project read of the
+project companion rows) form the `control` service in the same way: a build
+uses them only when it includes a machine with [track control](api.md#track-control).
+Everything else must reconstruct byte for byte. Protected ranges in
 [`pipeline.py`](../tooling/pipeline.py) admit only hooks into the module and
 the reviewed startup label.
 The bootloader is never modified.
@@ -407,6 +411,63 @@ as audio does. Changing from a larger machine therefore keeps a valid name
 and icon until the user edits the destination.
 The [API guide](api.md#alternate-controls) describes saved-selector compatibility.
 
+### Track control
+
+Stock keeps each track's live parameters at `g_project + 0x4080` (`g_project`
+is the object at `86bd027c`), 58 words a track: the engine's eight controls,
+then stock's own track parameters. They are the values edits, parameter locks
+and sequencing set; the project saves separate base values. `8d5acea8(project,
+track, index, value)` writes one live value and publishes it to the audio side
+when it changed.
+
+`8c0baacc`, the GUI's per-tick update, calls the void function `8d580074` (which calls `8d5be290`) just
+before the sequencer tick. That call at `8c0baade` routes through
+`sdk_gui_tick` ([`track_control.cpp`](../sdk/platform/opxy-1.2.1/track_control.cpp)),
+which makes the original call first. Then it treats any live value that
+differs from the one it last wrote as stock's, and runs every instrument
+track's synth with [track control](api.md#track-control) in track order (track
+engines from `8d58781c`; a unique one only while no other instrument track
+holds the same engine), giving each every instrument track's values without
+overlays. It writes their overlays through `8d5acea8`, the later track's
+winning a parameter two overlay, and writes stock's last value back wherever
+no machine overlays any more, unless stock has written there since. Values written this
+way are live values only: the saved project keeps stock's base values. With no
+such synth on a track, the hook makes only the original call.
+
+The sequencer writes a step's parameter locks to the live values in
+`8d5936c0` (from `8d593a78`, for every track, and `8d593980`), plain or sliding
+toward the next lock, with three calls of `8d5acea8` (`8d5937b4`, `8d5938c2`,
+`8d59396a`). They route through `sdk_param_step_set`: on a parameter a machine
+overlays, the lock becomes stock's value beneath the overlay and the overlay is
+written instead, so the lock is never heard over it. Other parameters reach
+stock unchanged.
+
+Stock's controllers reach encoder edits through `8d5ad5bc`, which reads the
+base value at track data (`8d587708`) + `0x3864` and passes it to `8d5ad564`.
+Unless a step is held for a parameter lock, that calls the setter `8d5acf28`
+with the new value; the setter writes the live value, the base value for synth
+tracks, and publishes. The call at `8d5ad5ae` routes through
+`sdk_param_edit_set`, which always makes the original call. While a synth
+captures (one at a time), an edit of another instrument track's parameter is also recorded for
+the next tick, with the base value from before that parameter's first edit;
+when the capture ends, the SDK sets each of those base values back through
+`8d5acf28`. Lock edits and other setters (MIDI, presets, resets) are not
+captured.
+
+Every page shows a parameter's value through `8d5ac9dc(project, track, index,
+…)`. With a step held it shows that step's lock; otherwise it reads the live
+value while either play flag (`860c9b39`, `860c9b3a`) is set and the base value
+(`8d5ac910`) when not, adds the track's LFO amount when the LFO targets that
+index, and clamps at 0. A jump hook replaces its choice at `8d5aca48` with
+`sdk_param_shown(project, track, index, playing)`
+([`track_control_hooks.s`](../sdk/platform/opxy-1.2.1/track_control_hooks.s)),
+then resumes at `8d5aca8e` to add the LFO amount. An overlaid parameter shows
+its overlay, playing or not, except for 40 GUI ticks after an encoder edit of
+it (`sdk_param_edit_set`), when it shows the base value that edit changed;
+every other parameter shows as stock shows it. The host track's eight engine
+controls reach the synth through the same getter, so their LFO amounts are
+included.
+
 ## Sample engines
 
 Stock's sampler, multisampler, drum and drumline engines are synth
@@ -589,6 +650,27 @@ firmware's layout gave the old number. A number two listed machines claim is
 treated the same way, and a machine listed twice counts once, by its last
 entry, as in `tooling/projects.py`. The firmware shows no notice for a missing
 machine yet.
+
+After those numbers, the same hook finds what track control machines kept: in
+builds with the control service (through `startup.cpp`), it reads the
+`open-xy.control` section from a companion whose binding matches. The hook runs
+on stock's background file task (`bg_file_bfm.cpp` queues the request at
+`0x8d4df754`, and its run method `0x8d4de07c` calls the load at `0x8d4de0ac`),
+so it only records the section. The next GUI tick ends the old project's capture
+and overlays, resets each unique machine and calls its `control_load` with its
+decoded entry, or 0 bytes without one. A failed read changes nothing. A file
+that reads but then fails stock's validation (`0x8d589024`, after the hook)
+leaves the old project open, but its machines already have the new file's data
+and their overlays and capture end without restoring: the old project keeps
+the values they had overlaid until something changes them.
+
+A new project reads no file. Stock clears the project through `0x8d588114`, or
+clears it at random through `0x8d588988`, called for a new project only at
+`0x8d572f70` and `0x8d572ff8` (the clear's other caller is the boot fallback, when
+no machine has kept anything yet). Both calls are hooked: unless a project is
+loading (the word at `0x840a0528`, which makes both clears do nothing), every
+unique track control machine is then reset on the next GUI tick, and one that keeps
+data gets 0 bytes from `control_load`.
 
 Stock's MTP view lists only paths matching a table of regular expressions
 (`0x840ae0c4`…), and under `/projects` only `.xy`. Three text edits rewrite
