@@ -15,6 +15,7 @@ i32 table[control::all_tracks * control::track_parameters];
 // Stock's base values, in each track's data block at +0x3864.
 const u32 kBlocks = 0x90000000, kBlockBytes = 0x10000;
 u32 bases[control::tracks][control::track_parameters];
+u32 second_bases[control::tracks][control::track_parameters], pattern[16];
 u32 engines[16], ticks, writes, resets, runs, sets, edits_seen;
 // The machine holding each aux track (aux_tracks.cpp), and its ticks.
 u32 aux_engines[16], aux_ticks;
@@ -56,12 +57,12 @@ u32 stock_telemetry(u32 id, u32 value) {
     telemetry25 = value;
     return 1;
 }
-u32 stock_track_data(u32 track) { return kBlocks + track * kBlockBytes; }
+u32 stock_track_data(u32 track) { return kBlocks + (track + pattern[track] * 16) * kBlockBytes; }
 void stock_param_set(u32 project, u32 track, u32 index, i32 v) {
     require(project == kProject && track < 16 && index < control::track_parameters, "Invalid set");
     ++sets;
     if (track >= control::tracks) return;
-    bases[track][index] = static_cast<u32>(v < 0 ? 0 : v);
+    (pattern[track] ? second_bases : bases)[track][index] = static_cast<u32>(v < 0 ? 0 : v);
     value(track, index) = v < 0 ? 0 : v;
 }
 void stock_live_set(u32 project, u32 track, u32 index, i32 v) {
@@ -79,7 +80,7 @@ i32 stock_shown(u32 project, u32 track, u32 index, u32 flag) {
 // 8d5ac910: the base value, which a stopped page shows.
 i32 stock_base(u32 project, u32 track, u32 index) {
     require(project == kProject && track < control::tracks && index < control::track_parameters, "Invalid base");
-    return static_cast<i32>(bases[track][index]);
+    return static_cast<i32>((pattern[track] ? second_bases : bases)[track][index]);
 }
 // 8d4d6f14: the GUI's selected track.
 u32 selected = 0;
@@ -153,6 +154,9 @@ const opxy::platform::ControlMachine sdk_control_machines[] = {
     {reinterpret_cast<const char*>(41), ready, reset_other, run_other, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}},
     {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}}};
 const opxy::u32 sdk_control_machine_count = 2;
+bool sdk_control_prepared[3];
+// The project unit's half of a load (track_control_project.cpp), tested with the companion.
+void sdk_control_kept_apply() {}
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Address address) {
@@ -177,10 +181,13 @@ opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Addre
     if (address == 0x840a0524) return reinterpret_cast<Address>(&project_word);
     if (address >= kProjectAt && address < kProjectAt + sizeof(project_bytes))
         return reinterpret_cast<Address>(project_bytes) + (address - kProjectAt);
-    if (address >= kBlocks + 0x3864 && address < kBlocks + control::tracks * kBlockBytes) {
-        const u32 track = (address - kBlocks) / kBlockBytes, at = address - kBlocks - track * kBlockBytes - 0x3864;
+    if (address >= kBlocks && address < kBlocks + 32 * kBlockBytes) {
+        const u32 block = (address - kBlocks) / kBlockBytes, track = block % 16;
+        const u32 offset = (address - kBlocks) % kBlockBytes;
+        if (offset == 0x18) return reinterpret_cast<Address>(&engines[track]);
+        const u32 at = offset - 0x3864;
         if (track < control::tracks && at < sizeof(bases[0]))
-            return reinterpret_cast<Address>(&bases[track][at / 4]);
+            return reinterpret_cast<Address>(&(block >= 16 ? second_bases : bases)[track][at / 4]);
     }
     std::abort();
 }
@@ -235,16 +242,23 @@ int main() {
     tick(0, "Stock's own write overwritten on release");
     require(value(3, 9) == 11, "Stock write lost");
 
-    // Moving the machine resets it; removing it restores everything.
+    // A unique machine keeps its one state when it moves: no reset, until a
+    // project load or new project prepares it again. Removing it restores everything.
     plan({{0, 1, 0, 600}});
     tick(1, "Overlay not written");
     engines[2] = 0;
     engines[5] = 40;
     tick(0, "Same overlay rewritten after a move");
-    require(resets == 2, "Moved machine not reset");
+    require(resets == 1, "Moved unique machine reset");
     engines[5] = 0;
     tick(1, "Overlay not restored when the machine left");
-    require(value(0, 1) == 120 && ticks == 13, "Removal not restored");
+    sdk_control_prepared[0] = false;
+    engines[5] = 40;
+    tick(1, "Overlay not written on arrival");
+    require(resets == 2, "Unique machine not reset after a project change");
+    engines[5] = 0;
+    tick(1, "Overlay not restored when the machine left");
+    require(value(0, 1) == 120 && ticks == 15, "Removal not restored");
 
     // Edits pass through untouched while nothing captures.
     bases[0][5] = 50;
@@ -473,5 +487,52 @@ int main() {
     aux_engines[11] = 0;
     tick(0, "Nothing to release");
     require(sdk_control_copies(11) == 0, "Released aux track still counted");
+
+    // Capture restores the edited pattern, never the newly playing one.
+    aux_engines[11] = 40;
+    for (u32 s = 0; s < 3; ++s) mute_flags(s, 11) = 0;
+    plan({}); capture = 1;
+    sdk_gui_tick();
+    bases[0][1] = 100; value(0, 1) = 100;
+    sdk_param_edit_set(kProject, 0, 1, 150);
+    pattern[0] = 1;
+    second_bases[0][1] = 700; value(0, 1) = 700;
+    capture = 0;
+    sdk_gui_tick();
+    require(bases[0][1] == 100 && second_bases[0][1] == 700 && value(0, 1) == 700,
+            "Capture restored into a different pattern");
+
+    // Both patterns may be edited in one capture and restore independently.
+    capture = 1; sdk_gui_tick();
+    sdk_param_edit_set(kProject, 0, 1, 750);
+    pattern[0] = 0; value(0, 1) = 100;
+    sdk_param_edit_set(kProject, 0, 1, 200);
+    capture = 0; sdk_gui_tick();
+    require(bases[0][1] == 100 && second_bases[0][1] == 700 && value(0, 1) == 100,
+            "Capture confused two patterns on the same track");
+
+    // A preset/external write supersedes the edit, even in the same pattern.
+    capture = 1; sdk_gui_tick();
+    sdk_param_edit_set(kProject, 0, 1, 150);
+    bases[0][1] = 900; value(0, 1) = 900;
+    capture = 0; sdk_gui_tick();
+    require(bases[0][1] == 900 && value(0, 1) == 900, "Capture overwrote a later base write");
+
+    capture = 1; sdk_gui_tick();
+    sdk_param_edit_set(kProject, 0, 1, 950);
+    bases[0][1] = 800; value(0, 1) = 800;
+    sdk_param_edit_set(kProject, 0, 1, 850);
+    capture = 0; sdk_gui_tick();
+    require(bases[0][1] == 800 && value(0, 1) == 800, "Further edits revived a superseded capture base");
+
+    // A new/load project can reuse the same buffer: discard without touching it.
+    capture = 1; sdk_gui_tick();
+    sdk_param_edit_set(kProject, 0, 1, 950);
+    plan({{0, 1, 0, 1000}}); sdk_gui_tick();
+    sdk_control_forget();
+    bases[0][1] = 1000; value(0, 1) = 1000;
+    capture = 0; plan({}); sdk_gui_tick();
+    require(bases[0][1] == 1000 && value(0, 1) == 1000 && original_count == 0,
+            "Old capture or overlay leaked into a replacement project");
     return 0;
 }

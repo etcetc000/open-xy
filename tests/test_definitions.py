@@ -117,7 +117,7 @@ class Definitions(unittest.TestCase):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
                            ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
-                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 17), ('texts', True),
+                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 33), ('texts', True),
                            ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value
@@ -281,6 +281,26 @@ class Definitions(unittest.TestCase):
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false), \d+, \d+\},$', text, re.M),
                          [('paged', 'true'), ('plain', 'false')])
+
+    def test_an_effect_may_page_and_have_a_shift_row(self):
+        effect = copy.deepcopy(fixture('probefx').definition)
+        effect['parameters'] += [self.alternate(i, f'p{i}') for i in range(4)]
+        effect['press'] = 'page'
+        enum = lambda i, labels: dict(id=f's{i}', label=f'S {i}', default=0, display='enum',
+                                      mapping=dict(kind='enum', labels=labels))
+        effect['shift'] = [enum(0, ['a', 'b']), enum(1, ['c', 'd', 'e'])]
+        validate_definition(effect, 'effect')
+        self.assertTrue(paged(effect))
+        rejected = []
+        for shift in ([], [enum(i, ['a', 'b']) for i in range(5)],
+                      [dict(enum(0, ['a', 'b']), display='percent', mapping=dict(kind='linear', minimum=0, maximum=1))],
+                      [dict(enum(0, ['a', 'b']), id='drive')],
+                      [enum(i, [f'c{n}' for n in range(256)]) for i in range(3)]):
+            rejected.append(dict(effect, shift=shift))
+        synth = copy.deepcopy(self.engine); synth['shift'] = [enum(0, ['a', 'b'])]
+        for bad, kind in [(r, 'effect') for r in rejected] + [(synth, 'synth')]:
+            with self.subTest(kind=kind, shift=len(bad['shift'])), self.assertRaises(ValueError):
+                validate_definition(bad, kind)
 
     def test_an_effects_controls_after_four_alternate_on_the_send_page(self):
         # Without `control`, an effect's fifth to eighth controls alternate on positions 0..3.

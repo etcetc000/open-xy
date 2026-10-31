@@ -38,7 +38,7 @@ TARGET = 'opxy-1.2.1'
 # development: the builder distributes it too. Firmware always comes from the device.
 STOCK_CONTENT = ROOT / 'profiles/opxy-1.2.1/content'
 DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, stock_sample_classify_tail=0x8d5b79c6,
-                   stock_sample_key_tail=0x8d589214)
+                   stock_sample_key_tail=0x8d589214, stock_sample_slice_receive_tail=0x8d5b1264)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
 ALLOWED_SECTIONS = {'.text', '.rodata', '.data', '.bss'}
@@ -185,7 +185,7 @@ def plan(machines, profile=None):
             steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration',
                      *(('control',) if track_control(m) else ()))
         elif m.kind == 'effect':
-            steps = ('registration', 'fx_object')
+            steps = ('registration', 'fx_object', *(('display', 'screen') if m.display != 'stock' else ()))
         else:
             steps = ('registration', 'sample_voice')
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
@@ -203,7 +203,7 @@ def plan(machines, profile=None):
 SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
              'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
-             'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
+             'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
@@ -213,7 +213,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
-                               'drum_controls_stock', 'drum_display_stock'), 'samples')
+                               'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
 # Track control and hidden pages run from the GUI tick hook; the marks' screen
 # registers at startup only in builds that link it, and startup stands in for the
@@ -288,6 +288,8 @@ def absent_symbols(m):
     startup skips it and its menu name is left to stock."""
     if m.kind == 'effect':
         absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_fx_register', '_ready')}
+        if m.display != 'stock':
+            absent[m.prefix + '_screen_register'] = 'kit_absent'
     else:
         absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_register', '_name_matches', '_ready', '_record_ready')}
         if m.display == 'stock':
@@ -413,8 +415,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
                 services = active_services(profile, service_users(machines))
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines], 'control' in services,
-                                                'aux' in services)), obj)
+                                                [x.prefix for x in sample_engines],
+                                                [x.prefix for x in effects if x.display != 'stock'],
+                                                'control' in services, 'aux' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)

@@ -12,6 +12,12 @@
 // from 8d572f70) or clears it at random (8d588988, from 8d572ff8). Both do nothing
 // while a project is loading (the word at 840a0528); otherwise machines then get
 // nothing back, as after loading a project without their data.
+//
+// Stock loads on its background file task, not the GUI task that runs control():
+// bg_file_bfm.cpp queues a request (8d4df754, vtable 84039cdc) whose run method
+// (8d4de07c) calls the load (8d5890b0). So the load only finds the machines' data;
+// the next GUI tick ends the old project's capture and overlays, resets each unique
+// machine and gives it its data (sdk_control_kept_apply), on the GUI task.
 #include "project_files.hpp"
 #include "project_companion.hpp"
 #include "track_control.hpp"
@@ -196,14 +202,19 @@ const u32 kAuxControls = 8, kAuxPatterns = 16;
 // Indices 0..15 as their keys sort, as strings.
 const u32 kKeyOrder[] = {0, 1, 10, 11, 12, 13, 14, 15, 2, 3, 4, 5, 6, 7, 8, 9};
 
+// What the last load or new project left for the next GUI tick: whether it
+// waits, and the companion's "open-xy.control" object, or a length of 0 for nothing.
+volatile u32 pending;
+u32 found_length, found_at, found_to;
+
 void load_kept(const char* path) {
-    bool keeping = false;
+    pending = 0;  // project_text changes below
+    u32 bytes, crc, length = 0, at = 0, to = 0;
+    bool keeping = false, found = false;
     for (u32 i = 0; i < sdk_control_machine_count; ++i)
         keeping = keeping || sdk_control_machines[i].load || sdk_control_machines[i].aux;
-    if (!keeping) return;  // nothing to give back: no project I/O
-    u32 bytes, crc, length = 0, at = 0, to = 0;
-    bool found = false;
-    if (kept_files::companion_path(path) && kept_files::measure(path, bytes, crc)) {
+    // Without a machine that keeps data or takes over an aux track, nothing to give back: no project I/O.
+    if (keeping && kept_files::companion_path(path) && kept_files::measure(path, bytes, crc)) {
         if (kept_files::File* file = kept_files::file_open(kept_files::companion, "rb")) {
             length = kept_files::file_read(project_text, 1, kReadBytes, file);
             kept_files::file_close(file);
@@ -211,12 +222,38 @@ void load_kept(const char* path) {
         const Reader r = {length < kReadBytes ? length : 0};
         found = r.length && kept_section(r, bytes, crc, at, to);
     }
-    const Reader r = {found ? length : 0};
+    found_length = found ? length : 0;
+    found_at = at;
+    found_to = to;
+    pending = 1;
+}
+
+// After a new project: every machine that keeps data gets nothing back, and
+// every aux track has its stock role.
+void forget_kept() {
+    pending = 0;
+    found_length = 0;
+    pending = 1;
+}
+}
+
+// From the GUI tick, before the machines run: after a load or a new project, each
+// ready unique machine is reset, then one that keeps data gets back what it kept,
+// and each aux track gets back its stock role's controls for the patterns a
+// machine holds.
+extern "C" void sdk_control_kept_apply() {
+    if (!pending) return;
+    pending = 0;
+    sdk_control_forget();
+    const Reader r = {found_length};
     u32 machines_at, machines_to, aux_at, aux_to;
-    const bool machines = found && r.member(at, to, "machines", machines_at, machines_to);
+    const bool machines = r.length && r.member(found_at, found_to, "machines", machines_at, machines_to);
     for (u32 i = 0; i < sdk_control_machine_count; ++i) {
         const opxy::platform::ControlMachine& m = sdk_control_machines[i];
-        if (!m.load || m.ready() != 1) continue;
+        if (!m.unique || m.ready() != 1) continue;
+        m.reset(0);
+        sdk_control_prepared[i] = true;
+        if (!m.load) continue;
         u32 a, b, count = 0;
         if (machines && r.member(machines_at, machines_to, m.name, a, b)) count = r.base64(a, b, m.saved_bytes);
         m.load(kept, count);
@@ -224,7 +261,7 @@ void load_kept(const char* path) {
     // By aux track, each pattern a machine held: base64 of the role's eight
     // controls. Which machine holds a pattern is in the project itself.
     if (sdk_aux.forget) sdk_aux.forget();
-    if (!found || !sdk_aux.restore || !r.member(at, to, "aux", aux_at, aux_to)) return;
+    if (!r.length || !sdk_aux.restore || !r.member(found_at, found_to, "aux", aux_at, aux_to)) return;
     for (u32 t = 0; t < opxy::control::all_tracks; ++t) {
         u32 a, b;
         if (!r.member(aux_at, aux_to, kAuxKeys[t], a, b)) continue;
@@ -238,17 +275,6 @@ void load_kept(const char* path) {
             sdk_aux.restore(t, p, controls);
         }
     }
-}
-
-// After a new project: every machine that keeps data gets nothing back, and
-// every aux track has its stock role.
-void forget_kept() {
-    for (u32 i = 0; i < sdk_control_machine_count; ++i) {
-        const opxy::platform::ControlMachine& m = sdk_control_machines[i];
-        if (m.load && m.ready() == 1) m.load(kept, 0);
-    }
-    if (sdk_aux.forget) sdk_aux.forget();
-}
 }
 
 // "open-xy.control": by aux track index, the stock role's controls kept aside

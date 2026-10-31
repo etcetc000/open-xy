@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '4582b50a88d74059fab21f0a140077ec43a398f83cae34dd5272cc61e64e960f';
+export const PROFILE_SHA256 = 'b02933685de1a23328c8f605da4084391f6bd465d3948fb8ba83693d20ce7ede';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -115,7 +115,8 @@ export function validIdentity(rules, kind, identity) {
   if (!identity || typeof identity !== 'object' || Object.keys(identity).sort().join() !== [slot, 'page'].sort().join()) return false;
   const n = identity[slot], page = identity.page;
   if (!Number.isInteger(n) || !Number.isInteger(page)) return false;
-  if (kind === 'effect') return rules.effects.includes(n) && page === rules.effect_page;
+  // An effect is on the stock FX page, or on a relocated page when it draws its own (SDK 1.7).
+  if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages);
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
     : kind === 'synth' && page > rules.page_none && page < rules.pages - 1;  // the last page: track control's marks
@@ -129,7 +130,8 @@ export function validRequest(rules, kind, identity) {
   const slot = kind === 'effect' ? 'effect' : 'engine';
   if (Object.keys(identity).sort().join() !== [slot, 'page'].sort().join() || identity[slot] !== null)
     return validIdentity(rules, kind, identity);
-  return kind === 'effect' ? identity.page === rules.effect_page
+  // An effect that draws its own page (SDK 1.7) asks for a page as a synth does.
+  return kind === 'effect' ? identity.page === rules.effect_page || identity.page === null
     : kind === 'sample' ? rules.sample_pages.includes(identity.page) : kind === 'synth' && identity.page === null;
 }
 // Whether numbers are what a machine asks for: the same fields, equal where it names one.
@@ -177,7 +179,7 @@ export function occupied(rules, identity) {
   const keys = ['engine', 'effect'].filter(slot => Object.hasOwn(identity, slot)).map(slot => slot + ' ' + identity[slot]);
   // Stock reads a send track's effect number as its engine: no engine shares it.
   if (Object.hasOwn(identity, 'effect')) keys.push('engine ' + identity.effect);
-  if (!Object.hasOwn(identity, 'effect') && !rules.sample_pages.includes(identity.page)) keys.push('page ' + identity.page);
+  if (!rules.sample_pages.includes(identity.page) && identity.page !== rules.effect_page) keys.push('page ' + identity.page);
   return keys;
 }
 const sameNumbers = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => a[k] === b[k]);
@@ -202,12 +204,20 @@ export function numberLayout(rules, fixed, layout, machines) {
   }
   const fresh = [];
   for (const [name, kind, requested] of [...machines].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
-    if (Object.hasOwn(numbers, name)) {
+    const ownPage = kind === 'effect' && requested.page !== rules.effect_page;
+    if (Object.hasOwn(numbers, name) && kind === 'effect' && ownPage !== (numbers[name].page !== rules.effect_page)) {
+      // An effect that came to draw its own page (SDK 1.7), or stopped: it
+      // keeps its effect number and is given a page, or gives its page up.
+      for (const [key, holder] of [...holders]) if (holder === name && key.startsWith('page ')) holders.delete(key);
+      if (ownPage) fresh.push([name, kind, {...numbers[name], page: null}, ['page']]);
+      else numbers[name] = {...numbers[name], page: rules.effect_page};
+    } else if (Object.hasOwn(numbers, name)) {
       check(validIdentity(rules, kind, numbers[name]), `${name}: the layout gives it numbers it cannot use`);
       check(kind !== 'sample' || numbers[name].page === requested.page,
         `${name} now forks another stock sampler; the layout holds its numbers for the old one`);
     } else {
-      fresh.push([name, kind, {...requested}, kind === 'effect' ? ['effect'] : kind === 'synth' ? ['engine', 'page'] : ['engine']]);
+      fresh.push([name, kind, {...requested},
+        kind === 'effect' ? (ownPage ? ['effect', 'page'] : ['effect']) : kind === 'synth' ? ['engine', 'page'] : ['engine']]);
     }
   }
   // An effect number is also held as an engine number (occupied).

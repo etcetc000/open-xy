@@ -127,6 +127,43 @@ class Identity(unittest.TestCase):
                                lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
             self.assertIsNone(fixture('probefx').dry_parameter)
 
+    def test_dry_level_fixes_the_source_dry_instead(self):
+        real = Path.read_text
+        path = FOLDER / 'probefx/machine.json'
+        plain = {k: v for k, v in json.loads(real(path)).items() if k not in ('dryParameter', 'identity')}
+        cases = ((dict(plain, sdk='1.7', dryLevel=0), 0), (dict(plain, sdk='1.7', dryLevel=0.5), 0x40000000),
+                 (dict(plain, sdk='1.7', dryLevel=1.5), 'dryLevel'), (dict(plain, sdk='1.7', dryLevel='0'), 'dryLevel'),
+                 (dict(plain, sdk='1.7', dryLevel=0, dryParameter='dry'), 'dryLevel'),
+                 (dict(plain, sdk='1.6', dryLevel=0), '"sdk": "1.7"'))
+        for value, expected in cases:
+            with self.subTest(value=value), mock.patch.object(
+                    Path, 'read_text', lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
+                if isinstance(expected, str):
+                    with self.assertRaisesRegex(ValueError, expected):
+                        fixture('probefx')
+                else:
+                    self.assertEqual(fixture('probefx').dry_level, expected)
+
+    def test_more_than_sixteen_text_slots_need_sdk_1_7(self):
+        real = Path.read_text
+        root = FOLDER / 'probesynth'
+        plain = {k: v for k, v in json.loads(real(root / 'machine.json')).items() if k != 'identity'}
+        definition = json.loads(real(root / 'definition.json'))
+        for version, texts, expected in (('1.6', 16, None), ('1.6', 17, '"sdk": "1.7"'), ('1.7', 32, None),
+                                         ('1.7', 33, 'Display texts must be 0..32')):
+            files = {'machine.json': json.dumps(dict(plain, sdk=version)),
+                     'definition.json': json.dumps(dict(definition, resources=dict(definition['resources'], display=dict(
+                         definition['resources']['display'], texts=texts))))}
+            with self.subTest(version=version, texts=texts), mock.patch.object(
+                    Path, 'read_text',
+                    lambda self, *a, **k: files[self.name] if self.parent == root and self.name in files
+                    else real(self, *a, **k)):
+                if expected:
+                    with self.assertRaisesRegex(ValueError, expected):
+                        machines.machine_at(root)
+                else:
+                    self.assertEqual(machines.machine_at(root).id, 'probesynth')
+
 
 class OutsideMachines(unittest.TestCase):
     """A machine in a folder of its own, such as its own repository."""
@@ -163,6 +200,25 @@ class OutsideMachines(unittest.TestCase):
         self.assertFalse(any('.git' in name for name in m.files()))
         self.assertTrue(m.contains(self.folder / 'out') and not m.contains(self.folder.parent / 'out'))
 
+    def test_slice_clock_requires_its_public_sdk_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary).resolve() / 'sample'
+            shutil.copytree(FOLDER / 'probesample', folder)
+            definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+            definition['resources'].update(padSettings=1, drumControls=1, sliceTiming=1)
+            (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+            record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
+            record.pop('identity', None)
+            record['base'] = 'drumSampler'
+            for version in ('1.5', '1.6', '1.7'):
+                record['sdk'] = version
+                (folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
+                if version != '1.7':
+                    with self.assertRaisesRegex(ValueError, 'sliceTiming.*1.7'):
+                        machines.machine_at(folder)
+                else:
+                    self.assertEqual(machines.machine_at(folder).definition['resources']['sliceTiming'], 1)
+
     def test_collections_list_machine_folders(self):
         # Paths are relative to the collection's folder; both stay on its drive, as relpath needs on Windows.
         probefx = self.folder.parent / 'shelf' / 'probefx'
@@ -195,7 +251,8 @@ class OutsideMachines(unittest.TestCase):
         for version in ('1.5', '1.6', '1.7'):
             self.numberless(self.folder, sdk=version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-        for version in ('0.9', '2.0', '1.8', '1', 'latest', None):
+        future = '%d.%d' % (machines.SDK_VERSION[0], machines.SDK_VERSION[1] + 1)
+        for version in ('0.9', '2.0', future, '1', 'latest', None):
             with self.subTest(version=version):
                 self.rename('fmcopy', self.free, version)
                 with self.assertRaises(ValueError):

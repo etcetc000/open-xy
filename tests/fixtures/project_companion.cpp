@@ -6,6 +6,7 @@
 #include <string>
 #include <project_companion.cpp>
 #include <track_control_project.cpp>
+extern "C" void sdk_control_forget() {}
 
 extern "C" opxy::u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }
 extern "C" void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }
@@ -36,14 +37,16 @@ const char* number(unsigned n) { return reinterpret_cast<const char*>(static_cas
 namespace {
 // Track control: one machine keeps five bytes, one keeps nothing.
 const opxy::u8 saved_bytes[5] = {'s', 't', 'a', 't', 0xff};
-opxy::u32 loaded = 99;
+opxy::u32 loaded = 99, order;  // order: 1 for each reset, then 2 for the load
 opxy::u8 loaded_bytes[16];
 int ready() { return 1; }
+void reset(opxy::u32 copy) { order = order * 10 + (copy == 0 ? 1 : 9); }
 opxy::u32 save(opxy::u8* data) {
     for (opxy::u32 i = 0; i < 5; ++i) data[i] = saved_bytes[i];
     return 5;
 }
 void load(const opxy::u8* data, opxy::u32 bytes) {
+    order = order * 10 + 2;
     loaded = bytes;
     for (opxy::u32 i = 0; i < bytes && i < 16; ++i) loaded_bytes[i] = data[i];
 }
@@ -51,10 +54,11 @@ void load(const opxy::u8* data, opxy::u32 bytes) {
 
 extern "C" {
 const opxy::platform::ControlMachine sdk_control_machines[] = {
-    {nullptr, ready, nullptr, nullptr, "morph", 16, save, load, true, 1u << 11, nullptr, {}},
+    {nullptr, ready, reset, nullptr, "morph", 16, save, load, true, 1u << 11, nullptr, {}},
     {nullptr, ready, nullptr, nullptr, "plain", 0, nullptr, nullptr, false, 0, nullptr, {}},
     {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}}};
 const opxy::u32 sdk_control_machine_count = 2;
+bool sdk_control_prepared[3];
 }
 
 // Aux tracks (aux_tracks.cpp): a machine may hold patterns of track 11, with
@@ -139,6 +143,10 @@ int main(int argc, char** argv) {
     } else {
         return 2;
     }
+    // The next GUI tick: the keeping machine is reset, then gets its data, once.
+    sdk_control_kept_apply();
+    sdk_control_kept_apply();
+    if (loaded != 99 && (order != 12 || !sdk_control_prepared[0])) return 3;
     for (opxy::u32 r = 0; r < restored_count; ++r) {
         std::printf("aux %u %u", restored[r][0], restored[r][1]);
         for (opxy::u32 i = 0; i < 8; ++i) std::printf(" %d", restored_controls[r][i]);
