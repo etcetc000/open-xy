@@ -129,6 +129,9 @@ const opxy::platform::ControlMachine sdk_control_machines[] = {
     {reinterpret_cast<const char*>(41), ready, reset_other, run_other, nullptr, 0, nullptr, nullptr, false},
     {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false}};
 const opxy::u32 sdk_control_machine_count = 2;
+bool sdk_control_prepared[3];
+// The project unit's half of a load (track_control_project.cpp), tested with the companion.
+void sdk_control_kept_apply() {}
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Address address) {
@@ -189,16 +192,23 @@ int main() {
     tick(0, "Stock's own write overwritten on release");
     require(value(3, 9) == 11, "Stock write lost");
 
-    // Moving the machine resets it; removing it restores everything.
+    // A unique machine keeps its one state when it moves: no reset, until a
+    // project load or new project prepares it again. Removing it restores everything.
     plan({{0, 1, 0, 600}});
     tick(1, "Overlay not written");
     engines[2] = 0;
     engines[5] = 40;
     tick(0, "Same overlay rewritten after a move");
-    require(resets == 2, "Moved machine not reset");
+    require(resets == 1, "Moved unique machine reset");
     engines[5] = 0;
     tick(1, "Overlay not restored when the machine left");
-    require(value(0, 1) == 120 && ticks == 9, "Removal not restored");
+    sdk_control_prepared[0] = false;
+    engines[5] = 40;
+    tick(1, "Overlay not written on arrival");
+    require(resets == 2, "Unique machine not reset after a project change");
+    engines[5] = 0;
+    tick(1, "Overlay not restored when the machine left");
+    require(value(0, 1) == 120 && ticks == 11, "Removal not restored");
 
     // Edits pass through untouched while nothing captures.
     bases[0][5] = 50;

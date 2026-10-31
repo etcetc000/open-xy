@@ -1,5 +1,5 @@
 // Stock OS 1.2.1 GUI tick for track control. 8c0baacc, the GUI's per-tick
-// update, calls 8d580074 (a void leaf) just before the sequencer tick; the
+// update, calls 8d580074 (void; it calls 8d5be290) just before the sequencer tick; the
 // hook replaces that CALL.A, so stock calls it with the C ABI.
 //
 // Stock keeps each track's live parameters in g_project + 0x4080, 58 words a
@@ -233,8 +233,8 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
     param_set(project, track, index, value);
 }
 
-// Called by project load/new-project handling before another GUI tick. It
-// must not dereference stock's project while deserialization is in progress.
+// Called by the GUI tick after a project load or new project, before the
+// machines run (sdk_control_kept_apply). It touches none of stock's buffers.
 extern "C" void sdk_control_forget() {
     original_count = pending_count = applied_count = wanted_count = 0;
     capture_track = control::tracks;
@@ -249,6 +249,7 @@ extern "C" void sdk_gui_tick() {
     stock<void()>(0x8d580074)();
     ++gui_ticks;
     if (!sdk_control_machine_count && !applied_count) return;
+    sdk_control_kept_apply();
 
     // A value that differs from the one written is stock's: an edit, a lock or a step.
     u32 retained = 0;
@@ -278,7 +279,10 @@ extern "C" void sdk_gui_tick() {
             if (capture_track == t) end_capture();
             hosts[t] = m;
             timed[t] = false;
-            if (m) m->reset(copy);
+            // A unique machine keeps one state for the project: it is reset before
+            // its first call and after a load or new project, not on each arrival.
+            if (m && !(m->unique && sdk_control_prepared[machine_index(m)])) m->reset(copy);
+            if (m && m->unique) sdk_control_prepared[machine_index(m)] = true;
         }
         marking[t] = false;
         for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = 0;

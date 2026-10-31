@@ -312,7 +312,11 @@ one state, and while two or more instrument tracks hold it, none runs and every
 overlay and capture ends as if it had left. A display can tell its user with
 `opxy::control::copies(track)`, the number of instrument tracks holding the
 machine on `track` (browser previews answer 1). `control_reset` runs before a
-copy's first call and whenever a copy arrives on a track.
+copy's first call. A copy of a machine that is not unique is reset again
+whenever it arrives on a track. A unique machine keeps its one state for the
+whole project: it is reset again only after a project is loaded or created,
+just before `control_load` (below), not when it moves to another track or
+comes back to one.
 
 | `Input` field | Contract |
 | --- | --- |
@@ -348,6 +352,16 @@ from MIDI or presets are not captured. Like the display, `control` is bounded
 and allocation-free; it is not an audio callback. Browser previews do not run
 it.
 
+An overlay lasts one tick: a machine adds every entry it still wants each tick,
+and a parameter it stops adding gets its underlying value back at the end of
+that tick. The underlying value is stock's: what `values` reports, including
+edits, parameter locks and sequencing under the overlay. Between machines, the
+later track wins a parameter, and the earlier machine's overlay comes back when
+the later one gives it up. All machines together overlay at most 128 different
+parameters in a tick; entries beyond that are ignored. A capture restores at
+most 128 different parameters: further edits during it play and stay as edited,
+and do not arrive in `edits`.
+
 A unique machine can keep data with each project, such as Morphose's states.
 It adds `"savedBytes": n` (1..8192) to `trackControl` and supplies:
 
@@ -360,7 +374,15 @@ When stock saves a project, the workspace included, `control_save` writes what
 to keep; the SDK stores it in the project's [companion](projects.md). After
 stock loads a project, `control_load` gets those bytes back, or `bytes` 0 when
 the project has none (saved before, on stock, or without the machine) or is a
-new one, so the machine can start empty. Both run on the GUI side.
+new one, so the machine can start empty. Stock loads and saves on its background
+file task, not the GUI task. The SDK gives the data back on the next GUI tick,
+after `control_reset` and before `control`, so the two never overlap.
+`control_save` runs on the file task while stock saves and can overlap
+`control`: keep data that `control` changes in single steps (such as stored
+states), so that a save never catches a half-made change.
+
+All machines' saved data together must fit the companion: the build refuses a
+selection whose `savedBytes` add up to more than 16384.
 
 A machine's control and display are compiled separately, so they share no
 variables. The control can pass four words to its display each tick in

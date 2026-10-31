@@ -88,6 +88,9 @@ CONTROL_OPTIONS = ('unique', 'savedBytes', 'marks')
 MARK_LIMIT = 16
 # The most a track control machine keeps with a project (opxy::control::saved_capacity).
 SAVED_CAPACITY = 8192
+# The most a build's machines keep together: base64 of it, with the rest of the
+# companion, stays within the reader's 32 KiB (track_control_project.cpp) and the format's 64 KiB.
+SAVED_TOTAL = 16384
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
 # A synth's first four fill the four-control page; up to four more are alternates

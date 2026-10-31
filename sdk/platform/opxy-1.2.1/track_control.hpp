@@ -34,6 +34,11 @@ extern const opxy::u32 sdk_control_machine_count __asm__("sdk_control_machine_co
 void sdk_gui_tick() __asm__("sdk_gui_tick");
 // A project replacement invalidates transient edits/overlays without touching stock's buffers.
 void sdk_control_forget() __asm__("sdk_control_forget");
+// Whether each machine of the table has had its reset for this project: a unique
+// machine keeps one state for the project, so arriving on a track doesn't reset it.
+extern bool sdk_control_prepared[] __asm__("sdk_control_prepared");
+// The GUI tick's half of a project load or new project (track_control_project.cpp).
+void sdk_control_kept_apply() __asm__("sdk_control_kept_apply");
 // Registers the marks' screen slot on the GUI role, after the machines' screens.
 void sdk_overlay_startup() __asm__("sdk_overlay_startup");
 void sdk_param_edit_set(opxy::u32 project, opxy::u32 track, opxy::u32 index, opxy::i32 value)

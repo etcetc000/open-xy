@@ -10,6 +10,12 @@
 // from 8d572f70) or clears it at random (8d588988, from 8d572ff8). Both do nothing
 // while a project is loading (the word at 840a0528); otherwise machines then get
 // nothing back, as after loading a project without their data.
+//
+// Stock loads on its background file task, not the GUI task that runs control():
+// bg_file_bfm.cpp queues a request (8d4df754, vtable 84039cdc) whose run method
+// (8d4de07c) calls the load (8d5890b0). So the load only finds the machines' data;
+// the next GUI tick ends the old project's capture and overlays, resets each unique
+// machine and gives it its data (sdk_control_kept_apply), on the GUI task.
 #include "project_files.hpp"
 #include "project_companion.hpp"
 #include "track_control.hpp"
@@ -184,14 +190,18 @@ bool kept_machines(const Reader& r, u32 bytes, u32 crc, u32& at, u32& to) {
     return r.member(c, d, "machines", at, to);
 }
 
+// What the last load or new project left for the next GUI tick: whether it
+// waits, and the companion's machines object, or a length of 0 for nothing.
+volatile u32 pending;
+u32 found_length, found_at, found_to;
+
 void load_kept(const char* path) {
-    sdk_control_forget();
-    bool keeping = false;
-    for (u32 i = 0; i < sdk_control_machine_count; ++i) keeping = keeping || sdk_control_machines[i].load;
-    if (!keeping) return;  // nothing to give back: no project I/O
+    pending = 0;  // project_text changes below
     u32 bytes, crc, length = 0, at = 0, to = 0;
-    bool found = false;
-    if (kept_files::companion_path(path) && kept_files::measure(path, bytes, crc)) {
+    bool keeping = false, found = false;
+    for (u32 i = 0; i < sdk_control_machine_count; ++i) keeping = keeping || sdk_control_machines[i].load;
+    // Without a machine that keeps data, nothing to give back: no project I/O.
+    if (keeping && kept_files::companion_path(path) && kept_files::measure(path, bytes, crc)) {
         if (kept_files::File* file = kept_files::file_open(kept_files::companion, "rb")) {
             length = kept_files::file_read(project_text, 1, kReadBytes, file);
             kept_files::file_close(file);
@@ -199,24 +209,37 @@ void load_kept(const char* path) {
         const Reader r = {length < kReadBytes ? length : 0};
         found = r.length && kept_machines(r, bytes, crc, at, to);
     }
-    const Reader r = {found ? length : 0};
-    for (u32 i = 0; i < sdk_control_machine_count; ++i) {
-        const opxy::platform::ControlMachine& m = sdk_control_machines[i];
-        if (!m.load || m.ready() != 1) continue;
-        u32 a, b, count = 0;
-        if (found && r.member(at, to, m.name, a, b)) count = r.base64(a, b, m.saved_bytes);
-        m.load(kept, count);
-    }
+    found_length = found ? length : 0;
+    found_at = at;
+    found_to = to;
+    pending = 1;
 }
 
 // After a new project: every machine that keeps data gets nothing back.
 void forget_kept() {
+    pending = 0;
+    found_length = 0;
+    pending = 1;
+}
+}
+
+// From the GUI tick, before the machines run: after a load or a new project, each
+// ready unique machine is reset, then one that keeps data gets back what it kept.
+extern "C" void sdk_control_kept_apply() {
+    if (!pending) return;
+    pending = 0;
     sdk_control_forget();
+    const Reader r = {found_length};
     for (u32 i = 0; i < sdk_control_machine_count; ++i) {
         const opxy::platform::ControlMachine& m = sdk_control_machines[i];
-        if (m.load && m.ready() == 1) m.load(kept, 0);
+        if (!m.unique || m.ready() != 1) continue;
+        m.reset(0);
+        sdk_control_prepared[i] = true;
+        if (!m.load) continue;
+        u32 a, b, count = 0;
+        if (r.length && r.member(found_at, found_to, m.name, a, b)) count = r.base64(a, b, m.saved_bytes);
+        m.load(kept, count);
     }
-}
 }
 
 // "open-xy.control": what each track control machine keeps, by machine ID.

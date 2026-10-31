@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, paged, shift_parameters, stock_name, validate_definition
+from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SAVED_TOTAL, SDK_1_2_TEXTS, SDK_1_6_TEXTS, paged, shift_parameters, stock_name, validate_definition
 from .formats import require
 from .pipeline import config
 
@@ -541,6 +541,7 @@ def collection(entries=None, layout=None):
     require(len(set(engines)) == len(engines) and len(set(effects)) == len(effects) and len(set(pages)) == len(pages),
             'Conflicting engine, effect or page ID')
     check_analysis_budgets(machines)
+    check_saved_budget(machines)
     return machines
 
 
@@ -549,6 +550,15 @@ def check_analysis_budgets(machines):
     total = sum(m.definition['resources'].get('sampleAnalysis', 0) for m in machines if m.kind == 'sample')
     require(total <= ANALYSIS_HEAP_LIMIT,
             'Sample analysis budgets exceed the collection limit of %d bytes' % ANALYSIS_HEAP_LIMIT)
+
+
+def check_saved_budget(machines):
+    """What track control machines keep with a project fits the companion together."""
+    total = sum(m.definition['resources'].get('trackControl', {}).get('savedBytes', 0)
+                for m in machines if m.kind == 'synth')
+    require(total <= SAVED_TOTAL,
+            'Track control machines keep %d bytes with a project together, more than the build limit of %d'
+            % (total, SAVED_TOTAL))
 
 
 def by_kind(machines, *kinds):

@@ -11,3 +11,4 @@ const ControlMachine sdk_control_machines[] = {
 };
 // The terminating entry keeps the array nonempty for a collection without any.
 const opxy::u32 sdk_control_machine_count = sizeof(sdk_control_machines) / sizeof(sdk_control_machines[0]) - 1;
+bool sdk_control_prepared[sizeof(sdk_control_machines) / sizeof(sdk_control_machines[0])];

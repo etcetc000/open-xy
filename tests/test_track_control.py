@@ -10,6 +10,7 @@ from tooling import native
 from tooling.adapters import (control_callbacks, generate_control, generate_track_control_overlay,
                               generate_track_controls)
 from tooling.definitions import validate_definition
+from tooling.machines import check_saved_budget
 from tooling.formats import ldr, mapped_offset, sha
 from tooling.pipeline import ROOT, config
 from test_sample_services import HOST_CXX
@@ -72,6 +73,16 @@ class TrackControl(unittest.TestCase):
         self.assertIn('ControlState states[1];', binding)
         self.assertIn('control_save(states[0], data, 100)', binding)
         self.assertIn('return bytes <= 100 ? bytes : 0;', binding)
+
+    def test_a_build_keeps_at_most_16384_bytes_with_a_project(self):
+        def keeping(name, saved):
+            synth = copy.deepcopy(fixture('probesynth'))
+            synth.definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4, 'unique': True,
+                                                             'savedBytes': saved}
+            return synth
+        check_saved_budget([keeping('one', 8192), keeping('two', 8192), fixture('probesynth')])
+        with self.assertRaisesRegex(ValueError, 'more than the build limit of 16384'):
+            check_saved_budget([keeping('one', 8192), keeping('two', 8192), keeping('three', 1)])
 
     def test_each_copy_of_a_machine_that_is_not_unique_has_its_own_state(self):
         synth = copy.deepcopy(fixture('probesynth'))

@@ -420,7 +420,7 @@ and sequencing set; the project saves separate base values. `8d5acea8(project,
 track, index, value)` writes one live value and publishes it to the audio side
 when it changed.
 
-`8c0baacc`, the GUI's per-tick update, calls the void leaf `8d580074` just
+`8c0baacc`, the GUI's per-tick update, calls the void function `8d580074` (which calls `8d5be290`) just
 before the sequencer tick. That call at `8c0baade` routes through
 `sdk_gui_tick` ([`track_control.cpp`](../sdk/platform/opxy-1.2.1/track_control.cpp)),
 which makes the original call first. Then it treats any live value that
@@ -643,18 +643,26 @@ treated the same way, and a machine listed twice counts once, by its last
 entry, as in `tooling/projects.py`. The firmware shows no notice for a missing
 machine yet.
 
-After those numbers, the same hook gives track control machines what they kept:
-in builds with the control service (through `startup.cpp`), it decodes each
-machine's `open-xy.control` entry from a companion whose binding matches and
-calls its `control_load`; with no matching entry, `control_load` gets 0 bytes.
-A failed load changes nothing.
+After those numbers, the same hook finds what track control machines kept: in
+builds with the control service (through `startup.cpp`), it reads the
+`open-xy.control` section from a companion whose binding matches. The hook runs
+on stock's background file task (`bg_file_bfm.cpp` queues the request at
+`0x8d4df754`, and its run method `0x8d4de07c` calls the load at `0x8d4de0ac`),
+so it only records the section. The next GUI tick ends the old project's capture
+and overlays, resets each unique machine and calls its `control_load` with its
+decoded entry, or 0 bytes without one. A failed read changes nothing. A file
+that reads but then fails stock's validation (`0x8d589024`, after the hook)
+leaves the old project open, but its machines already have the new file's data
+and their overlays and capture end without restoring: the old project keeps
+the values they had overlaid until something changes them.
 
 A new project reads no file. Stock clears the project through `0x8d588114`, or
 clears it at random through `0x8d588988`, called for a new project only at
 `0x8d572f70` and `0x8d572ff8` (the clear's other caller is the boot fallback, when
 no machine has kept anything yet). Both calls are hooked: unless a project is
 loading (the word at `0x840a0528`, which makes both clears do nothing), every
-track control machine that keeps data then gets 0 bytes from `control_load`.
+unique track control machine is then reset on the next GUI tick, and one that keeps
+data gets 0 bytes from `control_load`.
 
 Stock's MTP view lists only paths matching a table of regular expressions
 (`0x840ae0c4`…), and under `/projects` only `.xy`. Three text edits rewrite
