@@ -221,11 +221,16 @@ u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
 }
 
 // 8d5acf3e: stock's parameter writer 8d5acf28 (project, track, index, value)
-// asks the track's engine only to classify it. A sample engine's value goes to
-// the live table alone, while the editor reads the saved one, so turns never
-// add up; any other engine's goes to both. An owned page-2 engine drawing its
-// own screen answers 0, which both classifiers reject, so its controls are
-// saved and played like a synth's.
+// asks the track's engine only to classify it (8d5b79c0, 8d5b79f0). There are
+// two tables, as synth_controls.cpp names them: the stored word a project saves
+// (project + 0x4080 + track * 0xe8 + index * 4) and the track's current word,
+// which stock's editor 8d5ad5bc reads and steps (track object + 0x3864 + index * 4).
+// For an index below 8 of an engine either classifier accepts, a sample engine's
+// through its alias, the writer sets the stored word alone, so the current word
+// stays put and turns never add up; for any other engine it sets the current
+// word (8d587a20) and the stored one. An owned page-2 engine drawing its own
+// screen answers 0, which both classifiers reject, so its controls are saved
+// and played like a synth's.
 u32 sdk_sample_param_engine(u32 track) {
     const u32 id = track_engine(track);
     return own_controls(id) ? 0 : id;

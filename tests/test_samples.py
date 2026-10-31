@@ -80,6 +80,14 @@ class Generation(unittest.TestCase):
         self.assertIn('int probesample_ready() { return sdk_engine_ready(&record, nullptr); }', text)
         self.assertNotIn('screen', text)
 
+    def test_a_drawing_engine_stays_on_the_samplers_page(self):
+        m = replace(fixture('probesample'), display='drawing', identity=dict(engine=46, page=90))
+        self.assertEqual(m.sample_page, 2)
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIn('probesample_engine_id, 2, probesample_ready',
+                          adapters.generate_sample_callbacks(directory, [m]).read_text(encoding='utf-8'))
+        self.assertEqual(fixture('probesample').sample_page, fixture('probesample').identity['page'])
+
     def test_catalog_entry_and_stock_page_startup(self):
         entry = json.loads(adapters.catalog_entry(fixture('probesample')).strip().lstrip(','))
         self.assertEqual(entry['type'], 'probesample')

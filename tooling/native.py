@@ -94,9 +94,9 @@ def configuration(entries=None, layout=None):
             definitions[m.prefix + '_fx_page_id'] = m.identity['page']
         else:
             definitions[m.prefix + '_engine_id'] = m.identity['engine']
-            definitions[m.prefix + '_page_id'] = m.identity['page']
-            if 'screen' in m.identity:   # a sample engine's own screen
-                definitions[m.prefix + '_screen_page_id'] = m.identity['screen']
+            definitions[m.prefix + '_page_id'] = m.sample_page if m.kind == 'sample' else m.identity['page']
+            if m.kind == 'sample' and m.display != 'stock':   # a sample engine's own screen
+                definitions[m.prefix + '_screen_page_id'] = m.identity['page']
     return profile, machines, definitions
 
 
