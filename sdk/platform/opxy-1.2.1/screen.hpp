@@ -138,6 +138,8 @@ struct Controls {
     u8 shown[page_controls];
     i32 values[page_controls];
     i32 slots[parameter_slots];
+    u32 shift;      // an effect's page: Shift held on its shift row
+    u8 choices[4];  // and the row's choices
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -158,6 +160,25 @@ inline bool read_shown(const Parameters* p, Controls& controls, u32 (&view)[para
     return true;
 }
 
+// An effect's own page on send track 14 or 15 (SDK 1.7): stock shows the page
+// its record names there, and names and captions nothing on it, so the page
+// does, each frame: the effect's titles and captions, or its shift row's.
+inline bool send_controls(Base* o, Controls& controls) {
+    platform::SendView view;
+    if (!sdk_send_view(controls.track, &view)) return false;
+    for (u32 i = 0; i < parameter_slots; ++i) controls.slots[i] = view.slots[i];
+    for (u32 i = 0; i < page_controls; ++i) {
+        controls.shown[i] = view.shown[i];
+        controls.values[i] = view.values[i];
+        set_text(o->titles[i], view.titles[i]);
+        set_text(o->values[i], view.texts[i]);
+    }
+    controls.shift = view.shift;
+    for (u32 i = 0; i < 4; ++i) controls.choices[i] = view.choices[i];
+    controls.valid = true;
+    return true;
+}
+
 // The shared opening of every frame: once the artwork and all four value and
 // title nodes exist, stock updates the control titles and percentage values of
 // the shown parameters. False when there is nothing to draw yet.
@@ -166,6 +187,9 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     for (u32 i = 0; i < 4; ++i)
         if (!o->values[i] || !o->titles[i]) return false;
     controls.track = selected_track();
+    controls.shift = 0;
+    for (u32 i = 0; i < 4; ++i) controls.choices[i] = 0;
+    if (send_controls(o, controls)) return true;
     sdk_synth_shown(controls.track, controls.shown);
     for (u32 i = 0; i < page_controls; ++i) controls.values[i] = 0;
     for (u32 i = 0; i < parameter_slots; ++i) controls.slots[i] = 0;

@@ -22,6 +22,19 @@ inline i32 multiply(i32 a, i32 b) {
 #endif
 }
 
+// Saturating addition (SDK 1.7): the sum, held within the Q31 range.
+inline i32 add(i32 a, i32 b) {
+#if defined(__bfin__)
+    // Blackfin's saturating add: the same result as the portable path below in one instruction.
+    i32 result;
+    __asm__("%0 = %1 + %2 (S);" : "=d"(result) : "d"(a), "d"(b) : "ASTAT");
+    return result;
+#else
+    const i64 sum = static_cast<i64>(a) + b;
+    return sum > maximum ? maximum : sum < -maximum - 1 ? -maximum - 1 : static_cast<i32>(sum);
+#endif
+}
+
 inline i32 half(i32 value) {
 #if defined(__bfin__)
     i32 result;

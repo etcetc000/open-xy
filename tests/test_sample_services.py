@@ -36,21 +36,24 @@ class SampleServices(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'sample_slice_clock'):
                 probe = replace(fixture('probesample'), id='probe', identity=dict(engine=46, page=7))
                 if name == 'sample_callbacks':
+                    probe = replace(probe, definition=dict(probe.definition,
+                        resources=dict(probe.definition['resources'], sliceTiming=1)))
                     # A page-2 engine with no services beside it: it plays like the sampler.
                     plain = fixture('probesample')
                     sampler = replace(plain, id='sampler', identity=dict(engine=47, page=2),
                                       definition=dict(plain.definition, resources=dict(voiceCapacity=256)))
                     generate_sample_callbacks(folder, [probe, sampler])
-                elif name == 'drum_controls':
-                    source = ROOT / 'sdk/platform/opxy-1.2.1/drum_controls_stock.cpp'
+                elif name in ('drum_controls', 'sample_slice_clock'):
+                    source = ROOT / 'sdk/platform/opxy-1.2.1' / (
+                        'drum_controls_stock.cpp' if name == 'drum_controls' else 'sample_slice_clock.cpp')
                     (Path(folder) / source.name).write_text(source.read_text())
                 elif name == 'benchmark':
                     from tooling.benchmark import generate
                     generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
-            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'startup', 'sample_overview'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'sample_slice_clock', 'startup', 'sample_overview'):
                 # Exercise the real tempo readers and assignment bridge with
                 # host addresses standing in for stock functions and globals.
                 stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
@@ -107,6 +110,12 @@ class SampleServices(unittest.TestCase):
 
     def test_pad_shortcuts_clipboard_and_multi_edit(self):
         self.run_fixture('drum_controls', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
+
+    def test_slicer_source_preview_matches_timestamp_rate_and_frozen_bounds(self):
+        self.run_fixture('sample_preview')
+
+    def test_slicer_clock_uses_frozen_gui_controls_and_machine_rate(self):
+        self.run_fixture('sample_slice_clock', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
 
     def test_owned_primary_screen_precedes_stock_overlays(self):
         self.run_fixture('screen_order')
