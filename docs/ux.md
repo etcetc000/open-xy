@@ -140,8 +140,9 @@ Before a [catalog submission](catalog.md#submit-a-machine), check:
 
 - A contact sheet of every control at 0, 50 and 100, at 1:1, with text in the
   device's font.
-- Every caption measured; outlines checked across a sweep of every control;
-  the redraw measured at the heaviest setting.
+- Every caption measured; outlines checked across a sweep of every control and
+  of every pair of controls, since a control can switch on the drawing that
+  faults; the redraw measured at the heaviest setting.
 - Photos of the screen on a device: at rest, playing, and at the heaviest
   settings.
 - CPU from the [hardware readout](profiling.md), for the tagged commit.

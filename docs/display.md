@@ -250,6 +250,10 @@ these was found on hardware:
   draws streaks from its ends. Draw a line as a thin closed ribbon: one edge
   out, the other back a fraction of a pixel away, every point distinct.
   `sdk.py test` warns about outlines that break this in its preview frames.
+- **Avoid turns close to straight back.** A nearly reversing turn can draw too: on
+  the device, one thin tooth sent a long line up the screen. We treat under about
+  2.5° from straight back as a fault, an inferred limit: 2.57° has drawn fine. Thin,
+  tall shapes are the usual cause, so give a sharp tip a small flat end.
 - **Points stay 1/8 px apart.** Neighbouring points closer than 1/8 px merge,
   as repeated points do, and the outline then stops reshaping. This holds for
   a ribbon's two edges too.
