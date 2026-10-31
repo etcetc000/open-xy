@@ -47,7 +47,7 @@ class DrumPreviewTests(unittest.TestCase):
             table = adapters.generate_drum_callbacks(folder, [machine]).read_text()
         self.assertIn('static const opxy::u8 kit_group_sizes[] = {13, 8, 9, 3};', table)
         self.assertIn('kit_group_names[] = {"TRX", "EFM", "P-I", "GND"};', table)
-        self.assertIn('kit_drum_count, 4, kit_group_sizes, kit_group_names, 0, 0, nullptr, 0, nullptr, nullptr},', table)
+        self.assertIn('kit_drum_count, 4, kit_group_sizes, kit_group_names, 0, 0, nullptr, 0, nullptr, nullptr, nullptr},', table)
         for groups in ([dict(label='ALL', count=33)], [dict(label='A', count=13), dict(label='B', count=19)],
                        [dict(label='A', count=33), dict(label='B', count=0)], [dict(label='A_B', count=30), dict(label='C', count=3)],
                        [dict(label='NINE CHAR', count=30), dict(label='C', count=3)],
@@ -57,7 +57,32 @@ class DrumPreviewTests(unittest.TestCase):
                 validate_definition(definition, 'drum')
         plain = SimpleNamespace(kind='drum', prefix='plain', definition=self.definition('drum'))
         with tempfile.TemporaryDirectory() as folder:
-            self.assertIn('plain_drum_count, 0, nullptr, nullptr, 0, 0, nullptr, 0, nullptr, nullptr},', adapters.generate_drum_callbacks(folder, [plain]).read_text())
+            self.assertIn('plain_drum_count, 0, nullptr, nullptr, 0, 0, nullptr, 0, nullptr, nullptr, nullptr},', adapters.generate_drum_callbacks(folder, [plain]).read_text())
+
+
+    def test_parameter_edit_is_an_optional_drum_callback(self):
+        from tooling.definitions import validate_definition
+        from tooling.native import absent_symbols
+        for value in (0, 1):
+            definition = self.definition('drum')
+            definition['resources']['parameterEdit'] = value
+            validate_definition(definition, 'drum')
+            machine = SimpleNamespace(kind='drum', prefix='kit', definition=definition, native_name='kit', display='drawing')
+            with tempfile.TemporaryDirectory() as folder:
+                table = adapters.generate_drum_callbacks(folder, [machine]).read_text()
+                source = adapters.generate_voice(folder, machine).read_text()
+            self.assertEqual('opxy::u32 kit_drum_edit_value(' in table, bool(value))
+            self.assertEqual('kit_drum_edit_value' in absent_symbols(machine), bool(value))
+            self.assertIn('#if %d\nopxy::u32 kit_drum_edit_value' % value, source)
+        for value in (2, -1, True, '1'):
+            definition = self.definition('drum')
+            definition['resources']['parameterEdit'] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_definition(definition, 'drum')
+        definition = self.definition('synth')
+        definition['resources']['parameterEdit'] = 1
+        with self.assertRaises(ValueError):
+            validate_definition(definition, 'synth')
 
     def test_choke_same_key_is_a_drum_flag_and_not_a_synths(self):
         from tooling.definitions import validate_definition

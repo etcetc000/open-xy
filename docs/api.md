@@ -764,6 +764,23 @@ const char* parameter_name(opxy::u32 model, opxy::u32 slot);
 opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are used
 ```
 
+A kit can declare `resources.parameterEdit: 1` and add this callback in
+`core.h` and its engine:
+
+```cpp
+opxy::u32 edit_parameter(opxy::u32 model, opxy::u32 slot,
+                        opxy::u32 value, opxy::i32 delta);
+```
+
+It edits a used control on the GUI role, before stock's existing pad publication.
+`value` is the stored 0..127 value and `delta` the signed detent count, bounded
+to -127..127. Return a new 0..127 value, or the input value for no change; an
+out-of-range result is ignored. Shift's type/group/choke controls and unnamed
+slots never call it. Without this flag, controls keep their existing unit
+steps. A kit with a per-model discrete selector can use this callback to jump
+directly to the next available option while other controls keep unit steps.
+It does not run during audio rendering or alter saved-value encoding.
+
 Keys passed to `drum_defaults` are canonical keys 53..76. Controls are
 integers 0..127; the model must be below `modelCount`. In a kit of more than 16
 models, a key on a model of seven or fewer controls stores its first seven, so

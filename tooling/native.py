@@ -331,6 +331,8 @@ def absent_symbols(m):
                 # The send table names these; no voice's method table is kit_absent. The
                 # table is declared without an assembler name, so it carries C's underscore.
                 absent.update({'_' + m.prefix + '_vtable': 'kit_absent', m.prefix + '_drum_send': 'kit_absent'})
+            if m.definition['resources'].get('parameterEdit', 0):
+                absent[m.prefix + '_drum_edit_value'] = 'kit_absent'
         if m.kind == 'sample':
             # The shared sample table names these; unselected, its ready check declines first.
             absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
