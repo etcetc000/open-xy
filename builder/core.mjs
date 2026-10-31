@@ -528,6 +528,22 @@ export function redirect(edit, destination) {
     return words(0xdc00, destination >>> 16, destination & 0xffff, 0, 0);
   }
   check(edit.kind === 'hook' && typeof edit.call === 'boolean', 'Not a hook');
+  check(Number.isInteger(Number(edit.address)) && Number(edit.address) >= 0 &&
+    Number(edit.address) <= 0xffffffff && Number(edit.address) % 2 === 0, 'Invalid hook site');
+  check(edit.encoding === undefined || ['pointer', 'absolute_jump'].includes(edit.encoding), 'Unknown hook encoding');
+  if (edit.encoding === 'pointer') {
+    check(edit.length === 4 && Number(edit.address) % 4 === 0 && edit.call === false, 'Invalid pointer hook');
+    const after = new Uint8Array(4);
+    view(after).setUint32(0, destination, true);
+    return after;
+  }
+  if (edit.encoding === 'absolute_jump') {
+    check([8, 10, 12].includes(edit.length) && Number(edit.address) % 2 === 0 && edit.call === false,
+      'Invalid absolute jump hook');
+    const after = new Uint8Array(edit.length);
+    after.set(words(0xdc00, destination >>> 16, destination & 0xffff, 0));
+    return after;
+  }
   if (edit.length === 8 || edit.length === 12) {
     check(edit.call, 'Wide hook must be a call');
     const after = new Uint8Array(edit.length);
