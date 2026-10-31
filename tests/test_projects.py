@@ -292,6 +292,24 @@ class FirmwareReader(unittest.TestCase):
         self.assertEqual(self.load(valid, temporary=different), expected, 'published document wins')
         self.assertEqual(self.load(valid, temporary=valid, fault='read'), TRACKS, 'I/O error is not EOF')
 
+    def test_bound_unsupported_primary_blocks_stale_temporary(self):
+        temporary = companion(PROJECT, SAVED)
+        variants = []
+        for change in ('machines-version', 'profile', 'missing-machines', 'envelope-version'):
+            document = json.loads(temporary)
+            if change == 'machines-version':
+                document['sections']['open-xy.machines']['version'] = 2
+            elif change == 'profile':
+                document['sections']['open-xy.machines']['profile'] = 'opxy-2.0.0'
+            elif change == 'missing-machines':
+                document['sections'] = {}
+            else:
+                document['version'] = 2
+            variants.append((change, json.dumps(document).encode()))
+        for change, primary in variants:
+            with self.subTest(change=change):
+                self.assertEqual(self.load(primary, temporary=temporary), TRACKS)
+
     def test_maps_listed_numbers_by_machine_id_per_track_kind(self):
         self.check(companion(PROJECT, SAVED), {
             0: [41, PRISM, 18, 41, 50],       # karplus renumbered; timestretch missing, its 35 now fm2op's
