@@ -14,6 +14,58 @@ PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 
 
 class MasterFilter(unittest.TestCase):
+    def test_palette_and_optional_header_safety_match_instruments(self):
+        import xml.etree.ElementTree as ET
+        from tooling import extensions, native
+        from machine_fixtures import fixture
+        machine = fixture('probesynth')
+        original = (machine.root / 'panel.svg.fragment').read_bytes()
+        mutations = [('fill', None), ('fill', 'none'), ('fill', 'red'),
+                     ('stroke', None), ('stroke', 'none'), ('stroke', 'red'),
+                     ('stroke-width', None), ('stroke-width', '0'), ('stroke-width', '-1')]
+        with tempfile.TemporaryDirectory(prefix='master-palette-') as directory:
+            path = Path(directory) / 'panel.svg'
+            for attribute, value in [(None, None)] + mutations:
+                with self.subTest(attribute=attribute, value=value):
+                    root = ET.fromstring(original)
+                    donor = next(n for n in root.iter() if n.get('id') == machine.prefix + '_palette_0')
+                    if attribute:
+                        if value is None:
+                            donor.attrib.pop(attribute, None)
+                        else:
+                            donor.set(attribute, value)
+                    fragment = ET.tostring(root)
+                    root.tag = 'svg'
+                    root.set('xmlns', 'http://www.w3.org/2000/svg')
+                    root.set('viewBox', '0 0 480 222')
+                    path.write_bytes(ET.tostring(root))
+                    definition = dict(machine.definition, id=machine.prefix)
+                    if attribute is None:
+                        extensions.validate_master_artwork(path, definition)
+                        native.validate_panel(machine, fragment)
+                    else:
+                        with self.assertRaises(ValueError):
+                            extensions.validate_master_artwork(path, definition)
+                        with self.assertRaises(ValueError):
+                            native.validate_panel(machine, fragment)
+            for tag in ('text', 'path'):
+                root = ET.fromstring(original)
+                ET.SubElement(root, tag, id=machine.prefix + '_header_value_0',
+                              fill='#ECECEC', attrib={'font-family': 'UniversNextPro-Light', 'font-size': '20'})
+                fragment = ET.tostring(root)
+                root.tag = 'svg'
+                root.set('xmlns', 'http://www.w3.org/2000/svg')
+                root.set('viewBox', '0 0 480 222')
+                path.write_bytes(ET.tostring(root))
+                if tag == 'text':
+                    extensions.validate_master_artwork(path, definition)
+                    native.validate_panel(machine, fragment)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'Header bindings must be text'):
+                        extensions.validate_master_artwork(path, definition)
+                    with self.assertRaisesRegex(ValueError, 'Header bindings must be text'):
+                        native.validate_panel(machine, fragment)
+
     def test_shared_mutable_paths_can_start_with_an_opaque_fill(self):
         import xml.etree.ElementTree as ET
         from tooling.native import check_outlines

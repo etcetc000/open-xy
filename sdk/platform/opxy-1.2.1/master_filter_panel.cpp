@@ -1,6 +1,7 @@
 // Shared retained drawing host. Typed binding and author source are generated.
 #include "master_filter.hpp"
 #include "retained_drawing.hpp"
+#include "screen_header.hpp"
 using namespace opxy;
 using namespace opxy::screen;
 namespace opxy {
@@ -15,8 +16,10 @@ binding::Frame output;
 bool constructed, bound, reset_pending = true;
 void init(Object *o) {
     clear(o);
-    if (o->base.svg)
+    if (o->base.svg) {
         Renderer::bind(o, master_display_ids);
+        bind_authored_header(&o->base, master_header_ids);
+    }
 }
 void unused_frame(Object *, i32) {}
 const VTable<Object> methods = {&destroy<Object>,
@@ -69,8 +72,12 @@ void frame(i32 elapsed) {
         input.shown[i] = menu.shown[i];
         input.parameters[i] = menu.values[menu.shown[i]];
     }
+    u32 count = 0;
+    const Parameter* declared = parameters(count);
+    refresh_authored_header(&object.base, declared, count, input);
     binding::display_render(&state, &input, &output);
     Renderer::apply(&object, output);
+    apply_header(&object.base, output);
     opxy::screen::draw(&object.base);
 }
 void parameter_reset(u32 slot) {

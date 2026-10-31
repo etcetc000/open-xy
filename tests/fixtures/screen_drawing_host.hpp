@@ -15,7 +15,7 @@ struct Vector { u32 begin, end, capacity; };
 struct Command { i32 x, y; u32 type; };
 struct Leaf {};
 struct PathNode { Leaf leaf; Vector commands; };
-struct Base { const void* svg; u32 page; Leaf* values[4]; };
+struct Base { const void* svg; u32 page; Leaf* values[4]; Leaf* titles[4]; };
 struct Controls { bool valid; u32 track; u8 shown[4]; i32 values[4], slots[8]; };
 inline PathNode* path_node(void* raw) { return static_cast<PathNode*>(raw); }
 template<class T> void clear(T*) {}

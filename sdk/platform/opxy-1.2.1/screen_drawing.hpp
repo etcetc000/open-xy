@@ -4,6 +4,7 @@
 // frame shape.
 #pragma once
 #include "retained_drawing.hpp"
+#include "screen_header.hpp"
 #include "note_activity.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
@@ -57,9 +58,7 @@ template <class Machine> struct Drawing {
         if (!binding::display_valid(&display_frame)) return;
         Renderer::apply(o,display_frame);
         // Stock wrote every value this frame; a header string replaces its own.
-        for (u32 i = 0; i < page_controls; ++i)
-            if (display_frame.header[i][0])
-                if (Leaf* value = text_node(o->base.values[i])) set_text(value, display_frame.header[i]);
+        apply_header(&o->base, display_frame);
     }
 
     // Incoming elapsed time is the dispatcher's, in Q10 seconds.

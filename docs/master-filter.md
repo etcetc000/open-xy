@@ -44,6 +44,15 @@ applies paths, nodes, text and palettes for instruments and master processors.
 The master host loads the authored standalone 480×222 SVG in unregistered mode
 (screen ID zero), preserving stock EQ's screen slot. It never accesses audio state.
 
+Unlike a synth, this standalone screen does not contain the stock header
+template. To show control captions, author the optional header text leaves
+described in the shared [display contract](display.md#frame). The shared header
+adapter supplies declared labels and normalized amounts for the currently shown
+parameters, and applies `Frame.header` overrides for real units or enums. Artwork
+without these leaves remains full-screen, with no header inserted. The existing
+`draw::page_header` helper and normal text slots are also available for custom
+two-row headers; no master-specific drawing interface is needed.
+
 All normal display limits apply: at most four closed mutable outlines, 64 points
 per outline, 256 nodes, 16 texts and 16 palette entries. Mutable points are local
 coordinates within ±64 pixels; position and scale their nodes normally. Do not

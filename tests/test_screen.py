@@ -59,6 +59,19 @@ class PlatformScreenTests(unittest.TestCase):
 
 
 class DrawingContract(unittest.TestCase):
+    def test_shared_native_header_overrides_defaults_and_optional_bindings(self):
+        if not HOST_CXX:
+            self.skipTest('No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+        with tempfile.TemporaryDirectory(prefix='screen-header-') as folder:
+            binary = os.path.join(folder, 'header.exe')
+            result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',
+                                     '-I', str(ROOT / 'sdk/include'),
+                                     '-I', str(ROOT / 'sdk/platform/opxy-1.2.1'),
+                                     str(ROOT / 'tests/fixtures/screen_header.cpp'), '-o', binary],
+                                    capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(subprocess.run([binary], timeout=30).returncode, 0)
+
     def test_hidden_nodes_park_off_screen(self):
         if not HOST_CXX:
             self.skipTest('No working host C++ compiler (set OPXY_TEST_HOST_CXX)')

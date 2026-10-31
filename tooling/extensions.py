@@ -235,8 +235,9 @@ def validate_master_artwork(path, definition=None):
     root.tag='g'
     validate_nodes(list(root.iter()))
     if definition is not None:
-        from .native import check_bindings
-        check_bindings({n.get('id'):n for n in leaves if n.get('id')},definition['id'],definition['resources']['display'])
+        from .native import check_bindings, check_palette
+        by_id = {n.get('id'):n for n in leaves if n.get('id')}
+        check_palette(by_id, check_bindings(by_id,definition['id'],definition['resources']['display']))
     return data
 
 
@@ -283,12 +284,13 @@ def generate_master_collection(folder, entries):
 def generate_master_panel(folder, entries):
     """Reuse the normal display binding and retained renderer, with an unregistered host."""
     from .adapters import generate_display
-    from .native import display_ids
+    from .native import display_ids, header_ids
     e=next(e for e in entries if e.master_filter is not None)
     definition=document(e.root/'definition.json')
     generate_display(folder,definition=definition,kind='master',namespace='opxy::extensions::'+e.id)
     ids=display_ids(e.id,definition['resources']['display'])
     source='#include "display_binding.cpp"\nstatic const char* const master_display_ids[] = {'+','.join('"'+i+'"' for i in ids)+'};\n'
+    source+='static const char* const master_header_ids[] = {'+','.join('"'+i+'"' for i in header_ids(e.id))+'};\n'
     source+='#include "'+(ROOT/'sdk/platform/opxy-1.2.1/master_filter_panel.cpp').as_posix()+'"\n'
     target=folder/'master_panel.cpp';target.write_text(source,encoding='utf-8')
     return target,e.root

@@ -139,6 +139,17 @@ element. Both renderers apply only what changed.
 | `texts[i]` | `x`, `y`, `scale` like a node's, without turning, and up to 23 characters. |
 | `header[i]` | Text for control position `i` in place of the stock value, at its position and size: keep it to about five characters. An empty string keeps the stock value. |
 
+Standalone native hosts without the synth template can opt into the same header
+contract by authoring text leaves named `<prefix>_header_value_0` through
+`<prefix>_header_value_3`, and optional labels `<prefix>_header_title_0` through
+`<prefix>_header_title_3`. These leaves keep their authored position, font and
+paint; they do not consume or alias animated text slots. The shared platform
+header adapter binds them and applies `Frame.header`. A standalone host restores
+the shown parameter's declared label and normalized 0..100 value each frame;
+nonempty `Frame.header[i]` overrides that value. Supply mapped units and enum
+captions in the display callback. Missing leaves are supported and add no visual
+header. Synths retain their stock template and stock mapped-value formatting.
+
 | Field | Bounds |
 | --- | --- |
 | Path coordinates | ±`path_extent` (64) pixels, Q10 |

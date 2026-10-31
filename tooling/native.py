@@ -637,6 +637,11 @@ def display_ids(prefix, display):
             [f'{prefix}_palette_{i}' for i in range(display['palette'])])
 
 
+def header_ids(prefix):
+    """Optional authored header leaves, values then titles, for standalone hosts."""
+    return [f'{prefix}_header_{kind}_{i}' for kind in ('value', 'title') for i in range(4)]
+
+
 def panel_root(fragment, source):
     """An artwork fragment: one well-formed root element, such as <g id="<prefix>_panel">."""
     validate_xml(fragment)
@@ -688,7 +693,23 @@ def check_bindings(by_id, prefix, display):
         node = by_id[name]
         require(not {'x', 'y'} & set(node.keys()) and len(node.text or '') < 24,
                 'Text slots are positioned by their transform and hold at most 23 characters: ' + name)
+    for name in header_ids(prefix):
+        node = by_id.get(name)
+        if node is not None:
+            require(node.tag == 'text', 'Header bindings must be text leaves: ' + name)
+            require(len(node.text or '') < 24, 'Header bindings hold at most 23 characters: ' + name)
     return palette
+
+
+def check_palette(by_id, palette):
+    """Renderers copy donor paint verbatim; every consumer uses this policy."""
+    for name in palette:
+        node = by_id.get(name)
+        require(node is not None and node.tag in ('path', 'circle') and node.get('fill') not in (None, 'none') and
+                node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
+                'Bound node needs visible explicit fill and stroke: ' + name)
+        require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', node.get(k)) for k in ('fill', 'stroke')),
+                'Palette donors need #RRGGBB fill and stroke: ' + name)
 
 
 def validate_panel(m, fragment=None):
@@ -699,21 +720,7 @@ def validate_panel(m, fragment=None):
     require(len(ids) == len(set(ids)), 'Duplicate authored SVG ID')
     by_id = {node.get('id'): node for node in nodes if node.get('id')}
 
-    def visible(name, tags=('path', 'circle')):
-        node = by_id.get(name)
-        require(node is not None and node.tag in tags and node.get('fill') not in (None, 'none') and
-                node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
-                'Bound node needs visible explicit fill and stroke: ' + name)
-
-    def donor(name):
-        # Renderers copy donor paint verbatim: explicit #RRGGBB fill and stroke.
-        visible(name)
-        require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', by_id[name].get(k)) for k in ('fill', 'stroke')),
-                'Palette donors need #RRGGBB fill and stroke: ' + name)
-
-    palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
-    for name in palette:
-        donor(name)
+    check_palette(by_id, check_bindings(by_id, m.prefix, m.definition['resources']['display']))
     validate_nodes(nodes)
     return fragment
 
