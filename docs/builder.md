@@ -69,8 +69,8 @@ The builder accepts the stock OS 1.2.1 file or any Open-XY OS made from it,
 including one from an earlier release: it rebuilds the stock image by undoing
 the reviewed edits and accepts it only if it matches OS 1.2.1 exactly. An exact
 output of the same collection also restores its machine and extension
-selection; for any other, choose them again (the layout still keeps machine
-numbers). Saved selection files also retain extensions; older selection files
+selection when there are no saved or edited choices. Otherwise the current
+choices are kept (the layout still keeps machine numbers). Saved selection files also retain extensions; older selection files
 without that field select none.
 Encrypted `.tfw`, unknown patches and damaged files are rejected. Projects,
 presets and samples on the device are not touched.
@@ -106,6 +106,14 @@ computer. A layout from a build for OS 1.2.0 still loads. Numbers given to a mac
 open another machine. Adding a machine to the collection means adding it to
 the native build; the builder is not a plugin loader and does not raise the
 voice limit.
+
+Machine and extension selections are saved automatically in this browser,
+including an empty selection. Refreshing keeps these choices; machines removed
+from the catalog are left out, and new entries stay unselected. Browser storage
+is local to this site and browser. If storage is unavailable the machine page
+says so. The OS file must be selected again after a refresh. A disabled Build
+button explains what is missing: leave audition preview using **Go to OS setup**,
+load a verified OS, and choose machines that fit the memory limit.
 
 ## Web development
 
