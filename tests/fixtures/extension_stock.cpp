@@ -9,6 +9,10 @@
 using namespace opxy;
 using namespace opxy::platform;
 namespace {
+alignas(4) unsigned char project_bytes[0xd7c+8*0x53f44];
+bool change_during_read;
+u32 generation=1,pending_project=0,record_latched=0;
+u32 get_generation(){return generation;}
 u32 project_id = 1, selected = 0, input_enabled = 1, screen = 0;
 u32 pattern_id = 2, track_length = 16, scale = 3, quantization = 0;
 i32 position = 0;
@@ -118,7 +122,15 @@ void release(u32 pitch=60) { sdk_extensions_live_note_off(0x860c6adc,selected,pi
 
 namespace opxy { namespace platform {
 Address host_stock_address(Address address) {
+    if(change_during_read && address==0x10000000+0xd7c+2*0x53f44+0x53f4+0x457c) {
+        ++generation;change_during_read=false;
+    }
+    if(address>=0x10000000 && address<0x10000000+sizeof(project_bytes))
+        return reinterpret_cast<Address>(project_bytes)+(address-0x10000000);
     switch (address) {
+        case 0x8d584224: return reinterpret_cast<Address>(&get_generation);
+        case 0x840a0528: return reinterpret_cast<Address>(&pending_project);
+        case 0x860c9b3b: return reinterpret_cast<Address>(&record_latched);
         case 0x840a0524: return reinterpret_cast<Address>(&project_id);
         case 0x840a0534: return reinterpret_cast<Address>(&selected);
         case 0x08023c48: return reinterpret_cast<Address>(&input_enabled);
@@ -232,5 +244,36 @@ int main() {
     CHECK(writes==6 && undos==3);
 
     CHECK(!failed);
+    // Read source B on track2, while the ordinary selected getter still says A.
+    project_id=0x10000000;playing=counting=held_record=0;
+    const u32 pool=0xd7c+2*0x53f44, b=pool+0x53f4;
+    *reinterpret_cast<u32*>(project_bytes+pool+0x53f40)=2;
+    project_bytes[b]=16;project_bytes[b+8]=3;
+    fill_pattern(2);
+    auto& target=*reinterpret_cast<notes::Container*>(project_bytes+b+0x457c);
+    target=pattern();target.slots[0].note.pitch=72;
+    const u32 selected_before_read=last_track;
+    extensions::PatternInfo info{};
+    CHECK(extension_discover_pattern(2,1,info) && info.length==7680 && info.scale==3);
+    CHECK(info.ref.project==project_id && info.ref.generation==generation && info.ref.index==1);
+    RecordedNote output[120]{};u32 count=99;
+    CHECK(extension_read_pattern(info.ref,output,120,count) && count==2 && output[0].pitch==72);
+    CHECK(last_track==selected_before_read && undos==3 && publishes==3);
+    command=4;record();CHECK(written==2 && undos==3 && publishes==3); // No scene selection or edits.
+    CHECK(!extension_read_pattern(info.ref,output,1,count) && count==0 && output[0].pitch==72);
+    change_during_read=true;CHECK(!extension_read_pattern(info.ref,output,120,count) && !count);--generation;
+    ++generation; CHECK(!extension_read_pattern(info.ref,output,120,count) && !count);--generation;
+    pending_project=1;CHECK(!extension_discover_pattern(2,1,info));pending_project=0;
+    playing=1;CHECK(!extension_read_pattern(info.ref,output,120,count));playing=0;
+    record_latched=1;CHECK(!extension_read_pattern(info.ref,output,120,count));record_latched=0;
+    target.slots[0].note.flags=notes::held_flag;
+    CHECK(!extension_read_pattern(info.ref,output,120,count) && output[0].pitch==72);
+    target.slots[0].note.flags=0;target.slots[0].next=0;
+    CHECK(!extension_read_pattern(info.ref,output,120,count));
+    fill_pattern(0);target=pattern();
+    CHECK(extension_read_pattern(info.ref,nullptr,0,count) && count==0);
+    CHECK(!extension_discover_pattern(8,0,info) && !extension_discover_pattern(2,2,info));
+    *reinterpret_cast<u32*>(project_bytes+pool+0x53f40)=17;
+    CHECK(!extension_discover_pattern(2,1,info));
     return 0;
 }

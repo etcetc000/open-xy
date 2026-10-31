@@ -26,6 +26,12 @@ void queued_control(const Context& c, const Control& k, const Actions& actions) 
     ++seen.controls;
     seen.control = k;
     if (k.key != keys::record || k.pressed || !command) return;
+    if (command == 4) {
+        PatternInfo info{}; Note snapshot[pattern_note_capacity]; u32 count=0;
+        written = actions.discover_pattern(2,1,info) &&
+            actions.read_pattern(info.ref,snapshot,pattern_note_capacity,count) ? count : 0;
+        return;
+    }
     const u32 track = command == 3 ? 3 : c.recording.track;
     written = command == 2 ? actions.insert_notes(c, track, take, 2) : actions.replace_notes(c, track, take, 2);
     if (written) actions.notify("probed");

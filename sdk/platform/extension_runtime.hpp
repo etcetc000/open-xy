@@ -10,6 +10,7 @@ using RecordedNote = extensions::Note;
 // each claim's key, and each action the claims that grant it (0: any claim).
 const u32 action_edit_notes = 1u << 0;
 const u32 action_notify = 1u << 1;
+const u32 action_read_patterns = 1u << 2;
 
 struct ExtensionEntry {
     const char* id;
@@ -44,4 +45,6 @@ i32 extension_collision_radius(u32 track);
 bool extension_record_held();
 u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replace);
 void extension_notify(const char* text);
+bool extension_discover_pattern(u32 track, u32 index, extensions::PatternInfo& out);
+bool extension_read_pattern(const extensions::PatternRef&, RecordedNote* out, u32 capacity, u32& count);
 }}
