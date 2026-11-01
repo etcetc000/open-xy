@@ -774,15 +774,15 @@
       "maintainer": "colorsinspace1",
       "status": "published",
       "repository": "https://github.com/colorsinspace1/halcyon-keys",
-      "tag": "1.0",
-      "commit": "5a881377532ccbef13bf6d945e8f565a72604e5f",
+      "tag": "1.1",
+      "commit": "4d4780f6b04ff275452306c81fcb8abdfd52972e",
       "path": ".",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
-        "commit": "5a881377532ccbef13bf6d945e8f565a72604e5f",
-        "firmware_sha256": "c4e9870e510b3382231e9d5319f105399e8aa3be3848ea6bce4808eb34647482",
+        "commit": "4d4780f6b04ff275452306c81fcb8abdfd52972e",
+        "firmware_sha256": "6902f6597c8f412f2e33541f070f5e15ffe283186318ef0b47880daa9ed1fc46",
         "runs": 3,
-        "block_percent": 5.252155
+        "block_percent": 4.571603
       }
     },
     {
@@ -791,15 +791,15 @@
       "maintainer": "colorsinspace1",
       "status": "published",
       "repository": "https://github.com/colorsinspace1/halcyon-wander",
-      "tag": "1.0",
-      "commit": "86d5cac347c84dff9aecadbf4ec34ff5d000efad",
+      "tag": "1.1",
+      "commit": "b62f6279c79d46d7e0f149321ad28c2cc02371a6",
       "path": ".",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
-        "commit": "86d5cac347c84dff9aecadbf4ec34ff5d000efad",
-        "firmware_sha256": "c4e9870e510b3382231e9d5319f105399e8aa3be3848ea6bce4808eb34647482",
+        "commit": "b62f6279c79d46d7e0f149321ad28c2cc02371a6",
+        "firmware_sha256": "84d9c1a7e29531f707732268764deac2a6584964a38af232ebe31b1265e25600",
         "runs": 3,
-        "block_percent": 6.688029
+        "block_percent": 6.182956
       }
     }
   ]
