@@ -7,7 +7,13 @@
 static opxy::u32 token = 1;
 opxy::u32 sdk_screen_activation(opxy::u32 page, opxy::u32) { return page == 84 ? token : 0; }
 void sdk_display_note_activity(opxy::u32, opxy::draw::Input*) {}
-void sdk_note_pitches(opxy::u32, opxy::u8*, opxy::u8*) {}
+static opxy::u8 pitches[128], releases[128];
+void sdk_note_pitches(opxy::u32, opxy::u8* held, opxy::u8* released) {
+    for (unsigned i = 0; i < 128; ++i) { held[i] = pitches[i]; released[i] = releases[i]; }
+}
+extern "C" void sdk_drum_trigger(opxy::u32, opxy::draw::Input* input) {
+    input->trigger_key = 54; input->trigger_model = 9; input->trigger_controls[0] = 0x70000000;
+}
 void sdk_sample_overview_update(opxy::u32) {}
 struct Machine { static const bool sample = false; static const char* const ids[2]; };
 const char* const Machine::ids[2] = {"node", "palette"};
@@ -41,5 +47,24 @@ int main() {
     token = 0; object.keys[0] = 77;
     Renderer::animate(&object, controls);
     require(binding::resets == 3 && object.keys[0] == 77);
+    controls.pad = 53;
+    const auto baseline = screen::display_note_serial(controls);
+    pitches[61] = 1; ++screen::fixture_note_starts;
+    const auto other = screen::display_note_serial(controls);
+    require(other == baseline+1);
+    pitches[60] = 1; ++screen::fixture_note_starts;
+    require(screen::display_note_serial(controls) == other+1);
+    pitches[60] = 0; ++releases[60];
+    require(screen::display_note_serial(controls) == other+1);
+    pitches[60] = 1; ++screen::fixture_note_starts;
+    require(screen::display_note_serial(controls) == other+2);
+    // Sequencer activity has no held-key transitions. It still animates a
+    // non-selected pad while the header retains the selected pad's model.
+    ++screen::fixture_note_starts;
+    Renderer::animate(&object,controls);
+    require(binding::last_input.note_serial == other+3);
+    require(binding::last_input.model == controls.model);
+    require(binding::last_input.trigger_key == (OPXY_SCREEN_DRUM ? 54u : 0u));
+    require(binding::last_input.trigger_model == (OPXY_SCREEN_DRUM ? 9u : 0u));
     std::puts("native display activation resets state and geometry caches only on a new active token");
 }

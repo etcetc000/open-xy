@@ -395,8 +395,8 @@ int main() {
     }
     const unsigned maximum_hashes = hashes;
     sdk_sample_cache_snapshot_keys(123, 123, maximum_pending.data(), 128);
-    require(assigned_count == 3072 && hashes - maximum_hashes == 3072,
-            "maximum assignment snapshot truncated or rescanned paths");
+    require(assigned_count == 3072 && hashes - maximum_hashes == 6144,
+            "maximum assignment snapshot truncated or exceeded two bounded passes");
     const unsigned last_key = sdk_sample_cache_stock_hash("samples/t127r23.wav");
     require(sdk_sample_cache_tag_priority(last_key, 16) == 144,
             "last assignment fell outside bounded snapshot");
@@ -410,6 +410,34 @@ int main() {
         require(sdk_sample_cache_tag_priority(assigned_keys[i], 5) == 133,
                 "binary lookup missed an assigned key");
     }
+    // Replace a full snapshot with overlapping, disjoint and duplicated sets.
+    // The independent set oracle catches lost retained keys and overwrite of
+    // the sorted prefix while the new keys are appended in place.
+    const unsigned snapshot_allocations = allocations;
+    for (unsigned round = 0; round < 8; ++round) {
+        std::vector<unsigned> expected;
+        for (unsigned t = 0; t < 128; ++t) {
+            for (unsigned r = 0; r < 24; ++r) {
+                const std::string name = round % 3 == 0
+                    ? "samples/duplicate" + std::to_string(r % 3) + ".wav"
+                    : "samples/set" + std::to_string(t % 2 ? (round + t) % 4 : 0) + "t" +
+                        std::to_string(t) + "r" + std::to_string(r) + ".wav";
+                std::strcpy(reinterpret_cast<char*>(maximum_tracks[t].data() + 0x396c + r * 128), name.c_str());
+                expected.push_back(sdk_sample_cache_stock_hash(name.c_str()));
+            }
+        }
+        std::sort(expected.begin(), expected.end());
+        expected.erase(std::unique(expected.begin(), expected.end()), expected.end());
+        const std::vector<unsigned> previous(assigned_keys, assigned_keys + assigned_count);
+        sdk_sample_cache_take_force_send();
+        const bool changed = sdk_sample_cache_snapshot_keys(123, 123, maximum_pending.data(), 128) != 123;
+        require(changed == (previous != expected) && bool(sdk_sample_cache_take_force_send()) == changed,
+                "snapshot membership change disagrees with independent set oracle");
+        require(assigned_count == expected.size() &&
+                std::equal(expected.begin(), expected.end(), assigned_keys),
+                "full snapshot replacement lost or retained the wrong keys");
+    }
+    require(allocations == snapshot_allocations, "assignment snapshot allocated scratch storage");
     // A repeated track can appear in multiple pending patterns. Duplicates
     // must not exhaust capacity or cause an ownership change on reordering.
     for (auto& item : maximum_pending) item.track = maximum_tracks[0].data();

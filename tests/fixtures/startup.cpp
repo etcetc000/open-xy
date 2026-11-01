@@ -15,6 +15,10 @@ static bool gui, screens = true;
 static int ready_state = 1;
 static const char* named;
 static u32 inserted;
+#ifdef OPENXY_LOADER_HEALTH
+static u32 health;
+void sdk_collection_startup_ready(unsigned int bits) { health|=bits; }
+#endif
 
 #define ENGINE(prefix)                                                                        \
     const char prefix##_engine_id[1] = {};                                                    \
@@ -68,17 +72,29 @@ int main() {
     // Effects register on both roles, before the role check; engines in ledger order on audio.
     sdk_startup_synth();
     require(calls == "effect role first second sampled drawn ");
+#ifdef OPENXY_LOADER_HEALTH
+    require(health==3);health=0;
+#endif
     calls.clear(); gui = true;
     sdk_startup_synth();
     require(calls == "effect role ");
+#ifdef OPENXY_LOADER_HEALTH
+    require(health==1);
+#endif
     // GUI role: each own page guards only its own engine; stock pages need none.
     calls.clear();
     sdk_startup_screen();
     require(calls == "effect-page first-page first second-page second sampled drawn-page drawn player-page ");
+#ifdef OPENXY_LOADER_HEALTH
+    require(health==5);health=0;
+#endif
     // A sample engine plays without its own screen: the screen never holds it back.
     calls.clear(); screens = false; drawn_screen = 0;
     sdk_startup_screen();
     require(calls == "effect-page first-page second-page second sampled drawn-page drawn player-page ");
+#ifdef OPENXY_LOADER_HEALTH
+    require(health==0);
+#endif
     drawn_screen = 1;
 
     const u32 first = value(first_engine_id), second = value(second_engine_id);

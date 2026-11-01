@@ -83,4 +83,13 @@ const void* const @PREFIX@_player_vtable[16] = {
 }
 static const opxy::platform::Player player = {@PREFIX@_player_id, "@NAME@", @PREFIX@_player_vtable, @PAGE@, @PAGE_READY@, {@STEPS@}};
 const opxy::platform::Player* @PREFIX@_player() { return &player; }
+// Size-optimize only the GUI page below. Machine code and sequencer methods
+// above retain the normal speed optimization.
+#if defined(__bfin__)
+#pragma GCC push_options
+#pragma GCC optimize ("Os")
+#endif
 @PAGE_UNIT@
+#if defined(__bfin__)
+#pragma GCC pop_options
+#endif

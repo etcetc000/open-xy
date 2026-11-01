@@ -119,6 +119,22 @@ test('ABI 4 previews ignore a supplied envelope and keep their storage', () => {
   assert.equal(display.input.length, 22); assert.equal(after[0], 0xabcdef);
 });
 
+test('ABI 5 keeps the played drum independent of selection and validates before publication', () => {
+  const display = new PreviewDisplay(fixture(5,128));
+  const trigger = {key:54,model:9,controls:[0x70000000,1,2,3,4,5,6,0x7fffffff]};
+  display.tick(input(),17,4,0,false,null,0,0,[0,0,0,0],trigger);
+  assert.equal(display.input[21],0);
+  assert.deepEqual([...display.input.slice(22)], [54,9,...trigger.controls]);
+  const before = new Uint8Array(display.memory).slice();
+  for (const bad of [{...trigger,key:52},{...trigger,key:77},{...trigger,model:128},
+    {...trigger,controls:[]},{...trigger,controls:[...trigger.controls.slice(0,7),NaN]}]) {
+    assert.throws(() => display.tick(input(),17,5,0,false,null,0,0,[0,0,0,0],bad));
+    assert.deepEqual(new Uint8Array(display.memory),before);
+  }
+  display.tick(input(),17,4);
+  assert.deepEqual([...display.input.slice(22)],Array(10).fill(0));
+});
+
 test('an edit shows its parameter at its position, or its whole page on a paged synth', () => {
   // Macro Osc's shape: page 2 holds FM Depth on position 3, then Bits, Rate and Drift on 0..2.
   const positions = [0, 1, 2, 3, 3, 0, 1, 2];
