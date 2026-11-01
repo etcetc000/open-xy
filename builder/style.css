@@ -416,7 +416,7 @@ footer details[open] { flex-basis:100%; }
   :is([data-page="2"],[data-page="3"]) .workspace>div { contain:size; display:flex; flex-direction:column; min-height:0; }
   :is([data-page="2"],[data-page="3"]) .machine-list { flex:1; height:0; min-height:0; padding-right:6px; }
   :is([data-page="2"],[data-page="3"]) .actions { flex:none; margin-top:12px; padding-top:8px; }
-  .inspector { display:flex; flex-direction:column; min-height:0; padding-top:0; }
+  .inspector { display:flex; flex-direction:column; min-height:0; padding-top:0; overflow-y:auto; }
   .summary-space { flex:none; }
   .inspector-top { margin-bottom:4px; }
   .inspector h2 { font-size:20px; margin-bottom:4px; }
@@ -465,3 +465,11 @@ footer details[open] { flex-basis:100%; }
 .extension-inspector .machine-facts dd { text-align:left; margin-bottom:8px; }
 @media(max-width:800px) { #extensions { height:auto; max-height:40dvh; } }
 @media(max-width:560px) { .steps { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+/* Local machine packs share the catalog's existing file-picker controls. */
+.machine-actions { flex-wrap:wrap; }
+.machine-actions .action-buttons { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:12px; margin-left:auto; }
+.machine-actions .file-button { align-items:center; }
+.machine-import { flex:none; margin-top:8px; font-size:12px; }
+.machine-import p { max-width:70ch; margin:8px 0; }
+#machine-pack-result { flex:none; margin:8px 0 0; font-size:12px; overflow-wrap:anywhere; }
+#machine-pack-result:empty { display:none; }

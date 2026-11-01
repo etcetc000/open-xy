@@ -47,7 +47,12 @@ function svg(markup, viewBox, label) {
 }
 // A machine may supply its own glyph path; otherwise its kind's glyph is used.
 export function icon(kind, path = '') {
-  return svg(`<path d="${path || paths[kind] || paths.firmware}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`, '0 0 46 48');
+  const drawing = svg('', '0 0 46 48'), glyph = document.createElementNS(ns, 'path');
+  for (const [key, value] of Object.entries({d:path || paths[kind] || paths.firmware, fill:'none',
+    stroke:'currentColor', 'stroke-width':'1.7', 'stroke-linecap':'round', 'stroke-linejoin':'round'}))
+    glyph.setAttribute(key, value);
+  drawing.append(glyph);
+  return drawing;
 }
 // Restart only the presentation; navigation and focus never wait on animation.
 export function reveal(container) {

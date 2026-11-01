@@ -19,7 +19,8 @@ $('risk-acknowledgement').disabled = !browserAllowed;
 $('risk-continue').disabled = true;
 const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
 const kib = n => (n / 1024).toFixed(1) + ' KiB';
-let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+let kit, baseKit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+let packTicket = 0;
 // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
 // last build here, or a layout.json they load. Kept in this browser as a convenience;
 // the layout.json in every download is the record.
@@ -205,12 +206,14 @@ function describeMachine(target, m) {
     field('detail-source').replaceChildren(...sourceLinks(m.source));
   } else if (m.origin === 'official') {
     field('detail-source').replaceChildren('Open-XY machine', ...sourceLinks(m.source).slice(2));
-  } else field('detail-source').textContent = 'Your machine, from this kit';
+  } else field('detail-source').textContent = baseKit && !baseKit.machines.some(x => x.id === m.id)
+    ? 'Your machine, imported from a machine pack' : 'Your machine, from this kit';
 }
 function sizeMachineSummary() {
   // Overlapping, inert copies let CSS reserve the tallest summary in this kit,
   // including wrapped attribution and the notice, at any window or font size.
   const summary = $('machine-summary');
+  summary.parentElement.querySelectorAll('.summary-sizing').forEach(el => el.remove());
   for (const m of kit.machines) {
     const sizing = summary.cloneNode(true);
     sizing.removeAttribute('id');
@@ -497,6 +500,40 @@ document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => navigate
 $('choose').onclick = () => { navigate(2); recalculate(); };
 $('choose-extensions').onclick = () => { navigate(3); recalculate(); };
 $('build').onclick = build;
+function useMachineCollection(value) {
+  stopPreview(); ++previewRevision;
+  // Cancel an in-flight firmware check that used the previous collection.
+  ++ticket;
+  if (!stock) wizard.setFirmwareState('empty');
+  kit = value;
+  selected = selected.filter(id => kit.machines.some(m => m.id === id));
+  invalidate();
+  $('notices').textContent = kit.notices;
+  sizeMachineSummary(); renderMachines(); renderExtensions(); recalculate();
+  inspect(kit.machines.some(m => m.id === inspected) ? inspected : kit.machines[0].id);
+  $('remove-machine-pack').hidden = kit === baseKit;
+}
+$('machine-pack').onchange = async e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file || !baseKit) return;
+  const current = ++packTicket;
+  $('machine-pack-result').textContent = 'Checking ' + file.name + '…';
+  try {
+    const pack = Core.readMachinePack(await readBounded(file, Core.MACHINE_PACK_LIMIT));
+    const candidate = await Core.importMachinePack(baseKit, pack);
+    if (current !== packTicket) return;
+    useMachineCollection(candidate);
+    const count = candidate.machines.length - baseKit.machines.length;
+    $('machine-pack-result').textContent = `${count} custom ${count === 1 ? 'machine' : 'machines'} added. Select them in the catalog. Keep this ZIP to import again after reloading.`;
+  } catch (error) {
+    if (current === packTicket) $('machine-pack-result').textContent = error.message || String(error);
+  }
+};
+$('remove-machine-pack').onclick = () => {
+  ++packTicket;
+  useMachineCollection(baseKit);
+  $('machine-pack-result').textContent = 'Imported machines removed. Saved machine numbers are kept.';
+};
 $('firmware').onchange = e => acceptFirmware(e.target.files[0]);
 const drop = $('firmware-drop');
 for (const type of ['dragover', 'dragleave', 'drop']) drop.addEventListener(type, e => {
@@ -535,6 +572,8 @@ try {
   const data = $('kit-data').textContent.trim();
   Core.requireThat(data, 'The machines couldn’t load. Reload this page.');
   kit = await Core.openKit(JSON.parse(data));
+  baseKit = kit;
+  $('machine-pack').disabled = false;
   // A tap opens the memory breakdown on screens without hover.
   document.querySelector('.memory-bar').onclick = e => e.currentTarget.classList.toggle('open');
   $('builder-version').textContent = 'v' + kit.version;
