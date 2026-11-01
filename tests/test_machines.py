@@ -381,7 +381,7 @@ class OutsideMachines(unittest.TestCase):
         value = dict(json.loads(real(path)), sdk='1.3', presets='.')
         with mock.patch.object(Path, 'read_text',
                                lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
-            with self.assertRaisesRegex(ValueError, 'effects have none'):
+            with self.assertRaisesRegex(ValueError, 'instrument preset folder'):
                 machines.machine_at(FOLDER / 'probefx')
 
 

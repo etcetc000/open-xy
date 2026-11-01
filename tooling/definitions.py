@@ -24,7 +24,7 @@ def identifier(value):
 # The stock firmware's own engine and effect types (stock 1.2.1 catalog).
 STOCK_TYPES = frozenset({'sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 'hardsync', 'dissolve', 'axis',
                          'wavetable', 'simple', 'midi', 'multisampler',
-                         'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi'})
+                         'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi', 'arpeggio', 'hold', 'maestro'})
 # Symbol namespaces the SDK and firmware glue use; a machine's name prefixes its symbols.
 RESERVED_PREFIXES = ('extensions', 'sdk', 'kit', 'stock', 'local')
 # A machine's name is also its C++ namespace.
@@ -62,6 +62,7 @@ RESOURCES = {
     'synth': ('voiceBytes', 'voiceAlignment', 'voiceCapacity', 'sharedBytes', 'outputPeakQ31', 'display'),
     'sample': ('voiceCapacity',),
     'effect': (),
+    'player': (),
 }
 # A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
 # declares its frame's budget within these limits.
@@ -85,7 +86,7 @@ DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum
 # A synth's first four fill the four-control page; up to four more are alternates
 # (see control_positions). Sample engines and effects use one to eight; an
 # effect's after the first four are alternates on the send page.
-CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8)}
+CONTROLS = {'synth': (4, 8), 'sample': (1, 8), 'effect': (1, 8), 'player': (4, 4)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
 SYNTH_POSITIONS = 4

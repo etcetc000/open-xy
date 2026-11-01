@@ -5,6 +5,7 @@
 
 extern "C" {
 opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
+opxy::u32 (*sdk_screen_substitute)(opxy::u32) __asm__("sdk_screen_substitute");
 int sdk_screen_owned(opxy::u32) __asm__("sdk_screen_owned");
 opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor*, opxy::u32) __asm__("sdk_screen_next");
 void sdk_send_refresh() __asm__("sdk_send_refresh");
@@ -20,8 +21,9 @@ opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor* cursor, opxy::u32 select
     const bool first = cursor->page == 0;
     // Once a frame, at its first slot: the sends' effect controls 5..8.
     if (first) sdk_send_refresh();
-    const opxy::u32 more = order.advance(*cursor, selected, sdk_screen_owned);
-    if (first) activation.select(order.promoted);
+    const opxy::u32 substitute = first && sdk_screen_substitute ? sdk_screen_substitute(selected) : 0;
+    const opxy::u32 more = order.advance(*cursor, selected, substitute, sdk_screen_owned);
+    if (first) activation.select(order.to ? order.to : order.promoted);
     return more;
 }
 

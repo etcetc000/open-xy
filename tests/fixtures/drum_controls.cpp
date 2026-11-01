@@ -3,6 +3,7 @@
 #include <initializer_list>
 static void host_barrier() {}
 #include <drum_controls_stock.cpp>
+#include <keyboard_octaves.cpp>
 
 namespace opxy { namespace platform {
 bool sample_display_capable(u32) { return false; }

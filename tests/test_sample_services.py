@@ -1,5 +1,6 @@
 """Native qualification executes the real SDK services with host boundary doubles."""
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -35,7 +36,7 @@ class SampleServices(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'sample_display_routing'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'sample_display_routing', 'keyboard_octaves'):
                 probe = replace(fixture('probesample'), id='probe', identity=dict(engine=46, page=7))
                 if name == 'sample_callbacks':
                     # A page-2 engine with no services beside it: it plays like the sampler.
@@ -46,6 +47,9 @@ class SampleServices(unittest.TestCase):
                 elif name in ('drum_controls', 'sample_display_routing'):
                     source = ROOT / ('sdk/platform/opxy-1.2.1/drum_controls_stock.cpp' if name == 'drum_controls' else 'sdk/platform/opxy-1.2.1/sample_display_controls.cpp')
                     (Path(folder) / source.name).write_text(source.read_text())
+                    shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
+                elif name == 'keyboard_octaves':
+                    shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
                 else:
                     from tooling.benchmark import generate
                     generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
@@ -68,7 +72,8 @@ class SampleServices(unittest.TestCase):
                 (Path(folder) / 'screen.hpp').write_bytes(
                     (ROOT / 'tests/fixtures/screen_drawing_host.hpp').read_bytes())
             if name == 'startup':
-                generate_startup(folder, ['first', 'second', 'sampled'], ['effect'], ['sampled'])
+                generate_startup(folder, ['first', 'second', 'sampled'], ['effect'], ['sampled'],
+                                 effect_screens=['effect'], player_pages=['player'])
             # A fixture that includes barrier.hpp supplies host_barrier for the Blackfin SSYNC.
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-D__builtin_bfin_ssync()=host_barrier()',
                        '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'),
@@ -81,6 +86,9 @@ class SampleServices(unittest.TestCase):
 
     def test_cache_lifetime_capacity_and_browser_deferral(self):
         self.run_fixture('sample_cache')
+
+    def test_keyboard_effective_octave_and_gui_refresh(self):
+        self.run_fixture('keyboard_octaves')
 
     def test_progress_never_takes_over_another_notification(self):
         self.run_fixture('sample_progress')

@@ -1,5 +1,6 @@
 // Host contract checks for generated startup glue: two own-page synths
-// (first, second), one stock-page sample engine (sampled) and one effect.
+// (first, second), one stock-page sample engine (sampled), an own-page effect
+// and a player. Both screen registries must coexist after SDK integration.
 #include <startup.cpp>
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +27,10 @@ const char first_page_id[1] = {}, second_page_id[1] = {};
 int first_screen_register() { calls += "first-page "; return screens; }
 int second_screen_register() { calls += "second-page "; return 1; }
 int effect_fx_register() { calls += "effect "; return 1; }
+const char effect_fx_page_id[1] = {};
+int effect_screen_register() { calls += "effect-page "; return 1; }
+int effect_ready() { calls += "effect? "; return ready_state; }
+int player_screen_register() { calls += "player-page "; return 1; }
 u32 stock_gui_role() { calls += "role "; return gui; }
 u32 stock_catalog_insert(void*, const void*, u32 id) { inserted = id; return 7; }
 void sdk_arranger_screen_startup() { calls += "arranger-page "; }
@@ -46,10 +51,10 @@ int main() {
     // GUI role: each own page guards only its own engine; stock pages need none.
     calls.clear();
     sdk_startup_screen();
-    require(calls == "first-page first second-page second sampled arranger-page ");
+    require(calls == "effect-page player-page first-page first second-page second sampled arranger-page ");
     calls.clear(); screens = false;
     sdk_startup_screen();
-    require(calls == "first-page second-page second sampled arranger-page ");
+    require(calls == "effect-page player-page first-page second-page second sampled arranger-page ");
 
     const u32 first = value(first_engine_id), second = value(second_engine_id);
     // Own names need their expected ID and current readiness.
@@ -70,10 +75,12 @@ int main() {
     calls.clear();
     require(sdk_screen_owned(value(second_page_id)) == 1 && calls == "second? ");
     require(sdk_screen_owned(value(first_page_id)) == 1);
+    require(sdk_screen_owned(value(effect_fx_page_id)) == 1);
     require(sdk_screen_owned(0) == 0 && sdk_screen_owned(value(first_engine_id)) == 0);
     for (int state : {0, 2, -1}) {
         ready_state = state;
         require(sdk_screen_owned(value(first_page_id)) == 0);
+        require(sdk_screen_owned(value(effect_fx_page_id)) == 0);
     }
     ready_state = 1;
     std::puts("startup ok");

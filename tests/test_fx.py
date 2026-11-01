@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def stock_like_catalog():
     return (b'{\n\t"engine_types": [\n        {\n            "type": "a",\n            "default_params": [0]\n        }\n    ],\n'
             b'\t"fx_types": [\n        {\n            "type": "delay",\n            "id": 0,\n'
-            b'            "default_params": [1, 2, 3, 4, 0, 0, 0, 0]\n        }\n    ],\n\t"x": 1\n}\n')
+            b'            "default_params": [1, 2, 3, 4, 0, 0, 0, 0]\n        }\n    ],\n\t"seq_types": [\n    ],\n\t"x": 1\n}\n')
 
 
 class Generation(unittest.TestCase):
@@ -194,8 +194,8 @@ int main() {
 
     def test_catalog_entry_is_appended_to_fx_types_only(self):
         catalog = stock_like_catalog()
-        ends = [catalog.index(b'\n    ]', catalog.index(key)) for key in (b'"engine_types"', b'"fx_types"')]
-        profile = dict(stock_catalog_inserts=dict(zip(('engine_types', 'fx_types'), ends)))
+        ends = [catalog.index(b'\n    ]', catalog.index(key)) for key in (b'"engine_types"', b'"fx_types"', b'"seq_types"')]
+        profile = dict(stock_catalog_inserts=dict(zip(('engine_types', 'fx_types', 'seq_types'), ends)))
         parsed = json.loads(extend_catalog(catalog, profile, [fixture('probefx')]))
         self.assertEqual(parsed['fx_types'][-1], json.loads(adapters.catalog_entry(fixture('probefx'))[1:]))
         self.assertEqual(parsed['engine_types'], json.loads(catalog)['engine_types'])

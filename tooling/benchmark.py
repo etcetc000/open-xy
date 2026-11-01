@@ -35,6 +35,8 @@ def cases(machines, sweep=False):
     control at the position that ran heaviest (combined_positions)."""
     result = [dict(name=name, engine=engine, source='stock') for name, engine in STOCK]
     for m in machines:
+        if m.kind == 'player':
+            continue  # Note transforms have no audio-render workload.
         case = dict(name=m.id, engine=m.identity.get('engine', m.identity.get('effect')), source='sdk',
                     kind=m.kind, benchmark=METHODS[m.kind][0], metric=METHODS[m.kind][1])
         result.append(case)
@@ -93,6 +95,7 @@ def combined_positions(results):
 
 
 def generate(directory, machines, sweep=False):
+    machines = [m for m in machines if m.kind != 'player']
     declarations, rows, settings, defaults = [], [], [], []
     for index, m in enumerate(machines):
         swept = sweep_settings(m) if sweep and m.kind == 'synth' else []

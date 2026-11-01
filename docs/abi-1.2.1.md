@@ -28,7 +28,9 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample dispatch | 2 | Recognizes owned SDK sample registrations and selects the stock sampler's (page 2) or multisampler's (page 7) audio payload |
 | Sampler page | 9 | Shows an owned page-2 engine's track as the stock sampler's page, with its one sample in region 0 for every key |
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
-| Drum-page services | 20 | Routes controls, octave publication, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
+| Drum-page services | 19 | Routes controls, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
+| Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines and note players |
+| Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 1 | Paints a selected owned synth page before stock overlays |
@@ -44,7 +46,8 @@ version is rejected. The output differs from stock in exactly these places:
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
-form the profile's `samples` service: a build applies those edits, and links
+form the profile's `samples` service (apart from octave publication,
+which is shared with players): a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine. Otherwise
 their sites stay stock. Everything else must reconstruct byte for byte. Protected ranges in
 [`pipeline.py`](../tooling/pipeline.py) admit only hooks into the module and
@@ -622,6 +625,59 @@ voice allocation; delayed allocation uses that handle's key. The existing
 The parameter action reuses the authenticated encoder press hook and stock
 setter `0x8d5acf28(project, track, slot, value)`, also used by send-default
 publication, on the GUI role only.
+## Note players
+
+The `players` service adds seven hooks only when a collection includes a player:
+factory construction, the project-load type guard, two controller lookups,
+enum editing, and type/name conversion. The authenticated preimages and destinations are
+in the profile. The factory delegates stock types unchanged. An owned type
+uses a stock Maestro object with its type, routing mode, note-on, note-off,
+reset, all-notes-off and step methods replaced; the other nine method pointers are checked against authenticated
+stock OS 1.2.1 during release verification.
+Reset and all-notes-off call their authenticated stock methods before clearing
+machine-held state through its optional reset callback.
+The routing-mode query returns zero, so machine controls cannot enable
+Maestro's special note-routing mode through its fourth encoder.
+
+The stock player object occupies one 64 KiB slot per track. The SDK reserves
+2048 bytes after the stock object for machine state. A plan appends one of
+eight bounded Maestro chord records, each holding at most eight tones. The
+record array starts at `+0x10c`, with its count at `+0x34c`; release checks
+authenticate both offsets against stock's step and note-off instructions. The
+step wrapper drains machine updates, then calls the authenticated stock step
+to emit zero-delay tones and decrement their delays;
+note-off removes the root's record. The GUI snapshots negative-delay tones
+from these records for the output keyboard, bounding every observed count.
+It neither calls the audio renderer nor allocates.
+Optional machine updates replace or extend existing root records after input
+events and before stock stepping. Replacements first call the stock root-release method; additions keep
+existing attacks and queued delays. Cleared records can be reused before the
+next stock compaction step. Updates cannot revive a released root and remain
+bounded to eight records of eight tones, with at most eight updates per event or step.
+
+The Maestro turn hook handles all controls of an owned player, bypassing the
+post-edit hold-mode callback that would interpret its fourth control as stock
+hold mode. Declared enums use the event's signed detent word without
+continuous-motion acceleration, clamp to the choice range, and publish the
+bucket centre through stock's player-parameter setter. Other mappings retain
+stock's bucket counts or continuous editor. Both preserve pattern storage and
+dirty state. Stock players replay the displaced step-count query and continue stock.
+
+Player types use the profile's unused 6..31 range and `seq_types` catalog IDs
+are type + 4. The UI selects Maestro's controller for owned types, keeping
+its five-entry controller table in bounds. The compositor substitutes an
+owned, ready player page for Maestro's page at its original layer, skips
+the replacement's later slot, and retains stock overlays. Page construction
+and readiness use the same occupied-slot and object-identity guards as synths.
+
+The octave setter is in the shared `octaves` service, enabled for sample
+engines or players. It retains the existing stock setter call and then reads
+stock's effective keyboard octave, which scales the stored value according
+to instrument type. When players are registered, the compositor refreshes all
+instrument tracks once per GUI frame, including while another page is selected.
+This covers project loads and instrument changes without an octave key press.
+Note callbacks only read the published word; sample-engine GUI lookups
+publish into the same storage. No audio callback uses GUI pattern getters.
 
 ## Effect pages and shift rows
 
