@@ -309,7 +309,7 @@ int main() {
     unsigned heaviest = 0;
     const opxy::benchmark::Stats kit = probe_benchmark(0);
     CHECK(kit.count == 1500 && kit.audible && kit.total_low > 0);
-    CHECK(captured[0] == 90 << 24);   // the kit's own keys, unmarked, from their defaults
+    CHECK(captured[0] == 90 << 24);   // the kit's own keys, saved at their defaults, play as those
     for (unsigned model = 0; model < 12; ++model)
         for (unsigned level = 0; level < 3; ++level) {
             const unsigned before = bench_rendered[model][level == 0 ? 64 : level == 1 ? 0 : 127];

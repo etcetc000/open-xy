@@ -145,7 +145,11 @@ def write_builder(kit, output):
         catalog = base64.b64decode(kit['stockCatalog'], validate=True)
         require(sha(catalog) == kit['profile']['stock_catalog_sha256'], 'Bundled stock catalog hash mismatch')
     template = read(ROOT / 'builder/index.html').decode('utf-8')
-    script = read(ROOT / 'builder/core.mjs').decode('utf-8').replace('export ', '')
+    script = read(ROOT / 'builder/core.mjs').decode('utf-8')
+    preset_import = "import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };\n"
+    require(preset_import in script, 'Unexpected core imports')
+    preset_json = read(ROOT / 'tooling/default_preset.json').decode('utf-8')
+    script = script.replace(preset_import, 'const DEFAULT_PRESET_TEMPLATE = ' + preset_json + ';\n').replace('export ', '')
     app = read(ROOT / 'builder/app.mjs').decode('utf-8')
     imports = ("import * as Core from './core.mjs';\nimport * as Wizard from './wizard.mjs';\n"
                "import * as Retained from '../sdk/browser/display.mjs';\n"

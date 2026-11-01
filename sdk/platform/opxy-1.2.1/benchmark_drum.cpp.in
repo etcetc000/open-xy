@@ -1,8 +1,8 @@
 
 // A profiling build's workload for a drum kit (tooling/benchmark.py drum_cases),
 // through the adapter's own start and render entries, with a private pitch and
-// amplitude rather than stock's: one voice of each model at each level, stored and
-// read back as a key is; the kit's own keys at full polyphony; retriggers on one
+// amplitude rather than stock's, every key stored and read back as a saved key is:
+// one voice of each model at each level; the kit's own keys at full polyphony; retriggers on one
 // key, which the same-key choke fades; and full polyphony of the heaviest model.
 // A note's start is timed with its block. Run with playback stopped, on handles
 // stock has no note on, and freed afterwards.
@@ -25,13 +25,17 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
     const bool one = run >= 1 && run <= single, choke = run == single + 1;
     const u32 sounding = one ? 1 : choke ? 2 : kBenchmarkVoices;
     u32 model = one ? (run - 1) / 3 : benchmark_model, level = one ? (run - 1) % 3 : benchmark_level;
-    // A kit's own run plays each key as it starts, unmarked, from its defaults.
-    i32 payload[1 + platform::kDrumStorageWords] = {};
-    if (run != 0) {
+    // Every run reads its keys as saved in a project, as each block of a saved key does. The
+    // kit's own run saves each key at its defaults, so it plays what the kit starts with.
+    const u32 saved = run == 0 ? 24 : 1;
+    i32 payloads[24][1 + platform::kDrumStorageWords] = {};
+    for (u32 k = 0; k < saved; ++k) {
         u8 stored[8];
-        for (u32 i = 0; i < 8; ++i) stored[i] = kBenchmarkLevels[level];
-        payload[0] = benchmark_marked();
-        platform::drum_pack(model, stored, payload + 1, storage());
+        u8 chosen = static_cast<u8>(model);
+        if (run == 0) @NAMESPACE@::drum_defaults(53 + k, &chosen, stored);
+        else for (u32 i = 0; i < 8; ++i) stored[i] = kBenchmarkLevels[level];
+        payloads[k][0] = benchmark_marked();
+        platform::drum_pack(chosen, stored, payloads[k] + 1, storage());
     }
     u32 pitch[block_frames];
     i32 gain[block_frames];
@@ -55,7 +59,7 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
         spent = cycles() - spent;
         for (u32 v = 0; v < sounding; ++v) {
             const u32 begin = cycles();
-            render_voice(voices_of[v], output, payload[0] ? payload : nullptr, parameters, pitch, gain);
+            render_voice(voices_of[v], output, payloads[run == 0 ? v % 24u : 0], parameters, pitch, gain);
             spent += cycles() - begin;
             stats.observe(output, block_frames);
         }

@@ -684,6 +684,33 @@
       "status": "reserved"
     },
     {
+      "id": "mdkit",
+      "kind": "drum",
+      "maintainer": "mmockett",
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-MNMD",
+      "tag": "v1.2.2",
+      "commit": "3a55a14c52ca8688e3b86aee6f13c728da8aa927",
+      "path": "machines/mdkit",
+      "cpu": {
+        "benchmark": "opxy-drum-callback-v1",
+        "commit": "3a55a14c52ca8688e3b86aee6f13c728da8aa927",
+        "firmware_sha256": "b7f664bcbf78aa61799cb60e508b50c7642e97ec1c252a19d398bcd15063d279",
+        "runs": 1,
+        "block_percent": 3.085374,
+        "midpoint_percent": 3.085374,
+        "kit_percent": 24.661631,
+        "choke_percent": 4.136721,
+        "ceiling_percent": 48.990616,
+        "worst_model": {
+          "run": "voice",
+          "voices": 1,
+          "model": 29,
+          "level": 64
+        }
+      }
+    },
+    {
       "id": "mmsaw",
       "kind": "synth",
       "maintainer": "mmockett",

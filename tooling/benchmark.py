@@ -191,7 +191,8 @@ def append_callback(path, m):
     resources = m.definition['resources']
     if m.kind == 'drum':
         source = (ROOT / 'sdk/platform/opxy-1.2.1/benchmark_drum.cpp.in').read_text(encoding='utf-8')
-        source = (source.replace('@PREFIX@', m.prefix).replace('@CAPACITY@', str(resources['voiceCapacity']))
+        source = (source.replace('@PREFIX@', m.prefix).replace('@NAMESPACE@', m.definition['id'])
+                  .replace('@CAPACITY@', str(resources['voiceCapacity']))
                   .replace('@MODEL_COUNT@', str(resources['modelCount'])))
         with Path(path).open('a', encoding='utf-8', newline='\n') as output:
             output.write(source)

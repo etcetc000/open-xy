@@ -81,10 +81,13 @@ inline bool drum_bits(const i32* words, u32* packed) {
 inline void drum_put(u32* packed, u32 at, u32 bits, u32 value) {
     for (u32 b = 0; b < bits; ++b) packed[(at + b) / 15] |= ((value >> b) & 1u) << ((at + b) % 15);
 }
+// Runs on every block of a marked key, so no division: the Blackfin's is a software call.
 inline u32 drum_get(const u32* packed, u32 at, u32 bits) {
-    u32 value = 0;
-    for (u32 b = 0; b < bits; ++b) value |= ((packed[(at + b) / 15] >> ((at + b) % 15)) & 1u) << b;
-    return value;
+    u32 word = 0;
+    while (at >= 15) { at -= 15; ++word; }
+    u32 value = packed[word] >> at;
+    if (at + bits > 15) value |= packed[word + 1] << (15 - at);
+    return value & ((1u << bits) - 1u);
 }
 
 // A kit of up to 16 models: the controls in bits 0..55, 7 each, and the model

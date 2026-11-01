@@ -3,6 +3,9 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
+// The init preset's authored settings, shared with tooling.adapters.default_preset
+// (write_builder inlines this same file's content for the offline export).
+import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
 export const PROFILE_SHA256 = '4db03aa85c6fa3ecaeb9961418413dfcfeef62fca9a10e3565ebb1a9511ff9d6';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
@@ -773,7 +776,10 @@ export async function recoverFirmware(kit, input, layout = null) {
 }
 
 export function presetPath(machine) {
-  if (machine.kind === 'effect' || machine.kind === 'player') return null;
+  // An aux track-control machine has no catalog entry and is never an instrument;
+  // its presets live under content/aux_presets/ instead (#234, not yet merged:
+  // trackControl.aux is a placeholder until that PR defines its real shape).
+  if (machine.kind === 'effect' || machine.kind === 'player' || machine.trackControl?.aux) return null;
   check(['synth', 'drum', 'sample'].includes(machine.kind) && /^[a-z][a-z0-9_]{0,14}$/.test(machine.id),
     'Invalid preset instrument');
   return `content/presets/${machine.id}/default.json`;
@@ -812,26 +818,12 @@ function defaultPreset(machine) {
   check(amp && typeof amp === 'object' && !Array.isArray(amp) &&
     Object.entries(amp).every(([key, value]) => ['attack', 'decay', 'release', 'sustain'].includes(key) &&
       Number.isInteger(value) && value >= 0 && value <= 32767), 'Invalid preset amp defaults');
-  // Authored init settings in the device's version-4 preset structure. Engine
-  // controls come from its catalog, never from a copied factory sound. Volume
-  // 16384 is half scale: the device's gain readout shows 50.
+  const template = structuredClone(DEFAULT_PRESET_TEMPLATE);
   return {
-    engine: {
-      bendrange: 8191, highpass: 0,
-      modulation: Object.fromEntries(['aftertouch', 'modwheel', 'pitchbend', 'velocity']
-        .map(source => [source, {amount: 16384, target: 0}])),
-      params: [...entry.default_params], playmode: 'poly',
-      'portamento.amount': 0, 'portamento.type': 0, transpose: 0,
-      'tuning.root': 0, 'tuning.scale': 0, 'velocity.sensitivity': 0, volume: 16384, width: 0,
-    },
-    envelope: {
-      // Match a device-saved minimum amp release: the stored endpoint is 32767.
-      amp: {attack: 128, decay: 8192, release: 32767, sustain: 32767, ...amp},
-      filter: {attack: 0, decay: 0, release: 0, sustain: 32767},
-    },
-    fx: {active: false, params: [0, 0, 0, 0, 0, 32767, 0, 0], type: 'svf'},
-    lfo: {active: false, params: [0, 0, 0, 0, 0, 0, 0, 0], type: 'value'},
-    octave: 0, platform: 'OP-XY', regions: [], type: entry.type, version: 4,
+    ...template,
+    engine: {...template.engine, params: [...entry.default_params]},
+    envelope: {...template.envelope, amp: {...template.envelope.amp, ...amp}},
+    type: entry.type,
   };
 }
 
