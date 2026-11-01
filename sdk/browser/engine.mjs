@@ -66,6 +66,11 @@ export class PreviewEngine {
     // At 44.1 kHz the bound is 63 samples (1.43 ms); never restart voice phase.
   }
 
+  // A drum kit's previewed model; synth previews ignore it.
+  setModel(model) {
+    if (!Number.isInteger(model) || model < 0 || model > 127) throw new Error('Invalid drum model');
+    if (this.api.opxy_preview_model) this.api.opxy_preview_model(model);
+  }
   noteOn(note, velocity = 0.8) {
     if (!Number.isInteger(note) || note < 0 || note > 127 ||
         !Number.isFinite(velocity) || velocity <= 0 || velocity > 1) return false;

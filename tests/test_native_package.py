@@ -126,7 +126,7 @@ class PackageVerification(unittest.TestCase):
                                      for m in self.linked if m.kind != 'player'})
         original = json.loads(self.catalog)
         current = json.loads((self.package / 'candidate/content/op1_factory.json').read_bytes())
-        for key, kinds in (('engine_types', ('synth', 'sample')), ('fx_types', ('effect',)), ('seq_types', ('player',))):
+        for key, kinds in (('engine_types', ('synth', 'drum', 'sample')), ('fx_types', ('effect',)), ('seq_types', ('player',))):
             names = [m.native_name for m in self.linked if m.kind in kinds]
             cut = len(original[key])
             self.assertEqual(current[key][:cut], original[key])

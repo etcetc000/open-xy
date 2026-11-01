@@ -1,6 +1,7 @@
 # Display API
 
-A synth draws its own page. Display code runs separately from audio. Each
+A synth draws its own page, as from SDK 1.8 may a sample engine on the
+sampler's page ([own screen](api.md#own-screen)). Display code runs separately from audio. Each
 frame it fills a bounded frame, which the SDK's browser and native renderers
 apply to the machine's artwork, `panel.svg.fragment`. This is retained
 drawing: the artwork's elements are drawn by the device, and the frame moves,
@@ -16,7 +17,7 @@ patterns are the machine's own code filling nodes; see
 
 ## Declaration
 
-Each synth declares its frame's budget in `resources.display` of
+Each synth, or sample engine with its own screen, declares its frame's budget in `resources.display` of
 `definition.json` and names the same shape as its C++ frame type. The SDK sizes
 the native renderer, the browser renderer and the artwork bindings from that
 declaration; a mismatch fails to compile.
@@ -36,7 +37,7 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | --- | --- |
 | `paths` | 0..4 mutable outlines; they are nodes `0..paths-1` |
 | `points` | 2..64 points per outline; 0 when there are no paths |
-| `nodes` | `paths`..256 transformable elements |
+| `nodes` | `paths`..512 transformable elements; more than 256 need `"sdk": "1.8"` |
 | `texts` | 0..32 text slots; more than 4 need `"sdk": "1.3"`, more than 16 `"sdk": "1.7"` |
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
@@ -135,8 +136,19 @@ eight of its controls, `track` is the send (14 or 15), and two fields follow
 the note activity: `shift`, 1 while Shift is held on an effect with a
 [shift row](api.md#effect-pages-and-shift-rows), and `choices`, each shift
 control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
-Previews use drawing ABI 3 with an 84-byte input; the browser host still
-accepts ABI 1 and 2.
+
+### Shift and a drum kit's machine (SDK 1.8)
+
+| Field | Meaning |
+| --- | --- |
+| `shift` | 1 while Shift is held on a page with Shift controls (a drum kit's), else 0. |
+| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. They hold whether or not Shift is held, so a screen can show them in its header either way. |
+| `model` | A drum kit's selected key's model. |
+
+A screen that draws its own header (the two-page header) shows the Shift
+controls in its edited row while `shift` is 1, as the stock header does. The
+previews use drawing ABI 4, an 88-byte input; ABI 3 (84 bytes) ends after
+`choices`.
 
 ## Frame
 
@@ -222,6 +234,28 @@ settle within 0.15 seconds and reverse continuously on a second press.
 Initialization, track changes and reduced motion snap to the selected page.
 The helper reads every `shown` position, including layouts whose first
 column is shared. It does not touch the machine's audio or parameter state.
+
+### Sample overview
+
+From SDK 1.8, a sample engine's [own screen](api.md#own-screen) can draw its sample.
+[sample_overview.hpp](../sdk/include/opxy/sample_overview.hpp) gives display
+code `opxy_sample_overview()`, never null: the selected track's sample as the
+engine plays it.
+
+| Field | Contract |
+| --- | --- |
+| `generation` | Changes whenever a different overview is published, including when the same file is replaced or reloaded; never 0 once loaded. Redraw a waveform when it moves |
+| `assigned` | 0 while the track holds no sample: say how to load one |
+| `loaded` | 0 until the overview is ready, while the sample loads and the file worker reads it. The fields below it are then 0, never the last sample's |
+| `frames`, `rate`, `channels` | The whole sample's length, rate and channels |
+| `begin`, `end`, `reverse` | The outer markers, in frames, as the engine plays them, and 1 if it plays backwards. These follow edits in any frame |
+| `low`, `high` | 96 bins of equal length across the whole sample: the smallest and largest 16-bit value of any channel in each |
+
+The file worker reads the sample in the background; the screen only copies the
+result, so a long sample never stalls a frame, and the overview follows the sample
+through replacement, eviction and reload. Audio callbacks never call it.
+In the browser preview it stays empty unless the host writes one through the
+`opxy_display_sample` export.
 
 ## Artwork
 

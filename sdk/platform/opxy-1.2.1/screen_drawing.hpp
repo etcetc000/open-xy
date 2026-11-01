@@ -8,6 +8,8 @@
 #include "note_activity.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
+// Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
+extern "C" void sdk_sample_overview_update(opxy::u32) __asm__("sdk_sample_overview_update");
 
 namespace opxy { namespace screen { namespace {
 // One typed GUI state, input and frame; never accessed by audio callbacks.
@@ -15,6 +17,42 @@ binding::DisplayState display_state;
 u32 display_activation;
 draw::Input display_input;
 binding::Frame display_frame;
+
+// A drum kit's display is struck only by its selected pad's notes. Audio and
+// GUI are separate roles, so this reads only GUI state: when stock's note
+// counter moves, the pitches that started since the last frame (newly held,
+// or released since) are mapped to their pads. A start no pitch accounts for
+// strikes as before, so the screen never misses a hit it cannot place.
+struct PadNotes { u32 track, valid, notes, serial; u8 held[128], released[128], now[128], now_released[128]; };
+PadNotes pad_notes;
+u32 display_note_serial(const Controls& controls) {
+    if (controls.track >= 8) return 0;
+    const u32 notes = note_serial(controls.track);
+    if (!controls.pad) {
+        pad_notes.valid = 0;
+        return notes;
+    }
+    PadNotes& s = pad_notes;
+    sdk_note_pitches(controls.track, s.now, s.now_released);
+    if (s.valid && s.track == controls.track && notes != s.notes) {
+        bool placed = false, struck = false;
+        for (u32 p = 0; p < 128 && !struck; ++p) {
+            const bool released = s.now_released[p] != s.released[p];
+            if (!(s.now[p] && !s.held[p]) && !(released && (s.now[p] || !s.held[p]))) continue;
+            placed = true;
+            struck = sdk_drum_pad(controls.track, p) == controls.pad;
+        }
+        if (struck || !placed) ++s.serial;
+    }
+    for (u32 p = 0; p < 128; ++p) {
+        s.held[p] = s.now[p];
+        s.released[p] = s.now_released[p];
+    }
+    s.track = controls.track;
+    s.notes = notes;
+    s.valid = 1;
+    return s.serial;
+}
 
 // Machine: ids[] names the artwork's nodes (the first are the mutable paths),
 // then its text slots, then its palette entries.
@@ -49,18 +87,21 @@ template <class Machine> struct Drawing {
             display_input.shown[i] = controls.shown[i];
         }
         for (u32 i = 0; i < parameter_slots; ++i) display_input.slots[i] = controls.slots[i];
+        display_input.model = controls.model;
+        display_input.shift = controls.choosing ? 1 : controls.shift;
+        for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         display_input.elapsed = o->delta;
         display_input.track = controls.track;
-        display_input.note_serial = controls.track < 8 ? note_serial(controls.track) : 0;
+        display_input.note_serial = display_note_serial(controls);
         sdk_display_note_activity(controls.track, &display_input);
+        // A sample engine's own screen reads its sample (opxy_sample_overview).
+        if (Machine::sample) sdk_sample_overview_update(controls.track);
         display_input.reduced_motion = 0;
-        display_input.shift = controls.shift;
-        for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         binding::display_render(&display_state, &display_input, &display_frame);
         if (!binding::display_valid(&display_frame)) return;
         Renderer::apply(o,display_frame);
-        // Stock wrote every value this frame; a header string replaces its own.
-        apply_header(&o->base, display_frame);
+        // Keep the drum Shift page blank; other screens share header overrides.
+        if (!controls.choosing) apply_header(&o->base, display_frame);
     }
 
     // Incoming elapsed time is the dispatcher's, in Q10 seconds.

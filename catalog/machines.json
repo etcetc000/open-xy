@@ -395,7 +395,18 @@
       "id": "grains",
       "kind": "sample",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Grains",
+      "tag": "v1.1.0",
+      "commit": "dee67f6a3348959c1759143525b1fdeddff703ea",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v1",
+        "commit": "dee67f6a3348959c1759143525b1fdeddff703ea",
+        "firmware_sha256": "6aca8365d9188bfbafc858447a869d1d0792c59355e73c89b736bf6eb7da9150",
+        "runs": 1,
+        "block_percent": 3.067063
+      }
     },
     {
       "id": "wane",

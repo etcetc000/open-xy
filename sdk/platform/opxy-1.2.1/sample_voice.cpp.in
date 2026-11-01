@@ -191,9 +191,10 @@ static int render(void* self, opxy::i32* output, const opxy::i32* parameters) {
         slot->tuning = factor;
         slot->pitch_cents = opxy::platform::sample_pitch_cents(factor);
     }
-    // The drum page edits outer markers only; hidden inner loop markers do not narrow playback.
+    // The drum page edits outer markers only, and an engine drawing its own screen
+    // spans them: hidden inner loop markers do not narrow playback.
     const opxy::SampleBlock block{output, parameters, increments, opxy::platform::audio_transport(),
-        opxy::platform::sample_region(region, slot->frames, slot->pitch_cents, @DRUM_CONTROLS@ != 0), slot->analysis,
+        opxy::platform::sample_region(region, slot->frames, slot->pitch_cents, @OUTER_MARKERS@ != 0), slot->analysis,
         settings(region), @STEREO@ ? 2u : 1u, track_transpose(slot->track), slot->drum_transpose, false};
     @NAMESPACE@::render_sample(slot->voice, block);
     return 0;

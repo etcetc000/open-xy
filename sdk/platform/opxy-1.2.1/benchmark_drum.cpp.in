@@ -1,0 +1,73 @@
+
+// A profiling build's workload for a drum kit (tooling/benchmark.py drum_cases),
+// through the adapter's own start and render entries, with a private pitch and
+// amplitude rather than stock's: one voice of each model at each level, stored and
+// read back as a key is; the kit's own keys at full polyphony; retriggers on one
+// key, which the same-key choke fades; and full polyphony of the heaviest model.
+// A note's start is timed with its block. Run with playback stopped, on handles
+// stock has no note on, and freed afterwards.
+#include "benchmark.hpp"
+extern "C" opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32) __asm__("@PREFIX@_benchmark");
+namespace {
+// How often a voice is struck: every 100 blocks, 145 ms, so a short drum still
+// costs its attack over a run.
+const opxy::u32 kBenchmarkHit = 100;
+const opxy::u32 kBenchmarkVoices = @CAPACITY@ < 2 ? 2 : @CAPACITY@;
+const opxy::u8 kBenchmarkLevels[3] = {64, 0, 127};
+// The heaviest model and level so far, from the single-voice runs before these.
+opxy::u32 benchmark_model, benchmark_level, benchmark_most;
+opxy::i32 benchmark_marked() { return opxy::i32(42u * 32537631u + 16268815u); }   // stock's payload word for type 7
+}
+opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
+    using namespace opxy;
+    using namespace opxy::benchmark;
+    const u32 single = @MODEL_COUNT@ * 3u;
+    const bool one = run >= 1 && run <= single, choke = run == single + 1;
+    const u32 sounding = one ? 1 : choke ? 2 : kBenchmarkVoices;
+    u32 model = one ? (run - 1) / 3 : benchmark_model, level = one ? (run - 1) % 3 : benchmark_level;
+    // A kit's own run plays each key as it starts, unmarked, from its defaults.
+    i32 payload[1 + platform::kDrumStorageWords] = {};
+    if (run != 0) {
+        u8 stored[8];
+        for (u32 i = 0; i < 8; ++i) stored[i] = kBenchmarkLevels[level];
+        payload[0] = benchmark_marked();
+        platform::drum_pack(model, stored, payload + 1, storage());
+    }
+    u32 pitch[block_frames];
+    i32 gain[block_frames];
+    i32 parameters[8];
+    for (u32 i = 0; i < block_frames; ++i) { pitch[i] = 25480118u >> 16; gain[i] = 0x7fffffff; }   // C4, full
+    for (u32 i = 0; i < 8; ++i) parameters[i] = 0x40000000;
+    void* voices_of[kBenchmarkVoices];
+    for (u32 v = 0; v < sounding; ++v) voices_of[v] = @PREFIX@_factory(kVoiceIndices - 1 - v, 0);
+    Stats stats{};
+    i32 output[block_frames];
+    for (u32 block = 0; block < blocks; ++block) {
+        u32 spent = cycles();
+        if (choke) {
+            // Two voices taking turns on one key, each cutting the last.
+            if (block % 8u == 0) @PREFIX@_start(voices_of[(block / 8u) % 2u], 53);
+        } else {
+            // Each voice on a key of its own, or the same-key choke would cut them down to one.
+            for (u32 v = 0; v < sounding; ++v)
+                if ((block + v * 5u) % kBenchmarkHit == 0) @PREFIX@_start(voices_of[v], 53 + v % 24u);
+        }
+        spent = cycles() - spent;
+        for (u32 v = 0; v < sounding; ++v) {
+            const u32 begin = cycles();
+            render_voice(voices_of[v], output, payload[0] ? payload : nullptr, parameters, pitch, gain);
+            spent += cycles() - begin;
+            stats.observe(output, block_frames);
+        }
+        stats.add(spent);
+    }
+    for (u32 v = 0; v < sounding; ++v) @PREFIX@_destroy(voices_of[v]);
+    // A level can silence a model, even the heaviest; what it cost still counts, so
+    // those runs always report. Only the kit's own keys must sound.
+    if (run != 0) stats.audible = 1;
+    if (one) {
+        const u32 average = stats.total_high ? 0xffffffffu : stats.total_low / blocks;
+        if (run == 1 || average > benchmark_most) { benchmark_most = average; benchmark_model = model; benchmark_level = level; }
+    }
+    return stats;
+}

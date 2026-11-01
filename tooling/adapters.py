@@ -63,13 +63,49 @@ def generate_voice(directory, m, sweep=False):
                   PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
                   CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
-    return expand('voice.cpp.in', values, Path(directory) / 'voice.cpp')
+    if m.kind == 'drum':
+        values['MODEL_COUNT'] = m.definition['resources']['modelCount']
+        values['CHOKE'] = 'true' if m.definition['resources'].get('chokeSameKey', 0) else 'false'
+    path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
+    return append_callback(path, m) if m.kind == 'drum' else path
 
 
-def generate_voice_preview(directory, definition):
-    """Browser preview voices for a synth definition (curated or local)."""
-    return expand('voice_preview.cpp.in', voice_values(validate_definition(definition, 'synth')),
-                  Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
+def generate_drum_callbacks(directory, machines):
+    declarations, rows = [], []
+    for m in machines:
+        if m.kind != 'drum':
+            continue
+        p = m.prefix
+        declarations += [f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
+                         f'int {p}_record_ready() __asm__("{p}_record_ready");',
+                         f'void {p}_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_defaults");',
+                         f'const char* {p}_drum_label(opxy::u32, opxy::u32) __asm__("{p}_drum_label");',
+                         f'const char* {p}_drum_model_name(opxy::u32) __asm__("{p}_drum_model_name");',
+                         f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");']
+        groups = m.definition['resources'].get('modelGroups', [])
+        if groups:
+            declarations += [f'static const opxy::u8 {p}_group_sizes[] = {{{", ".join(str(g["count"]) for g in groups)}}};',
+                             f'static const char* const {p}_group_names[] = {{{", ".join(json.dumps(g["label"]) for g in groups)}}};']
+        # Audio classification must not require a screen constructed on the GUI role.
+        rows.append(f'    {{{p}_engine_id, {p}_record_ready, {m.definition["resources"]["modelCount"]}, '
+                    f'{p}_drum_defaults, {p}_drum_label, {p}_drum_model_name, {p}_drum_count, {len(groups)}, '
+                    f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}}},')
+    source = '#include "drum_machines.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
+    source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
+    source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'
+    destination = Path(directory) / 'drum_callbacks.cpp'
+    destination.write_text(source, encoding='utf-8', newline='\n')
+    return destination
+
+
+def generate_voice_preview(directory, definition, *, kind='synth'):
+    """Browser preview voices for a synth or drum definition (curated or local)."""
+    require(kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
+    values = voice_values(validate_definition(definition, kind))
+    count = definition['resources'].get('modelCount', 0)
+    values['DRUM_SELECT'] = (f"{values['NAMESPACE']}::drum_select(*voice, shared, owner(voice), drum_model < {count} ? drum_model : 0);\n    "
+                             if kind == 'drum' else '')
+    return expand('voice_preview.cpp.in', values, Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
 
 
 def drawing_layout(display):
@@ -177,7 +213,7 @@ def generate_registration(directory, m):
     addresses = [f'{p}_{own}factory', f'{p}_{own}parameter_name', f'{p}_{own}name',
                  f'{p}_fx_id' if effect else f'{p}_engine_id', f'{p}_{own}page_id']
     declarations = [f'extern const char {symbol}[] __asm__("{symbol}");' for symbol in addresses]
-    objects = [f'const opxy::platform::Record record = {{{", ".join(addresses)}, {int(m.kind == "sample")}}};']
+    objects = [f'const opxy::platform::Record record = {{{", ".join(addresses)}, {int(m.kind in ("sample", "drum"))}}};']
     entries, screen = {}, 'nullptr'
     if m.display != 'stock':
         declarations += [f'extern char {p}_screen_state[] __asm__("{p}_screen_state");',
@@ -186,8 +222,17 @@ def generate_registration(directory, m):
                          f'char* {p}_screen_ctor(char*, opxy::u32) __asm__("{p}_screen_ctor");']
         objects.append(f'const opxy::platform::Screen screen = {{{p}_screen_state, {screen_bytes(m)}, '
                        f'{p}_screen_vtable, {p}_screen_asset, {p}_screen_ctor}};')
-        screen = '&screen'
-        entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
+        if m.kind == 'sample':
+            # A sample engine keeps its stock page; its own screen has a page of its
+            # own, registered and checked apart from the engine.
+            declarations.append(f'extern const char {p}_screen_page_id[] __asm__("{p}_screen_page_id");')
+            objects.append(f'const opxy::platform::Record screen_record = {{{", ".join(addresses[:4])}, '
+                           f'{p}_screen_page_id, 1}};')
+            entries[p + '_screen_register()'] = 'sdk_register_screen(&screen_record, &screen)'
+            entries[p + '_screen_ready()'] = 'sdk_screen_ready(&screen_record, &screen)'
+        else:
+            screen = '&screen'
+            entries[p + '_screen_register()'] = 'sdk_register_screen(&record, &screen)'
     if effect:
         entries[p + '_fx_register()'] = 'sdk_register_effect(&record)'
         entries[p + '_ready()'] = f'sdk_effect_ready(&record, {screen})'
@@ -228,6 +273,7 @@ def generate_screen(directory, m):
 namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
+    static const bool sample = {'true' if getattr(m, 'kind', 'synth') == 'sample' else 'false'};   // reads its sample's overview
 }};
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};
@@ -265,8 +311,10 @@ def generate_sample_voice(directory, m, benchmark=False):
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   LABELS=stock_labels(m), CAPACITY=resources['voiceCapacity'],
                   ANALYSIS=resources.get('sampleAnalysis', 0), STEREO=resources.get('stereoOutput', 0),
-                  CHOKE=resources.get('chokeSameKey', 0), DRUM_KEYS=int(m.identity['page'] == 7),
+                  CHOKE=resources.get('chokeSameKey', 0), DRUM_KEYS=int(m.sample_page == 7),
                   PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0),
+                  # The drum page edits outer markers only; an engine with its own screen spans them.
+                  OUTER_MARKERS=int(bool(resources.get('drumControls', 0)) or 'display' in resources),
                   SLICE_TIMING=resources.get('sliceTiming', 0))
     path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
@@ -282,7 +330,7 @@ def generate_sample_callbacks(directory, machines):
         declarations.append(f'int {p}_ready() __asm__("{p}_ready");')
         # The engine ID is an absolute symbol the linker supplies; the stock page is the machine's own.
         declarations.append(f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");')
-        fields = [p + '_engine_id', str(m.identity['page']), p + '_ready']
+        fields = [p + '_engine_id', str(m.sample_page), p + '_ready']
         for flag, entries in SAMPLE_SERVICES:
             declared = bool(resources.get(flag, 0))
             if flag == 'sampleAnalysis':
@@ -322,15 +370,21 @@ def generate_synth_controls(directory, machines):
     """Synth ownership, alternate selection and continuous fine controls."""
     declarations, rows, formatters, lfo_rows = [], [], [], []
     for m in machines:
-        if m.kind in ('synth', 'sample'):
+        if m.kind in ('synth', 'drum', 'sample'):
             declarations.append(f'int {m.prefix}_record_ready() __asm__("{m.prefix}_record_ready");')
             declarations.append(f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");')
             controls = ', '.join(str((i if position is None else position) % 4) for i, position in enumerate(control_positions(m.definition)))
             lfo_rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_record_ready, {len(m.definition["parameters"])}, {{{controls}}}}},')
-        if m.kind not in ('synth', 'effect'):
+        # A sample engine with its own screen pages its eight controls as a paged synth does.
+        own_screen = m.kind == 'sample' and m.display != 'stock'
+        if m.kind not in ('synth', 'drum', 'effect') and not own_screen:
             continue
         effect = m.kind == 'effect'
-        following = control_cycles(m.definition) or list(range(8))
+        count = len(m.definition['parameters'])
+        if own_screen:
+            following = [(i + 4) % 8 if count > 4 and (i + 4) % 8 < count else i for i in range(8)]
+        else:
+            following = control_cycles(m.definition) or list(range(8))
         continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum' and not p.get('absent'))
         absent = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p.get('absent'))
         steps = [enum_steps(p) for p in m.definition['parameters']]
@@ -374,7 +428,8 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-        page = paged(m.definition)
+        # A drum kit's press always pages its whole row.
+        page = m.kind == 'drum' or own_screen and count > 4 or paged(m.definition)
         # An effect's shift row: its choice counts and titles; other rows leave the fields zero.
         extra = ''
         shift = shift_parameters(m.definition)
@@ -484,7 +539,7 @@ def catalog_entry(m):
                 ',\n            "id": ' + str(m.identity['effect'] if m.kind == 'effect' else m.identity['player'] + PLAYER_CATALOG_OFFSET) +
                 ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }')
     return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
-            ',\n            "default_params": ' + json.dumps(catalog_defaults(m.definition)) + '\n        }\n')
+            ',\n            "default_params": ' + json.dumps([16384] * 8 if m.kind == 'drum' else catalog_defaults(m.definition)) + '\n        }\n')
 
 
 

@@ -54,7 +54,7 @@ without these leaves remains full-screen, with no header inserted. The existing
 two-row headers; no master-specific drawing interface is needed.
 
 All normal display limits apply: at most four closed mutable outlines, 64 points
-per outline, 256 nodes, 32 texts and 16 palette entries. Mutable points are local
+per outline, 512 nodes, 32 texts and 16 palette entries. Mutable points are local
 coordinates within ±64 pixels; position and scale their nodes normally. Do not
 pass collapsed filled shapes to stock; hide them while their area is zero.
 Artwork uses the same numeric, paint, binding and reference safety checks as

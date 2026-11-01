@@ -2,12 +2,15 @@
 // screen slots (tooling/stock_tables.py). sdk_screen_owned is in the
 // collection's startup glue.
 #include "screen_order.hpp"
+#include "stock.hpp"
 
 extern "C" {
 opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 opxy::u32 (*sdk_screen_substitute)(opxy::u32) __asm__("sdk_screen_substitute");
 int sdk_screen_owned(opxy::u32) __asm__("sdk_screen_owned");
+opxy::u32 sdk_sample_screen(opxy::u32) __asm__("sdk_sample_screen");
 opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor*, opxy::u32) __asm__("sdk_screen_next");
+opxy::u32 sdk_screen_sample_page() __asm__("sdk_screen_sample_page");
 void sdk_send_refresh() __asm__("sdk_send_refresh");
 }
 
@@ -22,10 +25,13 @@ opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor* cursor, opxy::u32 select
     // Once a frame, at its first slot: the sends' effect controls 5..8.
     if (first) sdk_send_refresh();
     const opxy::u32 substitute = first && sdk_screen_substitute ? sdk_screen_substitute(selected) : 0;
-    const opxy::u32 more = order.advance(*cursor, selected, substitute, sdk_screen_owned);
+    const opxy::u32 more = order.advance(*cursor, selected, substitute, sdk_screen_owned, sdk_sample_screen);
     if (first) activation.select(order.to ? order.to : order.promoted);
     return more;
 }
+
+// This frame's sample engine's own screen, or 0.
+opxy::u32 sdk_screen_sample_page() { return order.sample_screen(); }
 
 opxy::u32 sdk_screen_activation(opxy::u32 page, opxy::u32 track) {
     return activation.token(page, track);

@@ -80,6 +80,16 @@ for (const [i, param] of parameters.entries()) {
   });
   bindKnob($(`knob-${id}`), $(id));
 }
+// A drum kit's model, chosen on the device with Shift and the first encoder.
+let model = 0;
+const models = previewManifest.definition?.resources?.modelCount ?? 0;
+if (models) {
+  const item = document.createElement('div');
+  item.className = 'control';
+  item.innerHTML = `<label for="drum-model">Shift + 1 / Model</label><output id="value-drum-model">1</output><input id="drum-model" type="range" min="0" max="${models - 1}" step="1" value="0" aria-label="Model">`;
+  $('controls').append(item);
+  $('drum-model').addEventListener('input', event => { model = Number(event.target.value); update(); });
+}
 for (const [name, preset] of Object.entries(presets)) {
   const button = document.createElement('button');
   button.textContent = name;
@@ -90,7 +100,7 @@ function draw(elapsed = 0) {
   if (display) {
     const input = shownControls(parameterWords(), shown);
     try {
-      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity));
+      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity, model));
     }
     catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
   }
@@ -130,6 +140,7 @@ function update() {
   }
   for (const mode of VIEWS) $(mode).setAttribute('aria-pressed', String(mode === view));
   send({ type: 'parameters', value: parameterWords() });
+  if (models) { $('value-drum-model').textContent = String(model + 1); send({ type: 'model', value: model }); }
   draw();
 }
 async function enableAudio() {
@@ -170,6 +181,7 @@ async function enableAudio() {
           if (context.state !== 'running') panic();
         };
         send({ type: 'parameters', value: parameterWords() });
+        if (models) send({ type: 'model', value: model });
         await Promise.all([context.resume(), ready]);
       }
       await context.resume();
