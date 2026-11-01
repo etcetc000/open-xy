@@ -9,7 +9,7 @@ const browserRoot = resolve(root, 'builder');
 const renderers = ['controls.mjs', 'display.mjs', 'engine.mjs', 'processor.mjs', 'graphics.mjs'].map(name => resolve(root, 'sdk/browser', name));
 // Data core.mjs shares with the tooling: the init preset template (tooling.adapters.default_preset).
 const sharedData = [resolve(root, 'tooling/default_preset.json')];
-const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'graphics-configuration.mjs', 'machine-snapshots.mjs', 'graphics-dialog.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs'];
+const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'graphics-configuration.mjs', 'machine-snapshots.mjs', 'graphics-dialog.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs', 'manager.mjs'];
 // Vite's /@fs/ URLs: C:/x becomes /@fs/C:/x and /x becomes /@fs/x.
 const fsUrl = path => posix.join('/@fs/', normalizePath(path));
 const fsFile = url => { const path = url.slice(5); return /^[A-Za-z]:\//.test(path) ? path : '/' + path; };
@@ -97,9 +97,10 @@ export default defineConfig(async ({command, mode}) => {
       transformIndexHtml: {
         order:'pre',
         handler(html) {
+          const connector = " http://127.0.0.1:8920";
           const connect = command === 'serve' ? "'self' ws://127.0.0.1:8918 ws://localhost:8918" : "'self'";
           return html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/,
-            `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src ${connect}; base-uri 'none'; form-action 'none'">`)
+            `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src ${connect}${connector}; base-uri 'none'; form-action 'none'">`)
             .replace('<!-- kit -->','<script id="kit-data" type="application/json"></script>')
             .replace('<!-- app -->','<script type="module" src="/entry.mjs"></script>');
         },

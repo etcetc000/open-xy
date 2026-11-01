@@ -5,6 +5,7 @@ import unittest
 from tooling.native import audio_stack_bounds
 
 BASE = 0x1000
+DATA = [(BASE, BASE + 0x100)]
 
 
 def disassembly(functions):
@@ -32,12 +33,12 @@ class AudioStack(unittest.TestCase):
     def test_bound_is_the_deepest_direct_path(self):
         text = disassembly([('render', ['LINK 0x10;', f'CALL 0x{BASE + 0x108:x} <leaf>;', 'UNLINK;', 'RTS;']),
                             ('leaf', ['[--SP] = R7;', 'R7 = [SP++];', 'RTS;'])])
-        self.assertEqual(audio_stack_bounds(text, image(BASE + 0x100), BASE, SYMBOLS, MACHINE), {'m': 0x18 + 4})
+        self.assertEqual(audio_stack_bounds(text, image(BASE + 0x100), BASE, SYMBOLS, MACHINE, DATA), {'m': 0x18 + 4})
 
     def test_recursion_fails(self):
         text = disassembly([('render', ['LINK 0x0;', f'CALL 0x{BASE + 0x100:x} <render>;', 'RTS;'])])
         with self.assertRaisesRegex(ValueError, 'Recursive'):
-            audio_stack_bounds(text, image(BASE + 0x100), BASE, SYMBOLS, MACHINE)
+            audio_stack_bounds(text, image(BASE + 0x100), BASE, SYMBOLS, MACHINE, DATA)
 
     def test_drum_render_uses_alternate_callback(self):
         # Stock's drum path calls +12; +8 only clears an unused output buffer.
@@ -46,13 +47,39 @@ class AudioStack(unittest.TestCase):
         module = bytearray(image(BASE + 0x100))
         module[12:16] = (BASE + 0x102).to_bytes(4, 'little')
         machines = [SimpleNamespace(id='m', kind='drum', prefix='m')]
-        self.assertEqual(audio_stack_bounds(text, module, BASE, SYMBOLS, machines), {'m': 0x108})
+        self.assertEqual(audio_stack_bounds(text, module, BASE, SYMBOLS, machines, DATA), {'m': 0x108})
 
     def test_drum_render_recursion_fails(self):
         text = disassembly([('render', [f'CALL 0x{BASE + 0x100:x} <render>;', 'RTS;'])])
         machines = [SimpleNamespace(id='m', kind='drum', prefix='m')]
         with self.assertRaisesRegex(ValueError, 'Recursive'):
-            audio_stack_bounds(text, image(BASE + 0x100, 12), BASE, SYMBOLS, machines)
+            audio_stack_bounds(text, image(BASE + 0x100, 12), BASE, SYMBOLS, machines, DATA)
+
+    def test_instruction_bytes_are_not_indirect_call_targets(self):
+        text = disassembly([('render', ['LINK 0x10;', 'CALL (P0);', 'UNLINK;', 'RTS;']),
+                            ('parser', [f'CALL 0x{BASE + 0x108:x} <parser>;', 'RTS;'])])
+        module = bytearray(image(BASE + 0x100)) + bytearray(0x100)
+        # Linked display instructions happened to contain this address as a
+        # word. They do not put the background parser into an audio dispatch.
+        module[0x108:0x10c] = (BASE + 0x108).to_bytes(4, 'little')
+        self.assertEqual(audio_stack_bounds(text, module, BASE, SYMBOLS, MACHINE, DATA), {'m': 0x18})
+        # The same address in an actual data table must still reject recursion.
+        module[0x40:0x44] = (BASE + 0x108).to_bytes(4, 'little')
+        with self.assertRaisesRegex(ValueError, 'Recursive'):
+            audio_stack_bounds(text, module, BASE, SYMBOLS, MACHINE, DATA)
+
+    def test_indirect_data_target_contributes_its_stack(self):
+        text = disassembly([('render', ['LINK 0x10;', 'CALL (P0);', 'UNLINK;', 'RTS;']),
+                            ('leaf', ['LINK 0x100;', 'UNLINK;', 'RTS;'])])
+        module = bytearray(image(BASE + 0x100))
+        module[0x40:0x44] = (BASE + 0x108).to_bytes(4, 'little')
+        self.assertEqual(audio_stack_bounds(text, module, BASE, SYMBOLS, MACHINE, DATA), {'m': 0x120})
+
+    def test_data_ranges_must_be_inside_the_initialized_module(self):
+        text = disassembly([('render', ['RTS;'])])
+        with self.assertRaisesRegex(ValueError, 'data outside'):
+            audio_stack_bounds(text, image(BASE + 0x100), BASE, SYMBOLS, MACHINE,
+                               [(BASE, BASE + 0x104)])
 
     def test_native_routine_counts_its_declared_stack(self):
         # render calls a machine's native routine: its manifest's stackBytes count,

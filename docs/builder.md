@@ -4,6 +4,90 @@ Open-XY builds OP-XY firmware in the browser. It runs as a website or from a
 single `opxy-builder.html` file, including offline from `file://`. Firmware never
 leaves the browser.
 
+## Manage an installed collection
+
+In the hosted or locally served web UI, acknowledge the existing installation
+notice and choose **Manage my OP–XY**. This route is not offered in the offline
+`file://` builder export.
+The manager reads the loader records and checks the selected payload against its
+saved verified build before enabling changes. It lists installed machines,
+preserves their versions and numbers, and keeps all extensions selected.
+
+This route requires a resident collection kernel and the matching build inputs;
+an older Open-XY installation needs the one-time kernel installation described
+under [resident RAM collections](build.md#resident-ram-collections). It does not
+flash firmware, enter the dev menu or reboot the device automatically.
+
+Start the local connector from the SDK checkout:
+
+```sh
+python sdk.py manager --config <manager-config.json>
+```
+
+The connector builds and serves this same web UI on `http://127.0.0.1:8920` and
+prints a pairing link. Open that link, or enter its pairing key in the manager
+on open-xy.com or beta.open-xy.com. The key lasts only for this connector process.
+The connector listens only on loopback, accepts the named Open-XY origins, and
+requires the key for every API request. Starting it sends no device commands.
+Python, the pinned native tools and the SDK's Node dependencies are required.
+This first manager version uses the connector for catalog builds and transfers
+as well as local source folders; it does not compile arbitrary C++ in the browser.
+
+The configuration names the SDK snapshot that built the installed kernel,
+its verified kernel package, the current executable collection and pinned tools:
+
+```json
+{
+  "sdk": "/absolute/path/to/matching-sdk-snapshot",
+  "kernel_package": "/external/private/kernel-package",
+  "current_collection": "/external/private/current-collection",
+  "python": "/absolute/path/to/python",
+  "toolchain": "/absolute/path/to/pinned-toolchain/bin",
+  "compiler": "/absolute/path/to/pinned-toolchain"
+}
+```
+
+Keep the SDK snapshot unchanged: the native builder authenticates its complete
+provenance against the kernel package. Save new collections, resources, source
+snapshots and transfer backups outside every checkout. The connector uses the
+platform's private OPXY-SDK directory and remembers its completed builds there.
+It needs the matching collection's analysis report and layout, not just a copy
+of its executable file.
+
+1. Connect a normally running OP-XY over USB and close other MTP apps. Select
+   **Connect and read installed machines**. Allow Web MIDI access if prompted.
+   The page verifies the OP-XY identity and requests regular MTP. If it is
+   already in COM → M4 MTP, it reads it as-is.
+2. Uncheck installed machines to remove them; select catalog entries to add
+   their pinned releases. Installed versions are never silently upgraded.
+3. For your own machines, choose or drop a source folder containing
+   `machine.json` and `definition.json`. A parent folder can contain several
+   machines. Imports preserve relative paths, skip Git and environment folders,
+   and accept at most 4096 files and 64 MiB. Source code goes only to the local
+   connector. The matching SDK must support the machine's API and kind.
+4. Select **Build and check changes**. This snapshots sources, builds the whole
+   collection with the installed kernel's SDK, checks its resources and memory,
+   and verifies the retained sources, extensions and complete ID ledger. A
+   failed or incompatible build transfers nothing.
+5. Review the additions/removals and select **Apply changes to OP–XY**. The
+   connector rechecks that the device and active payload have not changed,
+   then uses the SDK's existing backup/readback installer. It stages the
+   inactive slot, resources and inventory first, and writes activation last.
+   Existing presets are preserved. New factory presets are not installed by
+   the collection manager; regular-MTP preset deployment remains unqualified.
+6. Reboot normally, wait at least 25 seconds after the normal screen appears,
+   and refresh. Changes stay disabled until the new generation is confirmed.
+
+The immutable inventory is stored as
+`projects/openxy/manifest-<payload-digest>.oxc`. Its checksum-checked body binds
+the names, kinds, identities, origins, extensions and ID ledger to the kernel
+and collection digest; the firmware never executes it. Legacy collections
+without an inventory can be recognized from the matching saved build after a
+full payload comparison. Another computer can read a stored inventory, but
+changes remain disabled until the matching build inputs are available there.
+An unrecognized collection, failed startup, mismatched inventory or missing
+source is never handled by silently dropping a machine.
+
 ## MTP troubleshooting on macOS
 
 Select **I’m having trouble connecting to MTP** in either the OS-copy guide or

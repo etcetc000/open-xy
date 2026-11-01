@@ -1,10 +1,14 @@
 import argparse
 import ast
+import contextlib
+import io
+import json
 import tempfile
 from pathlib import Path
 import unittest
 
-from tooling.checks import FIXTURES, fixture_environment, run_suite
+from tooling.checks import FIXTURES, fixture_environment, main, run_suite
+from tooling import native
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +52,7 @@ class CheckRunnerTests(unittest.TestCase):
             # Hosted Windows runners can expose TEMP through an 8.3 alias.
             self.assertEqual(Path(env['OPXY_TEST_NATIVE_ELF']),
                              (values['native_package'] / 'analysis/module.elf').resolve())
+            self.assertEqual(Path(env['OPXY_TEST_TOOLCHAIN']), values['toolchain'].resolve())
             values['stock_os'].unlink()
             with self.assertRaises(ValueError):
                 fixture_environment(self.options(**values), {})
@@ -60,3 +65,53 @@ class CheckRunnerTests(unittest.TestCase):
             result.skipped = [('case', 'missing input')]
             self.assertEqual(run_suite(require_all=True), 1)
             self.assertEqual(run_suite(require_all=False), 0)
+
+    def test_local_checks_require_native_inputs_instead_of_running_public_only(self):
+        with patch('tooling.checks.subprocess.run') as run, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(['--local']), 1)
+            run.assert_not_called()
+
+    def test_local_checks_forward_local_rebuild_and_still_require_every_fixture(self):
+        args = ['--local', '--native-package', '/package', '--stock-os', '/stock/os.ldr',
+                '--stock-content', '/stock/content', '--toolchain', '/tools', '--compiler', '/compiler']
+        with patch('tooling.checks.fixture_environment', return_value=({}, True)), \
+             patch('tooling.checks.resolve_toolchain', return_value=(Path('/tools'), Path('/compiler'))), \
+             patch('tooling.checks.require_release_host') as release, \
+             patch('tooling.checks.subprocess.run') as run, contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(args), 0)
+            release.assert_not_called()
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertTrue(any('verify' in command and '--local' in command for command in commands))
+            self.assertTrue(any('--require-all' in command for command in commands))
+            self.assertIn('Release qualification was not performed', output.getvalue())
+
+    def test_native_checks_keep_release_guard_by_default(self):
+        args = ['--native-package', '/package', '--stock-os', '/stock/os.ldr',
+                '--stock-content', '/stock/content', '--toolchain', '/tools', '--compiler', '/compiler']
+        with patch('tooling.checks.fixture_environment', return_value=({}, True)), \
+             patch('tooling.checks.resolve_toolchain', return_value=(Path('/tools'), Path('/compiler'))), \
+             patch('tooling.checks.require_release_host', side_effect=ValueError('release only')) as release, \
+             patch('tooling.checks.subprocess.run') as run, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 1)
+            release.assert_called_once()
+            run.assert_not_called()
+
+    def test_local_verify_rejects_a_foreign_host_before_building(self):
+        with tempfile.TemporaryDirectory() as temp:
+            package = Path(temp)
+            (package / 'analysis').mkdir()
+            (package / 'analysis/compile-report.json').write_text(json.dumps({'host': 'another-host'}))
+            with patch.object(native, 'host_platform', return_value='darwin-arm64'), \
+                 patch.object(native, 'require_release_host') as release, \
+                 patch.object(native, 'verification') as verify, contextlib.redirect_stderr(io.StringIO()) as error:
+                self.assertEqual(native.main(['--local', '--package', str(package), '--stock-os', 'unused'], 'verify'), 1)
+                self.assertIn('requires a package built on darwin-arm64', error.getvalue())
+                release.assert_not_called()
+                verify.assert_not_called()
+
+    def test_verify_keeps_release_guard_without_local_option(self):
+        with patch.object(native, 'require_release_host', side_effect=ValueError('release only')) as release, \
+             patch.object(native, 'verification') as verify, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(native.main(['--package', 'unused', '--stock-os', 'unused'], 'verify'), 1)
+            release.assert_called_once()
+            verify.assert_not_called()

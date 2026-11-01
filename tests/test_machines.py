@@ -32,6 +32,36 @@ def identity(kind, **changes):
     return dict(value, **changes)
 
 
+class DrumPresets(unittest.TestCase):
+    def preset(self):
+        return {'version': 4, 'platform': 'OP-XY', 'type': 'kit', 'engine': {'params': [16384]*8},
+                'regions': [{'model': 'fm slap', 'params': [0, 1, 16384, 32767],
+                             'playmode': 'oneshot', 'hikey': 53+i} for i in range(24)]}
+
+    def test_sample_free_drum_regions_are_retained_without_mutation(self):
+        value = self.preset()
+        expected = copy.deepcopy(value)
+        self.assertIs(machines.check_preset(value, 'kit', 'drum'), value)
+        self.assertEqual(value, expected)
+        for kind in ('synth', 'sample'):
+            with self.assertRaisesRegex(ValueError, 'sample regions'):
+                machines.check_preset(value, 'kit', kind)
+
+    def test_drum_region_bounds_and_sample_exclusion(self):
+        bad_regions = [[], [0]*3, [0, 1, 2, 32768], [0, 1, 2, -1], [True, 1, 2, 3], [1.5, 1, 2, 3]]
+        cases = [{'params': params} for params in bad_regions]
+        cases += [{'sample': 'private.wav'}, {'path': '/user/samples/kick.wav'}, {'model': 'kick'},
+                  {'playmode': 'unknown'}, {'playmode': None}, {'hikey': 54}, {'hikey': True}]
+        for change in cases:
+            value = self.preset(); value['regions'][0].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                machines.check_preset(value, 'kit', 'drum')
+        for size in (1, 23, 25):
+            value = self.preset(); value['regions'] = (value['regions']*2)[:size]
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                machines.check_preset(value, 'kit', 'drum')
+
+
 class Identity(unittest.TestCase):
     def test_fixed_numbers_are_valid_and_distinct(self):
         # Open-XY's first machines keep the numbers its first firmware gave them, in every layout.
