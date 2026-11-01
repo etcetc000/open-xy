@@ -279,7 +279,9 @@ def main(argv=None):
             # A silent run says nothing about cost; a saturated one is the heaviest of all.
             # As profile report: a swept setting counts if it timed anything; others must sound.
             sounded = metric['encoded_average'] > 0 and (setting or not item['insufficient_voice_activity'])
-            if case.get('source') == 'sdk' and sounded and value > heaviest.get(case['name'], (0, ''))[0]:
+            # A kit's recommendation is for one voice; its whole-kit runs are listed above.
+            whole_kit = case.get('drum', {}).get('run', 'voice') != 'voice'
+            if case.get('source') == 'sdk' and sounded and not whole_kit and value > heaviest.get(case['name'], (0, ''))[0]:
                 heaviest[case['name']] = (value, label + (' (saturated: at or above the whole budget)'
                                                           if metric['encoded_average'] >= 65535 else ''))
         lines.append('')

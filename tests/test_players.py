@@ -1,0 +1,320 @@
+"""Player ABI and integration contracts; musical tests live with each player."""
+from dataclasses import replace
+import json
+import os
+from pathlib import Path
+import re
+import struct
+import subprocess
+import tempfile
+import shutil
+import unittest
+
+from tooling import adapters, native
+from tooling.formats import ldr, mapped_offset
+from tooling.machines import machine_at, assign_numbers, number_layout
+from tooling.pipeline import config
+from test_sample_services import HOST_CXX
+
+ROOT = Path(__file__).resolve().parents[1]
+PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
+
+
+def vtable():
+    source = (PLATFORM / 'player_object.cpp.in').read_text(encoding='utf-8')
+    start = source.index('_player_vtable[16] = {')
+    body = source[start:source.index('};', start)].split('{', 1)[1]
+    return [entry.strip() for entry in body.split(',') if entry.strip()]
+
+
+class PlayerContracts(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk='1.8', kind='player',
+                                                               description='Player contract fixture.')))
+        definition = dict(schema=1, id='probeplayer', name='Player', resources={}, presets={},
+                          parameters=[dict(id='p'+str(i), label='P'+str(i), default=0,
+                                           mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')
+                                      for i in range(4)])
+        (self.root / 'definition.json').write_text(json.dumps(definition))
+        self.machine = assign_numbers([machine_at(self.root)])[0][0]
+
+    def test_player_requires_its_own_sdk_revision(self):
+        path = self.root / 'machine.json'
+        value = json.loads(path.read_text(encoding='utf-8'))
+        value['sdk'] = '1.7'
+        path.write_text(json.dumps(value), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'Note players needs.*1.8'):
+            machine_at(self.root)
+
+    def test_layout_keeps_player_types_and_shares_page_pool(self):
+        m = self.machine
+        rules = config()['identities']
+        self.assertIn(m.identity['player'], rules['players'])
+        requested = dict(player=None, page=None)
+        layout = {m.id: m.identity}
+        numbered = number_layout(rules, [], layout, [(m.id, 'player', requested), ('other', 'player', requested)])
+        self.assertEqual(numbered[m.id], m.identity)
+        self.assertNotEqual(numbered['other']['player'], m.identity['player'])
+        self.assertNotEqual(numbered['other']['page'], m.identity['page'])
+        for invalid in (0, 1, 2, 3, 4, 5, 32):
+            with self.assertRaises(ValueError):
+                number_layout(rules, [], {m.id: dict(player=invalid, page=90)}, [(m.id, 'player', requested)])
+
+    def test_adapter_is_independent_of_numbers_and_binds_output_keyboard(self):
+        m = self.machine
+        other = replace(m, identity=dict(player=31, page=255))
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            first = adapters.generate_player_object(a, m).read_text(encoding='utf-8')
+            self.assertEqual(first, adapters.generate_player_object(b, other).read_text(encoding='utf-8'))
+        self.assertNotIn('@', first)
+        self.assertIn('probeplayer_key_127', first)
+        self.assertIn('probeplayer_played_127', first)
+        self.assertIn('player_output(object, shown)', first)
+        source = (PLATFORM / 'players.cpp').read_text(encoding='utf-8')
+        self.assertLess(source.index('refresh_keyboard_octaves()'), source.index('if (selected != kMaestroPage)'))
+        self.assertEqual(len(vtable()), 16)
+        for i, entry in enumerate(vtable()):
+            self.assertEqual('0x' not in entry, i in {2, 3, 5, 6, 7, 10, 13})
+
+    def test_catalog_player_is_not_an_instrument(self):
+        profile = config()
+        catalog = (native.STOCK_CONTENT / 'op1_factory.json').read_bytes()
+        before = json.loads(catalog)
+        after = json.loads(native.extend_catalog(catalog, profile, [self.machine]))
+        self.assertEqual(after['engine_types'], before['engine_types'])
+        self.assertEqual(after['fx_types'], before['fx_types'])
+        self.assertEqual(after['seq_types'][-1]['id'], self.machine.identity['player'] + 4)
+        self.assertEqual(after['seq_types'][-1]['type'], 'probeplayer')
+
+    def test_player_panel_can_omit_the_entire_output_keyboard(self):
+        nodes = [f'<circle id="probeplayer_dot_{i}" transform="matrix(1 0 0 1 20 80)" '
+                 'r="4" fill="#000000" stroke="#000000" stroke-width="1"/>' for i in range(24)]
+        nodes.append('<text id="probeplayer_text" transform="matrix(1 0 0 1 240 215)" '
+                     'fill="#FFFFFF" font-family="UniversNextPro-Light" font-size="22">chords</text>')
+        native.validate_panel(self.machine, '<g>' + ''.join(nodes) + '</g>')
+        nodes.append('<path id="probeplayer_key_0" transform="matrix(1 0 0 1 20 174)" '
+                     'd="M0 0 H10 V44 H0 Z" fill="#FFFFFF" stroke="#000000" stroke-width="1"/>')
+        with self.assertRaisesRegex(ValueError, 'all 128 keys and activity dots, or none'):
+            native.validate_panel(self.machine, '<g>' + ''.join(nodes) + '</g>')
+
+    def test_player_code_and_octave_hook_are_selection_gated(self):
+        m = self.machine
+        from tooling.firmware import active_services
+        profile = config()
+        self.assertEqual(active_services(profile, ['player']), {'players', 'octaves'})
+        self.assertEqual(active_services(profile, ['synth']), set())
+        self.assertEqual(native.absent_symbols(m), {'probeplayer_player': 'kit_absent',
+                                                   'probeplayer_screen_register': 'kit_absent'})
+        self.assertEqual([step for _, machine, step in native.plan([m]) if machine], ['player_object'])
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_adapter_controls_do_not_enable_stock_playback_mode(self):
+        adapters.generate_player_object(self.root, replace(self.machine, display='stock'))
+        (self.root / 'player.cpp').write_text('''#include <opxy/player.hpp>
+namespace probeplayer {
+struct State { bool modifier; };
+bool press(State& s, const opxy::player::Controls& c, opxy::u32 note,
+           opxy::u32 velocity, opxy::player::Plan& plan) {
+    plan.count = 0;
+    if (note == 65) { s.modifier = true; return true; }
+    plan.count = 1;
+    plan.tones[0] = {static_cast<opxy::u8>(note + (c.value[3] ? 12 : 0)),
+                     static_cast<opxy::u8>(velocity), 0};
+    return true;
+}
+bool release(State& s, opxy::u32 note) {
+    if (note != 65) return false;
+    s.modifier = false; return true;
+}
+}
+''', encoding='utf-8')
+        (self.root / 'stock.hpp').write_text('''#include <opxy/types.hpp>
+const void* stock_address(opxy::u32);
+namespace opxy { namespace platform {
+template<class Function> Function* stock(u32 address) { return reinterpret_cast<Function*>(const_cast<void*>(stock_address(address))); }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('adapter.exe' if os.name == 'nt' else 'adapter')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(self.root),
+                        '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_adapter.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_live_plan_edits_preserve_queues_and_root_ownership(self):
+        binary = self.root / ('plans.exe' if os.name == 'nt' else 'plans')
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
+                        '-I'+str(PLATFORM), str(ROOT/'tests/fixtures/player_plans.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_player_enum_detents(self):
+        binary = self.root / ('controls.exe' if os.name == 'nt' else 'controls')
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
+                        '-I'+str(PLATFORM), str(ROOT/'tests/fixtures/player_controls.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_owned_turns_never_enter_stock_hold_mode(self):
+        (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
+        (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
+#include <opxy/types.hpp>
+extern opxy::u32 fake_track;
+extern volatile opxy::i32 sdk_track_octaves[8];
+namespace opxy { namespace platform {
+const u32 kLowestKey=53, kTracks=8;
+inline u32 selected_track() { return fake_track; }
+inline void refresh_keyboard_octaves() {}
+}}
+''', encoding='utf-8')
+        (self.root / 'registration.hpp').write_text('''#pragma once
+#include "players.hpp"
+const void* stock_address(opxy::u32);
+namespace opxy { namespace platform {
+using Address=__UINTPTR_TYPE__;
+template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+struct Record {}; struct Screen {};
+inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
+namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('turn.exe' if os.name == 'nt' else 'turn')
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',
+                        '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_turn.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_optional_update_and_reset_callbacks(self):
+        adapters.generate_player_object(self.root, replace(self.machine, display='stock'))
+        (self.root / 'player.cpp').write_text('''#include <opxy/player.hpp>
+namespace probeplayer {
+struct State { unsigned pending, option; };
+bool press(State& s, const opxy::player::Controls&, opxy::u32 note,
+           opxy::u32, opxy::player::Plan& plan) {
+    plan.count=0; if(note==60) s.pending=2; return true;
+}
+bool release(State& s, opxy::u32) { s.pending=1; return false; }
+bool update(State& s, const opxy::player::Controls&, opxy::player::Update& u) {
+    if(!s.pending) return false;
+    --s.pending; u.root=60; u.mode=opxy::player::Add; u.plan.count=0; return true;
+}
+void reset(State& s) { s.pending=0; }
+}
+''', encoding='utf-8')
+        (self.root / 'stock.hpp').write_text('''#include <opxy/types.hpp>
+const void* stock_address(opxy::u32);
+namespace opxy { namespace platform {
+template<class F> F* stock(u32 address) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(address))); }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('updates.exe' if os.name == 'nt' else 'updates')
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(self.root),
+                        '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_updates.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_activity_and_keyboard_range(self):
+        binary = self.root / ('activity.exe' if os.name == 'nt' else 'activity')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
+                        '-I'+str(PLATFORM), str(ROOT/'tests/fixtures/player_activity.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_real_renderer_keeps_header_and_fits_output_notes(self):
+        shutil.copy(PLATFORM / 'screen_player.hpp', self.root)
+        shutil.copy(ROOT / 'tests/fixtures/screen_player_host.hpp', self.root / 'screen.hpp')
+        binary = self.root / ('screen.exe' if os.name == 'nt' else 'screen')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(self.root),
+                        '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/screen_player.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
+
+
+@unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
+class StockPlayer(unittest.TestCase):
+    def test_enum_turn_hook_matches_stock_frame_and_continuations(self):
+        from tooling.formats import sha
+        from tooling.firmware import decode_branch
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        blocks = ldr(data)
+
+        def read_at(address, size):
+            offset = mapped_offset(blocks, address, size)
+            return data[offset:offset + size]
+
+        patch = next(p for p in config()['patches'] if p.get('symbol') == 'extensions_player_turn')
+        self.assertTrue(patch['call'])
+        self.assertEqual(patch['length'], 8)
+        site = int(patch['address'], 16)
+        self.assertEqual(site, 0x8c084d18)
+        # Existing LINK frame, saved registers, index in R5, and outgoing space.
+        self.assertEqual(read_at(0x8c084d0c, 12), bytes.fromhex('00e80000e50529302030a66f'))
+        self.assertEqual(read_at(site, 4), bytes.fromhex('05301930'))  # R0=R5; R3=R1
+        self.assertEqual(decode_branch(site + 4, read_at(site + 4, 4)), (0x8c084afc, True))
+        # Handled enums skip stock's mode-transition helper and return through
+        # the original frame: SP+=12, restore registers, UNLINK, RTS.
+        self.assertEqual(read_at(0x8c084d46, 10), bytes.fromhex('666ca50501e800001000'))
+
+    def test_effective_keyboard_octave_scales_the_stored_value(self):
+        from tooling.formats import sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        source = (PLATFORM / 'keyboard_octaves.cpp').read_text(encoding='utf-8')
+        self.assertIn('stock<i32(u32)>(0x8d58f65c)(track)', source)
+        at = mapped_offset(ldr(data), 0x8d58f67c, 10)
+        # The stock getter selects a multiplier of one or two by instrument
+        # type, then multiplies the stored octave before returning it.
+        self.assertEqual(data[at:at+10], struct.pack('<5H', 0x6012, 0x6009, 0x060a, 0x40c8, 0x0010))
+
+    def test_chord_storage_matches_stock_step_and_release(self):
+        from tooling.formats import sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        records, held, limit = (int(value, 0) for value in re.search(
+            r'kRecords = (0x[0-9a-f]+), kHeld = (0x[0-9a-f]+), kMaxHeld = (\d+)',
+            (PLATFORM / 'players.cpp').read_text(encoding='utf-8')).groups())
+        self.assertEqual(held - records, limit * 72)
+
+        def instruction(address, opcode, immediate):
+            at = mapped_offset(ldr(data), address, 4)
+            self.assertEqual(data[at:at+4], struct.pack('<HH', opcode, immediate),
+                             f'Player chord layout disagrees with stock at {address:#x}')
+
+        # Decode the SDK's layout against both stock consumers, not against
+        # another copy of the assumed offsets. OS 1.2.1 moved these fields.
+        instruction(0x8d57d8d4, 0xe121, records)  # step: R1 = record-array offset
+        instruction(0x8d57d8e0, 0xe428, held // 4)  # step: R0 = [P5 + held]
+        instruction(0x8d57d8dc, 0xe125, 72)  # step: chord stride
+        instruction(0x8d57d74c, 0xe122, records)  # release: R2 = record-array offset
+        instruction(0x8d57d758, 0xe428, held // 4)  # release: R0 = [P5 + held]
+        instruction(0x8d57d754, 0xe124, 72)  # release: chord stride
+
+    def test_kept_methods_are_authenticated_stock_maestro(self):
+        from tooling.formats import sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        at = mapped_offset(ldr(data), 0x8409f6d0, 64)
+        words = struct.unpack('<16I', data[at:at+64])
+        for i, entry in enumerate(vtable()):
+            if i not in {2, 3, 5, 6, 7, 10, 13}:
+                self.assertEqual(int(entry.split('(')[1].rstrip(')'), 16), words[i])
+        header = (PLATFORM / 'players.hpp').read_text(encoding='utf-8')
+        for index, name in ((6, 'Release'), (7, 'Reset'), (10, 'AllOff'), (13, 'Step')):
+            address = int(re.search(r'kMaestro'+name+r' = (0x[0-9a-f]+)', header)[1], 16)
+            self.assertEqual(address, words[index])

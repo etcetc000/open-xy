@@ -21,8 +21,10 @@ from .pipeline import ROOT, child, document, fresh_output, read, require_release
 from . import extensions, native, preview, screen
 
 
-def notices(machines):
+def notices(machines, runtime=False):
     texts = ['OP-XY SDK modules\n\n' + read(ROOT / 'LICENSE').decode('utf-8')]
+    if runtime:
+        texts.append(read(ROOT / 'sdk/platform/blackfin/runtime.LICENSE').decode('utf-8'))
     for m in machines:
         license_file = child(m.root, 'vendor/LICENSE')
         if license_file.is_file():
@@ -56,7 +58,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     profile, machines, definitions = native.configuration(native.package_collection(package))
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
-    owners, services = native.object_owners(machines, profile), native.object_services(machines, profile)
+    runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])
+    owners, services = native.object_owners(machines, profile, runtime_members), native.object_services(machines, profile)
+    runtime_names = {native.runtime.object_name(member) for member in runtime_members}
     kit_machines = []
     for m in machines:
         # The numbers it asks for, null where it leaves them to the layout; the builder
@@ -111,6 +115,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         entry = dict(name=name, owner=owner, bytes=base64.b64encode(data).decode('ascii'), sha256=sha(data))
         if name in services:
             entry['service'] = services[name]
+        if name in runtime_names:
+            entry['runtime'] = True
         if name in extension_objects:
             entry['extension'] = extension_objects[name]
         objects.append(entry)
@@ -122,7 +128,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     kit = dict(format='opxy-browser-kit/1', version=native.package_version(package), profile=profile,
                profileSource=base64.b64encode(read(ROOT / ('profiles/' + profile['id'] + '.json'))).decode('ascii'),
                definitions=stock, fixed=FIXED_NUMBERS, linked=linked,
-               machines=kit_machines, objects=objects, notices=notices(machines),
+               machines=kit_machines, objects=objects, notices=notices(machines, bool(runtime_members)),
                extensions=extensions.metadata(native.extensions_of(machines),
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
@@ -150,7 +156,11 @@ def write_builder(kit, output):
         catalog = base64.b64decode(kit['stockCatalog'], validate=True)
         require(sha(catalog) == kit['profile']['stock_catalog_sha256'], 'Bundled stock catalog hash mismatch')
     template = read(ROOT / 'builder/index.html').decode('utf-8')
-    script = read(ROOT / 'builder/core.mjs').decode('utf-8').replace('export ', '')
+    script = read(ROOT / 'builder/core.mjs').decode('utf-8')
+    preset_import = "import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };\n"
+    require(preset_import in script, 'Unexpected core imports')
+    preset_json = read(ROOT / 'tooling/default_preset.json').decode('utf-8')
+    script = script.replace(preset_import, 'const DEFAULT_PRESET_TEMPLATE = ' + preset_json + ';\n').replace('export ', '')
     app = read(ROOT / 'builder/app.mjs').decode('utf-8')
     imports = ("import * as Core from './core.mjs';\nimport * as Wizard from './wizard.mjs';\n"
                "import * as Retained from '../sdk/browser/display.mjs';\n"

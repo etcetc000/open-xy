@@ -80,25 +80,66 @@
       61,
       62
     ],
-    "effect_page": 21
+    "effect_page": 21,
+    "players": [
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ]
   },
   "layout_profiles": [
     "opxy-1.2.0"
   ],
   "stock_catalog_inserts": {
     "fx_types": 1583,
-    "engine_types": 4435
+    "engine_types": 4435,
+    "seq_types": 2565
   },
   "screen_template_sha256": "d71b110ac905c1bcfcecc9ad94237aa72fe12c531e651f170bb5a1042547fb16",
   "services": {
     "samples": [
-      "sample"
+      "sample",
+      "drum"
     ],
     "control": [
       "trackControl"
     ],
     "extensions": [
       "extension"
+    ],
+    "drums": [
+      "drum"
+    ],
+    "players": [
+      "player"
+    ],
+    "octaves": [
+      "sample",
+      "player",
+      "drum"
     ]
   },
   "patches": [
@@ -514,6 +555,46 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c0b12f2",
+      "file_offset": "0xe852e",
+      "length": 8,
+      "before": "00de5b8d287c0000",
+      "symbol": "sdk_sample_page_turn",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5acf3e",
+      "file_offset": "0x1e4196",
+      "length": 4,
+      "before": "fee36fd4",
+      "symbol": "sdk_sample_param_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d588df2",
+      "file_offset": "0x1c004e",
+      "length": 4,
+      "before": "01e3e775",
+      "symbol": "sdk_sample_neutral_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d581eb2",
+      "file_offset": "0x1b910e",
+      "length": 4,
+      "before": "01e387ad",
+      "symbol": "sdk_sample_neutral_engine",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8c0b2730",
       "file_offset": "0xe996c",
       "length": 8,
@@ -778,7 +859,17 @@
       "file_offset": "0x1c681e",
       "length": 4,
       "before": "ffe3bdb0",
-      "symbol": "sdk_sample_octave_store",
+      "symbol": "sdk_octave_store",
+      "service": "octaves",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5214b0",
+      "file_offset": "0x15870c",
+      "length": 4,
+      "before": "ffe3e4f3",
+      "symbol": "sdk_screen_visible",
       "service": "samples",
       "call": true
     },
@@ -1190,6 +1281,126 @@
     },
     {
       "kind": "hook",
+      "address": "0x8d5b79f0",
+      "file_offset": "0x1eec48",
+      "length": 6,
+      "before": "980d00e80000",
+      "symbol": "extensions_drum_classify",
+      "service": "drums",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e36a8",
+      "file_offset": "0x11a904",
+      "length": 6,
+      "before": "08e44a001808",
+      "symbol": "extensions_drum_preset_import",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e39c0",
+      "file_offset": "0x11ac1c",
+      "length": 4,
+      "before": "21600808",
+      "symbol": "extensions_drum_compare_r0",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e74b0",
+      "file_offset": "0x11e70c",
+      "length": 4,
+      "before": "21600808",
+      "symbol": "extensions_drum_compare_r0",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e6aa8",
+      "file_offset": "0x11dd04",
+      "length": 6,
+      "before": "216088a10808",
+      "symbol": "extensions_drum_export_empty",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e6bd0",
+      "file_offset": "0x11de2c",
+      "length": 4,
+      "before": "88a10808",
+      "symbol": "extensions_drum_export_parameters",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d4e6e08",
+      "file_offset": "0x11e064",
+      "length": 4,
+      "before": "88a11008",
+      "symbol": "extensions_drum_export_gain",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d589296",
+      "file_offset": "0x1c04f2",
+      "length": 4,
+      "before": "8ba1299b",
+      "symbol": "extensions_drum_region_lookup",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d595a4c",
+      "file_offset": "0x1ccca8",
+      "length": 4,
+      "before": "22601008",
+      "symbol": "extensions_drum_note_region",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d588ec8",
+      "file_offset": "0x1c0124",
+      "length": 4,
+      "before": "88a10808",
+      "symbol": "extensions_drum_load_parameters",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b1456",
+      "file_offset": "0xe8692",
+      "length": 8,
+      "before": "2160baa00a081810",
+      "symbol": "extensions_drum_editor_classify",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b147a",
+      "file_offset": "0xe86b6",
+      "length": 8,
+      "before": "00de4d8d605f0000",
+      "symbol": "sdk_drum_edit",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "LFO Value effective destination label",
       "address": "0x8d543970",
       "file_offset": "0x17abcc",
@@ -1277,7 +1488,9 @@
       "symbol": "sdk_extensions_controller_update",
       "call": true,
       "service": "extensions",
-      "events": ["context"]
+      "events": [
+        "context"
+      ]
     },
     {
       "kind": "hook",
@@ -1288,7 +1501,9 @@
       "symbol": "sdk_extensions_key_queue",
       "call": true,
       "service": "extensions",
-      "events": ["queued_control"]
+      "events": [
+        "queued_control"
+      ]
     },
     {
       "kind": "hook",
@@ -1299,7 +1514,10 @@
       "symbol": "sdk_extensions_live_note_on",
       "call": true,
       "service": "extensions",
-      "events": ["input_activity", "recordable_note_on"]
+      "events": [
+        "input_activity",
+        "recordable_note_on"
+      ]
     },
     {
       "kind": "hook",
@@ -1310,7 +1528,9 @@
       "symbol": "sdk_extensions_live_note_off",
       "call": true,
       "service": "extensions",
-      "events": ["selected_note_off"]
+      "events": [
+        "selected_note_off"
+      ]
     },
     {
       "kind": "hook",
@@ -1321,7 +1541,9 @@
       "symbol": "sdk_extensions_recorder_tick",
       "call": true,
       "service": "extensions",
-      "events": ["recording_tick"]
+      "events": [
+        "recording_tick"
+      ]
     },
     {
       "kind": "hook",
@@ -1332,7 +1554,9 @@
       "symbol": "sdk_extensions_stop",
       "call": true,
       "service": "extensions",
-      "events": ["context"]
+      "events": [
+        "context"
+      ]
     },
     {
       "kind": "hook",
@@ -1343,7 +1567,9 @@
       "symbol": "sdk_extensions_note_accepted",
       "call": true,
       "service": "extensions",
-      "events": ["recordable_note_on"]
+      "events": [
+        "recordable_note_on"
+      ]
     },
     {
       "kind": "startup",
@@ -1413,6 +1639,66 @@
       "symbol": "sdk_sample_multi_press_engine",
       "service": "samples",
       "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d57ee6c",
+      "file_offset": "0x1b60c8",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "extensions_player_build",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d588d94",
+      "file_offset": "0x1bfff0",
+      "length": 4,
+      "before": "48a3a80d",
+      "symbol": "extensions_player_load",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0af13a",
+      "file_offset": "0xe6376",
+      "length": 8,
+      "before": "00de578db8ef0000",
+      "symbol": "sdk_player_ui_type",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0af43e",
+      "file_offset": "0xe667a",
+      "length": 8,
+      "before": "00de578db8ef0000",
+      "symbol": "sdk_player_ui_type",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5bddd8",
+      "file_offset": "0x1f5030",
+      "length": 4,
+      "before": "00e80500",
+      "symbol": "extensions_player_name",
+      "service": "players",
+      "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5bde60",
+      "file_offset": "0x1f50b8",
+      "length": 4,
+      "before": "00e80000",
+      "symbol": "extensions_player_id",
+      "service": "players",
+      "call": false
     },
     {
       "kind": "hook",
@@ -1523,6 +1809,16 @@
       "symbol": "extensions_sample_slice_receive",
       "service": "samples",
       "call": false
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c084d18",
+      "file_offset": "0xbbf54",
+      "length": 8,
+      "before": "05301930ffe3f0fe",
+      "symbol": "extensions_player_turn",
+      "service": "players",
+      "call": true
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

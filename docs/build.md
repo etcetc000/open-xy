@@ -148,6 +148,7 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
 | `os.ldr` | `/os.ldr` |
 | `content/op1_factory.json` | `/content/op1_factory.json` |
 | `content/display/<machine>.svg`, one per synth | `/content/display/<machine>.svg` |
+| `content/presets/<machine>/`, one per instrument (not effect): an init preset and the machine's [own](api.md#presets) | `/content/presets/<machine>/` |
 
 1. Open file transfer as in step 2 and copy the files to the paths above,
    replacing existing files. Keep the device's other content. On Windows,
@@ -156,6 +157,9 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
    every copied file back and restores the backups if anything fails, keeping
    them and a record under the private folder. It needs
    `python -m pip install comtypes==1.4.17` and never writes the boot partition.
+   To copy without backups or device readback, pass `--no-backup --no-verify`
+   together. This replaces every supplied file and records each write, but
+   cannot restore earlier files if interrupted.
 2. Press track 2 for "2. exit".
 3. Press track 5 for "5. write os to boot partition", keeping the OP-XY on power.
    When "firmware written ok!" appears, switch it off and on.
@@ -163,7 +167,7 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
 The firmware writer reads `/os.ldr`, not the upgrade directory. The browser
 builder's packages also add each instrument's presets
 (`content/presets/<machine>/`: an init preset and the machine's
-[own](api.md#presets)); command-line packages do not.
+[own](api.md#presets)).
 `module.elf` and `module.bin` are development artifacts, not installable
 images. Build commands never write to a device; hardware profiling sends
 explicit diagnostic commands but does not install firmware. To select machines and
