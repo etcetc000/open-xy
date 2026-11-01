@@ -740,15 +740,15 @@
       "maintainer": "colorsinspace1",
       "status": "published",
       "repository": "https://github.com/colorsinspace1/halcyon",
-      "tag": "1.0",
-      "commit": "2328e77d601c96c41a8a958fd31d0a1aa13a987e",
+      "tag": "1.1",
+      "commit": "105f1546986fd6d493d2cd5df8463fbfaadc9543",
       "path": ".",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
-        "commit": "2328e77d601c96c41a8a958fd31d0a1aa13a987e",
-        "firmware_sha256": "55a804f847e15dde5c20ae01fda02af09964628b8e979cecfd9be8448d2a7ff7",
+        "commit": "105f1546986fd6d493d2cd5df8463fbfaadc9543",
+        "firmware_sha256": "764fbb1cb0b056fe83e7eebd26ad2c6bda428f79e8f8cb1ea02b88ab3b23f90c",
         "runs": 3,
-        "block_percent": 3.758297
+        "block_percent": 3.849851
       }
     },
     {
@@ -774,15 +774,15 @@
       "maintainer": "colorsinspace1",
       "status": "published",
       "repository": "https://github.com/colorsinspace1/halcyon-keys",
-      "tag": "1.1",
-      "commit": "4d4780f6b04ff275452306c81fcb8abdfd52972e",
+      "tag": "1.2",
+      "commit": "f8a348c1990feffcebdb59b5613c0d513f6af23a",
       "path": ".",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
-        "commit": "4d4780f6b04ff275452306c81fcb8abdfd52972e",
-        "firmware_sha256": "6902f6597c8f412f2e33541f070f5e15ffe283186318ef0b47880daa9ed1fc46",
+        "commit": "f8a348c1990feffcebdb59b5613c0d513f6af23a",
+        "firmware_sha256": "764fbb1cb0b056fe83e7eebd26ad2c6bda428f79e8f8cb1ea02b88ab3b23f90c",
         "runs": 3,
-        "block_percent": 4.571603
+        "block_percent": 4.776074
       }
     },
     {
@@ -791,15 +791,15 @@
       "maintainer": "colorsinspace1",
       "status": "published",
       "repository": "https://github.com/colorsinspace1/halcyon-wander",
-      "tag": "1.3",
-      "commit": "d509cdd7da95e66b7f8d19beed22f48358504c17",
+      "tag": "1.4",
+      "commit": "81e1d1feb7413d4be6012001141102522747ef71",
       "path": ".",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
-        "commit": "d509cdd7da95e66b7f8d19beed22f48358504c17",
-        "firmware_sha256": "5de30595f0fdb6ce72bf08e0938ac5890541c9a98eb914db2fa8cd61e9fb6ee4",
+        "commit": "81e1d1feb7413d4be6012001141102522747ef71",
+        "firmware_sha256": "764fbb1cb0b056fe83e7eebd26ad2c6bda428f79e8f8cb1ea02b88ab3b23f90c",
         "runs": 3,
-        "block_percent": 3.993286
+        "block_percent": 3.883421
       }
     }
   ]
