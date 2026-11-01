@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from .contributors import validate_source_boundary
 from .definitions import ROOT, label, stock_name, validate_definition
 from .formats import require, sha
-from .pipeline import fresh_output
+from .pipeline import add_overwrite_argument, fresh_output
 
 KIND = 'cpp-browser-custom-preview'
 REQUIRED = {'definition.json', 'core.h', 'engine.cpp', 'display.h', 'display.cpp', 'panel.svg.fragment'}
@@ -102,7 +102,7 @@ def source_hashes(files):
             'sdk': {name: sha((ROOT / name).read_bytes()) for name in sorted(paths)}}
 
 
-def build(compiler, source, out):
+def build(compiler, source, out, overwrite=False):
     from .preview import compile_preview, preview_bundle
     source = Path(os.path.abspath(source))
     require(not Path(out).resolve().is_relative_to(source.resolve()), 'Keep preview output outside the machine source directory')
@@ -112,7 +112,7 @@ def build(compiler, source, out):
     compiler = shutil.which(str(compiler))
     require(compiler, 'Clang++ with wasm32/wasm-ld required; run python sdk.py doctor --preview')
     compiler = Path(compiler).resolve()
-    out = fresh_output(out)
+    out = fresh_output(out, overwrite, [source])
     compile_preview(compiler, definition, out, source)
     require(source_hashes(source_files(source)) == before, 'Sources changed during preview build')
     (out / 'panel.svg').write_bytes(files['panel.svg.fragment'])
@@ -145,13 +145,13 @@ def authenticate(manifest, artifacts):
 STARTERS = ('synth', 'effect')
 
 
-def scaffold(out, identity, name, kind='synth', repository=False, controls=None):
+def scaffold(out, identity, name, kind='synth', repository=False, controls=None, overwrite=False):
     require(kind in STARTERS, 'sdk.py new starts a ' + ' or '.join(STARTERS))
     controls = 4 if controls is None else controls
     require(type(controls) is int and 4 <= controls <= 8 and (kind == 'synth' or controls == 4),
             'Use 4 to 8 controls for a synth; effects use 4')
     custom_identity(identity); label(name)
-    out = fresh_output(out)
+    out = fresh_output(out, overwrite)
     starters = [ROOT / 'sdk/templates' / kind]
     if kind == 'synth' and controls > 4:
         starters.append(ROOT / 'sdk/templates/synth-eight')
@@ -251,10 +251,12 @@ def main(argv=None):
     parser.add_argument('--controls', type=int, choices=range(4, 9),
                         help='control count (default: 4); synths with 5..8 use two pages; effects use 4')
     parser.add_argument('--out', required=True, type=Path, help='new source folder, such as ../mymachine')
+    add_overwrite_argument(parser)
     parser.add_argument('--repository', action='store_true', help='include README, agent instructions, licence and CI for a standalone repository')
     args = parser.parse_args(argv)
     try:
-        scaffold(args.out, args.id, args.name, args.kind, repository=args.repository, controls=args.controls)
+        scaffold(args.out, args.id, args.name, args.kind, repository=args.repository, controls=args.controls,
+                 overwrite=args.overwrite)
         return 0
     except (ValueError, OSError, ET.ParseError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

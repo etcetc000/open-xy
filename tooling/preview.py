@@ -10,7 +10,7 @@ from xml.etree.ElementTree import ParseError
 from .formats import require, sha
 from .definitions import ROOT
 from .machines import machine_at
-from .pipeline import NO_WINDOW, fresh_output
+from .pipeline import NO_WINDOW, add_overwrite_argument, fresh_output
 
 
 VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment', 'opxy_parameter_count',
@@ -87,7 +87,7 @@ def drawing_bindings(ids, display):
                 paths=display['paths'], points=display['points'])
 
 
-def build(compiler, m, out):
+def build(compiler, m, out, overwrite=False):
     """The browser audition of a collection synth or drum (a Machine)."""
     from .native import check_sources, validate_panel
     require(m.kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
@@ -98,7 +98,7 @@ def build(compiler, m, out):
     check_sources([m])
     validate_panel(m)
     before = source_hashes(m)
-    out = fresh_output(out)
+    out = fresh_output(out, overwrite, [m.root])
     compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes, kind=m.kind)
     (out / 'panel.svg').write_bytes((m.root / 'panel.svg.fragment').read_bytes())
     require(source_hashes(m) == before, 'Source changed during preview build')
@@ -159,6 +159,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cxx', default='clang++')
     parser.add_argument('--out', required=True, type=Path)
+    add_overwrite_argument(parser)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--machine', type=Path, help='Synth folder with machine.json, anywhere')
     source.add_argument('--source', type=Path, help='Local custom-machine directory')
@@ -166,9 +167,9 @@ def main(argv=None):
     try:
         if args.source:
             from .custom_preview import build as build_custom
-            build_custom(args.cxx, args.source, args.out)
+            build_custom(args.cxx, args.source, args.out, args.overwrite)
         else:
-            build(args.cxx, machine_at(args.machine), args.out)
+            build(args.cxx, machine_at(args.machine), args.out, args.overwrite)
         return 0
     except (ValueError, OSError, ParseError, subprocess.SubprocessError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

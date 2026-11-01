@@ -181,6 +181,27 @@ class SourceContracts(unittest.TestCase):
                 fresh_output(path)
             self.assertEqual((path / 'keep.txt').read_text(), 'keep')
 
+    def test_overwrite_wipes_the_output_folder(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'existing'
+            (path / 'nested').mkdir(parents=True)
+            (path / 'nested' / 'stale.txt').write_text('stale')
+            self.assertEqual(fresh_output(path, overwrite=True), path.resolve())
+            self.assertEqual(list(path.iterdir()), [])
+            self.assertEqual(fresh_output(Path(directory) / 'new', overwrite=True), (Path(directory) / 'new').resolve())
+
+    def test_overwrite_refuses_what_it_must_not_wipe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'input').mkdir()
+            (root / 'file').write_text('x')
+            (root / 'link').symlink_to(root / 'input', target_is_directory=True)
+            for path, keep in ((root, [root / 'input']), (root / 'file', ()), (root / 'link', ()),
+                               (ROOT, ()), (ROOT / 'sdk', ()), (Path.home(), ()), (Path.cwd(), ())):
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    fresh_output(path, overwrite=True, keep=keep)
+            self.assertTrue((root / 'input').is_dir() and (ROOT / 'sdk').is_dir())
+
     def test_release_host_has_tools_and_compiler(self):
         pins = pipeline.toolchains()
         release = pins['hosts'][pins['release']]

@@ -17,7 +17,8 @@ from .catalog import official
 from .definitions import control_positions, paged
 from .formats import require, sha
 from .machines import FIXED_NUMBERS, check_request
-from .pipeline import ROOT, child, document, fresh_output, read, require_release_host, resolve_toolchain, tool_paths
+from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
+                       resolve_toolchain, tool_paths)
 from . import extensions, native, preview, screen
 
 
@@ -227,6 +228,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('stock-os', 'out'):
         parser.add_argument('--' + name, required=True)
+    add_overwrite_argument(parser)
     parser.add_argument('--stock-content', default=str(native.STOCK_CONTENT),
                         help="the folder holding op1_factory.json (default: this repository's copy)")
     parser.add_argument('--toolchain', help='pinned binutils directory (default: local/toolchain/bin)')
@@ -245,10 +247,12 @@ def main(argv=None):
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
     try:
         # Refuse an unreviewed machine before the long build, not after it.
-        catalog_sources(native.configuration(native.selected_collection(args))[1], args.personal)
+        machines = native.configuration(native.selected_collection(args))[1]
+        catalog_sources(machines, args.personal)
     except ValueError as error:
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
-    out = fresh_output(args.out)
+    out = fresh_output(args.out, args.overwrite, [args.stock_os, args.stock_content, args.toolchain, args.compiler,
+                                                  *(m.root for m in machines)])
     try:
         package = out / 'source'
         native.build(package, Path(args.toolchain), Path(args.compiler),
@@ -266,7 +270,7 @@ def main(argv=None):
                         args.stock_os, args.stock_content], cwd=ROOT, check=True)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         # The unnamed builder and its inputs stay in --out for inspection.
-        parser.exit(1, f'ERROR: {error}\nIncomplete export left in {out}; use a new --out to retry.\n')
+        parser.exit(1, f'ERROR: {error}\nIncomplete export left in {out}; use a new --out or --overwrite to retry.\n')
     (out / 'builder.pending.html').rename(out / 'opxy-builder.html')
     print('Browser builder: ' + str(out / 'opxy-builder.html'))
     if args.personal:
