@@ -94,7 +94,7 @@ def metadata(files):
     variant = grayscale_source(files)
     if variant:
         from .graphics import validate_grayscale
-        m = SimpleNamespace(prefix=prefix, definition=definition, source=lambda path: path)
+        m = SimpleNamespace(prefix=prefix, definition=definition, display='drawing', source=lambda path: path)
         validate_grayscale(m, artwork, files[variant])
         result['grayscale_sha256'] = sha(files[variant])
     return definition, result

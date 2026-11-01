@@ -124,6 +124,8 @@ template <class Machine> struct Drawing {
         display_input.note_serial = controls.track < 8 ? note_serial(controls.track) : 0;
         sdk_display_note_activity(controls.track, &display_input);
         display_input.reduced_motion = 0;
+        display_input.shift = controls.shift;
+        for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         binding::display_render(&display_state, &display_input, &display_frame);
         if (!binding::display_valid(&display_frame)) return;
         for (u32 p = 0; p < path_count; ++p) apply_path(o, p);

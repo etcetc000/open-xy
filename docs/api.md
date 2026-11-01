@@ -7,7 +7,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 | --- | --- | --- |
 | `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
 | `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
-| `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
+| `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.7) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
 and previews it without native integration. SDK adapters own allocation,
@@ -94,7 +94,8 @@ host does fast and the Blackfin does not:
 - **Division** has no hardware instruction and costs tens of cycles on the
   device. Divide once per block, or use a table or a reciprocal.
 - **Floating point** has no hardware either. Keep audio in integers;
-  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers.
+  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
+  saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
 - **64-bit arithmetic** has no runtime helpers in the module: keep products
   within 32 bits or split them, as `q31.hpp` does.
 - **Per-sample work that changes only per block**, such as coefficients and
@@ -144,7 +145,9 @@ parameter, then its alternates in parameter order; turning it edits the one
 shown, whose title and stock percentage the page shows. Every parameter keeps
 its own slot in the eight-word vector, so `render` receives all of them and
 presets, projects and the catalog's defaults store each one. The selection is
-per track, starts on the position's own parameter and is not saved. Display
+per track, starts on the position's own parameter and is not saved. The track
+menu's scramble randomizes alternates along with the first four; an empty
+placeholder among the alternates keeps its value. Display
 inputs carry each position's shown value, its parameter index (`shown`) and
 every parameter's value (`slots`), so a [header value](display.md#frame)
 can format whichever is shown while dials follow their own parameters.
@@ -315,8 +318,9 @@ means 0. Callbacks are functions in the machine's namespace.
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
-| `padSettings` | 0 or 1; drum sampler base | The SDK saves 16 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
+| `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
+| `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
 | `sampleAnalysis` | Budget in bytes, 4096..2 MiB, whole words | Prepared per-sample data | `analysis_words`, `prepare_begin`, `prepare_step`, `prepared` |
 
 ### Audio block
@@ -336,9 +340,32 @@ means 0. Callbacks are functions in the machine's namespace.
 | `output_channels` | 1, or 2 with `stereoOutput` |
 | `track_transpose` | The track settings transpose, -36..36 semitones |
 | `drum_transpose` | Drum sampler base: semitones from the note's pad to the played note (whole octaves), fixed at note start. 0 with the sampler base |
+| `slicing` | A lazy-chop audition: traverse the supplied outer range once, forwards, using frozen settings, parameters and tempo. Ignore live trims, reverse and loop settings |
 
 Source and output channel counts are independent. Stock envelopes, mixing and
 project voice settings follow the callback.
+
+### Slice timing
+
+```cpp
+void slice_clock(const opxy::SampleSlice&, opxy::SampleSliceRate&);
+```
+
+With `sliceTiming`, the GUI calls `slice_clock` with the loaded frame count and
+file rate, outer range, pad settings, eight live parameters, track transpose and
+project tempo captured when lazy chop starts. Return a nonnegative `numerator`
+and positive `denominator` and `tuning`: source frames per 44.1 kHz output frame
+are `numerator / denominator * tuning / 4096`. Account for the same timing and
+pitch arithmetic as the audio renderer. This callback accesses no PCM or analysis.
+
+The SDK sends the frozen configuration with the audition note. Audio receives
+it in `SampleBlock` with `slicing=true`, transport stopped at tick zero, and
+drum transpose zero. Subsequent cuts cannot change the audition range; control,
+automation and master-tempo edits apply to the next audition. A renderer that
+waits for analysis must keep the audition's source clock advancing while silent,
+then resume at its elapsed position. Without this service, lazy chop uses one
+forward pass of raw PCM at the original file rate. Ordinary notes use normal
+machine playback.
 
 ### Pad settings
 
@@ -439,7 +466,52 @@ declared controls. Do not depend on the absolute level of the send buffers.
 `State` is at most `opxy::effect_state_bytes` (476) with alignment at most 4.
 No destructor ever runs, so it holds no resources. The generated adapter
 checks both limits at compile time. Effects use the stock FX page, with any controls after the fourth as
-[alternates](#alternate-controls), and have no browser preview.
+[alternates](#alternate-controls) or a [second page](#effect-pages-and-shift-rows), and have no browser preview.
+
+### Effect pages and shift rows
+
+An effect with five to eight controls may declare `"press": "page"` (SDK 1.7),
+as a synth does: a press of any encoder on its send page switches all four
+positions between its first four controls and the rest.
+
+An effect may also declare a **shift row** (SDK 1.7): one to four enum
+controls in `"shift"` in `definition.json`, which Shift and the send page's
+four encoders choose, one choice per detent, while the page shows their names
+and choices. They suit routing and modes, such as an order or a source. All
+their choices together are at most 1,048,576 combinations; the first choice of
+each is what a new project starts with. With a shift row, Shift no longer
+turns the effect's continuous controls in fine steps.
+
+`process` then receives twelve words: the eight controls, then each shift-row
+control's chosen word, read as any enum control:
+
+```json
+"shift": [
+  {"id": "order", "label": "Order", "default": 0, "display": "enum",
+   "mapping": {"kind": "enum", "labels": ["TPES", "TEPS", "PTES"]}}
+]
+```
+
+```cpp
+const opxy::u32 order = ((static_cast<opxy::u32>(parameters[8]) >> 16) * 3) >> 15;
+```
+
+Its `State` is then 4 bytes smaller than otherwise (the slot keeps the send's
+number). See the [firmware contract](abi-1.2.1.md#effect-pages-and-shift-rows).
+
+### Effect pages
+
+An effect may draw its own page on the send tracks (SDK 1.7): it declares
+`resources.display` and supplies `display.h`, `display.cpp` and
+`panel.svg.fragment`, exactly as a synth does ([display API](display.md)).
+Each build's layout then gives it a page from 82..255 beside its effect
+number, as it gives a synth its own. Stock shows the page an effect's
+record names on M1 of a send, so the page replaces stock's FX page there; its
+header names and captions the effect's controls, or its shift row's while
+Shift is held, and the display reads them all, the shift row too
+([input](display.md#effect-pages-sdk-17)). Effects have no browser preview
+yet. An effect that comes to draw its own page keeps its effect number and is
+given a page in its firmware's layout.
 
 ### Effect buffers
 
@@ -491,6 +563,9 @@ send weight `s` and Dry `d`, the source dry factor is `1 - s*(1-d)`. At full sen
 Dry zero removes the source dry and Dry one retains it; at zero send, dry stays
 unchanged. Do not add clean audio inside `process` to implement this control.
 Without `dryParameter`, the adapter returns unity to preserve the source dry.
+Instead, an effect may fix its Dry with `dryLevel` in `machine.json` (SDK 1.7),
+a number from 0 to 1. An effect that mixes its own dry, as a box of effects
+inline does, declares 0: at full send a track then goes wholly through it.
 
 ## Registration boundary
 
@@ -505,8 +580,8 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.6 and builds 1.0 to 1.6 machines |
-| `kind` | `synth`, `sample` or `effect` |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.8 and builds 1.0 to 1.8 machines |
+| `kind` | `synth`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |
@@ -548,7 +623,7 @@ build gives every machine the stock numbers projects save, an engine number
 | --- | --- | --- |
 | `synth` | Engine 34..255 | Its own, 82..255 |
 | `sample` | Engine 34..255 | Its base's: the stock sampler's or drum sampler's |
-| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen |
+| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen, or its own, 82..255 (SDK 1.7) |
 
 These numbers exist only in the relocated stock tables, so no machine shares
 one with stock. Four core machines, which the first Open-XY firmware shipped,
@@ -588,3 +663,76 @@ voice mode.
 Arbitrary external-engine loading is not implemented: a machine reaches the
 firmware through the collection, from the [catalog](catalog.md) or as a folder
 passed to a build with `--machine`.
+
+## Note players
+
+SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
+before the track's instrument receives them. Its `machine.json` declares no
+identity or base; the layout assigns an unused player type and its own page.
+Use four parameters, `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+Players have no instrument presets, audio-render CPU estimate or browser audio preview.
+
+Include `<opxy/player.hpp>` and implement, in the machine's namespace:
+
+```cpp
+struct State { /* zero-initialized, at most 2048 bytes, alignment at most 4 */ };
+bool press(State&, const opxy::player::Controls&, opxy::u32 note,
+           opxy::u32 velocity, opxy::player::Plan&);
+bool release(State&, opxy::u32 note);
+void display(const State&, const opxy::player::Controls&, opxy::player::Display&);
+```
+
+`press` returns false to pass a note through, or true with a plan of zero to
+eight tones. Each tone has a MIDI pitch and velocity, and a delay in stock
+player steps. Zero sounds on the next step. A plan's tones release together
+with its root; at most eight roots can be held. A ninth plan is dropped.
+`release` returns true for a silent control key, false to let stock release
+its chord. Note callbacks do not allocate, block, log, perform I/O or draw.
+State holds no resources. Display reads are advisory while sequencing runs.
+
+For live changes to held chords, optionally implement
+`bool update(State&, const Controls&, Update&)`. After a taken press or any
+release, and before every stock player step, the SDK drains at most eight
+updates, stopping when it returns false. Calls run on the sequencer role,
+so held chords can follow control changes without GUI-side note operations.
+An update names an existing `root`, a `plan`, and mode `Replace` or `Add`.
+`Replace` releases the old tones and schedules the new plan; an empty plan
+silences that root. `Add` keeps sounding and queued tones and appends only
+new pitches, up to eight total. A change never starts a root with no current
+record. Invalid MIDI values or counts discard the update without changing
+the chord. Cleared records are immediately reusable, including at capacity.
+
+Optional `void reset(State&)` clears held inputs after stock reset or
+all-notes-off; it can preserve machine settings. Without it, the SDK zeroes
+State. Keep machine root tracking bounded to eight and clear it on root
+release and reset. These callbacks share the same restrictions as `press`.
+
+`Controls.value` contains the four Q31 parameter words. Declared enums with
+2..255 choices move one choice per encoder detent, storing the choice's centre.
+Other mappings retain the Maestro controller's editing: 64 steps, four choices,
+continuous, and off/on, respectively.
+`lowest_key` is the track keyboard's lowest F at its current octave. Stock's
+octave setter publishes this independently of sample-engine selection.
+
+The page keeps the stock header and uses the four definition labels.
+`Display.values` supplies their text; `lit` shows the 24 `<id>_dot_0..23`
+circles or filled paths; `text` replaces the centered `<id>_text` text leaf.
+All strings must terminate within their fixed arrays. The SDK then fills
+`played[4]` from emitted, still-held stock chord records, ignoring queued
+strum tones, and supplies `lowest_key` for the output keyboard.
+
+The output keyboard is optional: omit all its key and activity nodes for an
+input-only page. When present, it binds `<id>_key_0..127` paths and
+`<id>_played_0..127` circles or filled paths. Author white keys as 10 by 44
+paths and black keys as 6 by 27 paths at the origin, white keys before black
+keys in SVG order, then activity dots. Use explicit fill and stroke and a
+`matrix(1 0 0 1 x y)` transform on every binding. The SDK lays out these
+keys in the lower 444-pixel-wide row at y=174, fitting whole F-to-E octaves
+around the input keyboard and every emitted note. This preserves octaves
+under voicing, spread and simultaneous chords. MIDI endpoints use partial
+octaves. Hidden nodes move beyond the display.
+
+Player types remain stable when a subsequent build uses the saved layout.
+Stock firmware replaces an unknown saved player with Arpeggio. Project
+companions currently describe engine/effect identities only: preserve the
+firmware's `layout.json` for player identities.

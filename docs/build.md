@@ -156,6 +156,9 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
    every copied file back and restores the backups if anything fails, keeping
    them and a record under the private folder. It needs
    `python -m pip install comtypes==1.4.17` and never writes the boot partition.
+   To copy without backups or device readback, pass `--no-backup --no-verify`
+   together. This replaces every supplied file and records each write, but
+   cannot restore earlier files if interrupted.
 2. Press track 2 for "2. exit".
 3. Press track 5 for "5. write os to boot partition", keeping the OP-XY on power.
    When "firmware written ok!" appears, switch it off and on.

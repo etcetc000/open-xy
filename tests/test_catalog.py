@@ -41,13 +41,20 @@ class Validation(unittest.TestCase):
                 catalog.validate(document(broken))
 
     def test_fields_are_checked(self):
-        for change in (dict(id='Bad'), dict(id='sdk_probe'), dict(kind='player'), dict(identity=dict(engine=36, page=85)),
+        for change in (dict(id='Bad'), dict(id='sdk_probe'), dict(kind='unknown'), dict(identity=dict(engine=36, page=85)),
                        dict(maintainer='not a user'), dict(repository='https://example.com/a/b'),
                        dict(repository='https://github.com/someone/..'),
                        dict(repository='git@github.com:a/b'), dict(commit='abc'), dict(tag='v 1'),
                        dict(path='../x'), dict(path='/x')):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 catalog.validate(document(dict(PUBLISHED, **change)))
+
+    def test_player_catalog_has_no_audio_render_cpu_record(self):
+        player = dict(PUBLISHED, kind='player')
+        catalog.validate(document(player))
+        catalog.changes([], [player])
+        with self.assertRaisesRegex(ValueError, 'audio cpu'):
+            catalog.validate(document(dict(player, cpu={})))
 
     def test_ids_are_held_once(self):
         other = dict(PUBLISHED, id='other')

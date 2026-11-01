@@ -259,7 +259,7 @@ test('grayscale fails closed on unknown paints or SVG features that could bypass
 });
 
 async function fixture() {
-  const text = '{"engine_types":[{"type":"stock"}\n],"fx_types":[]}';
+  const text = '{"engine_types":[{"type":"stock"}\n],"fx_types":[],"seq_types":[{"id":0,"type":"stockplayer"}]}';
   const catalog = new TextEncoder().encode(text);
   const screenTemplate = readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8');
   const machine = {id:'probe', kind:'synth', name:'Probe', artwork, asset:'probe.svg',
@@ -267,9 +267,24 @@ async function fixture() {
   const kit = {machines:[machine, {...machine, id:'other', asset:'other.svg', artwork:'<circle fill="unsupported"/>'}],
     screenTemplate, profile:{stock_catalog_sha256:await sha256(catalog),
       screen_template_sha256:await sha256(new TextEncoder().encode(screenTemplate)),
-      stock_catalog_inserts:{engine_types:text.indexOf('\n]'), fx_types:text.lastIndexOf(']')}}};
+      stock_catalog_inserts:{engine_types:text.indexOf('\n]'), fx_types:text.indexOf('],"seq_types"'), seq_types:text.lastIndexOf(']')}}};
   return {kit, catalog};
 }
+
+test('grayscale packaging preserves the note-player catalog and converts selected player artwork', async () => {
+  const {kit, catalog} = await fixture();
+  const player = {...kit.machines[0], id:'playerprobe', kind:'player', asset:'playerprobe.svg',
+    catalog:',{"id":0,"type":"playerprobe"}'};
+  kit.machines.push(player);
+  const files = await buildAssets(kit, ['probe', player.id], catalog, {[player.id]:{player:4}}, {graphics:'grayscale'});
+  const decode = bytes => new TextDecoder().decode(bytes);
+  const menu = JSON.parse(decode(files['content/op1_factory.json']));
+  assert.deepEqual(menu.seq_types, [{id:0, type:'stockplayer'}, {id:8, type:'playerprobe'}]);
+  assert.deepEqual(menu.engine_types.map(entry => entry.type), ['stock', 'probe']);
+  assert.equal(decode(files['content/display/playerprobe.svg']),
+    kit.screenTemplate.replace('</svg>', artworkForGraphics(player.artwork, 'grayscale') + '</svg>'));
+  assert.equal(Object.hasOwn(files, 'content/presets/playerprobe/default.json'), false);
+});
 
 test('per-machine overrides package mixed designs with authored grayscale and intact grayscale originals', async () => {
   const {kit, catalog} = await fixture();

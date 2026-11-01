@@ -3,6 +3,7 @@ from pathlib import Path
 import struct
 
 from .cpu import control_defaults, sweep
+from .definitions import shift_parameters
 from .pipeline import ROOT
 from .formats import require
 
@@ -34,6 +35,8 @@ def cases(machines, sweep=False):
     control at the position that ran heaviest (combined_positions)."""
     result = [dict(name=name, engine=engine, source='stock') for name, engine in STOCK]
     for m in machines:
+        if m.kind == 'player':
+            continue  # Note transforms have no audio-render workload.
         case = dict(name=m.id, engine=m.identity.get('engine', m.identity.get('effect')), source='sdk',
                     kind=m.kind, benchmark=METHODS[m.kind][0], metric=METHODS[m.kind][1])
         result.append(case)
@@ -92,6 +95,7 @@ def combined_positions(results):
 
 
 def generate(directory, machines, sweep=False):
+    machines = [m for m in machines if m.kind != 'player']
     declarations, rows, settings, defaults = [], [], [], []
     for index, m in enumerate(machines):
         swept = sweep_settings(m) if sweep and m.kind == 'synth' else []
@@ -149,6 +153,10 @@ def append_callback(path, m):
     values = dict(PREFIX=m.prefix, NAMESPACE=m.id, DEFAULTS=', '.join(map(str, control_defaults(m.definition['parameters']))))
     if m.kind == 'effect':
         size = resources.get('bufferBytes', 0)
+        # Words 8..11: a shift row starts on each list's first choice, at its bucket's
+        # middle (shift_row::midpoint), as a new project plays it.
+        row = [0x7fffffff // len(p['mapping']['labels']) // 2 for p in shift_parameters(m.definition)]
+        values['DEFAULTS'] += ', ' + ', '.join(map(str, row + [0] * (4 - len(row))))
         values.update(BUFFER_BYTES=str(size)+'u', BUFFER=f'Buffer{{static_cast<i32*>(memory.data), {size//4}u}}, ' if size else '',
                       TRANSPORT='time, ' if resources.get('transport') else '')
     else:
