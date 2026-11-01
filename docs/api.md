@@ -293,11 +293,11 @@ serialized access.
 
 ## Track control
 
-A synth can steer other tracks (SDK 1.7). A build without such a machine
+A synth can steer other tracks (SDK 1.8). A build without such a machine
 applies none of track control's
 firmware edits and links none of its code. It declares
 `"trackControl": {"stateBytes": n, "stateAlignment": a}` in `resources`, with
-`"sdk": "1.7"` in `machine.json`, and supplies `control.cpp` with:
+`"sdk": "1.8"` in `machine.json`, and supplies `control.cpp` with:
 
 ```cpp
 struct ControlState { ... };  // trivial, standard-layout; starts zeroed

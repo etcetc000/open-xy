@@ -694,17 +694,9 @@ PLAYER_CATALOG_OFFSET = 4
 def preset_path(m):
     """content/presets/<id>/default.json for an instrument; None for an effect, a
     player or a machine on an aux track (builder/core.mjs presetPath). An aux machine
-    has no catalog entry and keeps its presets under content/aux_presets/ instead (#234,
-    not yet merged; track_control is a placeholder until that PR defines its shape)."""
-    return (None if m.kind in ('effect', 'player') or track_control(m).get('aux')
+    has no catalog entry and keeps its presets under content/aux_presets/ instead."""
+    return (None if m.kind in ('effect', 'player') or (track_control(m) or {}).get('aux')
             else f'content/presets/{m.id}/default.json')
-
-
-def track_control(m):
-    """A machine's track-control declaration (definition.json `trackControl`), or {}
-    if it has none. Placeholder pending #234 (machines on aux tracks); revisit once
-    that PR lands and defines the real shape."""
-    return m.definition.get('trackControl') or {}
 
 
 def default_preset(m):

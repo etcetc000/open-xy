@@ -115,9 +115,10 @@ class Definitions(unittest.TestCase):
                                  f'content/presets/{synth.id}/warm.json': other})
 
     def test_an_aux_track_control_machine_keeps_no_instrument_preset_folder(self):
-        # Placeholder pending #234, which defines trackControl's real shape.
         synth = fixture('probesynth')
-        aux = dataclasses.replace(synth, definition={**synth.definition, 'trackControl': {'aux': [12]}})
+        resources = {**synth.definition['resources'],
+                     'trackControl': {'stateBytes': 8, 'stateAlignment': 4, 'unique': True, 'aux': [12]}}
+        aux = dataclasses.replace(synth, definition={**synth.definition, 'resources': resources})
         self.assertIsNone(preset_path(aux))
         self.assertEqual(preset_files(aux), {})
 

@@ -175,7 +175,7 @@ def check_identity(rules, kind, value, display=None):
         require(set(value) == {'player', 'page'} and all(type(v) is int for v in value.values()),
                 'Players need a player type and their own page')
         require(value['player'] in rules['players'], 'Players use a type stock leaves unused')
-        require(rules['page_none'] < value['page'] < rules['pages'], 'Players need a relocated page')
+        require(rules['page_none'] < value['page'] < rules['pages'] - 1, 'Players need a relocated page')
         return dict(value)
     slot = 'effect' if kind == 'effect' else 'engine'
     require(set(value) == {slot, 'page'}, 'Unexpected identity fields')
@@ -183,7 +183,8 @@ def check_identity(rules, kind, value, display=None):
     require(type(number) is int and type(page) is int, 'IDs must be integers')
     if kind == 'effect':
         own = display == 'drawing' or display is None and page != rules['effect_page']
-        require(number in rules['effects'] and (rules['page_none'] < page < rules['pages'] if own
+        # The last page holds track control's marks (track_control_overlay.cpp.in): no machine is given it.
+        require(number in rules['effects'] and (rules['page_none'] < page < rules['pages'] - 1 if own
                                                  else page == rules['effect_page']),
                 'Effects use an FX ID stock leaves unregistered, on the stock FX page or, drawing their own, '
                 'a relocated page')
@@ -192,7 +193,7 @@ def check_identity(rules, kind, value, display=None):
             'Engine ID outside the relocated table, the stock "none" value or registered by stock')
     if kind == 'sample':
         own = display == 'drawing' or display is None and page not in rules['sample_pages']
-        require(rules['engine_none'] < number and (rules['page_none'] < page < rules['pages'] if own
+        require(rules['engine_none'] < number and (rules['page_none'] < page < rules['pages'] - 1 if own
                                                    else page in rules['sample_pages']),
                 'Sample engines need a relocated-table engine ID and a stock sample page or, drawing their own '
                 'screen, a relocated page')
@@ -366,7 +367,7 @@ def machine_at(root, identity=None):
         require(requested['page'] == SAMPLE_BASES['drumSampler'],
                 'Pad settings and drum controls need the drum sampler base ("base": "drumSampler")')
     if 'trackControl' in definition['resources']:
-        require_sdk(version, (1, 7), 'Track control (trackControl)')
+        require_sdk(version, (1, 8), 'Track control (trackControl)')
         require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
     require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')

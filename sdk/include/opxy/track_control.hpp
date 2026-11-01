@@ -1,4 +1,4 @@
-// Track control (SDK 1.7): a synth that declares resources.trackControl runs
+// Track control (SDK 1.8): a synth that declares resources.trackControl runs
 // control() on the GUI side once per stock GUI tick while it is on an
 // instrument track. It reads every instrument track's live parameters and may
 // overlay other tracks' values for that tick, or capture their encoder edits.

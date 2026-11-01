@@ -281,10 +281,10 @@ class OutsideMachines(unittest.TestCase):
         definition = json.loads((self.folder / 'definition.json').read_text(encoding='utf-8'))
         definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4}
         (self.folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
-        self.numberless(self.folder, sdk='1.6')
+        self.numberless(self.folder, sdk='1.7')
         with self.assertRaisesRegex(ValueError, 'Track control'):
             machines.machine_at(self.folder)
-        self.numberless(self.folder, sdk='1.7')
+        self.numberless(self.folder, sdk='1.8')
         self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
 
     def numberless(self, folder, **changes):

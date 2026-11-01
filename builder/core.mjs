@@ -118,9 +118,10 @@ export function validIdentity(rules, kind, identity) {
   if (!identity || typeof identity !== 'object' || Object.keys(identity).sort().join() !== [slot, 'page'].sort().join()) return false;
   const n = identity[slot], page = identity.page;
   if (!Number.isInteger(n) || !Number.isInteger(page)) return false;
-  if (kind === 'player') return rules.players.includes(n) && page > rules.page_none && page < rules.pages;
+  if (kind === 'player') return rules.players.includes(n) && page > rules.page_none && page < rules.pages - 1;
   // An effect is on the stock FX page, or on a relocated page when it draws its own (SDK 1.7).
-  if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages);
+  // The last page is track control's marks', which no machine is given.
+  if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages - 1);
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   // A sample engine is on a stock sample page, or on a relocated page when it draws its own screen (SDK 1.8).
   // The last page is track control's marks', which no machine is given.
