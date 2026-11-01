@@ -791,15 +791,15 @@
       "maintainer": "colorsinspace1",
       "status": "published",
       "repository": "https://github.com/colorsinspace1/halcyon-wander",
-      "tag": "1.1",
-      "commit": "b62f6279c79d46d7e0f149321ad28c2cc02371a6",
+      "tag": "1.2",
+      "commit": "4e427f1d2d4c8aad022ceffa1cd31654ee5d99fc",
       "path": ".",
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
-        "commit": "b62f6279c79d46d7e0f149321ad28c2cc02371a6",
-        "firmware_sha256": "84d9c1a7e29531f707732268764deac2a6584964a38af232ebe31b1265e25600",
+        "commit": "4e427f1d2d4c8aad022ceffa1cd31654ee5d99fc",
+        "firmware_sha256": "df565daa566d51b111090b7365d2355f7bbdfaecbb4f5a75078d698049f6063d",
         "runs": 3,
-        "block_percent": 6.182956
+        "block_percent": 6.253147
       }
     }
   ]
