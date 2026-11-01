@@ -29,7 +29,8 @@ from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, tree
-from .pipeline import (PROFILE, ROOT, check_patch_boundaries, child, config, document, execute, fresh_output, host_pins, host_platform,
+from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
+                       fresh_output, host_pins, host_platform,
                        hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
 from .startup import generate as generate_startup
 
@@ -957,7 +958,8 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
     return result
 
 
-def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True, sweep=False):
+def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True, sweep=False,
+          overwrite=False):
     """A firmware package. Its machines take their numbers from `layout` (by machine ID);
     the package's layout.json is that layout after this build, for the next one. Only a
     package for hardware profiling sweeps synth controls: `sdk.py build` turns it on with
@@ -971,7 +973,7 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     require(sha(stock) == profile['stock_sha256'], 'Stock OS hash mismatch')
     catalog = read(Path(stock_content) / 'op1_factory.json')
     require(sha(catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
-    output = fresh_output(out)
+    output = fresh_output(out, overwrite, [toolchain, compiler, stock_os, stock_content, *(m.root for m in machines)])
     analysis = output / 'analysis'
     analysis.mkdir()
     version = startup_label.release_version()
@@ -1028,6 +1030,7 @@ def main(argv=None, command=None):
         parser.add_argument('--package', type=Path, required=True)
     else:
         parser.add_argument('--out', type=Path, required=True)
+        add_overwrite_argument(parser)
     if command != 'compile':
         parser.add_argument('--stock-os', type=Path, required=True)
         parser.add_argument('--stock-content', type=Path, default=STOCK_CONTENT,
@@ -1063,7 +1066,7 @@ def main(argv=None, command=None):
         compiler_paths(tools[1])
         if command == 'compile':
             require(not any(m.contains(args.out) for m in machines), 'Keep build output outside every machine folder')
-            output = fresh_output(args.out)
+            output = fresh_output(args.out, args.overwrite, [*tools, *(m.root for m in machines)])
             _module, report, _patches = compile_collection(output, *tools, profile, machines, definitions,
                                                            startup_label.release_version(), args.profiling == 'on',
                                                            sweep)
@@ -1080,7 +1083,7 @@ def main(argv=None, command=None):
             print(json.dumps(verification(stock, catalog, args.package.resolve(), *tools), indent=2))
         else:
             output, result = build(args.out, *tools, args.stock_os, args.stock_content, entries, layout,
-                                   args.profiling == 'on', sweep)
+                                   args.profiling == 'on', sweep, args.overwrite)
             print(json.dumps(result, indent=2))
             print('Local experimental package: ' + str(output))
             candidate = output / 'candidate'
@@ -1088,8 +1091,8 @@ def main(argv=None, command=None):
             for path in sorted(p for p in candidate.rglob('*') if p.is_file()):
                 print('  ' + path.relative_to(candidate).as_posix())
             print('Machine numbers: ' + str(output / 'layout.json') + ' (pass it as --layout to your next build)')
-            print('With aft-mtp-cli (android-file-transfer-linux) installed, copy everything in one step: ' +
-                  f"aft-mtp-cli 'put {candidate / 'os.ldr'}' 'mkdir content' 'cd content' 'put {candidate / 'content/display'}' 'put {candidate / 'content/op1_factory.json'}' 'mkdir presets' 'cd presets' 'put {candidate / 'content/presets'}'")
+            print('With the OP-XY in file-transfer mode, copy everything in one step: ' +
+                  f'python sdk.py device push {candidate}')
         return 0
     except (ValueError, OSError, KeyError, ET.ParseError, subprocess.SubprocessError) as error:
         print('ERROR: ' + str(error), file=sys.stderr)
