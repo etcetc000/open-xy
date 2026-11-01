@@ -222,6 +222,8 @@ def block_cost(m, host_cxx, scratch):
 
 
 def summary(m, host_cxx, scratch):
+    if m.kind == 'player':
+        return 'CPU: note-player transforms are not covered by the audio-render estimator.'
     """One line for sdk.py test: the machine's estimated Blackfin instructions per block,
     with the limits to stay under and Open-XY's core machines for scale."""
     try:

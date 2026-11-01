@@ -21,8 +21,11 @@ effect and page numbers are not the catalog's: each firmware's
 | `status` | `reserved`: the ID is held for a machine being written. `draft`: its release is pinned for review but not built into kits or firmware. `published`: built from its release. `retired`: no longer built; its ID stays held |
 | `repository`, `tag`, `commit`, `path` | A draft or published machine's release: `https://github.com/<owner>/<repo>`, the tag, its full commit SHA, and the machine's folder in the repository (`.` at the root). A retired entry may keep them |
 
-New or changed draft/published entries also require a `cpu` record generated
-from [hardware profiling](profiling.md), for every machine kind; a synth's is a
+Note players carry no audio-render CPU record; their note transforms are not
+covered by the profiler.
+
+New or changed draft/published instrument/effect entries require a `cpu` record generated
+from [hardware profiling](profiling.md), for synth, sample and effect machines; a synth's is a
 control sweep that records its heaviest setting. Results above the recommended
 3.5% of the block budget are accepted with a warning. That guide owns
 the field schema, workloads and contributor commands. Unchanged legacy entries

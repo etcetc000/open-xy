@@ -61,7 +61,7 @@ class Services(unittest.TestCase):
         timing = [p for p in profile['patches'] if p.get('profiling') is False]
         self.assertEqual(len(timing), 10)
         for p in timing:
-            self.assertFalse(patch_active(p, {'samples'}))
+            self.assertFalse(patch_active(p, {'samples', 'octaves'}))
             self.assertTrue(patch_active(p, set(), False))
             tagged = dict(p, service='samples')
             self.assertFalse(patch_active(tagged, set(), False))
@@ -85,7 +85,7 @@ class Services(unittest.TestCase):
         from machine_fixtures import NAMES, fixture
         profile = config()
         self.assertEqual(active_services(profile, ['synth', 'effect']), set())
-        self.assertEqual(active_services(profile, ['sample']), {'samples'})
+        self.assertEqual(active_services(profile, ['sample']), {'samples', 'octaves'})
         self.assertEqual(active_services(profile, ['synth', 'extension']), {'extensions'})
         from tooling.extensions import extension_at
         from tooling.pipeline import ROOT
@@ -96,11 +96,11 @@ class Services(unittest.TestCase):
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS
-                         if native.UNIT_SERVICES.get(u) != 'master_filter'])
+                         if native.UNIT_SERVICES.get(u) not in ('master_filter', 'players')])
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
         without = [m for m in machines if m.kind != 'sample']  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
-        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'extensions'})
+        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'extensions'})
         self.assertEqual(native.object_services(without), {})
 
     def test_only_a_service_edit_may_stay_stock(self):

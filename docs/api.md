@@ -580,8 +580,8 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.7 and builds 1.0 to 1.7 machines |
-| `kind` | `synth`, `sample` or `effect` |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.8 and builds 1.0 to 1.8 machines |
+| `kind` | `synth`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |
@@ -662,3 +662,76 @@ voice mode.
 Arbitrary external-engine loading is not implemented: a machine reaches the
 firmware through the collection, from the [catalog](catalog.md) or as a folder
 passed to a build with `--machine`.
+
+## Note players
+
+SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
+before the track's instrument receives them. Its `machine.json` declares no
+identity or base; the layout assigns an unused player type and its own page.
+Use four parameters, `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+Players have no instrument presets, audio-render CPU estimate or browser audio preview.
+
+Include `<opxy/player.hpp>` and implement, in the machine's namespace:
+
+```cpp
+struct State { /* zero-initialized, at most 2048 bytes, alignment at most 4 */ };
+bool press(State&, const opxy::player::Controls&, opxy::u32 note,
+           opxy::u32 velocity, opxy::player::Plan&);
+bool release(State&, opxy::u32 note);
+void display(const State&, const opxy::player::Controls&, opxy::player::Display&);
+```
+
+`press` returns false to pass a note through, or true with a plan of zero to
+eight tones. Each tone has a MIDI pitch and velocity, and a delay in stock
+player steps. Zero sounds on the next step. A plan's tones release together
+with its root; at most eight roots can be held. A ninth plan is dropped.
+`release` returns true for a silent control key, false to let stock release
+its chord. Note callbacks do not allocate, block, log, perform I/O or draw.
+State holds no resources. Display reads are advisory while sequencing runs.
+
+For live changes to held chords, optionally implement
+`bool update(State&, const Controls&, Update&)`. After a taken press or any
+release, and before every stock player step, the SDK drains at most eight
+updates, stopping when it returns false. Calls run on the sequencer role,
+so held chords can follow control changes without GUI-side note operations.
+An update names an existing `root`, a `plan`, and mode `Replace` or `Add`.
+`Replace` releases the old tones and schedules the new plan; an empty plan
+silences that root. `Add` keeps sounding and queued tones and appends only
+new pitches, up to eight total. A change never starts a root with no current
+record. Invalid MIDI values or counts discard the update without changing
+the chord. Cleared records are immediately reusable, including at capacity.
+
+Optional `void reset(State&)` clears held inputs after stock reset or
+all-notes-off; it can preserve machine settings. Without it, the SDK zeroes
+State. Keep machine root tracking bounded to eight and clear it on root
+release and reset. These callbacks share the same restrictions as `press`.
+
+`Controls.value` contains the four Q31 parameter words. Declared enums with
+2..255 choices move one choice per encoder detent, storing the choice's centre.
+Other mappings retain the Maestro controller's editing: 64 steps, four choices,
+continuous, and off/on, respectively.
+`lowest_key` is the track keyboard's lowest F at its current octave. Stock's
+octave setter publishes this independently of sample-engine selection.
+
+The page keeps the stock header and uses the four definition labels.
+`Display.values` supplies their text; `lit` shows the 24 `<id>_dot_0..23`
+circles or filled paths; `text` replaces the centered `<id>_text` text leaf.
+All strings must terminate within their fixed arrays. The SDK then fills
+`played[4]` from emitted, still-held stock chord records, ignoring queued
+strum tones, and supplies `lowest_key` for the output keyboard.
+
+The output keyboard is optional: omit all its key and activity nodes for an
+input-only page. When present, it binds `<id>_key_0..127` paths and
+`<id>_played_0..127` circles or filled paths. Author white keys as 10 by 44
+paths and black keys as 6 by 27 paths at the origin, white keys before black
+keys in SVG order, then activity dots. Use explicit fill and stroke and a
+`matrix(1 0 0 1 x y)` transform on every binding. The SDK lays out these
+keys in the lower 444-pixel-wide row at y=174, fitting whole F-to-E octaves
+around the input keyboard and every emitted note. This preserves octaves
+under voicing, spread and simultaneous chords. MIDI endpoints use partial
+octaves. Hidden nodes move beyond the display.
+
+Player types remain stable when a subsequent build uses the saved layout.
+Stock firmware replaces an unknown saved player with Arpeggio. Project
+companions currently describe engine/effect identities only: preserve the
+firmware's `layout.json` for player identities.

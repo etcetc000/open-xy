@@ -48,6 +48,7 @@ const Pages kPages = {@PAGE_LIMIT@, 0x8d52077c, @SCREEN_SLOTS@, 0x0803bf1c};
 int sdk_register_engine(const Record* r) { return add(kEngines, kPages, *r); }
 int sdk_register_effect(const Record* r) { return add(kEffects, kPages, *r); }
 int sdk_register_screen(const Record* r, const Screen* screen) { return add_screen(kPages, *r, *screen); }
+int sdk_screen_ready(const Record* r, const Screen* screen) { return screen_ready(kPages, *r, *screen); }
 int sdk_engine_ready(const Record* r, const Screen* screen) { return ready(kEngines, kPages, *r, screen); }
 int sdk_effect_ready(const Record* r, const Screen* screen) { return ready(kEffects, kPages, *r, screen); }
 int sdk_stock_engine_known(const void* name) { return known(kEngines, static_cast<const StockString*>(name)); }
