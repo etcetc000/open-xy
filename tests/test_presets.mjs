@@ -77,9 +77,9 @@ test("a machine's own presets install beside its init preset, unchanged", async 
   assert.deepEqual(authored, {'content/presets/probesynth/default.json': own({octave: 1})});
 });
 
-// Placeholder pending #234, which defines trackControl's real shape.
+// A kit's aux machine has no catalog entry (tooling.adapters.catalog_entry): it is never an instrument.
 test('an aux track-control machine keeps no instrument preset folder', () => {
-  const aux = {...machines[0], trackControl: {aux: [12]}};
+  const aux = {...machines[0], catalog: '', features: ['trackControl', 'auxTrack']};
   assert.equal(presetPath(aux), null);
   assert.deepEqual(presetFiles(aux), {});
 });
