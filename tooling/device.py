@@ -15,6 +15,10 @@ firmware to the boot partition and never ejects. The record folder (default
 under the private OPXY-SDK folder; always outside every checkout, since backups
 hold stock firmware) keeps transfer.json and the backups. Windows only
 (tooling/wpd.py); on a Mac use the browser builder's transfer.
+
+Pass --no-backup --no-verify together to replace every supplied file without
+reading device file contents, saving backups or rolling back failed writes.
+The transfer record still identifies completed and interrupted writes.
 """
 import argparse
 from datetime import datetime
@@ -284,6 +288,57 @@ def restored(report):
         f' (new empty folders may remain: {", ".join(folders)})' if folders else '')
 
 
+def push_unchecked(device, files, record):
+    """Explicit write-only transfer: no device file reads, backups or rollback."""
+    check_record(record)
+    record = fresh_output(record)
+    report = {'files': [], 'created_folders': [], 'complete': False,
+              'backup': False, 'verify': False}
+
+    def save():
+        (record / 'transfer.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+
+    device = Listings(device)
+    touched = False
+    try:
+        save()
+        root = device.device.root()
+        require(not any((x.name or '').lower().endswith('.tfw') for x in device.list(root)),
+                'A firmware update (.tfw) is waiting in the device root; finish or remove it first')
+        for parts, data in files.items():
+            parent = device.resolve(root, parts[:-1])
+            old = device.child(parent, parts[-1]) if parent else None
+            require(old is None or not old.folder, f'/{"/".join(parts)} is a folder on the device')
+            report['files'].append({'path': '/' + '/'.join(parts), 'bytes': len(data),
+                                    'sha256': sha(data), 'written': False, 'verified': False})
+        save()
+        for (parts, data), entry in zip(files.items(), report['files']):
+            entry['started'] = True
+            save()
+            touched = True  # Creation/deletion can take effect before its driver reports an error.
+            parent = device.resolve(root, parts[:-1], report['created_folders'])
+            live = device.child(parent, parts[-1])
+            require(live is None or not live.folder, f'{entry["path"]} became a folder on the device')
+            if live is not None:
+                device.delete(parent, live)
+            device.create_file(parent, live.name if live else parts[-1], data, live)
+            entry['written'] = True
+            save()
+            print('copied ' + entry['path'], flush=True)
+        report['complete'] = True
+        save()
+    except BaseException as error:
+        report['error'] = str(error) or type(error).__name__
+        error.device_state = ('transfer incomplete; device files may be partially replaced; no backups or rollback'
+                              if touched else 'nothing was written to the device')
+        try:
+            save()
+        except BaseException:
+            pass
+        raise
+    return report
+
+
 def entry_at(device, path):
     # Git Bash rewrites a leading / into its install folder (C:/Program Files/Git/...).
     require(not (len(path) > 1 and path[1] == ':'), f'{path} is not a device path; write it without the leading /, '
@@ -310,6 +365,8 @@ def main(argv=None, connect=open_device):
     p = commands.add_parser('push', help='Mirror a folder onto the device root')
     p.add_argument('folder', type=Path, help='Folder laid out like the device, such as <build>/candidate')
     p.add_argument('--record', type=Path, help='New folder outside every checkout for the record and backups')
+    p.add_argument('--no-backup', action='store_true', help='No backups or rollback; requires --no-verify')
+    p.add_argument('--no-verify', action='store_true', help='No device file readback; requires --no-backup')
     p = commands.add_parser('list', help='List a device folder')
     p.add_argument('path', nargs='?', default='/')
     p = commands.add_parser('pull', help='Read one device file')
@@ -318,6 +375,7 @@ def main(argv=None, connect=open_device):
     args = parser.parse_args(argv)
     try:
         if args.command == 'push':
+            require(args.no_backup == args.no_verify, 'Use --no-backup and --no-verify together')
             files, skipped = source_files(args.folder)  # A bad source fails before the device is touched.
             for path in skipped:
                 print('skipped ' + path, flush=True)
@@ -325,13 +383,17 @@ def main(argv=None, connect=open_device):
             check_record(record)  # Before the device is opened.
             with connect() as device:
                 try:
-                    report = push(device, files, record)
+                    report = (push_unchecked if args.no_backup else push)(device, files, record)
                 finally:
                     if (record / 'transfer.json').exists():
                         print('Transfer record: ' + str(record), flush=True)
-            changed = sum(x['changed'] for x in report['files'])
-            print(f'PASS: {len(files)} files on the device ({changed} copied and read back, the rest already matched). '
-                  'Firmware not written to the boot partition.')
+            if args.no_backup:
+                print(f'COPIED: {len(files)} files; no backups or readback verification. '
+                      'Firmware not written to the boot partition.')
+            else:
+                changed = sum(x['changed'] for x in report['files'])
+                print(f'PASS: {len(files)} files on the device ({changed} copied and read back, the rest already matched). '
+                      'Firmware not written to the boot partition.')
         elif args.command == 'list':
             with connect() as device:
                 folder, entry = entry_at(device, args.path)

@@ -54,7 +54,7 @@ class SynthVoices(unittest.TestCase):
                 preset[parameter['id']] = parameter['default']
         definition['resources'].update(voiceBytes=12, voiceAlignment=4, voiceCapacity=capacity, sharedBytes=0)
         validate_definition(definition, 'synth')
-        m = SimpleNamespace(definition=definition, prefix='probe', native_name='probe', identity=dict(engine=5, page=85))
+        m = SimpleNamespace(kind='synth', definition=definition, prefix='probe', native_name='probe', identity=dict(engine=5, page=85))
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             generate_voice(folder, m)

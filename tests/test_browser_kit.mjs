@@ -128,6 +128,21 @@ test('ELF parsing reads symbols and little-endian instructions', () => {
   const o = readObject(elf()); assert.equal(o.symbols[1].name,'entry'); assert.equal(o.symbols[1].size,4);
   assert.deepEqual([...o.sections[1].data],[0,96,16,0]);
 });
+test('runtime objects enter only selections that import their arithmetic helpers', () => {
+  const kit = fixture(), baseline = linkKit(kit, ['a']);
+  kit.machines.push(machine('b', 35, 85));
+  const consumer = {...readObject(elf()), name:'b.o', owner:'b'};
+  consumer.symbols[1].name = 'b_entry';
+  consumer.symbols.push({name:'___muldi3', binding:1, section:0, type:2, value:0, size:0});
+  const helper = {...readObject(elf()), name:'sdk/runtime/_muldi3.o', owner:null, runtime:true};
+  helper.symbols[1].name = '___muldi3';
+  kit.objects.push(consumer, helper);
+  const integers = linkKit(kit, ['a']), arithmetic = linkKit(kit, ['b']);
+  assert.deepEqual(integers.module, baseline.module);
+  assert.deepEqual(integers.objects.map(o => o.name), ['a.o']);
+  assert.deepEqual(arithmetic.objects.map(o => o.name), ['b.o', 'sdk/runtime/_muldi3.o']);
+  assert(arithmetic.globals.has('___muldi3'));
+});
 test('truncated sections, wrong architectures, merge flags, constructors and COMMON fail closed', () => {
   assert.throws(()=>readObject(elf().slice(0,200)),/section table/);
   for (const [offset, type, value] of [[18,16,3],[128+40+8,32,0x36],[128+40+16,32,9999],[86,16,0xfff2]]) {
@@ -193,7 +208,7 @@ test('declared callbacks of unselected machines resolve to fallbacks only for SD
 test('SDK objects of a profile service link only when a selected machine uses it', () => {
   const k=fixture();
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'effect'}])],[]);
-  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])],['samples']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])],['samples', 'octaves']);
   // The service object redefines `entry`, so linking it would be a duplicate global.
   k.objects.push({...k.objects[0],name:'service.o',owner:null,service:'samples'});
   const linked=linkKit(k,['a']);
@@ -253,6 +268,15 @@ test('numbers follow the layout, not the selection order, and unselected machine
   assert.deepEqual([linked.definitions.a_engine_id,linked.definitions.b_engine_id,linked.definitions.c_engine_id,
     linked.definitions.c_page_id],[34,0,246,204]);
   assert.deepEqual(linked.numbers.b,{engine:215,page:221});
+});
+test("a sample engine drawing its own screen links its page apart from the sampler's", () => {
+  const k=fixture(); k.machines.push({id:'g',prefix:'g',kind:'sample',identity:{engine:null,page:null},absent:{},origin:'personal'});
+  const numbers=assignNumbers(k,['a','g']);
+  assert.ok(numbers.g.page>81 && numbers.g.page<256);
+  const linked=linkKit(k,['a','g'],numbers).definitions;
+  assert.deepEqual([linked.g_engine_id,linked.g_page_id,linked.g_screen_page_id],[numbers.g.engine,2,numbers.g.page]);
+  const absent=linkKit(k,['a'],numbers).definitions;
+  assert.deepEqual([absent.g_engine_id,absent.g_page_id,absent.g_screen_page_id],[0,0,0]);
 });
 test('saved layouts restore numbers and selections, including older saved selections', () => {
   const k=fixture(), id=k.profile.id;
@@ -324,7 +348,7 @@ test('SDK 1.5 machines ask for no numbers and the selection gives them', async (
   for (const identity of [{engine:null,page:82},{engine:null,page:null,base:'sampler'}]) {
     k.machines[1].identity=identity; await assert.rejects(openKit(k),/Machine numbers/);
   }
-  k.machines[1].identity={engine:null,page:null}; k.machines[2].identity={engine:null,page:null};
+  k.machines[1].identity={engine:null,page:null}; k.machines[2].identity={engine:null,page:21};
   await assert.rejects(openKit(k),/Machine numbers/);
   k.machines[2].identity={engine:null,page:7}; k.machines[0].identity={engine:34,page:83};
   await assert.rejects(openKit(k),/Fixed machine numbers differ/);
@@ -389,4 +413,17 @@ test('the release checks the linked machines, each other machine beside the offi
   assert.deepEqual(selections.slice(0, 3), [1n << 33n, 1n << 39n, core]);
   assert.equal(selections.length, 3 + 38);
   assert.ok(selections.slice(3).every(mask => (mask & core) === core));
+});
+
+
+test('players have stable separate types and share the relocated page pool', () => {
+  const profile = JSON.parse(readFileSync(new URL('../profiles/opxy-1.2.1.json', import.meta.url), 'utf8'));
+  const rules = profile.identities;
+  const machines = [['probeplayer', 'player', {player: null, page: null}], ['second', 'player', {player: null, page: null}]];
+  const layout = numberLayout(rules, [], null, machines);
+  assert.notEqual(layout.probeplayer.player, layout.second.player);
+  assert.notEqual(layout.probeplayer.page, layout.second.page);
+  assert.deepEqual(numberLayout(rules, [], layout, machines.slice().reverse()), layout);
+  assert.deepEqual([...activeServices(profile, [{kind: 'player'}])].sort(), ['octaves', 'players']);
+  assert.throws(() => numberLayout(rules, [], {probeplayer: {player: 4, page: 84}}, machines), /cannot use/);
 });

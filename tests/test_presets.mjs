@@ -19,9 +19,9 @@ const numbers = {probefx: {effect: 6, page: 21}};
 
 async function fixture(selectedMachines = machines) {
   // Authored menu fixture with its own insertion points; no captured firmware or factory content.
-  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ]}';
+  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ],"seq_types":[{"type":"maestro"}\n    ]}';
   const catalog = new TextEncoder().encode(text);
-  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.lastIndexOf('\n    ]')};
+  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.indexOf('\n    ]', text.indexOf('fx_types')), seq_types: text.lastIndexOf('\n    ]')};
   return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts}}, catalog};
 }
 
@@ -75,6 +75,13 @@ test("a machine's own presets install beside its init preset, unchanged", async 
   // Its own default replaces the generated init preset.
   const authored = presetFiles({...machines[0], presets: {default: own({octave: 1})}});
   assert.deepEqual(authored, {'content/presets/probesynth/default.json': own({octave: 1})});
+});
+
+// Placeholder pending #234, which defines trackControl's real shape.
+test('an aux track-control machine keeps no instrument preset folder', () => {
+  const aux = {...machines[0], trackControl: {aux: [12]}};
+  assert.equal(presetPath(aux), null);
+  assert.deepEqual(presetFiles(aux), {});
 });
 
 test("a machine's own presets are checked again before they reach a device", async () => {
