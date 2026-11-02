@@ -1,0 +1,19 @@
+// Browser-only effect bridge. Never linked into firmware.
+#include "fx.cpp"
+using State = @NAMESPACE@::State;
+static_assert(sizeof(State) <= @STATE_LIMIT@, "Effect state exceeds its declared slot");
+static_assert(alignof(State) <= opxy::effect_state_alignment, "Effect state alignment exceeds its slot");
+static State state;
+@BUFFER_STORAGE@
+static opxy::i32 left[64], right[64], parameters[8];
+extern "C" {
+opxy::u32 opxy_effect_abi() { return 1; }
+opxy::u32 opxy_effect_left() { return reinterpret_cast<opxy::u32>(left); }
+opxy::u32 opxy_effect_right() { return reinterpret_cast<opxy::u32>(right); }
+opxy::u32 opxy_effect_parameters() { return reinterpret_cast<opxy::u32>(parameters); }
+void opxy_effect_reset() { state = State(); @NAMESPACE@::initialize(state); }
+void opxy_effect_render(opxy::u32 ticks) {
+    @TRANSPORT@
+    @NAMESPACE@::process(state, @BUFFER@@TRANSPORT_ARGUMENT@left, right, parameters);
+}
+}

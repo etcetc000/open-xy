@@ -128,10 +128,22 @@ export function releaseAction(machine, candidate) {
   return 'Update to ' + candidate.tag;
 }
 
-export function mount(root, {canWrite, back}) {
+export async function auditionModule(preview) {
+  if (!['synth', 'drum', 'effect'].includes(preview.kind) || typeof preview.wasm !== 'string' || preview.wasm.length > 1400000)
+    throw new Error('Invalid audition response');
+  const bytes = Uint8Array.from(atob(preview.wasm), c => c.charCodeAt(0));
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(n => n.toString(16).padStart(2, '0')).join('');
+  if (digest !== preview.wasm_sha256) throw new Error('Audition module verification failed');
+  return WebAssembly.compile(bytes);
+}
+
+// The audio factory is shared with the builder; keeping it supplied here also
+// lets the manager's selection/client contracts run without browser audio APIs.
+export function mount(root, {canWrite, back, createAudition}) {
   const $ = name => root.querySelector('[data-manager="' + name + '"]');
   let client, installed = [], offered = [], selected = new Set(), updates = new Set(), locals = new Map();
   let plan = null, connected = false, busy = false, offline = false, revision = null;
+  let audio = null, auditionRevision = 0;
   root.innerHTML = `<div class="page-header"><div><span class="eyebrow">Your OP–XY</span><h1 tabindex="-1">Manage machines</h1></div><button class="secondary" data-manager="back">Build firmware</button></div>
     <p>Add or remove machines through regular MTP, then reboot normally.</p>
     <section class="panel manager-connection"><h2>Connect your OP–XY</h2>
@@ -142,6 +154,7 @@ export function mount(root, {canWrite, back}) {
     <p data-manager="status" role="status" aria-live="polite">No device files have been changed.</p>
     <div data-manager="collection" hidden>
       <div class="manager-summary"><span data-manager="count"></span><button class="secondary" data-manager="refresh">Refresh installed collection</button></div>
+      <section class="panel manager-audition" data-manager="audition" hidden aria-label="Machine audition"></section>
       <section class="panel"><label>Catalog channel <select data-manager="channel"><option value="stable">Stable</option><option value="staging">Staging · experimental</option></select></label><p data-manager="catalog-info"></p></section>
       <div class="manager-columns"><section class="panel"><h2>Installed</h2><p>Uncheck to remove, or choose Update for a specific release. Project numbers and extensions are preserved.</p><div data-manager="installed" class="manager-installed"></div><p data-manager="extensions"></p></section>
       <section class="panel"><h2>Available machines</h2><label>Search catalog <input data-manager="search" type="search" placeholder="Machine name or ID"></label><div data-manager="catalog" class="manager-catalog"></div>
@@ -152,6 +165,13 @@ export function mount(root, {canWrite, back}) {
   const hash = /^#manage=([A-Za-z0-9_-]{20,128})$/.exec(location.hash);
   if (hash) { $('token').value = hash[1]; history.replaceState(null, '', location.pathname + location.search + '#manage'); }
   const message = (text, error = false) => { $('status').textContent = text; $('status').dataset.error = String(error); };
+  function closeAudition() {
+    auditionRevision++; audio?.destroy(); audio = null;
+    $('audition').replaceChildren(); $('audition').hidden = true;
+  }
+  window.addEventListener('pagehide', closeAudition);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) audio?.stop(); });
+  window.addEventListener('blur', () => audio?.stop());
   const invalidate = () => { plan = null; $('review').hidden = true; updateChanges(); };
   function updateChanges() {
     const delta = changes(installed, selected, locals, updates);
@@ -160,6 +180,7 @@ export function mount(root, {canWrite, back}) {
   }
   async function operation(text, fn) {
     if (busy) return;
+    closeAudition();
     busy = true; root.setAttribute('aria-busy', 'true');
     root.querySelectorAll('button,input,select').forEach(el => el.disabled = true);
     message(text);
@@ -192,6 +213,19 @@ export function mount(root, {canWrite, back}) {
       button.disabled = same || !connected || !selected.has(machine.id) || !canSelectRelease(candidate);
       button.onclick = () => { updates.has(machine.id) ? updates.delete(machine.id) : updates.add(machine.id); invalidate(); renderLists(); };
       container.append(button);
+    }
+    const previewButton = (source, label) => {
+      const button = document.createElement('button'); button.className = 'secondary'; button.textContent = label;
+      button.disabled = busy || !createAudition;
+      button.onclick = () => openAudition(machine.id, source);
+      container.append(button);
+    };
+    if (['synth', 'drum', 'effect'].includes(machine.kind)) {
+      previewButton(isInstalled ? 'installed' : locals.has(machine.id) ? 'local' : 'catalog', isInstalled ? 'Audition installed' : 'Audition');
+      if (isInstalled && candidate && candidate.commit !== machine.source?.commit) previewButton('catalog', 'Audition ' + candidate.tag);
+    } else {
+      const note = document.createElement('p'); note.className = 'manager-release-detail';
+      note.textContent = 'Browser audition is available for synths, drums and effects.'; container.append(note);
     }
     target.append(container);
   }
@@ -234,9 +268,85 @@ export function mount(root, {canWrite, back}) {
     await detect();
   });
   $('refresh').onclick = () => operation('Reading installed collection…', detect);
-  $('back').onclick = back;
+  $('back').onclick = () => { closeAudition(); back(); };
   $('search').oninput = renderLists;
   $('channel').onchange = () => operation('Checking the selected catalog against your installed SDK…', loadCatalog);
+  async function openAudition(id, source) {
+    let result, compiled;
+    await operation('Building computer-only audition. The device is unchanged…', async () => {
+      result = await client.run('audition', {id, source, channel:$('channel').value, catalog_revision:revision});
+      compiled = await auditionModule(result);
+      message('Audition ready. Audio plays on this computer; your collection selection is unchanged.');
+    });
+    if (!compiled) return;
+    const ticket = ++auditionRevision, panel = $('audition'); panel.hidden = false;
+    const node = (tag, text) => { const el = document.createElement(tag); if (text) el.textContent = text; return el; };
+    const heading = node('h2', 'Audition · ' + result.name), origin = node('p', result.version);
+    const state = node('p', 'Ready · computer audio only'); state.setAttribute('role', 'status');
+    const actions = node('div'); actions.className = 'flow-actions';
+    const stop = node('button', 'Stop'), close = node('button', 'Close audition'); stop.className = close.className = 'secondary';
+    const parameters = Array(8).fill(0);
+    result.definition.parameters.forEach((p, i) => parameters[i] = Math.round(p.default * 0x7fffffff));
+    const previewAudio = audio = createAudition(compiled, parameters, (playing, error) => {
+      if (ticket !== auditionRevision) return;
+      state.textContent = error ? 'Audio unavailable: ' + error : playing ? 'Playing on this computer' : 'Stopped';
+    }, result.kind);
+    panel.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); previewAudio.stop(); } };
+    stop.onclick = () => previewAudio.stop(); close.onclick = closeAudition;
+    panel.append(heading, origin, state, actions);
+    if (result.kind === 'effect') {
+      const play = node('button', 'Play test sound'); play.className = 'primary'; play.onclick = () => previewAudio.play(60);
+      const bypassLabel = node('label'), bypass = node('input'); bypass.type = 'checkbox';
+      bypassLabel.append(bypass, document.createTextNode(' Bypass effect'));
+      bypass.onchange = () => previewAudio.setBypass(bypass.checked);
+      actions.append(play, bypassLabel);
+      panel.append(node('p', 'Stereo pluck loop · 120 BPM. Bypass compares the dry sound without restarting. The mix below is for audition; device send routing may sound different.'));
+      slider('Audition wet mix', 50, value => previewAudio.setWet(value / 100));
+    } else {
+      const keyboard = node('div'); keyboard.className = 'manager-audition-keys'; keyboard.setAttribute('aria-label', 'Audition keyboard');
+      for (const [note, name] of [[60,'C4'],[62,'D4'],[64,'E4'],[65,'F4'],[67,'G4'],[69,'A4'],[71,'B4'],[72,'C5']]) {
+        const key = node('button', name); key.className = 'secondary';
+        const press = () => { if (key.dataset.down === 'true') return; key.dataset.down = 'true'; previewAudio.play(note); };
+        const release = () => { if (key.dataset.down !== 'true') return; key.dataset.down = 'false'; previewAudio.release(note); };
+        key.onpointerdown = event => { event.preventDefault(); key.focus(); key.setPointerCapture(event.pointerId); press(); };
+        key.onpointerup = key.onpointercancel = key.onlostpointercapture = key.onblur = release;
+        key.onkeydown = event => { if ([' ', 'Enter'].includes(event.key)) { event.preventDefault(); if (!event.repeat) press(); } };
+        key.onkeyup = event => { if ([' ', 'Enter'].includes(event.key)) { event.preventDefault(); release(); } };
+        keyboard.append(key);
+      }
+      actions.append(keyboard);
+      if (result.kind === 'drum') {
+        const label = node('label', 'Drum model '), model = node('select');
+        model.setAttribute('aria-label', 'Drum model');
+        for (let i = 0; i < result.definition.resources.modelCount; i++) {
+          const option = node('option', 'Model ' + (i + 1)); option.value = String(i); model.append(option);
+        }
+        model.onchange = () => { previewAudio.stop(); previewAudio.setModel(Number(model.value)); };
+        label.append(model); panel.append(label);
+      }
+      panel.append(node('p', 'Hold a note button to play, or focus it and hold Space or Enter.'));
+    }
+    actions.append(stop, close);
+    slider('Audition volume', 50, value => previewAudio.setVolume(value / 100));
+    result.definition.parameters.forEach((parameter, i) => {
+      if (parameter.absent) return;
+      if (result.kind === 'effect' && i === result.dry_parameter) {
+        panel.append(node('p', parameter.label + ' controls the device’s stock dry mixer. Use Audition wet mix for this preview.')); return;
+      }
+      slider(parameter.label, parameter.default * 100, value => {
+        parameters[i] = Math.round(value / 100 * 0x7fffffff); previewAudio.setParameters(parameters);
+      });
+    });
+    function slider(name, value, change) {
+      const label = node('label', name), input = node('input'), output = node('output', Math.round(value) + '%');
+      label.className = 'manager-audition-control'; input.type = 'range'; input.min = '0'; input.max = '100'; input.step = '0.1'; input.value = String(value);
+      input.setAttribute('aria-label', name + ' audition');
+      input.oninput = () => { output.textContent = Math.round(Number(input.value)) + '%'; change(Number(input.value)); };
+      label.append(input, output); panel.append(label);
+    }
+    panel.scrollIntoView({block:'nearest'});
+    heading.tabIndex = -1; heading.focus({preventScroll:true});
+  }
   async function importFiles(files) {
     if (!client || !connected) throw new Error('Connect and verify your installed collection first.');
     invalidate();
