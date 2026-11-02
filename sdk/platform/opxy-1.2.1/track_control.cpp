@@ -248,9 +248,13 @@ extern "C" i32 sdk_lfo_held_amount(u32 track, u32 index, i32 stock_amount) {
 }
 
 // A machine that keeps data with projects is reset here, before control_load, and
-// never on arrival: its state is the project's, through every pattern change.
+// on arrival only when no load has reset it since startup: its state is the
+// project's, through every pattern change. By table index (at most 31, the chooser's).
+u32 started_machines;
 void opxy::platform::control_loaded(const ControlMachine& machine) {
     if (machine.reset) machine.reset(0);
+    const u32 index = static_cast<u32>(&machine - sdk_control_machines);
+    if (index < 32) started_machines |= 1u << index;
 }
 
 void opxy::platform::control_stock_set(u32 track, u32 index, i32 value) {
@@ -344,7 +348,10 @@ extern "C" void sdk_gui_tick() {
         if (m != hosts[t]) {
             hosts[t] = m;
             timed[t] = false;
-            if (m && !m->load) m->reset(copy);
+            const u32 index = m ? static_cast<u32>(m - sdk_control_machines) : 32;
+            const bool started = m && m->load && index < 32 && (started_machines >> index & 1);
+            if (m && !started) m->reset(copy);
+            if (m && m->load && index < 32) started_machines |= 1u << index;
         }
         for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = 0;
         if (!m) continue;

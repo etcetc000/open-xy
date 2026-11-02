@@ -572,15 +572,19 @@ int main() {
     tick(0, "Aux machine wrote from an instrument track");
     require(runs == stray_runs && sdk_control_copies(1) == 0 && opxy::platform::control_engine(1) == 0,
             "Aux machine ran on an instrument track");
+    const u32 first_resets = resets;
     aux_engines[11] = 42;
     tick(0, "Nothing to write");
     require(runs == stray_runs + 1 && sdk_control_copies(11) == 1, "Aux machine stopped by its engine on track 2");
+    // Its first arrival with no load since startup resets it, though it keeps data.
+    require(resets == first_resets + 1, "Machine keeping data not reset on its first arrival without a load");
     engines[1] = 0;
     aux_engines[11] = 40;
     tick(0, "Nothing to write");
 
-    // A machine that keeps data with projects is reset before its load, never on
-    // arrival: leaving the track and coming back keeps its state. Others reset on arrival.
+    // A machine that keeps data with projects is reset before its load, and on
+    // arrival only before any load: leaving the track and coming back keeps its
+    // state. Others reset on arrival.
     aux_engines[11] = 0;
     tick(0, "Nothing to write");
     sdk_control_forget();

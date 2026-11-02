@@ -24,7 +24,8 @@ from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, gener
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_track_controls,
-                       generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control)
+                       generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
+                       control_callbacks)
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
@@ -322,6 +323,8 @@ def absent_symbols(m):
             absent[m.prefix + '_screen_register'] = 'kit_absent'
         if m.kind == 'sample' and m.display != 'stock':
             absent[m.prefix + '_screen_ready'] = 'kit_absent'
+        # The shared track control table names these; unselected, its ready check declines first.
+        absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
     if m.kind in ('effect', 'sample', 'drum'):
         absent[m.prefix + '_benchmark'] = 'kit_absent'
     return absent

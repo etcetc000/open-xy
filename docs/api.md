@@ -365,8 +365,9 @@ to keep; the SDK stores it in the project's [companion](projects.md). After
 stock loads a project, `control_load` gets those bytes back, or `bytes` 0 when
 the project has none (saved before, on stock, or without the machine) or is a
 new one, so the machine can start empty. Both run on the GUI side. Such a
-machine's `control_reset` runs just before each `control_load`, not when it
-arrives on a track: its state is the project's, through every pattern change.
+machine's `control_reset` runs just before each `control_load`, and when it
+arrives on a track only if no load has run since startup: its state is the
+project's, through every pattern change.
 
 A machine's control and display are compiled separately, so they share no
 variables. The control can pass four words to its display each tick in

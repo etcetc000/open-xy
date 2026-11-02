@@ -66,6 +66,15 @@ class TrackControl(unittest.TestCase):
         self.assertIn('{nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}, false}', table)
         self.assertNotIn('probesynth', table)
 
+    def test_an_unselected_machine_falls_back_for_its_track_control_callbacks(self):
+        synth = copy.deepcopy(fixture('probesynth'))
+        synth.definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4, 'unique': True,
+                                                         'aux': [12], 'savedBytes': 16}
+        absent = native.absent_symbols(synth)
+        for symbol in control_callbacks(synth):
+            self.assertEqual(absent.get(symbol), 'kit_absent', symbol)
+        self.assertIn(synth.prefix + '_control_load', absent)
+
     def test_a_machine_that_keeps_data_exports_save_and_load(self):
         synth = copy.deepcopy(fixture('probesynth'))
         synth.definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4, 'unique': True,
