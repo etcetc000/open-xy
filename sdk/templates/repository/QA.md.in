@@ -11,6 +11,9 @@ This file starts with the checks every @KIND@ needs. Adapt them as the machine g
 where a line says "each control", remove lines that can't apply, and add the machine's own sections
 before [Saving and loading](#saving-and-loading). Note the SDK commit and firmware each full pass used.
 
+AI agents working on the machine's code keep this file up to date as they go: each change that adds,
+removes or alters something a person would check on the device updates its lines here.
+
 ## Setup
 
 - Build a firmware with the machine ([building firmware](https://github.com/etcetc000/open-xy/blob/staging/docs/build.md#3-add-your-machine))
