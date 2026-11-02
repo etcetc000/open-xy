@@ -58,7 +58,7 @@ inline u32 encode(const State& state, const Binding& binding, u8* output, u32 av
     if (available < length) return 0;
     const u8 magic[8] = {'O', 'X', 'Y', 'L', 13, 10, 26, 10};
     for (u32 i = 0; i < 8; ++i) output[i] = magic[i];
-    write32(output + 8, 2);
+    write32(output + 8, 3);
     write32(output + 12, length);
     write32(output + 16, binding.profile);
     write32(output + 20, binding.time_units);
@@ -83,7 +83,9 @@ inline u32 encode(const State& state, const Binding& binding, u8* output, u32 av
         write32(output + offset + 8, clip->length);
         write32(output + offset + 12, clip->offset);
         write32(output + offset + 16, clip->source_length);
-        write32(output + offset + 20, clip->phase_remainder);
+        // Schema 3 keeps 24-byte records: bit31 is per-instance mute;
+        // the remaining bits retain the bounded fractional phase.
+        write32(output + offset + 20, clip->phase_remainder | (clip->muted ? 0x80000000u : 0));
         offset += clip_bytes;
     }
     write32(output + 60, checksum(output, length));
@@ -97,7 +99,7 @@ inline bool decode(const u8* input, u32 length, const Binding& expected, State& 
     for (u32 i = 0; i < 8; ++i) if (input[i] != magic[i]) return false;
     const u32 version = read32(input + 8), count = read32(input + 52);
     const u32 record_bytes = version == 1 ? 20 : clip_bytes;
-    if ((version != 1 && version != 2) || read32(input + 12) != length || count > Model::capacity ||
+    if ((version != 1 && version != 2 && version != 3) || read32(input + 12) != length || count > Model::capacity ||
         length != header_bytes + count * record_bytes || read32(input + 56) != 0 ||
         read32(input + 16) != expected.profile || read32(input + 20) != expected.time_units ||
         read32(input + 24) != expected.project_bytes || read32(input + 28) != expected.project_crc32 ||
@@ -116,8 +118,11 @@ inline bool decode(const u8* input, u32 length, const Binding& expected, State& 
     for (u32 i = 0; i < count; ++i) {
         const u8* record = input + header_bytes + i * record_bytes;
         const u32 slot = static_cast<u32>(record[0]) | static_cast<u32>(record[1]) << 8;
+        const u32 phase_flags = version == 1 ? 0 : read32(record + 20);
+        const u32 phase = version == 3 ? phase_flags & 0x7fffffffu : phase_flags;
+        const bool muted = version == 3 && (phase_flags & 0x80000000u) != 0;
         const Clip clip = {record[2], record[3], read32(record + 4), read32(record + 8),
-            read32(record + 12), read32(record + 16), version == 1 ? 0 : read32(record + 20)};
+            read32(record + 12), read32(record + 16), phase, muted};
         if ((i && slot <= previous) || !candidate.model.insertAt(slot, clip)) return false;
         previous = slot;
     }

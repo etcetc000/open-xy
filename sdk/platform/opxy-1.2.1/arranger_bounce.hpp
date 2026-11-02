@@ -10,7 +10,7 @@ void sdk_arranger_bounce_receive(const opxy::platform::bounce_wire::Message*)
 // Best-effort GUI snapshot; capture count comes from the remote recorder.
 void sdk_arranger_bounce_diagnostic(ArrangerBounceDiagnostic* out)
     __asm__("sdk_arranger_bounce_diagnostic");
-// GUI: 0 accepted, 1 busy, 2 invalid destination/clip, 3 duration, 4 project unavailable.
+// GUI: 0 accepted, 1 busy, 2 invalid destination/clip, 3 duration, 4 project unavailable, 5 muted clip.
 opxy::u32 sdk_arranger_bounce_request(opxy::u32 slot, opxy::u32 engine, bool replace)
     __asm__("sdk_arranger_bounce_request");
 bool sdk_arranger_bounce_busy() __asm__("sdk_arranger_bounce_busy");

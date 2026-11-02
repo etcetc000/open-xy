@@ -12,7 +12,7 @@ class ArrangerMenuVisibility(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_hide_clear_and_reopen_menu_rows(self):
         source = (ROOT / 'sdk/platform/opxy-1.2.1/arranger_ui.cpp').read_text()
-        position = source[source.index('void text_position('):source.index('void render_toast(Object* o);')]
+        position = source[source.index('void text_position('):source.index('void clip_paint(')]
         hide = source[source.index('void hide_menu('):source.index('struct Renderer {')]
         program = r'''
 #include <cstdlib>

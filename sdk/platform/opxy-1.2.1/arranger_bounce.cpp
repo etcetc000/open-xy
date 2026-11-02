@@ -94,6 +94,7 @@ u32 sdk_arranger_bounce_request(u32 slot, u32 engine, bool replace) {
     if (active || byte(0x860c6adc + 0x305f) || byte(0x860c6adc + 0x3060)) return 1;
     if (!sdk_arranger_project_edit_ready() || !sdk_arranger_project_linear()) return 4;
     const opxy::arranger::Clip* clip = sdk_arranger_model().clip(slot);
+    if (clip && clip->muted) return 5; // Never render a silent instance or change its mute state.
     if (!clip || clip->track >= 7 || (engine != 2 && engine != 3) ||
         !sdk_arranger_bounce_destination_ready(slot, engine, replace)) return 2;
     const u32 duration = duration_frames(clip->length, project_bpm_x10());

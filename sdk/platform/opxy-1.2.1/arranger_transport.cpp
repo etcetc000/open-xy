@@ -260,6 +260,7 @@ void prepare_sources() {
         u32 phase;
         const opxy::arranger::Clip* clip = (!bounce_active || track == bounce_track) ?
             model.active(static_cast<u8>(track), model.position(), phase) : nullptr;
+        if (clip && clip->muted) clip = nullptr;
         if (record_owner && selected[track].valid && (force_seek || !clip ||
             selected[track].pattern != clip->pattern || selected[track].start != clip->start ||
             selected[track].offset != clip->offset || selected[track].phase_remainder != clip->phase_remainder)) close_recorded_notes(track);
@@ -336,7 +337,7 @@ void update_record_status(u32 controller) {
         u32 phase;
         const opxy::arranger::Model& model = sdk_arranger_audio_model();
         const opxy::arranger::Clip* clip = model.active(static_cast<u8>(record_lane), model.position(), phase);
-        record_status = clip && (record_pattern == 0xffffffffu || clip->pattern == record_pattern) ? 2 : 3;
+        record_status = clip && !clip->muted && (record_pattern == 0xffffffffu || clip->pattern == record_pattern) ? 2 : 3;
     }
     barrier();
 }
@@ -703,7 +704,7 @@ bool sdk_arranger_extension_target(u32 track) {
     u32 phase;
     const opxy::arranger::Model& model = sdk_arranger_audio_model();
     const opxy::arranger::Clip* clip = model.active(static_cast<u8>(track), model.position(), phase);
-    return clip && source == opxy::platform::arranger_pattern_source(
+    return clip && !clip->muted && source == opxy::platform::arranger_pattern_source(
         opxy::platform::at<const u8>(opxy::platform::word(0x840a0524)), track, clip->pattern, false);
 }
 

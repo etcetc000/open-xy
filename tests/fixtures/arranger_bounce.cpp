@@ -133,6 +133,12 @@ void sdk_arranger_bounce_end(){++ends;running=false;}
 bool sdk_arranger_bounce_transport_running(){return running;}
 int main(){
     store_word(0x840a0524,0x8888);store_word(0x84039384,3);store_word(0x84039394,1234);require(model.insertAt(0,{0,0,0,1920,0,1920}),"clip");
+    require(model.setMuted(0,true),"mute source instance");
+    require(sdk_arranger_bounce_request(0,2,false)==5 && sdk_arranger_bounce_request(0,3,true)==5,
+        "muted sampler and drum requests rejected even with replacement");
+    require(model.clip(0)->muted && !active && sent.empty() && !starts && !commits,
+        "muted refusal preserves state and never starts capture or destination work");
+    require(model.setMuted(0,false),"unmute source instance");
     globals[0x860c6adc+0x305f]=1;
     require(sdk_arranger_bounce_request(0,2,false)==1,"reject native REC armed");globals[0x860c6adc+0x305f]=0;
     request_start();const u32 first_cookie=cookie;

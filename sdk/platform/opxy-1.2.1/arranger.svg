@@ -61,6 +61,7 @@
 <path id="laneline6" d="M 34 174 L 470 174" fill="none" stroke="#444444" stroke-width="1"/>
 <text id="lane7" transform="matrix(1 0 0 1 3 190)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">8</text>
 <path id="laneline7" d="M 34 195 L 470 195" fill="none" stroke="#444444" stroke-width="1"/>
+<path id="mutedclipstyle" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#666666"/>
 <path id="clip0" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
 <path id="clip1" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>
 <path id="clip2" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#999999"/>

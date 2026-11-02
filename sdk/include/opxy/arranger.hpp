@@ -8,6 +8,7 @@ namespace opxy { namespace arranger {
 struct Clip {
     u8 track;
     u8 pattern;
+    bool muted; // Per-instance silence; source, selection and geometry stay intact.
     u32 start;
     u32 length;
     u32 offset;
@@ -15,8 +16,8 @@ struct Clip {
     // Exact native source phase below one tick, in units of 1/1680 tick.
     u32 phase_remainder;
     constexpr Clip(u8 lane = 0, u8 source = 0, u32 at = 0, u32 span = 0,
-                   u32 phase = 0, u32 period = 0, u32 remainder = 0)
-        : track(lane), pattern(source), start(at), length(span), offset(phase),
+                   u32 phase = 0, u32 period = 0, u32 remainder = 0, bool silent = false)
+        : track(lane), pattern(source), muted(silent), start(at), length(span), offset(phase),
           source_length(period), phase_remainder(remainder) {}
 };
 
@@ -111,6 +112,12 @@ public:
         value.length = length;
         if (!valid(value, slot)) return false;
         clips_[slot] = value;
+        return true;
+    }
+
+    bool setMuted(u32 slot, bool value) {
+        if (!clip(slot)) return false;
+        clips_[slot].muted = value;
         return true;
     }
 

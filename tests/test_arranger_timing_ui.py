@@ -12,7 +12,7 @@ class ArrangerTimingUiTests(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_live_timing_reconciliation(self):
         source = (ROOT / 'sdk/platform/opxy-1.2.1/arranger_ui.cpp').read_text()
-        function = source[source.index('void reconcile_source_timing() {'):source.index('platform::ArrangerAddContext add_context()')]
+        function = source[source.index('void reconcile_source_timing() {'):source.index('struct BarTimingEvent {')]
         fixture = r'''
 #define arranger_pattern_source real_pattern_source
 #include "arranger_timing.hpp"

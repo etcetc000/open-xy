@@ -256,6 +256,21 @@ int main() {
     require(ticks[1].phase == 0 && ticks[1].amount == 2 * 1680, "next clip starts at zero");
     require(scene_changes == 0, "linear mode must not advance stock scenes");
     require(sdk_arranger_extension_target(0) && !sdk_arranger_extension_target(1), "Capture resolves active B and rejects empty lane");
+    const u32 muted_resets = resets, muted_ticks = static_cast<u32>(ticks.size());
+    require(model.setMuted(1, true), "mute current B instance");
+    put(track_object(0) + 0x190, 1);
+    sdk_arranger_publish(true);
+    sdk_arranger_dispatch(controller, 1, 0);
+    require(resets > muted_resets && ticks.size() == muted_ticks && !queued_fires,
+        "muting current instance closes gates and discards queued playback");
+    require(!sdk_arranger_extension_target(0), "muted clip rejects Capture");
+    const u32 closed_resets = resets;
+    sdk_arranger_dispatch(controller, 1, 0);
+    require(resets == closed_resets && ticks.size() == muted_ticks, "muted instance releases once, not every tick");
+    require(model.setMuted(1, false), "unmute instance");
+    sdk_arranger_publish(true); sdk_arranger_dispatch(controller, 1, 0);
+    require(sdk_arranger_extension_target(0) && ticks.back().phase == 4 * 1680,
+        "unmuted instance resumes at current timeline phase without seek");
     sdk_arranger_audio_seek(12);
     require(!sdk_arranger_extension_target(0), "Capture rejects gap before dispatcher refreshes cached B");
     sdk_arranger_audio_seek(17);

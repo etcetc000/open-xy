@@ -37,7 +37,9 @@ int main() {
     for (u32 i = 0; i < 0x53f4; ++i) pool(0)[i] = static_cast<u8>(i * 13 + 7);
     require(model.insert({0, 0, 100, 100, 17, 64}) == 0, "first instance");
     require(model.duplicate(0, 200) == 1, "second instance");
+    require(model.setMuted(0,true), "mute selected instance before unique");
     require(arranger_make_unique(model, project, 0), "unique succeeds");
+    require(model.clip(0)->muted && !model.clip(1)->muted, "unique preserves per-instance mute only");
     require(count(0) == 2 && model.clip(0)->pattern == 1 && model.clip(1)->pattern == 0, "only selected reference changes");
     require(!std::memcmp(pool(0), pool(0) + 0x53f4, 0x53f4), "complete source copied");
     pool(0)[0x53f4 + 0x457c] ^= 1;
@@ -55,16 +57,17 @@ int main() {
     count(1) = 0;
     require(arranger_move_clip_track(model, project, 0, 1), "cross lane succeeds");
     require(count(1) == 1 && count(0) == 2 && model.clip(0)->track == 1 && model.clip(0)->pattern == 0 &&
-        model.clip(0)->offset == 17 && model.clip(0)->start == 100, "cross lane preserves timing and old sources");
+        model.clip(0)->offset == 17 && model.clip(0)->start == 100 && model.clip(0)->muted, "cross lane preserves timing and old sources");
     require(!std::memcmp(pool(1), pool(0) + 0x53f4, 0x53f4), "cross lane source and instrument copied");
     require(!arranger_move_clip_track(model, project, 0, 8) && !arranger_make_unique(model, nullptr, 0), "bad inputs rejected");
     count(1) = 17;
     require(!arranger_make_unique(model, project, 0), "corrupt count rejected");
     count(1) = 1;
+    require(model.setMuted(1,true), "mute clipboard instance");
     const arranger::Clip clipboard = *model.clip(1);
     project[12] = 1;
     const i32 shared = arranger_paste_clip(model, project, clipboard, 0, 300);
-    require(shared >= 0 && model.clip(shared)->pattern == clipboard.pattern && count(0) == 2,
+    require(shared >= 0 && model.clip(shared)->pattern == clipboard.pattern && model.clip(shared)->muted && count(0) == 2,
         "same lane paste shares even with instrument lock");
     require(arranger_paste_clip(model, project, clipboard, 2, 300) < 0 && count(2) == 0,
         "cross lane paste rejects source lock");
@@ -73,7 +76,7 @@ int main() {
     project[12] = 0;
     const i32 pasted = arranger_paste_clip(model, project, clipboard, 2, 300);
     require(pasted >= 0 && count(2) == 1 && model.clip(pasted)->track == 2 && model.clip(pasted)->pattern == 0 &&
-        model.clip(pasted)->offset == clipboard.offset && clipboard.track == 0 && clipboard.pattern == 0,
+        model.clip(pasted)->offset == clipboard.offset && model.clip(pasted)->muted && clipboard.track == 0 && clipboard.pattern == 0,
         "cross lane paste preserves clipboard and phase");
     require(!std::memcmp(pool(2), pool(0), 0x53f4), "paste copies source and instrument");
     require(arranger_paste_clip(model, project, clipboard, 2, 350) < 0 && count(2) == 1, "paste overlap no allocation");

@@ -88,6 +88,7 @@ const char* menu_unavailable(u32){return nullptr;}
 void announce(const char*){}
 bool menu_context_valid(){return true;}
 void finish_menu_tool(bool apply){if(!apply)std::abort();++applies;last_tool=menu_tool;menu_tool=0;}
+u32 mute_actions;void toggle_selected_mute(){++mute_actions;}
 void timeline_key(u32,bool){}
 u32 editor_key; void open_edit(u32 key){editor_key=key;}
 void open_piano(){}
@@ -108,6 +109,7 @@ int main(){
  inside=false;run_menu_action();require(applies==5);
  menu_index=12;run_menu_action(10);require(editor_key==10);run_menu_action(11);require(editor_key==11);
  menu_index=14;run_menu_action();menu_index=15;run_menu_action();require(bounces==2);
+ menu_index=23;run_menu_action();require(mute_actions==1);
 }
 """
         with tempfile.TemporaryDirectory(prefix='arranger-menu-click-') as directory:

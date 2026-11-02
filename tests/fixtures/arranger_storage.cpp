@@ -23,6 +23,17 @@ const u8 legacy[] = {
     0x7b, 0x00, 0x00, 0x00, 0xe0, 0x01, 0x00, 0x00
 };
 
+// Fixed schema2 fixture retains fractional phases and defaults mute to false.
+const u8 legacy2[] = {
+    0x4f, 0x58, 0x59, 0x4c, 0x0d, 0x0a, 0x1a, 0x0a, 0x02, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00,
+    0x01, 0x02, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x40, 0xe2, 0x01, 0x00, 0xef, 0xcd, 0xab, 0x89,
+    0x03, 0x00, 0x00, 0x00, 0xd2, 0x04, 0x00, 0x00, 0x65, 0x00, 0x00, 0x00, 0xe7, 0x03, 0x00, 0x00,
+    0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd7, 0x3c, 0x53, 0x44,
+    0x03, 0x00, 0x00, 0x02, 0x64, 0x00, 0x00, 0x00, 0xd2, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00,
+    0x60, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xff, 0x00, 0x01, 0x0f, 0x07, 0x00, 0x00, 0x00,
+    0x84, 0x03, 0x00, 0x00, 0x7b, 0x00, 0x00, 0x00, 0xe0, 0x01, 0x00, 0x00, 0x8f, 0x06, 0x00, 0x00,
+};
+
 void copy(u8* to, const u8* from, u32 length) {
     for (u32 i = 0; i < length; ++i) to[i] = from[i];
 }
@@ -61,14 +72,14 @@ int main() {
     source.track = 3;
     source.model.seek(1234);
     require(source.model.setLoop(true, 101, 999), "source loop");
-    const Clip a = {0, 2, 100, 210, 24, 96, 1}, b = {1, 15, 7, 900, 123, 480, 1679};
+    const Clip a = {0, 2, 100, 210, 24, 96, 1}, b = {1, 15, 7, 900, 123, 480, 1679, true};
     require(source.model.insertAt(3, a) && source.model.insertAt(255, b), "sparse slots");
     require(!source.model.insertAt(3, b) && !source.model.insertAt(256, b), "slot insertion guard");
     const u32 length = encode(source, binding, bytes, max_bytes);
     require(length == header_bytes + 2 * clip_bytes, "encoded length");
     require(bytes[16] == 1 && bytes[17] == 2 && bytes[18] == 1 && bytes[19] == 0, "little endian profile");
     require(bytes[28] == 0xef && bytes[29] == 0xcd && bytes[30] == 0xab && bytes[31] == 0x89, "little endian CRC binding");
-    require(read32(bytes + 8) == 2 && clip_bytes == 24, "new writes use fractional phase schema");
+    require(read32(bytes + 8) == 3 && clip_bytes == 24, "new writes use per-instance mute schema");
     require(bytes[64] == 3 && bytes[64 + clip_bytes] == 255, "stable slot numbers");
     State loaded;
     require(decode(bytes, length, binding, loaded), "round trip");
@@ -78,6 +89,8 @@ int main() {
     require(loaded.model.clip(255)->pattern == 15 && loaded.model.clip(255)->offset == 123, "clip fields restored");
     require(loaded.model.clip(3)->phase_remainder == 1 && loaded.model.clip(255)->phase_remainder == 1679,
         "fractional phase boundary values survive round trip");
+    require(!loaded.model.clip(3)->muted && loaded.model.clip(255)->muted,
+        "per-instance mute independent of other source instances");
     require(encode(loaded, binding, altered, max_bytes) == length && same(bytes, altered, length), "canonical round trip");
     altered[0] = 77;
     require(!encode(source, binding, altered, length - 1) && altered[0] == 77, "short output atomic");
@@ -101,7 +114,7 @@ int main() {
     wrong = binding; ++wrong.project_crc32; refuses(bytes, length, wrong);
     wrong = binding; wrong.profile = 0; refuses(bytes, length, wrong);
 
-    changedWord(length, 8, 3);                 // unsupported schema, even with valid checksum
+    changedWord(length, 8, 4);                 // unsupported schema, even with valid checksum
     changedWord(length, 8, 1);                 // schema1 requires the original 20-byte record length
     changedWord(length, 12, length + 20);
     changedWord(length, 32, 4);                // unknown flags
@@ -127,14 +140,22 @@ int main() {
     copy(altered, bytes, length); altered[67] = 16;
     write32(altered + 60, checksum(altered, length)); refuses(altered, length); // pattern bound
 
+    require(decode(legacy2, sizeof legacy2, binding, loaded), "previous firmware schema2 still loads");
+    require(!loaded.model.clip(3)->muted && !loaded.model.clip(255)->muted &&
+        loaded.model.clip(3)->phase_remainder==1 && loaded.model.clip(255)->phase_remainder==1679,
+        "schema2 retains exact phases and defaults audible");
+    copy(altered, legacy2, sizeof legacy2);
+    write32(altered+64+20, 0x80000001u); write32(altered+60,checksum(altered,sizeof legacy2));
+    refuses(altered,sizeof legacy2); // New mute bit cannot bypass schema2 phase validation.
     require(decode(legacy, sizeof legacy, binding, loaded), "previous firmware schema1 still loads");
-    require(loaded.enabled && loaded.track == 3 && loaded.model.position() == 1234 &&
+    require(!loaded.model.clip(3)->muted && !loaded.model.clip(255)->muted &&
+        loaded.enabled && loaded.track == 3 && loaded.model.position() == 1234 &&
         loaded.model.loopEnabled() && loaded.model.loopStart() == 101 && loaded.model.loopEnd() == 999,
         "legacy mode, cursor and loop unchanged");
     require(loaded.model.clip(3) && loaded.model.clip(255) && loaded.model.clip(3)->offset == 24 &&
         loaded.model.clip(255)->source_length == 480 && !loaded.model.clip(3)->phase_remainder &&
         !loaded.model.clip(255)->phase_remainder, "legacy sparse clips retain whole phase with zero remainder");
-    require(encode(loaded, binding, altered, max_bytes) == length && read32(altered + 8) == 2,
+    require(encode(loaded, binding, altered, max_bytes) == length && read32(altered + 8) == 3,
         "legacy model upgrades on next save");
     State migrated;
     require(decode(altered, length, binding, migrated) && !migrated.model.clip(255)->phase_remainder,

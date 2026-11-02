@@ -82,7 +82,7 @@ private:
             if (!x || !y) { if (x != y) return false; continue; }
             if (x->track != y->track || x->pattern != y->pattern || x->start != y->start ||
                 x->length != y->length || x->offset != y->offset || x->source_length != y->source_length ||
-                x->phase_remainder != y->phase_remainder)
+                x->phase_remainder != y->phase_remainder || x->muted != y->muted)
                 return false;
         }
         // Playback position and edit cursor navigation alone are not undoable edits.

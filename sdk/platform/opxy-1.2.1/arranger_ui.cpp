@@ -58,6 +58,7 @@ u32 view_start;
 struct Object {
     Base base;
     PathNode* clips[visible_clips];
+    u32 clip_fill, muted_fill;
     Leaf* clip_labels[visible_clips];
     PathNode* bar_grid[17];
     PathNode* piano_rows[24];
@@ -89,6 +90,8 @@ platform::ArrangerClipboard clipboard{};
 platform::ArrangerHistory history;
 u32 timing_project, timing_generation;
 u8 timing_lengths[8][16], timing_scales[8][16];
+bool bar_binding;
+u32 bar_project, bar_generation, bar_track, bar_pattern, bar_slot;
 i32 selected_slot = -1;
 bool fine_grid;
 bool editing, exit_edit_pending;
@@ -124,7 +127,7 @@ const char* const menu_labels[] = {
     "Bounce to Sampler", "Bounce to Drum Sampler",
     "Add clip (+)", "Paste (Shift + +)", "Duplicate (Stop + +)",
     "Cut (Shift + -)", "Delete (-)",
-    "Add existing clip", "Import Song at cursor"
+    "Add existing clip", "Import Song at cursor", "Toggle Mute Clip (Stop + click E1)"
 };
 const u32 menu_count = sizeof(menu_labels) / sizeof(menu_labels[0]);
 platform::ArrangerStopGesture stop_gesture;
@@ -164,6 +167,16 @@ bool edit_valid() {
         stock<u32()>(0x8c093d54)() != 0) return false;
     return platform::arranger_pattern_source(reinterpret_cast<const u8*>(edit_project),
                                             edit_track, edit_pattern, false) != nullptr;
+}
+// BAR opens native timing controller 35 (8c08425c); keep its exact source
+// independent of the stock scene selection until the physical key is released.
+bool bar_binding_valid() {
+    if (!bar_binding || !active || !stock_gui_role() || !sdk_arranger_project_edit_ready() ||
+        bar_project != platform::word(0x840a0524) || bar_generation != stock<u32()>(0x8d584224)() ||
+        platform::selected_track() != bar_track) return false;
+    const arranger::Clip* clip = sdk_arranger_model().clip(bar_slot);
+    return clip && clip->track == bar_track && clip->pattern == bar_pattern &&
+        platform::arranger_pattern_source(reinterpret_cast<const u8*>(bar_project), bar_track, bar_pattern, false);
 }
 bool step_held() {
     for (u32 key = 56; key < 72; ++key) if (held(key)) return true;
@@ -429,6 +442,26 @@ void reconcile_source_timing() {
     }
 }
 
+struct BarTimingEvent {
+    bool release;
+    BarTimingEvent(u32 key, bool down) : release(key == 25 && !down) {
+        if (key != 25 || !down || bar_binding || !view_active() || editing || piano_view ||
+            pending_add.pending || menu_open || menu_tool || bounce_choice.open || sdk_arranger_bounce_busy() ||
+            !sdk_arranger_project_edit_ready() || platform::shift_held()) return;
+        const arranger::Clip* clip = selected_slot < 0 ? nullptr : sdk_arranger_model().clip(static_cast<u32>(selected_slot));
+        if (!clip || clip->track != ui_track) return;
+        // Establish the old rate before stock can change it on this same event.
+        reconcile_source_timing();
+        bar_project = platform::word(0x840a0524); bar_generation = stock<u32()>(0x8d584224)();
+        bar_track = clip->track; bar_pattern = clip->pattern; bar_slot = static_cast<u32>(selected_slot);
+        bar_binding = true;
+    }
+    ~BarTimingEvent() {
+        if (bar_binding) reconcile_source_timing();
+        if (release || (bar_binding && !bar_binding_valid())) bar_binding = false;
+    }
+};
+
 platform::ArrangerAddContext add_context() {
     return {platform::word(0x840a0524), stock<u32()>(0x8d584224)(), ui_track, cursor, selected_pattern, selected_slot};
 }
@@ -611,6 +644,17 @@ void timeline_key(u32 key, bool shifted) {
     }
 }
 
+void toggle_selected_mute() {
+    sdk_arranger_project_poll();
+    if (!sdk_arranger_project_edit_ready() || !view_active()) { announce("PROJECT BUSY"); return; }
+    arranger::Model& model = sdk_arranger_model();
+    const arranger::Clip* clip = selected_slot < 0 ? nullptr : model.clip(static_cast<u32>(selected_slot));
+    if (!clip) { announce("SELECT A CLIP FIRST"); return; }
+    const bool muted = !clip->muted;
+    begin_history();
+    commit_edit(model.setMuted(static_cast<u32>(selected_slot), muted), muted ? "MUTED" : "UNMUTED");
+}
+
 const char* menu_unavailable(u32 action) {
     if (!sdk_arranger_project_edit_ready()) return "PROJECT BUSY";
     if ((action == 21 || action == 22) &&
@@ -624,6 +668,7 @@ const char* menu_unavailable(u32 action) {
     if (action == 17) return clipboard.valid ? nullptr : "CLIPBOARD EMPTY";
     if (action == 5 || action == 6 || action == 7 || action == 16 || action == 21 || action == 22) return nullptr;
     if (!clip) return "NO CLIP";
+    if ((action == 14 || action == 15) && clip->muted) return "UNMUTE CLIP FIRST";
     if ((action == 0 || action == 8 || action == 9) && (cursor <= clip->start || cursor >= clip->start + clip->length))
         return "CURSOR MUST BE INSIDE CLIP";
     const u8* project = reinterpret_cast<const u8*>(platform::word(0x840a0524));
@@ -733,6 +778,7 @@ void run_menu_action(u32 initiating_key = 13) {
     const u32 action = menu_index;
     if (const char* reason = menu_unavailable(action)) { announce(reason); return; }
     menu_open = false;
+    if (action == 23) { toggle_selected_mute(); return; }
     if (action == 21 || action == 22 || action == 10 || action == 11) {
         menu_tool = action + 1;
         finish_menu_tool(true);
@@ -751,7 +797,7 @@ void run_menu_action(u32 initiating_key = 13) {
     if (action == 14 || action == 15) {
         const u32 result = sdk_arranger_bounce_request(static_cast<u32>(selected_slot), action == 14 ? 2 : 3, false);
         if (result) announce(result == 1 ? "BOUNCE BUSY" : result == 3 ? "CLIP TOO SHORT / LONG" :
-            result == 4 ? "PROJECT BUSY" : "FREE LANE BELOW REQUIRED / SHIFT SAMPLE TO REPLACE");
+            result == 4 ? "PROJECT BUSY" : result == 5 ? "UNMUTE CLIP FIRST" : "FREE LANE BELOW REQUIRED / SHIFT SAMPLE TO REPLACE");
         return;
     }
     if (action == 16 || action == 17) { timeline_key(54, action == 17); return; }
@@ -778,6 +824,12 @@ void text_position(Leaf* node, u32 x, u32 y, bool visible) {
     const i32 values[6] = {1024, 0, 0, 1024,
         static_cast<i32>((visible ? x : 640) * 1024), static_cast<i32>((visible ? y : 320) * 1024)};
     set_words(node, at, values);
+}
+
+void clip_paint(Object* o, u32 index, bool muted) {
+    PathNode* node = o->clips[index];
+    const u32 fill = muted ? o->muted_fill : o->clip_fill;
+    if (node && fill && node->fill != fill) { set_fill(node, fill); invalidate(node); }
 }
 
 void render_toast(Object* o);
@@ -832,6 +884,7 @@ bool render_piano(Object* o) {
         const u32 row = piano_rows - 1 - (note.pitch - piano_low);
         const u32 y = platform::piano_row_y(row, piano_rows) + 2;
         const u32 height = platform::piano_row_y(row + 1, piano_rows) - y - 1;
+        clip_paint(o, shown, false);
         rectangle(o->clips[shown], x, y, width ? width : 1, height);
         if (static_cast<i32>(node) == piano_selected) rectangle(o->selection, x, y, width ? width : 1, height);
         text_position(o->clip_labels[shown], 0, 0, false); ++shown;
@@ -963,6 +1016,11 @@ struct Renderer {
             o->lane_lines[i] = path_node(find(&o->base, id));
             if (!o->lane_lines[i]) return;
         }
+        const PathNode* muted_donor = path_node(find(&o->base, "mutedclipstyle"));
+        if (!muted_donor || !o->base.svg || !ordered(o->base.svg->fills)) return;
+        o->clip_fill = o->clips[0]->fill; o->muted_fill = muted_donor->fill;
+        const u32 fill_count = (o->base.svg->fills.end - o->base.svg->fills.begin) / 4;
+        if (!o->clip_fill || !o->muted_fill || o->clip_fill > fill_count || o->muted_fill > fill_count) return;
         o->title = text_node(find(&o->base, "title"));
         for (u32 i = 0; i < 8; ++i) {
             char id[12] = "lane"; decimal(id + 4, i);
@@ -1020,6 +1078,7 @@ struct Renderer {
             const u32 width = right * 432 / window_ticks - x;
             if (static_cast<i32>(slot) == selected_slot)
                 rectangle(o->selection, 35 + x, 30 + c->track * 21, (width ? width : 1) + 2, 17);
+            clip_paint(o, shown, c->muted);
             rectangle(o->clips[shown], 36 + x, 31 + c->track * 21, width ? width : 1, 15);
             const char label[2] = {static_cast<char>('A' + c->pattern), 0};
             set_text(o->clip_labels[shown], label);
@@ -1174,6 +1233,7 @@ void press(const void* raw, bool shifted) {
     }
     if (key == 4 && shifted && enter_arranger_menu()) return;
     if (view_active() && key >= 10 && key <= 13) {
+        if (key == 10 && stop_gesture.pending) { stop_gesture.modify(); toggle_selected_mute(); return; }
         if (key == 10) { fine_grid = !fine_grid; announce(fine_grid ? "FINE: 1 TICK" : "GRID: 1 STEP"); }
         if (key == 13) { history.breakGroup(); if (shifted) open_piano(); else if (!piano_view) open_edit(); }
         return;
@@ -1214,6 +1274,7 @@ void sdk_arranger_raw_event(const void* raw) {
     const Event& event = *static_cast<const Event*>(raw);
     const u32 key = event.words[0];
     const bool down = event.words[1] != 0;
+    BarTimingEvent bar_event(key, down);
     if (pending_add.pending) {
         if (key == 52 && down && !held(key)) {
             raw_edit_gate.consume(key, true, true, false, false);
@@ -1255,7 +1316,7 @@ void sdk_arranger_raw_event(const void* raw) {
                     else {
                         bounce_choice.cancel();
                         announce(result == 1 ? "BOUNCE BUSY" : result == 3 ? "CLIP TOO SHORT / LONG" :
-                            result == 4 ? "PROJECT BUSY" : "LANE BELOW OCCUPIED / LOCKED / FULL");
+                            result == 4 ? "PROJECT BUSY" : result == 5 ? "UNMUTE CLIP FIRST" : "LANE BELOW OCCUPIED / LOCKED / FULL");
                     }
                 }
             }
@@ -1351,6 +1412,12 @@ void sdk_arranger_raw_event(const void* raw) {
             raw_edit_gate.consume(key, true, true, false, held(key));
             return;
         }
+    }
+    if (down && key == 10 && view_active() && stop_gesture.pending && !held(key)) {
+        stop_gesture.modify();
+        toggle_selected_mute();
+        raw_edit_gate.consume(key, true, true, false, false);
+        return;
     }
     if (down && view_active() && ((key >= 14 && key <= 21) || key == 53 || key == 54)) {
         // A key pressed in another view still owns its stock release.
@@ -1473,6 +1540,7 @@ void sdk_arranger_encoder(void* controller, u32 encoder, const void* raw) {
 }
 
 void sdk_arranger_encoder_dispatch(u32 encoder, const void* event) {
+    BarTimingEvent bar_event(0, false);
     if (pending_add.pending) return;
     if (sdk_arranger_bounce_busy()) return;
     if (menu_open || menu_tool) {
@@ -1513,6 +1581,8 @@ void sdk_arranger_encoder_dispatch(u32 encoder, const void* event) {
 
 const u8* sdk_arranger_edit_source(u32 track, bool instrument) {
     if (const u8* bounce = sdk_arranger_bounce_destination_source(track)) return bounce;
+    if (bar_binding_valid() && track == bar_track) return platform::arranger_pattern_source(
+        reinterpret_cast<const u8*>(bar_project), track, bar_pattern, instrument);
     return edit_valid() && track == edit_track ? platform::arranger_pattern_source(
         reinterpret_cast<const u8*>(edit_project), track, edit_pattern, instrument) : nullptr;
 }
@@ -1533,6 +1603,11 @@ u32 sdk_arranger_edit_index(const u8* address) {
     const i32 bounce = sdk_arranger_bounce_destination_index(address);
     if (bounce >= 0) return static_cast<u32>(bounce);
     const u32 original = *address;
+    if (bar_binding_valid()) {
+        const u8* project = reinterpret_cast<const u8*>(bar_project);
+        const u8* expected = project + 0x98 + 33u * project[6] + bar_track;
+        if (address == expected) return bar_pattern;
+    }
     if (!edit_valid()) return original;
     const u8* project = reinterpret_cast<const u8*>(edit_project);
     const u8* expected = project + 0x98 + 33u * project[6] + edit_track;
@@ -1563,7 +1638,7 @@ void sdk_arranger_poll() {
 }
 
 void sdk_arranger_project_restored(bool enabled, u32 track) {
-    timing_project = 0;
+    timing_project = 0; bar_binding = false;
     pending_add_uncommitted = false; // Lifecycle already replaced the model; never restore old scratch.
     pending_add.cancel();
     bounce_choice.open = bounce_choice.confirmed = false;

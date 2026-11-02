@@ -49,6 +49,10 @@ int main() {
     require(sdk_arranger_audio_active() && sdk_arranger_audio_model().position() == 123, "activation and seek");
     require(sdk_arranger_audio_model().clip(7)->start == 100, "snapshot data");
     require(!sdk_arranger_consume(), "single consume per publication");
+    require(gui.setMuted(7,true), "GUI instance mute");
+    sdk_arranger_publish(true);
+    require(sdk_arranger_consume() && sdk_arranger_audio_model().clip(7)->muted,
+        "instance mute crosses acknowledged immutable publication");
     sdk_arranger_audio_advance(10);
     gui.seek(9999);
     require(gui.move(7, 1, 400), "GUI move");

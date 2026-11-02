@@ -1,6 +1,6 @@
 # Linear Arranger — User Guide
 
-**MVP-026 · OP-XY OS 1.2.1 · Experimental firmware**
+**MVP-027 · OP-XY OS 1.2.1 · Experimental firmware**
 
 Build an arrangement across eight tracks, placing clips anywhere on the timeline.
 This guide starts with the everyday workflow, then covers independent clip
@@ -49,10 +49,22 @@ E4 can reveal more of the source, up to its native length (four bars at normal
 in the stock editor scales its timeline instances automatically, stopping at the
 next clip on the same track. Slower timing can therefore span more than four bars.
 A change to the source's internal step count also limits the visible duration.
+With a clip selected in Linear, hold **Bar** to change its native track scale;
+this edits the highlighted clip's source, even if Song selects another pattern.
+All timeline instances sharing that source follow its timing.
 
 To change only one instance, select it and press **Shift + 2 — Make Unique**
 before editing its notes. Source letters are local to each track: A on track 1
 is not the same source as A on track 2.
+
+### Mute one clip
+
+Select a clip, then hold **Stop** and click **E1**, or choose **Toggle Mute Clip**
+in the actions menu. The clip turns gray and stops producing sequenced notes;
+its label and selection outline remain visible. Repeat to unmute. This changes
+only the selected timeline instance, not other clips sharing its source. Mute
+is saved with the project and supports undo/redo. The Stop chord does not move
+the playhead when released.
 
 ### Read the shortcuts
 
@@ -69,7 +81,7 @@ an available value, and click **E1 or E2** once to execute the selected action.
 This menu gesture is available from the timeline, not from piano roll or the
 stock note editor. Arrange in the stock note editor still returns to Linear.
 
-The menu has 23 actions and displays the existing shortcut beside each action
+The menu has 24 actions and displays the existing shortcut beside each action
 that has one:
 
 - Split, Make Unique, Undo and Redo: **Shift + 1–4**.
@@ -78,6 +90,7 @@ that has one:
 - Edit notes, Piano roll, Bounce to Sampler and Bounce to Drum Sampler.
 - Add clip, Paste, Duplicate, Cut and Delete.
 - Add existing clip and Import Song at cursor.
+- Toggle Mute Clip: **Stop + click E1**.
 
 Unavailable actions are dimmed and show the reason. Existing Shift/Stop button shortcuts
 remain usable: they close the menu and perform their usual action.
@@ -331,9 +344,10 @@ uses, including bounce files; the companion is not an audio archive.
 Missing or mismatched arrangement data opens the project in Song mode. Restoring
 a project clears the clipboard and timeline history.
 
-Current builds write companion **version 2** to preserve fractional source phase. They
-read version 1 from earlier builds and upgrade it on the next save. Older
-firmware cannot read version 2: retain a pre-upgrade backup for downgrades.
+Current builds write companion **version 3**, preserving per-clip mute and
+fractional source phase. They read versions 1 and 2, whose clips start unmuted.
+Older firmware cannot read version 3: keep a pre-upgrade backup of the `.xy`
+and matching `.xy.oxyl` before saving with this build if you may downgrade.
 
 Sidecar writes use a temporary file and recheck the stock project's bytes before
 renaming it. A valid matching temporary companion can be recovered if the main

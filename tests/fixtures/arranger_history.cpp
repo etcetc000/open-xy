@@ -89,6 +89,18 @@ int main() {
     require(model.replace(0,fractional) && history.commit(model), "fractional-only edit records history");
     require(undo() && model.clip(0)->phase_remainder==0, "undo fractional phase");
     require(redo() && model.clip(0)->phase_remainder==105, "redo fractional phase");
+    begin(); require(model.setMuted(0,true) && history.commit(model), "mute-only edit records history");
+    require(undo() && !model.clip(0)->muted, "undo mute");
+    require(redo() && model.clip(0)->muted, "redo mute");
+    require(model.active(0,0,cursor)==model.clip(0), "muted clip stays selectable");
+    const i32 split_muted=model.split(0,3840);
+    require(split_muted>=0 && model.clip(static_cast<u32>(split_muted))->muted && model.clip(0)->muted,
+        "split preserves both instance mute flags");
+    const i32 copy_muted=model.duplicate(0,7680);
+    require(copy_muted>=0 && model.clip(static_cast<u32>(copy_muted))->muted, "duplicate preserves mute");
+    require(model.setMuted(0,false) && model.clip(static_cast<u32>(copy_muted))->muted,
+        "unmuting one instance leaves shared pattern instance muted");
+    require(!model.setMuted(255,true), "invalid mute target rejected");
     history.reset();require(!history.canUndo()&&!history.canRedo(), "explicit reset");
     return 0;
 }
