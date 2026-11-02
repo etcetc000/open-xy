@@ -40,6 +40,37 @@ Install its `candidate/` files using [the installation steps](build.md#5-install
 write the OS to the boot partition, and power-cycle. The bootloader is unchanged.
 Website builds disable the required per-voice counters; use the SDK build above.
 
+### An already installed resident kernel
+
+A profiling-enabled resident kernel can run a swept RAM collection without
+rewriting its boot partition. Keep its verified kernel package, exact SDK source
+snapshot and last installed collection. The profiling command runs that explicitly
+selected SDK in a child process; it never edits the snapshot or relaxes its source
+hashes. It preserves the previous ID ledger and selection by default, requires all
+machines to fit, and checks identical resident bytes, exported addresses and ABI.
+
+```sh
+python sdk.py profile collection --sdk <kernel-sdk-snapshot> --kernel <private>/kernel-build --previous <private>/installed-collection --toolchain <binutils> --compiler <compiler-root> --out <private>/swept-collection-001
+```
+
+Use the resident loader's checked collection installer through regular MTP,
+preserving presets. Reboot normally and verify the new generation and active
+payload against this exact bundle before capturing. The build command contacts
+no device. It packages no OS image and installs no factory presets.
+
+Pass the same trusted SDK snapshot explicitly to both capture and report:
+
+```sh
+python sdk.py profile benchmark --package <private>/swept-collection-001 --sdk <kernel-sdk-snapshot> --installed --greet --out <private>/cpu-run-001
+python sdk.py profile report --package <private>/swept-collection-001 --sdk <kernel-sdk-snapshot> --machine mymachine --capture <private>/cpu-run-001/capture.json --out <private>/cpu-report-001
+```
+
+The capture binds the kernel firmware, loaded collection, compile report and
+ordered workloads separately. The catalog record includes `collection_sha256`
+alongside `firmware_sha256`, which identifies the resident kernel. A firmware
+package describing an embedded collection cannot describe subsequently loaded
+code. Plain RAM collections without a swept profiling manifest are refused.
+
 Boot to the normal instrument screen, with USB connected. MTP mode does not
 provide the MIDI endpoint. Save your project and stop playback: this is an
 active diagnostic that plays its own notes and changes temporary instrument
@@ -120,6 +151,7 @@ firmware-containing packages.
 | `benchmark` | Versioned workload from the table below; must match the machine kind |
 | `commit` | Full machine source SHA, equal to the catalog entry's `commit` (or an earlier release's, when a maintainer approves carrying it over) |
 | `firmware_sha256` | Exact tested candidate OS image |
+| `collection_sha256` | RAM collections only: SHA-256 of the exact loaded executable collection; `firmware_sha256` then identifies its resident kernel |
 | `runs` | 1 to 100 independent, complete captures of the same build and collector (one is enough) |
 | `block_percent` | The run's mean cost (the median across captures when there are several), as a percentage of the stock 580,352-cycle block budget. For a synth, the largest median across midpoint, swept and combined runs; for a drum kit, the largest single-voice median. This is an average, not a spike |
 | `peak_percent` | Required for new measurements: the largest single measured block across **all** settings/workloads and **all** supplied captures, in the same budget units. For drums this includes whole-kit, choke and ceiling runs. Never a median of maxima or the mean of the heaviest setting. The generated report identifies the workload and shows each run's peak |
