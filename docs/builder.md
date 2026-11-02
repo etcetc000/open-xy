@@ -30,8 +30,13 @@ or opening a device connection. The UI identifies that saved snapshot and
 disables Apply; the connector also refuses every apply request in this mode.
 
 The connector builds and serves this same web UI on `http://127.0.0.1:8920` and
-prints a pairing link. Open that link, or enter its pairing key in the manager
-on open-xy.com or beta.open-xy.com. The key lasts only for this connector process.
+prints a connection link. Opening it automatically pairs the UI with the local
+connector. A **Local connector connected** status confirms pairing; choose
+**Read installed machines** to contact the OP-XY, or **Load saved collection
+preview** in offline mode. Opening the link itself sends no device commands.
+If opening the manager separately on open-xy.com or beta.open-xy.com, expand
+**Manual connection** to enter the key. The key lasts only for this connector
+process; after a restart, open the new link.
 The connector listens only on loopback, accepts the named Open-XY origins, and
 requires the key for every API request. Starting it sends no device commands.
 Python, the pinned native tools and the SDK's Node dependencies are required.
@@ -79,7 +84,7 @@ operation or hiding the page silences the preview. Audio requires a Play/note
 gesture and does not start when a preview finishes building.
 
 1. Connect a normally running OP-XY over USB and close other MTP apps. Select
-   **Connect and read installed machines**. Allow Web MIDI access if prompted.
+   **Read installed machines** after connecting the local connector. Allow Web MIDI access if prompted.
    The page verifies the OP-XY identity and requests regular MTP. If it is
    already in COM → M4 MTP, it reads it as-is.
 2. Select **Stable** (the upstream `main` catalog's published releases) or

@@ -1,6 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {changes, sourceFiles, encodeFolder, isXYIdentity, enterRegularMTP, Client, withRegularMTP, installedVersion, canSelectRelease, releaseAction, auditionModule} from '../builder/manager.mjs';
+import {changes, sourceFiles, encodeFolder, isXYIdentity, enterRegularMTP, Client, withRegularMTP, installedVersion, canSelectRelease, releaseAction, auditionModule, pairConnector} from '../builder/manager.mjs';
+
+test('connector pairing only authenticates a GET, in online and offline mode', async () => {
+  for (const offline of [false,true]) {
+    const calls = [];
+    const session = await pairConnector('a'.repeat(32), async (url, options) => {
+      calls.push({url,options}); return {ok:true,json:async()=>({offline})};
+    });
+    assert.equal(session.offline,offline);
+    assert.equal(calls.length,1);
+    assert.equal(calls[0].url,'http://127.0.0.1:8920/api/manager/catalog');
+    assert.equal(calls[0].options.method,'GET');
+    assert.equal(calls[0].options.headers.Authorization,'Bearer '+'a'.repeat(32));
+    assert.ok(session.client instanceof Client);
+  }
+});
+
+test('pairing rejects missing/malformed keys before requesting anything and reports expired keys', async () => {
+  let calls = 0;
+  const fetcher = async () => { calls++; return {ok:false,json:async()=>({error:'Pair with the local connector first'})}; };
+  for (const token of ['', 'short', 'a'.repeat(129), 'a'.repeat(32)+'\n'])
+    await assert.rejects(pairConnector(token,fetcher),/Manual connection/);
+  assert.equal(calls,0);
+  await assert.rejects(pairConnector('a'.repeat(32),fetcher),/Pair with the local connector/);
+  assert.equal(calls,1);
+});
 
 test('audition compiles only the authenticated browser module and rejects changed bytes', async () => {
   const bytes = Uint8Array.from([0,97,115,109,1,0,0,0]);
