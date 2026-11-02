@@ -169,9 +169,10 @@ does not take, which then does its usual job; a single key's tap closes it and
 reaches stock.
 
 - **`layer`** (`Hooks::with_layer`) receives `Layer` events with the claim's
-  actions granted: `open` and `close`; `keypress` for every key pressed or
-  released while it is open, and `turn` for every encoder turn (raw counts),
-  each of which it returns true to take from stock; and `frame` once per screen
+  actions granted: `open` and `close`; `keypress` for every key pressed while
+  it is open, which it returns true to take from stock, and the release of each
+  it took; `turn` for every encoder turn (raw counts), which it returns true to
+  take; and `frame` once per screen
   frame, with the milliseconds since the last, whether it is latched and how
   long the gesture has been held. A key the owner leaves goes to stock and, when
   latched, closes the layer.

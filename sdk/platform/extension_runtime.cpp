@@ -66,12 +66,16 @@ u32 grants(const ExtensionEntry& entry, u32 fired) {
     }
     return result;
 }
-// Actions granted while a claimed key fires and stock accepted it.
+// Actions granted while a claimed key fires and stock accepted it. A pair's or a
+// layer's key alone is not its gesture: those grant through it (chord, layer).
 u32 granted(const ExtensionEntry& entry, const extensions::Control& control) {
     if (!control.accepted) return 0;
     u32 fired = 0;
     for (u32 c = 0; c < registry->claim_count; ++c)
-        if ((entry.claims & (1u << c)) && registry->claim_keys[c] == control.key) fired |= 1u << c;
+        if ((entry.claims & (1u << c)) && registry->claim_keys[c] == control.key &&
+            !(registry->claim_partners && registry->claim_partners[c]) &&
+            !(registry->claim_layers && registry->claim_layers[c]))
+            fired |= 1u << c;
     return grants(entry, fired);
 }
 
@@ -185,6 +189,7 @@ u32 key_withheld[kKeys / 32];
 u32 layer_entry = kNone, layer_claim;
 bool layer_holding, layer_latched, layer_used;
 u32 layer_held_ms;
+u32 layer_openings;  // counts openings, so a reopening starts with every node hidden
 u32 layer_key = kNone;  // a single-key claim's key, while it holds the layer open
 u32 pending = kNone;
 
@@ -226,6 +231,7 @@ void open_layer(u32 claim, u32 entry) {
     layer_holding = true;
     layer_latched = layer_used = false;
     layer_held_ms = 0;
+    ++layer_openings;
     layer_send(extensions::Layer::open);
 }
 void close_layer() {
@@ -326,10 +332,11 @@ bool extensions_knob_input(u32 knob, i32 delta) {
     return true;
 }
 
-bool extensions_layer_open(u32& first, u32& count) {
+bool extensions_layer_open(u32& first, u32& count, u32& opening) {
     if (layer_entry == kNone) return false;
     first = entries[layer_entry].layer_first;
     count = entries[layer_entry].layer_count;
+    opening = layer_openings;
     return true;
 }
 void extensions_layer_frame(u32 elapsed_ms) {
@@ -359,8 +366,9 @@ bool chord_input(u32 key, bool pressed, extensions::Time time) {
             if (registry->claim_chords[c] != chord_black_keys || !extension_key_held(registry->claim_keys[c]) ||
                 (partner && !extension_key_held(partner)))
                 continue;
+            // Only an owner that receives queued control takes the key.
             for (u32 i = 0; i < entry_count && !fired; ++i)
-                if (entries[i].claims & (1u << c)) { index = i; fired = 1u << c; }
+                if ((entries[i].claims & (1u << c)) && entries[i].hooks->queued_control) { index = i; fired = 1u << c; }
         }
         if (!fired) return false;
         withheld |= bit;

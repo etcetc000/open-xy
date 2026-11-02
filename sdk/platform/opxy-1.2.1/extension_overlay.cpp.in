@@ -23,12 +23,13 @@ const char kAsset[] = "openxy_overlay.svg";
 const u32 kNodes = @LAYER_NODES@;
 const char* const kIds[kNodes + 1] = {
 @LAYER_IDS@    nullptr};
-struct Range { u32 first, count; };
+struct Range { u32 first, count, opening; };
 const u32 kNone = ~0u;
 // The open layer's nodes, or none.
 Range open_layer() {
-    Range r = {0, 0};
-    return platform::extensions_layer_open(r.first, r.count) && r.count && r.first + r.count <= kNodes ? r : Range{0, 0};
+    Range r = {0, 0, 0};
+    return platform::extensions_layer_open(r.first, r.count, r.opening) && r.count && r.first + r.count <= kNodes
+        ? r : Range{0, 0, 0};
 }
 const i32 kAway = 640 << 10;
 
@@ -38,6 +39,7 @@ struct Object {
     i32 home[kNodes + 1][2];   // each node's own translation, as loaded
     u32 bound;
     u32 drawn;                 // the first node of the layer that may show, or kNone
+    u32 opening;               // the layer's opening those nodes were drawn for
     bool fresh;                // as loaded, every node shows: the first frame hides them
 };
 Object overlay;
@@ -93,10 +95,11 @@ void frame(Object* o, i32 elapsed) {
     bind(o);
     const Range layer = open_layer();
     const bool open = layer.count != 0;
-    if (o->bound && (o->fresh || o->drawn != (open ? layer.first : kNone))) {
+    if (o->bound && (o->fresh || o->drawn != (open ? layer.first : kNone) || (open && o->opening != layer.opening))) {
         hide_all(o);
         o->fresh = false;
         o->drawn = open ? layer.first : kNone;
+        o->opening = layer.opening;
     }
     if (open) {
         // Frame time arrives in 1/1024 s; a layer counts milliseconds.

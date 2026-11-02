@@ -53,9 +53,9 @@ const u32 key_tap = 2;
 u32 extensions_key_input(u32 key, bool pressed, extensions::Time time);
 // An encoder turn arriving at stock's input entry: true when the open layer takes it.
 bool extensions_knob_input(u32 knob, i32 delta);
-// The SDK's overlay screen (extension_overlay.cpp.in): whether a layer is open
-// and its nodes there, its frame time, and its painting.
-bool extensions_layer_open(u32& first, u32& count);
+// The SDK's overlay screen (extension_overlay.cpp.in): whether a layer is open,
+// its nodes there and which opening it is, its frame time, and its painting.
+bool extensions_layer_open(u32& first, u32& count, u32& opening);
 void extensions_layer_frame(u32 elapsed_ms);
 void extensions_layer_draw(const extensions::Canvas& canvas);
 

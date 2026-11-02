@@ -3,8 +3,8 @@
 //
 // Taking and reading are separate on purpose. An extension takes a snapshot
 // through its `snapshot` action (Actions::take_snapshot), in answer to a
-// gesture it claims, and the user takes one with Save in the SDK's snapshot
-// menu. Track control machines only read snapshots, on the GUI side in
+// gesture it claims (the Snapshots extension's menu, for one). Track control
+// machines only read snapshots, on the GUI side in
 // control(), and act on them through their ordinary overlay. Taking a snapshot
 // never changes a track, starts no editing mode and is not a parameter, so no
 // LFO, lock or preset can take one.

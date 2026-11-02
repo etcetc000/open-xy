@@ -82,7 +82,7 @@ void on_draw(const extensions::Canvas&) { ++draws; }
 const extensions::Hooks layered = extensions::Hooks().with_queued_control(edit_control).with_layer(on_layer)
                                                      .with_draw(on_draw);
 u32 claim_layers[] = {0, 1};
-bool open_now() { u32 first = 9, count = 9; return extensions_layer_open(first, count) && !first && !count; }
+bool open_now() { u32 first = 9, count = 9, opening = 0; return extensions_layer_open(first, count, opening) && !first && !count; }
 }
 namespace opxy { namespace platform {
 u32 held_key2;

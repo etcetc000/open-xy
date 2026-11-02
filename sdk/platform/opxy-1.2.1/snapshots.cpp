@@ -6,7 +6,8 @@
 // and a saved project keeps. It writes nothing of stock's. Overlays live only in
 // the live parameters (g_project + 0x4080), so a snapshot never holds one.
 //
-// Snapshots are taken on the controller path (an extension's queued control) and
+// Snapshots are taken, loaded and cleared through an extension's actions (queued
+// control, or its layer's key and frame events) and
 // read on the GUI tick that follows it in the same main loop. They are saved and
 // loaded with the rest of the control service's data (track_control_project.cpp):
 // encoded here, written and read there.
@@ -123,6 +124,7 @@ bool opxy::platform::snapshot_load(u32 slot) {
                 control_stock_set(t, p, s.values[t][p]);
             }
     }
+    ++generation;
     return true;
 }
 
