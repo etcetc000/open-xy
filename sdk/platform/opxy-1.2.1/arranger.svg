@@ -43,7 +43,7 @@
 <path id="bargrid15" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
 <path id="bargrid16" d="M 0 0 L 0 3 M 0 9 L 0 12 M 0 18 L 0 21 M 0 27 L 0 30 M 0 36 L 0 39 M 0 45 L 0 48 M 0 54 L 0 57 M 0 63 L 0 66 M 0 72 L 0 75 M 0 81 L 0 84 M 0 90 L 0 93 M 0 99 L 0 102 M 0 108 L 0 111 M 0 117 L 0 120 M 0 126 L 0 129 M 0 135 L 0 138 M 0 144 L 0 147 M 0 153 L 0 156 M 0 162 L 0 165" transform="matrix(0 0 0 0 0 0)" fill="none" stroke="#3b3b3b" stroke-width="1"/>
 <path id="selection" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#ffffff"/>
-<text id="title" transform="matrix(1 0 0 1 12 18)" fill="#dddddd" font-family="UniversNextPro-Light" font-size="14px">VEFF'S LINEAR WORKFLOW</text>
+<text id="title" transform="matrix(1 0 0 1 12 18)" fill="#dddddd" font-family="UniversNextPro-Light" font-size="14px">Linear by Veff</text>
 <text id="position" transform="matrix(1 0 0 1 260 18)" fill="#dddddd" font-family="UniversNextPro-Light" font-size="10px"></text>
 <text id="lane0" transform="matrix(1 0 0 1 3 43)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="13px">1</text>
 <path id="laneline0" d="M 34 48 L 470 48" fill="none" stroke="#444444" stroke-width="1"/>
@@ -192,10 +192,8 @@
 <path id="loopband" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" fill="#aaaaaa"/>
 <path id="playhead" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" fill="#555555"/>
 <path id="cursor" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" fill="#ffffff"/>
-<text id="controls" transform="matrix(1 0 0 1 12 205)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="12px">E1 CURSOR  E2 ZOOM  E3 MOVE  E4 LENGTH/EDIT</text>
-<text id="feedback" transform="matrix(1 0 0 1 12 218)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="10px">PLUS ADD / MINUS DELETE</text>
 <path id="menubackground" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#000000"/>
-<path id="menuhighlight" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#333333"/>
+<path id="menuhighlight" d="M 0 0 L 1 0 L 1 1 L 0 1 Z" transform="matrix(0 0 0 0 0 0)" fill="#dddddd"/>
 <text id="menurow0" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
 <text id="menudisabled0" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
 <text id="menurow1" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
@@ -212,4 +210,7 @@
 <text id="menudisabled6" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
 <text id="menurow7" transform="matrix(0 0 0 0 0 0)" fill="#eeeeee" font-family="UniversNextPro-Light" font-size="12px">Action</text>
 <text id="menudisabled7" transform="matrix(0 0 0 0 0 0)" fill="#666666" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="menuselected" transform="matrix(0 0 0 0 0 0)" fill="#000000" font-family="UniversNextPro-Light" font-size="12px">Action</text>
+<text id="controls" transform="matrix(1 0 0 1 12 205)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="12px">E1 CURSOR  E2 ZOOM  E3 MOVE  E4 LENGTH/EDIT</text>
+<text id="feedback" transform="matrix(1 0 0 1 12 218)" fill="#aaaaaa" font-family="UniversNextPro-Light" font-size="10px">PLUS ADD / MINUS DELETE</text>
 </svg>

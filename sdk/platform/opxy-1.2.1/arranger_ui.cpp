@@ -71,6 +71,7 @@ struct Object {
     PathNode* menu_highlight;
     Leaf* menu_rows[8];
     Leaf* menu_disabled[8];
+    Leaf* menu_selected;
     Leaf* title;
     Leaf* lanes[8];
     Leaf* status;
@@ -106,7 +107,7 @@ const char* bounce_failure_text() {
 }
 // Queue writer0x8c0b5eb4 copies exactly four words; key and value are first.
 struct Event { u32 words[4]; };
-Event pending_stop, pending_arrange;
+Event pending_stop;
 platform::ArrangerMenuGesture menu_gesture;
 bool arrange_owned, menu_open;
 u32 menu_index, menu_tool, menu_project, menu_generation, menu_slot, menu_cursor;
@@ -183,7 +184,7 @@ void close_edit(bool restore) {
     announce("RETURNED FROM NOTE EDIT");
 }
 
-void open_edit() {
+void open_edit(u32 initiating_key = 13) {
     if (stop_gesture.pending) { announce("RELEASE STOP FIRST"); return; }
     sdk_arranger_project_poll();
     if (!sdk_arranger_project_edit_ready()) { announce("PROJECT BUSY"); return; }
@@ -194,10 +195,10 @@ void open_edit() {
     if (!platform::arranger_pattern_source(reinterpret_cast<const u8*>(project), clip->track, clip->pattern, false)) {
         announce("PATTERN UNAVAILABLE"); return;
     }
-    // Only the initiating E4 click and Shift may cross into the editor.
+    // Only the exact initiating encoder click and Shift may cross into the editor.
     // Rejected presses otherwise still affect stock held-key polling.
     for (u32 key = 0; key < 72; ++key)
-        if (key != 13 && key != 55 && held(key)) { announce("RELEASE OTHER KEYS FIRST"); return; }
+        if (key != initiating_key && key != 55 && held(key)) { announce("RELEASE OTHER KEYS FIRST"); return; }
     return_track = platform::byte(platform::kSelectedTrack);
     return_controller = stock<u32()>(0x8c093d54)();
     edit_project = project;
@@ -728,7 +729,7 @@ void menu_tool_turn(i32 delta, bool fine) {
     }
     if (!ok) announce("LIMIT / COLLISION");
 }
-void run_menu_action() {
+void run_menu_action(u32 initiating_key = 13) {
     const u32 action = menu_index;
     if (const char* reason = menu_unavailable(action)) { announce(reason); return; }
     menu_open = false;
@@ -745,7 +746,7 @@ void run_menu_action() {
         }
         menu_tool = 9; finish_menu_tool(true); return;
     }
-    if (action == 12) { open_edit(); return; }
+    if (action == 12) { open_edit(initiating_key); return; }
     if (action == 13) { open_piano(); return; }
     if (action == 14 || action == 15) {
         const u32 result = sdk_arranger_bounce_request(static_cast<u32>(selected_slot), action == 14 ? 2 : 3, false);
@@ -876,17 +877,20 @@ void render_toast(Object* o) {
     text[i] = 0; set_text(o->status, text);
 }
 void render_menu(Object* o) {
-    rectangle(o->menu_background, 0, 26, 480, 171);
-    const u32 first = menu_index < 8 ? 0 : menu_index - 7;
-    rectangle(o->menu_highlight, 8, 28 + (menu_index - first) * 21, 464, 20);
+    rectangle(o->loop_band, 0, 0, 0, 0);
+    rectangle(o->menu_background, 0, 22, 480, 174);
+    const u32 first = menu_index < 7 ? 0 : menu_index - 6;
+    rectangle(o->menu_highlight, 8, 28 + (menu_index - first) * 22, 464, 22);
+    set_text(o->menu_selected, menu_labels[menu_index]);
+    text_position(o->menu_selected, 16, 44 + (menu_index - first) * 22, true);
     for (u32 row = 0; row < 8; ++row) {
         const u32 action = first + row;
-        const bool valid = action < menu_count;
+        const bool valid = row < 7 && action < menu_count;
         const bool disabled = valid && menu_unavailable(action);
-        set_text(o->menu_rows[row], valid && !disabled ? menu_labels[action] : "");
-        set_text(o->menu_disabled[row], disabled ? menu_labels[action] : "");
-        text_position(o->menu_rows[row], 16, 42 + row * 21, true);
-        text_position(o->menu_disabled[row], 16, 42 + row * 21, true);
+        set_text(o->menu_rows[row], valid && !disabled && action != menu_index ? menu_labels[action] : "");
+        set_text(o->menu_disabled[row], disabled && action != menu_index ? menu_labels[action] : "");
+        text_position(o->menu_rows[row], 16, 44 + row * 22, row < 7);
+        text_position(o->menu_disabled[row], 16, 44 + row * 22, row < 7);
     }
     char context[80]; char* end = append(context, "TRACK "); end = number(end, ui_track + 1);
     const arranger::Clip* clip = selected_slot < 0 ? nullptr : sdk_arranger_model().clip(static_cast<u32>(selected_slot));
@@ -894,7 +898,7 @@ void render_menu(Object* o) {
     else end = append(end, " / GAP");
     end = append(end, " / "); end = number(end, menu_index + 1); end = append(end, "/"); end = number(end, menu_count);
     if (menu_index == 21 || menu_index == 22 || menu_index == 10 || menu_index == 11) {
-        end = append(end, " / E4 ");
+        end = append(end, " / E2 ");
         if (menu_index == 21) { *end++ = 'A' + menu_source; *end = 0; }
         else if (menu_index == 22) number(end, menu_source + 1);
         else if (const arranger::Clip* value = menu_preview.clip(menu_slot))
@@ -902,10 +906,11 @@ void render_menu(Object* o) {
     }
     if (const char* reason = menu_unavailable(menu_index)) set_text(o->controls, reason);
     else set_text(o->controls, context);
-    set_text(o->feedback, "E1 SELECT / E4 ADJUST + CLICK APPLY / ARRANGE CLOSE");
+    set_text(o->feedback, "E1 SELECT / E2 ADJUST / CLICK E1 OR E2 / ARRANGE CLOSE");
     render_toast(o); draw(&o->base);
 }
 void hide_menu(Object* o) {
+    set_text(o->menu_selected, ""); text_position(o->menu_selected, 0, 0, false);
     rectangle(o->menu_background, 0, 0, 0, 0); rectangle(o->menu_highlight, 0, 0, 0, 0);
     for (u32 row = 0; row < 8; ++row) {
         set_text(o->menu_rows[row], ""); set_text(o->menu_disabled[row], "");
@@ -939,7 +944,8 @@ struct Renderer {
         o->loop_band = path_node(find(&o->base, "loopband"));
         o->menu_background = path_node(find(&o->base, "menubackground"));
         o->menu_highlight = path_node(find(&o->base, "menuhighlight"));
-        if (!o->menu_background || !o->menu_highlight) return;
+        o->menu_selected = text_node(find(&o->base, "menuselected"));
+        if (!o->menu_background || !o->menu_highlight || !o->menu_selected) return;
         for (u32 i = 0; i < 8; ++i) {
             char id[20] = "menurow"; decimal(id + 7, i);
             o->menu_rows[i] = text_node(find(&o->base, id));
@@ -1041,7 +1047,7 @@ struct Renderer {
         const u32 recording = sdk_arranger_record_status();
         set_text(o->controls, fine_grid ? "E1 TIME (FINE) / E2 ZOOM / E3 MOVE / E4 LENGTH" :
             "E1 TIME (GRID) / E2 ZOOM / E3 MOVE / E4 LENGTH");
-        set_text(o->feedback, "+ ADD / - DELETE / E4 CLICK EDIT / HOLD ARRANGE: ACTIONS");
+        set_text(o->feedback, "+ ADD / - DELETE / E4 CLICK EDIT / ARRANGE: ACTIONS");
         if (platform::shift_held()) {
             set_text(o->controls, "1 SPLIT / 2 UNIQUE / 3 UNDO / 4 REDO");
             set_text(o->feedback, "5 LOOP CLIP / 6 LOOP ON-OFF / 7 START / 8 END");
@@ -1060,9 +1066,9 @@ struct Renderer {
             if (menu_tool == 22) { *at++ = 'A' + menu_source; *at = 0; }
             else if (menu_tool == 23) at = number(at, menu_source + 1);
             else if (preview) at = number(at, menu_tool == 9 ? preview->start : menu_tool == 11 ? preview->offset : preview->track + 1);
-            append(at, menu_tool >= 22 ? " / E4 SELECT" : fine_grid ? " / E4 ADJUST (FINE)" : " / E4 ADJUST (GRID)");
+            append(at, menu_tool >= 22 ? " / E2 SELECT" : fine_grid ? " / E2 ADJUST (FINE)" : " / E2 ADJUST (GRID)");
             set_text(o->controls, tool_label);
-            set_text(o->feedback, "E4 CLICK APPLY / ARRANGE CANCEL / E1 CLICK GRID-FINE");
+            set_text(o->feedback, "CLICK E1 OR E2 APPLY / ARRANGE CANCEL");
         }
         char* out = info; *out = 0;
         if (total > visible_clips) { out = append(out, "VISIBLE LIMIT: 64 / "); number(out, total); }
@@ -1163,7 +1169,7 @@ void press(const void* raw, bool shifted) {
         return;
     }
     if (menu_open || menu_tool) {
-        if (key == 13) { if (menu_tool) finish_menu_tool(true); else run_menu_action(); }
+        if (key == 10 || key == 11) { if (menu_tool) finish_menu_tool(true); else run_menu_action(key); }
         return;
     }
     if (key == 4 && shifted && enter_arranger_menu()) return;
@@ -1230,9 +1236,9 @@ void sdk_arranger_raw_event(const void* raw) {
             if (menu_gesture.poll(ui_now())) open_menu();
             const bool tap = menu_gesture.release(ui_now());
             arrange_owned = false;
-            if (tap && !(held(55) && enter_arranger_menu())) {
-                stock_arranger_raw_event(&pending_arrange); stock_arranger_raw_event(raw);
-            }
+            // Linear owns both tap and hold. Replaying a tap into stock would
+            // toggle the native red track/Song view instead of opening actions.
+            if (tap) open_menu();
         }
         return;
     }
@@ -1263,19 +1269,15 @@ void sdk_arranger_raw_event(const void* raw) {
                 menu_open = false; finish_menu_tool(false);
                 raw_edit_gate.consume(key, true, true, false, false); return;
             }
-            if (key == 13) {
+            if (key == 10 || key == 11) {
                 if (menu_tool) finish_menu_tool(true);
-                else run_menu_action();
-                raw_edit_gate.consume(key, true, true, false, false); return;
-            }
-            if (key == 10 && menu_tool) {
-                fine_grid = !fine_grid;
+                else run_menu_action(key);
                 raw_edit_gate.consume(key, true, true, false, false); return;
             }
             // Existing shortcuts retain their handlers. Unmodified track keys
             // can change context; close the panel before forwarding the action.
             if (!menu_tool && ((key >= 14 && key <= 21) || key == 53 || key == 54 ||
-                key == 23 || key == 51 || key == 50 || key == 52 || (key == 10 && held(55)))) menu_open = false;
+                key == 23 || key == 51 || key == 50 || key == 52)) menu_open = false;
             else if (key != 55) {
                 raw_edit_gate.consume(key, true, true, false, false); return;
             }
@@ -1289,7 +1291,7 @@ void sdk_arranger_raw_event(const void* raw) {
         return;
     }
     if (key == 4 && down && view_active() && !piano_view && !held(key)) {
-        pending_arrange = event; arrange_owned = true; menu_gesture.press(ui_now()); return;
+        arrange_owned = true; menu_gesture.press(ui_now()); return;
     }
     if (piano_view && !view_active()) piano_view = false;
     if (piano_view && down && (key == 4 || key == 50 || key == 53 || key == 54 || (key >= 14 && key <= 21))) {
@@ -1477,13 +1479,13 @@ void sdk_arranger_encoder_dispatch(u32 encoder, const void* event) {
         const i32 raw_delta = static_cast<i32>(static_cast<const Event*>(event)->words[1]);
         const i32 delta = raw_delta < -128 ? -128 : raw_delta > 128 ? 128 : raw_delta;
         if (!delta) return;
-        if (menu_tool) { if (encoder % 4 == 3) menu_tool_turn(delta, encoder >= 4 || platform::shift_held()); }
+        if (menu_tool) { if (encoder % 4 == 1) menu_tool_turn(delta, encoder >= 4 || platform::shift_held()); }
         else if (encoder % 4 == 0) {
             const u32 previous = menu_index;
             if (delta > 0 && menu_index + 1 < menu_count) ++menu_index;
             if (delta < 0 && menu_index) --menu_index;
             if (menu_index != previous) menu_parameter_reset();
-        } else if (encoder % 4 == 3 && (menu_index == 10 || menu_index == 11 || menu_index == 21 || menu_index == 22)) {
+        } else if (encoder % 4 == 1 && (menu_index == 10 || menu_index == 11 || menu_index == 21 || menu_index == 22)) {
             menu_tool = menu_index + 1;
             menu_tool_turn(delta, encoder >= 4 || platform::shift_held());
             menu_tool = 0;

@@ -19,7 +19,7 @@ class ArrangerMenuVisibility(unittest.TestCase):
 #include <cstring>
 using u32 = unsigned; using i32 = int;
 struct Leaf { i32 matrix[9]; char text[80]; };
-struct Object { Leaf *menu_background, *menu_highlight, *menu_rows[8], *menu_disabled[8]; };
+struct Object { Leaf *menu_background, *menu_highlight, *menu_rows[8], *menu_disabled[8], *menu_selected; };
 template<unsigned N> void set_words(Leaf* leaf, const u32 (&at)[N], const i32 (&values)[N]) {
     for (unsigned i = 0; i < N; ++i) leaf->matrix[at[i]] = values[i];
 }
@@ -28,7 +28,7 @@ void rectangle(Leaf*, u32, u32, u32, u32) {}
 void require(bool value) { if (!value) std::abort(); }
 ''' + position + hide + r'''
 int main() {
-    Leaf rows[16]{}; Object object{};
+    Leaf rows[16]{}, selected{}; Object object{}; object.menu_selected = &selected;
     for (unsigned i = 0; i < 8; ++i) {
         object.menu_rows[i] = &rows[i]; object.menu_disabled[i] = &rows[i + 8];
         set_text(&rows[i], "Split at cursor"); set_text(&rows[i + 8], "Undo unavailable");

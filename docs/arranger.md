@@ -1,6 +1,6 @@
 # Linear Arranger — User Guide
 
-**MVP-025 · OP-XY OS 1.2.1 · Experimental firmware**
+**MVP-026 · OP-XY OS 1.2.1 · Experimental firmware**
 
 Build an arrangement across eight tracks, placing clips anywhere on the timeline.
 This guide starts with the everyday workflow, then covers independent clip
@@ -62,10 +62,12 @@ Plain **1–8** always means the track keys, except inside piano roll.
 
 ### Find an action without memorizing its chord
 
-On the timeline, **hold Arrange for about half a second** to open the actions
-menu. Release Arrange: the menu stays open. Turn **E1** to browse, click **E4**
-to choose, or press **Arrange** to close it. This gesture is available from the
-timeline, not from piano roll or the stock note editor.
+On the timeline, **press Arrange briefly** to open the actions menu. Press it
+again to cancel and return to Linear. Holding Arrange still opens the same menu;
+releasing it leaves the menu open. Turn **E1** to browse, turn **E2** to adjust
+an available value, and click **E1 or E2** once to execute the selected action.
+This menu gesture is available from the timeline, not from piano roll or the
+stock note editor. Arrange in the stock note editor still returns to Linear.
 
 The menu has 23 actions and displays the existing shortcut beside each action
 that has one:
@@ -80,9 +82,9 @@ that has one:
 Unavailable actions are dimmed and show the reason. Existing Shift/Stop button shortcuts
 remain usable: they close the menu and perform their usual action.
 
-A click on **E4** executes the highlighted action immediately. For **Slip
+A click on **E1 or E2** executes the highlighted action immediately. For **Slip
 contents**, **Move to track**, **Add existing clip** and **Import Song**, turn
-**E4** to choose the value inside the menu before clicking. **Trim left** trims
+**E2** to choose the value inside the menu before clicking. **Trim left** trims
 to the cursor; the cursor must be inside the clip. There is no second confirmation
 on the timeline. Press **Arrange** to close the menu without applying a choice.
 The direct encoder shortcuts still edit immediately.
@@ -90,11 +92,11 @@ The direct encoder shortcuts still edit immediately.
 **Shift + Arrange** also opens this menu in a Linear project; it does not enter
 Song mode. Use the project setting to switch modes deliberately.
 
-**Add existing clip:** choose a source A–P on the selected track with E4, then
-click E4 once to place another instance at the cursor. It shares the source's notes
+**Add existing clip:** choose a source A–P on the selected track with E2, then
+click E1 or E2 once to place another instance at the cursor. It shares the source's notes
 and instrument; it does not allocate another pattern.
 
-**Import Song at cursor:** choose a Song with E4 and click to insert its eight
+**Import Song at cursor:** choose a Song with E2 and click E1 or E2 to insert its eight
 instrument lanes. Existing clips are retained; a collision, unsupported scene
 state or insufficient capacity rejects the entire import. Repeated scenes retain
 their duration. AUX/send automation is not copied. The native Song is unchanged.

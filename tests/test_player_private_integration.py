@@ -2,7 +2,7 @@
 import hashlib
 import json
 import unittest
-from tooling.pipeline import config
+from tooling.pipeline import ROOT, config
 from tooling.startup import render
 
 class PrivatePlayerIntegration(unittest.TestCase):
@@ -18,6 +18,10 @@ class PrivatePlayerIntegration(unittest.TestCase):
         profile['identities'].pop('players')
         profile['stock_catalog_inserts'].pop('seq_types')
         profile['services'].pop('players'); profile['services'].pop('octaves')
+        # The custom menu artwork evolves independently of the firmware ABI.
+        self.assertEqual(profile['arranger_svg_sha256'], hashlib.sha256(
+            (ROOT / 'sdk/platform/opxy-1.2.1/arranger.svg').read_bytes()).hexdigest())
+        profile['arranger_svg_sha256'] = 'f6900fee318e304cbe80cd3deba89ef230a084678cbbe504499022be88421bce'
         self.assertEqual(hashlib.sha256(json.dumps(profile, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), 'fb17bba0389f23dce36c9ad742fc8a048ebc0fd874172408b7004db4d27f1680')
 
     def test_fixed_player_pages_precede_dynamic_sample_registration(self):
