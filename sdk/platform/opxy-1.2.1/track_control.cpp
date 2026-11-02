@@ -211,6 +211,11 @@ extern "C" i32 sdk_lfo_held_amount(u32 track, u32 index, i32 stock_amount) {
     return static_cast<i32>(held << 16);
 }
 
+void opxy::platform::control_stock_set(u32 track, u32 index, i32 value) {
+    if (Applied* a = track < control::tracks && index < control::track_parameters ? find(track, index) : nullptr)
+        a->underlying = value;
+}
+
 extern "C" void sdk_param_step_set(u32 project, u32 track, u32 index, i32 value) {
     stock<void(u32, u32, u32, i32)>(0x8d5acea8)(project, track, index, value);
     if (track >= control::tracks || index >= control::track_parameters) return;

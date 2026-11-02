@@ -12,6 +12,7 @@
 // encoded here, written and read there.
 #include <opxy/snapshots.hpp>
 #include "snapshots.hpp"
+#include "track_control.hpp"
 #include "stock.hpp"
 
 namespace {
@@ -124,6 +125,8 @@ bool opxy::platform::snapshot_load(u32 slot) {
                 // tracks. Then the setter an encoder edit ends in, which publishes.
                 *at<i32>(block + 0x3864 + p * 4) = s.values[t][p];
                 stock<void(u32, u32, u32, i32)>(0x8d5acf28)(kProject, t, p, s.values[t][p]);
+                // Beneath an overlay, the loaded value is what its release restores.
+                control_stock_set(t, p, s.values[t][p]);
             }
     }
     return true;

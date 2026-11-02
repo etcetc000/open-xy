@@ -446,6 +446,15 @@ int main() {
     require(value(0, 3) == 77, "Lock without an overlay not written");
     plan({});
     tick(1, "Overlay not released after the locks");
+    // A snapshot loaded beneath an overlay is what the overlay's release restores,
+    // even at the overlay's own value.
+    plan({{0, 5, 0, 321}});
+    tick(1, "Overlay not written");
+    bases[0][5] = 321;
+    opxy::platform::control_stock_set(0, 5, 321);
+    plan({});
+    tick(0, "Release rewrote the loaded value");
+    require(value(0, 5) == 321, "Loaded value lost when the overlay was released");
     // Loading a project ends every lock.
     sdk_param_step_set(kProject, 0, 4, 95);
     sdk_control_forget();

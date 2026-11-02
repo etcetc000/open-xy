@@ -8,6 +8,7 @@
 #include <track_control_project.cpp>
 #include <snapshots.cpp>
 extern "C" void sdk_control_forget() {}
+void opxy::platform::control_stock_set(opxy::u32, opxy::u32, opxy::i32) {}
 
 extern "C" opxy::u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }
 extern "C" void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }

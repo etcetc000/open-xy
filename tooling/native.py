@@ -73,8 +73,10 @@ def extensions_of(machines):
 
 
 def subset(machines, chosen):
-    """Some of a collection's machines, with all of its extensions."""
-    return Collection(chosen, extensions_of(machines))
+    """Some of a collection's machines, with its extensions, except one whose
+    machines (extension.json "machines") are not all among them."""
+    ids = {m.id for m in chosen}
+    return Collection(chosen, [e for e in extensions_of(machines) if all(i in ids for i, _ in e.machines)])
 
 
 def configuration(entries=None, layout=None):

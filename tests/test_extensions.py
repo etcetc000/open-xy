@@ -138,6 +138,11 @@ class Extensions(unittest.TestCase):
             for machines in ('../machines/probesynth', [str(moved)], ['../missing'], ['../machines/probesynth'] * 2):
                 with self.subTest(machines=machines), self.assertRaises((ValueError, OSError)):
                     extensions.extension_at(folder.declare(machines=machines))
+            # A subset without its machine leaves it out, as the builder does.
+            probe = extensions.extension_at(folder.declare(machines=['../machines/probesynth']))
+            whole = native.Collection([machine_at(moved)], [probe])
+            self.assertEqual(native.subset(whole, list(whole)).extensions, (probe,))
+            self.assertEqual(native.subset(whole, []).extensions, ())
         self.assertNotIn('machines', extensions.metadata([extensions.extension_at(PROBE)], {'probe': 'personal'})[0])
 
     def test_no_extensions_means_no_extension_objects_or_service(self):

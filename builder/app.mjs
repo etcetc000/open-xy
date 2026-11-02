@@ -526,6 +526,8 @@ $('restore').onchange = async e => {
     selectedExtensions = extensions;
     rememberNumbers(loaded.machines);
     if (loaded.selected) selected = [...loaded.selected];
+    // Its extensions bring the machines they work with, as choosing them does.
+    selected = [...selected, ...Core.extensionMachines(kit, extensions).filter(id => !selected.includes(id))];
     invalidate(); renderMachines(); renderExtensions(); recalculate();
     status('Layout loaded: your machines keep their numbers.' +
       (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
