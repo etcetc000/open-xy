@@ -88,6 +88,16 @@ export class Client {
   }
 }
 
+// Pairing authenticates the local connector only. Device detection remains an
+// explicit action, so opening a connector link never requests MIDI or MTP.
+export async function pairConnector(token, fetcher) {
+  if (typeof token !== 'string' || token.length < 20 || token.length > 128 || /[^A-Za-z0-9_-]/.test(token))
+    throw new Error('Open the link from your connector, or enter its key under Manual connection.');
+  const client = new Client(token, fetcher);
+  const session = await client.request('catalog');
+  return {client, offline:Boolean(session.offline)};
+}
+
 export async function withRegularMTP(client, action, payload = {}, enter = enterRegularMTP) {
   try { return await client.run(action, payload); } catch (error) {
     // These are pre-session refusals, before any file operation. A failure
@@ -146,11 +156,14 @@ export function mount(root, {canWrite, back, createAudition}) {
   let audio = null, auditionRevision = 0;
   root.innerHTML = `<div class="page-header"><div><span class="eyebrow">Your OP–XY</span><h1 tabindex="-1">Manage machines</h1></div><button class="secondary" data-manager="back">Build firmware</button></div>
     <p>Add or remove machines through regular MTP, then reboot normally.</p>
-    <section class="panel manager-connection"><h2>Connect your OP–XY</h2>
-    <p>Start the Open-XY local connector, then open its pairing link or paste its pairing key. It builds source folders and handles verified transfers.</p>
+    <section class="panel manager-connection"><h2>Local connector</h2>
+    <p>Open the link from your local connector to connect automatically.</p>
+    <p data-manager="connection-state" role="status">Local connector not connected.</p>
     <details><summary>Start the connector</summary><p>In your matching SDK, run <code>python sdk.py manager --config &lt;your-manager-config.json&gt;</code>. The configuration keeps your verified kernel, collection and tool paths. Older firmware needs the collection loader first.</p></details>
+    <details data-manager="manual"><summary>Manual connection</summary><p>If you opened this page separately, enter the key printed by your connector. Restarted the connector? Open its new link.</p>
     <label>Pairing key <input data-manager="token" type="password" autocomplete="off" spellcheck="false"></label>
-    <div class="flow-actions"><button class="primary" data-manager="connect">Connect and read installed machines</button></div></section>
+    <button class="secondary" data-manager="pair">Connect to local connector</button></details>
+    <div class="flow-actions"><button class="primary" data-manager="connect" hidden>Read installed machines</button></div></section>
     <p data-manager="status" role="status" aria-live="polite">No device files have been changed.</p>
     <div data-manager="collection" hidden>
       <div class="manager-summary"><span data-manager="count"></span><button class="secondary" data-manager="refresh">Refresh installed collection</button></div>
@@ -162,8 +175,6 @@ export function mount(root, {canWrite, back, createAudition}) {
       <div class="panel manager-review"><h2>Review changes</h2><p data-manager="changes"></p><button class="primary" data-manager="prepare">Build and check changes</button>
       <div data-manager="review" hidden><p data-manager="plan"></p><p data-manager="memory"></p><button class="primary" data-manager="apply">Apply changes to OP–XY</button></div></div>
     </div>`;
-  const hash = /^#manage=([A-Za-z0-9_-]{20,128})$/.exec(location.hash);
-  if (hash) { $('token').value = hash[1]; history.replaceState(null, '', location.pathname + location.search + '#manage'); }
   const message = (text, error = false) => { $('status').textContent = text; $('status').dataset.error = String(error); };
   function closeAudition() {
     auditionRevision++; audio?.destroy(); audio = null;
@@ -190,6 +201,7 @@ export function mount(root, {canWrite, back, createAudition}) {
       root.querySelectorAll('button,input,select').forEach(el => el.disabled = false);
       renderLists(); updateChanges();
       $('apply').disabled = !plan || !connected || offline || !canWrite();
+      connectFromLink();
     }
   }
   function row(machine, target, label = '', isInstalled = false) {
@@ -251,7 +263,7 @@ export function mount(root, {canWrite, back, createAudition}) {
   async function detect() {
     plan = null; connected = false; $('review').hidden = true;
     const session = await client.request('catalog'); offline = Boolean(session.offline);
-    $('connect').textContent = offline ? 'Load saved collection preview' : 'Connect and read installed machines';
+    $('connect').textContent = offline ? 'Load saved collection preview' : 'Read installed machines';
     $('refresh').textContent = offline ? 'Reload saved collection' : 'Refresh installed collection';
     const state = offline ? await client.run('status') : await withRegularMTP(client, 'status');
     installed = state.inventory?.machines || []; selected = new Set(installed.map(m => m.id)); updates.clear();
@@ -261,12 +273,25 @@ export function mount(root, {canWrite, back, createAudition}) {
     $('extensions').textContent = 'Extensions kept: ' + (state.inventory?.extensions.join(', ') || 'none');
     await loadCatalog(); message(state.message);
   }
-  $('connect').onclick = () => operation('Connecting and reading the installed collection…', async () => {
-    if (!$('token').value.trim()) throw new Error('Open the pairing link printed by the local connector.');
-    client = new Client($('token').value.trim());
-    await client.request('catalog'); // Pair before sending any device command.
-    await detect();
-  });
+  async function pair() {
+    client = null; connected = false; plan = null; $('review').hidden = true; $('collection').hidden = true; $('connect').hidden = true;
+    $('connection-state').textContent = 'Connecting to local connector…';
+    try {
+      const session = await pairConnector($('token').value.trim());
+      client = session.client; offline = session.offline;
+      $('connection-state').textContent = 'Local connector connected' + (offline ? ' · offline preview' : '') + '.';
+      $('connect').textContent = offline ? 'Load saved collection preview' : 'Read installed machines';
+      $('connect').hidden = false; $('manual').open = false;
+      message(offline ? 'Connected. Load your saved collection to browse and audition. Device access and transfers are disabled.' :
+        'Connected. Choose Read installed machines when your OP–XY is ready. The device has not been contacted.');
+    } catch (error) {
+      $('connection-state').textContent = 'Local connector not connected.'; $('manual').open = true;
+      throw new Error(error.message + ' Open the latest link from your connector to reconnect.');
+    }
+  }
+  $('pair').onclick = () => operation('Connecting to local connector…', pair);
+  $('token').onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); $('pair').click(); } };
+  $('connect').onclick = () => operation(offline ? 'Loading saved collection…' : 'Reading installed collection…', detect);
   $('refresh').onclick = () => operation('Reading installed collection…', detect);
   $('back').onclick = () => { closeAudition(); back(); };
   $('search').oninput = renderLists;
@@ -400,4 +425,13 @@ export function mount(root, {canWrite, back, createAudition}) {
     message(`Collection ${result.generation} staged and verified. Reboot normally, wait at least 25 seconds after the normal screen appears, then refresh to check startup confirmation. No firmware was flashed.`);
   });
   updateChanges();
+  function connectFromLink() {
+    const hash = /^#manage=([A-Za-z0-9_-]{20,128})$/.exec(location.hash);
+    if (!hash || busy) return;
+    $('token').value = hash[1];
+    history.replaceState(null, '', location.pathname + location.search + '#manage');
+    void operation('Connecting to local connector…', pair);
+  }
+  window.addEventListener('hashchange', connectFromLink);
+  connectFromLink();
 }
