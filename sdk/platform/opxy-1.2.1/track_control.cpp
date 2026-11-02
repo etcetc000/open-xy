@@ -38,6 +38,12 @@
 // host track's own engine controls reach the machine as that getter shows
 // them, so an LFO on one of them moves the machine like a turn.
 //
+// Stored writes (control::store): after a machine's control() returns, each
+// write sets the stored value at track data + 0x3864 first (stock's setter
+// stores it only on synth tracks), then calls the setter an encoder edit ends in,
+// 8d5acf28, which publishes it; beneath an overlay it becomes stock's value,
+// which the overlay's release restores.
+//
 // Mute: stock keeps it per scene, in the scene records at g_project (the word
 // at 840a0524) + 0x98, 33 bytes each: each track's pattern, then each track's
 // flags, in which 0x02 is muted, then one more byte; the current scene is the
@@ -146,6 +152,19 @@ Applied* find(u32 track, u32 index) {
     for (u32 i = 0; i < applied_count; ++i)
         if (applied[i].track == track && applied[i].index == index) return &applied[i];
     return nullptr;
+}
+
+// Applies the stored writes of the machine on `host`: in range, not on its own
+// track, in order.
+void store(u32 host) {
+    for (u32 i = 0; i < overlay.stored_count; ++i) {
+        const control::Entry& e = overlay.stored[i];
+        if (e.track >= control::tracks || e.index >= control::track_parameters || e.track == host) continue;
+        const i32 value = e.value < 0 ? 0 : e.value;
+        *at<i32>(stock<u32(u32)>(0x8d587708)(e.track) + 0x3864 + e.index * 4) = value;
+        param_set(kProject, e.track, e.index, value);
+        opxy::platform::control_stock_set(e.track, e.index, value);
+    }
 }
 
 // Adds the overlay of the machine on `host`: entries in range and not on its
@@ -319,12 +338,14 @@ extern "C" void sdk_gui_tick() {
         input.muted = muted(t);
         input.elapsed_us = timed[t] ? (us < 1000000 ? us : 1000000) : 0;
         timed[t] = true;
-        overlay.count = 0;
+        overlay.count = overlay.stored_count = 0;
         for (u32 i = 0; i < control::display_words; ++i) overlay.display[i] = 0;
         m->control(copy, &input, &overlay);
         for (u32 p = 0; p < kEngineControls; ++p) input.values[t][p] = own[p];
         if (overlay.count > control::overlay_capacity) overlay.count = control::overlay_capacity;
-        if (input.muted) overlay.count = 0;
+        if (overlay.stored_count > control::store_capacity) overlay.stored_count = control::store_capacity;
+        if (input.muted) overlay.count = overlay.stored_count = 0;
+        store(t);
         for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = overlay.display[i];
         merge(t);
     }

@@ -39,6 +39,10 @@ i32 lfo[control::all_tracks][control::track_parameters];
 // The scripted overlay for the next tick.
 control::Entry script[8];
 u32 script_count;
+// The scripted stored writes for each tick, and what store() answered.
+control::Entry stored_script[control::store_capacity + 2];
+u32 stored_script_count;
+bool stored_ok[control::store_capacity + 2];
 
 void require(bool condition, const char* message) {
     if (!condition) { std::fprintf(stderr, "%s\n", message); std::exit(1); }
@@ -99,8 +103,13 @@ void run(u32 copy, const control::Input* input, control::Overlay* overlay) {
     seen_muted = input->muted;
     seen_own = input->values[input->track][1];
     require(overlay->display[0] == 0 && overlay->display[3] == 0, "Display words not cleared");
+    require(overlay->stored_count == 0, "Stored writes not cleared");
     overlay->display[1] = 77;
     for (u32 i = 0; i < script_count; ++i) overlay->entries[overlay->count++] = script[i];
+    for (u32 i = 0; i < stored_script_count; ++i) {
+        const control::Entry& e = stored_script[i];
+        stored_ok[i] = control::store(*overlay, e.track, e.index, e.value);
+    }
 }
 // Machine 41, not unique: each copy overlays its scripted entries, with its
 // copy's own count of runs.
@@ -117,6 +126,10 @@ void run_other(u32 copy, const control::Input* input, control::Overlay* overlay)
 void plan(std::initializer_list<control::Entry> entries) {
     script_count = 0;
     for (const control::Entry& e : entries) script[script_count++] = e;
+}
+void plan_stored(std::initializer_list<control::Entry> entries) {
+    stored_script_count = 0;
+    for (const control::Entry& e : entries) stored_script[stored_script_count++] = e;
 }
 void tick(u32 expected_writes, const char* message) {
     writes = 0;
@@ -446,7 +459,7 @@ int main() {
     require(value(0, 3) == 77, "Lock without an overlay not written");
     plan({});
     tick(1, "Overlay not released after the locks");
-    // A snapshot loaded beneath an overlay is what the overlay's release restores,
+    // A value stock set beneath an overlay is what the overlay's release restores,
     // even at the overlay's own value.
     plan({{0, 5, 0, 321}});
     tick(1, "Overlay not written");
@@ -455,6 +468,64 @@ int main() {
     plan({});
     tick(0, "Release rewrote the loaded value");
     require(value(0, 5) == 321, "Loaded value lost when the overlay was released");
+
+    // Stored writes, from the machine on aux track 12: applied after control()
+    // returns, through stock's setter, into the stored value; negatives count as 0.
+    // Beneath an overlay of the same parameter, the overlay still plays this tick.
+    plan({{0, 5, 0, 700}});
+    tick(1, "Overlay not written");
+    plan_stored({{0, 5, 0, 444}, {1, 3, 0, -7}});
+    sets = 0;
+    tick(1, "Overlay not written back over the stored write");
+    require(stored_ok[0] && stored_ok[1] && sets == 2, "Stored writes not applied once each");
+    require(bases[0][5] == 444 && bases[1][3] == 0 && value(1, 3) == 0, "Stored values not set");
+    require(value(0, 5) == 700, "Overlay lost under its own parameter's stored write");
+    // It persists: the overlay's release restores the stored write, not what was beneath.
+    plan_stored({});
+    plan({});
+    tick(1, "Release not written");
+    require(value(0, 5) == 444 && bases[0][5] == 444, "Stored write lost when the overlay was released");
+    sets = 0;
+    tick(0, "Stored write written again");
+    require(sets == 0 && value(0, 5) == 444, "Stored write repeated");
+    // Out of the table: refused, nothing written.
+    plan_stored({{8, 0, 0, 5}, {11, 1, 0, 5}, {0, 58, 0, 5}});
+    tick(0, "Refused stored writes wrote");
+    require(!stored_ok[0] && !stored_ok[1] && !stored_ok[2] && sets == 0, "Out-of-range stored write accepted");
+    // At most store_capacity a tick: the rest are refused.
+    stored_script_count = 0;
+    for (u32 i = 0; i < control::store_capacity + 1; ++i)
+        stored_script[stored_script_count++] = control::Entry{static_cast<opxy::u8>(i % 8),
+                                                              static_cast<opxy::u8>(20 + i / 8), 0,
+                                                              static_cast<i32>(1000 + i)};
+    tick(0, "Stored writes wrote live overlays");
+    require(stored_ok[control::store_capacity - 1] && !stored_ok[control::store_capacity] &&
+            sets == control::store_capacity && bases[7][21] == 1015 && bases[0][22] == 0,
+            "Stored writes not capped");
+    // While the machine's track is muted it writes nothing.
+    sets = 0;
+    plan_stored({{0, 6, 0, 99}});
+    mute_flags(0, 11) = 0x02;
+    tick(0, "Muted machine wrote");
+    require(sets == 0 && bases[0][6] != 99, "Muted machine's stored write applied");
+    mute_flags(0, 11) = 0;
+    tick(0, "Stored write wrote an overlay");
+    require(sets == 1 && bases[0][6] == 99, "Unmuted machine's stored write not applied");
+    // Never to its own track: the machine on track 3 writes nothing there.
+    plan_stored({});
+    tick(0, "Nothing to write");
+    aux_engines[11] = 0;
+    engines[2] = 40;
+    tick(0, "Nothing to write");
+    sets = 0;
+    const u32 own_before = bases[2][1];
+    plan_stored({{2, 1, 0, static_cast<i32>(own_before + 5)}});
+    tick(0, "Own-track stored write wrote");
+    require(stored_ok[0] && sets == 0 && bases[2][1] == own_before, "Stored write to the machine's own track applied");
+    plan_stored({});
+    engines[2] = 0;
+    aux_engines[11] = 40;
+    tick(0, "Nothing to write");
     // Loading a project ends every lock.
     sdk_param_step_set(kProject, 0, 4, 95);
     sdk_control_forget();

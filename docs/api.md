@@ -375,6 +375,32 @@ track, 0 when it did not run, and always 0 in browser previews.
 A machine draws only on its own page: track control paints nothing over other
 tracks' pages.
 
+### Reading and setting other tracks
+
+A track control machine reaches instrument tracks 1-8 (indices 0..7) three ways:
+
+| To | Use | Lasts |
+| --- | --- | --- |
+| Get a value | `input.values[track][index]`: the live word, as stock sets it, without any overlay | Read each tick |
+| Set it live | `opxy::control::add(overlay, track, index, value)` | This tick only: stock's value comes back when the machine stops adding it, and the project never saves it |
+| Set it stored | `opxy::control::store(overlay, track, index, value)` | Until something else sets it: the track's current pattern keeps it, the project saves it and the page shows it, as an encoder edit would |
+
+`store` returns false, and writes nothing, for a track outside 0..7, an index
+outside 0..57 or once this tick holds `store_capacity` (16) stored writes. The
+SDK applies them in order after `control` returns: it sets the stored value,
+then calls stock's setter that an encoder edit ends in, which publishes it, so
+`values` holds it from the next tick. It ignores a write to the machine's own
+track, and every write while the machine's track is muted; negative values count
+as 0. Beneath an overlay of the same parameter, the overlay still plays, and its
+release restores the stored value. Use `store` for changes the user should
+keep (recalling a state), and overlays for movement (a morph or modulation):
+each stored write changes the project, as an edit does.
+
+Indices 0..7 are the engine's eight controls, the rest stock's own track
+parameters. The SDK does not tell a machine a parameter's label, range or type:
+the engine's controls are 0..32767 for whatever the engine on that track names
+them, and stock's own words are in stock's units.
+
 ### Aux tracks
 
 A track control machine, unique and with its own display, runs on an aux

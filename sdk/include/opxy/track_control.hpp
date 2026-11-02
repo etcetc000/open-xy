@@ -1,11 +1,12 @@
-// Track control (SDK 1.7): a synth that declares resources.trackControl runs
+// Track control (SDK 1.9): a synth that declares resources.trackControl runs
 // control() on the GUI side once per stock GUI tick while it is on an
 // instrument track, or on an aux track it took over (resources.trackControl.aux).
 // It reads every track's live parameters and may overlay other instrument
 // tracks' values for that tick. A step's parameter lock always plays as written:
 // no overlay is written over a parameter a lock holds.
 // Overlays never reach the saved project: stock keeps its own values, and a
-// parameter the machine stops overlaying returns to them.
+// parameter the machine stops overlaying returns to them. A stored write
+// (store) changes stock's own value instead, as an encoder edit does.
 //
 // Every track control machine on tracks 0..7, then on the aux tracks, runs in
 // track order, each copy with its own state. A machine that declares
@@ -27,6 +28,8 @@ const u32 tracks = 8;
 const u32 all_tracks = 16;
 const u32 track_parameters = 58;
 const u32 overlay_capacity = 64;
+// Stored writes a machine may make in one tick (store).
+const u32 store_capacity = 16;
 // Words the machine passes to its own display each tick (Overlay::display).
 const u32 display_words = 4;
 // A machine that declares resources.trackControl.savedBytes (1..saved_capacity)
@@ -39,7 +42,7 @@ const u32 display_words = 4;
 // after it loads a project without them.
 const u32 saved_capacity = 8192;
 
-// One parameter of an instrument track: an overlay entry.
+// One parameter of an instrument track: an overlay entry or a stored write.
 struct Entry { u8 track, index; u16 reserved; i32 value; };
 
 struct Input {
@@ -76,6 +79,10 @@ struct Overlay {
     // from_control. The control and display are separate code, so this is
     // how the display shows what the control worked out.
     i32 display[display_words];
+    // 0 on entry; at most store_capacity. Stored writes (store), applied in
+    // order after control() returns.
+    u32 stored_count;
+    Entry stored[store_capacity];
 };
 
 // GUI side, for a display: how many tracks hold the same machine as `track`,
@@ -94,5 +101,24 @@ inline void add(Overlay& overlay, u32 track, u32 index, i32 value) {
     entry.index = static_cast<u8>(index);
     entry.reserved = 0;
     entry.value = value;
+}
+
+// Sets parameter `index` of instrument track `track` (0..7) to `value` as stock
+// keeps it: the stored value of the track's current pattern, which the project
+// saves and the page shows, as an encoder edit sets it. Applied after control()
+// returns, in order; `values` holds it from the next tick. False, and nothing
+// is written, when this tick already holds store_capacity stored writes or the
+// parameter is outside tracks x track_parameters. The SDK ignores a write to
+// the machine's own track, and every write while the machine's track is muted;
+// a negative value counts as 0. Under an overlay, the write is what the overlay's
+// release restores.
+inline bool store(Overlay& overlay, u32 track, u32 index, i32 value) {
+    if (overlay.stored_count >= store_capacity || track >= tracks || index >= track_parameters) return false;
+    Entry& entry = overlay.stored[overlay.stored_count++];
+    entry.track = static_cast<u8>(track);
+    entry.index = static_cast<u8>(index);
+    entry.reserved = 0;
+    entry.value = value;
+    return true;
 }
 }}
