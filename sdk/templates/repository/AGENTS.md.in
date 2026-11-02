@@ -51,7 +51,9 @@ Adjust that path if the user already has the SDK elsewhere.
    across the full animation palette, including after palette changes.
    `sdk.py test --machine .` validates both declared SVGs and their bindings;
    browser appearance still needs visual review.
-4. After local testing and audition, propose hardware validation. Follow the SDK's
+4. After local testing and audition, propose hardware validation. Keep QA.md, the
+   device checklist, in step with the machine: name its controls, add sections for
+   its own behavior, and ask the user to run it as one pass on the device. Follow the SDK's
    [build guide](https://github.com/etcetc000/open-xy/blob/staging/docs/build.md)
    and [hardware profiling guide](https://github.com/etcetc000/open-xy/blob/staging/docs/profiling.md).
    Prepare a profiling-enabled build from committed source, request a device test

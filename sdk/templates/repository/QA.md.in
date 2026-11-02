@@ -1,0 +1,89 @@
+# Testing @NAME@ on an OP-XY
+
+Checks to run on a device with a firmware that includes @NAME@, from top to bottom, in one project:
+each section leaves the project ready for the next. To run only some sections, set up what their first
+line says. Host tests (`python ../open-xy/sdk.py test --machine .`) don't replace these: they can't hear
+the sound or see the screen.
+
+Report a failure with the section, the line and what you saw. A photo of the screen helps.
+
+This file starts with the checks every @KIND@ needs. Adapt them as the machine grows: name its controls
+where a line says "each control", remove lines that can't apply, and add the machine's own sections
+before [Saving and loading](#saving-and-loading). Note the SDK commit and firmware each full pass used.
+
+## Setup
+
+- Build a firmware with the machine ([building firmware](https://github.com/etcetc000/open-xy/blob/staging/docs/build.md#3-add-your-machine))
+  and install it.
+- Create a new project, **plain**, without @NAME@: give track 1 a stock sound of its own and save it.
+  Later steps load it as a project that never had the machine.
+- Create another new project, **qa**, for the pass: don't use a project you care about.
+@QA_SETUP@
+- Press play, and leave it playing unless a step says otherwise.
+
+## Firmware basics
+
+- [ ] The OP-XY boots, and stock engines, effects, the sequencer and project save/load work
+@QA_LISTED@
+
+## Its page and controls
+
+- [ ] Each control through its whole range, both directions: the sound follows, with no clicks, jumps or
+      silence at the ends; the value shown reads in its unit (Hz, ms, %, a name)
+- [ ] Choice controls move one choice per detent, both directions, and wrap or stop as the page says
+- [ ] Fast turns: the value keeps up, no flicker or slowdown
+- [ ] Controls with an alternate (an encoder press, a second page): pressing switches, the page shows
+      which is active, and each keeps its own value
+- [ ] The page while playing and while stopped, and after leaving it and coming back: nothing stale,
+      missing or drawn twice
+@QA_PLAYING@
+
+## Parameter locks
+
+- [ ] Lock each control on a step (hold the step, turn the knob): it plays on that step, and the page
+      shows the lock while the step is held
+- [ ] Several locks on one step, and locks on neighbouring steps: each plays as written
+- [ ] Clear the locks: the control plays its own value again
+
+@QA_LFO@
+## Patterns, scenes and songs
+
+- [ ] Give the track a second pattern with different values: each pattern keeps its own
+- [ ] Copy a pattern: the copy holds the same values, and changing one leaves the other alone
+- [ ] Switch between the patterns while playing and while stopped: the sound and the page follow at once
+- [ ] Make scenes 1 and 2 with the two patterns, and a song of scene 1 then scene 2, looping: each scene
+      plays its own values from its first bar, on every pass
+
+Then play scene 1.
+
+@QA_PRESETS@
+## Mute
+
+- [ ] Mute the track (hold aux and press the track's key): it's silent, with no click or tail left behind;
+      unmute: it plays as before
+- [ ] The same from the mixer
+- [ ] Muted in scene 2 only: switching between scenes 1 and 2 mutes and unmutes it
+
+Unmute it everywhere.
+
+## Saving and loading
+
+- [ ] Save **qa**, power off and on, load it: the machine is there with every value as you left it, on
+      each pattern
+- [ ] Change a value, wait a few seconds and power off without saving: the OP-XY starts normally, and
+      **qa** loads as last saved
+- [ ] Load **plain**: track 1 has its own sound, nothing of **qa** shows. Load **qa** again: all back
+- [ ] While playing, load **plain** and then **qa** again: nothing freezes, no stray values
+- [ ] Create a new project: put @NAME@ on a track; it starts at its defaults
+- [ ] On a firmware without @NAME@, open **qa**: it loads, and the rest of the project plays
+
+## CPU
+
+- [ ] Follow [hardware profiling](https://github.com/etcetc000/open-xy/blob/staging/docs/profiling.md):
+      a profiling build from the committed source, a run collected at the machine's heaviest setting, and
+      the readout kept with the commit it measured
+
+## Known limits
+
+Not failures, but worth confirming they haven't changed. List what the machine can't do yet, and stock
+behaviour that looks like a bug but isn't.

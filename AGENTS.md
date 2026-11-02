@@ -37,7 +37,8 @@ through the catalog like any other machine.
 
 For machine work, follow the complete [authoring journey](docs/first-machine.md)
 and the [UX conventions](docs/ux.md): implement and test, offer audition where supported, then prepare a development
-build and propose an authorized hardware test. Follow [hardware profiling](docs/profiling.md)
+build and propose an authorized hardware test, with the machine's device
+checklist (QA.md, written by `new --repository`) to run. Follow [hardware profiling](docs/profiling.md)
 to collect the revision-bound CPU readout required for catalog submission. A
 synth's readout is a control sweep (the default for profiling builds); when it
 reports a result above the recommended 3.5%, tell the user which setting is
