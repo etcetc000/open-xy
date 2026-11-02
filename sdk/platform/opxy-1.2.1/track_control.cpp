@@ -135,6 +135,9 @@ void unlock(u32 track, u32 index) { locked[track][index / 32] &= ~(1u << (index 
 bool lock_holds(u32 track, u32 index) {
     return track < control::tracks && index < control::track_parameters && (locked[track][index / 32] >> (index % 32) & 1);
 }
+// Machines (by table index) whose state a project load just set: their next
+// arrival on a track does not reset it.
+u32 loaded_machines;
 // What each track's machine passed to its display last tick.
 i32 shown_words[control::all_tracks][control::display_words];
 
@@ -246,6 +249,13 @@ extern "C" i32 sdk_lfo_held_amount(u32 track, u32 index, i32 stock_amount) {
     return static_cast<i32>(held << 16);
 }
 
+void opxy::platform::control_loaded(const ControlMachine& machine) {
+    const u32 index = static_cast<u32>(&machine - sdk_control_machines);
+    if (index >= 32) return;
+    if (machine.reset) machine.reset(0);
+    loaded_machines |= 1u << index;
+}
+
 void opxy::platform::control_stock_set(u32 track, u32 index, i32 value) {
     if (Applied* a = track < control::tracks && index < control::track_parameters ? find(track, index) : nullptr)
         a->underlying = value;
@@ -273,7 +283,7 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
 // must not dereference stock's project while deserialization is in progress.
 extern "C" void sdk_control_forget() {
     sdk_synth_queue_page_key(kNoTrack, 0);
-    applied_count = wanted_count = 0;
+    applied_count = wanted_count = loaded_machines = 0;
     for (u32 t = 0; t < control::tracks; ++t) locked[t][0] = locked[t][1] = 0;
     for (u32 t = 0; t < control::all_tracks; ++t) {
         hosts[t] = nullptr;
@@ -291,10 +301,16 @@ extern "C" void sdk_gui_tick() {
     if (sdk_aux.tick) sdk_aux.tick();
 
     // A value that differs from the one written is stock's: an edit, a lock or a step.
+    // A track now on another pattern drops its overlays; one stock left playing
+    // (a song's scene change between patterns of one engine) gives way to the
+    // new pattern's own value.
     u32 retained = 0;
     for (u32 i = 0; i < applied_count; ++i) {
         Applied a = applied[i];
-        if (a.block != stock<u32(u32)>(0x8d587708)(a.track)) continue;
+        if (a.block != stock<u32(u32)>(0x8d587708)(a.track)) {
+            if (live(a.track, a.index) == a.written) live_set(a.track, a.index, base(a.track, a.index));
+            continue;
+        }
         const i32 value = live(a.track, a.index);
         if (value != a.written) a.underlying = value;
         a.wanted = 0;
@@ -328,7 +344,9 @@ extern "C" void sdk_gui_tick() {
         if (m != hosts[t]) {
             hosts[t] = m;
             timed[t] = false;
-            if (m) m->reset(copy);
+            const u32 index = m ? static_cast<u32>(m - sdk_control_machines) : 32;
+            if (index < 32 && loaded_machines >> index & 1) loaded_machines &= ~(1u << index);
+            else if (m) m->reset(copy);
         }
         for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = 0;
         if (!m) continue;

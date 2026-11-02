@@ -193,6 +193,11 @@ bool kept_section(const Reader& r, u32 bytes, u32 crc, u32& at, u32& to) {
 const char* const kAuxKeys[opxy::control::all_tracks] = {
     "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"};
 const u32 kAuxControls = 8, kAuxPatterns = 16;
+// Whether machine ID `a` sorts before `b`, byte by byte.
+bool before(const char* a, const char* b) {
+    while (*a && *a == *b) ++a, ++b;
+    return static_cast<unsigned char>(*a) < static_cast<unsigned char>(*b);
+}
 // Indices 0..15 as their keys sort, as strings.
 const u32 kKeyOrder[] = {0, 1, 10, 11, 12, 13, 14, 15, 2, 3, 4, 5, 6, 7, 8, 9};
 
@@ -220,6 +225,7 @@ void load_kept(const char* path) {
         if (!m.load || m.ready() != 1) continue;
         u32 a, b, count = 0;
         if (machines && r.member(machines_at, machines_to, m.name, a, b)) count = r.base64(a, b, m.saved_bytes);
+        opxy::platform::control_loaded(m);
         m.load(kept, count);
     }
     // By aux track, each pattern a machine held: base64 of the role's eight
@@ -247,7 +253,9 @@ void forget_kept() {
     sdk_control_forget();
     for (u32 i = 0; i < sdk_control_machine_count; ++i) {
         const opxy::platform::ControlMachine& m = sdk_control_machines[i];
-        if (m.load && m.ready() == 1) m.load(kept, 0);
+        if (!m.load || m.ready() != 1) continue;
+        opxy::platform::control_loaded(m);
+        m.load(kept, 0);
     }
     if (sdk_aux.forget) sdk_aux.forget();
 }
@@ -282,8 +290,17 @@ extern "C" u32 sdk_control_kept_write(void* file) {
         }
     }
     if (held) out.put("\n        }\n      },\n");
-    for (u32 i = 0; i < sdk_control_machine_count; ++i) {
-        const opxy::platform::ControlMachine& m = sdk_control_machines[i];
+    // Machines by ID, as the canonical form sorts keys.
+    const char* last = nullptr;
+    for (u32 n = 0; n < sdk_control_machine_count; ++n) {
+        const opxy::platform::ControlMachine* next = nullptr;
+        for (u32 i = 0; i < sdk_control_machine_count; ++i) {
+            const opxy::platform::ControlMachine& c = sdk_control_machines[i];
+            if (c.name && (!last || before(last, c.name)) && (!next || before(c.name, next->name))) next = &c;
+        }
+        if (!next) break;
+        last = next->name;
+        const opxy::platform::ControlMachine& m = *next;
         if (!m.save || m.ready() != 1) continue;
         const u32 count = m.save(kept);
         if (!count || count > m.saved_bytes) continue;

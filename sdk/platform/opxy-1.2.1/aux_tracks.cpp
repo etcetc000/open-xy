@@ -606,6 +606,8 @@ void aux_restore(u32 track, u32 pattern, const i32* controls) {
 void aux_forget() {
     cv_kept.patterns = 0;
     loaded = true;
+    // Another project's pattern blocks: no pattern change to publish.
+    for (u32 t = 0; t < control::all_tracks; ++t) seen_block[t] = 0;
 }
 }
 

@@ -574,6 +574,30 @@ int main() {
     aux_engines[11] = 40;
     tick(0, "Nothing to write");
 
+    // A machine whose state a load set is reset then, not again when it arrives.
+    tick(0, "Nothing to write");
+    sdk_control_forget();
+    const u32 load_resets = resets;
+    opxy::platform::control_loaded(sdk_control_machines[0]);
+    require(resets == load_resets + 1, "Loaded machine not reset before its load");
+    tick(0, "Nothing to write");
+    require(resets == load_resets + 1 && hosts[11], "Loaded machine reset on arrival, losing its state");
+    // Without a load, arriving resets as before.
+    sdk_control_forget();
+    tick(0, "Nothing to write");
+    require(resets == load_resets + 2, "Arriving machine not reset");
+
+    // A track moved to another pattern while stock left the overlay playing gets
+    // the new pattern's own value.
+    plan({{0, 1, 0, 1700}});
+    tick(1, "Overlay not written");
+    second_bases[0][1] = 456;
+    pattern[0] = 1;
+    plan({});
+    tick(1, "Stale overlay not replaced on a pattern change");
+    require(value(0, 1) == 456, "New pattern's value not played");
+    pattern[0] = 0;
+
     // Loading a project ends every lock.
     sdk_param_step_set(kProject, 0, 4, 95);
     sdk_control_forget();
