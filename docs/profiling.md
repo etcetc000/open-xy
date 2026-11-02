@@ -86,13 +86,17 @@ repeated captures of the same build agree to within a few hundredths of a
 percent. A machine with randomness (noise, random modulation) may vary more:
 collect several, one after another, each to a new directory, and pass every
 capture to the report. For averages it publishes their median (two give their
-average); for peaks it keeps the largest observed block across every supplied
-capture and every measured setting/workload. Never discard a capture because
+average). For peaks it keeps the largest observed block across every supplied
+capture and every measured setting or workload. Never discard a capture because
 its spike is higher. One capture meets the submission requirement but cannot
-prove an absolute worst-case bound. Each stock-workload
-run takes about 2.2 seconds, so a sweep run takes longer: about 80 seconds for a
-synth with four controls. The collector waits for every expected report (by
-default up to 3 seconds per run plus 15) and stops early once they have arrived.
+prove an absolute worst-case bound.
+
+Each stock workload renders 1,500 blocks, representing about 2.2 seconds of
+audio. The diagnostic can render them faster than real time. Wall-clock duration
+depends on the machines and number of settings, especially list controls with
+many options. Use the live report count to assess progress. The collector allows
+a conservative timeout (by default 3 seconds per expected report plus 15) and
+stops once all expected reports and a short trailing-data check have completed.
 
 ```sh
 python sdk.py profile benchmark --package <private>/cpu-build-001 --installed --greet --out <private>/cpu-run-001
