@@ -92,22 +92,46 @@ export async function withRegularMTP(client, action, payload = {}, enter = enter
   try { return await client.run(action, payload); } catch (error) {
     // These are pre-session refusals, before any file operation. A failure
     // during transfer is never retried automatically.
-    if (!/Open regular COM|Expected one OP-XY in MTP file transfer/.test(error.message)) throw error;
+    if (!/Open regular COM|Expected one OP-XY in (?:MTP file transfer|file-transfer mode, found none)/.test(error.message)) throw error;
     await enter();
     return client.run(action, payload);
   }
 }
 
-export function changes(installed, selected, local) {
+export function changes(installed, selected, local, updates = new Set()) {
   const current = new Set(installed.map(m => m.id));
   return {remove:[...current].filter(id => !selected.has(id)),
     add:[...selected].filter(id => !current.has(id) && !local.has(id)),
-    local:[...selected].filter(id => !current.has(id) && local.has(id))};
+    local:[...selected].filter(id => !current.has(id) && local.has(id)),
+    update:[...updates].filter(id => current.has(id) && selected.has(id))};
+}
+
+export function installedVersion(machine) {
+  const source = machine.source || {};
+  if (source.tag) return source.tag;
+  if (source.commit) return 'Commit ' + source.commit.slice(0, 8);
+  return 'Saved build' + (source.fingerprint ? ' ' + source.fingerprint.slice(0, 8) : ' (version unknown)');
+}
+
+export function canSelectRelease(machine) { return machine?.compatibility?.state === 'sdk-compatible'; }
+
+export function releaseAction(machine, candidate) {
+  if (machine.source?.commit && machine.source.commit === candidate.commit) return 'Already installed';
+  const version = tag => /^v?(\d+)\.(\d+)\.(\d+)$/.exec(tag || '')?.slice(1).map(Number);
+  const before = version(machine.source?.tag), after = version(candidate.tag);
+  if (before && after) {
+    for (let i = 0; i < 3; i++) {
+      if (after[i] < before[i]) return 'Switch to older ' + candidate.tag;
+      if (after[i] > before[i]) break;
+    }
+  }
+  return 'Update to ' + candidate.tag;
 }
 
 export function mount(root, {canWrite, back}) {
   const $ = name => root.querySelector('[data-manager="' + name + '"]');
-  let client, installed = [], offered = [], selected = new Set(), locals = new Map(), plan = null, connected = false, busy = false;
+  let client, installed = [], offered = [], selected = new Set(), updates = new Set(), locals = new Map();
+  let plan = null, connected = false, busy = false, offline = false, revision = null;
   root.innerHTML = `<div class="page-header"><div><span class="eyebrow">Your OP–XY</span><h1 tabindex="-1">Manage machines</h1></div><button class="secondary" data-manager="back">Build firmware</button></div>
     <p>Add or remove machines through regular MTP, then reboot normally.</p>
     <section class="panel manager-connection"><h2>Connect your OP–XY</h2>
@@ -118,8 +142,9 @@ export function mount(root, {canWrite, back}) {
     <p data-manager="status" role="status" aria-live="polite">No device files have been changed.</p>
     <div data-manager="collection" hidden>
       <div class="manager-summary"><span data-manager="count"></span><button class="secondary" data-manager="refresh">Refresh installed collection</button></div>
-      <div class="manager-columns"><section class="panel"><h2>Installed</h2><p>Uncheck a machine to remove it. Existing machines keep their versions and project numbers.</p><div data-manager="installed"></div><p data-manager="extensions"></p></section>
-      <section class="panel"><h2>Add machines</h2><label>Search catalog <input data-manager="search" type="search" placeholder="Machine name or ID"></label><div data-manager="catalog" class="manager-catalog"></div>
+      <section class="panel"><label>Catalog channel <select data-manager="channel"><option value="stable">Stable</option><option value="staging">Staging · experimental</option></select></label><p data-manager="catalog-info"></p></section>
+      <div class="manager-columns"><section class="panel"><h2>Installed</h2><p>Uncheck to remove, or choose Update for a specific release. Project numbers and extensions are preserved.</p><div data-manager="installed" class="manager-installed"></div><p data-manager="extensions"></p></section>
+      <section class="panel"><h2>Available machines</h2><label>Search catalog <input data-manager="search" type="search" placeholder="Machine name or ID"></label><div data-manager="catalog" class="manager-catalog"></div>
       <div class="manager-folder" data-manager="drop"><h3>Your own machines</h3><p>Drop a source folder here, or choose one. You can import a single machine or a folder containing several machines.</p><label class="file-button">Choose local folder<input data-manager="folder" type="file" webkitdirectory multiple class="sr-only"></label><div data-manager="local"></div></div></section></div>
       <div class="panel manager-review"><h2>Review changes</h2><p data-manager="changes"></p><button class="primary" data-manager="prepare">Build and check changes</button>
       <div data-manager="review" hidden><p data-manager="plan"></p><p data-manager="memory"></p><button class="primary" data-manager="apply">Apply changes to OP–XY</button></div></div>
@@ -129,48 +154,78 @@ export function mount(root, {canWrite, back}) {
   const message = (text, error = false) => { $('status').textContent = text; $('status').dataset.error = String(error); };
   const invalidate = () => { plan = null; $('review').hidden = true; updateChanges(); };
   function updateChanges() {
-    const delta = changes(installed, selected, locals);
-    $('changes').textContent = `Add ${delta.add.length + delta.local.length} · Remove ${delta.remove.length}. Extensions stay installed.`;
-    $('prepare').disabled = busy || !connected || !(delta.add.length || delta.local.length || delta.remove.length);
+    const delta = changes(installed, selected, locals, updates);
+    $('changes').textContent = `Add ${delta.add.length + delta.local.length} · Update ${delta.update.length} · Remove ${delta.remove.length}. Extensions stay installed.`;
+    $('prepare').disabled = busy || !connected || !revision || !(delta.add.length || delta.local.length || delta.remove.length || delta.update.length);
   }
   async function operation(text, fn) {
     if (busy) return;
     busy = true; root.setAttribute('aria-busy', 'true');
-    root.querySelectorAll('button,input').forEach(el => el.disabled = true);
+    root.querySelectorAll('button,input,select').forEach(el => el.disabled = true);
     message(text);
     try { await fn(); } catch (error) { message(error.message || 'Cannot reach the local connector. Start it and open its pairing link.', true); }
     finally {
       busy = false; root.setAttribute('aria-busy', 'false');
-      root.querySelectorAll('button,input').forEach(el => el.disabled = false);
+      root.querySelectorAll('button,input,select').forEach(el => el.disabled = false);
       renderLists(); updateChanges();
-      $('apply').disabled = !plan || !connected || !canWrite();
+      $('apply').disabled = !plan || !connected || offline || !canWrite();
     }
   }
-  function row(machine, target, label = '') {
+  function row(machine, target, label = '', isInstalled = false) {
+    const container = document.createElement('div'); container.className = 'manager-release';
     const line = document.createElement('label'); line.className = 'manager-machine';
-    const box = document.createElement('input'); box.type = 'checkbox'; box.checked = selected.has(machine.id); box.disabled = !connected;
+    const box = document.createElement('input'); box.type = 'checkbox'; box.checked = selected.has(machine.id);
+    box.disabled = !connected || !isInstalled && !canSelectRelease(machine);
     const text = document.createElement('span'); text.textContent = `${machine.name || machine.id} · ${machine.kind}${label ? ' · ' + label : ''}`;
-    box.onchange = () => { box.checked ? selected.add(machine.id) : selected.delete(machine.id); invalidate(); };
-    line.append(box, text); target.append(line);
+    box.onchange = () => { box.checked ? selected.add(machine.id) : selected.delete(machine.id); if (!box.checked) updates.delete(machine.id); invalidate(); renderLists(); };
+    line.append(box, text); container.append(line);
+    const candidate = isInstalled ? offered.find(m => m.id === machine.id) : machine;
+    if (candidate) {
+      const detail = document.createElement('p'); detail.className = 'manager-release-detail';
+      detail.textContent = `${isInstalled ? 'Available: ' + candidate.tag + ' · ' : ''}${candidate.experimental ? 'Experimental · ' : ''}${candidate.compatibility?.message || 'Compatibility not checked'}`;
+      container.append(detail);
+    }
+    if (isInstalled && candidate) {
+      const button = document.createElement('button'); button.className = 'secondary';
+      const same = Boolean(machine.source?.commit && machine.source.commit === candidate.commit);
+      button.textContent = updates.has(machine.id) ? 'Keep installed version' : releaseAction(machine, candidate);
+      button.disabled = same || !connected || !selected.has(machine.id) || !canSelectRelease(candidate);
+      button.onclick = () => { updates.has(machine.id) ? updates.delete(machine.id) : updates.add(machine.id); invalidate(); renderLists(); };
+      container.append(button);
+    }
+    target.append(container);
   }
   function renderLists() {
     for (const name of ['installed', 'catalog', 'local']) $(name).replaceChildren();
-    installed.forEach(m => row(m, $('installed')));
+    installed.forEach(m => row(m, $('installed'), 'Installed: ' + installedVersion(m), true));
     const ids = new Set(installed.map(m => m.id)), query = $('search').value.trim().toLowerCase();
     offered.filter(m => !ids.has(m.id) && !locals.has(m.id) && (m.id + ' ' + (m.name || '')).toLowerCase().includes(query))
       .forEach(m => row(m, $('catalog'), m.tag));
     locals.forEach(m => { if (!ids.has(m.id)) row(m, $('local'), 'local folder'); });
   }
+  async function loadCatalog() {
+    revision = null; offered = []; updates.clear(); invalidate();
+    const current = new Set(installed.map(m => m.id));
+    selected = new Set([...selected].filter(id => current.has(id) || locals.has(id)));
+    const result = await client.run('catalog', {channel:$('channel').value});
+    offered = result.machines; revision = result.revision;
+    installed = installed.map(machine => result.installed_versions?.[machine.id]
+      ? {...machine, source:{...machine.source, tag:result.installed_versions[machine.id]}} : machine);
+    $('catalog-info').textContent = `${result.channel === 'staging' ? 'Staging releases are experimental.' : 'Stable published releases.'} Installed SDK ${result.sdk}. Catalog ${result.revision.slice(0, 8)}. Full build checks are required before applying.`;
+    message(`${result.channel === 'staging' ? 'Staging' : 'Stable'} catalog ready. ${offline ? 'Saved collection preview; device access and transfers are disabled.' : 'Choose changes, then build and review before applying.'}`);
+  }
   async function detect() {
     plan = null; connected = false; $('review').hidden = true;
-    const state = await withRegularMTP(client, 'status');
-    installed = state.inventory?.machines || []; selected = new Set(installed.map(m => m.id));
-    offered = (await client.request('catalog')).machines;
-    connected = state.can_manage;
+    const session = await client.request('catalog'); offline = Boolean(session.offline);
+    $('connect').textContent = offline ? 'Load saved collection preview' : 'Connect and read installed machines';
+    $('refresh').textContent = offline ? 'Reload saved collection' : 'Refresh installed collection';
+    const state = offline ? await client.run('status') : await withRegularMTP(client, 'status');
+    installed = state.inventory?.machines || []; selected = new Set(installed.map(m => m.id)); updates.clear();
+    connected = state.can_manage || state.can_prepare;
     $('collection').hidden = false;
-    $('count').textContent = `${installed.length} machines · ${state.attempt.state === 'confirmed' ? 'Startup confirmed' : state.attempt.state}`;
+    $('count').textContent = `${installed.length} machines · ${offline ? 'Saved collection preview · device not read' : state.attempt.state === 'confirmed' ? 'Startup confirmed' : state.attempt.state}`;
     $('extensions').textContent = 'Extensions kept: ' + (state.inventory?.extensions.join(', ') || 'none');
-    message(state.message);
+    await loadCatalog(); message(state.message);
   }
   $('connect').onclick = () => operation('Connecting and reading the installed collection…', async () => {
     if (!$('token').value.trim()) throw new Error('Open the pairing link printed by the local connector.');
@@ -181,6 +236,7 @@ export function mount(root, {canWrite, back}) {
   $('refresh').onclick = () => operation('Reading installed collection…', detect);
   $('back').onclick = back;
   $('search').oninput = renderLists;
+  $('channel').onchange = () => operation('Checking the selected catalog against your installed SDK…', loadCatalog);
   async function importFiles(files) {
     if (!client || !connected) throw new Error('Connect and verify your installed collection first.');
     invalidate();
@@ -219,14 +275,15 @@ export function mount(root, {canWrite, back}) {
   });
   $('prepare').onclick = () => operation('Building and checking your collection. Your OP–XY is unchanged…', async () => {
     plan = null; $('review').hidden = true;
-    const result = await client.run('prepare', changes(installed, selected, locals));
+    const result = await client.run('prepare', {...changes(installed, selected, locals, updates), channel:$('channel').value, catalog_revision:revision});
     plan = result.plan;
-    $('plan').textContent = `Add: ${result.add.join(', ') || 'none'}. Remove: ${result.remove.join(', ') || 'none'}. ${result.machines.length} machines will remain installed.`;
+    $('plan').textContent = `Add: ${result.add.join(', ') || 'none'}. Update: ${(result.update || []).map(m => m.id + ': ' + m.before + ' → ' + m.after + (m.notes.length ? ' (' + m.notes.join('; ') + ')' : '')).join(', ') || 'none'}. Remove: ${result.remove.join(', ') || 'none'}. ${result.machines.length} machines will remain installed.`;
     $('memory').textContent = `${(result.sizes.allocated_span_bytes / 1024).toFixed(1)} KiB used. Existing machine numbers and extensions verified.`;
-    $('review').hidden = false; message(result.message + (canWrite() ? '' : ' Apply is disabled in preview; open the manager normally to install.'));
+    $('review').hidden = false; message(result.message + (offline ? ' Offline preview: no device connection or transfer is allowed.' : canWrite() ? '' : ' Apply is disabled in preview; open the manager normally to install.'));
   });
   $('apply').onclick = () => operation('Transferring and verifying the staged collection. Keep USB connected…', async () => {
     if (!canWrite()) throw new Error('Acknowledge the installation notice before applying changes.');
+    if (offline) throw new Error('Offline preview cannot access the device or apply changes.');
     const applying = plan; plan = null; $('review').hidden = true;
     const result = await withRegularMTP(client, 'apply', {plan:applying});
     connected = false;

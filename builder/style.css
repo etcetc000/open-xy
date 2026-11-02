@@ -636,6 +636,11 @@ footer details[open] { flex-basis:100%; }
 .manager-machine { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
 .manager-machine input { flex:none; width:18px; height:18px; }
 .manager-catalog { max-height:420px; overflow:auto; margin-top:16px; }
+.manager-installed { max-height:560px; overflow:auto; }
+.manager-release { padding:8px 0 12px; border-bottom:1px solid var(--line); }
+.manager-release .manager-machine { border-bottom:0; padding-bottom:4px; }
+.manager-release-detail { margin:0 0 8px 30px; color:var(--muted); font-size:13px; }
+.manager-release button { margin-left:30px; }
 .manager-folder { border:1px dashed var(--line); padding:20px; margin-top:24px; }
 .manager-folder[data-drag="true"] { background:var(--soft); border-color:var(--ink); }
 .manager-review { margin-top:20px; }

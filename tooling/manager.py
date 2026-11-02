@@ -14,7 +14,7 @@ import sys
 import threading
 from urllib.parse import urlsplit
 
-from . import catalog, collection_bundle, collection_manifest as inventory, device
+from . import catalog, collection_bundle, collection_manifest as inventory, device, manager_releases
 from .formats import require, sha
 from .pipeline import ROOT, document, fresh_output, save_json
 from .release import outside_checkouts
@@ -64,7 +64,7 @@ def source_hashes(report, name, extension=False):
 
 
 class Manager:
-    def __init__(self, config, *, connect=device.open_device):
+    def __init__(self, config, *, connect=device.open_device, offline=False, releases=None):
         self.config_path = Path(config).resolve()
         self.config = document(self.config_path)
         for key in ('sdk', 'kernel_package', 'current_collection', 'python', 'toolchain', 'compiler'):
@@ -78,14 +78,24 @@ class Manager:
             description, _, _, _ = collection_bundle.read_bundle(path)
             self.known[description['digest']] = str(Path(path).resolve())
         self.connect = connect
+        self.offline = offline
         self.current = None
         self.local = {}
         self.prepared = {}
         self.jobs = {}
         self.lock = threading.Lock()
-        self.entries = {e['id']: e for e in catalog.load() if e['status'] == 'published'}
+        _, info, _, _ = collection_bundle.read_bundle(self.config['current_collection'])
+        self.releases = releases or manager_releases.Releases(self.config['sdk'], info['interface']['services'])
 
     def read_status(self):
+        if self.offline:
+            description, info, _, _ = collection_bundle.read_bundle(self.config['current_collection'])
+            status = dict(kernel=info['platform'], kernel_sha256=description['kernel'],
+                selection=dict(state='saved', digest=description['digest']), attempt=dict(state='not read'),
+                inventory=self.describe_bundle(self.config['current_collection']), can_manage=False, can_prepare=True,
+                offline=True, message='Saved collection preview. The device has not been read; transfers are disabled.')
+            self.current = copy.deepcopy(status)
+            return status
         with self.connect() as connected:
             raw, info, _, _, _, _ = device.collection_records(connected)
             status = device.collection_status(connected)
@@ -137,14 +147,30 @@ class Manager:
             else:
                 m = identity_at(entry['path'])
                 m['identity'] = layout[m['id']]
-                m['source'] = (origins or {}).get(m['id'], dict(type='installed', fingerprint=sha(
-                    json.dumps(source_hashes(report, m['id']), sort_keys=True).encode())))
+                if origins is not None and m['id'] in origins:
+                    m['source'] = origins[m['id']]
+                else:
+                    m['source'] = manager_releases.saved_origin(entry['path'], m['id'], source_hashes(report, m['id']))
                 machines.append(m)
         return inventory.decode(inventory.encode(description, layout, machines, extensions))
 
     def catalog_list(self):
-        return [dict(id=e['id'], kind=e['kind'], tag=e['tag'], maintainer=e['maintainer'], repository=e['repository'])
-                for e in self.entries.values()]
+        return dict(copy.deepcopy(self.releases.active or dict(machines=[], channel=None)), offline=self.offline)
+
+    def select_catalog(self, payload):
+        result = self.releases.select(payload.get('channel', 'stable'))
+        self.prepared.clear()
+        response = copy.deepcopy(result)
+        response['installed_versions'] = {}
+        if self.current:
+            for machine in self.current['inventory']['machines']:
+                commit = machine['source'].get('commit')
+                matches = [entry for snapshot in self.releases.snapshots.values() for entry in snapshot['machines']
+                           if entry['id'] == machine['id'] and commit and entry['commit'] == commit]
+                if matches:
+                    response['installed_versions'][machine['id']] = matches[0]['tag']
+                    machine['source']['tag'] = matches[0]['tag']
+        return response
 
     def import_folder(self, payload):
         files = payload.get('files')
@@ -171,6 +197,7 @@ class Manager:
             require(m['id'] not in self.local, 'That local machine is already imported: ' + m['id'])
             require(not self.current or m['id'] not in {x['id'] for x in self.current['inventory']['machines']},
                     'Existing machines keep their current sources: ' + m['id'])
+            m['compatibility'] = manager_releases.compatibility(document(path), self.releases.version, self.releases.services)
             found.append((m, path.parent))
         require(found and len({m['id'] for m, _ in found}) == len(found), 'Choose a folder with distinct machine.json and definition.json pairs')
         for m, root in found:
@@ -195,16 +222,25 @@ class Manager:
         return str(target)
 
     def prepare(self, payload):
-        require(self.current and self.current['can_manage'], 'Connect and verify the installed collection first')
+        require(self.current and (self.current['can_manage'] or self.current.get('can_prepare')), 'Connect and verify the installed collection first')
         before = copy.deepcopy(self.current)
-        remove, add, local = (payload.get(k, []) for k in ('remove', 'add', 'local'))
+        remove, add, local, update = (payload.get(k, []) for k in ('remove', 'add', 'local', 'update'))
         require(all(isinstance(v, list) and all(isinstance(x, str) for x in v) and len(v) == len(set(v))
-                    for v in (remove, add, local)), 'Invalid machine selection')
+                    for v in (remove, add, local, update)), 'Invalid machine selection')
+        offered = self.releases.selected(payload)
         installed = {m['id'] for m in before['inventory']['machines']}
-        require(set(remove) <= installed and set(add) <= self.entries.keys() and set(local) <= self.local.keys(), 'Unknown machine selection')
+        require(set(remove) <= installed and set(add) | set(update) <= offered.keys() and
+                set(update) <= installed and set(local) <= self.local.keys(), 'Unknown machine selection')
         require(not ((set(add) | set(local)) & installed) and not (set(add) & set(local)),
-                'Existing machines keep their exact versions; remove and install separately to replace one')
-        require(remove or add or local, 'Choose at least one change')
+                'Use Update to replace an installed machine')
+        require(not (set(update) & (set(remove) | set(local))), 'An update cannot also remove or import the same machine')
+        for name in add + update:
+            require(offered[name]['compatibility']['state'] == 'sdk-compatible',
+                    name + ': ' + offered[name]['compatibility']['message'])
+        for name in local:
+            require(self.local[name]['metadata']['compatibility']['state'] == 'sdk-compatible',
+                    name + ': ' + self.local[name]['metadata']['compatibility']['message'])
+        require(remove or add or local or update, 'Choose at least one change')
         require((installed - set(remove)) | set(add) | set(local), 'Keep at least one machine')
         previous = Path(self.known[before['selection']['digest']])
         old = document(previous / 'collection.json')
@@ -212,18 +248,28 @@ class Manager:
         key = secrets.token_hex(12)
         run = fresh_output(self.home / ('build-' + key))
         entries, origins = [], {m['id']: m['source'] for m in before['inventory']['machines']}
+        old_paths, update_notes = {}, {}
         for entry in old['collection']:
             field = 'extension' if 'extension' in entry else 'path'
             name = document(Path(entry[field]) / ('extension.json' if field == 'extension' else 'definition.json'))['id']
+            if field == 'path' and name in update:
+                old_paths[name] = entry[field]
+                continue
             if field == 'path' and name in remove:
                 continue
             entries.append({field: self._snapshot(entry[field], run / 'sources' / (field + '-' + name))})
-        for name in add:
-            entry = self.entries[name]
+        for name in add + update:
+            entry = offered[name]
             machine = catalog.fetch(entry, self.home / 'catalog')
+            if name in update:
+                require(machine.kind == next(m['kind'] for m in before['inventory']['machines'] if m['id'] == name),
+                        'An update cannot change the machine kind')
+                update_notes[name] = manager_releases.unchanged_controls(old_paths[name], machine.root)
             entries.append(dict(path=self._snapshot(machine.root, run / 'sources' / ('path-' + name))))
             origins[name] = {k: entry[k] for k in ('repository', 'commit', 'tag', 'maintainer')}
             origins[name]['type'] = 'catalog'
+            origins[name]['channel'] = payload['channel']
+            origins[name]['catalog_revision'] = payload['catalog_revision']
         for name in local:
             entries.append(dict(path=self._snapshot(self.local[name]['path'], run / 'sources' / ('path-' + name))))
             origins[name] = dict(type='local')
@@ -240,26 +286,36 @@ class Manager:
                 (run / 'build.log').read_text(errors='replace')[-2200:])
         description, _, _, _ = collection_bundle.read_bundle(output)
         report = document(output / 'analysis/compile-report.json')
-        for name in installed - set(remove):
+        metadata = self.describe_bundle(output, origins)
+        for name in installed - set(remove) - set(update):
             require(source_hashes(report, name) == source_hashes(baseline, name), 'An existing machine source changed: ' + name)
-        require(report['linked'] == [m['id'] for m in self.describe_bundle(output)['machines']], 'Build selection changed')
+        require(report['linked'] == [m['id'] for m in metadata['machines']], 'Build selection changed')
         for name in before['inventory']['extensions']:
             require(source_hashes(report, name, True) == source_hashes(baseline, name, True), 'An existing extension source changed: ' + name)
         old_layout = document(previous / 'layout.json')['machines']
         layout = document(output / 'layout.json')['machines']
         require(all(layout.get(k) == v for k, v in old_layout.items()), 'Existing machine numbers or removed ID reservations changed')
-        metadata = self.describe_bundle(output, origins)
+        previous_kinds = {m['id']: m['kind'] for m in before['inventory']['machines']}
+        require(all(m['kind'] == previous_kinds[m['id']] for m in metadata['machines']
+                    if m['id'] in update), 'Updated machine kind changed after building')
         data = inventory.encode(description, layout, metadata['machines'], metadata['extensions'])
         (output / 'inventory.oxc').write_bytes(data)
-        self.prepared[key] = dict(bundle=str(output), before=before, inventory=data, description=description)
-        return dict(plan=key, add=add + local, remove=remove, machines=metadata['machines'],
+        self.prepared[key] = dict(bundle=str(output), before=before, inventory=data, description=description,
+                                 channel=payload['channel'], catalog_revision=payload['catalog_revision'])
+        installed_sources = {m['id']: m['source'] for m in before['inventory']['machines']}
+        updates = [dict(id=name, before=installed_sources[name].get('tag', 'Saved build'),
+                        after=offered[name]['tag'], notes=update_notes[name]) for name in update]
+        return dict(plan=key, add=add + local, remove=remove, update=updates,
+                    channel=payload['channel'], catalog_revision=payload['catalog_revision'], machines=metadata['machines'],
                     extensions=metadata['extensions'], sizes=report['sizes'], digest=description['digest'],
                     message='Build verified. Apply stages this collection for the next normal reboot; no firmware is flashed. Existing presets are kept; new factory presets are not installed.')
 
     def apply(self, payload):
+        require(not self.offline, 'Offline preview cannot access the device or apply changes')
         key = payload.get('plan')
         require(key in self.prepared, 'Prepare and review a collection first')
         plan = self.prepared[key]
+        self.releases.selected(plan)
         # Persist the matching host build before selection can change on the device.
         bundles = set(self.known.values()) | {plan['bundle']}
         temporary = self.state_path.with_suffix('.tmp')
@@ -281,13 +337,13 @@ class Manager:
         return result
 
     def start(self, action, payload):
-        require(action in ('status', 'import', 'prepare', 'apply'), 'Unknown manager action')
+        require(action in ('status', 'catalog', 'import', 'prepare', 'apply'), 'Unknown manager action')
         require(self.lock.acquire(blocking=False), 'Another manager operation is running')
         key = secrets.token_hex(12)
         self.jobs[key] = dict(state='running', action=action)
         def run():
             try:
-                fn = {'status': self.read_status, 'import': self.import_folder,
+                fn = {'status': self.read_status, 'catalog': self.select_catalog, 'import': self.import_folder,
                       'prepare': self.prepare, 'apply': self.apply}[action]
                 result = fn() if action == 'status' else fn(payload)
                 self.jobs[key] = dict(state='complete', action=action, result=result)
@@ -334,7 +390,7 @@ def handler(manager, token, site):
                     action = path.removeprefix('/api/manager/')
                     if self.command == 'GET':
                         if action == 'catalog':
-                            self.respond(200, dict(machines=manager.catalog_list()))
+                            self.respond(200, manager.catalog_list())
                         elif action.startswith('jobs/') and action[5:] in manager.jobs:
                             self.respond(200, manager.jobs[action[5:]])
                         else:
@@ -374,8 +430,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, required=True, help='Matching SDK, kernel package, current collection and pinned tool paths')
     parser.add_argument('--site', type=Path, help='Previously built web UI; otherwise builds a fresh UI outside the checkout')
+    parser.add_argument('--offline', action='store_true', help='Preview/build from the saved collection; never open a device connection')
     args = parser.parse_args(argv)
-    manager = Manager(args.config)
+    manager = Manager(args.config, offline=args.offline)
     site = args.site.resolve() if args.site else manager.home / ('web-' + secrets.token_hex(8))
     if not args.site:
         env = dict(os.environ, OPEN_XY_KIT='', OPEN_XY_OUT_DIR=str(site))
@@ -385,7 +442,8 @@ def main(argv=None):
     server = ThreadingHTTPServer(('127.0.0.1', PORT), handler(manager, token, site))
     server.daemon_threads = True
     print(f'Open http://127.0.0.1:{PORT}/#manage={token}', flush=True)
-    print('Local connector ready. No device commands are sent until you click Connect or Apply in the web UI.', flush=True)
+    print('Offline preview: device connections and transfers are disabled.' if args.offline else
+          'Local connector ready. No device commands are sent until you click Connect or Apply in the web UI.', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

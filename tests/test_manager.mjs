@@ -1,12 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {changes, sourceFiles, encodeFolder, isXYIdentity, enterRegularMTP, Client, withRegularMTP} from '../builder/manager.mjs';
+import {changes, sourceFiles, encodeFolder, isXYIdentity, enterRegularMTP, Client, withRegularMTP, installedVersion, canSelectRelease, releaseAction} from '../builder/manager.mjs';
 
 test('machine changes preserve installed machines unless explicitly unchecked', () => {
   const installed = [{id:'keep'}, {id:'remove'}];
   assert.deepEqual(changes(installed, new Set(['keep', 'catalog', 'own']), new Map([['own', {}]])),
-    {remove:['remove'], add:['catalog'], local:['own']});
-  assert.deepEqual(changes(installed, new Set(['keep', 'remove']), new Map()), {remove:[], add:[], local:[]});
+    {remove:['remove'], add:['catalog'], local:['own'], update:[]});
+  assert.deepEqual(changes(installed, new Set(['keep', 'remove']), new Map()), {remove:[], add:[], local:[], update:[]});
+});
+
+test('updates are explicit, retained machines remain selected, and unchecked updates are omitted', () => {
+  assert.deepEqual(changes([{id:'keep'}, {id:'update'}, {id:'remove'}], new Set(['keep','update']), new Map(), new Set(['update','remove'])),
+    {remove:['remove'], add:[], local:[], update:['update']});
+  assert.equal(installedVersion({source:{tag:'v1.2',commit:'ab'.repeat(20)}}),'v1.2');
+  assert.equal(installedVersion({source:{fingerprint:'cd'.repeat(32)}}),'Saved build cdcdcdcd');
+  assert.match(installedVersion({}),/version unknown/);
+  assert.equal(canSelectRelease({compatibility:{state:'sdk-compatible'}}),true);
+  for (const state of ['firmware-update-required','unavailable','unchecked'])
+    assert.equal(canSelectRelease({compatibility:{state}}),false);
+  assert.equal(releaseAction({source:{tag:'v2.0.0'}},{tag:'v1.9.0'}),'Switch to older v1.9.0');
+  assert.equal(releaseAction({source:{tag:'v1.9.0'}},{tag:'v2.0.0'}),'Update to v2.0.0');
+  assert.equal(releaseAction({source:{commit:'abc'}},{commit:'abc',tag:'v2.0.0'}),'Already installed');
 });
 
 test('folder import skips repositories and environments, preserves relative source paths and bytes', async () => {
