@@ -41,6 +41,7 @@ version is rejected. The output differs from stock in exactly these places:
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 5 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, and shows companions beside projects over MTP |
+| Punch-in FX | 6 | Takes the keys the collection's punch-in effects own from stock's held-effect mask and runs those effects in stock's per-track, per-note and step passes, on the tracks stock targets; plays the notes they add; shows their flip-dot animations |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
@@ -615,6 +616,63 @@ preset of a machine a later build left out, is then not listed; its file stays
 on the device. Until stock's engine name map exists, every name counts as
 installed. User presets stay listed: stock deletes a user folder that lists no
 presets, so hiding them could delete them.
+
+## Punch-in FX
+
+Punch-in effects are sequencer logic on the GUI side, not audio objects. Each
+pass, stock collects the notes held or recorded on the punch-in track
+(auxiliary track 2, and shift + key on an instrument track) into a mask at
+offset 0xc of the sequencer object (`8d58c6c0`): ten 12-bit words, one per
+instrument track, then all drum tracks and all melodic tracks. Bit k is the
+k-th key from F. A track counts as a drum track when its engine is 3 or 4.
+Stock then runs one effect pass per instrument track (`8d58ca10`) and one at
+note start, each asking whether a bit is held for that track or its group.
+Effects either write per-track parameter overrides (`8d58c5b8`), which stock
+releases when the key is no longer held, or change notes and timing.
+
+Stock's passes, and the SDK's hooks on each
+([`punch.cpp`](../sdk/platform/opxy-1.2.1/punch.cpp)):
+
+- **Mask** (`8d58c6c0`, called at `8d58e0f2`): after stock builds it, the bits
+  of every key an effect owns move into SDK state, so stock's effect for that
+  key never runs: an effect's drum key from drum tracks' words and the drum
+  group, its melodic key from the others. The builder also sets two summary
+  flags from the mask, at sequencer offsets 0x20 (G or A held in any track's
+  own word) and 0x21 (C or D held for a drum track, in its word or the drum
+  group); the SDK derives both again from the keys left to stock, so every key
+  can be owned.
+- **Per-track pass** (`8d58ca10`, called each tick for tracks 0-7 at
+  `8d58cea4` and at note start at `8d58cfe6`): writes parameter overrides
+  through `8d58c5b8`; stock releases any override not set again on the next
+  tick. Its third argument is stock's modulation (`8d58c9e4`): twice the
+  punch-in track's pitch bend plus 64 times one tilt axis. The effects' `tick`
+  runs after it on the same overrides.
+- **Per-note pass** (`8d58cf58`, called from the note loop at `8d595be6`): runs
+  after step components on the event the sequencer plays, whose byte 0xd is
+  the pitch (255: no note) and byte 0xf the velocity; its fifth argument marks
+  a generated copy. The effects' `note` runs after it.
+- **Step remap** (`8d58c84c`, called by the track player at `11a0ab40`):
+  rewrites the step a track plays. The effects' `step` runs after it.
+- **Flip-dot animation** (`8d554ae0`, called by the punch-in screen's dot
+  display at `8d554bd2`): picks the latest note held on the punch-in track, maps
+  it to one of 24 key positions (the drum octave's twelve keys from F, then the
+  melodic octave's) and returns that position's animation from the table at
+  `8406c4c8`, or an idle one. A record is a frame-pointer array, a zero word and
+  a frame count; each frame is 40 x 18 dots, one bit each, row by row, 90
+  bytes. The display shows one frame per refresh and loops. For a key an effect
+  owns, the SDK returns the effect's animation for that octave, if it has one.
+
+- **Notes effects play** (`punch::play`): queued by the SDK and played at the
+  start of the sequencer tick they fall due in, from the mask hook, through
+  stock's note player `8d595738` as stock's repeat and fill keys call it:
+  (sequencer `860c6adc`, track, pitch, 64-bit length at 480 per step, velocity,
+  0, 0, 64-bit event time from `8d59357c`, flags 4, 0). The note runs through
+  step components and the per-note pass, where effects see it as generated.
+
+Effects follow [`opxy/punch.hpp`](../sdk/include/opxy/punch.hpp). The examples
+in [`punch_example.cpp`](../sdk/platform/opxy-1.2.1/punch_example.cpp) add
+effects stock lacks on G, C, D and A: tape stop, ratchet, echo, and a sidechain
+pump on melodic tracks only.
 
 ## Send effects
 
