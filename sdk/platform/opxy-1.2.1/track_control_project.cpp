@@ -46,7 +46,9 @@ public:
     void byte(char c) {
         if (count == sizeof buffer) flush();
         buffer[count++] = c;
+        ++total;
     }
+    u32 written() const { return total; }
     void base64(const unsigned char* data, u32 bytes) {
         for (u32 i = 0; i < bytes; i += 3) {
             const u32 n = bytes - i, v = data[i] << 16 | (n > 1 ? data[i + 1] << 8 : 0) | (n > 2 ? data[i + 2] : 0);
@@ -63,8 +65,12 @@ private:
     }
     kept_files::File* file;
     char buffer[256];
-    u32 count = 0;
+    u32 count = 0, total = 0;
 };
+// Room the rest of a companion may take (its envelope, the machines section and
+// other sections), which the snapshots leave free so the whole stays within the
+// companion's 64 KiB (kCompanionLimit).
+const u32 kCompanionBudget = 64 * 1024 - 8 * 1024;
 
 // A small reader for companions any writer made: the span [at, to) of a value.
 struct Reader {
@@ -302,7 +308,11 @@ extern "C" u32 sdk_control_kept_write(void* file) {
         out.byte('"');
     }
     if (listed) out.put("\n      },\n");
-    const u32 snapped = opxy::platform::snapshots_encode(snapshot_bytes, opxy::platform::kSnapshotBytes);
+    // The snapshots, if their base64 fits what the companion has left; otherwise
+    // none, so the rest of the companion still loads.
+    const u32 room = out.written() < kCompanionBudget ? (kCompanionBudget - out.written()) / 4 * 3 : 0;
+    const u32 snapped = opxy::platform::snapshots_encode(
+        snapshot_bytes, room < opxy::platform::kSnapshotBytes ? room : opxy::platform::kSnapshotBytes);
     if (snapped) {
         out.put(held || listed ? "      \"snapshots\": \"" : "    \"open-xy.control\": {\n      \"snapshots\": \"");
         out.base64(snapshot_bytes, snapped);

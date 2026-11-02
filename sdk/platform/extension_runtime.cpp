@@ -296,7 +296,10 @@ bool chord_input(u32 key, bool pressed, extensions::Time time) {
         if (withheld & bit) return true;  // a repeat of a key already taken
         if (!ready() || !registry->claim_chords || extensions::keys::black_index(key) < 0) return false;
         for (u32 c = 0; c < registry->claim_count && !fired; ++c) {
-            if (registry->claim_chords[c] != chord_black_keys || !extension_key_held(registry->claim_keys[c]))
+            // A pair claim's chord needs both of its keys held.
+            const u32 partner = registry->claim_partners ? registry->claim_partners[c] : 0;
+            if (registry->claim_chords[c] != chord_black_keys || !extension_key_held(registry->claim_keys[c]) ||
+                (partner && !extension_key_held(partner)))
                 continue;
             for (u32 i = 0; i < entry_count && !fired; ++i)
                 if (entries[i].claims & (1u << c)) { index = i; fired = 1u << c; }

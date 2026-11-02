@@ -219,7 +219,7 @@ extern "C" void sdk_param_step_set(u32 project, u32 track, u32 index, i32 value)
     lock_at[track][index] = word(kTicks96);
     // The lock is stock's value beneath any overlay, even when it equals the
     // overlay's, so releasing the overlay leaves the lock playing.
-    if (Applied* a = find(track, index)) a->underlying = value < 0 ? 0 : value;
+    if (Applied* a = find(track, index)) a->underlying = value;
 }
 
 extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value) {

@@ -117,10 +117,14 @@ bool opxy::platform::snapshot_load(u32 slot) {
     const snapshots::Snapshot& s = store[slot];
     for (u32 t = 0; t < control::tracks; ++t) {
         if (!track_engine(t) || s.engines[t] != track_engine(t)) continue;
+        const u32 block = stock<u32(u32)>(0x8d587708)(t);
         for (u32 p = 0; p < control::track_parameters; ++p)
-            if (base(t, p) != s.values[t][p])
-                // Stock's base-value setter, as an encoder edit ends in: stores and publishes.
+            if (base(t, p) != s.values[t][p]) {
+                // The stored value first: stock's setter stores it only on synth
+                // tracks. Then the setter an encoder edit ends in, which publishes.
+                *at<i32>(block + 0x3864 + p * 4) = s.values[t][p];
                 stock<void(u32, u32, u32, i32)>(0x8d5acf28)(kProject, t, p, s.values[t][p]);
+            }
     }
     return true;
 }

@@ -187,6 +187,8 @@ class FirmwareWriter(unittest.TestCase):
             document['sections']['open-xy.control']['snapshots'] = 'AQI='
             (folder / 'song.oxy').write_bytes(json.dumps(document).encode())
             self.assertEqual(run('1', 'read').stdout, '73746174ff/5\n')
+            # Tooling reads them as none too, and keeps the rest of the companion.
+            self.assertEqual(snapshots_kept(parse(json.dumps(document).encode()), project.read_bytes()), {})
 
     def test_the_role_controls_of_aux_patterns_a_machine_holds_are_kept_with_the_project(self):
         with tempfile.TemporaryDirectory(prefix='companion-') as directory:

@@ -9,6 +9,10 @@ extern "C" {
 // A preview shows one machine on one track.
 opxy::u32 sdk_control_copies(opxy::u32) { return 1; }
 opxy::i32 sdk_control_display(opxy::u32) { return 0; }
+// No snapshots in a preview (opxy/snapshots.hpp).
+const void* sdk_snapshot(opxy::u32) { return nullptr; }
+opxy::u32 sdk_snapshot_engine(opxy::u32) { return 0; }
+opxy::u32 sdk_snapshot_generation() { return 0; }
 opxy::u32 opxy_display_abi() { return 2; }
 opxy::u32 opxy_display_state_bytes() { return sizeof(state); }
 opxy::u32 opxy_display_input_bytes() { return sizeof(input); }

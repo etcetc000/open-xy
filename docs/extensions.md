@@ -122,6 +122,10 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   and never reaches stock: it plays no note, and its release follows its press
   even after the claimed key is let go. Every other key, and the claimed key
   itself, still reach stock as usual. `metronome_chord` is metronome + black key.
+- **A pair** (`"with"`) makes two keys pressed together the gesture: a chord
+  then needs both held. `minus_plus` is − and + together. Either key pressed
+  alone waits for the other, and reaches stock as a press and release when it
+  is let go, so stock sees − or + only on release while such a claim is built in.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
@@ -140,6 +144,14 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     [snapshots](api.md#snapshots) (0-9, one per black key), once per callback. It changes no track;
     machines read snapshots and play them back. A build with it links the
     control service, which keeps them with the project.
+
+    The claim of an extension holding `snapshot` also opens the SDK's snapshot
+    menu, styled after stock's bar menu: held, for as long as the key (or pair)
+    is held; tapped, until it is pressed again or any other key is, which then
+    does its usual job. While it is open the menu takes the black keys (select
+    a slot), encoder 1 (step through slots), and M1-M4 (save, load, clear,
+    clear all). Load writes the slot's values to every track that still holds
+    the engine it held when saved; the others stay as they are.
 
   Calls outside the callback, with a stale context, or a second write or
   popup in one callback are refused.

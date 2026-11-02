@@ -90,10 +90,10 @@ def parse(raw):
         try:
             for kept in control.get('machines', {}).values():
                 base64.b64decode(kept, validate=True)
-            if 'snapshots' in control:
-                decode_snapshots(base64.b64decode(control['snapshots'], validate=True))
         except binascii.Error as error:
             raise ValueError(f'{CONTROL}: invalid base64') from error
+        # Snapshots this version can't read are none, as the firmware reads them
+        # (snapshots_kept); the rest of the companion still stands.
     return value
 
 
@@ -214,7 +214,10 @@ def snapshots_kept(document, data):
     section = document['sections'].get(CONTROL)
     if not describes(document, data) or not section or section['version'] > CONTROL_VERSION:
         return {}
-    return decode_snapshots(base64.b64decode(section.get('snapshots', '')))
+    try:
+        return decode_snapshots(base64.b64decode(section.get('snapshots', ''), validate=True))
+    except (binascii.Error, ValueError):
+        return {}
 
 
 def translation(saved, layout):

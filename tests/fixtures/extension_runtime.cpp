@@ -69,7 +69,8 @@ u32 sdk_snapshot_menu(u32 op, i32 arg) {
     return op == 1 || op == 5 ? menu_used : 1;
 }
 namespace opxy { namespace platform {
-bool extension_key_held(u32 key) { return held_key && key == held_key; }
+u32 held_key2;
+bool extension_key_held(u32 key) { return key && (key == held_key || key == held_key2); }
 const ExtensionEntry* extension_collection(u32& count) { count = 2; return collection; }
 const ExtensionRegistry& extension_registry() { return tables; }
 TrackPattern extension_pattern(u32 track) {
@@ -151,6 +152,18 @@ int main() {
     held_key = 0;
     CHECK(extensions_key_input(36, false, 0) && chord_releases == 1);
     CHECK(!extensions_key_input(36, false, 0) && chord_releases == 1);
+    // A pair claim's chord needs both of its keys held.
+    tables.claim_partners = claim_partners;
+    initialized = false; entries = nullptr;
+    held_key = 1;
+    CHECK(extensions_key_input(36, true, 0) == key_stock && chord_presses == 1);
+    CHECK(extensions_key_input(36, false, 0) == key_stock);
+    held_key2 = 54;
+    CHECK(extensions_key_input(36, true, 0) == key_taken && chord_presses == 2);
+    held_key = held_key2 = 0;
+    CHECK(extensions_key_input(36, false, 0) == key_taken && chord_releases == 2);
+    tables.claim_partners = nullptr;
+    chord_presses = chord_releases = 1;
     // The snapshot menu: the claim key opens it and is taken; while it is held the
     // black keys select, M1-M4 act and encoder 1 steps, all withheld from stock
     // with their releases; other keys stay stock's. Released, it closes.

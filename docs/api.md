@@ -378,7 +378,9 @@ and reading are separate:
 
 - **Only an extension takes a snapshot**, with the `snapshot` action
   ([extensions](extensions.md#claims-and-actions)), in answer to a gesture it
-  claims. Taking one changes no track.
+  claims. Taking one changes no track. That claim also opens the SDK's
+  snapshot menu ([extensions](extensions.md#claims-and-actions)), whose Load
+  writes a slot back to the tracks that still hold its engines.
 - **Track control machines only read them**, on the GUI side in `control()`:
   `snapshots::get(slot)` (null when the slot is empty), `snapshots::matches(s,
   track)` (whether the track still holds the engine it held then, so its words
