@@ -122,13 +122,13 @@ export function validIdentity(rules, kind, identity) {
   if (!identity || typeof identity !== 'object' || Object.keys(identity).sort().join() !== [slot, 'page'].sort().join()) return false;
   const n = identity[slot], page = identity.page;
   if (!Number.isInteger(n) || !Number.isInteger(page)) return false;
-  if (kind === 'player') return rules.players.includes(n) && page > rules.page_none && page < rules.pages - 1;
+  if (kind === 'player') return rules.players.includes(n) && page > rules.page_none && page < rules.pages;
   // An effect is on the stock FX page, or on a relocated page when it draws its own (SDK 1.7).
-  if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages - 1);
+  if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages);
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   // A sample engine is on a stock sample page, or on a relocated page when it draws its own screen (SDK 1.8).
-  return kind === 'sample' ? n > rules.engine_none && (rules.sample_pages.includes(page) || page > rules.page_none && page < rules.pages - 1)
-    : ['synth', 'drum'].includes(kind) && page > rules.page_none && page < rules.pages - 1;  // the last page: reserved for an SDK overlay screen
+  return kind === 'sample' ? n > rules.engine_none && (rules.sample_pages.includes(page) || page > rules.page_none && page < rules.pages)
+    : ['synth', 'drum'].includes(kind) && page > rules.page_none && page < rules.pages;
 }
 
 // The numbers a kit machine asks for (tooling.machines.check_request): valid ones,
@@ -240,7 +240,8 @@ export function numberLayout(rules, fixed, layout, machines) {
   // An effect number is also held as an engine number (occupied).
   const keys = (slot, n) => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
   // The last page is reserved for an SDK overlay screen: in the pool, so every other
-  // machine keeps its own place, but never given out (tooling.machines.number_layout).
+  // machine keeps its own place, never given out, and still valid in a layout that
+  // already gave it (validIdentity), as earlier SDKs did (tooling.machines.number_layout).
   const free = (slot, n) => !(slot === 'page' && n === rules.pages - 1) && !keys(slot, n).some(key => holders.has(key));
   const take = (name, identity, slot, n) => {
     identity[slot] = n;
@@ -876,8 +877,10 @@ export async function buildAssets(kit, selection, catalog, numbers, {graphics = 
       files[path] = utf8.encode(JSON.stringify(preset, null, 2) + '\n');
   // The device lists at most 64 aux presets, every aux machine's and the roles' inits together
   // (tooling.adapters.AUX_PRESETS).
-  const auxPresets = Object.keys(files).filter(path => path.startsWith('content/aux_presets/')).length;
-  check(auxPresets <= 64, `The chosen aux machines have ${auxPresets} presets together; the OP-XY lists 64. Choose fewer.`);
+  const auxPaths = Object.keys(files).filter(path => path.startsWith('content/aux_presets/'));
+  check(auxPaths.length <= 64, `The chosen aux machines have ${auxPaths.length} presets together; the OP-XY lists 64. Choose fewer.`);
+  const auxFolders = new Set(auxPaths.map(path => path.split('/')[2])).size;
+  check(auxFolders <= 16, `The chosen aux machines have ${auxFolders} preset folders together; the OP-XY lists 16. Choose fewer.`);
   if (machines.some(m => m.artwork)) {
     check(await screenTemplateOk(kit), 'Platform screen template differs from the supported ABI');
     const baseSvg = kit.screenTemplate;

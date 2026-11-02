@@ -283,12 +283,11 @@ def validate_synth_resources(resources):
         # tracks never takes an instrument track's place.
         require('aux' in control, 'Track control runs on an aux track: list it in trackControl.aux (' +
                 ', '.join(map(str, AUX_TRACKS)) + ')')
-        if 'aux' in control:
-            aux = control['aux']
-            require(type(aux) is list and aux and all(type(t) is int for t in aux) and len(set(aux)) == len(aux) and
-                    set(aux) <= set(AUX_TRACKS),
-                    'Track control aux lists the aux tracks to take over: ' + ', '.join(map(str, AUX_TRACKS)))
-            require(control.get('unique') is True, 'A track control machine that takes over aux tracks must be unique')
+        aux = control['aux']
+        require(type(aux) is list and aux and all(type(t) is int for t in aux) and len(set(aux)) == len(aux) and
+                set(aux) <= set(AUX_TRACKS),
+                'Track control aux lists the aux tracks to take over: ' + ', '.join(map(str, AUX_TRACKS)))
+        require(control.get('unique') is True, 'A track control machine that takes over aux tracks must be unique')
 
 
 def validate_display(display):

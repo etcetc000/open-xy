@@ -479,7 +479,7 @@ def track_control(m):
 def generate_control(directory, m):
     """A synth's track control callbacks behind C entry points, with its state."""
     control, namespace, p = track_control(m), m.definition['id'], m.prefix
-    copies = 1 if control.get('unique') else 8
+    copies = 1 if control.get('unique') else 16  # a copy per track, aux tracks included
     source = f'''// Generated: {m.native_name}'s track control behind C entry points.
 #include "control.cpp"
 static_assert(sizeof({namespace}::ControlState) == {control['stateBytes']},
@@ -488,7 +488,7 @@ static_assert(alignof({namespace}::ControlState) == {control['stateAlignment']},
               "Declared track control state alignment differs from C++ type");
 static_assert(__is_trivial({namespace}::ControlState) && __is_standard_layout({namespace}::ControlState),
               "Track control state must be trivial standard-layout data");
-// One state per copy: a unique machine has one, any other one per instrument track.
+// One state per copy: a unique machine has one, any other one per track.
 namespace {{ {namespace}::ControlState states[{copies}]; }}
 extern "C" void {p}_control_reset(opxy::u32) __asm__("{p}_control_reset");
 extern "C" void {p}_control(opxy::u32, const opxy::control::Input*, opxy::control::Overlay*) __asm__("{p}_control");
@@ -533,10 +533,6 @@ def generate_track_controls(directory, machines):
         holders = [m.id for m in machines if track_control(m) and track in track_control(m).get('aux', ())]
         require(len(holders) <= AUX_CHOICES - 1,
                 f'At most {AUX_CHOICES - 1} machines may take over aux track {track} in one build, not {len(holders)}')
-    # The device lists every aux machine's presets and the roles' inits together, at most AUX_PRESETS.
-    files = len({path for m in machines for path in aux_preset_files(m)})
-    require(files <= AUX_PRESETS, f'The aux machines in one build have at most {AUX_PRESETS} presets together, '
-                                  f'the role inits included, not {files}')
     declarations, rows = [], []
     for m in machines:
         if not track_control(m):
@@ -635,8 +631,19 @@ def stock_labels(m):
 AUX_ROLES = {12: 'cv'}
 # The entries of an aux track's Shift + M1 list: its stock role, then machines (aux_tracks.cpp kChoices).
 AUX_CHOICES = 32
-# The aux presets the device lists, in every folder together (aux_tracks.cpp kPresets).
-AUX_PRESETS = 64
+# The aux presets the device lists, in every folder together, and its folders
+# (aux_tracks.cpp kPresets, kFolders).
+AUX_PRESETS, AUX_FOLDERS = 64, 16
+
+
+def check_aux_presets(machines):
+    """Refuses a build whose aux preset list the device cannot show whole."""
+    paths = {path for m in machines for path in aux_preset_files(m)}
+    require(len(paths) <= AUX_PRESETS, f'The aux machines in one build have at most {AUX_PRESETS} presets '
+                                       f'together, the role inits included, not {len(paths)}')
+    folders = {path.split('/')[2] for path in paths}
+    require(len(folders) <= AUX_FOLDERS, f'The aux machines in one build have at most {AUX_FOLDERS} preset '
+                                         f'folders together, the roles included, not {len(folders)}')
 
 
 def aux_preset_files(m):

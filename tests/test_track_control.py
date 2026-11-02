@@ -125,6 +125,7 @@ class TrackControl(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'at most 63 presets'):
             aux_preset_files(synth)
         synth.definition['presets'] = {'Soft': {names[0]: 0.5}, 'Full': {n: 1 for n in names}}
+        from dataclasses import replace
         with tempfile.TemporaryDirectory(prefix='track-control-') as folder:
             table = generate_track_controls(folder, [synth]).read_text(encoding='utf-8')
             self.assertIn(f'true, 0x800u, {synth.prefix}_page_id, ', table)
@@ -134,12 +135,22 @@ class TrackControl(unittest.TestCase):
             synth.definition['presets'] = {f'p{i}': {} for i in range(31)}
             other.definition['presets'] = {f'q{i}': {} for i in range(32)}
             self.assertEqual(len({p for m in (synth, other) for p in aux_preset_files(m)}), 64)
-            generate_track_controls(folder, [synth, other])
+            from tooling.adapters import check_aux_presets
+            check_aux_presets([synth, other])
             other.definition['presets']['q32'] = {}
             with self.assertRaisesRegex(ValueError, 'at most 64 presets together'):
-                generate_track_controls(folder, [synth, other])
+                check_aux_presets([synth, other])
+            # A collection may hold more than one build lists; the table does not refuse it.
+            generate_track_controls(folder, [synth, other])
+            # And at most 16 folders: the role's and one per machine with presets.
+            def with_preset(m, n):
+                m = copy.deepcopy(m)
+                m.definition['presets'] = {'one': {}}
+                return replace(m, id=f'm{n}')
+            check_aux_presets([with_preset(other, n) for n in range(15)])
+            with self.assertRaisesRegex(ValueError, 'at most 16 preset folders'):
+                check_aux_presets([with_preset(other, n) for n in range(16)])
             # Nor may one be named as the role it replaces.
-            from dataclasses import replace
             other.definition['presets'] = {}
             with self.assertRaisesRegex(ValueError, 'not named as a stock role'):
                 generate_track_controls(folder, [replace(other, id='cv')])
@@ -204,7 +215,7 @@ class TrackControl(unittest.TestCase):
             table = generate_track_controls(folder, [synth]).read_text(encoding='utf-8')
             binding = generate_control(folder, synth).read_text(encoding='utf-8')
         self.assertIn('nullptr, nullptr, false, 0x0u, ', table)
-        self.assertIn('ControlState states[8];', binding)
+        self.assertIn('ControlState states[16];', binding)
         self.assertIn('control_reset(states[copy])', binding)
         self.assertIn('control(states[copy], *input, *overlay)', binding)
 

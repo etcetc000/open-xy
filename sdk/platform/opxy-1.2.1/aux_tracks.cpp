@@ -200,7 +200,8 @@ void take(u32 track, u32 choice) {
     }
     sdk_synth_queue_page_key(control::all_tracks, 0);
     const u32 p = current_pattern(track), bit = 1u << p;
-    if (!before) {
+    // The role's controls, kept aside; not those of a machine this build can't run.
+    if (!before && word(current_block(track) + 0x18) == kRoleEngine) {
         for (u32 i = 0; i < kControls; ++i) kept->values[p][i] = base(track, i);
         kept->patterns |= bit;
     }

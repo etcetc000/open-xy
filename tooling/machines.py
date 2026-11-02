@@ -191,7 +191,7 @@ def check_identity(rules, kind, value, display=None):
         require(set(value) == {'player', 'page'} and all(type(v) is int for v in value.values()),
                 'Players need a player type and their own page')
         require(value['player'] in rules['players'], 'Players use a type stock leaves unused')
-        require(rules['page_none'] < value['page'] < rules['pages'] - 1, 'Players need a relocated page')
+        require(rules['page_none'] < value['page'] < rules['pages'], 'Players need a relocated page')
         return dict(value)
     slot = 'effect' if kind == 'effect' else 'engine'
     require(set(value) == {slot, 'page'}, 'Unexpected identity fields')
@@ -199,7 +199,7 @@ def check_identity(rules, kind, value, display=None):
     require(type(number) is int and type(page) is int, 'IDs must be integers')
     if kind == 'effect':
         own = display == 'drawing' or display is None and page != rules['effect_page']
-        require(number in rules['effects'] and (rules['page_none'] < page < rules['pages'] - 1 if own
+        require(number in rules['effects'] and (rules['page_none'] < page < rules['pages'] if own
                                                  else page == rules['effect_page']),
                 'Effects use an FX ID stock leaves unregistered, on the stock FX page or, drawing their own, '
                 'a relocated page')
@@ -208,13 +208,12 @@ def check_identity(rules, kind, value, display=None):
             'Engine ID outside the relocated table, the stock "none" value or registered by stock')
     if kind == 'sample':
         own = display == 'drawing' or display is None and page not in rules['sample_pages']
-        require(rules['engine_none'] < number and (rules['page_none'] < page < rules['pages'] - 1 if own
+        require(rules['engine_none'] < number and (rules['page_none'] < page < rules['pages'] if own
                                                    else page in rules['sample_pages']),
                 'Sample engines need a relocated-table engine ID and a stock sample page or, drawing their own '
                 'screen, a relocated page')
     else:
-        # The last page is reserved for an SDK overlay screen.
-        require(rules['page_none'] < page < rules['pages'] - 1, 'A machine with its own screen needs a relocated page')
+        require(rules['page_none'] < page < rules['pages'], 'A machine with its own screen needs a relocated page')
     return {slot: number, 'page': page}
 
 
@@ -547,7 +546,8 @@ def number_layout(rules, fixed, layout, machines):
     # An effect number is also held as an engine number (occupied).
     keys = lambda slot, n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
     # The last page is reserved for an SDK overlay screen: in the pool, so every
-    # other machine keeps its own place, but never given out.
+    # other machine keeps its own place, never given out, and still valid in a
+    # layout that already gave it (check_identity), as earlier SDKs did.
     free = lambda slot, n: not (slot == 'page' and n == rules['pages'] - 1) and not any(k in holders for k in keys(slot, n))
 
     def take(name, identity, slot, n):
