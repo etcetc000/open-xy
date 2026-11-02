@@ -111,7 +111,8 @@ inline void add(Overlay& overlay, u32 track, u32 index, i32 value) {
 // parameter is outside tracks x track_parameters. The SDK ignores a write to
 // the machine's own track, and every write while the machine's track is muted;
 // a negative value counts as 0. Under an overlay, the write is what the overlay's
-// release restores.
+// release restores. A step's lock on the parameter plays on; stock's next step
+// plays the stored value.
 inline bool store(Overlay& overlay, u32 track, u32 index, i32 value) {
     if (overlay.stored_count >= store_capacity || track >= tracks || index >= track_parameters) return false;
     Entry& entry = overlay.stored[overlay.stored_count++];

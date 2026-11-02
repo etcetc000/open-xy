@@ -392,7 +392,8 @@ then calls stock's setter that an encoder edit ends in, which publishes it, so
 `values` holds it from the next tick. It ignores a write to the machine's own
 track, and every write while the machine's track is muted; negative values count
 as 0. Beneath an overlay of the same parameter, the overlay still plays, and its
-release restores the stored value. Use `store` for changes the user should
+release restores the stored value. A step's parameter lock on it plays on as
+written; stock's next step plays the stored value. Use `store` for changes the user should
 keep (recalling a state), and overlays for movement (a morph or modulation):
 each stored write changes the project, as an edit does.
 

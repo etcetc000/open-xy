@@ -488,6 +488,23 @@ int main() {
     sets = 0;
     tick(0, "Stored write written again");
     require(sets == 0 && value(0, 5) == 444, "Stored write repeated");
+    // Under a step's lock, only the stored value: the lock plays on, and stays the
+    // value beneath an overlay of it.
+    playing[1] = 1;
+    plan({{0, 7, 0, 640}});
+    tick(1, "Overlay not written");
+    sdk_param_step_set(kProject, 0, 7, 250);
+    plan_stored({{0, 7, 0, 555}});
+    sets = 0;
+    tick(0, "Overlay written over a lock");
+    require(sets == 0 && bases[0][7] == 555 && value(0, 7) == 250 && lock_holds(0, 7),
+            "Stored write played over a lock");
+    plan_stored({});
+    plan({});
+    tick(0, "Release wrote over the lock");
+    require(value(0, 7) == 250, "Lock lost when the overlay was released");
+    sdk_control_forget();
+    tick(0, "Nothing to write");
     // Out of the table: refused, nothing written.
     plan_stored({{8, 0, 0, 5}, {11, 1, 0, 5}, {0, 58, 0, 5}});
     tick(0, "Refused stored writes wrote");

@@ -42,7 +42,9 @@
 // write sets the stored value at track data + 0x3864 first (stock's setter
 // stores it only on synth tracks), then calls the setter an encoder edit ends in,
 // 8d5acf28, which publishes it; beneath an overlay it becomes stock's value,
-// which the overlay's release restores.
+// which the overlay's release restores. While a step's lock holds the parameter,
+// only the stored value is written: the lock plays on, and stock's next step
+// plays the stored value.
 //
 // Mute: stock keeps it per scene, in the scene records at g_project (the word
 // at 840a0524) + 0x98, 33 bytes each: each track's pattern, then each track's
@@ -162,6 +164,7 @@ void store(u32 host) {
         if (e.track >= control::tracks || e.index >= control::track_parameters || e.track == host) continue;
         const i32 value = e.value < 0 ? 0 : e.value;
         *at<i32>(stock<u32(u32)>(0x8d587708)(e.track) + 0x3864 + e.index * 4) = value;
+        if (lock_holds(e.track, e.index)) continue;
         param_set(kProject, e.track, e.index, value);
         opxy::platform::control_stock_set(e.track, e.index, value);
     }
