@@ -19,9 +19,9 @@ const numbers = {probefx: {effect: 6, page: 21}};
 
 async function fixture(selectedMachines = machines) {
   // Authored menu fixture with its own insertion points; no captured firmware or factory content.
-  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ]}';
+  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ],"seq_types":[{"type":"maestro"}\n    ]}';
   const catalog = new TextEncoder().encode(text);
-  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.lastIndexOf('\n    ]')};
+  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.indexOf('\n    ]', text.indexOf('fx_types')), seq_types: text.lastIndexOf('\n    ]')};
   return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts}}, catalog};
 }
 
@@ -77,6 +77,14 @@ test("a machine's own presets install beside its init preset, unchanged", async 
   assert.deepEqual(authored, {'content/presets/probesynth/default.json': own({octave: 1})});
 });
 
+// Placeholder pending #234, which defines trackControl's real shape.
+test('an aux track-control machine keeps no instrument preset folder', () => {
+  // An aux machine has no catalog entry (tooling.browser_kit); its presets are aux presets.
+  const aux = {...machines[0], catalog: ''};
+  assert.equal(presetPath(aux), null);
+  assert.deepEqual(presetFiles(aux), {});
+});
+
 test("a machine's own presets are checked again before they reach a device", async () => {
   for (const presets of [{default: own({type: 'x'})}, {'../x': own()}, {'Warm Pad': own()}, {a: own({type: 'fm2op'})},
     {a: own({version: 3})}, {a: own({platform: 'OP-1'})}, {a: own({regions: [{sample: 'kick.wav'}]})},
@@ -104,7 +112,7 @@ test("the SDK's overlay holds the selected extensions' layers", async () => {
   kit.overlayArtwork = '<svg></svg>';
   kit.extensions = [{id: 'menu', layer: '<g id="menu_layer"><path id="menu_card"/></g>'}, {id: 'plain'}];
   const overlay = async extensions =>
-    (await buildAssets(kit, ['probesynth'], catalog, numbers, extensions))['content/display/openxy_overlay.svg'];
+    (await buildAssets(kit, ['probesynth'], catalog, numbers, {extensions}))['content/display/openxy_overlay.svg'];
   assert.equal(new TextDecoder().decode(await overlay(['menu', 'plain'])),
     '<svg><g id="menu_layer"><path id="menu_card"/></g></svg>');
   assert.equal(await overlay(['plain']), undefined);

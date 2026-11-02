@@ -94,6 +94,16 @@ int add_screen(const Pages& pages, const Record& r, const Screen& screen) {
     return identity(screen, page);
 }
 
+
+int screen_ready(const Pages& pages, const Record& r, const Screen& screen) {
+    const u32 page = value(r.page);
+    if (page < 1 || page >= pages.limit) return 0;
+    if (!*at<const volatile unsigned char>(pages.initialized) || at<char* volatile>(pages.table)[page] != screen.state)
+        return 0;
+    const volatile u32* object = reinterpret_cast<const volatile u32*>(screen.state);
+    return identity(screen, page) && object[2] != 0;
+}
+
 int ready(const Registry& registry, const Pages& pages, const Record& r, const Screen* screen) {
     const u32 id = value(r.id), page = value(r.page);
     if (!ids_valid(registry, pages, id, page) || !owned(record_at(registry, id), r, page)) return 0;

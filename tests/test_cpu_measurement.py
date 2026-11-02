@@ -22,6 +22,9 @@ def measurement(kind='synth', commit=None):
     if kind == 'synth':
         value.update(midpoint_percent=3.2, combined_percent=4.5,
                      worst_setting=dict(control=1, label='Tone', value=0x7fffffff))
+    if kind == 'drum':
+        value.update(midpoint_percent=3.2, kit_percent=21.0, choke_percent=6.1, ceiling_percent=44.0,
+                     worst_model=dict(run='voice', voices=1, model=7, level=127))
     return value
 
 
@@ -214,6 +217,45 @@ class Measurements(unittest.TestCase):
         for data in broken:
             with self.assertRaises(ValueError):
                 aggregate(data, expected, identity, 'probesample', 'e'*40, measurement()['report'])
+
+    def test_a_drum_kit_publishes_its_heaviest_voice_beside_the_whole_kit(self):
+        from dataclasses import replace
+        base = fixture('probesynth')
+        definition = dict(base.definition, resources=dict(base.definition['resources'], modelCount=2, voiceCapacity=8))
+        drum = replace(base, kind='drum', id='probedrum', definition=definition)
+        expected = cases([drum])
+        own = [i for i, c in enumerate(expected) if c['source'] == 'sdk']
+        self.assertEqual(len(own), 1 + 2 * 3 + 2)
+        identity = dict(firmware_sha256='a'*64, manifest_sha256='b'*64, compile_report_sha256='c'*64)
+        averages = [1000] * len(expected)
+        averages[own[0]] = 5000     # the kit's own keys, whole kits are above any one voice
+        averages[own[2]] = 1200     # model 0 at 0
+        averages[own[6]] = 2000     # model 1 at 127, the heaviest voice
+        averages[own[4]] = 1500     # model 1 at 64, the heaviest at the middle
+        averages[own[-2]] = 3000    # the choke
+        averages[own[-1]] = 16000   # the ceiling
+        capture = dict(mode='benchmark', package=identity, expected_cases=expected, complete=True, errors=[],
+                       collector_sha256='d'*64, frames=[frame(a) for a in averages], utc='0')
+        result, values, case, runs, _combinations, silent = aggregate([capture], expected, identity, 'probedrum', 'e'*40, None)
+        self.assertEqual(result['benchmark'], 'opxy-drum-callback-v1')
+        self.assertAlmostEqual(result['block_percent'], 200000/65535, places=5)
+        self.assertAlmostEqual(result['midpoint_percent'], 150000/65535, places=5)
+        self.assertAlmostEqual(result['kit_percent'], 500000/65535, places=5)
+        self.assertAlmostEqual(result['choke_percent'], 300000/65535, places=5)
+        self.assertAlmostEqual(result['ceiling_percent'], 1600000/65535, places=5)
+        self.assertEqual(result['worst_model'], dict(run='voice', voices=1, model=1, level=127))
+        self.assertEqual((len(values), len(runs), silent), (1, len(own), []))
+        cpu_measurement.validate(result, 'drum', 'e'*40)
+        # A saturated run names itself, and a heavy voice warns as a synth's does.
+        averages[own[-1]] = 65535
+        with self.assertRaisesRegex(ValueError, 'the heaviest model, 8 voices'):
+            aggregate([dict(capture, frames=[frame(a) for a in averages])], expected, identity, 'probedrum', 'e'*40, None)
+        self.assertIn('model 7 at 127', cpu_measurement.above_recommended(measurement('drum')))
+        for change in ({'worst_model': dict(run='voice', voices=1, model=64, level=127)},
+                       {'worst_model': dict(run='voice', voices=1, model=1, level=5)},
+                       {'kit_percent': 0}, {'midpoint_percent': 9.0}):
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'cpu:'):
+                cpu_measurement.validate(dict(measurement('drum'), **change), 'drum')
 
     def test_a_sweep_publishes_its_heaviest_run_beside_the_midpoint(self):
         expected = cases([fixture('probesynth')], sweep=True)

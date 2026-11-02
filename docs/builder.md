@@ -35,17 +35,68 @@ leaves the browser.
    how to power cycle, check that the menu is gone, and reinstall. After reinstalling,
    **Try again** goes straight to enabling the dev menu for the same computer.
 3. Select machines. Synth rows have a playable preview of their C++ sound and
-   display code; each row shows its code, data and state size against the
-   memory meter. Machines from the [catalog](catalog.md) are marked
+   display code. Open **Preview controls** to adjust parameters, play the
+   keyboard and set its volume. The controls start collapsed; reopening them
+   keeps parameter values, and closing them stops preview notes. Each row shows
+   its code, data and state size against the memory meter.
+   Machines from the [catalog](catalog.md) are marked
    **Community** and start unselected; their details name the maintainer and
    link to the machine's code at the commit the catalog pins. Open-XY's own
    example machines from the catalog are labelled as Open-XY machines. A
    [personal kit](#export-a-kit)'s own machines are marked **Yours**.
 4. Choose optional extensions using the same checkbox rows as machines. Select
    a row to read what it does and how to use it in the details panel.
-   Extensions start off; continuing with none is valid. The summary lists your
+   Firmware extensions start off; continuing with none is valid. The summary lists your
    machines, extensions and combined memory use. Conflicting Record-double-tap
    claims cannot be selected together.
+   **Grayscale machine graphics** is also available on this page, including in
+   collections without firmware extensions. It starts off; enabling it changes custom
+   screens while leaving stock screens unchanged. It adds no extension runtime
+   memory; the selection summary lists the graphics choice separately.
+   Open **Configure** to see and customize the selected machines together. Checking
+   the option sets grayscale as the default for all selected custom screens. Each custom screen has a **Screen appearance** control:
+   **Enforce grayscale** or **Keep original design**, showing its current setting.
+   Choosing a different appearance creates an individual override; choosing the
+   overall default again clears it. The extension checkbox is on whenever any
+   selected custom screen is configured for grayscale, and off when all use their
+   original designs. Opening or closing **Configure** does not change it.
+   Stock screens remain unchanged and have no
+   override control. Overrides are retained while changing the selection in this
+   session; only selected machines' overrides enter the installation package.
+   The same dialog previews every selected machine with its setting applied.
+   For machines with a browser module, it renders the default UI once and caches
+   a frozen SVG snapshot. There is no animation loop or audio; changing graphics
+   reuses the same frame, and reopening reuses the cached snapshots. Machines
+   without a browser module show their static artwork with a fallback label.
+   Machines using stock screens are identified when no visual preview is available.
+   The dialog always shows the installation settings. **Make all grayscale** and
+   **Restore all originals** set the default and apply it to every selected custom screen,
+   clearing those machines' overrides. Unselected machines' explicit overrides
+   stay in place. Both buttons update the graphics checkbox on Extensions;
+   stock screens remain unchanged. Use **Screen appearance** below each screen
+   to make individual exceptions. **Done** or Escape closes the dialog while
+   keeping the choices.
+   Checking **Grayscale machine graphics** sets every selected custom screen to
+   grayscale; unchecking it restores all their original designs. Both actions clear
+   the selected machines' overrides and preserve unselected machines' overrides. Grayscale
+   converts the selected machines' custom SVG screens, including text, strokes,
+   fills and the palette entries used by animations. It preserves geometry,
+   opacity and motion; sample engines and effects retain their stock screens.
+   Custom screens that are already grayscale, including all animation palette
+   entries, retain their original SVG bytes and hashes unchanged.
+   For colorful originals, a machine's validated developer-authored
+   [grayscale variant](display.md#grayscale-artwork) takes priority over automatic
+   conversion. Without one, the builder separates distinct hue families into
+   gray ranges, using brightness as a secondary cue and one consistent palette
+   throughout animations. The tonal spacing adapts to the number of distinct
+   colors and shades, giving sparse palettes wider separation. Neutral grays
+   remain unchanged. Both routes check the packaged SVG paints before
+   installation; see the [conversion behavior](display.md#grayscale-artwork).
+   Invalid declared variants or unsupported paints stop the build
+   with a message naming the machine; choose colorful or use corrected artwork.
+   Changing the default or a per-machine override discards the prepared download
+   and requires a new build. The build manifest records the default and selected
+   overrides; machine sources and saved sound parameters are unchanged.
 5. Build the firmware, then follow the installation guide using the remembered computer choice. Mac
    browsers with WebUSB send the files directly; Windows downloads a ZIP to
    copy with File Explorer. The OS write step on the device is still manual.
@@ -59,6 +110,11 @@ The ZIP contains:
 | `content/display/*.svg` | New screens for the selected machines; keep the stock files |
 | `content/presets/<machine>/*.json` | Each selected instrument's init preset, `default.json`, and its own [presets](api.md#presets), in the instrument's folder |
 | `layout.json`, hashes | Keep `layout.json`: it holds your machines' numbers, and loading it into the builder next time keeps them for your projects |
+
+The ZIP and direct transfer use the same prepared files. `build.json` records
+the graphics setting and hashes of the final artwork. Disabling **Grayscale machine graphics** keeps the original SVG bytes; automatic grayscale conversion changes
+only paint attributes in the packaged
+screens, without modifying the machines' source or audio code.
 
 Every build shows its release at boot, `OPEN 0.0.3-1.2.1` for 0.0.3, the version in
 [`VERSION`](../VERSION) that the builder also shows under its name and records in
@@ -122,6 +178,9 @@ collection without uploading an OS file. Append a machine ID, for example
 `#preview/machines/fm2op`, to open its details directly. Installation stays disabled;
 the **OS** button returns to the normal builder entry. A configured collection is
 required for machine previews.
+
+`#preview/settings` remains an alias for the Extensions preview without an OS file. It also keeps
+installation disabled; returning to Machines auditions the chosen graphics mode.
 
 The extension picker has a direct preview at `#preview/extensions`, with no OS
 file required. Building remains disabled in preview mode.

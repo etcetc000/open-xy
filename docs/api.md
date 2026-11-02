@@ -5,9 +5,10 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 
 | Kind | C++ the machine supplies | Example |
 | --- | --- | --- |
-| `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment`; `control.cpp` with [track control](#track-control) | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
-| `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
-| `effect` | `fx.cpp` with `State`; the stock FX page is its screen | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
+| `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment`; `control.cpp` with [track control](#track-control) (SDK 1.9) | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
+| `drum` | The synth callbacks and drawing display, plus per-key model/control callbacks ([synthesis drum kits](#synthesis-drum-kits)), from SDK 1.8 | Independent model selection on 24 keys |
+| `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen, or from SDK 1.8, forking the sampler, optionally its own (`display.cpp` and `panel.svg.fragment`) | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
+| `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.7) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
 
 The [first-machine walkthrough](first-machine.md) creates a standalone synth
 and previews it without native integration. SDK adapters own allocation,
@@ -20,7 +21,7 @@ fails the build or, for the artwork rule, halts the device's SVG parser.
 
 | Area | Rule |
 | --- | --- |
-| Machine folder | C++ source, definition JSON, `machine.json` and artwork only. No build scripts, generators or tests |
+| Machine folder | C++ source, metadata, artwork, engine-specific generators and sound tests |
 | C++ | Freestanding C++11: no exceptions, RTTI, static constructors, allocation, OS headers, `#if`, inline assembly or platform macros |
 | Callbacks | Bounded work per 64-sample block; no blocking, logging, file access or graphics from audio callbacks |
 | Synth controls | Four control positions, plus up to four alternates; values arrive as Q31 and the stock menu stores Q15 defaults |
@@ -56,12 +57,13 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
-| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 256 nodes, ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
+| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
 beyond whole words and module memory. Browser previews run 8 voices in
 2 MiB of fixed WebAssembly memory, with growth disabled. This browser allowance
 does not change the native collection's module limit or measure its footprint.
+A drum preview auditions one parameter set across its voices; the device provides per-key drum settings.
 
 ## CPU
 
@@ -94,9 +96,11 @@ host does fast and the Blackfin does not:
 - **Division** has no hardware instruction and costs tens of cycles on the
   device. Divide once per block, or use a table or a reciprocal.
 - **Floating point** has no hardware either. Keep audio in integers;
-  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers.
-- **64-bit arithmetic** has no runtime helpers in the module: keep products
-  within 32 bits or split them, as `q31.hpp` does.
+  [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
+  saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
+- **64-bit arithmetic** and floating point may need software helpers. The
+  build links only the required authenticated [arithmetic runtime](toolchain.md)
+  members; their code counts toward module memory.
 - **Per-sample work that changes only per block**, such as coefficients and
   increments, belongs outside the sample loop.
 
@@ -114,7 +118,7 @@ Every machine kind keeps its controls in `definition.json` (for example
 | `schema` | 1 |
 | `id` | The machine's name; also its C++ namespace |
 | `name` | Display name |
-| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
+| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), exactly eight for a drum kit, one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
 | `presets` | Named maps containing exactly the declared controls; may be empty |
 | `resources` | What the kind declares about its storage (below) |
 
@@ -144,7 +148,9 @@ parameter, then its alternates in parameter order; turning it edits the one
 shown, whose title and stock percentage the page shows. Every parameter keeps
 its own slot in the eight-word vector, so `render` receives all of them and
 presets, projects and the catalog's defaults store each one. The selection is
-per track, starts on the position's own parameter and is not saved. Display
+per track, starts on the position's own parameter and is not saved. The track
+menu's scramble randomizes alternates along with the first four; an empty
+placeholder among the alternates keeps its value. Display
 inputs carry each position's shown value, its parameter index (`shown`) and
 every parameter's value (`slots`), so a [header value](display.md#frame)
 can format whichever is shown while dials follow their own parameters.
@@ -176,7 +182,7 @@ emphasis and motion. `sdk.py new` supplies it by default. Macro Osc is the
 
 A synth for which a stock instrument page means nothing (one that makes no
 sound of its own, say) may declare `"hidePages"` at the top of
-`definition.json` (SDK 1.7), listing `"envelope"` (M2), `"filter"` (M3) or both. On its
+`definition.json` (SDK 1.9), listing `"envelope"` (M2), `"filter"` (M3) or both. On its
 track, those keys then leave the page shown as it was, and selecting the track
 while another track shows a hidden page shows the engine page. The SDK
 corrects the page once per GUI tick, so the hidden page may flash for a frame.
@@ -296,12 +302,12 @@ serialized access.
 
 ## Track control
 
-A synth can steer other tracks (SDK 1.7). A build without such a machine (or
+A synth can steer other tracks (SDK 1.9). A build without such a machine (or
 one with [hidden pages](#alternate-controls)) applies none of track control's
 firmware edits and links none of its code. Such a synth runs on an
 [aux track](#aux-tracks), never in an instrument track's place. It declares
 `"trackControl": {"stateBytes": n, "stateAlignment": a, "unique": true, "aux": [12]}`
-in `resources`, with `"sdk": "1.7"` in `machine.json`, and supplies
+in `resources`, with `"sdk": "1.9"` in `machine.json`, and supplies
 `control.cpp` with:
 
 ```cpp
@@ -399,7 +405,7 @@ whenever a machine declares `trackControl` or an extension declares `snapshot`.
 ### Aux tracks
 
 A track control machine, unique and with its own display, runs on an aux
-track (SDK 1.7): it lists it in `"aux"` (`[12]`, CV) in `trackControl`. That track is the
+track (SDK 1.9): it lists it in `"aux"` (`[12]`, CV) in `trackControl`. That track is the
 only one for now, the one whose stock role the SDK keeps silent. Such a machine
 is not in tracks 1-8's engine list: it is chosen on its aux track only.
 
@@ -438,6 +444,103 @@ is not in tracks 1-8's engine list: it is chosen on its aux track only.
 It runs on the GUI side like any track control machine; nothing changes on the
 audio side but the silenced CV output.
 
+## Synthesis drum kits
+
+SDK 1.8 adds `"kind": "drum"`: one registered instrument with independent
+model selection and sound controls on 24 keys. It supplies the synth
+lifecycle, a drawing display, and the same resources plus `modelCount`
+(2..64). Each key holds a model and eight 7-bit controls. A kit of more than
+16 models stores them in a prefix code, which holds at most 15 models that use
+all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
+and fails a kit with more; on the device such a kit's keys play their defaults
+and turn nothing. The definition declares
+the eight controls: slots 0..3 on the four encoders and slots 4..7 their
+second row, one per encoder. As a synth's two pages (`"press": "page"`), any
+press switches the whole row between slots 0..3 and 4..7, and a slot the key's
+model leaves unnamed shows blank; a drum kit declares no `press`. As on stock Drumline,
+Shift and the first encoder choose the selected key's model, and Shift and
+the second encoder its choke group, NONE or 1..3; keys sharing a group cut
+each other off. While Shift is held the first encoder's cell shows MACHINE and
+the model, the second's CHOKE and the group, and the third and fourth are
+blank and turn nothing.
+
+A kit may name groups of consecutive models in `resources.modelGroups`, such
+as `[{"label": "TRX", "count": 13}, {"label": "EFM", "count": 8}]`: 2..16
+groups, each with a label of at most eight letters, digits, spaces or hyphens
+and at least one model, whose counts add up
+to `modelCount`. Shift's first encoder then chooses the group (KIT), keeping
+the model's place in it, so a kit's first model stays first; the second the
+model within the group (MACHINE); the third the choke group (CHOKE); and the
+fourth turns nothing.
+
+In the machine namespace, declare these callbacks in `core.h` and implement
+them alongside the engine:
+
+```cpp
+void drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* controls); // a model and eight values
+void drum_select(Voice&, Shared&, opxy::u32 owner, opxy::u32 model);     // before every render
+const char* model_name(opxy::u32 model);
+const char* parameter_name(opxy::u32 model, opxy::u32 slot);
+opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are used
+```
+
+Keys passed to `drum_defaults` are canonical keys 53..76. Controls are
+integers 0..127; the model must be below `modelCount`. In a kit of more than 16
+models, a key on a model of seven or fewer controls stores its first seven, so
+changing a key's model keeps every control the new model stores and its eighth
+reads the key's default. Keys are read in their kit's current layout: a kit that
+grows past 16 models does not carry over the keys it saved before. Names are static
+strings; parameter labels fit eight characters. Return an empty label for
+unused slots. The screen shows the selected key's controls and labels with
+the track's offsets applied, so a held step shows the values its locks play;
+the display's `Input::model` is the selected key's model. A slot is available
+when it is below the count and named: an unnamed slot shows blank and ignores
+turns. Integer edits already have one-unit precision, including Shift turns.
+
+The adapter stores the model and the eight controls losslessly in four
+existing per-key preset words (eight 7 bits, the model 4), and marks the pad
+with Drumline type 7 in its model byte, keeping its choke group unless one is
+chosen. Unmarked
+pads, including those stored by earlier 1.3 builds' eight-value layout, use
+`drum_defaults`. The track's eight parameters are offsets to the eight
+controls, neutral at Q15 16384, so step locks edit controls; the model is not
+lockable. The adapter decodes the key's values, adds the offsets and clamps,
+calls `drum_select` with the model, then `render` with each control as
+`raw << 24`, 127 mapped to `0x7fffffff`. Packed words never reach machine
+DSP. Presets and projects retain per-key settings using stock region storage.
+
+With `"chokeSameKey": 1` in `resources` (0 or 1; omitted means 0), a kit
+plays one voice per pad and track, as a Machinedrum track does: a note cuts the
+kit's other voices still sounding the same track's same key, at any octave
+(the same pad). Each cut voice keeps rendering while it fades out linearly over
+128 frames (2.9 ms), then is destroyed and its note retired; its own handle
+retriggered keeps its voice and does not fade. When a note needs a voice and
+none is free, a voice already fading goes before the oldest note's. Without the
+flag, notes on one key layer, up to `voiceCapacity`. This is separate from the
+choke groups Shift chooses, which stock applies to keys sharing a group. A
+synth or an effect cannot declare it; sample engines have their own
+`chokeSameKey` (see [Services](#services)).
+
+A kit's engine may also report that a voice's sound has ended, so stock
+retires its note and the voice is free for the next one before stock's
+amplitude envelope ends:
+
+```cpp
+bool finished(const Voice& voice, const Shared& shared);   // optional; in the machine namespace
+```
+
+The adapter asks after each rendered block. Once it returns true, the adapter
+calls `destroy` and frees the voice, and stock retires the note after mixing
+the block just rendered, so return true only once the voice renders silence.
+The function must be in the namespace that defines `Voice`, where
+argument-dependent lookup finds it, and take the voice and the shared state;
+one elsewhere or with other arguments is never called. A kit without it behaves exactly as
+before. The browser preview models neither the choke nor `finished`.
+
+Kits use the same fixed shared-state and voice-pool rules as synths. Their
+code and state are linked once per machine, shared across tracks; voices
+still require independent state. Machine code and model data need no file loading when notes or patterns change.
+
 ## Sample engines
 
 [sample_engine.hpp](../sdk/include/opxy/sample_engine.hpp) defines the sample
@@ -460,6 +563,31 @@ the stock sampler: one sample, played chromatically across the keyboard, its
 root key playing it as recorded. With `"base": "drumSampler"` it plays like
 the stock drum sampler: 24 pads, each with its own sample.
 
+### Own screen
+
+From SDK 1.8, a sample engine forking the sampler (`"base": "sampler"`) may
+draw its own screen over the sampler's page, as a synth draws its page: it declares
+`resources.display` in `definition.json` and supplies `display.cpp` and
+`panel.svg.fragment` ([Display API](display.md)), and each build gives the
+screen a page as it gives a synth's ([Identity](#identity)). The screen covers the
+sampler's page whenever a track using the engine is selected and that page is
+showing; the stock sample browser and recorder keep their own pages. The
+encoders then edit the engine's controls as on a synth's page:
+a press switches between the first four controls and the second four, Shift
+turns a continuous control in fine steps, an enum steps one choice per detent,
+and edits are saved like a synth's. The engine plays the
+sample between its outer markers; inner loop markers do not narrow it.
+Display code can draw the sample from its
+[overview](display.md#sample-overview).
+
+**What this gives up.** The own screen takes over the sampler page's encoders, so
+stock's trim controls are gone on it: a player can't set the sample's start and end,
+its loop markers, or the other things that page's encoders edit, from there.
+`SampleBlock.region` still reports the markers already in the region: the whole
+sample when one is newly assigned, or whatever a preset or the same track on the
+stock sampler left. If your instrument needs trimming, give it your own controls for
+it and read them in `render_sample`. The stock sample browser and recorder are unaffected.
+
 ### Services
 
 Each service is an optional entry in `definition.json` `resources`; omitted
@@ -469,8 +597,9 @@ means 0. Callbacks are functions in the machine's namespace.
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
-| `padSettings` | 0 or 1; drum sampler base | The SDK saves 16 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
+| `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
+| `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
 | `sampleAnalysis` | Budget in bytes, 4096..2 MiB, whole words | Prepared per-sample data | `analysis_words`, `prepare_begin`, `prepare_step`, `prepared` |
 
 ### Audio block
@@ -490,9 +619,32 @@ means 0. Callbacks are functions in the machine's namespace.
 | `output_channels` | 1, or 2 with `stereoOutput` |
 | `track_transpose` | The track settings transpose, -36..36 semitones |
 | `drum_transpose` | Drum sampler base: semitones from the note's pad to the played note (whole octaves), fixed at note start. 0 with the sampler base |
+| `slicing` | A lazy-chop audition: traverse the supplied outer range once, forwards, using frozen settings, parameters and tempo. Ignore live trims, reverse and loop settings |
 
 Source and output channel counts are independent. Stock envelopes, mixing and
 project voice settings follow the callback.
+
+### Slice timing
+
+```cpp
+void slice_clock(const opxy::SampleSlice&, opxy::SampleSliceRate&);
+```
+
+With `sliceTiming`, the GUI calls `slice_clock` with the loaded frame count and
+file rate, outer range, pad settings, eight live parameters, track transpose and
+project tempo captured when lazy chop starts. Return a nonnegative `numerator`
+and positive `denominator` and `tuning`: source frames per 44.1 kHz output frame
+are `numerator / denominator * tuning / 4096`. Account for the same timing and
+pitch arithmetic as the audio renderer. This callback accesses no PCM or analysis.
+
+The SDK sends the frozen configuration with the audition note. Audio receives
+it in `SampleBlock` with `slicing=true`, transport stopped at tick zero, and
+drum transpose zero. Subsequent cuts cannot change the audition range; control,
+automation and master-tempo edits apply to the next audition. A renderer that
+waits for analysis must keep the audition's source clock advancing while silent,
+then resume at its elapsed position. Without this service, lazy chop uses one
+forward pass of raw PCM at the original file rate. Ordinary notes use normal
+machine playback.
 
 ### Pad settings
 
@@ -593,7 +745,52 @@ declared controls. Do not depend on the absolute level of the send buffers.
 `State` is at most `opxy::effect_state_bytes` (476) with alignment at most 4.
 No destructor ever runs, so it holds no resources. The generated adapter
 checks both limits at compile time. Effects use the stock FX page, with any controls after the fourth as
-[alternates](#alternate-controls), and have no browser preview.
+[alternates](#alternate-controls) or a [second page](#effect-pages-and-shift-rows), and have no browser preview.
+
+### Effect pages and shift rows
+
+An effect with five to eight controls may declare `"press": "page"` (SDK 1.7),
+as a synth does: a press of any encoder on its send page switches all four
+positions between its first four controls and the rest.
+
+An effect may also declare a **shift row** (SDK 1.7): one to four enum
+controls in `"shift"` in `definition.json`, which Shift and the send page's
+four encoders choose, one choice per detent, while the page shows their names
+and choices. They suit routing and modes, such as an order or a source. All
+their choices together are at most 1,048,576 combinations; the first choice of
+each is what a new project starts with. With a shift row, Shift no longer
+turns the effect's continuous controls in fine steps.
+
+`process` then receives twelve words: the eight controls, then each shift-row
+control's chosen word, read as any enum control:
+
+```json
+"shift": [
+  {"id": "order", "label": "Order", "default": 0, "display": "enum",
+   "mapping": {"kind": "enum", "labels": ["TPES", "TEPS", "PTES"]}}
+]
+```
+
+```cpp
+const opxy::u32 order = ((static_cast<opxy::u32>(parameters[8]) >> 16) * 3) >> 15;
+```
+
+Its `State` is then 4 bytes smaller than otherwise (the slot keeps the send's
+number). See the [firmware contract](abi-1.2.1.md#effect-pages-and-shift-rows).
+
+### Effect pages
+
+An effect may draw its own page on the send tracks (SDK 1.7): it declares
+`resources.display` and supplies `display.h`, `display.cpp` and
+`panel.svg.fragment`, exactly as a synth does ([display API](display.md)).
+Each build's layout then gives it a page from 82..255 beside its effect
+number, as it gives a synth its own. Stock shows the page an effect's
+record names on M1 of a send, so the page replaces stock's FX page there; its
+header names and captions the effect's controls, or its shift row's while
+Shift is held, and the display reads them all, the shift row too
+([input](display.md#effect-pages-sdk-17)). Effects have no browser preview
+yet. An effect that comes to draw its own page keeps its effect number and is
+given a page in its firmware's layout.
 
 ### Effect buffers
 
@@ -645,6 +842,9 @@ send weight `s` and Dry `d`, the source dry factor is `1 - s*(1-d)`. At full sen
 Dry zero removes the source dry and Dry one retains it; at zero send, dry stays
 unchanged. Do not add clean audio inside `process` to implement this control.
 Without `dryParameter`, the adapter returns unity to preserve the source dry.
+Instead, an effect may fix its Dry with `dryLevel` in `machine.json` (SDK 1.7),
+a number from 0 to 1. An effect that mixes its own dry, as a box of effects
+inline does, declares 0: at full send a track then goes wholly through it.
 
 ## Registration boundary
 
@@ -659,14 +859,15 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.7 and builds 1.0 to 1.7 machines |
-| `kind` | `synth`, `sample` or `effect` |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.9 and builds 1.0 to 1.9 machines |
+| `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
+| `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
 
 An effect's optional `dryParameter` field names the control used by the stock
 source dry mixer, as described under [effects](#effects).
@@ -700,8 +901,8 @@ build gives every machine the stock numbers projects save, an engine number
 | Kind | Engine or effect number | Screen |
 | --- | --- | --- |
 | `synth` | Engine 34..255 | Its own, 82..255 |
-| `sample` | Engine 34..255 | Its base's: the stock sampler's or drum sampler's |
-| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen |
+| `sample` | Engine 34..255 | Its base's: the stock sampler's or drum sampler's. An [own screen](#own-screen): its own, 82..255 |
+| `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen, or its own, 82..255 (SDK 1.7) |
 
 These numbers exist only in the relocated stock tables, so no machine shares
 one with stock. Four core machines, which the first Open-XY firmware shipped,
@@ -719,6 +920,8 @@ collection or selection order, so even a build without a layout gives a machine
 the same numbers whatever else it includes, unless another machine's place
 collides with its own: then the first by ID keeps it. Only a layout guarantees
 numbers.
+A sample engine's own screen takes a page as a synth's does, and one that
+gains a screen keeps its engine number and is given a page.
 A [project companion](projects.md) records what a project's numbers meant by
 machine ID, so Open-XY firmware with another layout opens the project with the
 same machines.
@@ -741,3 +944,76 @@ voice mode.
 Arbitrary external-engine loading is not implemented: a machine reaches the
 firmware through the collection, from the [catalog](catalog.md) or as a folder
 passed to a build with `--machine`.
+
+## Note players
+
+SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
+before the track's instrument receives them. Its `machine.json` declares no
+identity or base; the layout assigns an unused player type and its own page.
+Use four parameters, `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+Players have no instrument presets, audio-render CPU estimate or browser audio preview.
+
+Include `<opxy/player.hpp>` and implement, in the machine's namespace:
+
+```cpp
+struct State { /* zero-initialized, at most 2048 bytes, alignment at most 4 */ };
+bool press(State&, const opxy::player::Controls&, opxy::u32 note,
+           opxy::u32 velocity, opxy::player::Plan&);
+bool release(State&, opxy::u32 note);
+void display(const State&, const opxy::player::Controls&, opxy::player::Display&);
+```
+
+`press` returns false to pass a note through, or true with a plan of zero to
+eight tones. Each tone has a MIDI pitch and velocity, and a delay in stock
+player steps. Zero sounds on the next step. A plan's tones release together
+with its root; at most eight roots can be held. A ninth plan is dropped.
+`release` returns true for a silent control key, false to let stock release
+its chord. Note callbacks do not allocate, block, log, perform I/O or draw.
+State holds no resources. Display reads are advisory while sequencing runs.
+
+For live changes to held chords, optionally implement
+`bool update(State&, const Controls&, Update&)`. After a taken press or any
+release, and before every stock player step, the SDK drains at most eight
+updates, stopping when it returns false. Calls run on the sequencer role,
+so held chords can follow control changes without GUI-side note operations.
+An update names an existing `root`, a `plan`, and mode `Replace` or `Add`.
+`Replace` releases the old tones and schedules the new plan; an empty plan
+silences that root. `Add` keeps sounding and queued tones and appends only
+new pitches, up to eight total. A change never starts a root with no current
+record. Invalid MIDI values or counts discard the update without changing
+the chord. Cleared records are immediately reusable, including at capacity.
+
+Optional `void reset(State&)` clears held inputs after stock reset or
+all-notes-off; it can preserve machine settings. Without it, the SDK zeroes
+State. Keep machine root tracking bounded to eight and clear it on root
+release and reset. These callbacks share the same restrictions as `press`.
+
+`Controls.value` contains the four Q31 parameter words. Declared enums with
+2..255 choices move one choice per encoder detent, storing the choice's centre.
+Other mappings retain the Maestro controller's editing: 64 steps, four choices,
+continuous, and off/on, respectively.
+`lowest_key` is the track keyboard's lowest F at its current octave. Stock's
+octave setter publishes this independently of sample-engine selection.
+
+The page keeps the stock header and uses the four definition labels.
+`Display.values` supplies their text; `lit` shows the 24 `<id>_dot_0..23`
+circles or filled paths; `text` replaces the centered `<id>_text` text leaf.
+All strings must terminate within their fixed arrays. The SDK then fills
+`played[4]` from emitted, still-held stock chord records, ignoring queued
+strum tones, and supplies `lowest_key` for the output keyboard.
+
+The output keyboard is optional: omit all its key and activity nodes for an
+input-only page. When present, it binds `<id>_key_0..127` paths and
+`<id>_played_0..127` circles or filled paths. Author white keys as 10 by 44
+paths and black keys as 6 by 27 paths at the origin, white keys before black
+keys in SVG order, then activity dots. Use explicit fill and stroke and a
+`matrix(1 0 0 1 x y)` transform on every binding. The SDK lays out these
+keys in the lower 444-pixel-wide row at y=174, fitting whole F-to-E octaves
+around the input keyboard and every emitted note. This preserves octaves
+under voicing, spread and simultaneous chords. MIDI endpoints use partial
+octaves. Hidden nodes move beyond the display.
+
+Player types remain stable when a subsequent build uses the saved layout.
+Stock firmware replaces an unknown saved player with Arpeggio. Project
+companions currently describe engine/effect identities only: preserve the
+firmware's `layout.json` for player identities.

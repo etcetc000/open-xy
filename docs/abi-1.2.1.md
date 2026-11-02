@@ -26,13 +26,18 @@ version is rejected. The output differs from stock in exactly these places:
 | Reservation | 2 | Shrinks the application heap by 2 MiB (20 MiB to 18 MiB); the module lives in the freed tail |
 | Hooks | 5 | Branches from the synth initializer, both screen factories and both catalog-insertion calls into SDK startup code |
 | Sample dispatch | 2 | Recognizes owned SDK sample registrations and selects the stock sampler's (page 2) or multisampler's (page 7) audio payload |
+| Preset serialization | 1 | Includes owned sample engines in sample-file and slice-region export while preserving the saved engine identity |
 | Sampler page | 9 | Shows an owned page-2 engine's track as the stock sampler's page, with its one sample in region 0 for every key |
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
-| Drum-page services | 20 | Routes controls, octave publication, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
+| Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
+| Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
+| Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
+| Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
-| Screen order | 1 | Paints a selected owned synth page before stock overlays |
-| Synth and effect controls | 7 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page |
+| Screen order | 2 | Paints a selected owned synth page before stock overlays, and a page-2 sample engine's own screen right after the sampler's page it covers |
+| Sample screen controls | 4 | Routes the sampler page's encoder turns to a page-2 sample engine's own controls through stock's parameter editor, saves those edits as a synth's, and keeps them where stock sets a sampler's eight words to neutral: at project load and when a stored track is copied back |
+| Synth and effect controls | 8 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page; extends the track menu's scramble to an owned synth's alternates |
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 7 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, gives track control machines what they kept after every load (and nothing after a new project), and shows companions beside projects over MTP |
@@ -46,9 +51,11 @@ version is rejected. The output differs from stock in exactly these places:
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
-form the profile's `samples` service: a build applies those edits, and links
-the SDK code behind them, only when it includes a sample engine. Otherwise
-their sites stay stock. The track control rows (and the project read of the
+form the profile's `samples` service (apart from octave publication,
+which is shared with players and drum kits): a build applies those edits, and links
+the SDK code behind them, only when it includes a sample engine or synthesis drum
+kit. Synthesis drum transport is the `drums` service, used only by drum kits.
+Otherwise their sites stay stock. The track control rows (and the project read of the
 project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
 or [hidden pages](api.md#alternate-controls). The aux track rows form the `aux`
@@ -337,6 +344,11 @@ of the turn event with its step divided by ten, keeping detents and
 acceleration. Stock consumes the event synchronously and still owns lock
 editing and publication. The selection is GUI state per track, reset when the
 track's engine changes. Other pages and unowned engines retain stock routing.
+
+Holding the track key and choosing scramble randomizes the track's parameters
+0..3 and its other preset groups, but never 4..7. Its last stock write is
+hooked: for an owned synth, every alternate except an empty placeholder then
+gets a value from the same stock generator.
 
 The auxiliary-track controller already folds Shift into positions 0..3; owned
 send effects on tracks 14/15 get the same fine scaling. Encoder turns clear the
@@ -632,6 +644,12 @@ absent and conflicting registrations follow the original paths. The first
 sample machine in a build enables the `samples` service; further ones add no
 firmware patch sites.
 
+The preset writer has a separate engine-ID switch before its sample-region
+serializer. The SDK aliases only that switch to the owned engine's sampler
+base. The writer retains the machine's saved type and exports the sample paths,
+outer and inner markers, tuning, level, flags and tagged settings. This also
+preserves the live sample when stock reloads a newly saved preset.
+
 Stock starts these voices through a separate note-start method; factory
 creation alone does not start or choke a voice. Page 7 maps notes to
 the stock 24 canonical pads. Optional same-key choke is scoped to track and
@@ -669,6 +687,23 @@ copies the complete pad record for each slice. The clipboard bridge preserves
 settings within the same machine, uses destination defaults across machines,
 and removes SDK tags when pasting into stock. It restores the clipboard after
 each paste, including failure, so subsequent pastes retain the source settings.
+
+The tap slicer auditions an owned drum-page source once, forwards. Machines
+with `sliceTiming` supply a source clock matching frozen settings, live
+parameters, track transpose and project tempo. Other machines audition raw PCM
+at the original file rate. The SDK extends only the scoped source note's stock
+packet with a versioned snapshot, keeping the original note prefix unchanged.
+The audio receiver validates length, tag, engine ownership, track, key and range
+before publishing role-local state; GUI globals are not a transport. Snapshots
+are retained per track/key because stock can construct a pending voice even
+after its note-off. A new ordinary manual note clears only its matching slot.
+
+The factory matches the parent note's identity and manual provenance, then
+copies the snapshot into the voice. Subsequent cuts cannot move that audition's
+playhead; later control and tempo edits apply to the next audition. Scoped
+source note-on/off calls preserve the source pad through stock keyboard
+remapping and project transpose. Ordinary and sequencer notes retain their
+normal routing and playback. No audition state is saved in a preset or project.
 
 Pad settings occupy the stock pad record's fade word as a tagged 18-bit value,
 padded to survive stock's integer/float serialization. Values up to 65535
@@ -839,3 +874,159 @@ supplies only wet audio. The generated adapter exposes the machine's declared
 `dryParameter`, or returns `INT32_MAX` when none is declared, matching stock's
 absent-object fallback. This is a source-mixer control, not a wet/dry crossfade
 inside the effect. See the [effect API](api.md#effects).
+
+## Synthesis drum transport
+
+An owned `drum` registration uses flag 1, its own engine ID and drawing page.
+The SDK aliases only the local Drumline classification branches to engine 4;
+stock and occupied registrations retain their behavior. Twelve exact hooks cover
+the drum predicate, region lookup, note start, project load, editor dispatch and
+preset import/export. Project load's track check at `8d588ec8` resets a
+Drumline track's eight parameters to neutral offsets (`0x40000000`); without
+the alias a loaded kit kept zero offsets and every note decoded 64 below its
+stored values. Note start tests for Drumline at `8d595a4c`; only that branch
+finds the played pad's region and packs its index into bits 16..23 of the note
+word, which `8d51a820` stores in voice `+0x5c` and the constructor turns into
+the region pointer at `+0x10`. Without the alias every note carries index 0.
+The shared sample note hook selects the Drumline payload only for owned kits.
+Drum classification checks exact engine-record ownership without requiring a
+GUI screen: the audio role registers engines but does not construct their pages.
+Catalog and screen readiness retain their loaded-page checks.
+The classifier result is stored in voice byte `+0x4e` at `8d51ae48`.
+The renderer chooser at `8d51bbaa` selects the drum renderer `8d51b274`
+when that byte is nonzero. Its call at `8d51b55a` uses vtable `+12` with
+`(self, output, region, track_parameters)`; the fourth argument is on the
+stack. The payload is passed directly, rather than through the normal
+renderer's published region pointer. The constructor calls vtable `+20`
+at `8d51af48` with `(self, key, velocity, region, track_parameters)` to start
+the note. Both calls have dedicated SDK adapters. Vtable `+24` reports whether
+the handle still owns a voice. Zero causes the renderer to report completion;
+the caller at `8d51c7a6` retires it after mixing that block. Active handles
+remain allocated until the stock amplitude envelope completes or the SDK
+steals their slot. The SDK also reports zero, having already destroyed and
+freed the voice, once a `chokeSameKey` fade has rendered its last frame or the
+engine's optional `finished` hook returns true: the same state as a stolen or
+destroyed handle, which renders silence and whose later `+0` destroy finds no
+voice. Vtable `+32` returns zero
+for mono output; the unused normal-render entry `+8` fills its output with
+silence. The kit never calls stock Drumline synthesis.
+Unlike the normal synth path, this renderer leaves amplitude application to
+the drum DSP. The SDK multiplies normalized output by each Q31 envelope/gain
+word at `11903400` exactly once, using the native fixed-point multiply. It
+retains the SDK's normal gain query; Drumline's private output-level shifts
+do not apply to the public Q31 contract.
+The drum renderer writes the pitch buffer at `11902c00` with each phase
+increment shifted right by 16 (`8d51b440`–`8d51b444`). The SDK expands those
+64 values back to the public `Pitch` units before the contributor callback;
+the lower 16 bits are zero because stock has already quantized them.
+
+Each key's four parameter words store 60 bits that stock exports as positive
+Q15 integers and restores with a left shift of 16. The SDK packs the key's
+eight 7-bit controls into 56 bits and its model into the other 4. A kit of more
+than 16 models (up to 64) uses a prefix code over the same 60 bits: a key on one
+of its at most 15 full models (eight controls) stores its rank among them in
+bits 56..59 and its eight controls in 0..55; a key on any other stores 15 in
+bits 56..59, its model in 49..54 and its first seven controls in 0..48. The pad's
+model byte (record `+0x18`: Drumline's instrument type in the low nibble, its
+choke group in the high one) marks the layout with type 7, which stock's
+editor skips (`8d4d6028`) and its default kit never uses; the choke group is
+kept unless Shift and the second encoder choose one. The high nibble is the
+pad's play mode, which presets name in a region's `playmode`: 0 `gate`,
+1 `oneshot` (the default, omitted), 2 `mute1`, 3 `loop`, 4 `mute2`,
+5 `mute3`. Pads sharing a mute cut each other off. Stock's default kit has BD
+and SD in `mute2`, CH, OH and RC in `mute1`, the rest `oneshot`. A preset
+names type 7 `fm slap`, and its `params` are the top halves of the four
+words. On the audio side the note payload's first word is stock's reading of
+that byte, `(6 type + group)` over 66 bins (`8d5ad6ec`), so type 7 is bins
+42..47. Every other saved pad field is audible (`pan`, `gain`, `tune`,
+`group`) or not exported in presets (`+0x19`), which is why a kit of more than 16
+models needs the prefix code. Unmarked pads, including the earlier tag-10 eight-value layout, use
+the key's defaults. Stock's per-key editor (`8d4d5f60`, jump table at
+`84039070`) gives controls 0..3 the four words and Shift's encoders 4..7 the
+type, `+0x14`, pan (`+0x1e`) and gain (`+0x1d`); the SDK gives Shift's first
+encoder the model (or a group, with the second the model in it), one the choke group,
+and the others nothing. Track modulation is
+applied after decoding. GUI edits repack and use the stock dirty/publication
+calls; no audio callback writes preset state or performs file I/O.
+
+## Note players
+
+The `players` service adds seven hooks only when a collection includes a player:
+factory construction, the project-load type guard, two controller lookups,
+enum editing, and type/name conversion. The authenticated preimages and destinations are
+in the profile. The factory delegates stock types unchanged. An owned type
+uses a stock Maestro object with its type, routing mode, note-on, note-off,
+reset, all-notes-off and step methods replaced; the other nine method pointers are checked against authenticated
+stock OS 1.2.1 during release verification.
+Reset and all-notes-off call their authenticated stock methods before clearing
+machine-held state through its optional reset callback.
+The routing-mode query returns zero, so machine controls cannot enable
+Maestro's special note-routing mode through its fourth encoder.
+
+The stock player object occupies one 64 KiB slot per track. The SDK reserves
+2048 bytes after the stock object for machine state. A plan appends one of
+eight bounded Maestro chord records, each holding at most eight tones. The
+record array starts at `+0x10c`, with its count at `+0x34c`; release checks
+authenticate both offsets against stock's step and note-off instructions. The
+step wrapper drains machine updates, then calls the authenticated stock step
+to emit zero-delay tones and decrement their delays;
+note-off removes the root's record. The GUI snapshots negative-delay tones
+from these records for the output keyboard, bounding every observed count.
+It neither calls the audio renderer nor allocates.
+Optional machine updates replace or extend existing root records after input
+events and before stock stepping. Replacements first call the stock root-release method; additions keep
+existing attacks and queued delays. Cleared records can be reused before the
+next stock compaction step. Updates cannot revive a released root and remain
+bounded to eight records of eight tones, with at most eight updates per event or step.
+
+The Maestro turn hook handles all controls of an owned player, bypassing the
+post-edit hold-mode callback that would interpret its fourth control as stock
+hold mode. Declared enums use the event's signed detent word without
+continuous-motion acceleration, clamp to the choice range, and publish the
+bucket centre through stock's player-parameter setter. Other mappings retain
+stock's bucket counts or continuous editor. Both preserve pattern storage and
+dirty state. Stock players replay the displaced step-count query and continue stock.
+
+Player types use the profile's unused 6..31 range and `seq_types` catalog IDs
+are type + 4. The UI selects Maestro's controller for owned types, keeping
+its five-entry controller table in bounds. The compositor substitutes an
+owned, ready player page for Maestro's page at its original layer, skips
+the replacement's later slot, and retains stock overlays. Page construction
+and readiness use the same occupied-slot and object-identity guards as synths.
+
+The octave setter is in the shared `octaves` service, enabled for sample
+engines, drum kits or players. It retains the existing stock setter call and then reads
+stock's effective keyboard octave, which scales the stored value according
+to instrument type. When players are registered, the compositor refreshes all
+instrument tracks once per GUI frame, including while another page is selected.
+This covers project loads and instrument changes without an octave key press.
+Note callbacks only read the published word; sample-engine GUI lookups
+publish into the same storage. No audio callback uses GUI pattern getters.
+
+## Effect pages and shift rows
+
+A paged effect's press, on a send page, moves every position to its next
+slot, through the same press handler as a synth's (`sdk_synth_press`).
+
+A shift row is up to four enum controls packed into one word of the send
+track, word 36 of its 58: index × bucket + bucket / 2, the first control most
+significant, a bucket being `0x7fffffff / combinations`
+([`shift_row.hpp`](../sdk/platform/opxy-1.2.1/shift_row.hpp)). Word 36 is 0
+on all 16 tracks in every project examined, no stock page edits it (the aux
+controller edits words 0..3, 8..15, 16..19 and 24..27; the instrument
+controller's Shift + M2 row is 32..35), and no stock code reads it: no GUI
+reference to its pattern offset (`+0x38f4`) and no audio-side load near the
+per-track table at `84eab39c`. Words 29..33 hold stock defaults on aux tracks,
+37 has audio-side readers and 46 GUI ones. That is a static reading, which can't
+see an access computed at run time. Stock's reload and its copy of a send track
+have not been checked on the device for this word.
+
+With Shift held, the send page's turn hook (`8c08fade`) steps the turned
+control's choice by the event's sign and stores the word through stock's set
+(`8d5acf28`), which saves it with the pattern and sends it to the audio side
+(message 0xa1). The title and value hooks (`8d53b642`, `8d53b636`) name the
+row's controls and their choices while Shift is held, and on a stock-drawn page
+the value hook's stand-in vector puts the same choices in the bars. The effect's adapter
+keeps its slot from `init(object, slot)`, reads word 36 of track 14 or 15
+from `84eab39c + slot × 0xe8`, and passes the DSP its eight words and each
+control's choice as a ninth to twelfth.

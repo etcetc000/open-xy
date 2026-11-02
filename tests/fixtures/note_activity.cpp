@@ -67,5 +67,15 @@ int main() {
     require(!input.held_notes && !input.note_off_serial, "Invalid track read stock memory");
     for (unsigned note = 0; note < 128; ++note) gates[7*128+note] = 1;
     sdk_display_note_activity(7, &input); require(input.held_notes == 128, "Full polyphony truncated");
+
+    // Each pitch's gate and release count, for the screen's pad attribution.
+    opxy::u8 held[128], released[128];
+    gates[2*128 + 40] = 1;
+    sdk_note_pitches(2, held, released);
+    require(held[40] && !held[41] && !released[40], "Pitch gates wrong");
+    sdk_note_off(2,40); sdk_note_off(2,40); sdk_note_pitches(2, held, released);
+    require(!held[40] && released[40] == 1 && !released[41], "Pitch release not counted once");
+    sdk_note_pitches(9, held, released);
+    require(!held[60] && !released[60], "Invalid track read stock memory");
     return 0;
 }

@@ -17,12 +17,15 @@ from .catalog import official
 from .definitions import control_positions, paged
 from .formats import require, sha
 from .machines import FIXED_NUMBERS, check_request
-from .pipeline import ROOT, child, document, fresh_output, read, require_release_host, resolve_toolchain, tool_paths
+from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
+                       resolve_toolchain, tool_paths)
 from . import extensions, native, preview, screen
 
 
-def notices(machines):
+def notices(machines, runtime=False):
     texts = ['OP-XY SDK modules\n\n' + read(ROOT / 'LICENSE').decode('utf-8')]
+    if runtime:
+        texts.append(read(ROOT / 'sdk/platform/blackfin/runtime.LICENSE').decode('utf-8'))
     for m in machines:
         license_file = child(m.root, 'vendor/LICENSE')
         if license_file.is_file():
@@ -56,7 +59,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     profile, machines, definitions = native.configuration(native.package_collection(package))
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
-    owners, services = native.object_owners(machines, profile), native.object_services(machines, profile)
+    runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])
+    owners, services = native.object_owners(machines, profile, runtime_members), native.object_services(machines, profile)
+    runtime_names = {native.runtime.object_name(member) for member in runtime_members}
     kit_machines = []
     for m in machines:
         # The numbers it asks for, null where it leaves them to the layout; the builder
@@ -90,7 +95,10 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         entry['absent'] = native.absent_symbols(m)
         if m.display != 'stock':
             entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
+            if m.grayscale:
+                entry['grayscaleArtwork'] = read(m.root / m.grayscale).decode('utf-8')
             entry['asset'] = m.native_name + '.svg'
+        if m.display != 'stock' and m.kind == 'synth':
             preview_dir = output / ('preview-' + m.id)
             preview.build(preview_cxx, m, preview_dir)
             preview.preview_bundle(preview_dir, require_reference=True)
@@ -112,6 +120,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         entry = dict(name=name, owner=owner, bytes=base64.b64encode(data).decode('ascii'), sha256=sha(data))
         if name in services:
             entry['service'] = services[name]
+        if name in runtime_names:
+            entry['runtime'] = True
         if name in extension_objects:
             entry['extension'] = extension_objects[name]
         objects.append(entry)
@@ -123,7 +133,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     kit = dict(format='opxy-browser-kit/1', version=native.package_version(package), profile=profile,
                profileSource=base64.b64encode(read(ROOT / ('profiles/' + profile['id'] + '.json'))).decode('ascii'),
                definitions=stock, fixed=FIXED_NUMBERS, linked=linked,
-               machines=kit_machines, objects=objects, notices=notices(machines),
+               machines=kit_machines, objects=objects, notices=notices(machines, bool(runtime_members)),
                extensions=extensions.metadata(native.extensions_of(machines),
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
@@ -159,19 +169,28 @@ def write_builder(kit, output):
         catalog = base64.b64decode(kit['stockCatalog'], validate=True)
         require(sha(catalog) == kit['profile']['stock_catalog_sha256'], 'Bundled stock catalog hash mismatch')
     template = read(ROOT / 'builder/index.html').decode('utf-8')
-    script = read(ROOT / 'builder/core.mjs').decode('utf-8').replace('export ', '')
+    script = read(ROOT / 'builder/core.mjs').decode('utf-8')
+    preset_import = "import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };\n"
+    require(preset_import in script, 'Unexpected core imports')
+    preset_json = read(ROOT / 'tooling/default_preset.json').decode('utf-8')
+    script = script.replace(preset_import, 'const DEFAULT_PRESET_TEMPLATE = ' + preset_json + ';\n').replace(
+        "import * as Graphics from '../sdk/browser/graphics.mjs';\n", '').replace('export ', '')
     app = read(ROOT / 'builder/app.mjs').decode('utf-8')
-    imports = ("import * as Core from './core.mjs';\nimport * as Wizard from './wizard.mjs';\n"
+    imports = ("import {createGraphicsConfiguration} from './graphics-configuration.mjs';\n"
+               "import {createSnapshotService} from './machine-snapshots.mjs';\n"
+               "import {createGraphicsDialog} from './graphics-dialog.mjs';\n"
+               "import * as Core from './core.mjs';\nimport * as Wizard from './wizard.mjs';\n"
                "import * as Retained from '../sdk/browser/display.mjs';\n"
                "import * as Visuals from './visuals.mjs';\n"
-               "import {Audition} from './audition.mjs';\n"
                "import {editedShown, shownControls} from '../sdk/browser/controls.mjs';\n"
                "import {supportsDeviceApis} from './browser.mjs';\n")
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes openKit linkKit readLdr '
-               'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles buildAssets zipFiles sourceUrl sourceName').split()
-    bundled = 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
+               'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName').split()
+    bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
+        'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
+    bundled += 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
     bundled += 'const {editedShown, shownControls, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {editedShown, shownControls, inputWords};\n})();\n'
     controls_import = "import { inputWords } from './controls.mjs';\n"
@@ -183,7 +202,7 @@ def write_builder(kit, output):
     bundled += 'const Ferret = (() => {\n'+ read(ROOT / 'builder/ferret.mjs').decode('utf-8').replace(
         'export ', '') + '\nreturn {Session};\n})();\n'
     bundled += 'const Visuals = (() => {\n' + read(ROOT / 'builder/visuals.mjs').decode('utf-8').replace(
-        'export ', '') + '\nreturn {icon,device,fileMap,bundle,guide,reveal};\n})();\n'
+        'export ', '') + '\nreturn {icon,device,fileMap,bundle,guide,reveal,graphicsExamples};\n})();\n'
     wizard = read(ROOT / 'builder/wizard.mjs').decode('utf-8')
     bundled += 'const Mtp = (() => {\n' + read(ROOT / 'builder/mtp.mjs').decode('utf-8').replace(
         'export ', '') + '\nreturn {Device,supported};\n})();\n'
@@ -203,7 +222,22 @@ def write_builder(kit, output):
         bundled += 'const ' + variable + '=' + json.dumps(read(ROOT / 'sdk/browser' / file).decode('utf-8')) + ';\n'
     bundled += audition[len(audition_imports):].replace('export ', '') + '\nreturn Audition;\n})();\n'
     bundled += read(ROOT / 'builder/browser.mjs').decode('utf-8').replace('export ', '') + '\n'
-    bundled += app[len(imports):]
+    modules = [
+        ('graphics-configuration.mjs', "import {graphicsForMachine} from './core.mjs';\n",
+         'const {graphicsForMachine} = Core;', 'createGraphicsConfiguration'),
+        ('machine-snapshots.mjs', "import {decode64, requireThat, sha256} from './core.mjs';\n"
+         "import * as Retained from '../sdk/browser/display.mjs';\n"
+         "import {shownControls} from '../sdk/browser/controls.mjs';\n",
+         'const {decode64, requireThat, sha256} = Core;', 'createSnapshotService'),
+        ('graphics-dialog.mjs', "import {selectArtwork} from '../sdk/browser/graphics.mjs';\n",
+         'const {selectArtwork} = Graphics;', 'createGraphicsDialog'),
+    ]
+    for file, module_imports, bindings, factory in modules:
+        source = read(ROOT / 'builder' / file).decode('utf-8')
+        require(source.startswith(module_imports), 'Unexpected browser imports: ' + file)
+        bundled += ('const ' + factory + ' = (() => {\n' + bindings + '\n' +
+                    source[len(module_imports):].replace('export ', '') + '\nreturn ' + factory + ';\n})();\n')
+    bundled += app[len(imports):].replace('export ', '') + '\nawait createBuilder({audition:Audition});\n'
     # Include attribution even when refreshing a kit exported before device setup existed.
     kit = dict(kit)
     kit['notices'] += '\n\nFerret device setup — Bag of Waffles\n\n' + read(
@@ -220,6 +254,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('stock-os', 'out'):
         parser.add_argument('--' + name, required=True)
+    add_overwrite_argument(parser)
     parser.add_argument('--stock-content', default=str(native.STOCK_CONTENT),
                         help="the folder holding op1_factory.json (default: this repository's copy)")
     parser.add_argument('--toolchain', help='pinned binutils directory (default: local/toolchain/bin)')
@@ -238,10 +273,12 @@ def main(argv=None):
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
     try:
         # Refuse an unreviewed machine before the long build, not after it.
-        catalog_sources(native.configuration(native.selected_collection(args))[1], args.personal)
+        machines = native.configuration(native.selected_collection(args))[1]
+        catalog_sources(machines, args.personal)
     except ValueError as error:
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
-    out = fresh_output(args.out)
+    out = fresh_output(args.out, args.overwrite, [args.stock_os, args.stock_content, args.toolchain, args.compiler,
+                                                  *(m.root for m in machines)])
     try:
         package = out / 'source'
         native.build(package, Path(args.toolchain), Path(args.compiler),
@@ -259,7 +296,7 @@ def main(argv=None):
                         args.stock_os, args.stock_content], cwd=ROOT, check=True)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         # The unnamed builder and its inputs stay in --out for inspection.
-        parser.exit(1, f'ERROR: {error}\nIncomplete export left in {out}; use a new --out to retry.\n')
+        parser.exit(1, f'ERROR: {error}\nIncomplete export left in {out}; use a new --out or --overwrite to retry.\n')
     (out / 'builder.pending.html').rename(out / 'opxy-builder.html')
     print('Browser builder: ' + str(out / 'opxy-builder.html'))
     if args.personal:

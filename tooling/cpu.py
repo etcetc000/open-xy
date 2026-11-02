@@ -222,11 +222,15 @@ def block_cost(m, host_cxx, scratch):
 
 
 def summary(m, host_cxx, scratch):
+    if m.kind == 'player':
+        return 'CPU: note-player transforms are not covered by the audio-render estimator.'
     """One line for sdk.py test: the machine's estimated Blackfin instructions per block,
     with the limits to stay under and Open-XY's core machines for scale."""
     try:
         own = block_cost(m, host_cxx, scratch)
         if own is None:
+            if m.kind == 'drum':
+                return f'CPU: drum model timing needs device measurement ({GUIDE})'
             return f'CPU: not estimated for sample engines; keep render_sample light ({GUIDE})'
         cost = round(own / reference_cost(host_cxx, scratch) * REFERENCE_INSTRUCTIONS, -2)
     except (ValueError, OSError, subprocess.SubprocessError) as error:

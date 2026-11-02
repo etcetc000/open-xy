@@ -122,6 +122,7 @@ does not change your machine.
 | `core.h`, `engine.cpp` | `Voice` and `Shared` state, lifecycle callbacks and the 64-sample render |
 | `display.h`, `display.cpp` | Display state and drawing callback |
 | `panel.svg.fragment` | Artwork; IDs carry the machine's ID (`<id>_panel`, `<id>_node_N`, `<id>_palette_N`) |
+| `panel.grayscale.svg.fragment` | Optional developer-authored grayscale artwork, declared in machine.json; see [the contract](display.md#grayscale-artwork) |
 | `machine.json` | Kind and SDK version, used by a [firmware build](build.md#3-add-your-machine) of the folder, which gives the machine its numbers |
 | `tests/sound.cpp` | The machine's own host checks; extend them as the sound grows |
 
@@ -172,7 +173,7 @@ revision. Published community machines link to their pinned source in the builde
 | Message or symptom | Next action |
 | --- | --- |
 | Compiler cannot build WebAssembly | Run `doctor --preview` with the exact `--cxx` path used for the build |
-| Output already exists | Choose a fresh output suffix; existing source and builds are never overwritten |
+| Output already exists | Choose a fresh output suffix, or pass `--overwrite` to delete that output folder first; existing source and builds are otherwise never overwritten |
 | Preview is stale | Rebuild after source edits, restart the server with the new output and reload |
 | Declared size differs from C++ type | Update the corresponding size/alignment in `definition.json` after changing state |
 | Peak or drawing check fails | Correct the callback or its declared contract; the build prints the failing check |
