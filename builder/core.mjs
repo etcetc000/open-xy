@@ -429,7 +429,10 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
-    ...(extensions.size ? [{kind: 'extension'}] : [])]);
+    ...(extensions.size ? [{kind: 'extension'}] : []),
+    // An extension taking snapshots links the control service that keeps them.
+    ...((kit.extensions ?? []).some(e => extensions.has(e.id) && (e.actions ?? []).includes('snapshot'))
+      ? [{kind: 'snapshots'}] : [])]);
   const objects = kit.objects.filter(o => (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];
@@ -798,7 +801,9 @@ function defaultPreset(machine) {
   };
 }
 
-export async function buildAssets(kit, selection, catalog, numbers) {
+// `services`: the linked build's (linkKit), which decide the SDK's overlay; without
+// them, a selected track control machine does.
+export async function buildAssets(kit, selection, catalog, numbers, services = null) {
   check(await sha256(catalog) === kit.profile.stock_catalog_sha256, 'The site’s machine data is damaged. Reload this page.');
   const machines = kit.machines.filter(m => selection.includes(m.id));
   // Each machine's entry ends its stock list; the offsets are bound to the
@@ -830,7 +835,7 @@ export async function buildAssets(kit, selection, catalog, numbers) {
     }
   }
   // The SDK's overlay over every page, the snapshot menu (tooling.native.prepare_assets).
-  if (machines.some(m => (m.features ?? []).includes('trackControl'))) {
+  if (services ? services.has('control') : machines.some(m => (m.features ?? []).includes('trackControl'))) {
     check(typeof kit.controlArtwork === 'string' && kit.controlArtwork.split('</svg>').length === 2,
           'The site’s machine data is damaged. Reload this page.');
     files['content/display/openxy_overlay.svg'] = utf8.encode(kit.controlArtwork);

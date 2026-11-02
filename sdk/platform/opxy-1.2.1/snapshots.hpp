@@ -1,6 +1,7 @@
 // The snapshot store's SDK-internal side (snapshots.cpp), part of the control service.
 #pragma once
 #include <opxy/types.hpp>
+#include "../snapshot_menu.hpp"
 
 namespace opxy { namespace platform {
 // The encoding's most bytes: a version byte and two slot bytes, then per slot
@@ -19,13 +20,7 @@ u32 snapshot_fits(u32 slot);
 // The snapshot menu (stock's bar menu, for snapshots): opened by the claim of an
 // extension holding the snapshot action, while its key is held or, for a claim
 // with a partner key, from one press of the pair to the next. The extension
-// runtime routes keys here (sdk_snapshot_menu); the overlay draws it.
-const u32 kMenuOpen = 0, kMenuClose = 1, kMenuSelect = 2, kMenuStep = 3, kMenuAction = 4;
-// Whether the hold that opened the menu was a hold (an action, a selection or
-// kMenuStripMs), not a tap that leaves it open; the menu stays as it is.
-const u32 kMenuHeld = 5;
-// The bottom row, M1-M4.
-const u32 kMenuSave = 0, kMenuLoad = 1, kMenuClear = 2, kMenuClearAll = 3;
+// runtime routes keys here (sdk_snapshot_menu, snapshot_menu.hpp); the overlay draws it.
 // The bottom row shows after the menu key is held this long, as on the bar menu.
 const i32 kMenuStripMs = 400;
 // No slot, for MenuView's slots.
@@ -62,9 +57,5 @@ extern "C" {
 // The extension runtime's snapshot action, through startup.cpp: snapshot_take in a
 // build with the control service, a stand-in that refuses in one without it.
 bool sdk_snapshot_take(opxy::u32 slot) __asm__("sdk_snapshot_take");
-// The snapshot menu's input (kMenu* operations). Open answers 1 when the menu
-// opened; Close answers 1 when the hold did something (a selection, an action or
-// a hold of kMenuStripMs), 0 for a bare tap the key's own stock function should
-// get. A build without the control service has a stand-in that answers 0.
-opxy::u32 sdk_snapshot_menu(opxy::u32 op, opxy::i32 arg) __asm__("sdk_snapshot_menu");
+// The snapshot menu's input: snapshot_menu.hpp.
 }

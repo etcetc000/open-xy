@@ -401,6 +401,7 @@ int main() {
 
     // Locks win: a step's lock on an overlaid parameter plays as written, and the
     // overlay stands aside until stock sets the parameter to something else.
+    playing[1] = 1;
     plan({{0, 2, 0, 600}});
     tick(1, "Overlay before the lock not written");
     require(value(0, 2) == 600, "Overlay before the lock not applied");
@@ -417,10 +418,37 @@ int main() {
     value(0, 2) = 40;
     tick(1, "Overlay not back after the lock");
     require(value(0, 2) == 600, "Overlay not restored after the lock");
+    // A lock of the overlay's own value is still the lock: released, it stays.
+    sdk_param_step_set(kProject, 0, 2, 600);
+    tick(0, "Overlay rewritten over a lock of its own value");
+    plan({});
+    tick(0, "A lock of the overlay's own value rewritten");
+    require(value(0, 2) == 600, "Lock of the overlay's value undone");
+    // A lock of the track's own value ends a step later; stopping ends any lock.
+    bases[0][4] = 90;
+    value(0, 4) = 90;
+    plan({{0, 4, 0, 700}});
+    tick(1, "Overlay not written");
+    sdk_param_step_set(kProject, 0, 4, 90);
+    tick(0, "Overlay written over a lock of the track's own value");
+    require(value(0, 4) == 90, "Lock of the track's own value not heard");
+    ticks96 += 24;
+    tick(1, "Overlay not back a step after a lock of the track's own value");
+    require(value(0, 4) == 700, "Lock of the track's own value held on");
+    sdk_param_step_set(kProject, 0, 4, 95);
+    tick(0, "Overlay written over a lock");
+    playing[1] = 0;
+    tick(1, "Overlay not back after stop");
+    require(value(0, 4) == 700, "Lock held after stop");
+    playing[1] = 1;
     // A lock where no machine overlays plays.
     sdk_param_step_set(kProject, 0, 3, 77);
     require(value(0, 3) == 77, "Lock without an overlay not written");
     plan({});
     tick(1, "Overlay not released after the locks");
+    // Loading a project ends every lock.
+    sdk_param_step_set(kProject, 0, 4, 95);
+    sdk_control_forget();
+    require(!lock_holds(0, 4), "Lock kept into another project");
     return 0;
 }

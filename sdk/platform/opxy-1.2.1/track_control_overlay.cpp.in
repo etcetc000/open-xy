@@ -157,10 +157,9 @@ char* construct(char* state, u32 page) {
 }
 }
 
-// GUI role, after the machines' screens: only a collection with track control
-// takes the slot.
+// GUI role, after the machines' screens: startup calls it only in a build that
+// links the control service, which keeps the snapshots and their menu.
 extern "C" void sdk_overlay_startup() {
-    if (!sdk_control_machine_count) return;
     const platform::Record record = {nullptr, nullptr, nullptr, nullptr, reinterpret_cast<const char*>(kPage), 0};
     const platform::Screen screen = {reinterpret_cast<char*>(&overlay), sizeof(overlay),
                                      reinterpret_cast<const char*>(&kVTable), kAsset, construct};

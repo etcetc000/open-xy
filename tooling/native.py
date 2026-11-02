@@ -777,7 +777,7 @@ def prepare_assets(catalog, profile, machines):
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
-    if any(track_control(m) for m in machines):
+    if 'control' in active_services(profile, service_users(machines)):
         outputs['content/display/openxy_overlay.svg'] = control_artwork(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))

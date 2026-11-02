@@ -133,7 +133,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     if 'control' in native.active_services(profile, native.service_users(machines)):
         kit['controlArtwork'] = read(ROOT / native.TEMPLATES / 'track_control_overlay.svg').decode('utf-8')
         kit['serviceFallbacks'] = {'control': dict.fromkeys(
-            ('sdk_overlay_startup', 'sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')}
+            ('sdk_overlay_startup', 'sdk_control_kept_write', 'sdk_control_kept_load',
+             # The extension runtime's snapshot entry points: refused without the service.
+             'sdk_snapshot_take', 'sdk_snapshot_menu'), 'kit_absent')}
     if 'aux' in native.active_services(profile, native.service_users(machines)):
         kit.setdefault('serviceFallbacks', {})['aux'] = {'sdk_aux_startup': 'kit_absent'}
     kit_path = output / 'kit.json'

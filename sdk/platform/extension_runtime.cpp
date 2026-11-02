@@ -176,7 +176,6 @@ namespace {
 // key, which then reaches stock as usual. A claim without a partner opens it
 // while its key is held. The keys it takes, whose releases it takes too (bit key).
 const u32 kMenuKeys = 64, kM1 = 6;
-const u32 kMenuOpen = 0, kMenuClose = 1, kMenuSelect = 2, kMenuStep = 3, kMenuAction = 4, kMenuHeld = 5;
 u32 menu_withheld[kMenuKeys / 32];
 bool menu_open;
 bool menu_holding;  // pair mode: the pair that opened the menu is still down
@@ -218,7 +217,10 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
             taken &= ~bit;
             if (key == pending) {
                 pending = 0;
-                return key_tap;  // the pair's key alone: stock's after all
+                // The pair's key alone: stock's after all, and like any other key
+                // it closes a menu left open.
+                if (menu_open && !menu_holding) close_menu();
+                return key_tap;
             }
             if (key == menu_key) {
                 menu_key = 0;

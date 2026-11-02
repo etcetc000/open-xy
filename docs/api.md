@@ -339,8 +339,9 @@ sequencer plays; for a moment after the parameter's encoder is turned, they
 show the track's own value, which the turn changes.
 
 A step's parameter lock plays as written: while a lock holds a parameter, no
-overlay is written over it, and the next tick after the lock ends overlays it
-again. Loading or creating a project discards outstanding overlays.
+overlay is written over it. The lock ends when stock sets the parameter to
+something else, a step (24 ticks) after it was written if the track then plays
+its own value, or when the sequencer stops; the next tick overlays it again. Loading or creating a project discards outstanding overlays.
 Like the display, `control` is bounded
 and allocation-free; it is not an audio callback. Browser previews do not run
 it.

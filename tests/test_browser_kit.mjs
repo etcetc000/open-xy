@@ -169,6 +169,13 @@ test('extensions omit code/state and resolve only shared registry imports to an 
   assert.throws(() => linkKit(k, ['a'], null, ['capture']), /Capture works with b\. Choose it too/);
   assert.doesNotThrow(() => linkKit(k, ['a'], null, []));
   delete k.extensions[0].machines;
+  // An extension taking snapshots links the control service that keeps them.
+  k.profile.services = {...(k.profile.services ?? {}), control: ['trackControl', 'hidePages', 'snapshots']};
+  assert.equal(linkKit(k, ['a'], null, ['capture']).services.has('control'), false);
+  k.extensions[0].actions = ['snapshot'];
+  assert.equal(linkKit(k, ['a'], null, ['capture']).services.has('control'), true);
+  assert.equal(linkKit(k, ['a'], null, []).services.has('control'), false);
+  k.extensions[0].actions = ['edit_notes'];
   registry.owner = 'a';
   assert.throws(() => linkKit(k, ['a'], null, []), /Unresolved import/);
 });

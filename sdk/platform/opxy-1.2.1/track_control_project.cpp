@@ -28,8 +28,8 @@ using opxy::platform::stock;
 
 const u32 kProjectLoading = 0x840a0528;
 
-// The format's 64 KiB, less what a reader never needs.
-const u32 kReadBytes = 32768;
+// The whole companion, as large as the companion's own reader takes (kCompanionLimit).
+const u32 kReadBytes = 64 * 1024;
 char project_text[kReadBytes];
 // One machine's kept bytes, as it saved them or as read back.
 unsigned char kept[opxy::control::saved_capacity];

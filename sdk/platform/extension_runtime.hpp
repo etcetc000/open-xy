@@ -1,5 +1,6 @@
 #pragma once
 #include <opxy/extension.hpp>
+#include "snapshot_menu.hpp"
 
 namespace opxy { namespace platform {
 using extensions::RecordingContext;
@@ -68,5 +69,3 @@ void extension_notify(const char* text);
 // The control service's snapshot store (snapshots.cpp), or startup's stand-in
 // that refuses in a build without it.
 extern "C" bool sdk_snapshot_take(opxy::u32 slot) __asm__("sdk_snapshot_take");
-// Its menu (snapshots.hpp: kMenu* operations), or a stand-in that answers 0.
-extern "C" opxy::u32 sdk_snapshot_menu(opxy::u32 op, opxy::i32 arg) __asm__("sdk_snapshot_menu");

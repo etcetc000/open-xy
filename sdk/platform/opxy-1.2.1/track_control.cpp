@@ -24,7 +24,10 @@
 // sdk_param_step_set. It makes the call as stock would, so the lock plays at its
 // own value, and notes the parameter as locked. While it is, no machine's overlay
 // is written over it. The lock ends when the live value is no longer the lock's
-// (stock's next step sets it back), and the next tick overlays it again.
+// (stock's next step sets it back); when the song has moved on a step (24 ticks of
+// 96 per quarter note) and the live value is the track's own, which a lock of that
+// same value leaves; when the sequencer stops; or with the project. The next tick
+// overlays it again.
 //
 // Display: stock's displayed-value getter 8d5ac9dc shows a parameter's live
 // value while the sequencer plays and its base value otherwise, plus any LFO
@@ -107,9 +110,13 @@ u32 last_cycles;
 // kTurnTicks after it the edited parameter shows its base value.
 const u32 kTurnTicks = 40;
 u32 gui_ticks, turned_track = kNoTrack, turned_index, turned_tick;
-// The parameters a step's lock holds now, two words a track, and each one's value.
+// The parameters a step's lock holds now, two words a track, and each one's
+// value and song position (ticks96) when last written.
 u32 locked[control::tracks][2];
 i32 lock_value[control::tracks][control::track_parameters];
+u32 lock_at[control::tracks][control::track_parameters];
+const u32 kStepTicks = 24;
+void unlock(u32 track, u32 index) { locked[track][index / 32] &= ~(1u << (index % 32)); }
 bool lock_holds(u32 track, u32 index) {
     return track < control::tracks && index < control::track_parameters && (locked[track][index / 32] >> (index % 32) & 1);
 }
@@ -209,6 +216,10 @@ extern "C" void sdk_param_step_set(u32 project, u32 track, u32 index, i32 value)
     if (track >= control::tracks || index >= control::track_parameters) return;
     locked[track][index / 32] |= 1u << (index % 32);
     lock_value[track][index] = value;
+    lock_at[track][index] = word(kTicks96);
+    // The lock is stock's value beneath any overlay, even when it equals the
+    // overlay's, so releasing the overlay leaves the lock playing.
+    if (Applied* a = find(track, index)) a->underlying = value < 0 ? 0 : value;
 }
 
 extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value) {
@@ -223,6 +234,7 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
 extern "C" void sdk_control_forget() {
     sdk_synth_queue_page_key(kNoTrack, 0);
     applied_count = wanted_count = 0;
+    for (u32 t = 0; t < control::tracks; ++t) locked[t][0] = locked[t][1] = 0;
     for (u32 t = 0; t < control::all_tracks; ++t) {
         hosts[t] = nullptr;
         timed[t] = false;
@@ -249,12 +261,17 @@ extern "C" void sdk_gui_tick() {
     }
     applied_count = retained;
 
-    // A lock ends once stock has set its parameter to something else.
+    // A lock ends once stock has set its parameter to something else, a step
+    // after it was written when the track plays its own value, or on stop.
+    const bool playing = byte(kPlaying) || byte(kPlaying + 1);
+    const u32 position = word(kTicks96);
     for (u32 t = 0; t < control::tracks; ++t)
         if (locked[t][0] | locked[t][1])
             for (u32 index = 0; index < control::track_parameters; ++index)
-                if (lock_holds(t, index) && live(t, index) != lock_value[t][index])
-                    locked[t][index / 32] &= ~(1u << (index % 32));
+                if (lock_holds(t, index) &&
+                    (!playing || live(t, index) != lock_value[t][index] ||
+                     (position - lock_at[t][index] >= kStepTicks && live(t, index) == base(t, index))))
+                    unlock(t, index);
 
     // Every track's ready control machine runs, in track order:
     // each copy of a machine with its own state, except a unique machine that
@@ -320,7 +337,7 @@ extern "C" void sdk_gui_tick() {
     for (u32 i = 0; i < applied_count; ++i) {
         const Applied& a = applied[i];
         if (a.wanted) applied[count++] = a;
-        else if (live(a.track, a.index) == a.written) live_set(a.track, a.index, a.underlying);
+        else if (live(a.track, a.index) == a.written && a.underlying != a.written) live_set(a.track, a.index, a.underlying);
     }
     applied_count = count;
 

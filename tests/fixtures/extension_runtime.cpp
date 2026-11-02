@@ -207,7 +207,14 @@ int main() {
     CHECK(extensions_knob_input(0, 1));
     CHECK(extensions_key_input(16, true, 0) == key_stock && menu_ops[menu_count - 1] == 1);
     CHECK(!extensions_knob_input(0, 1) && extensions_key_input(16, false, 0) == key_stock);
-    CHECK(extensions_key_input(36, true, 0) == key_stock);
+    CHECK(extensions_key_input(36, true, 0) == key_stock && extensions_key_input(36, false, 0) == key_stock);
+    // Toggled open, - or + alone closes it too, and reaches stock as a tap.
+    menu_count = 0;
+    CHECK(extensions_key_input(1, true, 0) == key_taken && extensions_key_input(54, true, 0) == key_taken);
+    CHECK(extensions_key_input(1, false, 0) == key_taken && extensions_key_input(54, false, 0) == key_taken);
+    CHECK(extensions_key_input(54, true, 0) == key_taken && menu_ops[menu_count - 1] == 5);
+    CHECK(extensions_key_input(54, false, 0) == key_tap && menu_ops[menu_count - 1] == 1);
+    CHECK(!extensions_knob_input(0, 1));
     tables.claim_partners = nullptr;
     held_key = 0; mode = 0; collection[1].claims = 1u;
     // Guard the generated registry at runtime as well as build time.
