@@ -46,6 +46,12 @@
 // only the stored value is written: the lock plays on, and stock's next step
 // plays the stored value.
 //
+// Loading: while stock loads a project (the word at 840a0528), the tick runs
+// stock's own call and the hidden-pages check only. The load hook has already
+// given machines the new project's data and the aux service its kept controls,
+// so neither machines nor the aux service run against the old project until it
+// is replaced.
+//
 // Mute: stock keeps it per scene, in the scene records at g_project (the word
 // at 840a0524) + 0x98, 33 bytes each: each track's pattern, then each track's
 // flags, in which 0x02 is muted, then one more byte; the current scene is the
@@ -67,6 +73,7 @@ namespace control = opxy::control;
 
 const u32 kProject = 0x86bd027c;
 const u32 kLive = kProject + 0x4080;
+const u32 kProjectLoading = 0x840a0528;
 
 i32& live(u32 track, u32 index) {
     return *at<i32>(kLive + (track * control::track_parameters + index) * 4);
@@ -135,9 +142,15 @@ i32 shown_words[control::all_tracks][control::display_words];
 
 opxy::platform::AuxService sdk_aux;
 
+// A machine that takes over aux tracks runs there only: on tracks 1-8 (from a
+// project or preset that names its engine) it is not a control machine and does
+// not count as a copy.
 u32 opxy::platform::control_engine(u32 track) {
-    if (track < control::tracks) return track_engine(track);
-    return sdk_aux.engine ? sdk_aux.engine(track) : 0;
+    if (track >= control::tracks) return sdk_aux.engine ? sdk_aux.engine(track) : 0;
+    const u32 engine = track_engine(track);
+    for (u32 i = 0; engine && i < sdk_control_machine_count; ++i)
+        if (sdk_control_machines[i].aux && sdk_control_machines[i].engine() == engine) return 0;
+    return engine;
 }
 
 namespace {
@@ -274,6 +287,7 @@ extern "C" void sdk_gui_tick() {
     ++gui_ticks;
     sdk_synth_pages();
     if (!sdk_control_machine_count && !applied_count) return;
+    if (word(kProjectLoading)) return;
     if (sdk_aux.tick) sdk_aux.tick();
 
     // A value that differs from the one written is stock's: an edit, a lock or a step.

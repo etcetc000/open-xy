@@ -1,7 +1,9 @@
 """Project companions: what each saved machine number meant, by machine ID."""
+import base64
 import json
 import os
 import re
+import struct
 from pathlib import Path
 import subprocess
 import tempfile
@@ -161,6 +163,16 @@ class FirmwareWriter(unittest.TestCase):
             project.write_bytes(project.read_bytes()[:-1])
             (folder / 'song.oxy').write_bytes(json.dumps(document).encode())
             self.assertEqual(run('1', 'read').stdout, '/0\n')
+
+    def test_aux_entries_the_firmware_skips_are_skipped(self):
+        data = b'xy'
+        good = base64.b64encode(struct.pack('<8i', 1, 2, 3, 4, 5, 6, 7, -8)).decode()
+        document = json.loads(companion(data, SAVED, kept={'morph': b'k'}))
+        document['sections']['open-xy.control']['aux'] = {
+            '11': {'0': good, '1': 'AAAA', '2': '!', '16': good, 'x': good, '3': 5},
+            'x': {'0': good}, '12': {'machine': 'morph', 'controls': good}, '13': 'bad'}
+        raw = json.dumps(document).encode()
+        self.assertEqual(aux_kept(parse(raw), data), {11: {0: [1, 2, 3, 4, 5, 6, 7, -8]}})
 
     def test_the_role_controls_of_aux_patterns_a_machine_holds_are_kept_with_the_project(self):
         with tempfile.TemporaryDirectory(prefix='companion-') as directory:

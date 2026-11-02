@@ -30,6 +30,8 @@ MACHINES_VERSION = 1
 # over, by track and pattern index.
 CONTROL = 'open-xy.control'
 CONTROL_VERSION = 1
+# The track and pattern keys of open-xy.control's aux section: indices 0..15.
+AUX_KEYS = {str(i) for i in range(16)}
 # owner.name: the owner is a GitHub user or organisation, lowercased; `open-xy` is the SDK's.
 SECTION_NAME = re.compile(r'[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+')
 # The machine IDs a companion may list, the firmware reader's rule (project_companion.cpp
@@ -134,9 +136,25 @@ def aux_kept(document, data):
     section = document['sections'].get(CONTROL)
     if not describes(document, data) or not section or section['version'] > CONTROL_VERSION:
         return {}
-    return {int(track): {int(pattern): list(struct.unpack('<8i', base64.b64decode(controls)))
-                         for pattern, controls in patterns.items()}
-            for track, patterns in section.get('aux', {}).items()}
+    # As the firmware reads it (track_control_project.cpp): an entry that is not a
+    # track and pattern index with eight words of base64 is skipped, as are early
+    # test builds' per-track entries ("machine", "controls").
+    def controls(value):
+        try:
+            data = base64.b64decode(value, validate=True) if isinstance(value, str) else b''
+        except binascii.Error:
+            return None
+        return list(struct.unpack('<8i', data)) if len(data) == 32 else None
+    aux = section.get('aux', {})
+    result = {}
+    for track, patterns in (aux.items() if isinstance(aux, dict) else ()):
+        if track not in AUX_KEYS or not isinstance(patterns, dict):
+            continue
+        held = {int(pattern): controls(value) for pattern, value in patterns.items() if pattern in AUX_KEYS}
+        held = {pattern: value for pattern, value in held.items() if value is not None}
+        if held:
+            result[int(track)] = held
+    return result
 
 
 def translation(saved, layout):

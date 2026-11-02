@@ -474,13 +474,15 @@ void aux_tick() {
                 }
             }
         }
+        // The mark goes out before a new pattern's controls, so the role never
+        // plays them.
         const ControlMachine* m = holder(t);
         const u32 block = current_block(t);
+        if (m) mark(t);
+        else unmark(t);
         if (m && seen_block[t] && block != seen_block[t])
             for (u32 i = 0; i < kControls; ++i) live_set(t, i, first_step_value(t, block, i));
         seen_block[t] = block;
-        if (m) mark(t);
-        else unmark(t);
     }
     loaded = false;
 }

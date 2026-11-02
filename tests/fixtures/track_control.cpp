@@ -26,6 +26,7 @@ u32 seen_elapsed, seen_bpm, seen_ticks, seen_playing, seen_key, seen_muted;
 // stand-in address the word at 840a0524 names.
 const u32 kProjectAt = 0xa0000000;
 u32 project_word = kProjectAt;
+u32 project_loading;  // the word at 840a0528
 unsigned char project_bytes[0x98 + 33 * 3];
 unsigned char& mute_flags(u32 scene, u32 track) { return project_bytes[0x98 + scene * 33 + 16 + track]; }
 // The core clock, the project tempo and the song position.
@@ -151,10 +152,13 @@ const volatile unsigned short* stock_project_tempo() { return &tempo; }
 
 extern "C" {
 const opxy::platform::ControlMachine sdk_control_machines[] = {
-    {reinterpret_cast<const char*>(40), ready, reset, run, nullptr, 0, nullptr, nullptr, true, 1u << 11, nullptr, {}, true},
+    // 40 and 41 may run on tracks 1-8 here, as no real machine does; 42 is an
+    // aux machine as every real one is.
+    {reinterpret_cast<const char*>(40), ready, reset, run, nullptr, 0, nullptr, nullptr, true, 0, nullptr, {}, true},
     {reinterpret_cast<const char*>(41), ready, reset_other, run_other, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}},
+    {reinterpret_cast<const char*>(42), ready, reset, run, nullptr, 0, nullptr, nullptr, true, 1u << 11, nullptr, {}},
     {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}}};
-const opxy::u32 sdk_control_machine_count = 2;
+const opxy::u32 sdk_control_machine_count = 3;
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Address address) {
@@ -177,6 +181,7 @@ opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Addre
     if (address == 0x860c9b39) return reinterpret_cast<Address>(&playing[0]);
     if (address == 0x860c9b3a) return reinterpret_cast<Address>(&playing[1]);
     if (address == 0x840a0524) return reinterpret_cast<Address>(&project_word);
+    if (address == 0x840a0528) return reinterpret_cast<Address>(&project_loading);
     if (address >= kProjectAt && address < kProjectAt + sizeof(project_bytes))
         return reinterpret_cast<Address>(project_bytes) + (address - kProjectAt);
     if (address >= kBlocks && address < kBlocks + 32 * kBlockBytes) {
@@ -543,6 +548,32 @@ int main() {
     engines[2] = 0;
     aux_engines[11] = 40;
     tick(0, "Nothing to write");
+    // While a project loads, no machine runs and nothing is written.
+    plan({{0, 1, 0, 1500}});
+    project_loading = 1;
+    const u32 loading_runs = runs, loading_aux = aux_ticks;
+    tick(0, "Overlay written while a project loads");
+    require(runs == loading_runs && aux_ticks == loading_aux, "Machines ran while a project loads");
+    project_loading = 0;
+    tick(1, "Overlay not written after the load");
+    require(runs == loading_runs + 1 && aux_ticks == loading_aux + 1, "Machines not back after the load");
+    plan({});
+    tick(1, "Overlay not released");
+
+    // An aux machine's engine on tracks 1-8 runs nothing there and is no copy.
+    aux_engines[11] = 0;
+    engines[1] = 42;
+    const u32 stray_runs = runs;
+    tick(0, "Aux machine wrote from an instrument track");
+    require(runs == stray_runs && sdk_control_copies(1) == 0 && opxy::platform::control_engine(1) == 0,
+            "Aux machine ran on an instrument track");
+    aux_engines[11] = 42;
+    tick(0, "Nothing to write");
+    require(runs == stray_runs + 1 && sdk_control_copies(11) == 1, "Aux machine stopped by its engine on track 2");
+    engines[1] = 0;
+    aux_engines[11] = 40;
+    tick(0, "Nothing to write");
+
     // Loading a project ends every lock.
     sdk_param_step_set(kProject, 0, 4, 95);
     sdk_control_forget();
