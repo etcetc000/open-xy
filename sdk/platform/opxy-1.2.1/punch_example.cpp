@@ -1,8 +1,8 @@
-// Three stock punch-in effects rebuilt through opxy/punch.hpp, each on another
-// key so it can be compared with the original by ear:
-//   F  (stock mute)    -> octave, as stock A#
-//   C# (stock cut)     -> stutter, as stock F#
-//   D# (stock cut 2)   -> step hold from the punch-in track, as stock G
+// Four punch-in effects stock doesn't have, built on opxy/punch.hpp:
+//   G  (stock repeat)        -> tape stop, drums and melodic
+//   C  (stock kick fill)     -> ratchet, drums and melodic
+//   D  (stock hi-hat fill)   -> echo, drums and melodic
+//   A  (stock repeat 1/2)    -> sidechain pump, melodic only; drums keep stock A
 // Each shows its own flip-dot animation, drawn in punch_example/*.png.
 #include <opxy/punch.hpp>
 #include "punch_example/animations.hpp"
@@ -11,41 +11,84 @@ namespace {
 using namespace opxy;
 using namespace opxy::punch;
 
-// Stock A#: drum tracks up two pad octaves, melodic tracks down an octave,
-// folded back into 0..127 by octaves.
-bool octave(const Context& context, Note& note) {
-    i32 pitch = note.pitch + (context.drum ? 24 : -12);
-    while (pitch > 127) pitch -= 12;
-    while (pitch < 0) pitch += 12;
-    note.pitch = static_cast<u8>(pitch);
+const i32 kBendUp = 4260, kBendDown = -4260;   // stock F#'s thresholds
+const u32 kBar = 16 * ticks_per_step;
+
+// Tape stop: over one bar the tape slows to a halt. Steps fall further behind
+// the playhead until they stop, melodic notes sink up to an octave and every
+// note gets quieter; after the bar the track is silent.
+u32 tape_start[8];
+i32 tape_step[8];
+u32 tape_elapsed(const Context& context) {
+    if (context.first) tape_start[context.track] = context.ticks96;
+    const u32 elapsed = context.ticks96 - tape_start[context.track];
+    return elapsed < kBar ? elapsed : kBar;
+}
+void tape_tick(const Context& context, const Overrides& overrides) {
+    if (tape_elapsed(context) >= kBar) overrides.set(parameter_level, 0);
+}
+bool tape_note(const Context& context, Note& note) {
+    const u32 elapsed = tape_elapsed(context);
+    if (!context.drum) {
+        const i32 pitch = note.pitch - static_cast<i32>(12 * elapsed / kBar);
+        note.pitch = static_cast<u8>(pitch < 0 ? 0 : pitch);
+    }
+    note.velocity = static_cast<u8>(note.velocity * (kBar - elapsed) / kBar);
+    return note.velocity != 0;
+}
+bool tape_steps(const Context& context, i32& step) {
+    const u32 elapsed = tape_elapsed(context);
+    // In e ticks the tape covers e - e^2 / 2L: full speed slowing to a stop at L.
+    const u32 behind = (elapsed * elapsed / (2 * kBar)) / ticks_per_step;
+    const i32 slowed = step - static_cast<i32>(behind);
+    // Across the pattern's end, and once stopped, stay on the last step.
+    if (context.first) tape_step[context.track] = step;
+    else if (elapsed < kBar && slowed >= 0) tape_step[context.track] = slowed;
+    step = tape_step[context.track];
     return true;
 }
 
-// Stock F#: silence the track except at the start of each period, a 16th
-// note, halved or doubled by bend. Drums sound for an eighth of the period,
-// melodic tracks for half.
-void stutter(const Context& context, const Overrides& overrides) {
-    u32 period = 24;
-    if (context.bend > 4260) period = 12;
-    else if (context.bend < -4260) period = 48;
-    const u32 sounding = context.drum ? period >> 3 : period >> 1;
-    if (context.ticks96 % period > sounding) overrides.set(parameter_level, 0);
-}
-
-// Stock G from the punch-in track: every step plays the step that was playing
-// when the key went down.
-i32 held_step[8];
-bool hold(const Context& context, i32& step) {
-    if (context.source != Source::group) return false;
-    if (context.first) held_step[context.track] = step;
-    step = held_step[context.track];
+// Ratchet: each pattern note plays two, three or four times within its step;
+// bend up for four, down for three.
+bool ratchet(const Context& context, Note& note) {
+    if (note.generated) return true;
+    const u32 count = context.bend > kBendUp ? 4 : context.bend < kBendDown ? 3 : 2;
+    const u32 gap = ticks_per_step / count;
+    for (u32 i = 1; i < count; ++i) {
+        const i32 velocity = note.velocity - 12 * static_cast<i32>(i);
+        play(context, note.pitch, static_cast<u8>(velocity > 1 ? velocity : 1), gap / 2, i * gap);
+    }
     return true;
 }
 
-const Effect octave_effect{0, nullptr, octave, nullptr, {&rise_dots, &fall_dots}};
-const Effect stutter_effect{8, stutter, nullptr, nullptr, {&stutter_dots, &stutter_dots}};
-const Effect hold_effect{10, nullptr, nullptr, hold, {&hold_dots, &hold_dots}};
+// Echo: three fading repeats a dotted eighth apart; bend up for eighths, down
+// for quarters.
+bool echo(const Context& context, Note& note) {
+    if (note.generated) return true;
+    const u32 steps = context.bend > kBendUp ? 2 : context.bend < kBendDown ? 4 : 3;
+    u32 velocity = note.velocity;
+    for (u32 i = 1; i <= 3; ++i) {
+        velocity = velocity * 6 / 10;
+        if (velocity) play(context, note.pitch, static_cast<u8>(velocity), ticks_per_step / 2, i * steps * ticks_per_step);
+    }
+    return true;
 }
 
-extern "C" const Effect* const sdk_punch_effects[] = {&octave_effect, &stutter_effect, &hold_effect};
-extern "C" const u32 sdk_punch_effect_count = 3;
+// Sidechain pump: the level drops on every beat and climbs back over half a
+// beat in steps; bend up pumps on eighths. Outside the dip the track keeps
+// its own level.
+void pump(const Context& context, const Overrides& overrides) {
+    static const i32 dip[] = {0, 0x06666666, 0x0f5c28f6, 0x1999999a, 0x26666666, 0x33333333};  // 0 .. 0.4
+    const u32 beat = context.bend > kBendUp ? 2 * ticks_per_step : 4 * ticks_per_step;
+    const u32 segment = (context.ticks96 % beat) * 12 / beat;
+    if (segment < sizeof dip / sizeof dip[0]) overrides.set(parameter_level, dip[segment]);
+}
+
+const Effect tape_effect{{2, 2}, tape_tick, tape_note, tape_steps, {&tape_stop_dots, &tape_stop_dots}};
+const Effect ratchet_effect{{7, 7}, nullptr, ratchet, nullptr, {&ratchet_dots, &ratchet_dots}};
+const Effect echo_effect{{9, 9}, nullptr, echo, nullptr, {&echo_dots, &echo_dots}};
+const Effect pump_effect{{no_key, 4}, pump, nullptr, nullptr, {nullptr, &pump_dots}};
+}
+
+extern "C" const Effect* const sdk_punch_effects[] = {&tape_effect, &ratchet_effect, &echo_effect, &pump_effect};
+extern "C" const u32 sdk_punch_effect_count = 4;

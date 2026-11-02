@@ -7,8 +7,8 @@ from tooling import punch_animation
 from tooling.pipeline import ROOT, config
 
 EXAMPLES = ROOT / 'sdk/platform/opxy-1.2.1/punch_example'
-STRIPS = (('rise_dots', 'octave_up.png'), ('fall_dots', 'octave_down.png'),
-          ('stutter_dots', 'stutter.png'), ('hold_dots', 'hold.png'))
+STRIPS = (('tape_stop_dots', 'tape_stop.png'), ('ratchet_dots', 'ratchet.png'),
+          ('echo_dots', 'echo.png'), ('pump_dots', 'pump.png'))
 
 
 def png(width, height, color, channels, pixel, filter_kind=0):
