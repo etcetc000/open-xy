@@ -8,6 +8,8 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+from unittest.mock import Mock
+from types import SimpleNamespace
 
 from tooling import collection_manifest as inventory, manager, device
 from tooling.collection_kernel import checked_json
@@ -74,6 +76,8 @@ class InventoryTransfer(unittest.TestCase):
         m.home = self.f.root
         m.state_path = self.f.root / 'state.json'
         m.prepared = {}
+        m.offline = False
+        m.releases = SimpleNamespace(selected=Mock(return_value={}))
         self.f.install()
         from tooling import collection_activation as activation
         self.f.replace_record('attempt', activation.control(phase=3, generation=2, slot=0,
@@ -116,6 +120,9 @@ class ManagerTests(unittest.TestCase):
         m.current = None
         m.jobs = {}
         m.lock = threading.Lock()
+        m.offline = False
+        m.releases = SimpleNamespace(active=None, version=(1, 9), services={'samples', 'drums', 'players'},
+                                    selected=Mock(return_value={}))
         return m
 
     def test_source_import_accepts_multiple_machines_and_refuses_traversal_duplicates(self):
@@ -182,7 +189,7 @@ class ManagerTests(unittest.TestCase):
                 headers = dict(Authorization='Bearer secret', Origin='https://evil.example')
                 self.assertEqual(request('GET', '/api/manager/catalog', headers)[0], 400)
                 headers['Origin'] = 'https://open-xy.com'
-                self.assertEqual(request('GET', '/api/manager/catalog', headers), (200, dict(machines=[])))
+                self.assertEqual(request('GET', '/api/manager/catalog', headers), (200, dict(machines=[], channel=None, offline=False)))
                 headers['Content-Type'] = 'application/json'
                 for action in ('flash', 'push', 'shell', 'read-file'):
                     self.assertEqual(request('POST', '/api/manager/' + action, headers, '{}')[0], 400)

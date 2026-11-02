@@ -11,7 +11,8 @@ notice and choose **Manage my OP–XY**. This route is not offered in the offlin
 `file://` builder export.
 The manager reads the loader records and checks the selected payload against its
 saved verified build before enabling changes. It lists installed machines,
-preserves their versions and numbers, and keeps all extensions selected.
+preserves their versions and numbers unless an update is explicitly selected,
+and keeps all extensions selected.
 
 This route requires a resident collection kernel and the matching build inputs;
 an older Open-XY installation needs the one-time kernel installation described
@@ -23,6 +24,10 @@ Start the local connector from the SDK checkout:
 ```sh
 python sdk.py manager --config <manager-config.json>
 ```
+
+Add `--offline` to preview and build from the saved collection without reading
+or opening a device connection. The UI identifies that saved snapshot and
+disables Apply; the connector also refuses every apply request in this mode.
 
 The connector builds and serves this same web UI on `http://127.0.0.1:8920` and
 prints a pairing link. Open that link, or enter its pairing key in the manager
@@ -58,24 +63,38 @@ of its executable file.
    **Connect and read installed machines**. Allow Web MIDI access if prompted.
    The page verifies the OP-XY identity and requests regular MTP. If it is
    already in COM → M4 MTP, it reads it as-is.
-2. Uncheck installed machines to remove them; select catalog entries to add
-   their pinned releases. Installed versions are never silently upgraded.
-3. For your own machines, choose or drop a source folder containing
+2. Select **Stable** (the upstream `main` catalog's published releases) or
+   **Staging** (published and draft releases from `staging`, marked experimental).
+   The connector resolves and displays a pinned catalog commit for each channel.
+   Changing channels clears pending updates/additions and invalidates the plan.
+   SDK compatibility is checked from source metadata at each release's pinned
+   commit against the installed kernel's matching SDK and services. This is an
+   advisory check; the complete native build still has to pass.
+3. Uncheck installed machines to remove them; select catalog entries to add
+   their pinned releases. **Update to <version>** replaces one installed release
+   in the same transaction, with no intervening uninstall or reboot. The review
+   shows the old and selected versions, including changes to defaults or labels.
+   Kind, sample base, existing parameter indices/mappings and saved drum/sample
+   settings must remain compatible. All machine IDs and extension sources are
+   checked after building. Updates may change sound; project audition remains a
+   hardware check. Versions missing from older saved provenance are shown as a
+   saved build/fingerprint, never guessed from the current catalog.
+4. For your own machines, choose or drop a source folder containing
    `machine.json` and `definition.json`. A parent folder can contain several
    machines. Imports preserve relative paths, skip Git and environment folders,
    and accept at most 4096 files and 64 MiB. Source code goes only to the local
    connector. The matching SDK must support the machine's API and kind.
-4. Select **Build and check changes**. This snapshots sources, builds the whole
+5. Select **Build and check changes**. This snapshots sources, builds the whole
    collection with the installed kernel's SDK, checks its resources and memory,
    and verifies the retained sources, extensions and complete ID ledger. A
    failed or incompatible build transfers nothing.
-5. Review the additions/removals and select **Apply changes to OP–XY**. The
+6. Review the additions/updates/removals and select **Apply changes to OP–XY**. The
    connector rechecks that the device and active payload have not changed,
    then uses the SDK's existing backup/readback installer. It stages the
    inactive slot, resources and inventory first, and writes activation last.
    Existing presets are preserved. New factory presets are not installed by
    the collection manager; regular-MTP preset deployment remains unqualified.
-6. Reboot normally, wait at least 25 seconds after the normal screen appears,
+7. Reboot normally, wait at least 25 seconds after the normal screen appears,
    and refresh. Changes stay disabled until the new generation is confirmed.
 
 The immutable inventory is stored as
