@@ -29,7 +29,7 @@ u32 generation;
 
 // A track's engine, or 0 when it has none (stock's "none" engine): a snapshot
 // keeps, matches and loads nothing for such a track.
-u32 engine_of(u32 track) {
+u32 held_engine(u32 track) {
     const u32 engine = track_engine(track);
     return engine == kNoEngine ? 0 : engine;
 }
@@ -41,7 +41,7 @@ bool holds(u32 slot) {
     if (!s.taken) return false;
     bool any = false;
     for (u32 t = 0; t < control::tracks; ++t) {
-        const u32 engine = engine_of(t);
+        const u32 engine = held_engine(t);
         if (!engine || s.engines[t] != engine) continue;
         any = true;
         const u32 block = stock<u32(u32)>(0x8d587708)(t) + 0x3864;
@@ -97,7 +97,7 @@ bool get_value(const u8* data, u32 bytes, u32& at, u32& word) {
 const void* sdk_snapshot(u32 slot) {
     return slot < snapshots::slots && store[slot].taken ? &store[slot] : nullptr;
 }
-u32 sdk_snapshot_engine(u32 track) { return track < control::tracks ? engine_of(track) : 0; }
+u32 sdk_snapshot_engine(u32 track) { return track < control::tracks ? held_engine(track) : 0; }
 u32 sdk_snapshot_generation() { return generation; }
 bool sdk_snapshot_holds(u32 slot) { return opxy::platform::snapshot_holds(slot); }
 bool sdk_snapshot_take(u32 slot) { return opxy::platform::snapshot_take(slot); }
@@ -106,9 +106,13 @@ u32 sdk_snapshot_clear(u32 mask) { return opxy::platform::snapshots_clear_slots(
 
 bool opxy::platform::snapshot_take(u32 slot) {
     if (slot >= snapshots::slots) return false;
+    // Without an instrument engine there is nothing to keep: the slot stays as it was.
+    bool any = false;
+    for (u32 t = 0; t < control::tracks; ++t) any = any || held_engine(t);
+    if (!any) return false;
     snapshots::Snapshot& s = store[slot];
     for (u32 t = 0; t < control::tracks; ++t) {
-        s.engines[t] = engine_of(t);
+        s.engines[t] = held_engine(t);
         // A track without an engine is never loaded or matched: keep nothing for it.
         for (u32 p = 0; p < control::track_parameters; ++p) s.values[t][p] = s.engines[t] ? base(t, p) : 0;
     }
@@ -121,7 +125,7 @@ bool opxy::platform::snapshot_load(u32 slot) {
     if (slot >= snapshots::slots || !store[slot].taken) return false;
     const snapshots::Snapshot& s = store[slot];
     for (u32 t = 0; t < control::tracks; ++t) {
-        const u32 engine = engine_of(t);
+        const u32 engine = held_engine(t);
         if (!engine || s.engines[t] != engine) continue;
         const u32 block = stock<u32(u32)>(0x8d587708)(t);
         for (u32 p = 0; p < control::track_parameters; ++p)
@@ -142,7 +146,7 @@ u32 opxy::platform::snapshot_fits(u32 slot) {
     if (slot >= snapshots::slots || !store[slot].taken) return 0;
     u32 fits = 0;
     for (u32 t = 0; t < control::tracks; ++t) {
-        const u32 engine = engine_of(t);
+        const u32 engine = held_engine(t);
         fits += engine && store[slot].engines[t] == engine;
     }
     return fits;

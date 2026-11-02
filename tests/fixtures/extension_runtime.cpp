@@ -102,7 +102,7 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
 }
 void extension_notify(const char*) { ++notices; }
 }}
-void control(u32 key, bool accepted) {
+void send_control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};
     extensions_queued_control(event);
 }
@@ -111,45 +111,45 @@ int main() {
     CHECK(order_count == 2 && order[0] == 1 && order[1] == 2 && observations == 1);
     extensions_recordable_note_on(7, 60, 100); CHECK(order_count == 2);
     // Only the claim owner acts: one write and one notification per callback.
-    control(50, true);
+    send_control(50, true);
     CHECK(writes == 1 && notices == 1 && result == 1 && written_track == 0);
     CHECK(saved.insert_notes(saved_context, 0, &good, 1) == 0);
     saved.notify("late"); CHECK(notices == 1);
     // Refused writes; notify is its own action, so each callback may still post.
     for (mode = 1; mode <= 4; ++mode) {
-        control(50, true);
+        send_control(50, true);
         CHECK(result == 0 && writes == 1 && notices == 1 + mode);
     }
     mode = 5;
-    control(50, true);
+    send_control(50, true);
     CHECK(result == 1 && writes == 2 && notices == 6 && !replaced);
     mode = 6;
-    control(50, true);
+    send_control(50, true);
     CHECK(result == 1 && writes == 3 && replaced);
     mode = 7;
-    control(50, true);
+    send_control(50, true);
     CHECK(result == 1 && writes == 4 && !replaced);
     // Writes reach any editable instrument track, not only the selected one.
     mode = 8;
-    control(50, true);
+    send_control(50, true);
     CHECK(result == 1 && writes == 5 && written_track == 3);
     for (mode = 9; mode <= 10; ++mode) {
-        control(50, true);
+        send_control(50, true);
         CHECK(result == 0 && writes == 5);
     }
     // Nothing is granted for a key stock did not accept or the extension does not claim.
     mode = 0; const u32 posted = notices;
-    control(50, false);
-    control(12, true);
+    send_control(50, false);
+    send_control(12, true);
     CHECK(result == 0 && writes == 5 && notices == posted);
     // Snapshots: granted like any action, once per callback, slots 0-9, and only
     // the claim owner; a late call from a saved table is refused.
     CHECK(snaps == 0 && taken == 0);
     mode = 11;
-    control(50, true);
+    send_control(50, true);
     CHECK(snaps == 1 && snapped_slot == 5 && taken == 1);
     CHECK(!saved.take_snapshot(1) && snaps == 1);
-    control(50, false);
+    send_control(50, false);
     CHECK(snaps == 1);
     // Chords: a black key while the claimed key is held goes only to the claim's
     // owner, never to stock; its release follows it even once the key is let go.
@@ -254,12 +254,12 @@ int main() {
     initialized = false; entries = nullptr; collection[0].id = "observer";
     collection[1].claims = 2u; action_claims[0] = 0;  // edit_notes: any claim its holder owns
     const u32 before = writes;
-    control(50, true); CHECK(writes == before);
-    control(1, true); CHECK(writes == before + 1);
-    control(1, false); CHECK(writes == before + 1);
+    send_control(50, true); CHECK(writes == before);
+    send_control(1, true); CHECK(writes == before + 1);
+    send_control(1, false); CHECK(writes == before + 1);
     // An action whose claim its holder lacks disables the collection, chords too.
     initialized = false; entries = nullptr; action_claims[0] = 1u;
-    control(1, true); CHECK(writes == before + 1);
+    send_control(1, true); CHECK(writes == before + 1);
     held_key = 1; CHECK(!extensions_key_input(27, true, 0));
     return 0;
 }

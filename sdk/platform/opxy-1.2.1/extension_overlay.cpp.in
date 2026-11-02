@@ -89,6 +89,9 @@ void destroy(Object* o) { base_destroy(&o->base); }
 // Entry +8: paint this slot now: while a layer is open, and one frame after it
 // closes, to hide what it showed.
 u32 visible(Object* o, u32) {
+    // Unbound (its artwork not loaded yet), it is framed only while a layer is
+    // open, which tries again to bind it.
+    if (!o->bound) return open_layer().count != 0;
     return open_layer().count || o->drawn != kNone || o->fresh;
 }
 void frame(Object* o, i32 elapsed) {

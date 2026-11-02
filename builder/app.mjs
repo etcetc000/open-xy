@@ -593,6 +593,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('builder-version').textContent = 'v' + kit.version;
     $('capacity-foot').textContent = kib(core.moduleBytes(kit.profile)) + ' for machines; CPU load is not measured';
     selected = kit.machines.filter(core.chosenByDefault).map(machine => machine.id);
+    // Extensions still offered stay chosen, with the machines they work with.
+    selectedExtensions = core.extensionSelection(kit,
+      selectedExtensions.filter(id => (kit.extensions ?? []).some(e => e.id === id)));
+    selected = [...selected, ...core.extensionMachines(kit, selectedExtensions).filter(id => !selected.includes(id))];
     try {
       const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');
       if (remembered) numbers = core.readLayout(kit, {format: 'opxy-layout/1', ...remembered}).machines;

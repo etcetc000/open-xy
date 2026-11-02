@@ -37,8 +37,12 @@ bool ready() {
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
             (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count)) ||
             (entry.claims && !entry.hooks->queued_control && !entry.hooks->layer)) return false;
-        for (u32 c = 0; known.claim_layers && c < known.claim_count; ++c)
-            if ((entry.claims & (1u << c)) && known.claim_layers[c] && !entry.hooks->layer) return false;
+        // A layer claim reaches its owner's layer hook, any other its queued control.
+        for (u32 c = 0; c < known.claim_count; ++c) {
+            if (!(entry.claims & (1u << c))) continue;
+            const bool layer = known.claim_layers && known.claim_layers[c];
+            if (layer ? !entry.hooks->layer : !entry.hooks->queued_control) return false;
+        }
         for (u32 a = 0; a < known.action_count; ++a) {
             if (!(entry.actions & (1u << a))) continue;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
