@@ -184,7 +184,7 @@ reaches stock.
 - **Artwork**: `extension.json` names the nodes (`"layer": {"nodes": [...]}`,
   up to 96, numbered in that order) and `layer.svg.fragment` holds them: one
   `<g id="<id>_layer">` in the authored SVG subset with exactly
-  `<id>_<node>` for each, a `path`, `circle` or `text`. The SDK draws every
+  `<id>_<node>` for each, a `path` or `text`. The SDK draws every
   layer in the last screen page, which no machine is given, over whatever page
   shows; a selected extension's layer ships in `openxy_overlay.svg`.
 

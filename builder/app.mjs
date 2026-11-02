@@ -570,12 +570,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const offered = new Set((kit.extensions ?? []).map(e => e.id));
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
-      if (loaded.selected) core.linkKit(kit, loaded.selected, loaded.machines, extensions);
+      // Its extensions bring the machines they work with, as choosing them does.
+      const restored = loaded.selected && core.withExtensionMachines(kit, loaded.selected, extensions);
+      if (restored) core.linkKit(kit, restored, loaded.machines, extensions);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
-      if (loaded.selected) selected = [...loaded.selected];
-      // Its extensions bring the machines they work with, as choosing them does.
-      selected = core.withExtensionMachines(kit, selected, extensions);
+      selected = core.withExtensionMachines(kit, restored ? [...restored] : selected, extensions);
       invalidate(); renderMachines(); renderExtensions(); recalculate();
       status('Layout loaded: your machines keep their numbers.' +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));

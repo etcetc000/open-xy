@@ -921,7 +921,8 @@ export async function buildAssets(kit, selection, catalog, numbers,
           'The site’s machine data is damaged. Reload this page.');
     // The SDK's empty overlay, then each selected layer (tooling.extensions.overlay_artwork).
     files['content/display/openxy_overlay.svg'] =
-      utf8.encode(kit.overlayArtwork.replace('</svg>', layers.map(e => e.layer).join('') + '</svg>'));
+      // A function, so '$' in artwork is literal text, as tooling's bytes.replace keeps it.
+      utf8.encode(kit.overlayArtwork.replace('</svg>', () => layers.map(e => e.layer).join('') + '</svg>'));
   }
   return files;
 }

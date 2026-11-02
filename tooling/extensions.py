@@ -152,8 +152,9 @@ def layer_artwork(extension):
     ids = [node.get('id') for node in nodes[1:] if node.get('id')]
     require(len(ids) == len(set(ids)) and set(ids) == set(extension.layer_ids()),
             f'{extension.id}: layer.svg.fragment must hold exactly the layer nodes: ' + ', '.join(extension.layer_ids()))
-    require(all(node.tag in ('path', 'circle', 'text') for node in nodes[1:] if node.get('id')),
-            f'{extension.id}: each layer node is a path, circle or text')
+    # The overlay moves path and text leaves (extension_overlay.cpp.in, bind).
+    require(all(node.tag in ('path', 'text') for node in nodes[1:] if node.get('id')),
+            f'{extension.id}: each layer node is a path or text')
     return fragment
 
 
