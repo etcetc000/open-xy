@@ -236,17 +236,17 @@ test('track control and hidden pages use the control service, whose entry points
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control']);
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['hidePages']}])],['control']);
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth'}])],[]);
-  // Shared startup calls the marks screen, which only a control build links.
+  // Shared startup calls the snapshot store, which only a control build links.
   k.definitions.fallback=k.profile.module_base;
   o.owner=null;
-  o.symbols.push({name:'sdk_overlay_startup',section:0,value:0,size:0,binding:1,type:0});
+  o.symbols.push({name:'sdk_snapshot_take',section:0,value:0,size:0,binding:1,type:0});
   o.relocations.push({section:1,offset:0,type:18,symbol:o.symbols.length-1,addend:0});
   assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
-  k.serviceFallbacks={control:{sdk_overlay_startup:'fallback'}};
+  k.serviceFallbacks={control:{sdk_snapshot_take:'fallback'}};
   assert.doesNotThrow(()=>linkKit(k,['a']));
   k.machines[0].features=['trackControl'];
   assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
-  k.serviceFallbacks={control:{sdk_overlay_startup:'undefined_fallback'}}; delete k.machines[0].features;
+  k.serviceFallbacks={control:{sdk_snapshot_take:'undefined_fallback'}}; delete k.machines[0].features;
   assert.throws(()=>linkKit(k,['a']),/Invalid service fallback/);
 });
 test('empty, unknown, repeated selections, duplicate globals and memory exhaustion are rejected', () => {

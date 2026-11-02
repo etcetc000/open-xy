@@ -29,6 +29,7 @@ using opxy::platform::stock;
 
 extern "C" u32 sdk_project_save(void* project, const char* path) __asm__("sdk_project_save");
 extern "C" u32 sdk_project_load(void* project, const char* path) __asm__("sdk_project_load");
+extern "C" u32 sdk_project_engine(u32 number) __asm__("sdk_project_engine");
 // The control service's sections, or nothing: generated in startup.cpp.
 extern "C" u32 sdk_project_kept(void* file) __asm__("sdk_project_kept");
 extern "C" void sdk_project_loaded(const char* path) __asm__("sdk_project_loaded");
@@ -198,6 +199,8 @@ const u32 kInvalidSections = 4;
 // 0-7) and effects (send tracks 14 and 15), which share the pattern field.
 u32 engine_map[kNumbers];
 u32 effect_map[kEffectNumbers];
+// Whether the last project loaded had its numbers rewritten by these maps.
+bool remapped;
 
 // Each machine the section lists, by ID, as its last entry gives it.
 struct Listed {
@@ -759,6 +762,7 @@ void remap(unsigned char* project) {
 }
 
 void apply_companion(void* project, const char* path) {
+    remapped = false;
     if (!companion_path(path, read_companion_path)) return;
     File* file = file_open(read_companion_path, "rb");
     if (!file) return;  // no companion: the numbers are read as saved
@@ -770,7 +774,16 @@ void apply_companion(void* project, const char* path) {
         measured_crc != crc)
         return;
     remap(static_cast<unsigned char*>(project));
+    remapped = true;
 }
+}
+
+// An engine number the loaded project saved, as its tracks now hold it: rewritten
+// as the companion rewrote the patterns, 0 for a listed machine this firmware
+// lacks (its patterns fall back to a stock engine whose values differ).
+u32 sdk_project_engine(u32 number) {
+    if (!remapped || number >= kNumbers || engine_map[number] == kUnlisted) return number;
+    return engine_map[number] == kPrism ? 0 : engine_map[number];
 }
 
 u32 sdk_project_save(void* project, const char* path) {

@@ -461,7 +461,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         selectedExtensions = core.extensionSelection(kit, input.checked ? [...selectedExtensions, extension.id]
           : selectedExtensions.filter(id => id !== extension.id));
         // Choosing an extension chooses the machines it works with.
-        selected = [...selected, ...core.extensionMachines(kit, selectedExtensions).filter(id => !selected.includes(id))];
+        selected = core.withExtensionMachines(kit, selected, selectedExtensions);
         invalidate(); renderMachines(document.querySelector('[data-filter][aria-pressed="true"]')?.dataset.filter);
         renderExtensions(); recalculate();
         document.querySelector('#extensions input[aria-label="Include ' + CSS.escape(extension.name) + '"]')?.focus();
@@ -575,7 +575,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
       // Its extensions bring the machines they work with, as choosing them does.
-      selected = [...selected, ...core.extensionMachines(kit, extensions).filter(id => !selected.includes(id))];
+      selected = core.withExtensionMachines(kit, selected, extensions);
       invalidate(); renderMachines(); renderExtensions(); recalculate();
       status('Layout loaded: your machines keep their numbers.' +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
@@ -596,7 +596,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     // Extensions still offered stay chosen, with the machines they work with.
     selectedExtensions = core.extensionSelection(kit,
       selectedExtensions.filter(id => (kit.extensions ?? []).some(e => e.id === id)));
-    selected = [...selected, ...core.extensionMachines(kit, selectedExtensions).filter(id => !selected.includes(id))];
+    selected = core.withExtensionMachines(kit, selected, selectedExtensions);
     try {
       const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');
       if (remembered) numbers = core.readLayout(kit, {format: 'opxy-layout/1', ...remembered}).machines;

@@ -348,6 +348,9 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
 // an extension chooses them, and a build that links it links them.
 export const extensionMachines = (kit, extensionIds) =>
   [...new Set((kit.extensions ?? []).filter(e => extensionIds.includes(e.id)).flatMap(e => e.machines ?? []))];
+// A machine selection with the machines the chosen extensions work with added, in order.
+export const withExtensionMachines = (kit, selection, extensionIds) =>
+  [...selection, ...extensionMachines(kit, extensionIds).filter(id => !selection.includes(id))];
 // Whether a machine selection holds every machine the chosen extensions work with.
 export const extensionsFit = (kit, selection, extensionIds) =>
   extensionMachines(kit, extensionIds).every(id => selection.includes(id));

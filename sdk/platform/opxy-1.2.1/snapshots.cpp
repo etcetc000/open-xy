@@ -15,6 +15,8 @@
 #include "snapshots.hpp"
 #include "track_control.hpp"
 #include "stock.hpp"
+// The loaded project's engine numbers as its tracks now hold them (project_companion.cpp).
+extern "C" opxy::u32 sdk_project_engine(opxy::u32 number) __asm__("sdk_project_engine");
 
 namespace {
 using opxy::i32;
@@ -210,7 +212,9 @@ void opxy::platform::snapshots_decode(const u8* data, u32 bytes) {
         snapshots::Snapshot& s = read[i];
         for (u32 t = 0; ok && t < control::tracks; ++t) {
             if (at + 4 > bytes) { ok = false; break; }
-            s.engines[t] = data[at] | data[at + 1] << 8 | data[at + 2] << 16 | static_cast<u32>(data[at + 3]) << 24;
+            // Saved under the project's old numbers: as the companion renumbered its tracks.
+            s.engines[t] = sdk_project_engine(data[at] | data[at + 1] << 8 | data[at + 2] << 16 |
+                                              static_cast<u32>(data[at + 3]) << 24);
             at += 4;
         }
         for (u32 t = 0; ok && t < control::tracks; ++t)

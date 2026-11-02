@@ -244,7 +244,7 @@ int main() {
     const u32 black[4] = {27, 1, 0, 0}, white[4] = {26, 0, 0, 0};
     other_held = 1; sdk_extensions_key_input(black); sdk_extensions_key_input(white); other_held = 0;
     CHECK(input_calls==2 && last_input==26);
-    // Encoder turns, with no snapshot menu, are stock's.
+    // Encoder turns, with no layer open, are stock's.
     sdk_extensions_knob_input(0, -3); sdk_extensions_knob_input(2, 1);
     CHECK(knob_calls==2 && last_knob==201);
 
