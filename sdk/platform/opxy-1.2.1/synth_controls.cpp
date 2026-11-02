@@ -270,6 +270,11 @@ u32 sdk_effect_turn(u32 project, u32 track, u32 index, u32 event) {
         return 1;
     }
     if (m) index = t->slots[index];  // the position's shown parameter
+    // On an aux track, as on tracks 1-8, an absent slot turns nothing.
+    if (m && event && aux_engine(track) && index < opxy::parameter_slots && (m->absent & (1u << index))) {
+        const opxy::i32 still[3] = {0, 0, 0};
+        return stock<u32(u32, u32, u32, const opxy::i32*)>(0x8d5ad5bc)(project, track, index, still);
+    }
     if (m && event && (m->continuous & (1u << index)) && shift_held()) {
         const opxy::i32* source = reinterpret_cast<const opxy::i32*>(event);
         const opxy::i32 fine[3] = {source[0] / 10, source[1], source[2]};

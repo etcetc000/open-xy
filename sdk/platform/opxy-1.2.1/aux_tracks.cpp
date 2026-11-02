@@ -112,6 +112,7 @@ u32 releasing[control::all_tracks];
 // After a project loads, the next GUI tick gives back the role's controls of
 // every pattern that no longer holds a machine (one the build lacks).
 bool loaded;
+const u32 kProjectLoading = 0x840a0528;  // nonzero while stock loads a project
 // Each aux track's current pattern block as the last GUI tick saw it. In song
 // mode, stock's scene change between two patterns holding the same machine
 // leaves the track's live values as they were until the next change; manual
@@ -190,7 +191,13 @@ void take(u32 track, u32 choice) {
     Kept* kept = kept_of(track);
     const ControlMachine* before = holder(track);
     const ControlMachine* m = choice ? &sdk_control_machines[choice - 1] : nullptr;
-    if (!kept || m == before) return;
+    if (!kept) return;
+    if (m == before) {
+        // A machine number this build can't run gives way to the role, keeping the controls.
+        if (!m && word(current_block(track) + 0x18) != kRoleEngine)
+            stock<void(u32, u32)>(0x8d5877e4)(track, kRoleEngine);
+        return;
+    }
     sdk_synth_queue_page_key(control::all_tracks, 0);
     const u32 p = current_pattern(track), bit = 1u << p;
     if (!before) {
@@ -458,10 +465,12 @@ u32 aux_engine(u32 track) {
 }
 
 void aux_tick() {
+    // While stock loads a project, only the marks: the old project still plays.
+    const bool loading = word(kProjectLoading);
     for (u32 t = kFirstAux; t < control::all_tracks; ++t) {
         if (!takeable(t)) continue;
         Kept* kept = kept_of(t);
-        if (loaded && kept) {
+        if (loaded && kept && !loading) {
             const u32 current = current_pattern(t), count = pattern_count(t);
             for (u32 p = 0; p < kPatterns; ++p) {
                 if (!(kept->patterns & 1u << p)) continue;
@@ -480,11 +489,12 @@ void aux_tick() {
         const u32 block = current_block(t);
         if (m) mark(t);
         else unmark(t);
+        if (loading) continue;
         if (m && seen_block[t] && block != seen_block[t])
             for (u32 i = 0; i < kControls; ++i) live_set(t, i, first_step_value(t, block, i));
         seen_block[t] = block;
     }
-    loaded = false;
+    if (!loading) loaded = false;
 }
 }
 

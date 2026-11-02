@@ -47,10 +47,10 @@
 // plays the stored value.
 //
 // Loading: while stock loads a project (the word at 840a0528), the tick runs
-// stock's own call and the hidden-pages check only. The load hook has already
-// given machines the new project's data and the aux service its kept controls,
-// so neither machines nor the aux service run against the old project until it
-// is replaced.
+// stock's own call, the hidden-pages check and the aux service's marks only. The
+// load hook has already given machines the new project's data and the aux service
+// its kept controls, so neither machines nor the aux service's restore run against
+// the old project until it is replaced.
 //
 // Mute: stock keeps it per scene, in the scene records at g_project (the word
 // at 840a0524) + 0x98, 33 bytes each: each track's pattern, then each track's
@@ -244,7 +244,8 @@ extern "C" i32 sdk_lfo_held_amount(u32 track, u32 index, i32 stock_amount) {
     if (track != kHeldTrack || !hosts[track]) return stock_amount;
     if (!hosts[track]->shared_lfo) return 0;
     const u32 held = word(kTelemetry + kHeldId * 4);
-    if ((held & 0xff000000u) != kHeldTag) return stock_amount;
+    // Not published yet: stock's pair is this track's only while it is selected.
+    if ((held & 0xff000000u) != kHeldTag) return selected_track() == track ? stock_amount : 0;
     if (!byte(stock<u32(u32)>(0x8d587708)(track) + 0x24) || ((held >> 16) & 0xff) != index) return 0;
     return static_cast<i32>(held << 16);
 }
@@ -297,8 +298,9 @@ extern "C" void sdk_gui_tick() {
     ++gui_ticks;
     sdk_synth_pages();
     if (!sdk_control_machine_count && !applied_count) return;
-    if (word(kProjectLoading)) return;
+    // The aux service still keeps a held track's mark while a project loads.
     if (sdk_aux.tick) sdk_aux.tick();
+    if (word(kProjectLoading)) return;
 
     // A value that differs from the one written is stock's: an edit, a lock or a step.
     // A track now on another pattern drops its overlays; one stock left playing

@@ -628,6 +628,8 @@ def stock_labels(m):
 AUX_ROLES = {12: 'cv'}
 # The entries of an aux track's Shift + M1 list: its stock role, then machines (aux_tracks.cpp kChoices).
 AUX_CHOICES = 32
+# The aux presets the device lists, in every folder together (aux_tracks.cpp kPresets).
+AUX_PRESETS = 64
 
 
 def aux_preset_files(m):
@@ -640,6 +642,11 @@ def aux_preset_files(m):
     if not (track_control(m) and track_control(m).get('aux')):
         return {}
     parameters = m.definition['parameters']
+    # The device lists at most 64 aux presets (aux_tracks.cpp kPresets), the role's init among them.
+    names = [name.lower() for name in m.definition['presets']]
+    require(len(set(names)) == len(names), 'A machine that takes over aux tracks names its presets apart, ignoring case')
+    require(len(names) + len(track_control(m)['aux']) <= AUX_PRESETS,
+            f'A machine that takes over aux tracks has at most {AUX_PRESETS - 1} presets')
     files = {}
     for track in track_control(m)['aux']:
         role = AUX_ROLES[track]

@@ -6,6 +6,7 @@
 namespace {
 const u32 host_project = 0x90000000;
 u32 host_project_word = host_project, host_tab, host_key, host_key_track;
+u32 host_loading;  // the word at 840a0528
 unsigned char host_selected = 11;
 unsigned char host_data[0xd7c + 16 * 0x53f44];
 i32 host_live[16][control::track_parameters];
@@ -56,6 +57,8 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     if (address == kSelectedTrack) return reinterpret_cast<Address>(&host_selected);
     if (address == kAuxTab) return reinterpret_cast<Address>(&host_tab);
     if (address == 0x840a0524) return reinterpret_cast<Address>(&host_project_word);
+    if (address == 0x840a0528) return reinterpret_cast<Address>(&host_loading);
+    if (address == 0x840a0528) return reinterpret_cast<Address>(&host_loading);
     if (address >= host_project && address < host_project + sizeof(host_data))
         return reinterpret_cast<Address>(host_data) + address - host_project;
     const u32 live_address = kProject + 0x4080;

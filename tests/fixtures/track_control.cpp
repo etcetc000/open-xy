@@ -548,15 +548,16 @@ int main() {
     engines[2] = 0;
     aux_engines[11] = 40;
     tick(0, "Nothing to write");
-    // While a project loads, no machine runs and nothing is written.
+    // While a project loads, no machine runs and nothing is written; the aux
+    // service still ticks, for its marks.
     plan({{0, 1, 0, 1500}});
     project_loading = 1;
     const u32 loading_runs = runs, loading_aux = aux_ticks;
     tick(0, "Overlay written while a project loads");
-    require(runs == loading_runs && aux_ticks == loading_aux, "Machines ran while a project loads");
+    require(runs == loading_runs && aux_ticks == loading_aux + 1, "Machines ran, or no marks, while a project loads");
     project_loading = 0;
     tick(1, "Overlay not written after the load");
-    require(runs == loading_runs + 1 && aux_ticks == loading_aux + 1, "Machines not back after the load");
+    require(runs == loading_runs + 1 && aux_ticks == loading_aux + 2, "Machines not back after the load");
     plan({});
     tick(1, "Overlay not released");
 

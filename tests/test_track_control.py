@@ -115,6 +115,16 @@ class TrackControl(unittest.TestCase):
         self.assertEqual((soft['type'], soft['params'][0], len(soft['params'])), (synth.id, 16384, 8))
         self.assertEqual(json.loads(files[f'content/aux_presets/{synth.id}/full.json'])['params'][:len(names)],
                          [32767] * len(names))
+        # Names one file each, and as many as the device lists with the role's init.
+        synth.definition['presets'] = {'Soft': {}, 'soft': {}}
+        with self.assertRaisesRegex(ValueError, 'apart'):
+            aux_preset_files(synth)
+        synth.definition['presets'] = {f'p{i}': {} for i in range(63)}
+        self.assertEqual(len(aux_preset_files(synth)), 64)
+        synth.definition['presets']['p63'] = {}
+        with self.assertRaisesRegex(ValueError, 'at most 63 presets'):
+            aux_preset_files(synth)
+        synth.definition['presets'] = {'Soft': {names[0]: 0.5}, 'Full': {n: 1 for n in names}}
         with tempfile.TemporaryDirectory(prefix='track-control-') as folder:
             table = generate_track_controls(folder, [synth]).read_text(encoding='utf-8')
             self.assertIn(f'true, 0x800u, {synth.prefix}_page_id, ', table)
