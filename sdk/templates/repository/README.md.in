@@ -21,6 +21,14 @@ Agent instructions are in [AGENTS.md](AGENTS.md).
 
 @AUDITION@
 
+For synth previews, the workbench's **Graphics** selector compares Colorful and
+Grayscale with the same sound and animation code. To control grayscale yourself,
+declare SDK 1.5 and `"graphics": {"grayscale": "panel.grayscale.svg.fragment"}`
+in machine.json and supply that SVG fragment. Follow the SDK's
+[grayscale artwork contract](https://github.com/etcetc000/open-xy/blob/staging/docs/display.md#grayscale-artwork).
+Already-grayscale originals remain unchanged; without a variant, the installer
+converts colors automatically. Effects retain their stock screens.
+
 ```sh
 python ../open-xy/sdk.py test --machine . --cxx clang++ --host-cxx g++
 ```
