@@ -139,7 +139,7 @@ LAYER_NODES = 96
 def layer_artwork(extension):
     """An extension's layer artwork (layer.svg.fragment): one <g id="<id>_layer">
     in the authored SVG subset holding exactly its declared nodes, each a path
-    circle or text the overlay can show, hide and move."""
+    or text the overlay can show, hide and move."""
     from .native import check_authored, panel_root, read
     path = extension.root / 'layer.svg.fragment'
     require(path.is_file(), f'{extension.id}: a layer needs layer.svg.fragment')
