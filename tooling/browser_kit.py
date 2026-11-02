@@ -139,17 +139,10 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
     services = native.active_services(profile, native.service_users(machines))
-    # Track control: startup's calls into the saved data, and the extension runtime's
-    # snapshot actions, which decline while a selection does not use the service.
+    # Track control: startup's calls into the saved data, while a selection does not use the service.
     if 'control' in services:
-        kit['serviceFallbacks'] = {'control': dict.fromkeys(
-            ('sdk_control_kept_write', 'sdk_control_kept_load',
-             'sdk_snapshot_take', 'sdk_snapshot_load', 'sdk_snapshot_clear'), 'kit_absent')}
-    # Extensions: the overlay's empty artwork, which selected extensions' layers
-    # (kit.extensions[].layer) fill, and startup's call into the overlay screen.
-    if 'extensions' in services:
-        kit['overlayArtwork'] = read(ROOT / native.TEMPLATES / 'extension_overlay.svg').decode('utf-8')
-        kit.setdefault('serviceFallbacks', {})['extensions'] = {'sdk_overlay_startup': 'kit_absent'}
+        kit['serviceFallbacks'] = {'control': dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'),
+                                                            'kit_absent')}
     if 'aux' in services:
         kit.setdefault('serviceFallbacks', {})['aux'] = {'sdk_aux_startup': 'kit_absent'}
     kit_path = output / 'kit.json'
@@ -187,7 +180,7 @@ def write_builder(kit, output):
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes openKit linkKit readLdr '
-               'patchFirmware recoverFirmware extensionSelection extensionMachines withExtensionMachines sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName').split()
+               'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName').split()
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
     bundled += 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'

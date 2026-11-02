@@ -15,7 +15,6 @@
 #include "project_files.hpp"
 #include "project_companion.hpp"
 #include "track_control.hpp"
-#include "snapshots.hpp"
 
 extern "C" opxy::u32 sdk_control_kept_write(void* file) __asm__("sdk_control_kept_write");
 extern "C" void sdk_control_kept_load(const char* path) __asm__("sdk_control_kept_load");
@@ -33,8 +32,6 @@ const u32 kReadBytes = 64 * 1024;
 char project_text[kReadBytes + 1];  // one more, to tell a longer file
 // One machine's kept bytes, as it saved them or as read back.
 unsigned char kept[opxy::control::saved_capacity];
-// The snapshots' encoding (snapshots.cpp), as written or as read back.
-unsigned char snapshot_bytes[opxy::platform::kSnapshotBytes];
 const char kBase64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 // Writes through a small buffer straight to the open companion.
@@ -46,9 +43,7 @@ public:
     void byte(char c) {
         if (count == sizeof buffer) flush();
         buffer[count++] = c;
-        ++total;
     }
-    u32 written() const { return total; }
     void base64(const unsigned char* data, u32 bytes) {
         for (u32 i = 0; i < bytes; i += 3) {
             const u32 n = bytes - i, v = data[i] << 16 | (n > 1 ? data[i + 1] << 8 : 0) | (n > 2 ? data[i + 2] : 0);
@@ -65,19 +60,8 @@ private:
     }
     kept_files::File* file;
     char buffer[256];
-    u32 count = 0, total = 0;
+    u32 count = 0;
 };
-// The most the rest of a companion takes: its envelope and this section's end,
-// and the machines section after it, at most kEntryBytes for each machine the
-// collection could list. The snapshots leave it free, so the whole stays within
-// the companion's 64 KiB.
-u32 companion_budget() {
-    const u32 kFixedBytes = 1024, kEntryBytes = 128;
-    u32 machines = 0;
-    for (const opxy::platform::CompanionMachine* m = sdk_companion_machines; m->id; ++m) ++machines;
-    const u32 rest = kFixedBytes + kEntryBytes * machines;
-    return rest < kReadBytes ? kReadBytes - rest : 0;
-}
 
 // A small reader for companions any writer made: the span [at, to) of a value.
 struct Reader {
@@ -163,8 +147,8 @@ struct Reader {
         }
         return true;
     }
-    // A base64 string into `into` (kept unless given): its byte count, or 0.
-    u32 base64(u32 at, u32 to, u32 capacity, unsigned char* into = kept) const {
+    // A base64 string into kept: its byte count, or 0.
+    u32 base64(u32 at, u32 to, u32 capacity) const {
         if (to - at < 2 || project_text[at] != '"' || (to - at - 2) % 4) return 0;
         u32 count = 0;
         for (u32 i = at + 1; i + 4 <= to - 1; i += 4) {
@@ -180,7 +164,7 @@ struct Reader {
             }
             for (u32 j = 0; j < 3 - pad; ++j) {
                 if (count >= capacity) return 0;
-                into[count++] = static_cast<unsigned char>(v >> (16 - 8 * j));
+                kept[count++] = static_cast<unsigned char>(v >> (16 - 8 * j));
             }
         }
         return count;
@@ -214,7 +198,10 @@ const u32 kKeyOrder[] = {0, 1, 10, 11, 12, 13, 14, 15, 2, 3, 4, 5, 6, 7, 8, 9};
 
 void load_kept(const char* path) {
     sdk_control_forget();
-    // The control service always keeps the SDK's snapshots, so it always reads.
+    bool keeping = false;
+    for (u32 i = 0; i < sdk_control_machine_count; ++i)
+        keeping = keeping || sdk_control_machines[i].load || sdk_control_machines[i].aux;
+    if (!keeping) return;  // nothing to give back: no project I/O
     u32 bytes, crc, length = 0, at = 0, to = 0;
     bool found = false;
     if (kept_files::companion_path(path) && kept_files::measure(path, bytes, crc)) {
@@ -235,11 +222,6 @@ void load_kept(const char* path) {
         if (machines && r.member(machines_at, machines_to, m.name, a, b)) count = r.base64(a, b, m.saved_bytes);
         m.load(kept, count);
     }
-    // The SDK's snapshots, or none for a project without them.
-    u32 snap_at, snap_to, snap_count = 0;
-    if (found && r.member(at, to, "snapshots", snap_at, snap_to))
-        snap_count = r.base64(snap_at, snap_to, opxy::platform::kSnapshotBytes, snapshot_bytes);
-    opxy::platform::snapshots_decode(snapshot_bytes, snap_count);
     // By aux track, each pattern a machine held: base64 of the role's eight
     // controls. Which machine holds a pattern is in the project itself.
     if (sdk_aux.forget) sdk_aux.forget();
@@ -267,15 +249,13 @@ void forget_kept() {
         const opxy::platform::ControlMachine& m = sdk_control_machines[i];
         if (m.load && m.ready() == 1) m.load(kept, 0);
     }
-    opxy::platform::snapshots_clear();
     if (sdk_aux.forget) sdk_aux.forget();
 }
 }
 
 // "open-xy.control": by aux track index, the stock role's controls kept aside
 // for each pattern a machine holds, by pattern index, and what each track
-// control machine keeps, by machine ID, then the SDK's snapshots (base64 of
-// snapshots.cpp's encoding), in the canonical form
+// control machine keeps, by machine ID, in the canonical form
 // (docs/projects.md): keys sorted, two-space indentation.
 extern "C" u32 sdk_control_kept_write(void* file) {
     Stream out(static_cast<kept_files::File*>(file));
@@ -315,19 +295,8 @@ extern "C" u32 sdk_control_kept_write(void* file) {
         out.byte('"');
     }
     if (listed) out.put("\n      },\n");
-    // The snapshots, if their base64 fits what the companion has left; otherwise
-    // none, so the rest of the companion still loads.
-    const u32 budget = companion_budget();
-    const u32 room = out.written() < budget ? (budget - out.written()) / 4 * 3 : 0;
-    const u32 snapped = opxy::platform::snapshots_encode(
-        snapshot_bytes, room < opxy::platform::kSnapshotBytes ? room : opxy::platform::kSnapshotBytes);
-    if (snapped) {
-        out.put(held || listed ? "      \"snapshots\": \"" : "    \"open-xy.control\": {\n      \"snapshots\": \"");
-        out.base64(snapshot_bytes, snapped);
-        out.put("\",\n");
-    }
-    if (held || listed || snapped) out.put("      \"version\": 1\n    },\n");
-    return held + listed + (snapped ? 1 : 0);
+    if (held || listed) out.put("      \"version\": 1\n    },\n");
+    return held + listed;
 }
 
 // From the companion's load hook, after a read that succeeded, before stock makes the

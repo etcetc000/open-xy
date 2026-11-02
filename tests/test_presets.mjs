@@ -107,19 +107,6 @@ test('preset generation rejects unsafe paths, foreign kinds and invalid engine p
   await assert.rejects(buildAssets(kit,['example'],catalog,numbers),/preset engine or defaults/);
 });
 
-test("the SDK's overlay holds the selected extensions' layers", async () => {
-  const {kit, catalog} = await fixture(machines);
-  kit.overlayArtwork = '<svg></svg>';
-  kit.extensions = [{id: 'menu', layer: '<g id="menu_layer"><path id="menu_card"/></g>'}, {id: 'plain'}];
-  const overlay = async extensions =>
-    (await buildAssets(kit, ['probesynth'], catalog, numbers, {extensions}))['content/display/openxy_overlay.svg'];
-  assert.equal(new TextDecoder().decode(await overlay(['menu', 'plain'])),
-    '<svg><g id="menu_layer"><path id="menu_card"/></g></svg>');
-  // An extension without a layer still links the overlay screen: its artwork is the empty template.
-  assert.equal(new TextDecoder().decode(await overlay(['plain'])), '<svg></svg>');
-  assert.equal(await overlay([]), undefined);
-});
-
 test("an aux machine's presets install as files, with the init of the role it replaces", () => {
   const preset = type => JSON.stringify({params: Array(8).fill(0), platform: 'OP-XY', type, version: 1});
   const auxPresets = {'content/aux_presets/cv/init.json': JSON.stringify({platform: 'OP-XY', type: 'cv', version: 1}),

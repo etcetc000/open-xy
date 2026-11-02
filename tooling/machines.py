@@ -213,7 +213,7 @@ def check_identity(rules, kind, value, display=None):
                 'Sample engines need a relocated-table engine ID and a stock sample page or, drawing their own '
                 'screen, a relocated page')
     else:
-        # The last page holds the SDK's overlay (extension_overlay.cpp.in).
+        # The last page is reserved for an SDK overlay screen.
         require(rules['page_none'] < page < rules['pages'] - 1, 'A machine with its own screen needs a relocated page')
     return {slot: number, 'page': page}
 
@@ -546,8 +546,8 @@ def number_layout(rules, fixed, layout, machines):
             new.append((name, kind, dict(requested), slots))
     # An effect number is also held as an engine number (occupied).
     keys = lambda slot, n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
-    # The last page is the SDK's extension overlay: in the pool, so every other
-    # machine keeps its own place, but never given out.
+    # The last page is reserved for an SDK overlay screen: in the pool, so every
+    # other machine keeps its own place, but never given out.
     free = lambda slot, n: not (slot == 'page' and n == rules['pages'] - 1) and not any(k in holders for k in keys(slot, n))
 
     def take(name, identity, slot, n):
@@ -602,19 +602,8 @@ def read_collection(path=None, extra=(), extensions=()):
                 require(isinstance(entry, dict) and set(entry) == {'path'} and isinstance(entry['path'], str),
                         'Collection entries are {"path": ...}: the SDK holds no machines or extensions of its own')
                 entries.append({key: str((path.parent / entry['path']).resolve())})
-    entries += ([{'path': str(Path(folder).resolve())} for folder in extra] +
-                [{'extension': str(Path(folder).resolve())} for folder in extensions])
-    # An extension brings the machines it works with, unless the collection has them
-    # (by ID, from wherever it lists them).
-    from .extensions import extension_at
-    wanted = [m for e in entries if 'extension' in e for m in extension_at(e['extension']).machines]
-    if wanted:
-        listed = {machine_at(e['path']).id for e in entries if 'path' in e}
-        for identity, folder in wanted:
-            if identity not in listed:
-                listed.add(identity)
-                entries.append({'path': str(folder)})
-    return entries
+    return (entries + [{'path': str(Path(folder).resolve())} for folder in extra] +
+            [{'extension': str(Path(folder).resolve())} for folder in extensions])
 
 
 def collection(entries=None, layout=None):

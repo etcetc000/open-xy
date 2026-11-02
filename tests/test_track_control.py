@@ -221,10 +221,12 @@ class TrackControl(unittest.TestCase):
         self.assertIn('u32 sdk_project_kept(void*) { return 0; }', plain_startup)
         self.assertNotIn('sdk_control_kept_write', plain_startup)
         self.assertIn('{ return sdk_control_kept_write(file); }', control_startup)
-        # The aux service starts with control only; the extensions' overlay registers last.
-        aux_startup = render(['probe'], control=True, aux=True, extensions=True)
+        # The aux service starts with control only.
+        aux_startup = render(['probe'], control=True, aux=True)
         self.assertNotIn('sdk_aux_startup', control_startup)
-        self.assertLess(aux_startup.index('    sdk_aux_startup();'), aux_startup.index('    sdk_overlay_startup();'))
+        self.assertIn('    sdk_aux_startup();', aux_startup)
+        with self.assertRaisesRegex(ValueError, 'needs the control service'):
+            render(['probe'], aux=True)
 
     def test_gui_tick_is_a_reviewed_call_in_a_shared_unit(self):
         hooks = [p for p in config()['patches']

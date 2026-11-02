@@ -47,7 +47,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
-| Extension events | 10 | Observes live input, stock transport and queued controls for extensions, lets a Record double-tap owner edit notes through stock editing and undo, and gives an open layer every key and encoder turn first; linked only when an extension is selected |
+| Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
@@ -168,22 +168,10 @@ named for the stock calls they replace; they are adapter entry points, not
 extension APIs. Capture ([open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture)) is the first
 subscriber: it owns the bounded current-track ghost pattern and the Record gesture.
 
-The ten hooks replace the controller-update call at `0x8c0baaf0`, queued key
+The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key
 dispatch at `0x8c0b6184`, normalized live onset/release at `0x8d594376` and
 `0x8d59420a`, accepted-note bookkeeping at `0x8d595844`, recorder tick at
-`0x8d59819c`, and Stop cleanup at `0x8d597db8`. The last two replace the key matrix's
-calls of stock's input entry `0x8c0b6334(event)` (`key_handler.cpp`: `{key,
-value}`, dispatched at once for a keyboard key or queued) at `0x8d5b2ea6` and
-`0x8d5b2f7a`, both `CALL.A`. The tenth replaces the scanner's call of stock's
-encoder entry `0x8c0b64a0(knob, delta)` at `0x8d5b2830` (`sdk_extensions_knob_input`),
-which passes every turn on unless an extension's layer is open and takes it.
-A layer's painting comes from the SDK's overlay screen in the last page slot,
-which startup registers in builds that link extensions; it is not a patched site. A black key pressed while a chord's claimed key is in
-stock's held-key list (`0x8d5b7d7c`), and its release, go to the claim's owner
-and never reach stock. Stock's own value entry reads the black keys through
-`0x8d5b874c` (keys 27, 29, 31, 34, 36, 39, 41, 43, 46 and 48 as 0-9) and the white
-keys through `0x8d5b86c0` (as 0-13). MIDI input reaches the same entry from other
-calls, which stay stock's.
+`0x8d59819c`, and Stop cleanup at `0x8d597db8`.
 The controller-update call follows the GUI tick call in the same main loop;
 they are separate sites. The Stop hook observes a stop/restart pair within one controller update. The key
 span also replaces the following queue-address load; its wrapper returns that

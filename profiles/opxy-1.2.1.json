@@ -126,8 +126,7 @@
     ],
     "control": [
       "trackControl",
-      "hidePages",
-      "snapshots"
+      "hidePages"
     ],
     "aux": [
       "auxTrack"
@@ -1626,39 +1625,6 @@
       "events": [
         "queued_control"
       ]
-    },
-    {
-      "kind": "hook",
-      "address": "0x8d5b2ea6",
-      "file_offset": "0x1ea0fe",
-      "length": 8,
-      "before": "00de0b8c34630000",
-      "symbol": "sdk_extensions_key_input",
-      "call": true,
-      "service": "extensions",
-      "events": ["queued_control", "layer"]
-    },
-    {
-      "kind": "hook",
-      "address": "0x8d5b2f7a",
-      "file_offset": "0x1ea1d2",
-      "length": 8,
-      "before": "00de0b8c34630000",
-      "symbol": "sdk_extensions_key_input",
-      "call": true,
-      "service": "extensions",
-      "events": ["queued_control", "layer"]
-    },
-    {
-      "kind": "hook",
-      "address": "0x8d5b2830",
-      "file_offset": "0x1e9a88",
-      "length": 8,
-      "before": "00de0b8ca0640000",
-      "symbol": "sdk_extensions_knob_input",
-      "call": true,
-      "service": "extensions",
-      "events": ["layer"]
     },
     {
       "kind": "hook",

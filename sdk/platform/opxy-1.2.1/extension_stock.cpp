@@ -8,8 +8,6 @@ extern "C" {
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
 void sdk_extensions_key(const opxy::u32*) __asm__("sdk_extensions_key");
 opxy::u32 sdk_extensions_key_queue(const opxy::u32*) __asm__("sdk_extensions_key_queue");
-void sdk_extensions_key_input(const opxy::u32*) __asm__("sdk_extensions_key_input");
-void sdk_extensions_knob_input(opxy::u32, opxy::i32) __asm__("sdk_extensions_knob_input");
 void sdk_extensions_recorder_tick(opxy::u32, opxy::u32) __asm__("sdk_extensions_recorder_tick");
 void sdk_extensions_stop(opxy::u32) __asm__("sdk_extensions_stop");
 void sdk_extensions_note_accepted(opxy::u32, opxy::u32) __asm__("sdk_extensions_note_accepted");
@@ -84,7 +82,6 @@ u32 extension_scaled_delta(u32 track, u32 delta) {
     return stock<u32(u32, u32)>(0x8d5950e0)(track, delta << 8);
 }
 bool extension_record_held() { return byte(kRecordHeld) != 0; }
-bool extension_key_held(u32 key) { return stock<u32(u32)>(0x8d5b7d7c)(key) != 0; }
 
 i32 extension_collision_radius(u32 track) {
     const u32 scale = stock<u32(u32)>(0x8d586b50)(track);
@@ -178,33 +175,6 @@ void sdk_extensions_key(const u32* event) {
     control.accepted = enabled && (control.key != extensions::keys::record ||
         (control.pressed ? extension_record_held() : was_held && !extension_record_held()));
     extensions_queued_control(control);
-}
-// Stock's input entry, 8c0b6334(event): {key, value (0 for a release, else
-// 0x7f or a velocity), 64-bit time}, as the key matrix (8d5b2d90) builds it, which
-// dispatches a keyboard key at once or queues it. The key matrix's two calls of it
-// (8d5b2ea6, 8d5b2f7a) route through here: a key a claim's chord takes never
-// reaches stock, so it neither plays nor enters stock's held-key list.
-void sdk_extensions_key_input(const u32* event) {
-    extensions::Time time = 0;
-    stock<void(extensions::Time*)>(0x8d5be3a0)(&time);
-    // Each key's last press as it came (key, value, 64-bit time), for a tap.
-    static u32 pressed_with[64][4];
-    const u32 route = extensions_key_input(event[0], event[1] != 0, time);
-    if (event[1] && event[0] < 64)
-        for (u32 i = 0; i < 4; ++i) pressed_with[event[0]][i] = event[i];
-    if (route == key_taken) return;
-    if (route == key_tap && event[0] < 64) {
-        // The menu key was only tapped: stock gets its press, then this release.
-        stock<void(const u32*)>(0x8c0b6334)(pressed_with[event[0]]);
-    }
-    stock<void(const u32*)>(0x8c0b6334)(event);
-}
-// Stock's encoder entry, 8c0b64a0(encoder 0-3, delta), which accumulates turns
-// for the controllers. The hardware scanner's call of it (8d5b2830) routes
-// through here; MIDI's own calls stay stock's.
-void sdk_extensions_knob_input(u32 knob, i32 delta) {
-    if (extensions_knob_input(knob, delta)) return;
-    stock<void(u32, i32)>(0x8c0b64a0)(knob, delta);
 }
 u32 sdk_extensions_key_queue(const u32* event) {
     sdk_extensions_key(event);

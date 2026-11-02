@@ -10,28 +10,18 @@ using RecordedNote = extensions::Note;
 // each claim's key, and each action the claims that grant it (0: any claim).
 const u32 action_edit_notes = 1u << 0;
 const u32 action_notify = 1u << 1;
-const u32 action_snapshot = 1u << 2;
 
 struct ExtensionEntry {
     const char* id;
     u32 claims, actions;  // Bits in registry order.
     const extensions::Hooks* hooks;
-    // Its layer's nodes in the SDK's overlay (extension_overlay.cpp.in): first and count.
-    u32 layer_first, layer_count;
 };
 struct ExtensionRegistry {
     const u32* claim_keys;
     u32 claim_count;
     const u32* action_claims;
     u32 action_count;
-    // Each claim's chord (tooling.extensions.CHORDS): 0 none, chord_black_keys.
-    const u32* claim_chords;
-    // Each claim's partner key, pressed together with its key (0: none).
-    const u32* claim_partners;
-    // Whether each claim opens its owner's layer (extension.hpp, Layer).
-    const u32* claim_layers;
 };
-const u32 chord_black_keys = 1;
 // Generated with the collection (tooling.extensions.generate_collection).
 const ExtensionEntry* extension_collection(u32& count);
 const ExtensionRegistry& extension_registry();
@@ -43,21 +33,6 @@ void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity);
 void extensions_selected_note_off(u32 track, u32 pitch);
 void extensions_recording_tick(u32 delta);
 void extensions_queued_control(const extensions::Control& control);
-// A key arriving at stock's input entry, before stock. A layer claim's gesture
-// opens its owner's layer, which then sees every key first and takes what it
-// wants; a chord claim delivers its black keys to its owner. Stock never sees a
-// key taken.
-const u32 key_stock = 0, key_taken = 1;
-// Taken, but the key was only tapped: stock gets its own press, then this release.
-const u32 key_tap = 2;
-u32 extensions_key_input(u32 key, bool pressed, extensions::Time time);
-// An encoder turn arriving at stock's input entry: true when the open layer takes it.
-bool extensions_knob_input(u32 knob, i32 delta);
-// The SDK's overlay screen (extension_overlay.cpp.in): whether a layer is open,
-// its nodes there and which opening it is, its frame time, and its painting.
-bool extensions_layer_open(u32& first, u32& count, u32& opening);
-void extensions_layer_frame(u32 elapsed_ms);
-void extensions_layer_draw(const extensions::Canvas& canvas);
 
 // An instrument track's pattern, as notes are written to it.
 struct TrackPattern { u32 pattern, length, scale; bool editable; };
@@ -67,17 +42,6 @@ i32 extension_position(u32 track);
 u32 extension_scaled_delta(u32 track, u32 delta);
 i32 extension_collision_radius(u32 track);
 bool extension_record_held();
-// Whether stock holds a key down now (its held-key list).
-bool extension_key_held(u32 key);
 u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replace);
 void extension_notify(const char* text);
 }}
-
-// The control service's snapshot store (snapshots.cpp), or startup's stand-ins
-// that refuse in a build without it.
-extern "C" bool sdk_snapshot_take(opxy::u32 slot) __asm__("sdk_snapshot_take");
-extern "C" bool sdk_snapshot_load(opxy::u32 slot) __asm__("sdk_snapshot_load");
-extern "C" opxy::u32 sdk_snapshot_clear(opxy::u32 mask) __asm__("sdk_snapshot_clear");
-// Registers the SDK's overlay screen (extension_overlay.cpp.in), which paints
-// extensions' layers, on the GUI role after the machines' screens.
-extern "C" void sdk_overlay_startup() __asm__("sdk_overlay_startup");

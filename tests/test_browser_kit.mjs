@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionMachines, extensionSelection, extensionsFit, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -176,21 +176,6 @@ test('extensions omit code/state and resolve only shared registry imports to an 
   assert.notDeepEqual(on.module, off.module);
   assert.equal(off.aliases.get('sdk_extension_capture_hooks'), k.definitions.kit_absent);
   assert.deepEqual(linkKit(k, ['a'], null, ['capture']).module, on.module);
-  // An extension that works with a machine links only beside it.
-  k.extensions[0].machines = ['a']; k.extensions[0].name = 'Capture';
-  assert.deepEqual(extensionMachines(k, ['capture']), ['a']); assert.deepEqual(extensionMachines(k, []), []);
-  assert.equal(extensionsFit(k, ['a'], ['capture']), true); assert.equal(extensionsFit(k, ['b'], ['capture']), false);
-  k.extensions[0].machines = ['b'];
-  assert.throws(() => linkKit(k, ['a'], null, ['capture']), /Capture works with b\. Choose it too/);
-  assert.doesNotThrow(() => linkKit(k, ['a'], null, []));
-  delete k.extensions[0].machines;
-  // An extension taking snapshots links the control service that keeps them.
-  k.profile.services = {...(k.profile.services ?? {}), control: ['trackControl', 'hidePages', 'snapshots']};
-  assert.equal(linkKit(k, ['a'], null, ['capture']).services.has('control'), false);
-  k.extensions[0].actions = ['snapshot'];
-  assert.equal(linkKit(k, ['a'], null, ['capture']).services.has('control'), true);
-  assert.equal(linkKit(k, ['a'], null, []).services.has('control'), false);
-  k.extensions[0].actions = ['edit_notes'];
   registry.owner = 'a';
   assert.throws(() => linkKit(k, ['a'], null, []), /Unresolved import/);
 });
@@ -236,17 +221,17 @@ test('track control and hidden pages use the control service, whose entry points
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control']);
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['hidePages']}])],['control']);
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth'}])],[]);
-  // Shared startup calls the snapshot store, which only a control build links.
+  // Shared startup calls the control service's saved data, which only a control build links.
   k.definitions.fallback=k.profile.module_base;
   o.owner=null;
-  o.symbols.push({name:'sdk_snapshot_take',section:0,value:0,size:0,binding:1,type:0});
+  o.symbols.push({name:'sdk_control_kept_write',section:0,value:0,size:0,binding:1,type:0});
   o.relocations.push({section:1,offset:0,type:18,symbol:o.symbols.length-1,addend:0});
   assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
-  k.serviceFallbacks={control:{sdk_snapshot_take:'fallback'}};
+  k.serviceFallbacks={control:{sdk_control_kept_write:'fallback'}};
   assert.doesNotThrow(()=>linkKit(k,['a']));
   k.machines[0].features=['trackControl'];
   assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
-  k.serviceFallbacks={control:{sdk_snapshot_take:'undefined_fallback'}}; delete k.machines[0].features;
+  k.serviceFallbacks={control:{sdk_control_kept_write:'undefined_fallback'}}; delete k.machines[0].features;
   assert.throws(()=>linkKit(k,['a']),/Invalid service fallback/);
 });
 test('empty, unknown, repeated selections, duplicate globals and memory exhaustion are rejected', () => {

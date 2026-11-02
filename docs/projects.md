@@ -142,18 +142,6 @@ stock role again and gets those controls back. Early test builds of aux tracks w
 track instead (`"machine"` and `"controls"`); the reader skips it, so such a
 project opens with CV on track 12, playing the machine's values as its controls.
 
-`snapshots` holds the SDK's [snapshots](api.md#snapshots), as base64 of one
-encoding: a version byte (1), two bytes (little-endian) with bit *n* set for each
-taken slot *n* (0 to 9),
-then for each taken slot in order its eight tracks' engines (little-endian
-32-bit words) and its 8 x 58 parameter words, track by track. Each word takes
-one to five bytes: the first holds a flag in bit 0 (1: the whole word follows;
-0: only its upper half, the lower being zero), six payload bits and a
-continuation bit (7); each further byte seven more payload bits, low first, and
-a continuation bit. A load gives every slot back when the companion matches the
-project and the encoding reads exactly, and none otherwise.
-`tooling/projects.py` (`encode_snapshots`, `decode_snapshots`) reads and writes it.
-
 ## Commands
 
 | Command | Does |

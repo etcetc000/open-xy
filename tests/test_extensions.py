@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 from tooling import catalog, extensions, native
-from tooling.machines import machine_at, read_collection
+from tooling.machines import read_collection
 from tooling.pipeline import ROOT, config, document
 
 PROBE = ROOT / 'tests/fixtures/extension_probe'
@@ -85,8 +85,7 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'layer', 'draw',
-                                               'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),
@@ -123,74 +122,10 @@ class Extensions(unittest.TestCase):
         # A subset of the machines keeps the collection's extensions.
         self.assertEqual(native.subset(machines, []).extensions, (probe,))
 
-    def test_an_extension_brings_the_machines_it_works_with(self):
-        synth = Path(__file__).resolve().parent / 'fixtures/machines/probesynth'
-        with Folder() as folder:
-            shutil.copytree(synth, folder.root.parent / 'machines/probesynth')
-            probe = extensions.extension_at(folder.declare(machines=['../machines/probesynth']))
-            moved = (folder.root.parent / 'machines/probesynth').resolve()
-            self.assertEqual([i for i, _ in probe.machines], [machine_at(moved).id])
-            self.assertEqual(extensions.metadata([probe], {'probe': 'personal'})[0]['machines'], [machine_at(moved).id])
-            # Selected alone, it brings its machine; listed already (from anywhere), it adds nothing.
-            self.assertEqual(read_collection(None, (), [folder.root]),
-                             [{'extension': str(folder.root.resolve())}, {'path': str(moved)}])
-            self.assertEqual(read_collection(None, [synth], [folder.root]),
-                             [{'path': str(synth)}, {'extension': str(folder.root.resolve())}])
-            for machines in ('../machines/probesynth', [str(moved)], ['../missing'], ['../machines/probesynth'] * 2):
-                with self.subTest(machines=machines), self.assertRaises((ValueError, OSError)):
-                    extensions.extension_at(folder.declare(machines=machines))
-            # A subset without its machine leaves it out, as the builder does.
-            probe = extensions.extension_at(folder.declare(machines=['../machines/probesynth']))
-            whole = native.Collection([machine_at(moved)], [probe])
-            self.assertEqual(native.subset(whole, list(whole)).extensions, (probe,))
-            self.assertEqual(native.subset(whole, []).extensions, ())
-        self.assertNotIn('machines', extensions.metadata([extensions.extension_at(PROBE)], {'probe': 'personal'})[0])
-
-    def test_a_layer_draws_its_own_declared_nodes_in_the_sdk_overlay(self):
-        from tooling.adapters import generate_extension_overlay
-        fragment = ('<g id="probe_layer"><path id="probe_card" d="M0 0 L9 9" fill="#000000"/>'
-                    '<text id="probe_label" x="1" y="9" fill="#ffffff" font-family="a" font-size="9px">1</text></g>')
-        with Folder() as folder:
-            (folder.root / 'layer.svg.fragment').write_text(fragment, encoding='utf-8')
-            layered = dict(claims=['minus_plus'], actions=['notify'], layer={'nodes': ['card', 'label']})
-            probe = extensions.extension_at(folder.declare(**layered))
-            self.assertEqual(probe.layer_ids(), ('probe_card', 'probe_label'))
-            self.assertEqual(extensions.metadata([probe], {'probe': 'personal'})[0]['layer'], fragment)
-            artwork = extensions.overlay_artwork(b'<svg></svg>', [probe]).decode('utf-8')
-            self.assertEqual(artwork, '<svg>' + fragment + '</svg>')
-            self.assertEqual(extensions.layer_ranges([probe]), {'probe': (0, 2)})
-            with tempfile.TemporaryDirectory() as out:
-                overlay = generate_extension_overlay(out, [probe]).read_text(encoding='utf-8')
-                self.assertIn('const u32 kNodes = 2;', overlay)
-                self.assertIn('"probe_card",\n    "probe_label",', overlay)
-                self.assertNotIn('@', overlay)
-                collection = extensions.generate_collection(Path(out), [probe]).read_text(encoding='utf-8')
-                self.assertIn('hooks, 0, 2};', collection)
-                self.assertIn('const u32 claim_layers[] = {0, 0, 1};', collection)
-            # Only a layer claim's holder has a layer, of exactly its declared nodes.
-            for changes, text in ((dict(layered, claims=['record_double_tap']), fragment),
-                                  (dict(layered, layer={'nodes': ['card']}), fragment),
-                                  (dict(layered, layer={'nodes': []}), fragment),
-                                  (dict(layered, layer=['card', 'label']), fragment),
-                                  (layered, fragment.replace('probe_layer', 'layer')),
-                                  (layered, fragment.replace('fill="#000000"', ''))):
-                with self.subTest(changes=changes, text=text), self.assertRaises(ValueError):
-                    (folder.root / 'layer.svg.fragment').write_text(text, encoding='utf-8')
-                    extensions.extension_at(folder.declare(**changes))
-
     def test_no_extensions_means_no_extension_objects_or_service(self):
         self.assertFalse(any(step.startswith('extension:') for _, _, step in native.plan([])))
         self.assertFalse(any(name.startswith('extension:') for name in native.provenance([])))
         self.assertNotIn('extensions', native.active_services(config(), native.service_users([])))
-
-    def test_taking_snapshots_links_the_control_service_that_keeps_them(self):
-        def services(*actions):
-            ext = extensions.Extension('snapper', PROBE, ('record_double_tap',), actions, {})
-            return native.active_services(config(), native.service_users(native.Collection([], (ext,))))
-        self.assertNotIn('control', services('notify'))
-        self.assertIn('control', services('snapshot'))
-        self.assertIn('snapshots', {step for _, _, step in native.plan(native.Collection([], (
-            extensions.Extension('snapper', PROBE, ('record_double_tap',), ('snapshot',), {}),)))})
 
 
 class ExtensionCatalog(unittest.TestCase):

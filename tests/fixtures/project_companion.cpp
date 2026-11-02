@@ -6,9 +6,7 @@
 #include <string>
 #include <project_companion.cpp>
 #include <track_control_project.cpp>
-#include <snapshots.cpp>
 extern "C" void sdk_control_forget() {}
-void opxy::platform::control_stock_set(opxy::u32, opxy::u32, opxy::i32) {}
 
 extern "C" opxy::u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }
 extern "C" void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }
@@ -101,22 +99,8 @@ const opxy::platform::CompanionMachine sdk_companion_machines[] = {
     {nullptr, nullptr, nullptr, false}
 };
 
-// Snapshots: each instrument track's block of stored values and its engine.
-const Address kBlocks = 0x90000000, kBlockBytes = 0x4000;
-opxy::u32 blocks[8][kBlockBytes / 4];
-opxy::u32 track_block(opxy::u32 track) { return static_cast<opxy::u32>(kBlocks + track * kBlockBytes); }
-opxy::u32 engine_of(opxy::u32 track) { return 100 + track; }
-// A value per track and parameter: Q16-aligned or not, and the largest.
-opxy::i32 stored(opxy::u32 t, opxy::u32 p) {
-    return p == 57 ? 0x7fffffff : p % 2 ? static_cast<opxy::i32>(t * 1000 + p) : static_cast<opxy::i32>((t * 58 + p) << 16);
-}
-
 Address opxy::platform::host_stock_address(Address address) {
-    if (address >= kBlocks && address < kBlocks + 8 * kBlockBytes)
-        return reinterpret_cast<Address>(&blocks[(address - kBlocks) / kBlockBytes][(address - kBlocks) % kBlockBytes / 4]);
     switch (address) {
-    case 0x8d587708: return reinterpret_cast<Address>(&track_block);
-    case 0x8d58781c: return reinterpret_cast<Address>(&engine_of);
     case 0x8fed0348: return reinterpret_cast<Address>(&open_file);
     case 0x8fed05bc: return reinterpret_cast<Address>(&read_file);
     case 0x8fed0780: return reinterpret_cast<Address>(&write_file);
@@ -140,10 +124,6 @@ int main(int argc, char** argv) {
     holding = std::getenv("HOLD") != nullptr;
     // The aux service, as its startup fills it in (unless NOAUX: a build without it).
     if (!std::getenv("NOAUX")) sdk_aux = opxy::platform::AuxService{nullptr, nullptr, aux_kept, aux_restore, aux_forget};
-    // SNAP: snapshots 1 and 6 taken before the save.
-    for (opxy::u32 t = 0; t < 8; ++t)
-        for (opxy::u32 p = 0; p < 58; ++p) blocks[t][(0x3864 + p * 4) / 4] = static_cast<opxy::u32>(stored(t, p));
-    if (std::getenv("SNAP") && !(opxy::platform::snapshot_take(1) && opxy::platform::snapshot_take(6))) return 3;
     if (argc == 3) return sdk_project_save(nullptr, saving) == save_result ? 0 : 1;
     const std::string mode = argv[3];
     loading = mode == "busy";
@@ -165,16 +145,6 @@ int main(int argc, char** argv) {
         for (opxy::u32 i = 0; i < 8; ++i) std::printf(" %d", restored_controls[r][i]);
         std::printf("\n");
     }
-    // Each snapshot the project gave back: its slot, track 0's engine, whether
-    // every value is the one taken, and whether track 3 still holds its engine.
-    for (opxy::u32 slot = 0; slot < 8; ++slot)
-        if (const opxy::snapshots::Snapshot* s = opxy::snapshots::get(slot)) {
-            bool same = true;
-            for (opxy::u32 t = 0; t < 8; ++t)
-                for (opxy::u32 p = 0; p < 58; ++p) same = same && s->values[t][p] == stored(t, p);
-            std::printf("snapshot %u %u %s %s\n", slot, s->engines[0], same ? "same" : "differs",
-                        opxy::snapshots::matches(*s, 3) ? "matches" : "other");
-        }
     if (loaded == 99) std::printf("none\n");
     else {
         for (opxy::u32 i = 0; i < loaded; ++i) std::printf("%02x", loaded_bytes[i]);

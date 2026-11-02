@@ -71,8 +71,8 @@ filters to that track for it.
 | Kind | What | Here |
 | --- | --- | --- |
 | Events | Something happened | The `Hooks` callbacks |
-| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify`, the snapshot actions |
-| Surfaces | Add to the screen | A layer's own artwork over every page ([layers](#layers)) |
+| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify` |
+| Surfaces | Add to the screen | None for extensions yet: menu rows, pages, overlays |
 | Saved state | Data kept with a project | None for extensions yet |
 
 An event says something happened; an action asks stock to do something. Sending
@@ -94,7 +94,7 @@ only for the callback. The SDK does not sandbox native code.
 | `selected_note_off` | A live release on the selected track, playing or not; may have no preceding onset | Live release |
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
-| `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys`. A claim's [chord](#claims-and-actions) keys reach only its owner, before stock and instead of it | Key queue, key input (chords) |
+| `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
 scale 1 has 480 ticks per step. Stock's pickup gives negative positions near
@@ -114,24 +114,6 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   [`DoubleTap`](../sdk/include/opxy/double_tap.hpp) helper handles taps, holds,
   repeats and timeouts on any key without delaying stock controls.
   `record_double_tap` is capture's.
-- **A chord** extends a claim to keyboard keys, as stock's own value entry does:
-  `"chord": "black_keys"` gives the claim's owner the keyboard's ten black keys
-  while the claimed key is held. Stock numbers them 1 to 9, then 0, where it
-  enters values (`keys::black_index`, `keys::black_label`). A chord key reaches
-  the owner's `queued_control`, accepted and with the claim's actions granted,
-  and never reaches stock: it plays no note, and its release follows its press
-  even after the claimed key is let go. Every other key, and the claimed key
-  itself, still reach stock as usual. `metronome_chord` is metronome + black key.
-- **A pair** (`"with"`) makes two keys pressed together the gesture: a chord
-  then needs both held. `minus_plus` is − and + together. For a layer claim
-  (below), either key pressed alone waits for the other and reaches stock as a
-  press and release when it is let go, so stock sees − or + only on release
-  while that claim is built in. Other pair claims leave both keys to stock.
-- **A layer** (`"layer": true`) makes the claim's gesture open its owner's
-  [layer](#layers): a mode of its own over every page, as stock's bar key opens
-  its menu. `minus_plus` is a layer claim. A layer claim has no chord, and an
-  extension holding one declares its layer's nodes (below): drawing them is what
-  times a hold.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
@@ -145,51 +127,11 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
-  - `snapshot` unlocks the SDK's ten [snapshots](api.md#snapshots) (0-9, one
-    per black key), one write per callback: `Actions::take_snapshot(slot)`
-    stores every instrument track's stored parameters, changing no track;
-    `Actions::load_snapshot(slot)` writes a slot back into every track that
-    still holds the engine it held then, through stock's own setter (stored and
-    heard), and refuses a slot no track can take; `Actions::clear_snapshots(mask)`
-    empties slots. Machines read snapshots and play them back. A build with it
-    links the control service, which keeps them with the project.
 
   Calls outside the callback, with a stale context, or a second write or
   popup in one callback are refused.
 
 Observers cannot transform notes or suppress stock input.
-
-## Layers
-
-A layer is a mode an extension owns, opened by its layer claim's gesture, as
-stock's bar key opens its menu. Held, it is momentary: letting go closes it.
-Tapped (let go within `tap_ms`, 400 ms, with nothing taken meanwhile), a pair
-claim's layer stays open until the pair is pressed again or a key the owner
-does not take, which then does its usual job; a single key's tap closes it and
-reaches stock.
-
-- **`layer`** (`Hooks::with_layer`) receives `Layer` events with the claim's
-  actions granted: `open` and `close`; `keypress` for every key pressed while
-  it is open, which it returns true to take from stock, and the release of each
-  it took; `turn` for every encoder turn (raw counts), which it returns true to
-  take; and `frame` once per screen
-  frame, with the milliseconds since the last, whether it is latched and how
-  long the gesture has been held. A key the owner leaves goes to stock and, when
-  latched, closes the layer; so does an encoder turn it leaves. While a layer is open, keys go to it first, so chord
-  claims (metronome + black key) wait until it closes.
-- **`draw`** (`Hooks::with_draw`) paints while the layer is open, after each
-  frame, on a `Canvas`: `show(node, dx, dy)`, `hide(node)` and `text(node,
-  value)` for the nodes it declares. Every node starts hidden each time the
-  layer opens and is hidden again when it closes.
-- **Artwork**: `extension.json` names the nodes (`"layer": {"nodes": [...]}`,
-  up to 96, numbered in that order) and `layer.svg.fragment` holds them: one
-  `<g id="<id>_layer">` in the authored SVG subset with exactly
-  `<id>_<node>` for each, a `path` or `text`. The SDK draws every
-  layer in the last screen page, which no machine is given, over whatever page
-  shows; a selected extension's layer ships in `openxy_overlay.svg`.
-
-[Snapshots](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/snapshots)
-is the worked example: a bar-menu-style menu for the SDK's snapshots.
 
 ## Add an extension
 
@@ -199,10 +141,7 @@ An extension is a folder in a repository of its own, beside this SDK checkout:
    one-line `description` saying what it does and how to use it, 140 characters
    at most, and optionally a `note` for its one limit, 100), and the `claims`
    and `actions` it uses from the registry. People scan this; put the full
-   behavior in your repository's README. An extension that works with machines
-   of its own (a menu and the machine that plays what it keeps) lists their
-   folders in `machines`, relative to its own, in the same repository: a build
-   that links the extension links them, and choosing it in the builder chooses them.
+   behavior in your repository's README.
 2. `extension.cpp`, exporting `opxy::extensions::<id>::hooks`, naming only the
    events it takes:
    `extern constexpr Hooks hooks = Hooks().with_context(context).with_queued_control(queued_control);`

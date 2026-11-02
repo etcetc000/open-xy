@@ -399,9 +399,6 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       row.style.setProperty('--machine', colors[index % colors.length]);
       const label = node('label'), input = node('input'); input.type = 'checkbox'; input.checked = selected.includes(m.id);
       input.setAttribute('aria-label', 'Include ' + m.name); label.append(input);
-      // A chosen extension that works with this machine keeps it chosen.
-      const needed = (kit.extensions ?? []).find(e => selectedExtensions.includes(e.id) && (e.machines ?? []).includes(m.id));
-      if (needed && input.checked) { input.disabled = true; label.title = needed.name + ' works with it. Deselect ' + needed.name + ' first.'; }
       const button = node('button'); button.dataset.id = m.id; button.setAttribute('aria-pressed', String(inspected === m.id));
       button.append(node('span', m.name, 'machine-name'), node('span', m.description, 'machine-desc'));
       const meta = node('span', undefined, 'machine-meta');
@@ -460,10 +457,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       input.onchange = () => {
         selectedExtensions = core.extensionSelection(kit, input.checked ? [...selectedExtensions, extension.id]
           : selectedExtensions.filter(id => id !== extension.id));
-        // Choosing an extension chooses the machines it works with.
-        selected = core.withExtensionMachines(kit, selected, selectedExtensions);
-        invalidate(); renderMachines(document.querySelector('[data-filter][aria-pressed="true"]')?.dataset.filter);
-        renderExtensions(); recalculate();
+        invalidate(); renderExtensions(); recalculate();
         document.querySelector('#extensions input[aria-label="Include ' + CSS.escape(extension.name) + '"]')?.focus();
       };
       const glyph = node('span', undefined, 'machine-icon'); glyph.append(visuals.icon('controls'));
@@ -516,7 +510,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const result = core.linkKit(kit, selection, numbers, extensions);
-      const files = await core.buildAssets(kit, selection, catalog, result.numbers, {...settings, extensions});
+      const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings);
       files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
@@ -570,12 +564,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const offered = new Set((kit.extensions ?? []).map(e => e.id));
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
-      // Its extensions bring the machines they work with, as choosing them does.
-      const restored = loaded.selected && core.withExtensionMachines(kit, loaded.selected, extensions);
-      if (restored) core.linkKit(kit, restored, loaded.machines, extensions);
+      if (loaded.selected) core.linkKit(kit, loaded.selected, loaded.machines, extensions);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
-      selected = core.withExtensionMachines(kit, restored ? [...restored] : selected, extensions);
+      if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
       status('Layout loaded: your machines keep their numbers.' +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
@@ -593,10 +585,6 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('builder-version').textContent = 'v' + kit.version;
     $('capacity-foot').textContent = kib(core.moduleBytes(kit.profile)) + ' for machines; CPU load is not measured';
     selected = kit.machines.filter(core.chosenByDefault).map(machine => machine.id);
-    // Extensions still offered stay chosen, with the machines they work with.
-    selectedExtensions = core.extensionSelection(kit,
-      selectedExtensions.filter(id => (kit.extensions ?? []).some(e => e.id === id)));
-    selected = core.withExtensionMachines(kit, selected, selectedExtensions);
     try {
       const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');
       if (remembered) numbers = core.readLayout(kit, {format: 'opxy-layout/1', ...remembered}).machines;

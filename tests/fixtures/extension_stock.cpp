@@ -43,9 +43,6 @@ void forward_tick(u32 state, u32 delta) {
     failed |= state != 0x860c072c; last_delta = delta; ++tick_calls;
 }
 void forward_stop(u32 controller) { failed |= controller != 0x860c6adc; ++stop_calls; }
-u32 input_calls, last_input, knob_calls; i32 last_knob;
-void forward_knob(u32 knob, i32 delta) { ++knob_calls; last_knob = static_cast<i32>(knob) * 100 + delta; }
-void forward_input(const u32* e) { ++input_calls; last_input = e[0]; }
 void forward_event(const u32* e) {
     ++event_calls;
     if (!input_enabled) return;
@@ -144,8 +141,6 @@ Address host_stock_address(Address address) {
         case 0x8d590b0a: return reinterpret_cast<Address>(&forward_tick);
         case 0x8d591964: return reinterpret_cast<Address>(&forward_stop);
         case 0x8c0b5d58: return reinterpret_cast<Address>(&forward_event);
-        case 0x8c0b6334: return reinterpret_cast<Address>(&forward_input);
-        case 0x8c0b64a0: return reinterpret_cast<Address>(&forward_knob);
         case 0x8d595738: return reinterpret_cast<Address>(&forward_on);
         case 0x8d5b7d54: return reinterpret_cast<Address>(&accepted_note);
         case 0x8d5b7e34: return reinterpret_cast<Address>(&steps_held);
@@ -166,11 +161,6 @@ Address host_stock_address(Address address) {
 using extensions::probe::seen;
 using extensions::probe::command;
 using extensions::probe::written;
-
-// The control service's snapshot store, absent here.
-bool sdk_snapshot_take(opxy::u32) { return false; }
-bool sdk_snapshot_load(opxy::u32) { return false; }
-opxy::u32 sdk_snapshot_clear(opxy::u32) { return 0; }
 
 int main() {
     fill_pattern(0);
@@ -240,13 +230,6 @@ int main() {
     // Not accepted, nothing is granted.
     command=1; consume_record=true; key(50,true); key(50,false); consume_record=false;
     CHECK(writes==6 && undos==3);
-    // Key input: with no chord claimed, every key, black or not, reaches stock.
-    const u32 black[4] = {27, 1, 0, 0}, white[4] = {26, 0, 0, 0};
-    other_held = 1; sdk_extensions_key_input(black); sdk_extensions_key_input(white); other_held = 0;
-    CHECK(input_calls==2 && last_input==26);
-    // Encoder turns, with no layer open, are stock's.
-    sdk_extensions_knob_input(0, -3); sdk_extensions_knob_input(2, 1);
-    CHECK(knob_calls==2 && last_knob==201);
 
     CHECK(!failed);
     return 0;

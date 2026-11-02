@@ -375,33 +375,6 @@ track, 0 when it did not run, and always 0 in browser previews.
 A machine draws only on its own page: track control paints nothing over other
 tracks' pages.
 
-### Snapshots
-
-[`opxy/snapshots.hpp`](../sdk/include/opxy/snapshots.hpp): ten project-wide
-snapshots of every instrument track's stored parameters, kept by the SDK, one per
-black key as stock numbers them where it enters values (1 to 9, then 0). Taking
-and reading are separate:
-
-- **Machines never take a snapshot.** Only an extension writes them, with the
-  `snapshot` action ([extensions](extensions.md#claims-and-actions)) in answer
-  to a gesture it claims: take, load (back into the tracks that still hold a
-  slot's engines) and clear. The Snapshots extension's menu is one.
-- **Track control machines only read them**, on the GUI side in `control()`:
-  `snapshots::get(slot)` (null when the slot is empty), `snapshots::matches(s,
-  track)` (whether the track still holds the engine it held then, so its words
-  still mean the same), `snapshots::engine(track)` (the engine it holds now, 0 for none) and `snapshots::generation()` (changes whenever any slot
-  is taken, loaded or cleared) and `snapshots::holds(slot)` (whether the tracks
-  hold a slot's values now). What a machine does with them is an ordinary
-  overlay; a snapshot is never a mode or a parameter, so no LFO, lock or preset
-  can take one.
-
-A snapshot holds each track's base values for its current pattern, as a saved
-project keeps them, and each track's engine. It never holds an overlay, a lock
-or an LFO's movement, so a machine playing snapshots back never records itself.
-Snapshots are saved with the project ([`open-xy.control`](projects.md#open-xycontrol))
-and cleared by a new project. A build links them with the control service,
-whenever a machine declares `trackControl` or an extension declares `snapshot`.
-
 ### Aux tracks
 
 A track control machine, unique and with its own display, runs on an aux

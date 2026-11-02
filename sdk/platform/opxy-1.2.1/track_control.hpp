@@ -32,7 +32,7 @@ struct ControlMachine {
 // The engine whose machine runs on a track: stock's engine on an instrument
 // track, the machine holding an aux track, else 0. GUI only (track_control.cpp).
 u32 control_engine(u32 track);
-// Stock's value of a parameter changed beneath any overlay (a snapshot loaded):
+// Stock's value of a parameter changed beneath any overlay (a stored write):
 // what the overlay's release restores. GUI only (track_control.cpp).
 void control_stock_set(u32 track, u32 index, i32 value);
 // What the aux service publishes in a held aux track's last live word (aux_tracks.cpp):

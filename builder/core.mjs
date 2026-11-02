@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'ea00a777b0396ab90593a9cb184f9701af31ae9db0f64bab7edfe880bf07e33c';
+export const PROFILE_SHA256 = 'a2459b844130f0991a331908d687e15cf806264f4b881d0b317a43a10a737c82';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -128,7 +128,7 @@ export function validIdentity(rules, kind, identity) {
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   // A sample engine is on a stock sample page, or on a relocated page when it draws its own screen (SDK 1.8).
   return kind === 'sample' ? n > rules.engine_none && (rules.sample_pages.includes(page) || page > rules.page_none && page < rules.pages - 1)
-    : ['synth', 'drum'].includes(kind) && page > rules.page_none && page < rules.pages - 1;  // the last page: the SDK's overlay
+    : ['synth', 'drum'].includes(kind) && page > rules.page_none && page < rules.pages - 1;  // the last page: reserved for an SDK overlay screen
 }
 
 // The numbers a kit machine asks for (tooling.machines.check_request): valid ones,
@@ -239,8 +239,8 @@ export function numberLayout(rules, fixed, layout, machines) {
   }
   // An effect number is also held as an engine number (occupied).
   const keys = (slot, n) => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
-  // The last page is the SDK's overlay: in the pool, so every other machine keeps
-  // its own place, but never given out (tooling.machines.number_layout).
+  // The last page is reserved for an SDK overlay screen: in the pool, so every other
+  // machine keeps its own place, but never given out (tooling.machines.number_layout).
   const free = (slot, n) => !(slot === 'page' && n === rules.pages - 1) && !keys(slot, n).some(key => holders.has(key));
   const take = (name, identity, slot, n) => {
     identity[slot] = n;
@@ -344,17 +344,6 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
 }
 
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
-// The machines the chosen extensions work with (extension.json "machines"): choosing
-// an extension chooses them, and a build that links it links them.
-export const extensionMachines = (kit, extensionIds) =>
-  [...new Set((kit.extensions ?? []).filter(e => extensionIds.includes(e.id)).flatMap(e => e.machines ?? []))];
-// A machine selection with the machines the chosen extensions work with added, in order.
-export const withExtensionMachines = (kit, selection, extensionIds) =>
-  [...selection, ...extensionMachines(kit, extensionIds).filter(id => !selection.includes(id))];
-// Whether a machine selection holds every machine the chosen extensions work with.
-export const extensionsFit = (kit, selection, extensionIds) =>
-  extensionMachines(kit, extensionIds).every(id => selection.includes(id));
-
 export function sharedClaim(extensions) {
   const seen = new Set();
   for (const e of extensions) for (const claim of e.claims ?? []) {
@@ -410,10 +399,7 @@ export async function openKit(kit) {
       Object.keys(e.claim_labels).sort().join() === [...(e.claims ?? [])].sort().join() &&
       Object.values(e.claim_labels).every(l => typeof l === 'string' && l.length > 0 && l.length <= 40) &&
       ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
-        new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))) &&
-      (e.layer === undefined || typeof e.layer === 'string' && e.layer.length <= 65536) &&
-      (e.machines === undefined || Array.isArray(e.machines) && e.machines.length > 0 && e.machines.length <= 4 &&
-        new Set(e.machines).size === e.machines.length && e.machines.every(id => kit.machines.some(m => m.id === id))),
+        new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))),
       'Invalid extension metadata');
     extensionIds.add(e.id);
   }
@@ -494,17 +480,11 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const extensions = new Set(extensionSelection(kit, extensionIds));
   check(Array.isArray(selection) && selection.length > 0 && new Set(selection).size === selection.length &&
     selection.every(id => kit.machines.some(m => m.id === id)), 'Choose each machine once.');
-  for (const e of (kit.extensions ?? []).filter(e => extensions.has(e.id)))
-    for (const id of e.machines ?? []) check(selection.includes(id),
-      `${e.name} works with ${kit.machines.find(m => m.id === id)?.name ?? id}. Choose it too.`);
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
-    ...(extensions.size ? [{kind: 'extension'}] : []),
-    // An extension taking snapshots links the control service that keeps them.
-    ...((kit.extensions ?? []).some(e => extensions.has(e.id) && (e.actions ?? []).includes('snapshot'))
-      ? [{kind: 'snapshots'}] : [])]);
+    ...(extensions.size ? [{kind: 'extension'}] : [])]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
@@ -786,7 +766,7 @@ export async function recoverFirmware(kit, input, layout = null) {
     if (kit.machines.length <= RECOVERABLE_MACHINES) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
-        for (const extensions of choices.filter(c => extensionsFit(kit, selected, c))) {
+        for (const extensions of choices) {
           if (await rebuilds(selected, extensions)) return {stock, selected, extensions};
         }
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -866,9 +846,7 @@ export function graphicsForMachine(machine, {graphics = 'colorful', graphicsOver
   return machine.artwork ? mode : 'colorful';
 }
 
-// `extensions`: the selected extensions, whose layers fill the SDK's overlay.
-export async function buildAssets(kit, selection, catalog, numbers,
-                                  {graphics = 'colorful', graphicsOverrides = {}, extensions = []} = {}) {
+export async function buildAssets(kit, selection, catalog, numbers, {graphics = 'colorful', graphicsOverrides = {}} = {}) {
   check(['colorful', 'grayscale'].includes(graphics), 'Invalid machine graphics setting');
   check(graphicsOverrides && typeof graphicsOverrides === 'object' && !Array.isArray(graphicsOverrides), 'Invalid machine graphics overrides');
   for (const [id, mode] of Object.entries(graphicsOverrides))
@@ -910,19 +888,6 @@ export async function buildAssets(kit, selection, catalog, numbers,
         throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');
       }
     }
-  }
-  // The SDK's overlay over every page: selected extensions' layers (tooling.native.prepare_assets).
-  // Linked extensions link the overlay screen, which registers its artwork: it ships
-  // whenever one is selected, the empty template when none has a layer.
-  const chosen = (kit.extensions ?? []).filter(e => extensions.includes(e.id));
-  const layers = chosen.filter(e => typeof e.layer === 'string');
-  if (chosen.length) {
-    check(typeof kit.overlayArtwork === 'string' && kit.overlayArtwork.split('</svg>').length === 2,
-          'The site’s machine data is damaged. Reload this page.');
-    // The SDK's empty overlay, then each selected layer (tooling.extensions.overlay_artwork).
-    files['content/display/openxy_overlay.svg'] =
-      // A function, so '$' in artwork is literal text, as tooling's bytes.replace keeps it.
-      utf8.encode(kit.overlayArtwork.replace('</svg>', () => layers.map(e => e.layer).join('') + '</svg>'));
   }
   return files;
 }

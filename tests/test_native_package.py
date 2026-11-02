@@ -103,9 +103,6 @@ class PackageVerification(unittest.TestCase):
     def test_service_hooks_live_in_their_units_and_only_their_users_reach_them(self):
         services = native.object_services(self.machines)
         uses = {m.id: set(native.service_users([m])) for m in self.machines}
-        # An extension's object uses what its actions bring (snapshots: the control service).
-        extension_uses = {f'sdk/extension_{e.id}.o': set(native.service_users(native.Collection([], [e])))
-                          for e in native.extensions_of(self.machines)}
         owner_of, needs = {}, {}
         for name, owner in self.report['objects'].items():
             defined, undefined = object_symbols(read(self.package / 'analysis' / name))
@@ -123,7 +120,7 @@ class PackageVerification(unittest.TestCase):
                 if service and name not in services:
                     # The startup, generated per selection, starts a service it links.
                     user = (set(native.service_users(self.machines)) if name == 'sdk/startup.o' else
-                            extension_uses.get(name) or uses.get(owner, set()))
+                            uses.get(owner, set()))
                     self.assertTrue(user & set(users[service]), (name, symbol))
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
@@ -146,17 +143,14 @@ class PackageVerification(unittest.TestCase):
         presets = {path for m in self.linked for path in preset_files(m)}
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
-        overlay = {'content/display/openxy_overlay.svg'} if native.extensions_of(self.machines) else set()
         presets |= {path for m in self.linked for path in aux_preset_files(m)}
         self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} |
-                         overlay | presets)
+                         presets)
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',
                  *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock'),
-                 *(f'candidate/{path}' for m in self.linked for path in preset_files(m)),
-                 *(['candidate/content/display/openxy_overlay.svg']
-                   if native.extensions_of(self.machines) else [])]
+                 *(f'candidate/{path}' for m in self.linked for path in preset_files(m))]
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name

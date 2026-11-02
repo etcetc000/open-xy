@@ -27,11 +27,9 @@ MACHINES = 'open-xy.machines'
 MACHINES_VERSION = 1
 # What track control machines keep with a project, base64 by machine ID, and
 # the stock role's controls kept aside for each aux track pattern a machine took
-# over, by track and pattern index, and the SDK's snapshots (snapshots.cpp).
+# over, by track and pattern index.
 CONTROL = 'open-xy.control'
 CONTROL_VERSION = 1
-# Snapshots: slots, instrument tracks and parameter words per track (opxy/snapshots.hpp).
-SNAPSHOT_SLOTS, SNAPSHOT_TRACKS, SNAPSHOT_PARAMETERS = 10, 8, 58
 # owner.name: the owner is a GitHub user or organisation, lowercased; `open-xy` is the SDK's.
 SECTION_NAME = re.compile(r'[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)+')
 # The machine IDs a companion may list, the firmware reader's rule (project_companion.cpp
@@ -86,14 +84,11 @@ def parse(raw):
     if control and control['version'] <= CONTROL_VERSION:
         require(isinstance(control.get('machines', {}), dict) and
                 all(isinstance(v, str) for v in control.get('machines', {}).values()), f'{CONTROL}: invalid machines')
-        require(isinstance(control.get('snapshots', ''), str), f'{CONTROL}: invalid snapshots')
         try:
             for kept in control.get('machines', {}).values():
                 base64.b64decode(kept, validate=True)
         except binascii.Error as error:
             raise ValueError(f'{CONTROL}: invalid base64') from error
-        # Snapshots this version can't read are none, as the firmware reads them
-        # (snapshots_kept); the rest of the companion still stands.
     return value
 
 
@@ -144,82 +139,6 @@ def aux_kept(document, data):
             for track, patterns in section.get('aux', {}).items()}
 
 
-def encode_snapshots(slots):
-    """The firmware's snapshot encoding (snapshots.cpp) of `slots`: slot index ->
-    (eight engine words, eight tracks of 58 parameter words); b'' for none."""
-    if not slots:
-        return b''
-    require(all(0 <= slot < SNAPSHOT_SLOTS for slot in slots), 'Snapshot slot out of range')
-    out = bytearray([1]) + struct.pack('<H', sum(1 << slot for slot in slots))
-    for slot in sorted(slots):
-        engines, values = slots[slot]
-        require(len(engines) == SNAPSHOT_TRACKS and len(values) == SNAPSHOT_TRACKS and
-                all(len(track) == SNAPSHOT_PARAMETERS for track in values), 'Snapshot shape')
-        out += struct.pack('<8I', *engines)
-        for track in values:
-            for value in track:
-                word = value & 0xffffffff
-                whole = 1 if word & 0xffff else 0
-                payload = word if whole else word >> 16
-                # First byte: whole-word flag, six payload bits, continuation.
-                rest = payload >> 6
-                out.append(whole | (payload & 0x3f) << 1 | (0x80 if rest else 0))
-                while rest:
-                    low, rest = rest & 0x7f, rest >> 7
-                    out.append(low | (0x80 if rest else 0))
-    return bytes(out)
-
-
-def decode_snapshots(data):
-    """The slots encode_snapshots wrote; {} for none. Raises on a malformed encoding,
-    which the firmware reads as no snapshots."""
-    if not data:
-        return {}
-    require(len(data) >= 3 and data[0] == 1, 'Unknown snapshot encoding')
-    taken = struct.unpack_from('<H', data, 1)[0]
-    require(not taken >> SNAPSHOT_SLOTS, 'Snapshot slot out of range')
-    at, slots = 3, {}
-    for slot in range(SNAPSHOT_SLOTS):
-        if not taken >> slot & 1:
-            continue
-        require(at + 32 <= len(data), 'Truncated snapshot')
-        engines = list(struct.unpack_from('<8I', data, at))
-        at += 32
-        values = []
-        for _track in range(SNAPSHOT_TRACKS):
-            row = []
-            for _index in range(SNAPSHOT_PARAMETERS):
-                require(at < len(data), 'Truncated snapshot')
-                byte = data[at]
-                at += 1
-                whole, payload, shift = byte & 1, byte >> 1 & 0x3f, 6
-                while byte & 0x80:
-                    require(at < len(data) and shift <= 27, 'Truncated snapshot')
-                    byte = data[at]
-                    at += 1
-                    require(shift < 27 or not byte & 0x60, 'Snapshot value out of range')
-                    payload |= (byte & 0x7f) << shift
-                    shift += 7
-                require(whole or payload <= 0xffff, 'Snapshot value out of range')
-                word = payload if whole else payload << 16
-                row.append(word - (1 << 32) if word >> 31 else word)
-            values.append(row)
-        slots[slot] = (engines, values)
-    require(at == len(data), 'Trailing snapshot bytes')
-    return slots
-
-
-def snapshots_kept(document, data):
-    """The SDK's snapshots kept with these project bytes (decode_snapshots' form)."""
-    section = document['sections'].get(CONTROL)
-    if not describes(document, data) or not section or section['version'] > CONTROL_VERSION:
-        return {}
-    try:
-        return decode_snapshots(base64.b64decode(section.get('snapshots', ''), validate=True))
-    except (binascii.Error, ValueError):
-        return {}
-
-
 def translation(saved, layout):
     """Each saved (slot, number) and what it is in `layout`: the machine's own number
     there, or None when the machine is not in it, which a reader opens as FALLBACK.
@@ -240,21 +159,18 @@ def translation(saved, layout):
     return {key: None if key[0] != 'page' and claims[key] > 1 else number for key, number in result.items()}
 
 
-def companion(data, layout, previous=None, profile=None, kept=None, aux=None, snapshots=None):
+def companion(data, layout, previous=None, profile=None, kept=None, aux=None):
     """The companion for project bytes `data` saved with `layout`, what track control
     machines `kept` (bytes by machine ID) and the role's eight controls kept for `aux`
-    track patterns machines held (by track and pattern index), and the SDK's `snapshots`
-    (encode_snapshots' input), as the firmware writes it. Other
-    sections are kept from `previous` only while it still describes the same bytes."""
+    track patterns machines held (by track and pattern index), as the firmware writes
+    it. Other sections are kept from `previous` only while it still describes the same bytes."""
     sections = {}
     if previous and describes(previous, data):
         sections = {name: section for name, section in previous['sections'].items() if name != MACHINES}
     sections[MACHINES] = {'version': MACHINES_VERSION, 'profile': profile or config()['id'],
                           'machines': check_layout_numbers(layout, 'the layout')}
-    if kept or aux or snapshots:
+    if kept or aux:
         sections[CONTROL] = {'version': CONTROL_VERSION}
-    if snapshots:
-        sections[CONTROL]['snapshots'] = base64.b64encode(encode_snapshots(snapshots)).decode()
     if kept:
         sections[CONTROL]['machines'] = {name: base64.b64encode(value).decode() for name, value in kept.items()}
     if aux:
