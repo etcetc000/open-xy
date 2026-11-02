@@ -59,6 +59,14 @@
 // scene copies the current one's (measured on the device with a memory probe).
 // While a machine's track is muted, as with stock's brain, none of its
 // overlays apply; it still runs and is told (Input.muted).
+//
+// Notes: stock's live note-on 8d595738 and note-off 8d595420, called with the
+// arguments of its preview call sites (8c0a6410): source 1, flags 0, no event,
+// so stock plays them on the track as a keyboard note and never records them.
+// The SDK holds every note it starts and makes its note-off.
+//
+// Own turns: the turn hooks (synth_controls.cpp) offer each detent of a
+// track's encoders to sdk_control_turn before stock's editor sees it.
 #include "track_control.hpp"
 #include "stock.hpp"
 #include "synth_controls.hpp"
@@ -138,6 +146,21 @@ bool lock_holds(u32 track, u32 index) {
 // What each track's machine passed to its display last tick.
 i32 shown_words[control::all_tracks][control::display_words];
 
+// The notes the SDK started and has yet to end: track, pitch, the track of the
+// machine that played it and the time it has left.
+const u32 kController = 0x860c6adc;
+const u32 kNoteSource = 1;
+struct Held { u8 track, pitch, host, reserved; u32 remaining_us; };
+Held held[control::held_capacity];
+u32 held_count;
+bool was_playing;
+
+// The tracks whose machine takes its own turns, and the turns of the one
+// track that had some since its machine last ran.
+bool owning[control::all_tracks];
+u32 turn_track = kNoTrack;
+control::Turn turns[control::turn_capacity];
+u32 turn_count;
 }
 
 opxy::platform::AuxService sdk_aux;
@@ -202,6 +225,71 @@ void merge(u32 host) {
         w->value = e.value < 0 ? 0 : e.value;
     }
 }
+
+void note_on(u32 track, u32 pitch, u32 velocity) {
+    const __UINT64_TYPE__ now = stock<__UINT64_TYPE__(u32)>(0x8d59357c)(kController);
+    stock<void(u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, const void*)>(0x8d595738)(
+        kController, track, pitch, 0xf0, 0, velocity, 0, kNoteSource, static_cast<u32>(now),
+        static_cast<u32>(now >> 32), 0, nullptr);
+}
+// Ends held note `i`; the last held note takes its place.
+void release(u32 i) {
+    stock<void(u32, u32, u32, u32, u32, const void*)>(0x8d595420)(kController, held[i].track, held[i].pitch,
+                                                                  kNoteSource, 0, nullptr);
+    held[i] = held[--held_count];
+}
+void release_host(u32 host) {
+    for (u32 i = held_count; i-- > 0;)
+        if (held[i].host == host) release(i);
+}
+void age_notes(u32 us) {
+    for (u32 i = held_count; i-- > 0;) {
+        if (held[i].remaining_us <= us) release(i);
+        else held[i].remaining_us -= us;
+    }
+}
+// Starts the notes of the machine on `host`.
+void play_notes(u32 host) {
+    const u32 count = overlay.note_count < control::note_capacity ? overlay.note_count : control::note_capacity;
+    for (u32 n = 0; n < count; ++n) {
+        const control::Note& note = overlay.notes[n];
+        if (note.track >= control::tracks || note.pitch > 127 || !note.velocity || note.velocity > 127 ||
+            !note.length_us)
+            continue;
+        for (u32 i = 0; i < held_count; ++i) {
+            if (held[i].host == host && held[i].track == note.track && held[i].pitch == note.pitch) {
+                release(i);
+                break;
+            }
+        }
+        if (held_count >= control::held_capacity) continue;
+        note_on(note.track, note.pitch, note.velocity);
+        Held& h = held[held_count++];
+        h.track = note.track;
+        h.pitch = note.pitch;
+        h.host = static_cast<u8>(host);
+        h.reserved = 0;
+        h.remaining_us = note.length_us < control::longest_note_us ? note.length_us : control::longest_note_us;
+    }
+}
+
+}
+
+extern "C" bool sdk_control_turn_offer(u32 track, u32 slot, const i32* event) {
+    if (track >= control::all_tracks || !owning[track] || slot >= kEngineControls) return false;
+    const i32 step = event ? event[0] : 0;
+    if (!step) return true;
+    if (turn_track != track) {
+        turn_track = track;
+        turn_count = 0;
+    }
+    if (turn_count < control::turn_capacity) {
+        control::Turn& turn = turns[turn_count++];
+        turn.slot = static_cast<u8>(slot);
+        turn.reserved = 0;
+        turn.direction = static_cast<opxy::i16>(step > 0 ? 1 : -1);
+    }
+    return true;
 }
 
 extern "C" i32 sdk_control_display(u32 index) {
@@ -299,6 +387,9 @@ extern "C" void sdk_gui_tick() {
     ++gui_ticks;
     sdk_synth_pages();
     if (!sdk_control_machine_count && !applied_count) return;
+    // The turn hooks (synth_controls.cpp) reach this service through a pointer,
+    // set here so it is set only where the service is linked.
+    sdk_control_turn = sdk_control_turn_offer;
     // The aux service still keeps a held track's mark while a project loads.
     if (sdk_aux.tick) sdk_aux.tick();
     if (word(kProjectLoading)) return;
@@ -339,6 +430,10 @@ extern "C" void sdk_gui_tick() {
     // more than one track holds, which none runs.
     const u32 now = opxy::benchmark::cycles(), us = (now - last_cycles) / kCyclesPerMicrosecond;
     last_cycles = now;
+    age_notes(us);
+    if (was_playing && !playing)
+        while (held_count) release(held_count - 1);
+    was_playing = playing;
     wanted_count = 0;
     bool loaded = false;
     for (u32 t = 0; t < control::all_tracks; ++t) {
@@ -346,6 +441,8 @@ extern "C" void sdk_gui_tick() {
         if (m && m->unique && sdk_control_copies(t) > 1) m = nullptr;
         const u32 copy = m && !m->unique ? t : 0;
         if (m != hosts[t]) {
+            release_host(t);
+            if (turn_track == t) turn_count = 0;
             hosts[t] = m;
             timed[t] = false;
             const u32 index = m ? static_cast<u32>(m - sdk_control_machines) : 32;
@@ -353,6 +450,7 @@ extern "C" void sdk_gui_tick() {
             if (m && !started) m->reset(copy);
             if (m && m->load && index < 32) started_machines |= 1u << index;
         }
+        owning[t] = false;
         for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = 0;
         if (!m) continue;
         if (!loaded) {
@@ -364,7 +462,7 @@ extern "C" void sdk_gui_tick() {
             }
             for (u32 i = 0; i < applied_count; ++i)
                 input.values[applied[i].track][applied[i].index] = applied[i].underlying;
-            input.transport = opxy::Transport{project_bpm_x10(), word(kTicks96), byte(kPlaying) || byte(kPlaying + 1)};
+            input.transport = opxy::Transport{project_bpm_x10(), word(kTicks96), playing};
             loaded = true;
         }
         // The host's own controls as its page shows them, LFO included.
@@ -376,11 +474,23 @@ extern "C" void sdk_gui_tick() {
         input.track = t;
         input.page_key = sdk_synth_page_key(t);
         input.muted = muted(t);
+        input.shift = shift_held();
+        input.turn_count = turn_track == t ? turn_count : 0;
+        for (u32 i = 0; i < input.turn_count; ++i) input.turns[i] = turns[i];
+        if (turn_track == t) turn_count = 0;
         input.elapsed_us = timed[t] ? (us < 1000000 ? us : 1000000) : 0;
         timed[t] = true;
         overlay.count = overlay.stored_count = 0;
+        overlay.note_count = 0;
+        overlay.own_turns = 0;
         for (u32 i = 0; i < control::display_words; ++i) overlay.display[i] = 0;
         m->control(copy, &input, &overlay);
+        owning[t] = overlay.own_turns != 0;
+        if (input.muted) {
+            overlay.note_count = 0;
+            release_host(t);
+        }
+        play_notes(t);
         for (u32 p = 0; p < kEngineControls; ++p) input.values[t][p] = own[p];
         if (overlay.count > control::overlay_capacity) overlay.count = control::overlay_capacity;
         if (overlay.stored_count > control::store_capacity) overlay.stored_count = control::store_capacity;

@@ -43,7 +43,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Project companions | 7 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, gives track control machines what they kept after every load (and nothing after a new project), and shows companions beside projects over MTP |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
-| Track control | 6 | Runs a synth's track control once per GUI tick, after stock's own call at that site, notes encoder edits, shows its overlays as parameter values, and keeps overlays off a parameter a step's lock holds (three lock writes) |
+| Track control | 6 | Runs a synth's track control once per GUI tick, after stock's own call at that site, notes encoder edits, lets it play notes and take its own encoder turns, shows its overlays as parameter values, and keeps overlays off a parameter a step's lock holds (three lock writes) |
 | Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
@@ -477,6 +477,28 @@ with the new value; the setter writes the live value, the base value for synth
 tracks, and publishes. The call at `8d5ad5ae` routes through
 `sdk_param_edit_set`, which notes the parameter turned (pages show its own
 value for a moment) and always makes the original call.
+
+A machine's notes reach stock's live note-on, `8d595738(controller, track,
+pitch, a3, a4, velocity, a6, source, time_low, time_high, flags, event)`, with
+the arguments of stock's preview call sites (`8c0a6410`, `8d58e002`): the
+note controller `860c6adc`, `a3` 0xf0, `a4` 0, `a6` 0 (a step object pointer
+elsewhere), source 1, the time from `8d59357c(controller)`, flags 0 and no
+event. Flag bit 0 marks a note stock's ordinary recording may take (the
+extensions' accepted-note hook applies the same gate), so flags 0 is not
+recorded. Stock keeps sounding
+notes in a 50-entry table at `controller + 0x2a08` (count at `+ 0x3048`,
+32-byte entries: track at `+ 0xc`, pitch at `+ 0xd`, source at `+ 0x11`) and
+drops a note-on when it is full. The SDK's note-off is `8d595420(controller,
+track, pitch, source, flags, event)` with source 1, flags 0 and no event,
+which ends the table's note of that source. The SDK calls both from
+`sdk_gui_tick`, in the main loop that also calls the controller update.
+
+The turn hooks of the instrument controller (`8c0b15aa`) and the aux
+controller (`8c08fade`) offer each event of an owned synth's position, at its
+shown slot, to `sdk_control_turn` (set by the control service's GUI tick)
+before stock's editor sees it; while the track's machine takes its own turns,
+the hook records the sign of the event's first word (stock's step) and returns
+without calling stock.
 
 Every page shows a parameter's value through `8d5ac9dc(project, track, index,
 …)`. With a step held it shows that step's lock; otherwise it reads the live
