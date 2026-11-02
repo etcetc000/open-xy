@@ -526,6 +526,9 @@ def generate_track_controls(directory, machines):
     """The collection's synths with track control, as one table (track_control.hpp)."""
     # Shift + M1 on an aux track lists its stock role and every machine that may take
     # it over (aux_tracks.cpp, kChoices): refuse a build whose list would not fit.
+    for m in machines:
+        require(not track_control(m).get('aux') or m.id not in AUX_ROLES.values(),
+                f'A machine that takes over aux tracks is not named as a stock role ({m.id})')
     for track in AUX_ROLES:
         holders = [m.id for m in machines if track_control(m) and track in track_control(m).get('aux', ())]
         require(len(holders) <= AUX_CHOICES - 1,

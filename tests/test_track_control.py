@@ -138,6 +138,11 @@ class TrackControl(unittest.TestCase):
             other.definition['presets']['q32'] = {}
             with self.assertRaisesRegex(ValueError, 'at most 64 presets together'):
                 generate_track_controls(folder, [synth, other])
+            # Nor may one be named as the role it replaces.
+            from dataclasses import replace
+            other.definition['presets'] = {}
+            with self.assertRaisesRegex(ValueError, 'not named as a stock role'):
+                generate_track_controls(folder, [replace(other, id='cv')])
             synth.definition['presets'] = {'Soft': {names[0]: 0.5}, 'Full': {n: 1 for n in names}}
             # A name the list cannot show is refused.
             synth.definition['presets'] = {'A name too long to show': {}}

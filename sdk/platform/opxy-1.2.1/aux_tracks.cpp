@@ -324,9 +324,10 @@ bool field(u32 length, const char* key, u32& at) {
 bool read_preset(const char* path, u32 track, Preset& preset) {
     void* file = file_open(path);
     if (!file) return false;
-    const u32 length = file_read(text, kPresetBytes - 1, file);
+    // One byte more than a preset may hold, to tell a longer file.
+    const u32 length = file_read(text, kPresetBytes, file);
     file_close(file);
-    if (!length || length >= kPresetBytes - 1) return false;
+    if (!length || length >= kPresetBytes) return false;
     u32 at, end;
     if (!field(length, "type", at) || text[at] != '"') return false;
     for (end = at + 1; end < length && text[end] != '"'; ++end) {}
