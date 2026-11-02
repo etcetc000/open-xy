@@ -546,7 +546,7 @@ def number_layout(rules, fixed, layout, machines):
             new.append((name, kind, dict(requested), slots))
     # An effect number is also held as an engine number (occupied).
     keys = lambda slot, n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
-    # The last page is track control's marks: in the pool, so every other
+    # The last page is the SDK's extension overlay: in the pool, so every other
     # machine keeps its own place, but never given out.
     free = lambda slot, n: not (slot == 'page' and n == rules['pages'] - 1) and not any(k in holders for k in keys(slot, n))
 

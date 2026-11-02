@@ -38,7 +38,7 @@ void edit_control(const extensions::Context& context, const extensions::Control&
     actions.notify("duplicate");  // one notification per callback
     if (mode == 5) result += actions.insert_notes(context, track, &good, 1);
     if (mode == 7) result += actions.replace_notes(context, track, &good, 1);  // one write per callback
-    // One snapshot per callback, of slots 0-7 only.
+    // One snapshot per callback, of slots 0-9 only.
     if (mode == 11) taken += actions.take_snapshot(10) + actions.take_snapshot(5) + actions.take_snapshot(6);
     // A chord's black key: one snapshot, in the slot stock would number it.
     if (mode == 12) {

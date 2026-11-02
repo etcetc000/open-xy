@@ -194,6 +194,7 @@ u32 layer_held_ms;
 u32 layer_openings;  // counts openings, so a reopening starts with every node hidden
 u32 layer_key = kNone;  // a single-key claim's key, held since it opened a layer
 bool layer_single;      // the open layer is that key's
+u32 layer_took[kKeys / 32];  // keys the open layer took: only it hears their release
 u32 pending = kNone;
 
 bool taken_key(u32 key) { return key < kKeys && (key_withheld[key / 32] >> (key % 32) & 1); }
@@ -234,6 +235,7 @@ void open_layer(u32 claim, u32 entry) {
     layer_holding = true;
     layer_latched = layer_used = layer_single = false;
     layer_held_ms = 0;
+    layer_took[0] = layer_took[1] = 0;
     ++layer_openings;
     layer_send(extensions::Layer::open);
 }
@@ -282,7 +284,10 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
                 }
                 return key_taken;
             }
-            layer_send(extensions::Layer::keypress, key, false);
+            if (layer_took[key / 32] & bit) {
+                layer_took[key / 32] &= ~bit;
+                layer_send(extensions::Layer::keypress, key, false);
+            }
             return key_taken;
         }
         if (pressed) {
@@ -321,6 +326,7 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
                 if (layer_send(extensions::Layer::keypress, key, true)) {
                     if (layer_holding) layer_used = true;
                     taken |= bit;
+                    layer_took[key / 32] |= bit;
                     return key_taken;
                 }
                 // A key the owner leaves: stock's, and it ends a latched layer.
@@ -333,7 +339,12 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
 }
 
 bool extensions_knob_input(u32 knob, i32 delta) {
-    if (layer_entry == kNone || dispatching || !layer_send(extensions::Layer::turn, knob, false, delta)) return false;
+    if (layer_entry == kNone || dispatching) return false;
+    if (!layer_send(extensions::Layer::turn, knob, false, delta)) {
+        // A turn the owner leaves: stock's, and like a key it ends a latched layer.
+        if (layer_latched) close_layer();
+        return false;
+    }
     if (layer_holding) layer_used = true;
     return true;
 }

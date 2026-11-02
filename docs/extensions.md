@@ -175,7 +175,7 @@ reaches stock.
   take; and `frame` once per screen
   frame, with the milliseconds since the last, whether it is latched and how
   long the gesture has been held. A key the owner leaves goes to stock and, when
-  latched, closes the layer. While a layer is open, keys go to it first, so chord
+  latched, closes the layer; so does an encoder turn it leaves. While a layer is open, keys go to it first, so chord
   claims (metronome + black key) wait until it closes.
 - **`draw`** (`Hooks::with_draw`) paints while the layer is open, after each
   frame, on a `Canvas`: `show(node, dx, dy)`, `hide(node)` and `text(node,
