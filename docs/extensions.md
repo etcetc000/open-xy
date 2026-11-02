@@ -123,9 +123,11 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   even after the claimed key is let go. Every other key, and the claimed key
   itself, still reach stock as usual. `metronome_chord` is metronome + black key.
 - **A pair** (`"with"`) makes two keys pressed together the gesture: a chord
-  then needs both held. `minus_plus` is − and + together. Either key pressed
-  alone waits for the other, and reaches stock as a press and release when it
-  is let go, so stock sees − or + only on release while such a claim is built in.
+  then needs both held. `minus_plus` is − and + together. For the claim that
+  opens the snapshot menu (below), either key pressed alone waits for the other
+  and reaches stock as a press and release when it is let go, so stock sees − or
+  + only on release while that claim is built in. Other pair claims leave both
+  keys to stock.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one

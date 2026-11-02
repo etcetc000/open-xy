@@ -1,12 +1,13 @@
 // Snapshots: ten project-wide pictures of every instrument track's stored
 // parameters, kept by the SDK with the project.
 //
-// Taking and reading are separate on purpose. Only an extension takes a
-// snapshot, through its `snapshot` action (Actions::take_snapshot), in answer
-// to a gesture it claims. Track control machines only read snapshots, on the
-// GUI side in control(), and act on them through their ordinary overlay. A
-// snapshot never changes a track, starts no editing mode and is not a
-// parameter, so no LFO, lock or preset can take one.
+// Taking and reading are separate on purpose. An extension takes a snapshot
+// through its `snapshot` action (Actions::take_snapshot), in answer to a
+// gesture it claims, and the user takes one with Save in the SDK's snapshot
+// menu. Track control machines only read snapshots, on the GUI side in
+// control(), and act on them through their ordinary overlay. Taking a snapshot
+// never changes a track, starts no editing mode and is not a parameter, so no
+// LFO, lock or preset can take one.
 //
 // A snapshot holds each track's base values (what its page stores for the
 // current pattern, as a saved project keeps them), never an overlay, a lock or

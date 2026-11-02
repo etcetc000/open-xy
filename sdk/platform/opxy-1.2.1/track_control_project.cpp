@@ -30,7 +30,7 @@ const u32 kProjectLoading = 0x840a0528;
 
 // The whole companion, as large as the companion's own reader takes (kCompanionLimit).
 const u32 kReadBytes = 64 * 1024;
-char project_text[kReadBytes];
+char project_text[kReadBytes + 1];  // one more, to tell a longer file
 // One machine's kept bytes, as it saved them or as read back.
 unsigned char kept[opxy::control::saved_capacity];
 // The snapshots' encoding (snapshots.cpp), as written or as read back.
@@ -67,10 +67,17 @@ private:
     char buffer[256];
     u32 count = 0, total = 0;
 };
-// Room the rest of a companion may take (its envelope, the machines section and
-// other sections), which the snapshots leave free so the whole stays within the
-// companion's 64 KiB (kCompanionLimit).
-const u32 kCompanionBudget = 64 * 1024 - 8 * 1024;
+// The most the rest of a companion takes: its envelope and this section's end,
+// and the machines section after it, at most kEntryBytes for each machine the
+// collection could list. The snapshots leave it free, so the whole stays within
+// the companion's 64 KiB.
+u32 companion_budget() {
+    const u32 kFixedBytes = 1024, kEntryBytes = 128;
+    u32 machines = 0;
+    for (const opxy::platform::CompanionMachine* m = sdk_companion_machines; m->id; ++m) ++machines;
+    const u32 rest = kFixedBytes + kEntryBytes * machines;
+    return rest < kReadBytes ? kReadBytes - rest : 0;
+}
 
 // A small reader for companions any writer made: the span [at, to) of a value.
 struct Reader {
@@ -212,10 +219,10 @@ void load_kept(const char* path) {
     bool found = false;
     if (kept_files::companion_path(path) && kept_files::measure(path, bytes, crc)) {
         if (kept_files::File* file = kept_files::file_open(kept_files::companion, "rb")) {
-            length = kept_files::file_read(project_text, 1, kReadBytes, file);
+            length = kept_files::file_read(project_text, 1, kReadBytes + 1, file);
             kept_files::file_close(file);
         }
-        const Reader r = {length < kReadBytes ? length : 0};
+        const Reader r = {length <= kReadBytes ? length : 0};
         found = r.length && kept_section(r, bytes, crc, at, to);
     }
     const Reader r = {found ? length : 0};
@@ -310,7 +317,8 @@ extern "C" u32 sdk_control_kept_write(void* file) {
     if (listed) out.put("\n      },\n");
     // The snapshots, if their base64 fits what the companion has left; otherwise
     // none, so the rest of the companion still loads.
-    const u32 room = out.written() < kCompanionBudget ? (kCompanionBudget - out.written()) / 4 * 3 : 0;
+    const u32 budget = companion_budget();
+    const u32 room = out.written() < budget ? (budget - out.written()) / 4 * 3 : 0;
     const u32 snapped = opxy::platform::snapshots_encode(
         snapshot_bytes, room < opxy::platform::kSnapshotBytes ? room : opxy::platform::kSnapshotBytes);
     if (snapped) {

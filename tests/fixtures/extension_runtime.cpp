@@ -213,6 +213,12 @@ int main() {
     CHECK(extensions_key_input(1, false, 0) == key_taken && menu_count == 2);  // one still down
     CHECK(extensions_key_input(54, false, 0) == key_taken && menu_ops[2] == 5 && menu_ops[3] == 1);
     CHECK(!extensions_knob_input(0, 1));
+    // Held, one pair key let go and pressed again is still the hold; stock hears nothing.
+    menu_count = 0;
+    CHECK(extensions_key_input(54, true, 0) == key_taken && extensions_key_input(1, true, 0) == key_taken);
+    CHECK(extensions_key_input(1, false, 0) == key_taken && extensions_key_input(1, true, 0) == key_taken);
+    CHECK(extensions_key_input(54, false, 0) == key_taken && menu_count == 1);
+    CHECK(extensions_key_input(1, false, 0) == key_taken && menu_ops[1] == 5 && menu_ops[2] == 1);
     // Toggled open, any other key closes it and is stock's.
     menu_count = 0; menu_used = false;
     CHECK(extensions_key_input(1, true, 0) == key_taken && extensions_key_input(54, true, 0) == key_taken);

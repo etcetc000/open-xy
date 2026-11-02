@@ -376,9 +376,10 @@ snapshots of every instrument track's stored parameters, kept by the SDK, one pe
 black key as stock numbers them where it enters values (1 to 9, then 0). Taking
 and reading are separate:
 
-- **Only an extension takes a snapshot**, with the `snapshot` action
-  ([extensions](extensions.md#claims-and-actions)), in answer to a gesture it
-  claims. Taking one changes no track. That claim also opens the SDK's
+- **Machines never take a snapshot.** An extension takes one with the
+  `snapshot` action ([extensions](extensions.md#claims-and-actions)), in answer
+  to a gesture it claims, and the user takes one with Save in the SDK's menu.
+  Taking one changes no track. That claim also opens the SDK's
   snapshot menu ([extensions](extensions.md#claims-and-actions)), whose Load
   writes a slot back to the tracks that still hold its engines.
 - **Track control machines only read them**, on the GUI side in `control()`:

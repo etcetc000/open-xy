@@ -241,6 +241,12 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
             const bool menu = menu_claim(claim, partner);
             if (menu && partner && (key == claim || key == partner)) {
                 const u32 other = key == claim ? partner : claim;
+                // A pair key let go and pressed again while the other still holds
+                // the menu open: still the hold.
+                if (menu_holding && menu_taken(other)) {
+                    taken |= bit;
+                    return key_taken;
+                }
                 if (pending == other) {
                     pending = 0;
                     if (menu_open) {
