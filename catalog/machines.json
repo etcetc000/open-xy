@@ -74,15 +74,22 @@
       "maintainer": "Gokux",
       "status": "published",
       "repository": "https://github.com/Gokux/opxy-machines",
-      "tag": "v1.1.3",
-      "commit": "fea3e3300624ed54a7fd1b8def0a8f3384819f9a",
+      "tag": "v1.1.4",
+      "commit": "050fe65358392cbb7d3c51adf9e4dc1a9660aa91",
       "path": "drone",
       "cpu": {
-        "benchmark": "opxy-synth-c8-v1",
-        "commit": "fea3e3300624ed54a7fd1b8def0a8f3384819f9a",
-        "firmware_sha256": "8b78113b8f3034bed59b181d2df04740a3001b7baec460245a8b25462aece9f2",
-        "runs": 3,
-        "block_percent": 2.616922
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "050fe65358392cbb7d3c51adf9e4dc1a9660aa91",
+        "firmware_sha256": "733d542a3371331563bad0036807741c57bc003ba14f38598a1b996a790d5ae3",
+        "runs": 1,
+        "block_percent": 3.445487,
+        "midpoint_percent": 2.914473,
+        "combined_percent": 2.662699,
+        "worst_setting": {
+          "control": 6,
+          "label": "Fifth",
+          "value": 1610612735
+        }
       }
     },
     {
@@ -91,15 +98,22 @@
       "maintainer": "Gokux",
       "status": "published",
       "repository": "https://github.com/Gokux/opxy-machines",
-      "tag": "v1.1.3",
-      "commit": "fea3e3300624ed54a7fd1b8def0a8f3384819f9a",
+      "tag": "v1.1.4",
+      "commit": "050fe65358392cbb7d3c51adf9e4dc1a9660aa91",
       "path": "solar",
       "cpu": {
-        "benchmark": "opxy-synth-c8-v1",
-        "commit": "fea3e3300624ed54a7fd1b8def0a8f3384819f9a",
-        "firmware_sha256": "8b78113b8f3034bed59b181d2df04740a3001b7baec460245a8b25462aece9f2",
-        "runs": 3,
-        "block_percent": 2.363622
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "050fe65358392cbb7d3c51adf9e4dc1a9660aa91",
+        "firmware_sha256": "733d542a3371331563bad0036807741c57bc003ba14f38598a1b996a790d5ae3",
+        "runs": 1,
+        "block_percent": 4.855421,
+        "midpoint_percent": 2.876326,
+        "combined_percent": 4.165713,
+        "worst_setting": {
+          "control": 1,
+          "label": "Volt",
+          "value": 1610612735
+        }
       }
     },
     {
@@ -108,15 +122,22 @@
       "maintainer": "Gokux",
       "status": "published",
       "repository": "https://github.com/Gokux/opxy-machines",
-      "tag": "v1.1.3",
-      "commit": "fea3e3300624ed54a7fd1b8def0a8f3384819f9a",
+      "tag": "v1.1.4",
+      "commit": "050fe65358392cbb7d3c51adf9e4dc1a9660aa91",
       "path": "papasrapa",
       "cpu": {
-        "benchmark": "opxy-synth-c8-v1",
-        "commit": "fea3e3300624ed54a7fd1b8def0a8f3384819f9a",
-        "firmware_sha256": "8b78113b8f3034bed59b181d2df04740a3001b7baec460245a8b25462aece9f2",
-        "runs": 3,
-        "block_percent": 2.999924
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "050fe65358392cbb7d3c51adf9e4dc1a9660aa91",
+        "firmware_sha256": "733d542a3371331563bad0036807741c57bc003ba14f38598a1b996a790d5ae3",
+        "runs": 1,
+        "block_percent": 3.463798,
+        "midpoint_percent": 3.405814,
+        "combined_percent": 2.80766,
+        "worst_setting": {
+          "control": 2,
+          "label": "Divider",
+          "value": 268435455
+        }
       }
     },
     {
