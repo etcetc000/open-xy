@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "base": "opxy-1.2.1",
+  "hooks": [
+    {
+      "kind": "hook",
+      "name": "MTP module files alongside unchanged stock project rules",
+      "address": "0x8d5c1d9e",
+      "file_offset": "0x1f8ff6",
+      "length": 4,
+      "before": "ffe309ff",
+      "symbol": "sdk_module_mtp_match",
+      "call": true
+    }
+  ]
+}

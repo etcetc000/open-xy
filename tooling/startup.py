@@ -14,7 +14,7 @@ def _declare(name, signature='()'):
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False):
+           control=False, aux=False, module_probe=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -35,6 +35,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     for prefix in (*prefixes, *effects, *player_pages):
         require(re.fullmatch(r'[a-z][a-z0-9_]{0,31}', prefix) is not None, 'Invalid engine prefix')
     declarations = [_declare(prefix + '_fx_register') for prefix in effects]
+    if module_probe:
+        declarations.append('void sdk_module_probe() __asm__("sdk_module_probe");')
     declarations += [_declare(prefix + '_screen_register') for prefix in player_pages]
     require(set(effect_screens) <= set(effects), 'Effects with their own page must be listed effects')
     for prefix in effect_screens:
@@ -78,7 +80,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned), SAMPLE_SCREENS='\n'.join(sample),
-                  EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
+                  EFFECTS='\n'.join((['    sdk_module_probe();'] if module_probe else []) +
+                                    [f'    {prefix}_fx_register();' for prefix in effects]),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
                   SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
                   PROJECT_KEPT=kept,
@@ -92,8 +95,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False):
+             control=False, aux=False, module_probe=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux), encoding='utf-8', newline='\n')
+                                  control, aux, module_probe), encoding='utf-8', newline='\n')
     return destination

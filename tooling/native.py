@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
+from . import benchmark, extensions, module_runtime, runtime, screen, startup_label, stock_tables
 from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -62,9 +62,10 @@ class Collection(list):
     """A build's machines, in firmware order, and the extensions it links, in
     callback order (`extensions`). A subset of its machines keeps its extensions."""
 
-    def __init__(self, machines=(), extensions_=()):
+    def __init__(self, machines=(), extensions_=(), *, module_probe=False):
         super().__init__(machines)
         self.extensions = tuple(extensions_)
+        self.module_probe = module_probe
 
 
 def extensions_of(machines):
@@ -74,19 +75,21 @@ def extensions_of(machines):
 
 def subset(machines, chosen):
     """Some of a collection's machines, with all of its extensions."""
-    return Collection(chosen, extensions_of(machines))
+    return Collection(chosen, extensions_of(machines), module_probe=getattr(machines, 'module_probe', False))
 
 
-def configuration(entries=None, layout=None):
+def configuration(entries=None, layout=None, module_probe=False):
     """The profile, the collection's machines numbered by the layout (a Collection,
     carrying its extensions), and their link-time IDs. Entries are
     machines.read_collection's."""
-    profile = config()
+    require(type(module_probe) is bool, 'Module probe flag must be a boolean')
+    profile = module_runtime.profile(config()) if module_probe else config()
     stock_tables.check_profile(profile)
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
-        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
+        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]),
+        module_probe=module_probe)
     definitions = dict(DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
@@ -200,6 +203,11 @@ def plan(machines, profile=None):
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
+    if getattr(machines, 'module_probe', False):
+        units += [('sdk/module_loader.o', None, 'module_loader'),
+                  ('sdk/module_probe.o', None, 'module_probe'),
+                  ('sdk/module_mtp.o', None, 'module_mtp'),
+                  ('sdk/module_cache.o', None, 'module_cache')]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
@@ -442,6 +450,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         if m is None:
             if step == 'drum_callbacks':
                 return cxx(str(generate_drum_callbacks(folder, machines)), obj)
+            if step == 'module_loader':
+                return cxx('sdk/platform/module_loader.cpp', obj)
             if step == 'benchmark':
                 return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
             if step.startswith('extension:'):
@@ -483,7 +493,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 [x.prefix for x in sample_engines if x.display != 'stock'],
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
-                                                control='control' in services, aux='aux' in services)), obj)
+                                                control='control' in services, aux='aux' in services,
+                                                module_probe=getattr(machines, 'module_probe', False))), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -930,7 +941,9 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
     require(type(profiling) is bool, 'Manifest profiling must be a boolean')
     sweep = manifest.get('benchmark_sweep', False)
     require(sweep is True or 'benchmark_sweep' not in manifest, 'Manifest benchmark_sweep must be true when present')
-    profile, machines, definitions = configuration(package_collection(package), package_layout(package))
+    module_probe = manifest.get('module_probe', False)
+    require(type(module_probe) is bool, 'Manifest module_probe must be a boolean')
+    profile, machines, definitions = configuration(package_collection(package), package_layout(package), module_probe)
     with tempfile.TemporaryDirectory(prefix='opxy-verify-') as temporary:
         temporary = Path(temporary)
         module, report, patch_profile = compile_collection(temporary, toolchain, compiler, profile, machines,
@@ -967,7 +980,7 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
 
 
 def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True, sweep=False,
-          overwrite=False):
+          overwrite=False, module_probe=False):
     """A firmware package. Its machines take their numbers from `layout` (by machine ID);
     the package's layout.json is that layout after this build, for the next one. Only a
     package for hardware profiling sweeps synth controls: `sdk.py build` turns it on with
@@ -975,7 +988,7 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     never check the sweep override."""
     require(type(profiling) is bool, 'Profiling must be a boolean')
     entries = [] if entries is None else entries
-    profile, machines, definitions = configuration(entries, layout)
+    profile, machines, definitions = configuration(entries, layout, module_probe)
     require(not any(m.contains(out) for m in machines), 'Keep build output outside every machine folder')
     stock = read(stock_os)
     require(sha(stock) == profile['stock_sha256'], 'Stock OS hash mismatch')
@@ -999,6 +1012,7 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
         (output / 'runtime.LICENSE').write_bytes(read(ROOT / 'sdk/platform/blackfin/runtime.LICENSE'))
         tracked.append('runtime.LICENSE')
     save_json(output / 'manifest.json', dict(schema=1, target=TARGET, version=version, collection=entries, profiling=profiling,
+                                             **({'module_probe': True} if module_probe else {}),
                                              **({'benchmark_sweep': True} if sweep else {}),
                                              **({'layout': layout} if layout else {}),
                                              files={name: sha(read(output / name)) for name in tracked}))
@@ -1044,6 +1058,9 @@ def main(argv=None, command=None):
         parser.add_argument('--stock-content', type=Path, default=STOCK_CONTENT,
                             help="the folder holding op1_factory.json (default: this repository's copy)")
     if command != 'verify':  # a package records its own collection
+        parser.add_argument('--module-probe', action='store_true',
+                            help='diagnostic: load /projects/openxy/test.opx on each processor role at startup, '
+                                 'call its init and report')
         parser.add_argument('--profiling', choices=('on', 'off'), default='on',
                             help='per-voice diagnostic timing (default: on for SDK development builds)')
         parser.add_argument('--sweep', choices=('on', 'off'),
@@ -1068,7 +1085,8 @@ def main(argv=None, command=None):
         # A package records the collection it was built from.
         entries = package_collection(args.package) if command == 'verify' else selected_collection(args)
         layout = read_layout(args.layout) if command != 'verify' and args.layout else None
-        profile, machines, definitions = configuration(entries, layout)
+        module_probe = document(args.package / 'manifest.json').get('module_probe', False) if command == 'verify' else args.module_probe
+        profile, machines, definitions = configuration(entries, layout, module_probe)
         tools = resolve_toolchain(args.toolchain, args.compiler)
         tool_paths(tools[0])
         compiler_paths(tools[1])
@@ -1091,7 +1109,7 @@ def main(argv=None, command=None):
             print(json.dumps(verification(stock, catalog, args.package.resolve(), *tools), indent=2))
         else:
             output, result = build(args.out, *tools, args.stock_os, args.stock_content, entries, layout,
-                                   args.profiling == 'on', sweep, args.overwrite)
+                                   args.profiling == 'on', sweep, args.overwrite, module_probe)
             print(json.dumps(result, indent=2))
             print('Local experimental package: ' + str(output))
             candidate = output / 'candidate'

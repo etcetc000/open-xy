@@ -1,0 +1,83 @@
+#include "module_loader.hpp"
+namespace opxy { namespace modules {
+namespace {
+u32 get32(const unsigned char* p) { return p[0] | p[1] << 8 | p[2] << 16 | u32(p[3]) << 24; }
+u16 get16(const unsigned char* p) { return u16(p[0] | p[1] << 8); }
+void put16(unsigned char* p, u32 v) { p[0] = static_cast<unsigned char>(v); p[1] = static_cast<unsigned char>(v >> 8); }
+void put32(unsigned char* p, u32 v) { put16(p, v); put16(p + 2, v >> 16); }
+
+struct Trailer {
+    u32 image_offset, image_bytes, bss_bytes, reloc_offset, reloc_count, init_offset, crc, os;
+    u16 format, size;
+};
+
+Trailer parse(const unsigned char* p) {
+    // manifest_size at offset 0 is reserved and ignored.
+    Trailer t;
+    t.image_offset = get32(p + 4); t.image_bytes = get32(p + 8); t.bss_bytes = get32(p + 12);
+    t.reloc_offset = get32(p + 16); t.reloc_count = get32(p + 20); t.init_offset = get32(p + 24);
+    t.crc = get32(p + 28); t.os = get32(p + 32); t.format = get16(p + 36); t.size = get16(p + 38);
+    return t;
+}
+}
+
+u32 crc32(u32 crc, const unsigned char* data, u32 bytes) {
+    crc = ~crc;
+    while (bytes--) {
+        crc ^= *data++;
+        for (int k = 0; k < 8; ++k) crc = crc >> 1 ^ (0xedb88320u & (0u - (crc & 1)));
+    }
+    return ~crc;
+}
+
+Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory, Module& out) {
+    out = Module{nullptr, nullptr, 0, 0, 0};
+    if (!data || bytes < trailer_bytes) return short_file;
+    const unsigned char* tail = data + bytes - trailer_bytes;
+    for (u32 i = 0; i < 8; ++i) if (tail[40 + i] != magic[i]) return bad_trailer;
+    const Trailer t = parse(tail);
+    if (t.format != format || t.size != trailer_bytes) return bad_trailer;
+    if (t.os != os) return wrong_os;
+    const u32 end = bytes - trailer_bytes;
+    if ((t.image_offset | t.image_bytes) & 3 || !t.image_bytes ||
+        t.image_offset > end || t.image_bytes > end - t.image_offset ||
+        t.reloc_offset > end || t.reloc_count > (end - t.reloc_offset) / sizeof(Reloc) ||
+        t.init_offset >= t.image_bytes || (t.init_offset & 1) ||
+        t.bss_bytes > 0x01000000u || t.image_bytes > 0x01000000u) return bad_layout;
+    const unsigned char* image = data + t.image_offset;
+    const unsigned char* relocs = data + t.reloc_offset;
+    const u32 reloc_bytes = t.reloc_count * u32(sizeof(Reloc));
+    if (crc32(crc32(0, image, t.image_bytes), relocs, reloc_bytes) != t.crc) return bad_crc;
+
+    const u32 need = t.image_bytes + t.bss_bytes;
+    const u32 rounded = (need + line_bytes - 1) & ~(line_bytes - 1);
+    unsigned char* block = memory.allocate ? memory.allocate(memory.context, rounded + line_bytes - 1) : nullptr;
+    if (!block) return no_space;
+    typedef __UINTPTR_TYPE__ Address;
+    const Address aligned = (reinterpret_cast<Address>(block) + line_bytes - 1) & ~Address(line_bytes - 1);
+    unsigned char* target = reinterpret_cast<unsigned char*>(aligned);
+    const u32 base = static_cast<u32>(aligned);
+
+    for (u32 i = 0; i < t.image_bytes; ++i) target[i] = image[i];
+    for (u32 i = t.image_bytes; i < rounded; ++i) target[i] = 0;
+    for (u32 i = 0; i < t.reloc_count; ++i) {
+        const u32 where = get32(relocs + i * 8), value = get32(relocs + i * 8 + 4);
+        const u32 offset = where & 0x0fffffffu, type = where >> 28;
+        const u32 width = type == abs32 ? 4 : 2;
+        if (offset > t.image_bytes - width || value > need ||
+            (type != abs32 && type != hi16 && type != lo16)) {
+            memory.release(memory.context, block);
+            return bad_reloc;
+        }
+        const u32 address = base + value;
+        if (type == abs32) put32(target + offset, address);
+        else put16(target + offset, type == hi16 ? address >> 16 : address & 0xffffu);
+    }
+    if (!memory.synchronize || !memory.synchronize(memory.context, base, rounded)) {
+        memory.release(memory.context, block);
+        return io_error;
+    }
+    out = Module{block, target, base, rounded, base + t.init_offset};
+    return loaded;
+}
+}}
