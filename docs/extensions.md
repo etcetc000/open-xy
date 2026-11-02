@@ -148,9 +148,10 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     control service, which keeps them with the project.
 
     The claim of an extension holding `snapshot` also opens the SDK's snapshot
-    menu, styled after stock's bar menu: held, for as long as the key (or pair)
-    is held; tapped, until it is pressed again or any other key is, which then
-    does its usual job. While it is open the menu takes the black keys (select
+    menu, styled after stock's bar menu, for as long as its key is held. A pair
+    claim's menu also stays open when the pair is tapped, until the pair is
+    pressed again or any other key is, which then does its usual job; a single
+    key's tap closes it and reaches stock. While it is open the menu takes the black keys (select
     a slot), encoder 1 (step through slots), and M1-M4 (save, load, clear,
     clear all). Load writes the slot's values to every track that still holds
     the engine it held when saved; the others stay as they are.

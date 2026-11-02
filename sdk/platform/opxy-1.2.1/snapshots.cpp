@@ -198,7 +198,8 @@ u32 sdk_snapshot_menu(u32 op, i32 arg) {
             menu.active = menu.selected;
             flash(kFlashSaved, menu.selected);
         }
-        if (arg == kMenuLoad && snapshot_load(menu.selected)) {
+        // A slot no track can take back loads nothing, and says so (fits 0/8).
+        if (arg == kMenuLoad && snapshot_fits(menu.selected) && snapshot_load(menu.selected)) {
             menu.active = menu.selected;
             flash(kFlashLoaded, menu.selected);
         }
