@@ -7,9 +7,10 @@ the sound or see the screen.
 
 Report a failure with the section, the line and what you saw. A photo of the screen helps.
 
-This file starts with the checks every @KIND@ needs. Adapt them as the machine grows: name its controls
-where a line says "each control", remove lines that can't apply, and add the machine's own sections
-before [Saving and loading](#saving-and-loading). Note the SDK commit and firmware each full pass used.
+**This checklist is an example to rewrite for your machine**: it starts with the checks
+every @KIND@ needs. Adapt them as the machine grows: name its controls where a line says "each control",
+remove lines that can't apply, and add the machine's own sections before
+[Saving and loading](#saving-and-loading). Note the SDK commit and firmware each full pass used.
 
 AI agents working on the machine's code keep this file up to date as they go: each change that adds,
 removes or alters something a person would check on the device updates its lines here.
