@@ -18,7 +18,7 @@ using opxy::platform::SampleMachine;
 
 const SampleMachine sdk_sample_machines[] = {
 @MACHINES@
-    {nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr}
+    {nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr}
 };
 // The terminating entry keeps the array nonempty for a collection without sample machines.
 const u32 sdk_sample_machine_count = sizeof(sdk_sample_machines) / sizeof(sdk_sample_machines[0]) - 1;

@@ -68,7 +68,7 @@ class Device:
         get(None, ct.byref(count))
         ids = (ct.c_void_p * count.value)()
         if count.value:
-            get(ids, ct.byref(count))
+            get(ct.cast(ids, ct.POINTER(ct.c_wchar_p)), ct.byref(count))
         names = []
         for pointer in ids[:count.value]:
             names.append(ct.wstring_at(pointer))

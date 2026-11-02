@@ -15,7 +15,7 @@ from machine_fixtures import fixture
 class Generation(unittest.TestCase):
     def test_optional_services_are_explicit_integer_flags(self):
         definition = copy.deepcopy(fixture('probesample').definition)
-        for key in ('sampleAnalysis', 'chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput'):
+        for key in ('sampleAnalysis', 'chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming'):
             for value in (True, -1, 2, '1', None):
                 invalid = copy.deepcopy(definition)
                 invalid['resources'][key] = value
@@ -30,6 +30,12 @@ class Generation(unittest.TestCase):
         del drum_only['resources']['padSettings']
         with self.assertRaisesRegex(ValueError, 'padSettings'):
             validate_definition(drum_only, 'sample')
+        timed = copy.deepcopy(definition)
+        timed['resources']['sliceTiming'] = 1
+        validate_definition(timed, 'sample')
+        timed['resources']['drumControls'] = 0
+        with self.assertRaisesRegex(ValueError, 'sliceTiming needs drumControls'):
+            validate_definition(timed, 'sample')
         definition['resources'] = {'voiceCapacity': 256}
         validate_definition(definition, 'sample')
 
@@ -79,6 +85,14 @@ class Generation(unittest.TestCase):
         self.assertIn('probesample_engine_id, probesample_page_id, 1};', text)
         self.assertIn('int probesample_ready() { return sdk_engine_ready(&record, nullptr); }', text)
         self.assertNotIn('screen', text)
+
+    def test_a_drawing_engine_stays_on_the_samplers_page(self):
+        m = replace(fixture('probesample'), display='drawing', identity=dict(engine=46, page=90))
+        self.assertEqual(m.sample_page, 2)
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIn('probesample_engine_id, 2, probesample_ready',
+                          adapters.generate_sample_callbacks(directory, [m]).read_text(encoding='utf-8'))
+        self.assertEqual(fixture('probesample').sample_page, fixture('probesample').identity['page'])
 
     def test_catalog_entry_and_stock_page_startup(self):
         entry = json.loads(adapters.catalog_entry(fixture('probesample')).strip().lstrip(','))

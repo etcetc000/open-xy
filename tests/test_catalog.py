@@ -41,13 +41,20 @@ class Validation(unittest.TestCase):
                 catalog.validate(document(broken))
 
     def test_fields_are_checked(self):
-        for change in (dict(id='Bad'), dict(id='sdk_probe'), dict(kind='player'), dict(identity=dict(engine=36, page=85)),
+        for change in (dict(id='Bad'), dict(id='sdk_probe'), dict(kind='unknown'), dict(identity=dict(engine=36, page=85)),
                        dict(maintainer='not a user'), dict(repository='https://example.com/a/b'),
                        dict(repository='https://github.com/someone/..'),
                        dict(repository='git@github.com:a/b'), dict(commit='abc'), dict(tag='v 1'),
                        dict(path='../x'), dict(path='/x')):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 catalog.validate(document(dict(PUBLISHED, **change)))
+
+    def test_player_catalog_has_no_audio_render_cpu_record(self):
+        player = dict(PUBLISHED, kind='player')
+        catalog.validate(document(player))
+        catalog.changes([], [player])
+        with self.assertRaisesRegex(ValueError, 'audio cpu'):
+            catalog.validate(document(dict(player, cpu={})))
 
     def test_ids_are_held_once(self):
         other = dict(PUBLISHED, id='other')
@@ -142,6 +149,17 @@ class Fetching(unittest.TestCase):
         (m.root / 'engine.cpp').write_text('// hidden\n', encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'changed'):
             catalog.fetch(self.entry, self.cache)
+
+    def test_prune_keeps_only_the_pinned_folders(self):
+        m = catalog.fetch(self.entry, self.cache)
+        earlier = self.cache / 'probe-0123456789ab'
+        catalog.git('clone', '-q', str(self.repository), str(earlier))
+        (self.cache / 'probe-fedcba987654.partial').mkdir()
+        (self.cache / 'collection.json').write_text('{}', encoding='utf-8')
+        self.assertEqual(catalog.prune(self.cache, [m.root]), ['probe-0123456789ab', 'probe-fedcba987654.partial'])
+        self.assertEqual(sorted(p.name for p in self.cache.iterdir()),
+                         sorted(['collection.json', m.root.relative_to(self.cache.resolve()).parts[0]]))
+        self.assertEqual(catalog.fetch(self.entry, self.cache).root, m.root)
 
     def test_an_interrupted_fetch_is_started_again(self):
         broken = self.cache / f"probe-{self.entry['commit'][:12]}"

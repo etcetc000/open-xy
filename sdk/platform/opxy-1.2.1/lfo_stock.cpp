@@ -23,7 +23,7 @@ i32 value(u32 project, u32 track, u32 index) {
     return stock<i32(u32, u32, u32)>(0x8d5ac910)(project, track, index);
 }
 u32 publish(u32 project, u32 track, u32 index, i32 value) {
-    return stock<u32(u32, u32, u32, i32)>(0x8d5acf28)(project, track, index, value);
+    return set_parameter(project, track, index, value);
 }
 void modulation_slot(u32 index) {
     // 11a04250 stores the destination here; 11a04618 loads it for the

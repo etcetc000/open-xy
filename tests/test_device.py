@@ -135,6 +135,61 @@ class DeviceTransferTests(unittest.TestCase):
         self.assertNotIn('op1_factory.json', device.writes, 'An unchanged file is not rewritten')
         self.assertTrue(all(x['verified'] for x in self.record()['files']))
 
+    def test_explicit_unchecked_cli_never_reads_or_backs_up(self):
+        device = FakeDevice({'/OS.LDR': b'old os', '/content/keep.txt': b'keep'})
+        device.read = mock.Mock(side_effect=AssertionError('No device reads allowed'))
+        transfer.main(['push', str(self.source), '--record', str(self.temp / 'record'),
+                       '--no-backup', '--no-verify'], connect=lambda: device)
+        device.read.assert_not_called()
+        self.assertEqual(device.get('/OS.LDR'), b'new os')
+        self.assertEqual(device.get('/content/display/mine.svg'), b'<svg/>')
+        self.assertEqual(device.get('/content/keep.txt'), b'keep')
+        self.assertFalse((self.temp / 'record/before').exists())
+        report = self.record()
+        self.assertTrue(report['complete'])
+        self.assertTrue(all(x['written'] and not x['verified'] for x in report['files']))
+
+    def test_unchecked_failure_records_partial_transfer_without_rollback(self):
+        device = FakeDevice({'/os.ldr': b'old os'})
+        device.read = mock.Mock(side_effect=AssertionError('No device reads allowed'))
+        device.fail_on = 'os.ldr'
+        with self.assertRaises(OSError) as caught:
+            transfer.push_unchecked(device, self.files(), self.temp / 'record')
+        self.assertIn('no backups or rollback', caught.exception.device_state)
+        self.assertFalse(self.record()['complete'])
+        self.assertTrue(self.record()['files'][-1]['started'])
+        self.assertFalse(self.record()['files'][-1]['written'])
+        self.assertEqual(device.get('/content/display/mine.svg'), b'<svg/>')
+        self.assertIsNone(device.get('/os.ldr'))
+        device.read.assert_not_called()
+
+    def test_unchecked_flags_must_be_paired_before_connecting(self):
+        connect = mock.Mock(side_effect=AssertionError('Must not connect'))
+        for flag in ('--no-backup', '--no-verify'):
+            with self.subTest(flag=flag), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                transfer.main(['push', str(self.source), flag], connect=connect)
+        connect.assert_not_called()
+
+    def test_unchecked_preflight_refuses_pending_update_and_path_conflicts(self):
+        for index, device in enumerate((FakeDevice({'/update.tfw': b'x'}),
+                                        FakeDevice(folders=['/os.ldr']),
+                                        FakeDevice({'/content': b'file'}))):
+            with self.subTest(index=index), self.assertRaises(ValueError) as caught:
+                transfer.push_unchecked(device, self.files(), self.temp / f'record{index}')
+            self.assertEqual(caught.exception.device_state, 'nothing was written to the device')
+            self.assertEqual(device.writes, [])
+
+    def test_unchecked_interrupt_reports_partial_device_state(self):
+        device = FakeDevice({'/os.ldr': b'old os'})
+        device.interrupt = 'os.ldr'
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            transfer.main(['push', str(self.source), '--record', str(self.temp / 'record'),
+                           '--no-backup', '--no-verify'], connect=lambda: device)
+        self.assertIn('FAIL: interrupted; transfer incomplete', err.getvalue())
+        self.assertFalse(self.record()['complete'])
+        self.assertFalse(self.record()['files'][-1]['written'])
+
     def test_failed_write_restores_replaced_files(self):
         device = FakeDevice({'/os.ldr': b'old os', '/content/op1_factory.json': b'old'})
         device.fail_on = 'os.ldr'  # Written last, after the other two succeeded.

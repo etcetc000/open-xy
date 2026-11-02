@@ -111,13 +111,13 @@ def main():
         selected = [m for m in kit['machines'] if m['id'] in result['selected']]
         catalog = json.loads((content / 'op1_factory.json').read_bytes())
         for machine in selected:
-            key = 'fx_types' if machine['kind'] == 'effect' else 'engine_types'
+            key = {'effect': 'fx_types', 'player': 'seq_types'}.get(machine['kind'], 'engine_types')
             catalog[key].append(json.loads(machine['catalog'].strip().lstrip(',')))
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
         for machine in selected:
-            if machine['kind'] != 'effect':
+            if machine['kind'] in ('synth', 'drum', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'
                 data = (prefix / name).read_bytes()
                 preset = json.loads(data)
@@ -126,7 +126,7 @@ def main():
                     require(preset == own['default'], 'Machine preset differs: default')
                 else:
                     definition = definitions[machine['id']]
-                    defaults = catalog_defaults(definition)
+                    defaults = [16384] * 8 if machine['kind'] == 'drum' else catalog_defaults(definition)
                     entry = json.loads(machine['catalog'].strip().lstrip(','))
                     require(preset['type'] == entry['type'] and preset['platform'] == 'OP-XY' and
                             preset['version'] == 4 and preset['engine']['params'] == defaults and

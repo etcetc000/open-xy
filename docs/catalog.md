@@ -21,8 +21,11 @@ effect and page numbers are not the catalog's: each firmware's
 | `status` | `reserved`: the ID is held for a machine being written. `draft`: its release is pinned for review but not built into kits or firmware. `published`: built from its release. `retired`: no longer built; its ID stays held |
 | `repository`, `tag`, `commit`, `path` | A draft or published machine's release: `https://github.com/<owner>/<repo>`, the tag, its full commit SHA, and the machine's folder in the repository (`.` at the root). A retired entry may keep them |
 
-New or changed draft/published entries also require a `cpu` record generated
-from [hardware profiling](profiling.md), for every machine kind; a synth's is a
+Note players carry no audio-render CPU record; their note transforms are not
+covered by the profiler.
+
+New or changed draft/published instrument/effect entries require a `cpu` record generated
+from [hardware profiling](profiling.md), for synth, sample and effect machines; a synth's is a
 control sweep that records its heaviest setting. Results above the recommended
 3.5% of the block budget are accepted with a warning. That guide owns
 the field schema, workloads and contributor commands. Unchanged legacy entries
@@ -49,8 +52,8 @@ show a short notice about support and possible instability or unexpected audio.
 | Command | Does |
 | --- | --- |
 | `python sdk.py catalog check [--base <ref>] [--allow-control-changes]` | Validates the catalog. With `--base`, also against an earlier catalog: every entry stays, with its kind, and its status only moves forward, except published back to draft; a published machine whose commit moved is fetched at both commits and its [controls compared](#controls) |
-| `python sdk.py catalog fetch [--tags]` | Fetches every published machine at exactly its commit into `local/catalog/`, checks it matches its entry and writes `local/catalog/collection.json`: every published machine, in catalog order. `--tags` also confirms each tag still names its commit |
-| `python sdk.py catalog test [--tags]` | Fetches, then runs [`sdk.py test`](first-machine.md#what-you-own) on every published machine |
+| `python sdk.py catalog fetch [--tags] [--prune]` | Fetches every published machine at exactly its commit into `local/catalog/`, checks it matches its entry and writes `local/catalog/collection.json`: every published machine, in catalog order. `--tags` also confirms each tag still names its commit; `--prune` then deletes fetched folders the catalog no longer pins |
+| `python sdk.py catalog test [--tags] [--changed-from <revision>] [--jobs <n>] [--no-cpu]` | Fetches, then runs [`sdk.py test`](first-machine.md#what-you-own) on every published machine. `--changed-from` tests only the entries that differ from the catalog at that git revision, as CI does for a pull request that changes only the catalog; `--jobs` checks several folders at once |
 
 A fetched folder that changed is refused; delete it to fetch again. Pass the
 collection to any build command:

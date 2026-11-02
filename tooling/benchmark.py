@@ -3,16 +3,38 @@ from pathlib import Path
 import struct
 
 from .cpu import control_defaults, sweep
+from .definitions import shift_parameters
 from .pipeline import ROOT
 from .formats import require
 
 METHODS = {'synth': ('opxy-synth-c8-v1', 5), 'effect': ('opxy-effect-callback-v1', 7),
-           'sample': ('opxy-sample-callback-v1', 3)}
+           'sample': ('opxy-sample-callback-v1', 3), 'drum': ('opxy-drum-callback-v1', 3)}
 # A sweep build's extra synth runs: the stock workload, one control at a time.
 SWEEP = 'opxy-synth-c8-sweep-v1'
 
 STOCK = [('prism', 18), ('simple', 32), ('hardsync', 19), ('dissolve', 20),
          ('axis', 22), ('organ', 6), ('epiano', 7), ('wavetable', 31), ('chord', 13)]
+
+
+def benchmarked(machines):
+    return [m for m in machines if m.kind in METHODS]
+
+
+# A drum run's levels, in the order the workload plays them: every control of the voice.
+DRUM_LEVELS = (64, 0, 127)
+
+
+def drum_cases(m):
+    """A kit's runs in order, each a report: the kit's own keys at full polyphony; one
+    voice of every model at each level; retriggers on one key (the same-key choke) with
+    the heaviest of those; and full polyphony of it."""
+    count = m.definition['resources']['modelCount']
+    voices = max(m.definition['resources']['voiceCapacity'], 2)
+    runs = [dict(run='kit', voices=voices)]
+    for model in range(count):
+        for level in DRUM_LEVELS:
+            runs.append(dict(run='voice', voices=1, model=model, level=level))
+    return runs + [dict(run='choke', voices=2), dict(run='ceiling', voices=voices)]
 
 
 def sweep_settings(m):
@@ -33,9 +55,12 @@ def cases(machines, sweep=False):
     build a synth's swept settings follow its standard run, then one run with every
     control at the position that ran heaviest (combined_positions)."""
     result = [dict(name=name, engine=engine, source='stock') for name, engine in STOCK]
-    for m in machines:
+    for m in benchmarked(machines):
         case = dict(name=m.id, engine=m.identity.get('engine', m.identity.get('effect')), source='sdk',
                     kind=m.kind, benchmark=METHODS[m.kind][0], metric=METHODS[m.kind][1])
+        if m.kind == 'drum':
+            result += [dict(case, drum=run) for run in drum_cases(m)]
+            continue
         result.append(case)
         swept = sweep_settings(m) if sweep and m.kind == 'synth' else []
         if swept:
@@ -59,9 +84,19 @@ def combined_label(positions):
     return 'combined (as read from the reports): ' + ', '.join(map(position, positions))
 
 
+def drum_label(run):
+    """A drum run as people read it."""
+    if run['run'] == 'voice':
+        return f"model {run['model']} at {run['level']}"
+    return {'kit': f"the kit's keys, {run['voices']} voices", 'choke': 'same-key retriggers, the heaviest model',
+            'ceiling': f"the heaviest model, {run['voices']} voices"}[run['run']]
+
+
 def case_label(case):
     """What a case ran, as people read it: a swept setting, the combined run, a synth's
     midpoint run or a callback's defaults."""
+    if case.get('drum'):
+        return drum_label(case['drum'])
     if case.get('setting'):
         return position(case['setting'])
     if case.get('combined'):
@@ -92,8 +127,10 @@ def combined_positions(results):
 
 
 def generate(directory, machines, sweep=False):
+    machines = [m for m in machines if m.kind != 'player']
     declarations, rows, settings, defaults = [], [], [], []
-    for index, m in enumerate(machines):
+    for m in benchmarked(machines):
+        index = len(rows)   # machines[] in benchmark.cpp.in: a drum kit has a row per run
         swept = sweep_settings(m) if sweep and m.kind == 'synth' else []
         if swept:
             # A row per setting holds only its control and value; the defaults beside it
@@ -106,10 +143,16 @@ def generate(directory, machines, sweep=False):
         declarations += [f'int {p}_ready() __asm__("{p}_ready");',
                          f'extern const char {id_symbol}[] __asm__("{id_symbol}");']
         callback = 'nullptr'
+        if m.kind == 'drum':
+            callback = p + '_benchmark'
+            declarations.append(f'opxy::benchmark::Stats {callback}(opxy::u32) __asm__("{callback}");')
+            rows += [f'    {{"{m.id}", {id_symbol}, {p}_ready, nullptr, {METHODS[m.kind][1]}, {callback}, {run}}},'
+                     for run in range(len(drum_cases(m)))]
+            continue
         if m.kind != 'synth':
             callback = p + '_benchmark'
             declarations.append(f'opxy::benchmark::Stats {callback}() __asm__("{callback}");')
-        rows.append(f'    {{"{m.id}", {id_symbol}, {p}_ready, {callback}, {METHODS[m.kind][1]}}},')
+        rows.append(f'    {{"{m.id}", {id_symbol}, {p}_ready, {callback}, {METHODS[m.kind][1]}, nullptr, 0}},')
     source = (ROOT / 'sdk/platform/opxy-1.2.1/benchmark.cpp.in').read_text(encoding='utf-8')
     source = source.replace('@DECLARATIONS@', '\n'.join(declarations))
     source = source.replace('@MACHINES@', '\n'.join(rows))
@@ -146,9 +189,21 @@ def decode(capture, expected):
 def append_callback(path, m):
     """Compile the diagnostic beside the real callback, without duplicating author code."""
     resources = m.definition['resources']
+    if m.kind == 'drum':
+        source = (ROOT / 'sdk/platform/opxy-1.2.1/benchmark_drum.cpp.in').read_text(encoding='utf-8')
+        source = (source.replace('@PREFIX@', m.prefix).replace('@NAMESPACE@', m.definition['id'])
+                  .replace('@CAPACITY@', str(resources['voiceCapacity']))
+                  .replace('@MODEL_COUNT@', str(resources['modelCount'])))
+        with Path(path).open('a', encoding='utf-8', newline='\n') as output:
+            output.write(source)
+        return path
     values = dict(PREFIX=m.prefix, NAMESPACE=m.id, DEFAULTS=', '.join(map(str, control_defaults(m.definition['parameters']))))
     if m.kind == 'effect':
         size = resources.get('bufferBytes', 0)
+        # Words 8..11: a shift row starts on each list's first choice, at its bucket's
+        # middle (shift_row::midpoint), as a new project plays it.
+        row = [0x7fffffff // len(p['mapping']['labels']) // 2 for p in shift_parameters(m.definition)]
+        values['DEFAULTS'] += ', ' + ', '.join(map(str, row + [0] * (4 - len(row))))
         values.update(BUFFER_BYTES=str(size)+'u', BUFFER=f'Buffer{{static_cast<i32*>(memory.data), {size//4}u}}, ' if size else '',
                       TRANSPORT='time, ' if resources.get('transport') else '')
     else:
