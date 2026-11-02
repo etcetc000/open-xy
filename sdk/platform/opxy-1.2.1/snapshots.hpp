@@ -1,11 +1,12 @@
 // The snapshot store's SDK-internal side (snapshots.cpp), part of the control service.
 #pragma once
-#include <opxy/types.hpp>
+#include <opxy/snapshots.hpp>
 
 namespace opxy { namespace platform {
 // The encoding's most bytes: a version byte and two slot bytes, then per slot
 // eight engine words and 8 x 58 values of at most five bytes each.
-const u32 kSnapshotBytes = 3 + 10 * (8 * 4 + 8 * 58 * 5);
+const u32 kSnapshotBytes =
+    3 + snapshots::slots * (control::tracks * 4 + control::tracks * control::track_parameters * 5);
 // Controller path only: fills a slot from every instrument track's stored values.
 bool snapshot_take(u32 slot);
 // After a new project: no snapshots.

@@ -1,4 +1,5 @@
 #include "extension_runtime.hpp"
+#include <opxy/snapshots.hpp>
 
 namespace opxy { namespace platform {
 namespace {
@@ -108,9 +109,11 @@ bool snapshot_write() {
     transaction.snapped = true;
     return true;
 }
-bool take_snapshot(u32 slot) { return slot < 10 && snapshot_write() && sdk_snapshot_take(slot); }
-bool load_snapshot(u32 slot) { return slot < 10 && snapshot_write() && sdk_snapshot_load(slot); }
-u32 clear_snapshots(u32 mask) { return mask && !(mask >> 10) && snapshot_write() ? sdk_snapshot_clear(mask) : 0; }
+bool take_snapshot(u32 slot) { return slot < snapshots::slots && snapshot_write() && sdk_snapshot_take(slot); }
+bool load_snapshot(u32 slot) { return slot < snapshots::slots && snapshot_write() && sdk_snapshot_load(slot); }
+u32 clear_snapshots(u32 mask) {
+    return mask && !(mask >> snapshots::slots) && snapshot_write() ? sdk_snapshot_clear(mask) : 0;
+}
 u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, false);
 }
@@ -182,8 +185,8 @@ u32 key_withheld[kKeys / 32];
 u32 layer_entry = kNone, layer_claim;
 bool layer_holding, layer_latched, layer_used;
 u32 layer_held_ms;
-u32 layer_key;  // a single-key claim's key, while it holds the layer open
-u32 pending;
+u32 layer_key = kNone;  // a single-key claim's key, while it holds the layer open
+u32 pending = kNone;
 
 bool taken_key(u32 key) { return key < kKeys && (key_withheld[key / 32] >> (key % 32) & 1); }
 
@@ -230,7 +233,7 @@ void close_layer() {
     layer_send(extensions::Layer::close);
     layer_entry = kNone;
     layer_holding = layer_latched = false;
-    layer_key = 0;
+    layer_key = kNone;
 }
 // A held gesture let go: a hold (a key taken, or tap_ms) closes, a tap latches.
 bool tapped() { return !layer_used && layer_held_ms < extensions::tap_ms; }
@@ -249,7 +252,7 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
             if (key == pending) {
                 // The pair's key alone: stock's after all, and like any other key
                 // it closes a latched layer.
-                pending = 0;
+                pending = kNone;
                 if (layer_latched) close_layer();
                 return key_tap;
             }
@@ -283,14 +286,14 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
                         return key_taken;
                     }
                     if (pending == other) {
-                        pending = 0;
+                        pending = kNone;
                         const bool again = layer_entry != kNone && layer_claim == claim;
                         close_layer();
                         if (!again) open_layer(claim, entry);
                         taken |= bit;
                         return key_taken;
                     }
-                    if (!pending) {
+                    if (pending == kNone) {
                         pending = key;
                         taken |= bit;
                         return key_taken;
