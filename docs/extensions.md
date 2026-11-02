@@ -71,8 +71,8 @@ filters to that track for it.
 | Kind | What | Here |
 | --- | --- | --- |
 | Events | Something happened | The `Hooks` callbacks |
-| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify` |
-| Surfaces | Add to the screen | None for extensions yet: menu rows, pages, overlays |
+| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify`, the snapshot actions |
+| Surfaces | Add to the screen | A layer's own artwork over every page ([layers](#layers)) |
 | Saved state | Data kept with a project | None for extensions yet |
 
 An event says something happened; an action asks stock to do something. Sending
@@ -123,11 +123,13 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   even after the claimed key is let go. Every other key, and the claimed key
   itself, still reach stock as usual. `metronome_chord` is metronome + black key.
 - **A pair** (`"with"`) makes two keys pressed together the gesture: a chord
-  then needs both held. `minus_plus` is − and + together. For the claim that
-  opens the snapshot menu (below), either key pressed alone waits for the other
-  and reaches stock as a press and release when it is let go, so stock sees − or
-  + only on release while that claim is built in. Other pair claims leave both
-  keys to stock.
+  then needs both held. `minus_plus` is − and + together. For a layer claim
+  (below), either key pressed alone waits for the other and reaches stock as a
+  press and release when it is let go, so stock sees − or + only on release
+  while that claim is built in. Other pair claims leave both keys to stock.
+- **A layer** (`"layer": true`) makes the claim's gesture open its owner's
+  [layer](#layers): a mode of its own over every page, as stock's bar key opens
+  its menu. `minus_plus` is a layer claim.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
@@ -141,25 +143,49 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
-  - `snapshot` unlocks `Actions::take_snapshot(slot)`: stores every
-    instrument track's stored parameters in one of the SDK's ten
-    [snapshots](api.md#snapshots) (0-9, one per black key), once per callback. It changes no track;
-    machines read snapshots and play them back. A build with it links the
-    control service, which keeps them with the project.
-
-    The claim of an extension holding `snapshot` also opens the SDK's snapshot
-    menu, styled after stock's bar menu, for as long as its key is held. A pair
-    claim's menu also stays open when the pair is tapped, until the pair is
-    pressed again or any other key is, which then does its usual job; a single
-    key's tap closes it and reaches stock. While it is open the menu takes the black keys (select
-    a slot), encoder 1 (step through slots), and M1-M4 (save, load, clear,
-    clear all). Load writes the slot's values to every track that still holds
-    the engine it held when saved; the others stay as they are.
+  - `snapshot` unlocks the SDK's ten [snapshots](api.md#snapshots) (0-9, one
+    per black key), one write per callback: `Actions::take_snapshot(slot)`
+    stores every instrument track's stored parameters, changing no track;
+    `Actions::load_snapshot(slot)` writes a slot back into every track that
+    still holds the engine it held then, through stock's own setter (stored and
+    heard), and refuses a slot no track can take; `Actions::clear_snapshots(mask)`
+    empties slots. Machines read snapshots and play them back. A build with it
+    links the control service, which keeps them with the project.
 
   Calls outside the callback, with a stale context, or a second write or
   popup in one callback are refused.
 
 Observers cannot transform notes or suppress stock input.
+
+## Layers
+
+A layer is a mode an extension owns, opened by its layer claim's gesture, as
+stock's bar key opens its menu. Held, it is momentary: letting go closes it.
+Tapped (let go within `tap_ms`, 400 ms, with nothing taken meanwhile), a pair
+claim's layer stays open until the pair is pressed again or a key the owner
+does not take, which then does its usual job; a single key's tap closes it and
+reaches stock.
+
+- **`layer`** (`Hooks::with_layer`) receives `Layer` events with the claim's
+  actions granted: `open` and `close`; `keypress` for every key pressed or
+  released while it is open, and `turn` for every encoder turn (raw counts),
+  each of which it returns true to take from stock; and `frame` once per screen
+  frame, with the milliseconds since the last, whether it is latched and how
+  long the gesture has been held. A key the owner leaves goes to stock and, when
+  latched, closes the layer.
+- **`draw`** (`Hooks::with_draw`) paints while the layer is open, after each
+  frame, on a `Canvas`: `show(node, dx, dy)`, `hide(node)` and `text(node,
+  value)` for the nodes it declares. Every node starts hidden each time the
+  layer opens and is hidden again when it closes.
+- **Artwork**: `extension.json` names the nodes (`"layer": {"nodes": [...]}`,
+  up to 96, numbered in that order) and `layer.svg.fragment` holds them: one
+  `<g id="<id>_layer">` in the authored SVG subset with exactly
+  `<id>_<node>` for each, a `path`, `circle` or `text`. The SDK draws every
+  layer in the last screen page, which no machine is given, over whatever page
+  shows; a selected extension's layer ships in `openxy_overlay.svg`.
+
+[Snapshots](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/snapshots)
+is the worked example: a bar-menu-style menu for the SDK's snapshots.
 
 ## Add an extension
 

@@ -171,7 +171,7 @@ def check_identity(rules, kind, value):
         require(rules['engine_none'] < number and page in rules['sample_pages'],
                 'Sample engines need a relocated-table engine ID and a stock sample page')
     else:
-        # The last page holds track control's marks (track_control_overlay.cpp.in).
+        # The last page holds the SDK's overlay (extension_overlay.cpp.in).
         require(rules['page_none'] < page < rules['pages'] - 1, 'A machine with its own screen needs a relocated page')
     return {slot: number, 'page': page}
 

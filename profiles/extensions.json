@@ -3,7 +3,7 @@
   "claims": {
     "record_double_tap": {"label": "Record double-tap", "key": 50},
     "metronome_chord": {"label": "Metronome + black key", "key": 1, "chord": "black_keys"},
-    "minus_plus": {"label": "- and + together", "key": 53, "with": 54, "chord": "black_keys"}
+    "minus_plus": {"label": "- and + together", "key": 53, "with": 54, "layer": true}
   },
   "actions": {
     "edit_notes": {"requires": "record_double_tap"},

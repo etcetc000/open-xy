@@ -19,6 +19,7 @@
 extern "C" const void* sdk_snapshot(opxy::u32 slot);
 extern "C" opxy::u32 sdk_snapshot_engine(opxy::u32 track);
 extern "C" opxy::u32 sdk_snapshot_generation();
+extern "C" bool sdk_snapshot_holds(opxy::u32 slot);
 
 namespace opxy { namespace snapshots {
 // One per black key, as stock numbers them (extensions::keys::black_index):
@@ -45,4 +46,8 @@ inline bool matches(const Snapshot& snapshot, u32 track) {
 // Changes whenever any slot is taken, loaded or cleared: a reader may keep
 // work derived from snapshots until it changes.
 inline u32 generation() { return sdk_snapshot_generation(); }
+// Whether the tracks hold `slot` now: every track still holding the engine it
+// held then holds its stored values, and at least one does. Browser previews
+// answer false.
+inline bool holds(u32 slot) { return slot < slots && sdk_snapshot_holds(slot); }
 }}

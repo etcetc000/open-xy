@@ -207,9 +207,12 @@ def generate_registration_stock(directory):
     return expand('registration_stock.cpp.in', RELOCATED, Path(directory) / 'registration_stock.cpp')
 
 
-def generate_track_control_overlay(directory, machines):
-    """The SDK's overlay screen in the last page slot: the snapshot menu."""
-    return expand('track_control_overlay.cpp.in', RELOCATED, Path(directory) / 'track_control_overlay.cpp')
+def generate_extension_overlay(directory, extensions):
+    """The SDK's overlay screen in the last page slot: every extension's layer
+    nodes, in collection order (extensions.layer_ranges)."""
+    ids = [i for e in extensions for i in e.layer_ids()]
+    values = dict(RELOCATED, LAYER_NODES=str(len(ids)), LAYER_IDS=''.join(f'    "{i}",\n' for i in ids))
+    return expand('extension_overlay.cpp.in', values, Path(directory) / 'extension_overlay.cpp')
 
 
 def generate_screen_order(directory):

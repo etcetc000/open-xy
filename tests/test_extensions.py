@@ -85,7 +85,8 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'layer', 'draw',
+                                               'queued_control'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),
@@ -144,6 +145,38 @@ class Extensions(unittest.TestCase):
             self.assertEqual(native.subset(whole, list(whole)).extensions, (probe,))
             self.assertEqual(native.subset(whole, []).extensions, ())
         self.assertNotIn('machines', extensions.metadata([extensions.extension_at(PROBE)], {'probe': 'personal'})[0])
+
+    def test_a_layer_draws_its_own_declared_nodes_in_the_sdk_overlay(self):
+        from tooling.adapters import generate_extension_overlay
+        fragment = ('<g id="probe_layer"><path id="probe_card" d="M0 0 L9 9" fill="#000000"/>'
+                    '<text id="probe_label" x="1" y="9" fill="#ffffff" font-family="a" font-size="9px">1</text></g>')
+        with Folder() as folder:
+            (folder.root / 'layer.svg.fragment').write_text(fragment, encoding='utf-8')
+            layered = dict(claims=['minus_plus'], actions=['notify'], layer={'nodes': ['card', 'label']})
+            probe = extensions.extension_at(folder.declare(**layered))
+            self.assertEqual(probe.layer_ids(), ('probe_card', 'probe_label'))
+            self.assertEqual(extensions.metadata([probe], {'probe': 'personal'})[0]['layer'], fragment)
+            artwork = extensions.overlay_artwork(b'<svg></svg>', [probe]).decode('utf-8')
+            self.assertEqual(artwork, '<svg>' + fragment + '</svg>')
+            self.assertEqual(extensions.layer_ranges([probe]), {'probe': (0, 2)})
+            with tempfile.TemporaryDirectory() as out:
+                overlay = generate_extension_overlay(out, [probe]).read_text(encoding='utf-8')
+                self.assertIn('const u32 kNodes = 2;', overlay)
+                self.assertIn('"probe_card",\n    "probe_label",', overlay)
+                self.assertNotIn('@', overlay)
+                collection = extensions.generate_collection(Path(out), [probe]).read_text(encoding='utf-8')
+                self.assertIn('hooks, 0, 2};', collection)
+                self.assertIn('const u32 claim_layers[] = {0, 0, 1};', collection)
+            # Only a layer claim's holder has a layer, of exactly its declared nodes.
+            for changes, text in ((dict(layered, claims=['record_double_tap']), fragment),
+                                  (dict(layered, layer={'nodes': ['card']}), fragment),
+                                  (dict(layered, layer={'nodes': []}), fragment),
+                                  (dict(layered, layer=['card', 'label']), fragment),
+                                  (layered, fragment.replace('probe_layer', 'layer')),
+                                  (layered, fragment.replace('fill="#000000"', ''))):
+                with self.subTest(changes=changes, text=text), self.assertRaises(ValueError):
+                    (folder.root / 'layer.svg.fragment').write_text(text, encoding='utf-8')
+                    extensions.extension_at(folder.declare(**changes))
 
     def test_no_extensions_means_no_extension_objects_or_service(self):
         self.assertFalse(any(step.startswith('extension:') for _, _, step in native.plan([])))

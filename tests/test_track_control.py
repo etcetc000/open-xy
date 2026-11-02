@@ -7,8 +7,7 @@ import tempfile
 import unittest
 
 from tooling import native
-from tooling.adapters import (control_callbacks, generate_control, generate_track_control_overlay,
-                              generate_track_controls)
+from tooling.adapters import control_callbacks, generate_control, generate_track_controls
 from tooling.definitions import hidden_pages, validate_definition
 from tooling.formats import ldr, mapped_offset, sha
 from tooling.pipeline import ROOT, config
@@ -183,16 +182,6 @@ class TrackControl(unittest.TestCase):
         self.assertIn('control_reset(states[copy])', binding)
         self.assertIn('control(states[copy], *input, *overlay)', binding)
 
-    def test_the_overlay_holds_the_snapshot_menu_only(self):
-        with tempfile.TemporaryDirectory(prefix='track-control-') as folder:
-            overlay = generate_track_control_overlay(folder, [fixture('probesynth')]).read_text(encoding='utf-8')
-        artwork = native.control_artwork([fixture('probesynth')]).decode('utf-8')
-        self.assertEqual(artwork.count('</svg>'), 1)
-        self.assertIn('id="snap_card"', artwork)
-        self.assertNotIn('overlay_capture', artwork)
-        self.assertNotIn('@', overlay)
-        self.assertNotIn('control_marks', overlay)
-
     def test_builds_without_track_control_or_hidden_pages_stay_as_before(self):
         from tooling.firmware import active_services, patch_active
         plain = [fixture(name) for name in ('probesynth', 'probefx')]
@@ -220,7 +209,7 @@ class TrackControl(unittest.TestCase):
             self.assertEqual(all(patch_active(p, services) for p in hooks), used)
             self.assertEqual(all(patch_active(p, services) for p in aux_edits), aux_used)
             units = {step for _name, _m, step in native.plan(machines)}
-            for unit in ('track_control', 'track_control_table', 'track_control_hooks', 'track_control_overlay',
+            for unit in ('track_control', 'track_control_table', 'track_control_hooks',
                          'track_control_project', 'synth_pages'):
                 self.assertEqual(unit in units, used)
             for unit in ('aux_tracks', 'aux_hooks'):
@@ -228,15 +217,14 @@ class TrackControl(unittest.TestCase):
         # Startup reaches the saved data's writer only with the service.
         from tooling.startup import render
         plain_startup, control_startup = render(['probe']), render(['probe'], control=True)
-        self.assertNotIn('sdk_overlay_startup', plain_startup)
+        self.assertNotIn('sdk_overlay_startup', plain_startup + control_startup)
         self.assertIn('u32 sdk_project_kept(void*) { return 0; }', plain_startup)
         self.assertNotIn('sdk_control_kept_write', plain_startup)
-        self.assertIn('    sdk_overlay_startup();', control_startup)
         self.assertIn('{ return sdk_control_kept_write(file); }', control_startup)
-        # The aux service starts after the control service's overlay, only when linked.
-        aux_startup = render(['probe'], control=True, aux=True)
+        # The aux service starts with control only; the extensions' overlay registers last.
+        aux_startup = render(['probe'], control=True, aux=True, extensions=True)
         self.assertNotIn('sdk_aux_startup', control_startup)
-        self.assertLess(aux_startup.index('    sdk_overlay_startup();'), aux_startup.index('    sdk_aux_startup();'))
+        self.assertLess(aux_startup.index('    sdk_aux_startup();'), aux_startup.index('    sdk_overlay_startup();'))
 
     def test_gui_tick_is_a_reviewed_call_in_a_shared_unit(self):
         hooks = [p for p in config()['patches']

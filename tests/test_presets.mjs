@@ -99,13 +99,16 @@ test('preset generation rejects unsafe paths, foreign kinds and invalid engine p
   await assert.rejects(buildAssets(kit,['example'],catalog,numbers),/preset engine or defaults/);
 });
 
-test("the SDK's overlay ships as it is, with any selected track control machine", async () => {
-  const steering = {...machines[0], features: ['trackControl']};
-  const {kit, catalog} = await fixture([steering, ...machines.slice(1)]);
-  kit.controlArtwork = '<svg><path id="snap_card"/></svg>';
-  const overlay = async selected => (await buildAssets(kit, selected, catalog, numbers))['content/display/openxy_overlay.svg'];
-  assert.equal(new TextDecoder().decode(await overlay(['probesynth', 'probesources'])), kit.controlArtwork);
-  assert.equal(await overlay(['probesample']), undefined);
+test("the SDK's overlay holds the selected extensions' layers", async () => {
+  const {kit, catalog} = await fixture(machines);
+  kit.overlayArtwork = '<svg></svg>';
+  kit.extensions = [{id: 'menu', layer: '<g id="menu_layer"><path id="menu_card"/></g>'}, {id: 'plain'}];
+  const overlay = async extensions =>
+    (await buildAssets(kit, ['probesynth'], catalog, numbers, extensions))['content/display/openxy_overlay.svg'];
+  assert.equal(new TextDecoder().decode(await overlay(['menu', 'plain'])),
+    '<svg><g id="menu_layer"><path id="menu_card"/></g></svg>');
+  assert.equal(await overlay(['plain']), undefined);
+  assert.equal(await overlay([]), undefined);
 });
 
 test("an aux machine's presets install as files, with the init of the role it replaces", () => {

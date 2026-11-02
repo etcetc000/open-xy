@@ -1412,7 +1412,7 @@
       "symbol": "sdk_extensions_key_input",
       "call": true,
       "service": "extensions",
-      "events": ["queued_control"]
+      "events": ["queued_control", "layer"]
     },
     {
       "kind": "hook",
@@ -1423,7 +1423,7 @@
       "symbol": "sdk_extensions_key_input",
       "call": true,
       "service": "extensions",
-      "events": ["queued_control"]
+      "events": ["queued_control", "layer"]
     },
     {
       "kind": "hook",
@@ -1434,7 +1434,7 @@
       "symbol": "sdk_extensions_knob_input",
       "call": true,
       "service": "extensions",
-      "events": ["queued_control"]
+      "events": ["layer"]
     },
     {
       "kind": "hook",

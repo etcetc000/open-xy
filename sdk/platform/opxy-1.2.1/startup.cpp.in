@@ -19,7 +19,8 @@ int sdk_screen_owned(u32) __asm__("sdk_screen_owned");
 u32 sdk_project_kept(void*) __asm__("sdk_project_kept");
 void sdk_project_loaded(const char*) __asm__("sdk_project_loaded");
 bool sdk_snapshot_take(u32) __asm__("sdk_snapshot_take");
-u32 sdk_snapshot_menu(u32, i32) __asm__("sdk_snapshot_menu");
+bool sdk_snapshot_load(u32) __asm__("sdk_snapshot_load");
+u32 sdk_snapshot_clear(u32) __asm__("sdk_snapshot_clear");
 int sdk_engine_installed(const void*) __asm__("sdk_engine_installed");
 int sdk_stock_engine_known(const void*) __asm__("sdk_stock_engine_known");
 @DECLARATIONS@

@@ -128,15 +128,19 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
-    # Track control: the overlay's artwork (the snapshot menu), and the startup's
-    # call into the overlay screen, which declines while a selection does not use the service.
-    if 'control' in native.active_services(profile, native.service_users(machines)):
-        kit['controlArtwork'] = read(ROOT / native.TEMPLATES / 'track_control_overlay.svg').decode('utf-8')
+    services = native.active_services(profile, native.service_users(machines))
+    # Track control: startup's calls into the saved data, and the extension runtime's
+    # snapshot actions, which decline while a selection does not use the service.
+    if 'control' in services:
         kit['serviceFallbacks'] = {'control': dict.fromkeys(
-            ('sdk_overlay_startup', 'sdk_control_kept_write', 'sdk_control_kept_load',
-             # The extension runtime's snapshot entry points: refused without the service.
-             'sdk_snapshot_take', 'sdk_snapshot_menu'), 'kit_absent')}
-    if 'aux' in native.active_services(profile, native.service_users(machines)):
+            ('sdk_control_kept_write', 'sdk_control_kept_load',
+             'sdk_snapshot_take', 'sdk_snapshot_load', 'sdk_snapshot_clear'), 'kit_absent')}
+    # Extensions: the overlay's empty artwork, which selected extensions' layers
+    # (kit.extensions[].layer) fill, and startup's call into the overlay screen.
+    if 'extensions' in services:
+        kit['overlayArtwork'] = read(ROOT / native.TEMPLATES / 'extension_overlay.svg').decode('utf-8')
+        kit.setdefault('serviceFallbacks', {})['extensions'] = {'sdk_overlay_startup': 'kit_absent'}
+    if 'aux' in services:
         kit.setdefault('serviceFallbacks', {})['aux'] = {'sdk_aux_startup': 'kit_absent'}
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')

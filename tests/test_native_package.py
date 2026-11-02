@@ -102,6 +102,9 @@ class PackageVerification(unittest.TestCase):
     def test_service_hooks_live_in_their_units_and_only_their_users_reach_them(self):
         services = native.object_services(self.machines)
         uses = {m.id: set(native.service_users([m])) for m in self.machines}
+        # An extension's object uses what its actions bring (snapshots: the control service).
+        extension_uses = {f'sdk/extension_{e.id}.o': set(native.service_users(native.Collection([], [e])))
+                          for e in native.extensions_of(self.machines)}
         owner_of, needs = {}, {}
         for name, owner in self.report['objects'].items():
             defined, undefined = object_symbols(read(self.package / 'analysis' / name))
@@ -118,7 +121,8 @@ class PackageVerification(unittest.TestCase):
                 service = services.get(owner_of.get(symbol))
                 if service and name not in services:
                     # The startup, generated per selection, starts a service it links.
-                    user = set(native.service_users(self.machines)) if name == 'sdk/startup.o' else uses.get(owner, set())
+                    user = (set(native.service_users(self.machines)) if name == 'sdk/startup.o' else
+                            extension_uses.get(name) or uses.get(owner, set()))
                     self.assertTrue(user & set(users[service]), (name, symbol))
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
@@ -138,7 +142,8 @@ class PackageVerification(unittest.TestCase):
         displays = [m.native_name for m in self.linked if m.display != 'stock']
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
-        marks = {'content/display/openxy_overlay.svg'} if any(map(native.track_control, self.linked)) else set()
+        layers = any(e.layer for e in native.extensions_of(self.machines))
+        marks = {'content/display/openxy_overlay.svg'} if layers else set()
         presets = {path for m in self.linked for path in aux_preset_files(m)}
         self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} |
                          marks | presets)

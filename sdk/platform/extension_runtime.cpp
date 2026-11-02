@@ -35,7 +35,7 @@ bool ready() {
         const ExtensionEntry& entry = list[i];
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
             (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count)) ||
-            (entry.claims && !entry.hooks->queued_control)) return false;
+            (entry.claims && !entry.hooks->queued_control && !entry.hooks->layer)) return false;
         for (u32 a = 0; a < known.action_count; ++a) {
             if (!(entry.actions & (1u << a))) continue;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
@@ -102,18 +102,23 @@ void notify(const char* text) {
     transaction.notified = true;
     extension_notify(notification);
 }
-bool take_snapshot(u32 slot) {
-    if (!(transaction.granted & action_snapshot) || transaction.snapped || slot >= 10) return false;
+// One snapshot write (take, load or clear) per callback.
+bool snapshot_write() {
+    if (!(transaction.granted & action_snapshot) || transaction.snapped) return false;
     transaction.snapped = true;
-    return sdk_snapshot_take(slot);
+    return true;
 }
+bool take_snapshot(u32 slot) { return slot < 10 && snapshot_write() && sdk_snapshot_take(slot); }
+bool load_snapshot(u32 slot) { return slot < 10 && snapshot_write() && sdk_snapshot_load(slot); }
+u32 clear_snapshots(u32 mask) { return mask && !(mask >> 10) && snapshot_write() ? sdk_snapshot_clear(mask) : 0; }
 u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, false);
 }
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes, take_snapshot};
+const extensions::Actions actions = {insert_notes, notify, replace_notes, take_snapshot, load_snapshot,
+                                     clear_snapshots};
 }
 
 void extensions_sync() {
@@ -169,117 +174,143 @@ void extensions_recording_tick(u32 delta) {
     dispatching = false;
 }
 namespace {
-// The snapshot menu, as stock's bar key works. A claim with a partner key opens
-// it when the two are pressed together (either one first, waiting for the other:
-// pressed alone, it reaches stock when released). Held, the menu is momentary
-// and closes on release; tapped, it stays open until the pair again or any other
-// key, which then reaches stock as usual. A claim without a partner opens it
-// while its key is held. The keys it takes, whose releases it takes too (bit key).
-const u32 kMenuKeys = 64, kM1 = 6;
-u32 menu_withheld[kMenuKeys / 32];
-bool menu_open;
-bool menu_holding;  // pair mode: the pair that opened the menu is still down
-u32 menu_key;  // hold mode: the key holding the menu open
-u32 pending;   // pair mode: the first key of the pair, waiting for the other
+// The open layer (extension.hpp, Layer): its entry and claim, or none. A pair
+// claim's first key waits for the other (pending); pressed alone, it reaches
+// stock when released. Keys taken from stock, their releases with them (bit key).
+const u32 kKeys = 64, kNone = ~0u;
+u32 key_withheld[kKeys / 32];
+u32 layer_entry = kNone, layer_claim;
+bool layer_holding, layer_latched, layer_used;
+u32 layer_held_ms;
+u32 layer_key;  // a single-key claim's key, while it holds the layer open
+u32 pending;
 
-bool menu_taken(u32 key) { return key < kMenuKeys && (menu_withheld[key / 32] >> (key % 32) & 1); }
-void close_menu() {
-    if (menu_open) sdk_snapshot_menu(kMenuClose, 0);
-    menu_open = menu_holding = false;
-}
+bool taken_key(u32 key) { return key < kKeys && (key_withheld[key / 32] >> (key % 32) & 1); }
 
-// The claim that opens the menu: a black-key chord claim whose owner holds the
-// snapshot action. False for none.
-bool menu_claim(u32& key, u32& partner) {
-    if (!ready() || !registry->claim_chords) return false;
+// The layer claim `key` belongs to (its key or its partner), and its owner.
+bool layer_of(u32 key, u32& claim, u32& partner, u32& entry) {
+    if (!ready() || !registry->claim_layers) return false;
     for (u32 c = 0; c < registry->claim_count; ++c) {
-        if (registry->claim_chords[c] != chord_black_keys) continue;
+        if (!registry->claim_layers[c]) continue;
+        const u32 other = registry->claim_partners ? registry->claim_partners[c] : 0;
+        if (key != registry->claim_keys[c] && (!other || key != other)) continue;
         for (u32 i = 0; i < entry_count; ++i)
-            if ((entries[i].claims & (1u << c)) && (entries[i].actions & action_snapshot)) {
-                key = registry->claim_keys[c];
-                partner = registry->claim_partners ? registry->claim_partners[c] : 0;
-                return key && key < kMenuKeys && partner < kMenuKeys;
+            if ((entries[i].claims & (1u << c)) && entries[i].hooks->layer) {
+                claim = c;
+                partner = other;
+                entry = i;
+                return true;
             }
     }
     return false;
 }
+bool layer_send(extensions::Layer::Kind kind, u32 key = 0, bool pressed = false, i32 delta = 0, u32 elapsed = 0) {
+    if (layer_entry == kNone || dispatching) return false;
+    extensions_sync();
+    const ExtensionEntry& entry = entries[layer_entry];
+    const extensions::Layer event = {kind, key, pressed, delta, elapsed, layer_latched,
+                                     layer_holding ? layer_held_ms : 0};
+    dispatching = true;
+    transaction = {grants(entry, 1u << layer_claim), false, false, false};
+    const bool took = entry.hooks->layer(current, event, actions);
+    transaction = {0, false, false, false};
+    dispatching = false;
+    return took;
+}
+void open_layer(u32 claim, u32 entry) {
+    layer_entry = entry;
+    layer_claim = claim;
+    layer_holding = true;
+    layer_latched = layer_used = false;
+    layer_held_ms = 0;
+    layer_send(extensions::Layer::open);
+}
+void close_layer() {
+    if (layer_entry == kNone) return;
+    layer_send(extensions::Layer::close);
+    layer_entry = kNone;
+    layer_holding = layer_latched = false;
+    layer_key = 0;
+}
+// A held gesture let go: a hold (a key taken, or tap_ms) closes, a tap latches.
+bool tapped() { return !layer_used && layer_held_ms < extensions::tap_ms; }
 
 bool chord_input(u32 key, bool pressed, extensions::Time time);
 }
 
 u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
     if (dispatching) return key_stock;
-    if (key < kMenuKeys) {
-        u32& taken = menu_withheld[key / 32];
+    if (key < kKeys) {
+        u32& taken = key_withheld[key / 32];
         const u32 bit = 1u << (key % 32);
         if (taken & bit) {
             if (pressed) return key_taken;  // a repeat of a key already taken
             taken &= ~bit;
             if (key == pending) {
-                pending = 0;
                 // The pair's key alone: stock's after all, and like any other key
-                // it closes a menu left open.
-                if (menu_open && !menu_holding) close_menu();
+                // it closes a latched layer.
+                pending = 0;
+                if (layer_latched) close_layer();
                 return key_tap;
             }
-            if (key == menu_key) {
-                menu_key = 0;
-                menu_open = false;
-                return sdk_snapshot_menu(kMenuClose, 0) ? key_taken : key_tap;
+            if (key == layer_key) {
+                const bool tap = tapped();
+                close_layer();
+                return tap ? key_tap : key_taken;
             }
-            // The pair that opened the menu, both let go: a hold closes it, a tap leaves it open.
-            u32 claim = 0, partner = 0;
-            if (menu_holding && menu_claim(claim, partner) && (key == claim || key == partner) &&
-                !menu_taken(key == claim ? partner : claim)) {
-                menu_holding = false;
-                if (sdk_snapshot_menu(kMenuHeld, 0)) close_menu();
+            u32 claim = 0, partner = 0, entry = 0;
+            if (layer_holding && layer_of(key, claim, partner, entry) && claim == layer_claim) {
+                // The pair let go (both keys): a hold closes it, a tap leaves it open.
+                if (!taken_key(key == registry->claim_keys[claim] ? partner : registry->claim_keys[claim])) {
+                    layer_holding = false;
+                    if (tapped()) layer_latched = true;
+                    else close_layer();
+                }
+                return key_taken;
             }
+            layer_send(extensions::Layer::keypress, key, false);
             return key_taken;
         }
         if (pressed) {
-            u32 claim = 0, partner = 0;
-            const bool menu = menu_claim(claim, partner);
-            if (menu && partner && (key == claim || key == partner)) {
-                const u32 other = key == claim ? partner : claim;
-                // A pair key let go and pressed again while the other still holds
-                // the menu open: still the hold.
-                if (menu_holding && menu_taken(other)) {
-                    taken |= bit;
-                    return key_taken;
-                }
-                if (pending == other) {
-                    pending = 0;
-                    if (menu_open) {
-                        close_menu();
-                    } else {
-                        menu_open = menu_holding = sdk_snapshot_menu(kMenuOpen, 1) != 0;
+            u32 claim = 0, partner = 0, entry = 0;
+            if (layer_of(key, claim, partner, entry)) {
+                const u32 other = key == registry->claim_keys[claim] ? partner : registry->claim_keys[claim];
+                if (partner) {
+                    // A pair key let go and pressed again while the other holds the
+                    // layer open: still the hold.
+                    if (layer_holding && layer_claim == claim && taken_key(other)) {
+                        taken |= bit;
+                        return key_taken;
                     }
+                    if (pending == other) {
+                        pending = 0;
+                        const bool again = layer_entry != kNone && layer_claim == claim;
+                        close_layer();
+                        if (!again) open_layer(claim, entry);
+                        taken |= bit;
+                        return key_taken;
+                    }
+                    if (!pending) {
+                        pending = key;
+                        taken |= bit;
+                        return key_taken;
+                    }
+                } else if (layer_entry == kNone) {
+                    open_layer(claim, entry);
+                    layer_key = key;
                     taken |= bit;
                     return key_taken;
                 }
-                if (!pending) {
-                    pending = key;
+            }
+            if (layer_entry != kNone) {
+                if (layer_send(extensions::Layer::keypress, key, true)) {
+                    if (layer_holding) layer_used = true;
                     taken |= bit;
                     return key_taken;
                 }
-            } else if (menu && !partner && key == claim && !menu_open) {
-                if (sdk_snapshot_menu(kMenuOpen, 0)) {
-                    menu_key = key;
-                    menu_open = true;
-                    taken |= bit;
-                    return key_taken;
-                }
-            } else if (menu_open) {
-                const i32 black = extensions::keys::black_index(key);
-                if (black >= 0) sdk_snapshot_menu(kMenuSelect, black);
-                else if (key >= kM1 && key < kM1 + 4) sdk_snapshot_menu(kMenuAction, static_cast<i32>(key - kM1));
-                else {
-                    // Any other key leaves the menu and does what it does.
-                    if (!menu_key) close_menu();
-                    return key_stock;
-                }
-                taken |= bit;
-                return key_taken;
+                // A key the owner leaves: stock's, and it ends a latched layer.
+                if (layer_latched) close_layer();
+                return key_stock;
             }
         }
     }
@@ -287,9 +318,27 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
 }
 
 bool extensions_knob_input(u32 knob, i32 delta) {
-    if (!menu_open || dispatching || knob != 0) return false;
-    sdk_snapshot_menu(kMenuStep, delta);
+    if (layer_entry == kNone || dispatching || !layer_send(extensions::Layer::turn, knob, false, delta)) return false;
+    if (layer_holding) layer_used = true;
     return true;
+}
+
+bool extensions_layer_open(u32& first, u32& count) {
+    if (layer_entry == kNone) return false;
+    first = entries[layer_entry].layer_first;
+    count = entries[layer_entry].layer_count;
+    return true;
+}
+void extensions_layer_frame(u32 elapsed_ms) {
+    if (layer_entry == kNone || dispatching) return;
+    if (layer_holding && layer_held_ms < 60000) layer_held_ms += elapsed_ms;
+    layer_send(extensions::Layer::frame, 0, false, 0, elapsed_ms);
+}
+void extensions_layer_draw(const extensions::Canvas& canvas) {
+    if (layer_entry == kNone || dispatching || !entries[layer_entry].hooks->draw) return;
+    dispatching = true;
+    entries[layer_entry].hooks->draw(canvas);
+    dispatching = false;
 }
 
 namespace {

@@ -57,8 +57,6 @@ extern const opxy::u32 sdk_control_machine_count __asm__("sdk_control_machine_co
 void sdk_gui_tick() __asm__("sdk_gui_tick");
 // A project replacement invalidates transient edits/overlays without touching stock's buffers.
 void sdk_control_forget() __asm__("sdk_control_forget");
-// Registers the SDK's overlay screen slot (the snapshot menu) on the GUI role, after the machines' screens.
-void sdk_overlay_startup() __asm__("sdk_overlay_startup");
 extern opxy::platform::AuxService sdk_aux __asm__("sdk_aux");
 // The aux service's startup on the GUI role, from startup.cpp when it is linked.
 void sdk_aux_startup() __asm__("sdk_aux_startup");

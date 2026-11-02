@@ -13,12 +13,14 @@ def _declare(name, signature='()'):
     return f'int {name}{signature} __asm__("{name}");'
 
 
-def render(prefixes, effects=(), stock_page=(), control=False, aux=False):
+def render(prefixes, effects=(), stock_page=(), control=False, aux=False, extensions=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     control: the build links the control service; its marks screen registers
     last. Without it, the companion's calls into the service do nothing.
-    aux: the build links the aux service (aux tracks), which starts after it."""
+    aux: the build links the aux service (aux tracks), which starts after it.
+    extensions: the build links extensions, whose layers the overlay screen paints;
+    it registers last."""
     require(1 <= len(prefixes) <= ENGINE_COUNT and len(set(prefixes)) == len(prefixes),
             'Startup needs distinct engine prefixes')
     require(len(set(effects)) == len(effects) <= EFFECT_COUNT and not set(effects) & set(prefixes),
@@ -44,19 +46,20 @@ def render(prefixes, effects=(), stock_page=(), control=False, aux=False):
              for prefix in prefixes if prefix not in stock_page]
     # Without the control service there is no snapshot store: the action refuses.
     kept = ('u32 sdk_project_kept(void*) { return 0; }\nvoid sdk_project_loaded(const char*) {}\n'
-            'bool sdk_snapshot_take(u32) { return false; }\n'
-            'u32 sdk_snapshot_menu(u32, i32) { return 0; }')
+            'bool sdk_snapshot_take(u32) { return false; }\nbool sdk_snapshot_load(u32) { return false; }\n'
+            'u32 sdk_snapshot_clear(u32) { return 0; }')
     if control:
-        declarations += ['void sdk_overlay_startup() __asm__("sdk_overlay_startup");',
-                         'u32 sdk_control_kept_write(void*) __asm__("sdk_control_kept_write");',
+        declarations += ['u32 sdk_control_kept_write(void*) __asm__("sdk_control_kept_write");',
                          'void sdk_control_kept_load(const char*) __asm__("sdk_control_kept_load");']
-        screens.append('    sdk_overlay_startup();')
         kept = ('u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }\n'
                 'void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }')
     if aux:
         require(control, 'The aux service needs the control service')
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
         screens.append('    sdk_aux_startup();')
+    if extensions:
+        declarations.append('void sdk_overlay_startup() __asm__("sdk_overlay_startup");')
+        screens.append('    sdk_overlay_startup();')
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned),
                   EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
@@ -71,7 +74,8 @@ def render(prefixes, effects=(), stock_page=(), control=False, aux=False):
     return source
 
 
-def generate(directory, prefixes, effects=(), stock_page=(), control=False, aux=False):
+def generate(directory, prefixes, effects=(), stock_page=(), control=False, aux=False, extensions=False):
     destination = Path(directory) / 'startup.cpp'
-    destination.write_text(render(prefixes, effects, stock_page, control, aux), encoding='utf-8', newline='\n')
+    destination.write_text(render(prefixes, effects, stock_page, control, aux, extensions), encoding='utf-8',
+                           newline='\n')
     return destination

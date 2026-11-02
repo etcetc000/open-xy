@@ -55,18 +55,34 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
 // held. edit_notes needs the first (or any claim once set to 0); notify and
 // snapshot need any claim their holder owns.
 u32 claim_keys[] = {50, 1}, action_claims[] = {1u, 0, 0}, claim_chords[] = {0, chord_black_keys};
-ExtensionRegistry tables = {claim_keys, 2, action_claims, 3, claim_chords, nullptr};
+ExtensionRegistry tables = {claim_keys, 2, action_claims, 3, claim_chords, nullptr, nullptr};
 u32 claim_partners[] = {0, 54};
-ExtensionEntry collection[] = {{"observer", 0, 0, &first},
-                               {"writer", 1u, action_edit_notes | action_notify | action_snapshot, &second}};
+ExtensionEntry collection[] = {{"observer", 0, 0, &first, 0, 0},
+                               {"writer", 1u, action_edit_notes | action_notify | action_snapshot, &second, 0, 0}};
 }
 // The control service's snapshot store.
+u32 loads, clears;
 bool sdk_snapshot_take(u32 slot) { ++snaps; snapped_slot = slot; return true; }
-// Its menu: each operation and argument, and whether a close reports the hold used.
-u32 menu_ops[16], menu_count; i32 menu_args[16]; bool menu_used;
-u32 sdk_snapshot_menu(u32 op, i32 arg) {
-    if (menu_count < 16) { menu_ops[menu_count] = op; menu_args[menu_count++] = arg; }
-    return op == 1 || op == 5 ? menu_used : 1;
+bool sdk_snapshot_load(u32) { ++loads; return true; }
+u32 sdk_snapshot_clear(u32) { ++clears; return 1; }
+namespace {
+// A layer owner: records each event, takes black keys, M1-M4 and encoder 1, and
+// tries two snapshot writes on M1 (one per callback).
+u32 layer_kinds[64], layer_keys[64], layer_count, layer_held_seen, draws;
+bool layer_latched_seen;
+bool on_layer(const extensions::Context&, const extensions::Layer& e, const extensions::Actions& a) {
+    if (layer_count < 64) { layer_kinds[layer_count] = e.kind; layer_keys[layer_count++] = e.key; }
+    if (e.kind == extensions::Layer::frame) { layer_latched_seen = e.latched; layer_held_seen = e.held_ms; }
+    if (e.kind == extensions::Layer::keypress && e.key == 6 && e.pressed)
+        taken += a.take_snapshot(3) + a.load_snapshot(3) + (a.clear_snapshots(1) ? 1 : 0);
+    if (e.kind == extensions::Layer::turn) return e.key == 0;
+    return e.kind == extensions::Layer::keypress && (extensions::keys::black_index(e.key) >= 0 || (e.key >= 6 && e.key < 10));
+}
+void on_draw(const extensions::Canvas&) { ++draws; }
+const extensions::Hooks layered = extensions::Hooks().with_queued_control(edit_control).with_layer(on_layer)
+                                                     .with_draw(on_draw);
+u32 claim_layers[] = {0, 1};
+bool open_now() { u32 first = 9, count = 9; return extensions_layer_open(first, count) && !first && !count; }
 }
 namespace opxy { namespace platform {
 u32 held_key2;
@@ -147,7 +163,7 @@ int main() {
     CHECK(!extensions_key_input(26, true, 0) && !extensions_key_input(26, false, 0));  // white: stock's
     CHECK(!extensions_key_input(50, true, 0));  // not the keyboard
     CHECK(extensions_key_input(36, true, 0) == key_taken);  // the fifth black key
-    CHECK(chord_presses == 1 && chord_key == 36 && taken == 0 && menu_count == 0);
+    CHECK(chord_presses == 1 && chord_key == 36 && taken == 0);
     CHECK(extensions_key_input(36, true, 0) && chord_presses == 1);  // a repeat is still withheld
     held_key = 0;
     CHECK(extensions_key_input(36, false, 0) && chord_releases == 1);
@@ -164,77 +180,68 @@ int main() {
     CHECK(extensions_key_input(36, false, 0) == key_taken && chord_releases == 2);
     tables.claim_partners = nullptr;
     chord_presses = chord_releases = 1;
-    // The snapshot menu: the claim key opens it and is taken; while it is held the
-    // black keys select, M1-M4 act and encoder 1 steps, all withheld from stock
-    // with their releases; other keys stay stock's. Released, it closes.
-    initialized = false; entries = nullptr;
+    // A layer claim (key 1): its key opens the owner's layer, which sees every
+    // key and turn first and takes what it wants; while it is held, others stay
+    // stock's. Let go after taking something, it closes.
+    initialized = false; entries = nullptr; tables.claim_layers = claim_layers;
+    collection[1].hooks = &layered;
     collection[1].actions = action_edit_notes | action_notify | action_snapshot;
-    CHECK(!extensions_knob_input(0, 1));        // closed: stock's
-    CHECK(extensions_key_input(1, true, 0) == key_taken && menu_count == 1 && menu_ops[0] == 0);
-    CHECK(extensions_key_input(36, true, 0) == key_taken && menu_ops[1] == 2 && menu_args[1] == 4);
-    CHECK(extensions_key_input(7, true, 0) == key_taken && menu_ops[2] == 4 && menu_args[2] == 1);  // M2
-    CHECK(extensions_knob_input(0, -1) && menu_ops[3] == 3 && menu_args[3] == -1);
-    CHECK(!extensions_knob_input(1, 1) && menu_count == 4);  // another encoder: stock's
-    CHECK(extensions_key_input(14, true, 0) == key_stock && extensions_key_input(26, true, 0) == key_stock);
-    CHECK(extensions_key_input(36, false, 0) == key_taken && extensions_key_input(7, false, 0) == key_taken);
-    menu_used = true;
-    CHECK(extensions_key_input(1, false, 0) == key_taken && menu_ops[4] == 1);
-    CHECK(chord_presses == 1 && snaps == 1);    // nothing reached the extension or its action
-    // A bare tap goes back to stock as the key's own press and release.
-    menu_used = false;
+    layer_count = 0; taken = 0; snaps = loads = clears = 0;
+    CHECK(!extensions_knob_input(0, 1) && !open_now());  // closed: stock's
+    CHECK(extensions_key_input(1, true, 0) == key_taken && layer_count == 1 &&
+          layer_kinds[0] == extensions::Layer::open && open_now());
+    CHECK(extensions_key_input(36, true, 0) == key_taken && layer_keys[1] == 36);
+    CHECK(extensions_key_input(6, true, 0) == key_taken && taken == 1 && snaps == 1 && !loads && !clears);
+    CHECK(extensions_knob_input(0, -1) && !extensions_knob_input(1, 1));
+    CHECK(extensions_key_input(14, true, 0) == key_stock && open_now());
+    CHECK(extensions_key_input(36, false, 0) == key_taken && extensions_key_input(6, false, 0) == key_taken);
+    extensions_layer_frame(16);
+    extensions_layer_draw(extensions::Canvas{nullptr, nullptr, nullptr});
+    CHECK(draws == 1 && layer_held_seen == 16 && !layer_latched_seen);
+    CHECK(extensions_key_input(1, false, 0) == key_taken && layer_kinds[layer_count - 1] == extensions::Layer::close);
+    CHECK(!open_now() && !extensions_knob_input(0, 1));
+    extensions_layer_draw(extensions::Canvas{nullptr, nullptr, nullptr});
+    CHECK(draws == 1);
+    // A bare tap of a single key closes it and reaches stock; held tap_ms, it is a hold.
+    CHECK(extensions_key_input(1, true, 0) == key_taken && extensions_key_input(1, false, 0) == key_tap);
+    CHECK(!open_now());
     CHECK(extensions_key_input(1, true, 0) == key_taken);
-    CHECK(extensions_key_input(1, false, 0) == key_tap);
-    CHECK(extensions_key_input(1, false, 0) == key_stock && !extensions_knob_input(0, 1));
-    // A claim with a partner: the pair pressed together opens the menu, either
-    // key first; one pressed alone reaches stock as a tap when it is released.
-    initialized = false; entries = nullptr; tables.claim_partners = claim_partners;
-    menu_count = 0; menu_used = false;
-    CHECK(extensions_key_input(1, true, 0) == key_taken && menu_count == 0);   // waits for 54
-    CHECK(extensions_key_input(1, false, 0) == key_tap && menu_count == 0);    // alone: stock's
-    CHECK(extensions_key_input(54, true, 0) == key_taken);
-    CHECK(extensions_key_input(1, true, 0) == key_taken && menu_count == 1 && menu_ops[0] == 0 && menu_args[0] == 1);
-    // Tapped (released at once, nothing done): it stays open.
-    CHECK(extensions_key_input(54, false, 0) == key_taken && menu_count == 1);
-    CHECK(extensions_key_input(1, false, 0) == key_taken && menu_ops[1] == 5 && menu_count == 2);
-    // Open with nothing held: black keys, M1-M4 and encoder 1 are the menu's.
-    CHECK(extensions_key_input(48, true, 0) == key_taken && menu_ops[2] == 2 && menu_args[2] == 9);
-    CHECK(extensions_key_input(48, false, 0) == key_taken);
-    CHECK(extensions_key_input(9, true, 0) == key_taken && menu_ops[3] == 4 && menu_args[3] == 3);  // M4
-    CHECK(extensions_key_input(9, false, 0) == key_taken && extensions_knob_input(0, 2) && menu_ops[4] == 3);
+    extensions_layer_frame(extensions::tap_ms);
+    CHECK(extensions_key_input(1, false, 0) == key_taken && !open_now());
+    // A pair (1 with 54): either key first; one alone reaches stock as a tap.
+    initialized = false; entries = nullptr; tables.claim_partners = claim_partners; layer_count = 0;
+    CHECK(extensions_key_input(1, true, 0) == key_taken && layer_count == 0);
+    CHECK(extensions_key_input(1, false, 0) == key_tap && layer_count == 0);
+    CHECK(extensions_key_input(54, true, 0) == key_taken && extensions_key_input(1, true, 0) == key_taken);
+    CHECK(layer_kinds[0] == extensions::Layer::open && open_now());
+    // Tapped: it stays open, latched, with nothing held.
+    CHECK(extensions_key_input(54, false, 0) == key_taken && extensions_key_input(1, false, 0) == key_taken);
+    extensions_layer_frame(16);
+    CHECK(open_now() && layer_latched_seen && layer_held_seen == 0);
+    CHECK(extensions_key_input(48, true, 0) == key_taken && extensions_key_input(48, false, 0) == key_taken);
     // The pair again closes it.
     CHECK(extensions_key_input(1, true, 0) == key_taken && extensions_key_input(54, true, 0) == key_taken);
-    CHECK(menu_ops[5] == 1 && !extensions_knob_input(0, 1));
+    CHECK(!open_now());
     CHECK(extensions_key_input(1, false, 0) == key_taken && extensions_key_input(54, false, 0) == key_taken);
     CHECK(extensions_key_input(48, true, 0) == key_stock && extensions_key_input(48, false, 0) == key_stock);
-    // Held (the menu reports a hold): it closes when the pair is let go.
-    menu_count = 0; menu_used = true;
+    // Held with a key taken, it closes when the pair is let go; one pair key let
+    // go and pressed again is still the hold.
     CHECK(extensions_key_input(54, true, 0) == key_taken && extensions_key_input(1, true, 0) == key_taken);
     CHECK(extensions_key_input(36, true, 0) == key_taken && extensions_key_input(36, false, 0) == key_taken);
-    CHECK(extensions_key_input(1, false, 0) == key_taken && menu_count == 2);  // one still down
-    CHECK(extensions_key_input(54, false, 0) == key_taken && menu_ops[2] == 5 && menu_ops[3] == 1);
-    CHECK(!extensions_knob_input(0, 1));
-    // Held, one pair key let go and pressed again is still the hold; stock hears nothing.
-    menu_count = 0;
-    CHECK(extensions_key_input(54, true, 0) == key_taken && extensions_key_input(1, true, 0) == key_taken);
     CHECK(extensions_key_input(1, false, 0) == key_taken && extensions_key_input(1, true, 0) == key_taken);
-    CHECK(extensions_key_input(54, false, 0) == key_taken && menu_count == 1);
-    CHECK(extensions_key_input(1, false, 0) == key_taken && menu_ops[1] == 5 && menu_ops[2] == 1);
-    // Toggled open, any other key closes it and is stock's.
-    menu_count = 0; menu_used = false;
+    CHECK(extensions_key_input(54, false, 0) == key_taken && open_now());
+    CHECK(extensions_key_input(1, false, 0) == key_taken && !open_now());
+    // Latched, a key it leaves closes it and is stock's.
     CHECK(extensions_key_input(1, true, 0) == key_taken && extensions_key_input(54, true, 0) == key_taken);
     CHECK(extensions_key_input(1, false, 0) == key_taken && extensions_key_input(54, false, 0) == key_taken);
-    CHECK(extensions_knob_input(0, 1));
-    CHECK(extensions_key_input(16, true, 0) == key_stock && menu_ops[menu_count - 1] == 1);
-    CHECK(!extensions_knob_input(0, 1) && extensions_key_input(16, false, 0) == key_stock);
-    CHECK(extensions_key_input(36, true, 0) == key_stock && extensions_key_input(36, false, 0) == key_stock);
-    // Toggled open, - or + alone closes it too, and reaches stock as a tap.
-    menu_count = 0;
+    CHECK(extensions_key_input(16, true, 0) == key_stock && !open_now());
+    CHECK(extensions_key_input(16, false, 0) == key_stock);
+    // Latched, - or + alone closes it too, and reaches stock as a tap.
     CHECK(extensions_key_input(1, true, 0) == key_taken && extensions_key_input(54, true, 0) == key_taken);
     CHECK(extensions_key_input(1, false, 0) == key_taken && extensions_key_input(54, false, 0) == key_taken);
-    CHECK(extensions_key_input(54, true, 0) == key_taken && menu_ops[menu_count - 1] == 5);
-    CHECK(extensions_key_input(54, false, 0) == key_tap && menu_ops[menu_count - 1] == 1);
-    CHECK(!extensions_knob_input(0, 1));
-    tables.claim_partners = nullptr;
+    CHECK(extensions_key_input(54, true, 0) == key_taken && open_now());
+    CHECK(extensions_key_input(54, false, 0) == key_tap && !open_now());
+    tables.claim_partners = nullptr; tables.claim_layers = nullptr; collection[1].hooks = &second;
     held_key = 0; mode = 0; collection[1].claims = 1u;
     // Guard the generated registry at runtime as well as build time.
     initialized = false; entries = nullptr; collection[0].claims = 1u;

@@ -376,17 +376,16 @@ snapshots of every instrument track's stored parameters, kept by the SDK, one pe
 black key as stock numbers them where it enters values (1 to 9, then 0). Taking
 and reading are separate:
 
-- **Machines never take a snapshot.** An extension takes one with the
-  `snapshot` action ([extensions](extensions.md#claims-and-actions)), in answer
-  to a gesture it claims, and the user takes one with Save in the SDK's menu.
-  Taking one changes no track. That claim also opens the SDK's
-  snapshot menu ([extensions](extensions.md#claims-and-actions)), whose Load
-  writes a slot back to the tracks that still hold its engines.
+- **Machines never take a snapshot.** Only an extension writes them, with the
+  `snapshot` action ([extensions](extensions.md#claims-and-actions)) in answer
+  to a gesture it claims: take, load (back into the tracks that still hold a
+  slot's engines) and clear. The Snapshots extension's menu is one.
 - **Track control machines only read them**, on the GUI side in `control()`:
   `snapshots::get(slot)` (null when the slot is empty), `snapshots::matches(s,
   track)` (whether the track still holds the engine it held then, so its words
   still mean the same) and `snapshots::generation()` (changes whenever any slot
-  is taken, loaded or cleared). What a machine does with them is an ordinary
+  is taken, loaded or cleared) and `snapshots::holds(slot)` (whether the tracks
+  hold a slot's values now). What a machine does with them is an ordinary
   overlay; a snapshot is never a mode or a parameter, so no LFO, lock or preset
   can take one.
 

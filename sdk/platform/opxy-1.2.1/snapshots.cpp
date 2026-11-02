@@ -26,15 +26,6 @@ namespace snapshots = opxy::snapshots;
 snapshots::Snapshot store[snapshots::slots];
 u32 generation;
 
-// The menu: open while its key is held; the selection stays between openings.
-struct Menu { bool open, used, strip_now; u32 selected; i32 held_ms, knob; u32 active, flash, flash_slot; i32 flash_ms; };
-Menu menu = {false, false, false, 0, 0, 0, opxy::platform::kNoSlot, 0, 0, 0};
-
-void flash(u32 what, u32 slot) {
-    menu.flash = what;
-    menu.flash_slot = slot;
-    menu.flash_ms = opxy::platform::kMenuFlashMs;
-}
 // Whether the tracks hold `slot` now: every track still holding the slot's
 // engine holds its values, and at least one does.
 bool holds(u32 slot) {
@@ -99,7 +90,10 @@ const void* sdk_snapshot(u32 slot) {
 }
 u32 sdk_snapshot_engine(u32 track) { return track < control::tracks ? track_engine(track) : 0; }
 u32 sdk_snapshot_generation() { return generation; }
+bool sdk_snapshot_holds(u32 slot) { return opxy::platform::snapshot_holds(slot); }
 bool sdk_snapshot_take(u32 slot) { return opxy::platform::snapshot_take(slot); }
+bool sdk_snapshot_load(u32 slot) { return opxy::platform::snapshot_fits(slot) && opxy::platform::snapshot_load(slot); }
+u32 sdk_snapshot_clear(u32 mask) { return opxy::platform::snapshots_clear_slots(mask); }
 
 bool opxy::platform::snapshot_take(u32 slot) {
     if (slot >= snapshots::slots) return false;
@@ -139,87 +133,17 @@ u32 opxy::platform::snapshot_fits(u32 slot) {
     return fits;
 }
 
-opxy::platform::MenuView opxy::platform::snapshot_menu_view() {
-    MenuView view = {menu.open, menu.open && (menu.strip_now || menu.held_ms >= kMenuStripMs), menu.selected, 0, 0,
-                     kNoSlot, menu.active, menu.flash_ms > 0 ? menu.flash : kFlashNone, menu.flash_slot};
-    for (u32 i = 0; i < snapshots::slots; ++i) view.taken |= store[i].taken ? 1u << i : 0;
-    view.fits = snapshot_fits(menu.selected);
-    // The slot last saved or loaded first, so two equal slots show the one in use.
-    if (menu.active < snapshots::slots && holds(menu.active)) view.current = menu.active;
-    for (u32 i = 0; view.current == kNoSlot && i < snapshots::slots; ++i)
-        if (holds(i)) view.current = i;
-    return view;
-}
+bool opxy::platform::snapshot_holds(u32 slot) { return slot < snapshots::slots && holds(slot); }
 
-bool opxy::platform::snapshot_menu_open() { return menu.open; }
-
-void opxy::platform::snapshot_menu_frame(i32 elapsed_ms) {
-    if (!menu.open || elapsed_ms <= 0) return;
-    if (menu.held_ms < kMenuStripMs) menu.held_ms += elapsed_ms;
-    if (menu.flash_ms > 0) menu.flash_ms -= elapsed_ms;
-}
-
-u32 sdk_snapshot_menu(u32 op, i32 arg) {
-    switch (op) {
-    case kMenuOpen:
-        // arg 1: opened by a gesture that leaves it open, so the bottom row shows at once.
-        menu.open = true; menu.used = false; menu.strip_now = arg != 0; menu.held_ms = 0;
-        menu.knob = 0; menu.flash_ms = 0;
-        return 1;
-    case kMenuClose: {
-        const bool used = menu.used || menu.held_ms >= kMenuStripMs;
-        menu.open = false;
-        return used;
-    }
-    case kMenuHeld:
-        return menu.open && (menu.used || menu.held_ms >= kMenuStripMs);
-    case kMenuSelect:
-        if (menu.open && arg >= 0 && static_cast<u32>(arg) < snapshots::slots) { menu.selected = static_cast<u32>(arg); menu.used = true; }
-        return menu.open;
-    case kMenuStep:
-        // Raw encoder counts: one step per detent, the remainder kept; turning
-        // back starts over.
-        if (menu.open && arg) {
-            if ((arg > 0) != (menu.knob > 0) && menu.knob) menu.knob = 0;
-            menu.knob += arg;
-            while (menu.knob >= kMenuKnobCounts || menu.knob <= -kMenuKnobCounts) {
-                const bool up = menu.knob > 0;
-                menu.knob += up ? -kMenuKnobCounts : kMenuKnobCounts;
-                menu.selected = (menu.selected + (up ? 1 : snapshots::slots - 1)) % snapshots::slots;
-            }
-            menu.used = true;
-        }
-        return menu.open;
-    case kMenuAction:
-        // The bottom row acts once it shows, as on the bar menu.
-        if (!menu.open || !(menu.strip_now || menu.held_ms >= kMenuStripMs)) return 0;
-        menu.used = true;
-        if (arg == kMenuSave && snapshot_take(menu.selected)) {
-            menu.active = menu.selected;
-            flash(kFlashSaved, menu.selected);
-        }
-        // A slot no track can take back loads nothing, and says so (fits 0/8).
-        if (arg == kMenuLoad && snapshot_fits(menu.selected) && snapshot_load(menu.selected)) {
-            menu.active = menu.selected;
-            flash(kFlashLoaded, menu.selected);
-        }
-        if (arg == kMenuClear && store[menu.selected].taken) {
-            store[menu.selected].taken = 0;
-            ++generation;
-            if (menu.active == menu.selected) menu.active = kNoSlot;
-            flash(kFlashCleared, menu.selected);
-        }
-        if (arg == kMenuClearAll) {
-            snapshots_clear();
-            flash(kFlashClearedAll, kNoSlot);
-        }
-        return 1;
-    }
-    return 0;
+u32 opxy::platform::snapshots_clear_slots(u32 mask) {
+    u32 cleared = 0;
+    for (u32 i = 0; i < snapshots::slots; ++i)
+        if ((mask >> i & 1) && store[i].taken) { store[i].taken = 0; ++cleared; }
+    if (cleared) ++generation;
+    return cleared;
 }
 
 void opxy::platform::snapshots_clear() {
-    menu.active = kNoSlot;
     for (u32 i = 0; i < snapshots::slots; ++i) store[i].taken = 0;
     ++generation;
 }
@@ -279,7 +203,6 @@ void opxy::platform::snapshots_decode(const u8* data, u32 bytes) {
         s.taken = 1;
     }
     ok = ok && at == bytes;
-    menu.active = kNoSlot;  // another project: nothing saved or loaded yet
     for (u32 i = 0; i < snapshots::slots; ++i) {
         store[i].taken = 0;
         if (ok && read[i].taken) store[i] = read[i];

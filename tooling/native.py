@@ -23,7 +23,7 @@ from .adapters import (aux_preset_files, catalog_entry, generate_control, genera
                        generate_registration, generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_track_controls,
-                       generate_track_control_overlay, generate_voice, sample_callbacks, track_control)
+                       generate_extension_overlay, generate_voice, sample_callbacks, track_control)
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
@@ -209,19 +209,21 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
-             'track_control_table', 'track_control_hooks', 'track_control_overlay', 'track_control_project',
+             'track_control_table', 'track_control_hooks', 'extension_overlay', 'track_control_project',
              'synth_pages', 'snapshots', 'aux_tracks', 'aux_hooks', 'presets')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'drum_display_stock'), 'samples')
-UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
-# Track control and hidden pages run from the GUI tick hook; the overlay screen
-# registers at startup only in builds that link it, and startup stands in for the
-# saved data's entry points in builds that don't.
+# The overlay screen paints extensions' layers; startup registers it in builds
+# that link extensions.
+UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock',
+                                    'extension_overlay'), 'extensions'))
+# Track control and hidden pages run from the GUI tick hook; startup stands in for
+# the saved data's entry points in builds that don't link it.
 UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
-                                    'track_control_overlay', 'track_control_project', 'synth_pages',
+                                    'track_control_project', 'synth_pages',
                                     'snapshots'), 'control'))
 # Machines that take over aux tracks: the chooser, presets, pages and the stock
 # roles' silencers; startup starts it, and control reaches it through sdk_aux.
@@ -404,8 +406,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
             if step == 'track_control_table':
                 return cxx(str(generate_track_controls(folder, machines)), obj)
-            if step == 'track_control_overlay':
-                return cxx(str(generate_track_control_overlay(folder, machines)), obj)
+            if step == 'extension_overlay':
+                return cxx(str(generate_extension_overlay(folder, extensions_of(machines))), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
@@ -419,7 +421,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 services = active_services(profile, service_users(machines))
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
                                                 [x.prefix for x in sample_engines], 'control' in services,
-                                                'aux' in services)), obj)
+                                                'aux' in services, 'extensions' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -751,9 +753,9 @@ def check_authored(nodes):
                         'Invisible authored SVG outline')
 
 
-def control_artwork(machines):
-    """The SDK's overlay over every page: the snapshot menu."""
-    return read(ROOT / TEMPLATES / 'track_control_overlay.svg')
+def overlay_artwork(machines):
+    """The SDK's overlay over every page: its extensions' layers."""
+    return extensions.overlay_artwork(read(ROOT / TEMPLATES / 'extension_overlay.svg'), extensions_of(machines))
 
 
 def extend_catalog(catalog, profile, machines):
@@ -779,8 +781,8 @@ def prepare_assets(catalog, profile, machines):
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
-    if 'control' in active_services(profile, service_users(machines)):
-        outputs['content/display/openxy_overlay.svg'] = control_artwork(machines)
+    if any(e.layer for e in extensions_of(machines)):
+        outputs['content/display/openxy_overlay.svg'] = overlay_artwork(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))
     return outputs

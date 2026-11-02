@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = 'e51ab542ead6c49f6b5ad2b40c57784cdbdcf5621f3982c2f3412fe6058eb089';
+export const PROFILE_SHA256 = 'c378b6ff299315169304b97ed0ef299c37d1da3af89a4cb8b8f8fe9d6760c6b5';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -375,6 +375,7 @@ export async function openKit(kit) {
       Object.values(e.claim_labels).every(l => typeof l === 'string' && l.length > 0 && l.length <= 40) &&
       ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
         new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))) &&
+      (e.layer === undefined || typeof e.layer === 'string' && e.layer.length <= 65536) &&
       (e.machines === undefined || Array.isArray(e.machines) && e.machines.length > 0 && e.machines.length <= 4 &&
         new Set(e.machines).size === e.machines.length && e.machines.every(id => kit.machines.some(m => m.id === id))),
       'Invalid extension metadata');
@@ -801,9 +802,8 @@ function defaultPreset(machine) {
   };
 }
 
-// `services`: the linked build's (linkKit), which decide the SDK's overlay; without
-// them, a selected track control machine does.
-export async function buildAssets(kit, selection, catalog, numbers, services = null) {
+// `extensionIds`: the selected extensions, whose layers fill the SDK's overlay.
+export async function buildAssets(kit, selection, catalog, numbers, extensionIds = []) {
   check(await sha256(catalog) === kit.profile.stock_catalog_sha256, 'The site’s machine data is damaged. Reload this page.');
   const machines = kit.machines.filter(m => selection.includes(m.id));
   // Each machine's entry ends its stock list; the offsets are bound to the
@@ -834,11 +834,14 @@ export async function buildAssets(kit, selection, catalog, numbers, services = n
       files['content/display/' + m.asset] = utf8.encode(baseSvg.replace('</svg>', m.artwork + '</svg>'));
     }
   }
-  // The SDK's overlay over every page, the snapshot menu (tooling.native.prepare_assets).
-  if (services ? services.has('control') : machines.some(m => (m.features ?? []).includes('trackControl'))) {
-    check(typeof kit.controlArtwork === 'string' && kit.controlArtwork.split('</svg>').length === 2,
+  // The SDK's overlay over every page: selected extensions' layers (tooling.native.prepare_assets).
+  const layers = (kit.extensions ?? []).filter(e => extensionIds.includes(e.id) && typeof e.layer === 'string');
+  if (layers.length) {
+    check(typeof kit.overlayArtwork === 'string' && kit.overlayArtwork.split('</svg>').length === 2,
           'The site’s machine data is damaged. Reload this page.');
-    files['content/display/openxy_overlay.svg'] = utf8.encode(kit.controlArtwork);
+    // The SDK's empty overlay, then each selected layer (tooling.extensions.overlay_artwork).
+    files['content/display/openxy_overlay.svg'] =
+      utf8.encode(kit.overlayArtwork.replace('</svg>', layers.map(e => e.layer).join('') + '</svg>'));
   }
   return files;
 }

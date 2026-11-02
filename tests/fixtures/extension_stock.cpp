@@ -169,7 +169,8 @@ using extensions::probe::written;
 
 // The control service's snapshot store, absent here.
 bool sdk_snapshot_take(opxy::u32) { return false; }
-opxy::u32 sdk_snapshot_menu(opxy::u32, opxy::i32) { return 0; }
+bool sdk_snapshot_load(opxy::u32) { return false; }
+opxy::u32 sdk_snapshot_clear(opxy::u32) { return 0; }
 
 int main() {
     fill_pattern(0);
