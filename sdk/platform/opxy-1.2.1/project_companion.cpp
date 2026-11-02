@@ -3,8 +3,8 @@
 // 8d585eda). After a save that succeeds, the hook writes the .oxy beside the .xy: the
 // saved file's size and CRC-32, then this firmware's machine numbers, in the canonical
 // form tooling/projects.py writes. It runs where stock saves, never on the audio role.
-// A failure leaves the previous companion, which no longer matches, or a partial
-// one; readers ignore both.
+// Publication uses a checked temporary file; the previous companion survives write
+// failures. Readers can recover a complete temporary file bound to the saved project.
 //
 // Stock loads every project, the workspace included, through load_project (8d5890b0),
 // which deserializes the file into the inactive project buffer with one call of
@@ -37,7 +37,17 @@ u32 file_read(void* data, u32 size, u32 count, File* file) {
 u32 file_write(const void* data, u32 size, u32 count, File* file) {
     return stock<u32(const void*, u32, u32, File*)>(0x8fed0780)(data, size, count, file);
 }
-void file_close(File* file) { stock<int(File*)>(0x8fed00ae)(file); }
+int file_close(File* file) { return stock<int(File*)>(0x8fed00ae)(file); }
+// OS FILE flags: fread's error branches (8fed06ae/8fed0722) set bit 9;
+// its EOF branch sets bit 8. A zero read alone does not prove a complete file.
+bool file_eof(File* file) {
+    return (*static_cast<const opxy::u16*>(file) & 0x300u) == 0x100u;
+}
+void file_publish(const char* from, const char* to) {
+    // Stock removes an existing destination before rename. If replacement fails,
+    // the complete temporary remains a bound recovery candidate.
+    stock<u32(const char*, const char*)>(0x8c040c78)(from, to);
+}
 u32 save(void* project, const char* path) { return stock<u32(void*, const char*)>(0x8d599074)(project, path); }
 u32 deserialize(void* project, const char* path) {
     return stock<u32(void*, const char*)>(0x8d599b10)(project, path);
@@ -50,8 +60,10 @@ const u32 kChunkBytes = 4096;
 unsigned char chunk[kChunkBytes];
 char text[kTextBytes];
 char companion[kPathBytes];
+char temporary[kPathBytes];
 unsigned char read_chunk[kChunkBytes];
 char read_companion_path[kPathBytes];
+char read_temporary_path[kPathBytes];
 u32 crc_table[256];
 
 u32 value(const char* symbol) { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(symbol)); }
@@ -76,18 +88,19 @@ bool measure(const char* path, unsigned char* buffer, u32& bytes, u32& crc) {
     if (!file) return false;
     bytes = crc = 0;
     for (u32 count; (count = file_read(buffer, 1, kChunkBytes, file)) != 0;) {
+        if (count > 16 * 1024 * 1024u - bytes) { file_close(file); return false; }
         crc = crc32(crc, buffer, count);
         bytes += count;
     }
-    file_close(file);
-    return true;
+    const bool complete = file_eof(file);
+    return file_close(file) == 0 && complete;
 }
 
 // song.xy -> song.oxy; false for any other name.
 bool companion_path(const char* path, char* out) {
     u32 length = 0;
-    while (path[length]) ++length;
-    if (length < 4 || length + 2 >= kPathBytes || path[length - 3] != '.' || path[length - 2] != 'x' ||
+    while (length < kPathBytes && path[length]) ++length;
+    if (length < 4 || length + 6 >= kPathBytes || path[length - 3] != '.' || path[length - 2] != 'x' ||
         path[length - 1] != 'y')
         return false;
     for (u32 i = 0; i < length - 2; ++i) out[i] = path[i];
@@ -98,21 +111,29 @@ bool companion_path(const char* path, char* out) {
     return true;
 }
 
-// Streams the companion through `text`, a buffer at a time, so its size follows the
-// machines listed, not the buffer. As with one write, a card that fills part way leaves
-// a document the reader refuses whole: the project then loads as saved.
+void temporary_path(const char* path, char* out) {
+    u32 n = 0;
+    while (path[n]) { out[n] = path[n]; ++n; }
+    const char suffix[] = ".tmp";
+    for (u32 i = 0; i < sizeof(suffix); ++i) out[n + i] = suffix[i];
+}
+
+// Stream through a bounded buffer; publish only after all writes and close succeed.
 class Writer {
 public:
     explicit Writer(File* file) : file_(file) {}
     void put(const char* s) { while (*s) byte(*s++); }
     void byte(char c) {
+        if (!ok_) return;
+        if (++total_ > 64 * 1024u) { ok_ = false; return; }
         if (length_ == kTextBytes) flush();
-        text[length_++] = c;
+        if (ok_) text[length_++] = c;
     }
     void flush() {
-        if (length_) file_write(text, length_, 1, file_);
+        if (ok_ && length_ && file_write(text, 1, length_, file_) != length_) ok_ = false;
         length_ = 0;
     }
+    bool ok() const { return ok_; }
     void number(u32 v) {
         char digits[10];
         u32 count = 0;
@@ -125,11 +146,13 @@ public:
 
 private:
     File* file_;
-    u32 length_ = 0;
+    u32 length_ = 0, total_ = 0;
+    bool ok_ = true;
 };
 
 void write_companion(u32 bytes, u32 crc) {
-    File* file = file_open(companion, "wb");
+    temporary_path(companion, temporary);
+    File* file = file_open(temporary, "wb");
     if (!file) return;
     Writer w(file);
     w.put("{\n  \"format\": \"open-xy-project\",\n  \"project\": {\n    \"bytes\": ");
@@ -152,7 +175,8 @@ void write_companion(u32 bytes, u32 crc) {
     w.put(listed ? "\n      },\n" : "},\n");
     w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }\n  },\n  \"version\": 1\n}\n");
     w.flush();
-    file_close(file);
+    const bool complete = w.ok();
+    if (file_close(file) == 0 && complete) file_publish(temporary, companion);
 }
 
 // Reading, as tooling/projects.py parse() and translation() do. The document streams
@@ -209,7 +233,7 @@ public:
             total_ += have_;
             if (!have_ || total_ > kCompanionLimit) {
                 ended_ = true;
-                over_ = total_ > kCompanionLimit;
+                over_ = total_ > kCompanionLimit || !file_eof(file_);
                 have_ = 0;
                 return -1;
             }
@@ -683,9 +707,11 @@ bool note_section(const Text& name, bool ok) {
 
 // Reads the companion: true when it is valid and its machines section applies to this
 // firmware, the maps then filled, with the binding it gives.
-bool read_document(File* file, u32& bytes, u32& crc) {
+bool read_document(File* file, u32& bytes, u32& crc, bool& authoritative) {
     Parser p(file);
     bool format = false, version = false, binding = false, sections = false, applies = false, valid = false;
+    u32 envelope_version = 0;
+    authoritative = false;
     clear_maps();
     const bool read = p.object([&](const Text& key) {
         if (key.is("format")) {
@@ -697,9 +723,8 @@ bool read_document(File* file, u32& bytes, u32& crc) {
             return true;
         }
         if (key.is("version")) {
-            u32 number = 0;
-            if (!p.natural(number, version)) return false;
-            version = version && number == 1;  // 0 is invalid; a newer envelope is ignored
+            if (!p.natural(envelope_version, version)) return false;
+            version = version && envelope_version >= 1;
             return true;
         }
         if (key.is("project")) return binding_member(p, bytes, crc, binding);
@@ -726,7 +751,9 @@ bool read_document(File* file, u32& bytes, u32& crc) {
         valid = valid && machines_ok && !invalid_count;
         return members;
     });
-    return read && p.end() && format && version && binding && sections && valid && applies;
+    authoritative = read && p.end() && format && version && binding &&
+        (envelope_version > 1 || (sections && valid));
+    return authoritative && envelope_version == 1 && applies;
 }
 
 // Rewrites every pattern's machine number on the instrument and send tracks
@@ -746,18 +773,28 @@ void remap(unsigned char* project) {
     }
 }
 
+enum class Document { unusable, ignored, applies };
+Document read_bound(const char* path, u32 measured_bytes, u32 measured_crc) {
+    File* file = file_open(path, "rb");
+    if (!file) return Document::unusable;
+    u32 bytes = 0, crc = 0;
+    bool authoritative = false;
+    const bool applies = read_document(file, bytes, crc, authoritative);
+    const bool closed = file_close(file) == 0;
+    if (!authoritative || !closed || bytes != measured_bytes || crc != measured_crc) return Document::unusable;
+    return applies ? Document::applies : Document::ignored;
+}
+
 void apply_companion(void* project, const char* path) {
     if (!companion_path(path, read_companion_path)) return;
-    File* file = file_open(read_companion_path, "rb");
-    if (!file) return;  // no companion: the numbers are read as saved
-    u32 bytes = 0, crc = 0, measured_bytes, measured_crc;
-    const bool applies = read_document(file, bytes, crc);
-    file_close(file);
-    // Saved since by stock or another tool, for other firmware, or invalid: as saved.
-    if (!applies || !measure(path, read_chunk, measured_bytes, measured_crc) || measured_bytes != bytes ||
-        measured_crc != crc)
-        return;
-    remap(static_cast<unsigned char*>(project));
+    u32 bytes, crc;
+    if (!measure(path, read_chunk, bytes, crc)) return;
+    temporary_path(read_companion_path, read_temporary_path);
+    // A bound published document is authoritative even if its version/profile
+    // is unsupported or it intentionally contains no machine mappings.
+    Document result = read_bound(read_companion_path, bytes, crc);
+    if (result == Document::unusable) result = read_bound(read_temporary_path, bytes, crc);
+    if (result == Document::applies) remap(static_cast<unsigned char*>(project));
 }
 }
 
