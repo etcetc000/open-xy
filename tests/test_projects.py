@@ -173,6 +173,11 @@ class FirmwareWriter(unittest.TestCase):
             'x': {'0': good}, '12': {'machine': 'morph', 'controls': good}, '13': 'bad'}
         raw = json.dumps(document).encode()
         self.assertEqual(aux_kept(parse(raw), data), {11: {0: [1, 2, 3, 4, 5, 6, 7, -8]}})
+        # A machine's malformed entry is no data, as the firmware reads it; the rest stands.
+        document['sections']['open-xy.control']['machines'] = {'morph': 'a!==', 'plain': 5, 'other': 'aw=='}
+        raw = json.dumps(document).encode()
+        self.assertEqual(kept_data(parse(raw), data), {'other': b'k'})
+        self.assertEqual(saved_numbers(parse(raw), data), SAVED)
 
     def test_the_role_controls_of_aux_patterns_a_machine_holds_are_kept_with_the_project(self):
         with tempfile.TemporaryDirectory(prefix='companion-') as directory:

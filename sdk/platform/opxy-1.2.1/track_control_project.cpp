@@ -43,7 +43,9 @@ public:
     void byte(char c) {
         if (count == sizeof buffer) flush();
         buffer[count++] = c;
+        ++total;
     }
+    u32 written() const { return total; }
     void base64(const unsigned char* data, u32 bytes) {
         for (u32 i = 0; i < bytes; i += 3) {
             const u32 n = bytes - i, v = data[i] << 16 | (n > 1 ? data[i + 1] << 8 : 0) | (n > 2 ? data[i + 2] : 0);
@@ -60,8 +62,24 @@ private:
     }
     kept_files::File* file;
     char buffer[256];
-    u32 count = 0;
+    u32 count = 0, total = 0;
 };
+
+// What this section may take, so the whole companion stays within what its readers
+// take (kReadBytes): less its envelope and this section's end (kFixedBytes) and the
+// open-xy.machines section after it, at most kEntryBytes for each machine listed.
+u32 section_budget() {
+    const u32 kFixedBytes = 1024, kEntryBytes = 128;
+    u32 machines = 0;
+    for (const opxy::platform::CompanionMachine* m = sdk_companion_machines; m->id; ++m) ++machines;
+    const u32 rest = kFixedBytes + kEntryBytes * machines;
+    return rest < kReadBytes ? kReadBytes - rest : 0;
+}
+u32 length_of(const char* s) {
+    u32 n = 0;
+    while (s[n]) ++n;
+    return n;
+}
 
 // A small reader for companions any writer made: the span [at, to) of a value.
 struct Reader {
@@ -304,6 +322,9 @@ extern "C" u32 sdk_control_kept_write(void* file) {
         if (!m.save || m.ready() != 1) continue;
         const u32 count = m.save(kept);
         if (!count || count > m.saved_bytes) continue;
+        // One that would take the companion past what its readers take is not kept,
+        // so the rest of the companion still loads.
+        if (out.written() + length_of(m.name) + 4 * ((count + 2) / 3) + 64 > section_budget()) continue;
         out.put(listed++ ? ",\n        \"" : held ? "      \"machines\": {\n        \""
                                                  : "    \"open-xy.control\": {\n      \"machines\": {\n        \"");
         out.put(m.name);

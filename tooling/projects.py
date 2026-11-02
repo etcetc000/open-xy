@@ -82,15 +82,8 @@ def parse(raw):
         require(isinstance(machines.get('profile'), str) and isinstance(machines.get('machines'), dict),
                 f'{MACHINES}: needs a profile and machines')
         check_machines(machines['machines'])
-    control = sections.get(CONTROL)
-    if control and control['version'] <= CONTROL_VERSION:
-        require(isinstance(control.get('machines', {}), dict) and
-                all(isinstance(v, str) for v in control.get('machines', {}).values()), f'{CONTROL}: invalid machines')
-        try:
-            for kept in control.get('machines', {}).values():
-                base64.b64decode(kept, validate=True)
-        except binascii.Error as error:
-            raise ValueError(f'{CONTROL}: invalid base64') from error
+    # open-xy.control's entries are read one by one, as the firmware reads them,
+    # skipping a malformed one (kept_data, aux_kept): none voids the companion.
     return value
 
 
@@ -126,7 +119,16 @@ def kept_data(document, data):
     section = document['sections'].get(CONTROL)
     if not describes(document, data) or not section or section['version'] > CONTROL_VERSION:
         return {}
-    return {name: base64.b64decode(kept) for name, kept in section.get('machines', {}).items()}
+    machines = section.get('machines', {})
+    result = {}
+    for name, kept in (machines.items() if isinstance(machines, dict) else ()):
+        try:
+            result[name] = base64.b64decode(kept, validate=True) if isinstance(kept, str) else None
+        except binascii.Error:
+            continue
+        if result[name] is None:
+            del result[name]
+    return result
 
 
 def aux_kept(document, data):

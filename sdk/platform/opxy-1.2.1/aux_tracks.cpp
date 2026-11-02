@@ -584,9 +584,14 @@ void sdk_cv_gate_on(u32 a, u32 b, u32 c) {
 
 namespace {
 // The role's controls kept aside for a pattern a machine holds, or null.
+// Only for a pattern a machine still holds: stock may have pasted or cleared a
+// role pattern over one a machine held, without the chooser.
 const i32* aux_kept(u32 track, u32 pattern) {
     const Kept* kept = kept_of(track);
-    return kept && pattern < kPatterns && kept->patterns & 1u << pattern ? kept->values[pattern] : nullptr;
+    if (!kept || pattern >= kPatterns || !(kept->patterns & 1u << pattern) || pattern >= pattern_count(track) ||
+        !machine_for(track, word(pattern_block(track, pattern) + 0x18)))
+        return nullptr;
+    return kept->values[pattern];
 }
 
 // After a project loads: the role's controls kept for `pattern` of `track`.

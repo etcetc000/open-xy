@@ -308,7 +308,8 @@ extern "C" void sdk_gui_tick() {
     for (u32 i = 0; i < applied_count; ++i) {
         Applied a = applied[i];
         if (a.block != stock<u32(u32)>(0x8d587708)(a.track)) {
-            if (live(a.track, a.index) == a.written) live_set(a.track, a.index, base(a.track, a.index));
+            if (live(a.track, a.index) == a.written && !lock_holds(a.track, a.index))
+                live_set(a.track, a.index, base(a.track, a.index));
             continue;
         }
         const i32 value = live(a.track, a.index);
