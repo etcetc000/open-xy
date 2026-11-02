@@ -530,6 +530,10 @@ def generate_track_controls(directory, machines):
         holders = [m.id for m in machines if track_control(m) and track in track_control(m).get('aux', ())]
         require(len(holders) <= AUX_CHOICES - 1,
                 f'At most {AUX_CHOICES - 1} machines may take over aux track {track} in one build, not {len(holders)}')
+    # The device lists every aux machine's presets and the roles' inits together, at most AUX_PRESETS.
+    files = len({path for m in machines for path in aux_preset_files(m)})
+    require(files <= AUX_PRESETS, f'The aux machines in one build have at most {AUX_PRESETS} presets together, '
+                                  f'the role inits included, not {files}')
     declarations, rows = [], []
     for m in machines:
         if not track_control(m):

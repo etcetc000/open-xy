@@ -128,6 +128,17 @@ class TrackControl(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='track-control-') as folder:
             table = generate_track_controls(folder, [synth]).read_text(encoding='utf-8')
             self.assertIn(f'true, 0x800u, {synth.prefix}_page_id, ', table)
+            # Two aux machines share the device's list of 64, the role's init once.
+            other = copy.deepcopy(synth)
+            other.definition['id'] = other.id + 'b'
+            synth.definition['presets'] = {f'p{i}': {} for i in range(31)}
+            other.definition['presets'] = {f'q{i}': {} for i in range(32)}
+            self.assertEqual(len({p for m in (synth, other) for p in aux_preset_files(m)}), 64)
+            generate_track_controls(folder, [synth, other])
+            other.definition['presets']['q32'] = {}
+            with self.assertRaisesRegex(ValueError, 'at most 64 presets together'):
+                generate_track_controls(folder, [synth, other])
+            synth.definition['presets'] = {'Soft': {names[0]: 0.5}, 'Full': {n: 1 for n in names}}
             # A name the list cannot show is refused.
             synth.definition['presets'] = {'A name too long to show': {}}
             with self.assertRaises(ValueError):

@@ -117,3 +117,14 @@ test("an aux machine's presets install as files, with the init of the role it re
     ['content/aux_presets/morph/../a.json', 'morph']])
     assert.throws(() => presetFiles({id: 'morph', catalog: '', auxPresets: {[path]: preset(type)}}), /Invalid aux preset/);
 });
+
+test('a build refuses more aux presets than the OP-XY lists', async () => {
+  const preset = type => JSON.stringify({params: Array(8).fill(0), platform: 'OP-XY', type, version: 1});
+  const auxPresets = n => Object.fromEntries([['content/aux_presets/cv/init.json',
+    JSON.stringify({platform: 'OP-XY', type: 'cv', version: 1})],
+    ...Array.from({length: n}, (_, i) => [`content/aux_presets/probesynth/p${i}.json`, preset('probesynth')])]);
+  const ok = await fixture([{...machines[0], catalog: '', auxPresets: auxPresets(63)}]);
+  await buildAssets(ok.kit, ['probesynth'], ok.catalog, numbers);
+  const over = await fixture([{...machines[0], catalog: '', auxPresets: auxPresets(64)}]);
+  await assert.rejects(buildAssets(over.kit, ['probesynth'], over.catalog, numbers), /OP-XY lists 64/);
+});

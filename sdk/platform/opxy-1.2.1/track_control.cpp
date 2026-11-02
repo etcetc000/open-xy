@@ -285,6 +285,7 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
 extern "C" void sdk_control_forget() {
     sdk_synth_queue_page_key(kNoTrack, 0);
     applied_count = wanted_count = loaded_machines = 0;
+    turned_track = kNoTrack;
     for (u32 t = 0; t < control::tracks; ++t) locked[t][0] = locked[t][1] = 0;
     for (u32 t = 0; t < control::all_tracks; ++t) {
         hosts[t] = nullptr;

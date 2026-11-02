@@ -874,6 +874,10 @@ export async function buildAssets(kit, selection, catalog, numbers, {graphics = 
   for (const machine of machines)
     for (const [path, preset] of Object.entries(presetFiles(machine)))
       files[path] = utf8.encode(JSON.stringify(preset, null, 2) + '\n');
+  // The device lists at most 64 aux presets, every aux machine's and the roles' inits together
+  // (tooling.adapters.AUX_PRESETS).
+  const auxPresets = Object.keys(files).filter(path => path.startsWith('content/aux_presets/')).length;
+  check(auxPresets <= 64, `The chosen aux machines have ${auxPresets} presets together; the OP-XY lists 64. Choose fewer.`);
   if (machines.some(m => m.artwork)) {
     check(await screenTemplateOk(kit), 'Platform screen template differs from the supported ABI');
     const baseSvg = kit.screenTemplate;
