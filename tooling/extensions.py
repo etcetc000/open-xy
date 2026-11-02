@@ -55,7 +55,9 @@ def registry():
                 0 < len(claim['label']) <= 40 and claim.get('layer', True) is True and
                 type(claim['key']) is int and 0 < claim['key'] < 64 and
                 (type(claim.get('with', 1)) is int and 0 < claim.get('with', 1) < 64 and claim.get('with') != claim['key']) and
-                claim.get('chord', 'black_keys') in CHORDS and not ('chord' in claim and 'layer' in claim),
+                claim.get('chord', 'black_keys') in CHORDS and not ('chord' in claim and 'layer' in claim) and
+                # A pair is a chord's or a layer's gesture: alone it would grant nothing.
+                ('with' not in claim or 'chord' in claim or 'layer' in claim),
                 'Invalid claim: ' + name)
     for name, action in actions.items():
         require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
@@ -116,8 +118,8 @@ def extension_at(folder):
     if layer is not None:
         require(isinstance(layer, dict) and set(layer) == {'nodes'} and isinstance(layer['nodes'], list) and
                 0 < len(layer['nodes']) <= LAYER_NODES and len(set(layer['nodes'])) == len(layer['nodes']) and
-                all(isinstance(n, str) and NAME.fullmatch(n) for n in layer['nodes']),
-                f'{name}: layer is {{"nodes": [...]}}: 1 to {LAYER_NODES} distinct names')
+                all(isinstance(n, str) and NAME.fullmatch(n) and n != 'layer' for n in layer['nodes']),
+                f'{name}: layer is {{"nodes": [...]}}: 1 to {LAYER_NODES} distinct names, none "layer"')
         require(any(claims[c].get('layer') for c in data['claims']), f'{name}: a layer needs a layer claim')
     # Its frames, which time a hold, come from drawing it: a layer claim needs a layer.
     require(layer is not None or not any(claims[c].get('layer') for c in data['claims']),
@@ -157,6 +159,10 @@ def layer_artwork(extension):
 
 def layer_ranges(extensions):
     """Each extension's first node and count in the SDK's overlay, by ID."""
+    # Every ID in the overlay is unique: one extension's node may not read as another's.
+    ids = [i for e in extensions if e.layer for i in (e.id + '_layer', *e.layer_ids())]
+    require(len(ids) == len(set(ids)), 'Two extensions\' layers share an ID: ' +
+            ', '.join(sorted({i for i in ids if ids.count(i) > 1})))
     ranges, first = {}, 0
     for e in extensions:
         ranges[e.id] = (first, len(e.layer))

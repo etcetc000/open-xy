@@ -63,7 +63,7 @@ struct Control {
 
 // Each action needs its permission (profiles/extensions.json) and works only in
 // a queued_control callback for a key the extension claims, once stock accepted
-// it. The SDK validates the context again and owns undo/publication: one stock
+// it, or in its layer's events (Hooks::layer). The SDK validates the context again and owns undo/publication: one stock
 // undo transaction per callback. Append new actions at the end.
 struct Actions {
     // Add notes to an instrument track's pattern (0-7) beside its existing
@@ -148,7 +148,8 @@ using OnDraw = void (*)(const Canvas&);
 //
 // All callbacks are synchronous on the controller path, in collection order.
 // Arguments are borrowed for the callback. No allocation, blocking or I/O.
-// Observers cannot transform live input or consume stock controls.
+// Observers cannot transform live input or consume stock controls; only an open
+// layer takes keys and encoder turns from stock.
 struct Hooks {
     // Selected-track recording context and play state; before every other event.
     OnContext context;

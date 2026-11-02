@@ -101,7 +101,8 @@ bool opxy::platform::snapshot_take(u32 slot) {
     snapshots::Snapshot& s = store[slot];
     for (u32 t = 0; t < control::tracks; ++t) {
         s.engines[t] = track_engine(t);
-        for (u32 p = 0; p < control::track_parameters; ++p) s.values[t][p] = base(t, p);
+        // A track without an engine is never loaded or matched: keep nothing for it.
+        for (u32 p = 0; p < control::track_parameters; ++p) s.values[t][p] = s.engines[t] ? base(t, p) : 0;
     }
     s.taken = 1;
     ++generation;

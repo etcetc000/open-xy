@@ -37,6 +37,8 @@ bool ready() {
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
             (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count)) ||
             (entry.claims && !entry.hooks->queued_control && !entry.hooks->layer)) return false;
+        for (u32 c = 0; known.claim_layers && c < known.claim_count; ++c)
+            if ((entry.claims & (1u << c)) && known.claim_layers[c] && !entry.hooks->layer) return false;
         for (u32 a = 0; a < known.action_count; ++a) {
             if (!(entry.actions & (1u << a))) continue;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
@@ -190,7 +192,8 @@ u32 layer_entry = kNone, layer_claim;
 bool layer_holding, layer_latched, layer_used;
 u32 layer_held_ms;
 u32 layer_openings;  // counts openings, so a reopening starts with every node hidden
-u32 layer_key = kNone;  // a single-key claim's key, while it holds the layer open
+u32 layer_key = kNone;  // a single-key claim's key, held since it opened a layer
+bool layer_single;      // the open layer is that key's
 u32 pending = kNone;
 
 bool taken_key(u32 key) { return key < kKeys && (key_withheld[key / 32] >> (key % 32) & 1); }
@@ -229,7 +232,7 @@ void open_layer(u32 claim, u32 entry) {
     layer_entry = entry;
     layer_claim = claim;
     layer_holding = true;
-    layer_latched = layer_used = false;
+    layer_latched = layer_used = layer_single = false;
     layer_held_ms = 0;
     ++layer_openings;
     layer_send(extensions::Layer::open);
@@ -238,8 +241,7 @@ void close_layer() {
     if (layer_entry == kNone) return;
     layer_send(extensions::Layer::close);
     layer_entry = kNone;
-    layer_holding = layer_latched = false;
-    layer_key = kNone;
+    layer_holding = layer_latched = layer_single = false;
 }
 // A held gesture let go: a hold (a key taken, or tap_ms) closes, a tap latches.
 bool tapped() { return !layer_used && layer_held_ms < extensions::tap_ms; }
@@ -263,6 +265,9 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
                 return key_tap;
             }
             if (key == layer_key) {
+                layer_key = kNone;
+                // Its layer, if another gesture has not replaced it: a tap reaches stock.
+                if (!layer_single) return key_taken;
                 const bool tap = tapped();
                 close_layer();
                 return tap ? key_tap : key_taken;
@@ -307,6 +312,7 @@ u32 extensions_key_input(u32 key, bool pressed, extensions::Time time) {
                 } else if (layer_entry == kNone) {
                     open_layer(claim, entry);
                     layer_key = key;
+                    layer_single = true;
                     taken |= bit;
                     return key_taken;
                 }
