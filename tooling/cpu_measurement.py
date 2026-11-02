@@ -2,19 +2,24 @@
 import math
 import re
 
-from .benchmark import position
+from .benchmark import drum_label, position
 from .formats import require
 
 # What a new or updated submission measures, per kind. A synth's record is its control
 # sweep: block_percent its heaviest run, midpoint_percent stock's midpoint run,
 # combined_percent the run with every control at its heaviest position, and
 # worst_setting the heaviest single swept setting.
+# A drum kit's: block_percent its heaviest single voice, at any model and level, as
+# worst_model says; midpoint_percent its heaviest at the middle; kit_percent its own
+# keys at full polyphony; choke_percent retriggers on one key; ceiling_percent full
+# polyphony of the heaviest. Those three are whole kits, against the same budget.
 BENCHMARKS = {'synth': 'opxy-synth-c8-sweep-v1', 'effect': 'opxy-effect-callback-v1',
-              'sample': 'opxy-sample-callback-v1'}
+              'sample': 'opxy-sample-callback-v1', 'drum': 'opxy-drum-callback-v1'}
 # Records from before the sweep, kept by entries that have not changed since.
 LEGACY = {'synth': 'opxy-synth-c8-v1'}
 FIELDS = {'benchmark', 'commit', 'firmware_sha256', 'runs', 'block_percent'}
 SWEEP_FIELDS = FIELDS | {'midpoint_percent', 'combined_percent', 'worst_setting'}
+DRUM_FIELDS = FIELDS | {'midpoint_percent', 'kit_percent', 'choke_percent', 'ceiling_percent', 'worst_model'}
 # The share of the stock block budget a machine should stay within (docs/profiling.md).
 # Above it a machine is still accepted, with a warning.
 RECOMMENDED_PERCENT = 3.5
@@ -29,6 +34,8 @@ def above_recommended(value):
         where = 'with every control at its heaviest position'
     elif 'worst_setting' in value:
         where = 'at ' + position(value['worst_setting'])
+    elif 'worst_model' in value:
+        where = 'for ' + drum_label(value['worst_model'])
     return recommendation(value['block_percent'], where)
 
 
@@ -52,14 +59,19 @@ def validate(value, kind, commit=None, legacy=True):
             ('; synths submit a control sweep (docs/profiling.md)'
              if kind in LEGACY and value.get('benchmark') == LEGACY[kind] else ''))
     sweep = value['benchmark'] == BENCHMARKS['synth']
-    require(set(value) - {'report'} == (SWEEP_FIELDS if sweep else FIELDS), 'cpu: unexpected measurement fields')
+    drum = kind == 'drum'
+    require(set(value) - {'report'} == (SWEEP_FIELDS if sweep else DRUM_FIELDS if drum else FIELDS),
+            'cpu: unexpected measurement fields')
     require(isinstance(value['commit'], str) and re.fullmatch(r'[0-9a-f]{40}', value['commit']),
             'cpu: commit is the full SHA of the measured machine source')
     require(commit is None or value['commit'] == commit, 'cpu: measurement must match the catalog commit')
     require(isinstance(value['firmware_sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', value['firmware_sha256']),
             'cpu: firmware_sha256 must identify the measured build')
     require(type(value['runs']) is int and 1 <= value['runs'] <= 100, 'cpu: use 1 to 100 independent runs')
-    for field in ('block_percent', 'midpoint_percent', 'combined_percent') if sweep else ('block_percent',):
+    fields = (('block_percent', 'midpoint_percent', 'combined_percent') if sweep else
+              ('block_percent', 'midpoint_percent', 'kit_percent', 'choke_percent', 'ceiling_percent') if drum else
+              ('block_percent',))
+    for field in fields:
         number = value[field]
         require(type(number) in (int, float) and math.isfinite(number) and 0 < number < 100,
                 f'cpu: {field} must be an unsaturated, positive percentage of the stock block budget')
@@ -74,6 +86,14 @@ def validate(value, kind, commit=None, legacy=True):
                 '(and a list control\'s option)')
         require(max(value['midpoint_percent'], value['combined_percent']) <= value['block_percent'],
                 'cpu: block_percent is the heaviest run, the midpoint and combined runs included')
+    if drum:
+        worst = value['worst_model']
+        require(isinstance(worst, dict) and set(worst) == {'run', 'voices', 'model', 'level'} and
+                worst['run'] == 'voice' and worst['voices'] == 1 and
+                type(worst['model']) is int and 0 <= worst['model'] < 64 and worst['level'] in (0, 64, 127),
+                'cpu: worst_model names the heaviest single voice\'s model and level')
+        require(value['midpoint_percent'] <= value['block_percent'],
+                'cpu: block_percent is the heaviest single voice, the midpoint included')
     if 'report' in value:
         require(isinstance(value['report'], str) and len(value['report']) <= 2048 and
                 re.fullmatch(REPORT_URL, value['report']), 'cpu: report must be a public HTTPS evidence URL')

@@ -117,7 +117,7 @@ def main():
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
         for machine in selected:
-            if machine['kind'] in ('synth', 'sample'):
+            if machine['kind'] in ('synth', 'drum', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'
                 data = (prefix / name).read_bytes()
                 preset = json.loads(data)
@@ -126,7 +126,7 @@ def main():
                     require(preset == own['default'], 'Machine preset differs: default')
                 else:
                     definition = definitions[machine['id']]
-                    defaults = catalog_defaults(definition)
+                    defaults = [16384] * 8 if machine['kind'] == 'drum' else catalog_defaults(definition)
                     entry = json.loads(machine['catalog'].strip().lstrip(','))
                     require(preset['type'] == entry['type'] and preset['platform'] == 'OP-XY' and
                             preset['version'] == 4 and preset['engine']['params'] == defaults and

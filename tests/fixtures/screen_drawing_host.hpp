@@ -10,13 +10,15 @@ inline void display_render(DisplayState* state, const draw::Input*, Frame*) { ++
 // Keep this boundary test away from stock object addresses and SVG setters.
 inline bool display_valid(const Frame*) { return false; }
 }}
+// No drum kit here: the selected pad's notes never strike.
+inline opxy::u32 sdk_drum_pad(opxy::u32, opxy::u32) { return 0; }
 namespace opxy { namespace screen { namespace {
 struct Vector { u32 begin, end, capacity; };
 struct Command { i32 x, y; u32 type; };
 struct Leaf {};
 struct PathNode { Leaf leaf; Vector commands; };
 struct Base { const void* svg; u32 page; Leaf* values[4]; };
-struct Controls { bool valid; u32 track; u8 shown[4]; i32 values[4], slots[8]; u32 shift; u8 choices[4]; };
+struct Controls { bool valid; u32 track; u8 shown[4]; i32 values[4], slots[8]; u32 model, pad; bool choosing; u32 shift; u8 choices[4]; };
 inline PathNode* path_node(void* raw) { return static_cast<PathNode*>(raw); }
 template<class T> void clear(T*) {}
 inline void bind_controls(Base*) {}

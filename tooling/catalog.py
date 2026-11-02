@@ -32,7 +32,7 @@ from .pipeline import NO_WINDOW, ROOT
 CATALOG = ROOT / 'catalog/machines.json'
 EXTENSION_CATALOG = ROOT / 'catalog/extensions.json'
 # Each catalog file's list and the kinds its entries may have.
-KINDS = {'machines': ('synth', 'sample', 'effect', 'player'), 'extensions': ('extension',)}
+KINDS = {'machines': ('synth', 'drum', 'sample', 'effect', 'player'), 'extensions': ('extension',)}
 # Fetched machine sources: third-party code, never firmware, so it may live in local/.
 CACHE = ROOT / 'local/catalog'
 STATUSES = ('reserved', 'draft', 'published', 'retired')

@@ -15,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from tooling import native
+from tooling.adapters import preset_files
 from tooling.formats import elf32, elf_sections, sha
 from tooling.pipeline import document, read, save_json
 
@@ -126,19 +127,21 @@ class PackageVerification(unittest.TestCase):
                                      for m in self.linked if m.kind != 'player'})
         original = json.loads(self.catalog)
         current = json.loads((self.package / 'candidate/content/op1_factory.json').read_bytes())
-        for key, kinds in (('engine_types', ('synth', 'sample')), ('fx_types', ('effect',)), ('seq_types', ('player',))):
+        for key, kinds in (('engine_types', ('synth', 'drum', 'sample')), ('fx_types', ('effect',)), ('seq_types', ('player',))):
             names = [m.native_name for m in self.linked if m.kind in kinds]
             cut = len(original[key])
             self.assertEqual(current[key][:cut], original[key])
             self.assertEqual([e['type'] for e in current[key][cut:]], names)
         displays = [m.native_name for m in self.linked if m.display != 'stock']
+        presets = {path for m in self.linked for path in preset_files(m)}
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
-        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays})
+        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} | presets)
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',
-                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock')]
+                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock'),
+                 *(f'candidate/{path}' for m in self.linked for path in preset_files(m))]
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name

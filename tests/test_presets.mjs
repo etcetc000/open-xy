@@ -77,6 +77,13 @@ test("a machine's own presets install beside its init preset, unchanged", async 
   assert.deepEqual(authored, {'content/presets/probesynth/default.json': own({octave: 1})});
 });
 
+// Placeholder pending #234, which defines trackControl's real shape.
+test('an aux track-control machine keeps no instrument preset folder', () => {
+  const aux = {...machines[0], trackControl: {aux: [12]}};
+  assert.equal(presetPath(aux), null);
+  assert.deepEqual(presetFiles(aux), {});
+});
+
 test("a machine's own presets are checked again before they reach a device", async () => {
   for (const presets of [{default: own({type: 'x'})}, {'../x': own()}, {'Warm Pad': own()}, {a: own({type: 'fm2op'})},
     {a: own({version: 3})}, {a: own({platform: 'OP-1'})}, {a: own({regions: [{sample: 'kick.wav'}]})},
