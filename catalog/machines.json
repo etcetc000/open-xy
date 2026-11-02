@@ -978,6 +978,12 @@
       "kind": "effect",
       "maintainer": "carlosedp",
       "status": "reserved"
+    },
+    {
+      "id": "subvista",
+      "kind": "synth",
+      "maintainer": "kristapskristaps",
+      "status": "reserved"
     }
   ]
 }
