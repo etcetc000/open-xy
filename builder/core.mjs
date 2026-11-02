@@ -909,8 +909,11 @@ export async function buildAssets(kit, selection, catalog, numbers,
     }
   }
   // The SDK's overlay over every page: selected extensions' layers (tooling.native.prepare_assets).
-  const layers = (kit.extensions ?? []).filter(e => extensions.includes(e.id) && typeof e.layer === 'string');
-  if (layers.length) {
+  // Linked extensions link the overlay screen, which registers its artwork: it ships
+  // whenever one is selected, the empty template when none has a layer.
+  const chosen = (kit.extensions ?? []).filter(e => extensions.includes(e.id));
+  const layers = chosen.filter(e => typeof e.layer === 'string');
+  if (chosen.length) {
     check(typeof kit.overlayArtwork === 'string' && kit.overlayArtwork.split('</svg>').length === 2,
           'The site’s machine data is damaged. Reload this page.');
     // The SDK's empty overlay, then each selected layer (tooling.extensions.overlay_artwork).

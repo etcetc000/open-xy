@@ -146,8 +146,7 @@ class PackageVerification(unittest.TestCase):
         presets = {path for m in self.linked for path in preset_files(m)}
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
-        layers = any(e.layer for e in native.extensions_of(self.machines))
-        overlay = {'content/display/openxy_overlay.svg'} if layers else set()
+        overlay = {'content/display/openxy_overlay.svg'} if native.extensions_of(self.machines) else set()
         presets |= {path for m in self.linked for path in aux_preset_files(m)}
         self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} |
                          overlay | presets)
@@ -157,7 +156,7 @@ class PackageVerification(unittest.TestCase):
                  *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock'),
                  *(f'candidate/{path}' for m in self.linked for path in preset_files(m)),
                  *(['candidate/content/display/openxy_overlay.svg']
-                   if any(e.layer for e in native.extensions_of(self.machines)) else [])]
+                   if native.extensions_of(self.machines) else [])]
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name

@@ -115,7 +115,8 @@ test("the SDK's overlay holds the selected extensions' layers", async () => {
     (await buildAssets(kit, ['probesynth'], catalog, numbers, {extensions}))['content/display/openxy_overlay.svg'];
   assert.equal(new TextDecoder().decode(await overlay(['menu', 'plain'])),
     '<svg><g id="menu_layer"><path id="menu_card"/></g></svg>');
-  assert.equal(await overlay(['plain']), undefined);
+  // An extension without a layer still links the overlay screen: its artwork is the empty template.
+  assert.equal(new TextDecoder().decode(await overlay(['plain'])), '<svg></svg>');
   assert.equal(await overlay([]), undefined);
 });
 

@@ -55,7 +55,8 @@ def registry():
                 0 < len(claim['label']) <= 40 and claim.get('layer', True) is True and
                 type(claim['key']) is int and 0 < claim['key'] < 64 and
                 (type(claim.get('with', 1)) is int and 0 < claim.get('with', 1) < 64 and claim.get('with') != claim['key']) and
-                claim.get('chord', 'black_keys') in CHORDS, 'Invalid claim: ' + name)
+                claim.get('chord', 'black_keys') in CHORDS and not ('chord' in claim and 'layer' in claim),
+                'Invalid claim: ' + name)
     for name, action in actions.items():
         require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
                 ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
@@ -118,6 +119,9 @@ def extension_at(folder):
                 all(isinstance(n, str) and NAME.fullmatch(n) for n in layer['nodes']),
                 f'{name}: layer is {{"nodes": [...]}}: 1 to {LAYER_NODES} distinct names')
         require(any(claims[c].get('layer') for c in data['claims']), f'{name}: a layer needs a layer claim')
+    # Its frames, which time a hold, come from drawing it: a layer claim needs a layer.
+    require(layer is not None or not any(claims[c].get('layer') for c in data['claims']),
+            f'{name}: a layer claim opens a layer: declare its "layer" nodes')
     extension = Extension(name, root, tuple(data['claims']), tuple(data['actions']),
                           {k: data[k] for k in TEXT_LIMITS if k in data}, dependent_machines(root, name, data),
                           tuple(layer['nodes']) if layer else ())

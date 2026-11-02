@@ -129,7 +129,9 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   while that claim is built in. Other pair claims leave both keys to stock.
 - **A layer** (`"layer": true`) makes the claim's gesture open its owner's
   [layer](#layers): a mode of its own over every page, as stock's bar key opens
-  its menu. `minus_plus` is a layer claim.
+  its menu. `minus_plus` is a layer claim. A layer claim has no chord, and an
+  extension holding one declares its layer's nodes (below): drawing them is what
+  times a hold.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one

@@ -875,7 +875,9 @@ def prepare_assets(catalog, profile, machines):
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
-    if any(e.layer for e in extensions_of(machines)):
+    # Linked extensions link the overlay screen, which startup registers: its artwork
+    # ships with it, the empty template when no selected extension has a layer.
+    if extensions_of(machines):
         outputs['content/display/openxy_overlay.svg'] = overlay_artwork(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))

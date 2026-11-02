@@ -39,9 +39,11 @@ struct Snapshot {
 inline const Snapshot* get(u32 slot) {
     return slot < slots ? static_cast<const Snapshot*>(sdk_snapshot(slot)) : nullptr;
 }
-// Whether `track` still holds the engine it held when `snapshot` was taken.
+// Whether `track` still holds the engine it held when `snapshot` was taken; never
+// a track without one, which load leaves alone too.
 inline bool matches(const Snapshot& snapshot, u32 track) {
-    return track < control::tracks && snapshot.engines[track] == sdk_snapshot_engine(track);
+    return track < control::tracks && snapshot.engines[track] &&
+           snapshot.engines[track] == sdk_snapshot_engine(track);
 }
 // Changes whenever any slot is taken, loaded or cleared: a reader may keep
 // work derived from snapshots until it changes.
