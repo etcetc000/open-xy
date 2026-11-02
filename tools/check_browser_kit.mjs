@@ -3,7 +3,7 @@ import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
-import {openKit, linkKit, sha256, checkedSelections, extensionChoices, selectionBit} from '../builder/core.mjs';
+import {openKit, linkKit, sha256, checkedSelections, extensionChoices, extensionsFit, selectionBit} from '../builder/core.mjs';
 
 const [kitFile, objectDir, ld, objcopy] = process.argv.slice(2);
 const kit = await openKit(JSON.parse(readFileSync(kitFile, 'utf8')));
@@ -15,6 +15,7 @@ for (const mask of checkedSelections(kit.machines, kit.linked)) {
   // A mask runs to 78 digits: a short digest names the selection stably and keeps paths short.
   const digest = (await sha256(new TextEncoder().encode(mask.toString()))).slice(0, 16);
   for (const [choice, extensions] of extensionChoices(kit).entries()) {
+    if (!extensionsFit(kit, selected, extensions)) continue;  // it would bring a machine this selection lacks
     const name = `${digest}-${choice}`;
     const linked = linkKit(kit, selected, null, extensions), prefix = resolve(destination, name);
     const definitions = [...Object.entries(linked.definitions), ...linked.aliases.entries()]

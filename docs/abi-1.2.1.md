@@ -38,7 +38,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Project companions | 7 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, gives track control machines what they kept after every load (and nothing after a new project), and shows companions beside projects over MTP |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
-| Track control | 3 | Runs a synth's track control once per GUI tick, after stock's own call at that site, lets it capture encoder edits, and shows its overlays as parameter values |
+| Track control | 3 | Runs a synth's track control once per GUI tick, after stock's own call at that site, notes encoder edits, and shows its overlays as parameter values |
 | Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
@@ -161,10 +161,18 @@ named for the stock calls they replace; they are adapter entry points, not
 extension APIs. Capture ([open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture)) is the first
 subscriber: it owns the bounded current-track ghost pattern and the Record gesture.
 
-The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key
+The nine hooks replace the controller-update call at `0x8c0baaf0`, queued key
 dispatch at `0x8c0b6184`, normalized live onset/release at `0x8d594376` and
 `0x8d59420a`, accepted-note bookkeeping at `0x8d595844`, recorder tick at
-`0x8d59819c`, and Stop cleanup at `0x8d597db8`.
+`0x8d59819c`, and Stop cleanup at `0x8d597db8`. The last two replace the key matrix's
+calls of stock's input entry `0x8c0b6334(event)` (`key_handler.cpp`: `{key,
+value}`, dispatched at once for a keyboard key or queued) at `0x8d5b2ea6` and
+`0x8d5b2f7a`, both `CALL.A`. A black key pressed while a chord's claimed key is in
+stock's held-key list (`0x8d5b7d7c`), and its release, go to the claim's owner
+and never reach stock. Stock's own value entry reads the black keys through
+`0x8d5b874c` (keys 27, 29, 31, 34, 36, 39, 41, 43, 46 and 48 as 0-9) and the white
+keys through `0x8d5b86c0` (as 0-13). MIDI input reaches the same entry from other
+calls, which stay stock's.
 The controller-update call follows the GUI tick call in the same main loop;
 they are separate sites. The Stop hook observes a stop/restart pair within one controller update. The key
 span also replaces the following queue-address load; its wrapper returns that
@@ -450,17 +458,21 @@ no machine overlays any more, unless stock has written there since. Values writt
 way are live values only: the saved project keeps stock's base values. With no
 such synth on a track, the hook makes only the original call.
 
+The sequencer writes a step's parameter locks to the live values in
+`8d5936c0`, plain or sliding toward the next lock, with three calls of
+`8d5acea8` (`8d5937b4`, `8d5938c2`, `8d59396a`). They route through
+`sdk_param_step_set`, which makes the call as stock would and notes the
+parameter as locked: a lock always plays at its own value. While it holds, no
+synth's overlay is written over that parameter; once stock sets it to anything
+else (its next step), the next tick overlays it again.
+
 Stock's controllers reach encoder edits through `8d5ad5bc`, which reads the
 base value at track data (`8d587708`) + `0x3864` and passes it to `8d5ad564`.
 Unless a step is held for a parameter lock, that calls the setter `8d5acf28`
 with the new value; the setter writes the live value, the base value for synth
 tracks, and publishes. The call at `8d5ad5ae` routes through
-`sdk_param_edit_set`, which always makes the original call. While a synth
-captures (one at a time), an edit of another instrument track's parameter is also recorded for
-the next tick, with the base value from before that parameter's first edit;
-when the capture ends, the SDK sets each of those base values back through
-`8d5acf28`. Lock edits and other setters (MIDI, presets, resets) are not
-captured.
+`sdk_param_edit_set`, which notes the parameter turned (pages show its own
+value for a moment) and always makes the original call.
 
 Every page shows a parameter's value through `8d5ac9dc(project, track, index,
 …)`. With a step held it shows that step's lock; otherwise it reads the live
@@ -501,7 +513,7 @@ track's flags, in which `0x02` is muted, then one more byte. The current scene
 is the byte at `+ 6`. Aux + track key and the mixer both set it, and a new scene
 copies the current one's flags (measured on the device with a read-only memory
 probe). While a synth's track is muted in the current scene, the tick hook
-applies none of its overlays, capture or marks, and tells it (`Input.muted`).
+applies none of its overlays and tells it (`Input.muted`).
 
 ### Aux tracks
 
@@ -561,10 +573,7 @@ method's saved registers and frame. Only `sharedLfo: true` delegates M4's
 page and input to stock. Instrument `hidePages` polling never handles aux
 tracks. The shared LFO retains the track's existing LFO settings.
 
-Capture originals include their pattern block, engine and last edited value.
-A current pattern restores through stock's setter; an inactive pattern restores
-only its stored word, without publishing into the playing pattern. Project
-load/new-project callbacks discard transient capture and overlay bookkeeping
+Project load/new-project callbacks discard transient overlay bookkeeping
 without dereferencing stock's project during deserialization.
 
 **Presets.** Stock's instrument preset browser is a folder browser: the

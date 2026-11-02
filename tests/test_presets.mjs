@@ -99,19 +99,13 @@ test('preset generation rejects unsafe paths, foreign kinds and invalid engine p
   await assert.rejects(buildAssets(kit,['example'],catalog,numbers),/preset engine or defaults/);
 });
 
-test("track control's marks: the SDK's, then each selected machine's own", async () => {
-  const steering = {...machines[0], features: ['trackControl'],
-    marks: '<g id="probesynth_marks"><circle id="probesynth_capture_0"/></g>'};
-  const plain = {...machines[1], features: ['trackControl']};
-  const {kit, catalog} = await fixture([steering, plain, ...machines.slice(2)]);
-  kit.controlArtwork = '<svg><path id="overlay_line"/></svg>';
-  const marks = async selected => new TextDecoder().decode(
-    (await buildAssets(kit, selected, catalog, numbers))['content/display/openxy_overlay.svg']);
-  assert.equal(await marks(['probesources']), kit.controlArtwork);
-  assert.equal(await marks(['probesynth', 'probesources']),
-    '<svg><path id="overlay_line"/><g id="probesynth_marks"><circle id="probesynth_capture_0"/></g></svg>');
-  const files = await buildAssets(kit, ['probesample'], catalog, numbers);
-  assert.equal(files['content/display/openxy_overlay.svg'], undefined);
+test("the SDK's overlay ships as it is, with any selected track control machine", async () => {
+  const steering = {...machines[0], features: ['trackControl']};
+  const {kit, catalog} = await fixture([steering, ...machines.slice(1)]);
+  kit.controlArtwork = '<svg><path id="snap_card"/></svg>';
+  const overlay = async selected => (await buildAssets(kit, selected, catalog, numbers))['content/display/openxy_overlay.svg'];
+  assert.equal(new TextDecoder().decode(await overlay(['probesynth', 'probesources'])), kit.controlArtwork);
+  assert.equal(await overlay(['probesample']), undefined);
 });
 
 test("an aux machine's presets install as files, with the init of the role it replaces", () => {

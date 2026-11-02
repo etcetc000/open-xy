@@ -207,37 +207,9 @@ def generate_registration_stock(directory):
     return expand('registration_stock.cpp.in', RELOCATED, Path(directory) / 'registration_stock.cpp')
 
 
-# The SDK's own marks (track_control_overlay.svg): four capture outlines, then the line.
-DEFAULT_MARK_IDS = ('overlay_capture_0', 'overlay_capture_1', 'overlay_capture_2', 'overlay_capture_3', 'overlay_line')
-
-
-def mark_ids(m):
-    """A track control machine's own mark node IDs (marks.svg.fragment), capture then line, or ()."""
-    marks = track_control(m).get('marks')
-    if not marks:
-        return ()
-    return (tuple(f'{m.id}_capture_{i}' for i in range(marks['capture'])) +
-            tuple(f'{m.id}_line_{i}' for i in range(marks['line'])))
-
-
 def generate_track_control_overlay(directory, machines):
-    """Track control's marks over every page, in the last page slot: the SDK's
-    marks, then each machine's own, with each machine's capture and line nodes
-    in the collection's track control order (generate_track_controls)."""
-    ids, rows = list(DEFAULT_MARK_IDS), []
-    for m in machines:
-        if not track_control(m):
-            continue
-        marks = track_control(m).get('marks')
-        if marks:
-            first = len(ids)
-            ids += mark_ids(m)
-            rows.append(f'    {{{first}, {marks["capture"]}, {first + marks["capture"]}, {marks["line"]}}},  // {m.id}')
-        else:
-            rows.append(f'    {{0, 4, 4, 1}},  // {m.id}: the SDK\'s')
-    values = dict(RELOCATED, MARK_NODES=str(len(ids)), MARK_IDS=''.join(f'    "{i}",\n' for i in ids),
-                  MARK_MACHINES='\n'.join(rows))
-    return expand('track_control_overlay.cpp.in', values, Path(directory) / 'track_control_overlay.cpp')
+    """The SDK's overlay screen in the last page slot: the snapshot menu."""
+    return expand('track_control_overlay.cpp.in', RELOCATED, Path(directory) / 'track_control_overlay.cpp')
 
 
 def generate_screen_order(directory):

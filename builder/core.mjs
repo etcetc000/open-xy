@@ -3,7 +3,7 @@
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = 'b0530bcc3ccca1b6a78c091e1a713d131a9f299331f65e9125af9fbd58c7eefa';
+export const PROFILE_SHA256 = 'e51ab542ead6c49f6b5ad2b40c57784cdbdcf5621f3982c2f3412fe6058eb089';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -118,7 +118,7 @@ export function validIdentity(rules, kind, identity) {
   if (kind === 'effect') return rules.effects.includes(n) && page === rules.effect_page;
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
   return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
-    : kind === 'synth' && page > rules.page_none && page < rules.pages - 1;  // the last page: track control's marks
+    : kind === 'synth' && page > rules.page_none && page < rules.pages - 1;  // the last page: the SDK's overlay
 }
 
 // The numbers a kit machine asks for (tooling.machines.check_request): valid ones,
@@ -212,7 +212,7 @@ export function numberLayout(rules, fixed, layout, machines) {
   }
   // An effect number is also held as an engine number (occupied).
   const keys = (slot, n) => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
-  // The last page is track control's marks: in the pool, so every other machine keeps
+  // The last page is the SDK's overlay: in the pool, so every other machine keeps
   // its own place, but never given out (tooling.machines.number_layout).
   const free = (slot, n) => !(slot === 'page' && n === rules.pages - 1) && !keys(slot, n).some(key => holders.has(key));
   const take = (name, identity, slot, n) => {
@@ -311,6 +311,14 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
   return selected.map(e => e.id); // Collection order, never checkbox order.
 }
 
+// The machines the chosen extensions work with (extension.json "machines"): choosing
+// an extension chooses them, and a build that links it links them.
+export const extensionMachines = (kit, extensionIds) =>
+  [...new Set((kit.extensions ?? []).filter(e => extensionIds.includes(e.id)).flatMap(e => e.machines ?? []))];
+// Whether a machine selection holds every machine the chosen extensions work with.
+export const extensionsFit = (kit, selection, extensionIds) =>
+  extensionMachines(kit, extensionIds).every(id => selection.includes(id));
+
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
 export function sharedClaim(extensions) {
   const seen = new Set();
@@ -366,7 +374,9 @@ export async function openKit(kit) {
       Object.keys(e.claim_labels).sort().join() === [...(e.claims ?? [])].sort().join() &&
       Object.values(e.claim_labels).every(l => typeof l === 'string' && l.length > 0 && l.length <= 40) &&
       ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
-        new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))),
+        new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))) &&
+      (e.machines === undefined || Array.isArray(e.machines) && e.machines.length > 0 && e.machines.length <= 4 &&
+        new Set(e.machines).size === e.machines.length && e.machines.every(id => kit.machines.some(m => m.id === id))),
       'Invalid extension metadata');
     extensionIds.add(e.id);
   }
@@ -412,6 +422,9 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const extensions = new Set(extensionSelection(kit, extensionIds));
   check(Array.isArray(selection) && selection.length > 0 && new Set(selection).size === selection.length &&
     selection.every(id => kit.machines.some(m => m.id === id)), 'Choose each machine once.');
+  for (const e of (kit.extensions ?? []).filter(e => extensions.has(e.id)))
+    for (const id of e.machines ?? []) check(selection.includes(id),
+      `${e.name} works with ${kit.machines.find(m => m.id === id)?.name ?? id}. Choose it too.`);
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
@@ -697,7 +710,7 @@ export async function recoverFirmware(kit, input, layout = null) {
     if (kit.machines.length <= RECOVERABLE_MACHINES) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
-        for (const extensions of choices) {
+        for (const extensions of choices.filter(c => extensionsFit(kit, selected, c))) {
           if (await rebuilds(selected, extensions)) return {stock, selected, extensions};
         }
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -816,13 +829,11 @@ export async function buildAssets(kit, selection, catalog, numbers) {
       files['content/display/' + m.asset] = utf8.encode(baseSvg.replace('</svg>', m.artwork + '</svg>'));
     }
   }
-  // Track control's marks over every page (tooling.native.prepare_assets).
+  // The SDK's overlay over every page, the snapshot menu (tooling.native.prepare_assets).
   if (machines.some(m => (m.features ?? []).includes('trackControl'))) {
     check(typeof kit.controlArtwork === 'string' && kit.controlArtwork.split('</svg>').length === 2,
           'The site’s machine data is damaged. Reload this page.');
-    // The SDK's marks, then each selected machine's own (tooling.native.control_artwork).
-    const own = machines.filter(m => typeof m.marks === 'string').map(m => m.marks).join('');
-    files['content/display/openxy_overlay.svg'] = utf8.encode(kit.controlArtwork.replace('</svg>', own + '</svg>'));
+    files['content/display/openxy_overlay.svg'] = utf8.encode(kit.controlArtwork);
   }
   return files;
 }

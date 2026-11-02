@@ -37,8 +37,6 @@ class TrackControl(unittest.TestCase):
                                                          'sharedLfo': shared}), 'synth')
         validate_definition(with_control(synth, {'stateBytes': 8, 'stateAlignment': 4, **aux,
                                                  'savedBytes': 8192}), 'synth')
-        validate_definition(with_control(synth, {'stateBytes': 8, 'stateAlignment': 4, **aux,
-                                                 'marks': {'capture': 1, 'line': 0}}), 'synth')
         for control in ({'stateBytes': 6, 'stateAlignment': 4, **aux}, {'stateBytes': 0, 'stateAlignment': 4, **aux},
                         {'stateBytes': 8, **aux}, {'stateBytes': 8, 'stateAlignment': 4, 'tracks': 1, **aux}, 1,
                         {'stateBytes': 8, 'stateAlignment': 4, **aux, 'savedBytes': 0},
@@ -50,10 +48,8 @@ class TrackControl(unittest.TestCase):
                         {'stateBytes': 8, 'stateAlignment': 4, 'savedBytes': 8, 'aux': [12]},
                         {'stateBytes': 8, 'stateAlignment': 4, 'unique': False, 'aux': [12]},
                         {'stateBytes': 8, 'stateAlignment': 4, 'unique': 1, 'aux': [12]},
-                        {'stateBytes': 8, 'stateAlignment': 4, **aux, 'marks': {'capture': 0, 'line': 1}},
-                        {'stateBytes': 8, 'stateAlignment': 4, **aux, 'marks': {'capture': 17, 'line': 1}},
-                        {'stateBytes': 8, 'stateAlignment': 4, **aux, 'marks': {'capture': 1, 'line': 17}},
-                        {'stateBytes': 8, 'stateAlignment': 4, **aux, 'marks': {'capture': 1}}):
+                        # Machines paint nothing over other pages: no marks.
+                        {'stateBytes': 8, 'stateAlignment': 4, **aux, 'marks': {'capture': 1, 'line': 0}}):
             with self.subTest(control=control), self.assertRaises(ValueError):
                 validate_definition(with_control(synth, control), 'synth')
         effect = fixture('probefx').definition
@@ -187,46 +183,15 @@ class TrackControl(unittest.TestCase):
         self.assertIn('control_reset(states[copy])', binding)
         self.assertIn('control(states[copy], *input, *overlay)', binding)
 
-    def test_a_machine_can_draw_its_own_marks(self):
-        import dataclasses
-        import shutil
-        plain = copy.deepcopy(fixture('probesynth'))
-        plain.definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4}
+    def test_the_overlay_holds_the_snapshot_menu_only(self):
         with tempfile.TemporaryDirectory(prefix='track-control-') as folder:
-            root = Path(folder) / 'own'
-            shutil.copytree(fixture('probesynth').root, root)
-            definition = copy.deepcopy(fixture('probesynth').definition)
-            definition['id'] = 'own'
-            definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4,
-                                                       'marks': {'capture': 2, 'line': 1}}
-            own = dataclasses.replace(fixture('probesynth'), id='own', root=root, definition=definition)
-            marks = ('<g id="own_marks">'
-                     '<circle id="own_capture_0" cx="8" cy="8" r="4" fill="#30d158" stroke="#30d158" stroke-width="1"/>'
-                     '<circle id="own_capture_1" cx="472" cy="8" r="4" fill="#30d158" stroke="#30d158" stroke-width="1"/>'
-                     '<path id="own_line" d="M0 219 L479 219" fill="none" stroke="#1f6f3a" stroke-width="1"/>'
-                     '</g>')
-            # The IDs are exactly the declared ones.
-            (root / 'marks.svg.fragment').write_text(marks, encoding='utf-8')
-            with self.assertRaises(ValueError):
-                native.validate_marks(own)
-            (root / 'marks.svg.fragment').write_text(marks.replace('own_line', 'own_line_0'), encoding='utf-8')
-            artwork = native.control_artwork([plain, own]).decode('utf-8')
-            for bad in ('<g id="own_marks"><text id="own_capture_0" x="0" y="9" fill="#ffffff" font-family="a" '
-                        'font-size="9px">x</text><circle id="own_capture_1" cx="8" cy="8" r="4" fill="#30d158" '
-                        'stroke="#30d158" stroke-width="1"/><path id="own_line_0" d="M0 0 L9 9" fill="none" '
-                        'stroke="#1f6f3a" stroke-width="1"/></g>',
-                        marks.replace('own_marks', 'marks').replace('own_line', 'own_line_0')):
-                (root / 'marks.svg.fragment').write_text(bad, encoding='utf-8')
-                with self.subTest(bad=bad), self.assertRaises(ValueError):
-                    native.validate_marks(own)
-            overlay = generate_track_control_overlay(folder, [plain, own]).read_text(encoding='utf-8')
-        # The SDK's marks first, then the machine's own, with each machine's nodes.
+            overlay = generate_track_control_overlay(folder, [fixture('probesynth')]).read_text(encoding='utf-8')
+        artwork = native.control_artwork([fixture('probesynth')]).decode('utf-8')
         self.assertEqual(artwork.count('</svg>'), 1)
-        self.assertLess(artwork.index('overlay_line'), artwork.index('own_capture_0'))
-        self.assertIn('const u32 kNodes = 8;', overlay)
-        self.assertIn('"own_capture_0",\n    "own_capture_1",\n    "own_line_0",', overlay)
-        self.assertIn('{0, 4, 4, 1},  // probesynth', overlay)
-        self.assertIn('{5, 2, 7, 1},  // own', overlay)
+        self.assertIn('id="snap_card"', artwork)
+        self.assertNotIn('overlay_capture', artwork)
+        self.assertNotIn('@', overlay)
+        self.assertNotIn('control_marks', overlay)
 
     def test_builds_without_track_control_or_hidden_pages_stay_as_before(self):
         from tooling.firmware import active_services, patch_active
@@ -239,7 +204,8 @@ class TrackControl(unittest.TestCase):
         aux.definition['resources']['trackControl'].update(unique=True, aux=[12])
         hooks = [p for p in config()['patches'] if p.get('service') == 'control' and p['kind'] == 'hook']
         self.assertEqual(sorted(p['symbol'] for p in hooks),
-                         ['sdk_gui_tick', 'sdk_param_edit_set', 'sdk_param_shown_hook', 'sdk_project_clear',
+                         ['sdk_gui_tick', 'sdk_param_edit_set', 'sdk_param_shown_hook'] + ['sdk_param_step_set'] * 3 +
+                         ['sdk_project_clear',
                           'sdk_project_clear_random'])
         # Aux tracks are a service of their own: its hooks and MTP allowlist edits.
         aux_edits = [p for p in config()['patches'] if p.get('service') == 'aux']
@@ -267,7 +233,7 @@ class TrackControl(unittest.TestCase):
         self.assertNotIn('sdk_control_kept_write', plain_startup)
         self.assertIn('    sdk_overlay_startup();', control_startup)
         self.assertIn('{ return sdk_control_kept_write(file); }', control_startup)
-        # The aux service starts after the control service's marks, only when linked.
+        # The aux service starts after the control service's overlay, only when linked.
         aux_startup = render(['probe'], control=True, aux=True)
         self.assertNotIn('sdk_aux_startup', control_startup)
         self.assertLess(aux_startup.index('    sdk_overlay_startup();'), aux_startup.index('    sdk_aux_startup();'))

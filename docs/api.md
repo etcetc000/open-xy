@@ -230,7 +230,7 @@ A synth declares:
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
 | `display` | The screen's frame budget; see the [display API](display.md) |
-| `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes` and `marks` |
+| `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -321,13 +321,11 @@ its first call and whenever it arrives on a track.
 | `Input` field | Contract |
 | --- | --- |
 | `track` | The aux track the machine holds, zero-based |
-| `capturing` | 1 while this copy's capture is in effect (below) |
 | `values[track][index]` | Every track's 58 live parameter words (`all_tracks`, 16; aux tracks are 8..15), as stock sets them (edits, parameter locks, sequencing), without any machine's overlay. Indices 0..7 are the engine's controls; the rest are stock's own track parameters, in stock's units. The machine's own engine controls are the values its page shows, including its LFO |
-| `edit_count`, `edits` | While capturing: up to 32 encoder edits of other instrument tracks' parameters since the last tick, oldest first, as track, index and edited value |
 | `elapsed_us` | Microseconds since the previous tick, from the core clock: 0 on the first tick after a reset, at most one second |
 | `transport` | The project's tempo in tenths of BPM (0 when unknown), the song position in 96ths of a quarter note, which advances only while playing, and whether the sequencer plays |
 | `page_key` | Last directly handled page key since the last tick: 1..4 for M1..M4, or 0. M1 returns to the machine page; M2/M3 leave the current page alone. With `sharedLfo: true`, M4 belongs to the shared LFO and is not delivered |
-| `muted` | 1 while the machine's track is muted in the current scene (aux + track key, or the mixer). As with stock's brain, a muted machine has no effect: none of its overlays, capture or marks apply. It still runs, so its page can say so |
+| `muted` | 1 while the machine's track is muted in the current scene (aux + track key, or the mixer). As with stock's brain, a muted machine has no effect: none of its overlays apply. It still runs, so its page can say so |
 
 `overlay` arrives empty; `opxy::control::add` appends up to 64 entries, each a
 track, parameter index and value for this tick. Entries for the machine's own
@@ -340,17 +338,10 @@ next tick. Pages show an overlaid parameter's overlay, whether or not the
 sequencer plays; for a moment after the parameter's encoder is turned, they
 show the track's own value, which the turn changes.
 
-Setting `overlay.capture` to 1 asks to capture encoder edits for the next tick:
-they still play and show as usual, and arrive in `edits`. One copy captures at a
-time: the one already capturing while it asks, otherwise the first track
-asking; `input.capturing` tells a copy its capture is in effect. When the
-capturing copy returns 0, or leaves its track, every parameter edited during the capture
-returns to its value from before it, so a machine can record edits without
-keeping them. Restoration is tied to the edited pattern, including when another
-pattern is now playing; it does not replace a subsequent external base write.
-Loading or creating a project discards outstanding edits and overlays without
-restoring them into the replacement project. Edits made while a step is held (parameter locks) and changes
-from MIDI or presets are not captured. Like the display, `control` is bounded
+A step's parameter lock plays as written: while a lock holds a parameter, no
+overlay is written over it, and the next tick after the lock ends overlays it
+again. Loading or creating a project discards outstanding overlays.
+Like the display, `control` is bounded
 and allocation-free; it is not an audio callback. Browser previews do not run
 it.
 
@@ -374,22 +365,33 @@ variables. The control can pass four words to its display each tick in
 `opxy::control::from_control(index)`: the words of the copy on the selected
 track, 0 when it did not run, and always 0 in browser previews.
 
-Track control marks what it does on every page, over stock's: while a machine
-captures, its capture marks; with `overlay.mark` set to 1, its line marks on the
-page of any track it overlays. The SDK's are a red frame fading inward at the
-screen's edge and a thin dark red frame. The SDK draws them in the last screen
-page, which no machine is given.
+A machine draws only on its own page: track control paints nothing over other
+tracks' pages.
 
-A machine can draw its own instead, in any colour or shape: it adds
-`"marks": {"capture": c, "line": l}` to `trackControl` (1..16 capture nodes,
-0..16 line nodes; 0 never marks steered tracks) and supplies
-`marks.svg.fragment`, one `<g id="<id>_marks">` holding exactly
-`<id>_capture_0`..`<id>_capture_<c-1>` and `<id>_line_0`..`<id>_line_<l-1>`,
-each a `path` or `circle` in the authored SVG subset, without text. They are
-drawn over every stock page, so keep them to the screen's edges or small, and
-leave the page readable; the capture marks must make clear that edits are being
-recorded. [track_control_overlay.svg](../sdk/platform/opxy-1.2.1/track_control_overlay.svg)
-holds the SDK's, as a starting point.
+### Snapshots
+
+[`opxy/snapshots.hpp`](../sdk/include/opxy/snapshots.hpp): ten project-wide
+snapshots of every instrument track's stored parameters, kept by the SDK, one per
+black key as stock numbers them where it enters values (1 to 9, then 0). Taking
+and reading are separate:
+
+- **Only an extension takes a snapshot**, with the `snapshot` action
+  ([extensions](extensions.md#claims-and-actions)), in answer to a gesture it
+  claims. Taking one changes no track.
+- **Track control machines only read them**, on the GUI side in `control()`:
+  `snapshots::get(slot)` (null when the slot is empty), `snapshots::matches(s,
+  track)` (whether the track still holds the engine it held then, so its words
+  still mean the same) and `snapshots::generation()` (changes whenever any slot
+  is taken, loaded or cleared). What a machine does with them is an ordinary
+  overlay; a snapshot is never a mode or a parameter, so no LFO, lock or preset
+  can take one.
+
+A snapshot holds each track's base values for its current pattern, as a saved
+project keeps them, and each track's engine. It never holds an overlay, a lock
+or an LFO's movement, so a machine playing snapshots back never records itself.
+Snapshots are saved with the project ([`open-xy.control`](projects.md#open-xycontrol))
+and cleared by a new project. A build links them with the control service,
+whenever a machine declares `trackControl` or an extension declares `snapshot`.
 
 ### Aux tracks
 

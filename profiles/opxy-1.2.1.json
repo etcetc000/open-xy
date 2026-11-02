@@ -96,7 +96,8 @@
     ],
     "control": [
       "trackControl",
-      "hidePages"
+      "hidePages",
+      "snapshots"
     ],
     "aux": [
       "auxTrack"
@@ -1264,6 +1265,36 @@
     },
     {
       "kind": "hook",
+      "address": "0x8d5937b4",
+      "file_offset": "0x1caa10",
+      "length": 4,
+      "before": "00e37acb",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5938c2",
+      "file_offset": "0x1cab1e",
+      "length": 4,
+      "before": "00e3f3ca",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d59396a",
+      "file_offset": "0x1cabc6",
+      "length": 4,
+      "before": "00e39fca",
+      "symbol": "sdk_param_step_set",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
       "name": "The aux LFO's telemetry also carries the machine track's own amount",
       "address": "0x8d50f422",
       "file_offset": "0x14667e",
@@ -1368,6 +1399,39 @@
       "length": 12,
       "before": "ffe3eafd00da0208783c0000",
       "symbol": "sdk_extensions_key_queue",
+      "call": true,
+      "service": "extensions",
+      "events": ["queued_control"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5b2ea6",
+      "file_offset": "0x1ea0fe",
+      "length": 8,
+      "before": "00de0b8c34630000",
+      "symbol": "sdk_extensions_key_input",
+      "call": true,
+      "service": "extensions",
+      "events": ["queued_control"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5b2f7a",
+      "file_offset": "0x1ea1d2",
+      "length": 8,
+      "before": "00de0b8c34630000",
+      "symbol": "sdk_extensions_key_input",
+      "call": true,
+      "service": "extensions",
+      "events": ["queued_control"]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5b2830",
+      "file_offset": "0x1e9a88",
+      "length": 8,
+      "before": "00de0b8ca0640000",
+      "symbol": "sdk_extensions_knob_input",
       "call": true,
       "service": "extensions",
       "events": ["queued_control"]

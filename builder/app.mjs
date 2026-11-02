@@ -357,6 +357,9 @@ function renderMachines(filter = 'all') {
     row.style.setProperty('--machine', colors[index % colors.length]);
     const label = node('label'), input = node('input'); input.type = 'checkbox'; input.checked = selected.includes(m.id);
     input.setAttribute('aria-label', 'Include ' + m.name); label.append(input);
+    // A chosen extension that works with this machine keeps it chosen.
+    const needed = (kit.extensions ?? []).find(e => selectedExtensions.includes(e.id) && (e.machines ?? []).includes(m.id));
+    if (needed && input.checked) { input.disabled = true; label.title = needed.name + ' works with it. Deselect ' + needed.name + ' first.'; }
     const button = node('button'); button.dataset.id = m.id; button.setAttribute('aria-pressed', String(inspected === m.id));
     button.append(node('span', m.name, 'machine-name'), node('span', m.description, 'machine-desc'));
     const meta = node('span', undefined, 'machine-meta');
@@ -415,7 +418,9 @@ function renderExtensions() {
     input.onchange = () => {
       selectedExtensions = Core.extensionSelection(kit, input.checked ? [...selectedExtensions, extension.id]
         : selectedExtensions.filter(id => id !== extension.id));
-      invalidate(); renderExtensions(); recalculate();
+      // Choosing an extension chooses the machines it works with.
+      selected = [...selected, ...Core.extensionMachines(kit, selectedExtensions).filter(id => !selected.includes(id))];
+      invalidate(); renderMachines(document.querySelector('[data-filter][aria-pressed="true"]')?.dataset.filter); renderExtensions(); recalculate();
       document.querySelector('#extensions input[aria-label="Include ' + CSS.escape(extension.name) + '"]')?.focus();
     };
     const glyph = node('span', undefined, 'machine-icon'); glyph.append(Visuals.icon('controls'));

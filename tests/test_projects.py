@@ -13,7 +13,7 @@ from tooling.adapters import generate_project_companion_table
 from tooling.pipeline import ROOT, config
 from machine_fixtures import NAMES, fixture
 from tooling.projects import (FALLBACK, LIMIT, MACHINE_LIMIT, MACHINES, aux_kept, binding, canonical, companion,
-                              companion_path, kept_data, main, parse, saved_numbers, translation)
+                              companion_path, kept_data, main, parse, saved_numbers, snapshots_kept, translation)
 
 PROJECT = bytes(range(256)) * 4
 SAVED = {'karplus': {'engine': 36, 'page': 84}, 'pingpong': {'effect': 40, 'page': 21},
@@ -102,7 +102,8 @@ def host_writer(folder, fixture='project_companion.cpp'):
         stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                               'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
     (folder / 'stock.hpp').write_text(stock, encoding='utf-8')
-    for name in ('project_companion.cpp', 'track_control_project.cpp', 'project_files.hpp'):
+    for name in ('project_companion.cpp', 'track_control_project.cpp', 'project_files.hpp', 'snapshots.cpp',
+                 'snapshots.hpp'):
         (folder / name).write_bytes((platform / name).read_bytes())
     binary = folder / (Path(fixture).stem + ('.exe' if os.name == 'nt' else ''))
     result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(folder),
@@ -161,6 +162,31 @@ class FirmwareWriter(unittest.TestCase):
             project.write_bytes(project.read_bytes()[:-1])
             (folder / 'song.oxy').write_bytes(json.dumps(document).encode())
             self.assertEqual(run('1', 'read').stdout, '/0\n')
+
+    def test_snapshots_are_kept_with_the_project_and_cleared_by_a_new_one(self):
+        with tempfile.TemporaryDirectory(prefix='companion-') as directory:
+            folder = Path(directory)
+            writer, project = host_writer(folder), folder / 'song.xy'
+            snap = dict(os.environ, SNAP='1')
+            run = lambda *args, env=None: subprocess.run([str(writer), str(project), *args], capture_output=True,
+                                                         text=True, timeout=30, env=env)
+            self.assertEqual(run('1', env=snap).returncode, 0)
+            raw = (folder / 'song.oxy').read_bytes()
+            stored = lambda t, p: 0x7fffffff if p == 57 else t * 1000 + p if p % 2 else (t * 58 + p) << 16
+            taken = ([100 + t for t in range(8)], [[stored(t, p) for p in range(58)] for t in range(8)])
+            # The reference writer's bytes: snapshots sort after what machines keep.
+            self.assertEqual(raw, companion(project.read_bytes(), SAVED, kept={'morph': b'stat\xff'},
+                                            snapshots={1: taken, 6: taken}))
+            self.assertEqual(snapshots_kept(parse(raw), project.read_bytes()), {1: taken, 6: taken})
+            # A load gives every slot back; the track's engine is unchanged, so it matches.
+            self.assertEqual(run('1', 'read').stdout,
+                             'snapshot 1 100 same matches\nsnapshot 6 100 same matches\n73746174ff/5\n')
+            # A new project, or a companion whose snapshots don't read, has none.
+            self.assertEqual(run('1', 'clear').stdout, '/0\n')
+            document = json.loads(raw)
+            document['sections']['open-xy.control']['snapshots'] = 'AQI='
+            (folder / 'song.oxy').write_bytes(json.dumps(document).encode())
+            self.assertEqual(run('1', 'read').stdout, '73746174ff/5\n')
 
     def test_the_role_controls_of_aux_patterns_a_machine_holds_are_kept_with_the_project(self):
         with tempfile.TemporaryDirectory(prefix='companion-') as directory:

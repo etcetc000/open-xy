@@ -16,11 +16,9 @@ i32 table[control::all_tracks * control::track_parameters];
 const u32 kBlocks = 0x90000000, kBlockBytes = 0x10000;
 u32 bases[control::tracks][control::track_parameters];
 u32 second_bases[control::tracks][control::track_parameters], pattern[16];
-u32 engines[16], ticks, writes, resets, runs, sets, edits_seen;
+u32 engines[16], ticks, writes, resets, runs, sets;
 // The machine holding each aux track (aux_tracks.cpp), and its ticks.
 u32 aux_engines[16], aux_ticks;
-control::Entry last_edit;
-u32 capture, mark;
 i32 seen;  // the value of track 0, parameter 1 the machine was given
 u32 seen_elapsed, seen_bpm, seen_ticks, seen_playing, seen_key, seen_muted;
 // The project's scene records (g_project + 0x98, 33 bytes a scene: patterns, then
@@ -100,30 +98,19 @@ void run(u32 copy, const control::Input* input, control::Overlay* overlay) {
     seen_key = input->page_key;
     seen_muted = input->muted;
     seen_own = input->values[input->track][1];
-    require(input->capturing == (capture_track == input->track), "Capturing not given");
-    edits_seen = input->edit_count;
-    if (input->edit_count) last_edit = input->edits[input->edit_count - 1];
-    require(overlay->capture == 0, "Capture not cleared");
-    overlay->capture = capture;
-    require(overlay->mark == 0, "Mark not cleared");
-    overlay->mark = mark;
     require(overlay->display[0] == 0 && overlay->display[3] == 0, "Display words not cleared");
     overlay->display[1] = 77;
     for (u32 i = 0; i < script_count; ++i) overlay->entries[overlay->count++] = script[i];
 }
 // Machine 41, not unique: each copy overlays its scripted entries, with its
-// copy's own count of runs, and asks to capture and mark when told.
-u32 other_runs[control::tracks], other_resets[control::tracks], other_capture[control::tracks];
-u32 other_mark, other_edits[control::tracks];
+// copy's own count of runs.
+u32 other_runs[control::tracks], other_resets[control::tracks];
 control::Entry other_script[control::tracks][4];
 u32 other_count[control::tracks];
 void reset_other(u32 copy) { require(copy < control::tracks, "Copy out of range"); ++other_resets[copy]; }
 void run_other(u32 copy, const control::Input* input, control::Overlay* overlay) {
     require(copy == input->track, "A copy is not its track");
     ++other_runs[copy];
-    other_edits[copy] = input->edit_count;
-    overlay->capture = other_capture[copy];
-    overlay->mark = other_mark;
     overlay->display[0] = static_cast<i32>(100 + copy);
     for (u32 i = 0; i < other_count[copy]; ++i) overlay->entries[overlay->count++] = other_script[copy][i];
 }
@@ -251,38 +238,15 @@ int main() {
     tick(1, "Overlay not restored when the machine left");
     require(value(0, 1) == 120 && ticks == 13, "Removal not restored");
 
-    // Edits pass through untouched while nothing captures.
+    // Edits pass through untouched.
     bases[0][5] = 50;
     sdk_param_edit_set(kProject, 0, 5, 70);
     require(sets == 1 && bases[0][5] == 70, "Edit not delegated");
     bases[0][5] = 50;
 
-    // Capture: edits of other tracks still reach stock and arrive next tick;
-    // the host's own and other tracks' edits are not captured.
     engines[2] = 40;
-    capture = 1;
     plan({});
-    tick(0, "Capture wrote an overlay");
-    sdk_param_edit_set(kProject, 0, 5, 900);
-    sdk_param_edit_set(kProject, 2, 0, 5);
-    sdk_param_edit_set(kProject, 9, 0, 5);
-    require(sets == 4 && bases[0][5] == 900, "Captured edit not delegated");
-    tick(0, "Capture wrote an overlay");
-    require(edits_seen == 1 && last_edit.track == 0 && last_edit.index == 5 && last_edit.value == 900,
-            "Edit not captured");
-    sdk_param_edit_set(kProject, 0, 5, -3);
-    tick(0, "Capture wrote an overlay");
-    require(edits_seen == 1 && last_edit.value == 0, "Second edit not captured");
-    tick(0, "Capture wrote an overlay");
-    require(edits_seen == 0, "Edits delivered twice");
-    // Ending the capture sets the base from before the first edit back.
-    capture = 0;
-    sets = 0;
-    tick(0, "End of capture wrote an overlay");
-    require(sets == 1 && bases[0][5] == 50 && value(0, 5) == 50, "Capture not restored");
-    sdk_param_edit_set(kProject, 0, 5, 60);
-    tick(0, "Uncaptured edit wrote an overlay");
-    require(edits_seen == 0 && bases[0][5] == 60, "Edit captured after the capture ended");
+    tick(0, "A returning machine wrote an overlay");
 
     // The machine's own engine controls arrive as its page shows them.
     value(2, 1) = 50;
@@ -306,20 +270,8 @@ int main() {
         tick(i == 0 ? 1 : 0, "Overlay not restored once over the turn");
     }
     require(sdk_param_shown(kProject, 0, 1, 1) == 500, "Overlay not shown after the turn");
-
-    // A capture that ends under an overlay leaves stock's restored value beneath it.
-    bases[0][6] = 10;
-    value(0, 6) = 10;
-    capture = 1;
-    plan({{0, 6, 0, 800}});
-    tick(2, "Release and new overlay not written");
-    sdk_param_edit_set(kProject, 0, 6, 300);
-    tick(1, "Overlay not restored over the captured edit");
-    capture = 0;
-    tick(1, "Overlay not restored over the end of the capture");
     plan({});
     tick(1, "Release not written");
-    require(value(0, 6) == 10 && bases[0][6] == 10, "Edit from the capture restored under the overlay");
 
     // Two copies of the machine: neither runs, and its overlay ends as if it
     // had left, until one copy is removed.
@@ -358,24 +310,6 @@ int main() {
     require(sdk_control_display(1) == 77 && sdk_control_display(0) == 0 && sdk_control_display(9) == 0,
             "Display words not kept");
 
-    // Marks over every page: an overlaid selected track once the machine asks
-    // for it, then a capture whether or not it asks.
-    selected = 0;
-    require(opxy::platform::control_marks().kind == 0, "Overlaid track marked unasked");
-    mark = 1;
-    tick(0, "Mark rewrote the overlay");
-    require(opxy::platform::control_marks().kind == opxy::platform::kMarkOverlaid &&
-            opxy::platform::control_marks().machine == 0, "Overlaid track not marked");
-    selected = 3;
-    require(opxy::platform::control_marks().kind == 0, "Track without overlay marked");
-    capture = 1;
-    tick(0, "Capture rewrote the overlay");
-    require(opxy::platform::control_marks().kind == opxy::platform::kMarkCapture, "Capture not marked");
-    capture = 0;
-    mark = 0;
-    tick(0, "End of capture rewrote the overlay");
-    require(opxy::platform::control_marks().kind == 0, "Mark kept after the machine stopped asking");
-
     // Several machines: machine 40 on track 2 and two copies of machine 41,
     // which is not unique, on tracks 4 and 6. Every one runs, each copy with
     // its own state, and each display reads its own track's words.
@@ -393,38 +327,15 @@ int main() {
     require(sdk_control_display(0) == 106, "Display words not the selected track's");
     selected = 2;
     require(sdk_control_display(1) == 77 && sdk_control_display(0) == 0, "First machine's words lost");
-    // Two machines on one parameter: the later track's wins, and its marks show.
+    // Two machines on one parameter: the later track's wins.
     other_count[6] = 1;
     other_script[6][0] = control::Entry{0, 1, 0, 666};
     tick(1, "Contested parameter not written once");
     require(value(0, 1) == 666 && sdk_param_shown(kProject, 0, 1, 1) == 666, "Later track did not win");
-    other_mark = 1;
-    tick(0, "Mark rewrote the overlay");
-    selected = 0;
-    require(opxy::platform::control_marks().kind == opxy::platform::kMarkOverlaid &&
-            opxy::platform::control_marks().machine == 1, "Winner's marks not shown");
     // The later machine gives the parameter up: the earlier one's comes back.
     other_count[6] = 0;
-    other_mark = 0;
     tick(1, "Earlier overlay not written back");
     require(value(0, 1) == 500, "Earlier machine's overlay not restored");
-    // One capture at a time: the first asking starts, and keeps it while it asks.
-    other_capture[6] = 1;
-    tick(0, "Capture rewrote the overlay");
-    require(capture_track == 6, "First asking copy not capturing");
-    capture = 1;
-    tick(0, "Capture rewrote the overlay");
-    require(capture_track == 6, "Capture taken from the copy capturing");
-    sdk_param_edit_set(kProject, 0, 9, 40);
-    tick(0, "Capture rewrote the overlay");
-    require(other_edits[6] == 1 && edits_seen == 0, "Edits not given to the capturing copy alone");
-    other_capture[6] = 0;
-    tick(0, "Capture handover rewrote the overlay");
-    require(capture_track == 2, "Capture not handed to the next asking");
-    require(opxy::platform::control_marks().kind == opxy::platform::kMarkCapture &&
-            opxy::platform::control_marks().machine == 0, "Capture marks not the capturing machine's");
-    capture = 0;
-    tick(0, "End of capture rewrote the overlay");
     // A copy leaving ends its overlay; the others carry on.
     engines[4] = 0;
     tick(1, "Departed copy's overlay not released");
@@ -477,51 +388,39 @@ int main() {
     tick(0, "Nothing to release");
     require(sdk_control_copies(11) == 0, "Released aux track still counted");
 
-    // Capture restores the edited pattern, never the newly playing one.
+    // A new/load project can reuse the same buffer: discard without touching it.
     aux_engines[11] = 40;
     for (u32 s = 0; s < 3; ++s) mute_flags(s, 11) = 0;
-    plan({}); capture = 1;
-    sdk_gui_tick();
-    bases[0][1] = 100; value(0, 1) = 100;
-    sdk_param_edit_set(kProject, 0, 1, 150);
-    pattern[0] = 1;
-    second_bases[0][1] = 700; value(0, 1) = 700;
-    capture = 0;
-    sdk_gui_tick();
-    require(bases[0][1] == 100 && second_bases[0][1] == 700 && value(0, 1) == 700,
-            "Capture restored into a different pattern");
-
-    // Both patterns may be edited in one capture and restore independently.
-    capture = 1; sdk_gui_tick();
-    sdk_param_edit_set(kProject, 0, 1, 750);
-    pattern[0] = 0; value(0, 1) = 100;
-    sdk_param_edit_set(kProject, 0, 1, 200);
-    capture = 0; sdk_gui_tick();
-    require(bases[0][1] == 100 && second_bases[0][1] == 700 && value(0, 1) == 100,
-            "Capture confused two patterns on the same track");
-
-    // A preset/external write supersedes the edit, even in the same pattern.
-    capture = 1; sdk_gui_tick();
-    sdk_param_edit_set(kProject, 0, 1, 150);
-    bases[0][1] = 900; value(0, 1) = 900;
-    capture = 0; sdk_gui_tick();
-    require(bases[0][1] == 900 && value(0, 1) == 900, "Capture overwrote a later base write");
-
-    capture = 1; sdk_gui_tick();
-    sdk_param_edit_set(kProject, 0, 1, 950);
-    bases[0][1] = 800; value(0, 1) = 800;
-    sdk_param_edit_set(kProject, 0, 1, 850);
-    capture = 0; sdk_gui_tick();
-    require(bases[0][1] == 800 && value(0, 1) == 800, "Further edits revived a superseded capture base");
-
-    // A new/load project can reuse the same buffer: discard without touching it.
-    capture = 1; sdk_gui_tick();
-    sdk_param_edit_set(kProject, 0, 1, 950);
     plan({{0, 1, 0, 1000}}); sdk_gui_tick();
+    require(value(0, 1) == 1000, "Overlay before the replacement not written");
     sdk_control_forget();
-    bases[0][1] = 1000; value(0, 1) = 1000;
-    capture = 0; plan({}); sdk_gui_tick();
-    require(bases[0][1] == 1000 && value(0, 1) == 1000 && original_count == 0,
-            "Old capture or overlay leaked into a replacement project");
+    bases[0][1] = 1234; value(0, 1) = 1234;
+    plan({}); sdk_gui_tick();
+    require(bases[0][1] == 1234 && value(0, 1) == 1234 && applied_count == 0,
+            "Old overlay leaked into a replacement project");
+
+    // Locks win: a step's lock on an overlaid parameter plays as written, and the
+    // overlay stands aside until stock sets the parameter to something else.
+    plan({{0, 2, 0, 600}});
+    tick(1, "Overlay before the lock not written");
+    require(value(0, 2) == 600, "Overlay before the lock not applied");
+    sdk_param_step_set(kProject, 0, 2, 250);
+    require(value(0, 2) == 250, "Lock not written");
+    tick(0, "Overlay written over a lock");
+    tick(0, "Overlay written over a held lock");
+    require(value(0, 2) == 250, "Lock not heard");
+    // A sliding lock writes again: still the lock's.
+    sdk_param_step_set(kProject, 0, 2, 260);
+    tick(0, "Overlay written over a sliding lock");
+    require(value(0, 2) == 260, "Sliding lock not heard");
+    // Stock's next step sets the parameter back: the overlay returns.
+    value(0, 2) = 40;
+    tick(1, "Overlay not back after the lock");
+    require(value(0, 2) == 600, "Overlay not restored after the lock");
+    // A lock where no machine overlays plays.
+    sdk_param_step_set(kProject, 0, 3, 77);
+    require(value(0, 3) == 77, "Lock without an overlay not written");
+    plan({});
+    tick(1, "Overlay not released after the locks");
     return 0;
 }

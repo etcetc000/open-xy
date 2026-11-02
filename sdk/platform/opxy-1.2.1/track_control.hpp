@@ -46,12 +46,6 @@ struct AuxService {
     void (*restore)(u32 track, u32 pattern, const i32* controls);  // after a load
     void (*forget)();                   // before a load and for a new project: nothing kept
 };
-// The marks track control shows over every page (track_control_overlay.cpp.in):
-// a machine captures edits, or the selected track holds an overlay from one that
-// marks; `machine` indexes sdk_control_machines. GUI only.
-const u32 kMarkCapture = 1, kMarkOverlaid = 2;
-struct Marks { u32 kind, machine; };
-Marks control_marks();
 }}
 
 extern "C" {
@@ -60,11 +54,14 @@ extern const opxy::u32 sdk_control_machine_count __asm__("sdk_control_machine_co
 void sdk_gui_tick() __asm__("sdk_gui_tick");
 // A project replacement invalidates transient edits/overlays without touching stock's buffers.
 void sdk_control_forget() __asm__("sdk_control_forget");
-// Registers the marks' screen slot on the GUI role, after the machines' screens.
+// Registers the SDK's overlay screen slot (the snapshot menu) on the GUI role, after the machines' screens.
 void sdk_overlay_startup() __asm__("sdk_overlay_startup");
 extern opxy::platform::AuxService sdk_aux __asm__("sdk_aux");
 // The aux service's startup on the GUI role, from startup.cpp when it is linked.
 void sdk_aux_startup() __asm__("sdk_aux_startup");
+// The sequencer's parameter-lock writes (track_control.cpp, "Locks win").
+void sdk_param_step_set(opxy::u32 project, opxy::u32 track, opxy::u32 index, opxy::i32 value)
+    __asm__("sdk_param_step_set");
 void sdk_param_edit_set(opxy::u32 project, opxy::u32 track, opxy::u32 index, opxy::i32 value)
     __asm__("sdk_param_edit_set");
 // The value stock's displayed-value getter shows before its LFO amount, through

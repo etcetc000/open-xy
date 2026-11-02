@@ -42,7 +42,10 @@ def render(prefixes, effects=(), stock_page=(), control=False, aux=False):
                'stock_catalog_insert(catalog, name, id) : 0;' for prefix in prefixes]
     owned = [f'    if (page == value({prefix}_page_id)) return {prefix}_ready() == 1;'
              for prefix in prefixes if prefix not in stock_page]
-    kept = 'u32 sdk_project_kept(void*) { return 0; }\nvoid sdk_project_loaded(const char*) {}'
+    # Without the control service there is no snapshot store: the action refuses.
+    kept = ('u32 sdk_project_kept(void*) { return 0; }\nvoid sdk_project_loaded(const char*) {}\n'
+            'bool sdk_snapshot_take(u32) { return false; }\n'
+            'u32 sdk_snapshot_menu(u32, i32) { return 0; }')
     if control:
         declarations += ['void sdk_overlay_startup() __asm__("sdk_overlay_startup");',
                          'u32 sdk_control_kept_write(void*) __asm__("sdk_control_kept_write");',

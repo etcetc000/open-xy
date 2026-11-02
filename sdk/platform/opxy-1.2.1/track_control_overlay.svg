@@ -1,11 +1,50 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220">
-  <!-- SDK-owned track control marks, painted over every page, with no
-       background. While a machine captures edits: four red outlines at the
-       screen's edge, fading inward. On a page of a track it overlays: one
-       dark red outline. -->
-  <path id="overlay_capture_0" d="M0.5 0.5 L479.5 0.5 L479.5 219.5 L0.5 219.5 Z" fill="none" stroke="#ff3b30" stroke-width="1" opacity="1"/>
-  <path id="overlay_capture_1" d="M1.5 1.5 L478.5 1.5 L478.5 218.5 L1.5 218.5 Z" fill="none" stroke="#ff3b30" stroke-width="1" opacity="0.65"/>
-  <path id="overlay_capture_2" d="M2.5 2.5 L477.5 2.5 L477.5 217.5 L2.5 217.5 Z" fill="none" stroke="#ff3b30" stroke-width="1" opacity="0.35"/>
-  <path id="overlay_capture_3" d="M3.5 3.5 L476.5 3.5 L476.5 216.5 L3.5 216.5 Z" fill="none" stroke="#ff3b30" stroke-width="1" opacity="0.15"/>
-  <path id="overlay_line" d="M0.5 0.5 L479.5 0.5 L479.5 219.5 L0.5 219.5 Z" fill="none" stroke="#7a1f1a" stroke-width="1"/>
+  <!-- The snapshot menu (snapshots.hpp): stock's bar menu card holding ten
+       slots in two rows of five (1-5, 6-0) at the bar squares' size and
+       pitch, centred, the selected one filled black and the one the tracks
+       hold now underlined; beside them what is current and the selected slot;
+       below the card stock's bottom row over M1-M4. Hidden unless open. -->
+  <path id="snap_cover" d="M0 0 L480 0 L480 220 L0 220 Z" fill="#000000"/>
+  <path id="snap_card" fill="#CDCDCD" d="M395,170.5H85c-2.8,0-5-2.2-5-5v-120c0-2.8,2.2-5,5-5h310c2.8,0,5,2.2,5,5v120C400,168.3,397.8,170.5,395,170.5z"/>
+  <path id="snap_box_0" d="M90 68 L125 68 L125 103 L90 103 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <path id="snap_box_1" d="M130 68 L165 68 L165 103 L130 103 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <path id="snap_box_2" d="M170 68 L205 68 L205 103 L170 103 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <path id="snap_box_3" d="M210 68 L245 68 L245 103 L210 103 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <path id="snap_box_4" d="M250 68 L285 68 L285 103 L250 103 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <path id="snap_box_5" d="M90 108 L125 108 L125 143 L90 143 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <path id="snap_box_6" d="M130 108 L165 108 L165 143 L130 143 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <path id="snap_box_7" d="M170 108 L205 108 L205 143 L170 143 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <path id="snap_box_8" d="M210 108 L245 108 L245 143 L210 143 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <path id="snap_box_9" d="M250 108 L285 108 L285 143 L250 143 Z" fill="none" stroke="#000000" stroke-width="1"/>
+  <text id="snap_dark_0" transform="matrix(1 0 0 1 99.1 96)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">1</text>
+  <text id="snap_faint_0" transform="matrix(1 0 0 1 99.1 96)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">1</text>
+  <text id="snap_dark_1" transform="matrix(1 0 0 1 139.1 96)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">2</text>
+  <text id="snap_faint_1" transform="matrix(1 0 0 1 139.1 96)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">2</text>
+  <text id="snap_dark_2" transform="matrix(1 0 0 1 179.1 96)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">3</text>
+  <text id="snap_faint_2" transform="matrix(1 0 0 1 179.1 96)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">3</text>
+  <text id="snap_dark_3" transform="matrix(1 0 0 1 219.1 96)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">4</text>
+  <text id="snap_faint_3" transform="matrix(1 0 0 1 219.1 96)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">4</text>
+  <text id="snap_dark_4" transform="matrix(1 0 0 1 259.1 96)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">5</text>
+  <text id="snap_faint_4" transform="matrix(1 0 0 1 259.1 96)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">5</text>
+  <text id="snap_dark_5" transform="matrix(1 0 0 1 99.1 136)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">6</text>
+  <text id="snap_faint_5" transform="matrix(1 0 0 1 99.1 136)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">6</text>
+  <text id="snap_dark_6" transform="matrix(1 0 0 1 139.1 136)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">7</text>
+  <text id="snap_faint_6" transform="matrix(1 0 0 1 139.1 136)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">7</text>
+  <text id="snap_dark_7" transform="matrix(1 0 0 1 179.1 136)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">8</text>
+  <text id="snap_faint_7" transform="matrix(1 0 0 1 179.1 136)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">8</text>
+  <text id="snap_dark_8" transform="matrix(1 0 0 1 219.1 136)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">9</text>
+  <text id="snap_faint_8" transform="matrix(1 0 0 1 219.1 136)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">9</text>
+  <text id="snap_dark_9" transform="matrix(1 0 0 1 259.1 136)" fill="#000000" font-family="UniversNextPro-Light" font-size="30px">0</text>
+  <text id="snap_faint_9" transform="matrix(1 0 0 1 259.1 136)" fill="#969696" font-family="UniversNextPro-Light" font-size="30px">0</text>
+  <path id="snap_sel" d="M90 68 L125 68 L125 103 L90 103 Z" fill="#000000" stroke="#000000" stroke-width="1"/>
+  <text id="snap_sel_label" transform="matrix(1 0 0 1 99.1 96)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="30px">1</text>
+  <path id="snap_divider" d="M297.5 68 L297.5 143" fill="none" stroke="#AFAFAF" stroke-width="0.7"/>
+  <text id="snap_state" transform="matrix(1 0 0 1 307 94)" fill="#000000" font-family="UniversNextPro-Light" font-size="18px">cleared 3</text>
+  <text id="snap_tracks" transform="matrix(1 0 0 1 307 133)" fill="#4B4B4B" font-family="UniversNextPro-Light" font-size="14px">fits 7/8</text>
+  <path id="snap_here" d="M100 104.5 L115 104.5 L115 106.5 L100 106.5 Z" fill="#000000"/>
+  <path id="snap_strip" d="M0 193 L480 193 L480 220 L0 220 Z" fill="#000000"/>
+  <text id="snap_m0" transform="matrix(1 0 0 1 28.8 215)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="20px">save</text>
+  <text id="snap_m1" transform="matrix(1 0 0 1 153.6 215)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="20px">load</text>
+  <text id="snap_m2" transform="matrix(1 0 0 1 294.5 215)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="20px">clear</text>
+  <text id="snap_m3" transform="matrix(1 0 0 1 406.2 215)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="20px">clr all</text>
 </svg>

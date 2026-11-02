@@ -32,18 +32,28 @@ RUNTIME = 'sdk/platform/extension_runtime.hpp'
 SOURCE_SUFFIXES = ('.cpp', '.cc', '.h', '.hpp', '.inc')
 
 
+# A claim's chord: the keyboard keys (26-49) its owner receives while the claimed
+# key is held, by name, as the runtime's chord numbers (extension_runtime.hpp).
+CHORDS = {'black_keys': 1}
+
+
 def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
-    data (a label and the key it governs); actions are one bit each in RUNTIME."""
+    data (a label, the key it governs and optionally a chord: keyboard keys that go
+    to the owner, never to stock, while that key is held); actions are one bit
+    each in RUNTIME."""
     data = document(ROOT / PROFILE)
     require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
     for name, claim in claims.items():
-        require(NAME.fullmatch(name) and isinstance(claim, dict) and set(claim) == {'label', 'key'} and
-                isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
-                type(claim['key']) is int and 0 <= claim['key'] < 256, 'Invalid claim: ' + name)
+        # "with": a second key pressed together with the first, so the pair is the gesture.
+        require(NAME.fullmatch(name) and isinstance(claim, dict) and {'label', 'key'} <= set(claim) <=
+                {'label', 'key', 'with', 'chord'} and isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
+                type(claim['key']) is int and 0 < claim['key'] < 64 and
+                (type(claim.get('with', 1)) is int and 0 < claim.get('with', 1) < 64 and claim.get('with') != claim['key']) and
+                claim.get('chord', 'black_keys') in CHORDS, 'Invalid claim: ' + name)
     for name, action in actions.items():
         require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
                 ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
@@ -57,6 +67,8 @@ class Extension:
     claims: tuple
     actions: tuple
     text: dict  # name, description and optional note: the site's row and details
+    # The machines it works with, by ID and folder: a build that links it links them too.
+    machines: tuple = ()
 
     def sources(self):
         """Every file of the extension, by name relative to its folder."""
@@ -71,8 +83,8 @@ def extension_at(folder):
             f'{root}: an extension folder holds extension.json and extension.cpp')
     data = document(root / 'extension.json')
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and an optional note')
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'machines'}, f'{root}: extension.json '
+            'fields are id, name, description, claims, actions, an optional note and optional machines')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -92,7 +104,20 @@ def extension_at(folder):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data})
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, dependent_machines(root, name, data))
+
+
+def dependent_machines(root, name, data):
+    """An extension's "machines": folders relative to its own (in the same
+    repository) of machines it works with, as (ID, folder). Selecting it selects them."""
+    from .machines import machine_at
+    folders = data.get('machines', [])
+    require(isinstance(folders, list) and len(folders) <= 4 and
+            all(isinstance(f, str) and f and not Path(f).is_absolute() for f in folders),
+            f'{name}: machines are up to four folders relative to the extension')
+    found = [(machine_at(root / f).id, (root / f).resolve()) for f in folders]
+    require(len({i for i, _ in found}) == len(found), f'{name}: a machine is listed twice')
+    return tuple(found)
 
 
 def check_collection(extensions):
@@ -134,7 +159,8 @@ def check_profile(profile):
 
 def generate_collection(folder, extensions):
     """The collection and the registry tables the runtime reads: each claim's
-    key, and the claims that grant each action (0: any claim its holder owns)."""
+    key and chord (0: none), and the claims that grant each action (0: any claim
+    its holder owns)."""
     claims, actions = registry()
     claim_bit = {name: 1 << i for i, name in enumerate(claims)}
     action_bit = {name: 1 << i for i, name in enumerate(actions)}
@@ -148,10 +174,12 @@ def generate_collection(folder, extensions):
               'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
               'const u32 claim_keys[] = {' + table([str(c['key']) for c in claims.values()]) + '};',
+              'const u32 claim_chords[] = {' + table([str(CHORDS.get(c.get('chord'), 0)) for c in claims.values()]) + '};',
+              'const u32 claim_partners[] = {' + table([str(c.get('with', 0)) for c in claims.values()]) + '};',
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',
-              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d};' % (
+              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d, claim_chords, claim_partners};' % (
                   len(claims), len(actions)),
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
@@ -183,4 +211,5 @@ def metadata(extensions, origins):
     (official, catalog or personal, as for machines) from `origins` by ID."""
     claims, _actions = registry()
     return [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
-                 claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
+                 claim_labels={c: claims[c]['label'] for c in e.claims},
+                 **({'machines': [i for i, _ in e.machines]} if e.machines else {})) for e in extensions]

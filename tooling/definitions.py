@@ -81,13 +81,11 @@ EFFECT_OPTIONS = ('bufferBytes', 'transport')
 EFFECT_BUFFER_LIMIT = 524288
 # A synth's optional GUI-side track control (opxy/track_control.hpp): its state.
 CONTROL_FIELDS = ('stateBytes', 'stateAlignment')
-# Optional: whether only one copy runs, the data kept with a project, and the
-# machine's own marks (marks.svg.fragment): capture nodes, then line nodes.
-CONTROL_OPTIONS = ('unique', 'savedBytes', 'marks', 'aux', 'sharedLfo')
+# Optional: whether only one copy runs, and the data kept with a project.
+CONTROL_OPTIONS = ('unique', 'savedBytes', 'aux', 'sharedLfo')
 # The aux tracks (1-based) a machine may take over: those whose stock role the
 # SDK can keep silent (sdk/platform/opxy-1.2.1/aux_tracks.cpp).
 AUX_TRACKS = (12,)
-MARK_LIMIT = 16
 # The most a track control machine keeps with a project (opxy::control::saved_capacity).
 SAVED_CAPACITY = 8192
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
@@ -233,12 +231,6 @@ def validate_synth_resources(resources):
                     set(aux) <= set(AUX_TRACKS),
                     'Track control aux lists the aux tracks to take over: ' + ', '.join(map(str, AUX_TRACKS)))
             require(control.get('unique') is True, 'A track control machine that takes over aux tracks must be unique')
-        if 'marks' in control:
-            marks = control['marks']
-            keys(marks, ('capture', 'line'), 'trackControl.marks')
-            require(type(marks['capture']) is int and 1 <= marks['capture'] <= MARK_LIMIT and
-                    type(marks['line']) is int and 0 <= marks['line'] <= MARK_LIMIT,
-                    f'Track control marks need 1 to {MARK_LIMIT} capture nodes and 0 to {MARK_LIMIT} line nodes')
 
 
 def validate_display(display):

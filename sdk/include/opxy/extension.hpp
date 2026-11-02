@@ -27,7 +27,29 @@ struct NoteOff { u32 track, pitch; };
 struct Tick { u32 delta_q8; bool discontinuity; };
 using Time = __UINT64_TYPE__;
 // Key numbers as stock reports them in queued controls.
-namespace keys { const u32 record = 50; }
+namespace keys {
+const u32 metronome = 1;
+// Track keys 1-8 are keys track_first .. track_first + 7.
+const u32 track_first = 14;
+// The keyboard: keys keyboard_first .. keyboard_last, low to high.
+const u32 keyboard_first = 26, keyboard_last = 49;
+const u32 record = 50;
+// The keyboard's ten black keys as stock numbers them where they enter values
+// (its black-key index): 0..9, low to high, labelled 1..9 then 0 (black_label).
+// Any other key: -1.
+inline i32 black_index(u32 key) {
+    switch (key) {
+    case 27: return 0; case 29: return 1; case 31: return 2; case 34: return 3; case 36: return 4;
+    case 39: return 5; case 41: return 6; case 43: return 7; case 46: return 8; case 48: return 9;
+    default: return -1;
+    }
+}
+inline char black_label(u32 index) { return static_cast<char>('0' + (index + 1) % 10); }
+}
+// A claim with a chord (profiles/extensions.json) also receives those keyboard
+// keys while its own key is held, before stock and instead of it: stock neither
+// plays nor sees them, the release included. They arrive in queued_control,
+// accepted, with the claim's actions granted.
 struct Control {
     u32 key;
     bool pressed;
@@ -52,6 +74,10 @@ struct Actions {
     // Replace an instrument track's pattern notes with these. Refused, changing
     // nothing, while stock is still recording a held note there. Needs edit_notes.
     u32 (*replace_notes)(const Context&, u32 track, const Note*, u32 count);
+    // Take snapshot `slot` (0-9, opxy/snapshots.hpp) of every instrument
+    // track's stored parameters, replacing what the slot held; once per
+    // callback. Changes no track. Returns whether it was taken. Needs snapshot.
+    bool (*take_snapshot)(u32 slot);
 };
 
 using OnContext = void (*)(const Context&);
@@ -85,7 +111,8 @@ struct Hooks {
     // Any live note input, accepted or not, on any track.
     OnInputActivity input_activity;
     // A queued control (Record and other queued keys; not keyboard keys
-    // 26-49) after stock handled it. Actions act only for their claim owner.
+    // 26-49) after stock handled it, and a claim's chord keys (keyboard keys)
+    // instead of stock. Actions act only for their claim owner.
     OnQueuedControl queued_control;
 
     constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}

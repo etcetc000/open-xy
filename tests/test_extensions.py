@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 from tooling import catalog, extensions, native
-from tooling.machines import read_collection
+from tooling.machines import machine_at, read_collection
 from tooling.pipeline import ROOT, config, document
 
 PROBE = ROOT / 'tests/fixtures/extension_probe'
@@ -122,10 +122,37 @@ class Extensions(unittest.TestCase):
         # A subset of the machines keeps the collection's extensions.
         self.assertEqual(native.subset(machines, []).extensions, (probe,))
 
+    def test_an_extension_brings_the_machines_it_works_with(self):
+        synth = Path(__file__).resolve().parent / 'fixtures/machines/probesynth'
+        with Folder() as folder:
+            shutil.copytree(synth, folder.root.parent / 'machines/probesynth')
+            probe = extensions.extension_at(folder.declare(machines=['../machines/probesynth']))
+            moved = (folder.root.parent / 'machines/probesynth').resolve()
+            self.assertEqual([i for i, _ in probe.machines], [machine_at(moved).id])
+            self.assertEqual(extensions.metadata([probe], {'probe': 'personal'})[0]['machines'], [machine_at(moved).id])
+            # Selected alone, it brings its machine; listed already (from anywhere), it adds nothing.
+            self.assertEqual(read_collection(None, (), [folder.root]),
+                             [{'extension': str(folder.root.resolve())}, {'path': str(moved)}])
+            self.assertEqual(read_collection(None, [synth], [folder.root]),
+                             [{'path': str(synth)}, {'extension': str(folder.root.resolve())}])
+            for machines in ('../machines/probesynth', [str(moved)], ['../missing'], ['../machines/probesynth'] * 2):
+                with self.subTest(machines=machines), self.assertRaises((ValueError, OSError)):
+                    extensions.extension_at(folder.declare(machines=machines))
+        self.assertNotIn('machines', extensions.metadata([extensions.extension_at(PROBE)], {'probe': 'personal'})[0])
+
     def test_no_extensions_means_no_extension_objects_or_service(self):
         self.assertFalse(any(step.startswith('extension:') for _, _, step in native.plan([])))
         self.assertFalse(any(name.startswith('extension:') for name in native.provenance([])))
         self.assertNotIn('extensions', native.active_services(config(), native.service_users([])))
+
+    def test_taking_snapshots_links_the_control_service_that_keeps_them(self):
+        def services(*actions):
+            ext = extensions.Extension('snapper', PROBE, ('record_double_tap',), actions, {})
+            return native.active_services(config(), native.service_users(native.Collection([], (ext,))))
+        self.assertNotIn('control', services('notify'))
+        self.assertIn('control', services('snapshot'))
+        self.assertIn('snapshots', {step for _, _, step in native.plan(native.Collection([], (
+            extensions.Extension('snapper', PROBE, ('record_double_tap',), ('snapshot',), {}),)))})
 
 
 class ExtensionCatalog(unittest.TestCase):

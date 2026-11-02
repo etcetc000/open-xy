@@ -94,7 +94,7 @@ only for the callback. The SDK does not sandbox native code.
 | `selected_note_off` | A live release on the selected track, playing or not; may have no preceding onset | Live release |
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
-| `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
+| `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys`. A claim's [chord](#claims-and-actions) keys reach only its owner, before stock and instead of it | Key queue, key input (chords) |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
 scale 1 has 480 ticks per step. Stock's pickup gives negative positions near
@@ -114,6 +114,14 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   [`DoubleTap`](../sdk/include/opxy/double_tap.hpp) helper handles taps, holds,
   repeats and timeouts on any key without delaying stock controls.
   `record_double_tap` is capture's.
+- **A chord** extends a claim to keyboard keys, as stock's own value entry does:
+  `"chord": "black_keys"` gives the claim's owner the keyboard's ten black keys
+  while the claimed key is held. Stock numbers them 1 to 9, then 0, where it
+  enters values (`keys::black_index`, `keys::black_label`). A chord key reaches
+  the owner's `queued_control`, accepted and with the claim's actions granted,
+  and never reaches stock: it plays no note, and its release follows its press
+  even after the claimed key is let go. Every other key, and the claimed key
+  itself, still reach stock as usual. `metronome_chord` is metronome + black key.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
@@ -127,6 +135,11 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
+  - `snapshot` unlocks `Actions::take_snapshot(slot)`: stores every
+    instrument track's stored parameters in one of the SDK's ten
+    [snapshots](api.md#snapshots) (0-9, one per black key), once per callback. It changes no track;
+    machines read snapshots and play them back. A build with it links the
+    control service, which keeps them with the project.
 
   Calls outside the callback, with a stale context, or a second write or
   popup in one callback are refused.
@@ -141,7 +154,10 @@ An extension is a folder in a repository of its own, beside this SDK checkout:
    one-line `description` saying what it does and how to use it, 140 characters
    at most, and optionally a `note` for its one limit, 100), and the `claims`
    and `actions` it uses from the registry. People scan this; put the full
-   behavior in your repository's README.
+   behavior in your repository's README. An extension that works with machines
+   of its own (a menu and the machine that plays what it keeps) lists their
+   folders in `machines`, relative to its own, in the same repository: a build
+   that links the extension links them, and choosing it in the builder chooses them.
 2. `extension.cpp`, exporting `opxy::extensions::<id>::hooks`, naming only the
    events it takes:
    `extern constexpr Hooks hooks = Hooks().with_context(context).with_queued_control(queued_control);`

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionMachines, extensionSelection, extensionsFit, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -161,6 +161,14 @@ test('extensions omit code/state and resolve only shared registry imports to an 
   assert.notDeepEqual(on.module, off.module);
   assert.equal(off.aliases.get('sdk_extension_capture_hooks'), k.definitions.kit_absent);
   assert.deepEqual(linkKit(k, ['a'], null, ['capture']).module, on.module);
+  // An extension that works with a machine links only beside it.
+  k.extensions[0].machines = ['a']; k.extensions[0].name = 'Capture';
+  assert.deepEqual(extensionMachines(k, ['capture']), ['a']); assert.deepEqual(extensionMachines(k, []), []);
+  assert.equal(extensionsFit(k, ['a'], ['capture']), true); assert.equal(extensionsFit(k, ['b'], ['capture']), false);
+  k.extensions[0].machines = ['b'];
+  assert.throws(() => linkKit(k, ['a'], null, ['capture']), /Capture works with b\. Choose it too/);
+  assert.doesNotThrow(() => linkKit(k, ['a'], null, []));
+  delete k.extensions[0].machines;
   registry.owner = 'a';
   assert.throws(() => linkKit(k, ['a'], null, []), /Unresolved import/);
 });

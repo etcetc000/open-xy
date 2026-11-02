@@ -88,8 +88,6 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['icon'] = m.icon
         # An unselected machine's startup and catalog callbacks decline.
         entry['absent'] = native.absent_symbols(m)
-        if native.track_control(m) and native.track_control(m).get('marks'):
-            entry['marks'] = native.validate_marks(m).decode('utf-8')
         if m.display != 'stock':
             entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
             entry['asset'] = m.native_name + '.svg'
@@ -130,8 +128,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
-    # Track control: the marks' artwork, and the startup's call into the marks
-    # screen, which declines while a selection does not use the service.
+    # Track control: the overlay's artwork (the snapshot menu), and the startup's
+    # call into the overlay screen, which declines while a selection does not use the service.
     if 'control' in native.active_services(profile, native.service_users(machines)):
         kit['controlArtwork'] = read(ROOT / native.TEMPLATES / 'track_control_overlay.svg').decode('utf-8')
         kit['serviceFallbacks'] = {'control': dict.fromkeys(

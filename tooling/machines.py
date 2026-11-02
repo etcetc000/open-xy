@@ -478,8 +478,19 @@ def read_collection(path=None, extra=(), extensions=()):
                 require(isinstance(entry, dict) and set(entry) == {'path'} and isinstance(entry['path'], str),
                         'Collection entries are {"path": ...}: the SDK holds no machines or extensions of its own')
                 entries.append({key: str((path.parent / entry['path']).resolve())})
-    return (entries + [{'path': str(Path(folder).resolve())} for folder in extra] +
-            [{'extension': str(Path(folder).resolve())} for folder in extensions])
+    entries += ([{'path': str(Path(folder).resolve())} for folder in extra] +
+                [{'extension': str(Path(folder).resolve())} for folder in extensions])
+    # An extension brings the machines it works with, unless the collection has them
+    # (by ID, from wherever it lists them).
+    from .extensions import extension_at
+    wanted = [m for e in entries if 'extension' in e for m in extension_at(e['extension']).machines]
+    if wanted:
+        listed = {machine_at(e['path']).id for e in entries if 'path' in e}
+        for identity, folder in wanted:
+            if identity not in listed:
+                listed.add(identity)
+                entries.append({'path': str(folder)})
+    return entries
 
 
 def collection(entries=None, layout=None):
