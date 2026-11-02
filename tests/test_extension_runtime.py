@@ -89,3 +89,17 @@ class Runtime(unittest.TestCase):
             generate_collection(folder, [probe])
             generate_extension(folder, probe)
         self.run_fixture('extension_stock', prepare)
+
+    def test_stock_adapter_appends_bounded_com_system_rows(self):
+        def prepare(folder):
+            stock = (PLATFORM / 'stock.hpp').read_text()
+            stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
+                                  'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+            for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
+                stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                                      'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
+            (folder / 'stock.hpp').write_text(stock)
+            source = (PLATFORM / 'extension_system_stock.cpp').read_text().replace(
+                '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>')
+            (folder / 'extension_system_stock.cpp').write_text(source)
+        self.run_fixture('extension_system', prepare)

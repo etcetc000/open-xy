@@ -1488,6 +1488,17 @@
       ]
     },
     {
+      "kind": "hook",
+      "address": "0x8c098f32",
+      "file_offset": "0xd016e",
+      "length": 12,
+      "before": "ffe3edf709da0084ecc00000",
+      "symbol": "sdk_extensions_system_entries_hook",
+      "call": true,
+      "service": "extensions",
+      "surface": "system_entries"
+    },
+    {
       "kind": "startup",
       "name": "Boot-screen version label",
       "address": "0x8c0b85dc",

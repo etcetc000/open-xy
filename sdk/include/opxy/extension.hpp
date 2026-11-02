@@ -68,6 +68,23 @@ struct Choice {
     void (*confirm)(u32 selected);
 };
 
+// The system-preferences page has three spare visual rows after its six stock
+// entries. A SystemEntry adds one of them to COM -> System for this build.
+// `open` runs synchronously on the controller path when the user changes that
+// row. The entry and its label must remain alive for the firmware's life.
+// Labels use the stock menu's printable-ASCII, 1..15 character limit.
+struct SystemActions {
+    // Open one flat stock choice selector from this SystemEntry. It may be
+    // attempted once while `open` runs; no control claim is required because
+    // the user selected this row from the stock System page.
+    bool (*select_choice)(const Choice&);
+};
+using OnSystemOpen = void (*)(const Context&, const SystemActions&);
+struct SystemEntry {
+    const char* label;
+    OnSystemOpen open;
+};
+
 // Each action needs its permission (profiles/extensions.json) and works only in
 // a queued_control callback for a key the extension claims, once stock accepted
 // it. The SDK validates the context again and owns undo/publication: one stock
@@ -121,39 +138,47 @@ struct Hooks {
     OnQueuedControl queued_control;
     // Optional GUI surface applied to every loaded stock SVG document.
     const Palette* screen_palette;
+    // Optional entry in COM -> System. At most three selected extensions may
+    // use this surface in one build, because the stock page has nine rows.
+    const SystemEntry* system;
 
-    constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
+    constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
                     OnInputActivity e, OnQueuedControl f)
-        : Hooks(a, b, c, d, e, f, nullptr) {}
+        : Hooks(a, b, c, d, e, f, nullptr, nullptr) {}
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f, const Palette* g)
+                    OnInputActivity e, OnQueuedControl f, const Palette* g, const SystemEntry* h)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f), screen_palette(g) {}
+          input_activity(e), queued_control(f), screen_palette(g), system(h) {}
 
     constexpr Hooks with_context(OnContext f) const {
-        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, screen_palette);
+        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, screen_palette, system);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, screen_palette);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, screen_palette, system);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, screen_palette);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, screen_palette, system);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, screen_palette);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, screen_palette, system);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, screen_palette);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, screen_palette, system);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, screen_palette);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, screen_palette, system);
     }
     // Unlike with_* members this is a surface, not an event: profile event
     // coverage is intentionally derived only from the with_* builders.
     constexpr Hooks palette(const Palette* value) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, value);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, value, system);
+    }
+    // This is a bounded COM -> System surface, not an event. Profile event
+    // coverage is intentionally derived only from the with_* builders.
+    constexpr Hooks system_entry(const SystemEntry* value) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, screen_palette, value);
     }
 };
 }}

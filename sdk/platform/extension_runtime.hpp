@@ -46,6 +46,12 @@ bool extension_record_held();
 u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replace);
 void extension_notify(const char* text);
 bool extension_select_choice(const extensions::Choice& choice);
+// The authenticated COM -> System adapter asks the shared runtime for these
+// entries while the stock System page is being built. The returned pointers
+// are borrowed from static extension Hooks data and remain valid for the OS
+// lifetime. The runtime admits at most three, matching stock's nine rows.
+const extensions::SystemEntry* const* extension_system_entries(u32& count);
+void extension_system_entry_open(u32 index);
 // The version adapter reads this while preparing a Context; extensions receive
 // it as Context::time rather than linking to a platform service directly.
 extensions::Time extension_monotonic_time();

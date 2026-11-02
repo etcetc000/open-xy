@@ -118,17 +118,25 @@ def events():
 
 
 def check_profile(profile):
-    """Every extension hook names the events it feeds, and every event has a site."""
+    """Every extension event has a site; non-event GUI surfaces name their
+    reviewed surface explicitly rather than pretending to be an event."""
     known, fed = set(events()), set()
     for patch in profile['patches']:
         if patch.get('service') == 'extensions':
             listed = patch.get('events')
-            require(patch['kind'] == 'hook' and isinstance(listed, list) and listed and
-                    len(set(listed)) == len(listed) and set(listed) <= known,
-                    'An extension hook names the events it feeds: ' + str(patch.get('symbol')))
-            fed |= set(listed)
+            surface = patch.get('surface')
+            require(patch['kind'] == 'hook' and bool(listed) != bool(surface),
+                    'An extension hook is one event site or one reviewed surface: ' + str(patch.get('symbol')))
+            if surface:
+                require(surface == 'system_entries',
+                        'Unknown extension surface: ' + str(surface))
+            else:
+                require(isinstance(listed, list) and len(set(listed)) == len(listed) and set(listed) <= known,
+                        'An extension hook names the events it feeds: ' + str(patch.get('symbol')))
+                fed |= set(listed)
         else:
-            require('events' not in patch, 'Only extension hooks name events')
+            require('events' not in patch and 'surface' not in patch,
+                    'Only extension hooks name events or surfaces')
     require(fed == known, 'Events without a firmware site: ' + ', '.join(sorted(known - fed)))
 
 

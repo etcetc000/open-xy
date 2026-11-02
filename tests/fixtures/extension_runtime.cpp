@@ -5,13 +5,21 @@ using namespace opxy::platform;
 namespace {
 RecordingContext stock_context = {1, 2, 0, 7680, 3, 255, true, true};
 bool playing = true;
-u32 writes, notices, selections, observations, order[16], order_count, result, mode, written_track;
+u32 writes, notices, selections, system_opens, observations, order[16], order_count, result, mode, written_track;
 extensions::Actions saved;
 extensions::Context saved_context;
+extensions::Context system_context;
 const RecordedNote good = {-12, 60, 60, 100};
 const char* const choice_labels[] = {"one", "two"};
 void chosen(u32) {}
 const extensions::Choice choice = {"choice", choice_labels, 2, 0, chosen};
+void system_open(const extensions::Context& context, const extensions::SystemActions& actions) {
+    ++system_opens; system_context = context;
+    result = actions.select_choice(choice) ? 1 : 0;
+    // One modal attempt per System-row activation.
+    result += actions.select_choice(choice) ? 1 : 0;
+}
+const extensions::SystemEntry system_entry = {"colors", system_open};
 void first_note(const extensions::Context&, const extensions::LiveNote& note) {
     order[order_count++] = 1;
     observations += note.position == -12 && note.collision_radius == 180;
@@ -44,7 +52,7 @@ void edit_control(const extensions::Context& context, const extensions::Control&
 const extensions::Hooks first = extensions::Hooks().with_recordable_note_on(first_note)
                                                    .with_queued_control(observe_control);
 const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(second_note)
-                                                    .with_queued_control(edit_control);
+                                                    .with_queued_control(edit_control).system_entry(&system_entry);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
 u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0};
@@ -78,6 +86,12 @@ void control(u32 key, bool accepted) {
 int main() {
     extensions_recordable_note_on(0, 60, 100);
     CHECK(order_count == 2 && order[0] == 1 && order[1] == 2 && observations == 1);
+    u32 system_count = 99;
+    const extensions::SystemEntry* const* system = extension_system_entries(system_count);
+    CHECK(system_count == 1 && system && system[0] == &system_entry);
+    extension_system_entry_open(0);
+    CHECK(system_opens == 1 && selections == 1 && result == 1 && system_context.time == 123456789u);
+    extension_system_entry_open(1); CHECK(system_opens == 1);
     extensions_recordable_note_on(7, 60, 100); CHECK(order_count == 2);
     // Only the claim owner acts: one write and one notification per callback.
     control(50, true);
@@ -100,7 +114,7 @@ int main() {
     CHECK(result == 1 && writes == 4 && !replaced);
     mode = 11;
     control(50, true);
-    CHECK(result == 1 && selections == 1);
+    CHECK(result == 1 && selections == 2);
     // Writes reach any editable instrument track, not only the selected one.
     mode = 8;
     control(50, true);

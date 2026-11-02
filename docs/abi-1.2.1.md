@@ -46,6 +46,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
+| Extension System entries | 1 | Copies the stock COM -> System six-row descriptor vector and appends up to three extension-owned rows in RAM; linked only when an extension is selected |
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
@@ -159,7 +160,7 @@ then composes selected palette callbacks in collection order when a revision
 changes. It never rewrites SVG files or calls parser code; documents loaded
 later are picked up by the same bounded scan. The stock choice selector is an
 action entered only from the existing queued-control hook, with no global input
-handler or menu patch.
+handler.
 
 The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key
 dispatch at `0x8c0b6184`, normalized live onset/release at `0x8d594376` and
@@ -170,6 +171,12 @@ they are separate sites. The Stop hook observes a stop/restart pair within one c
 span also replaces the following queue-address load; its wrapper returns that
 address in R0. This
 permits an absolute call without changing the stock stack or adding assembly.
+The separate System-entry hook replaces the stock vector copy at `0x8c098f32`:
+it receives the six local System descriptors, copies them unchanged, appends at
+most three SDK-owned descriptors and calls the authenticated stock copy helper.
+`prefs.svg` has exactly nine rows, so the bound is physical as well as enforced
+by the extension runtime. Its static one-step states and labels live in the SDK
+module; it does not allocate, patch SVG content or alter stock preference data.
 Immediate input is restricted by stock to keyboard keys 26–49; Record (50)
 uses the queue. The live-note wrappers also cancel interrupted tap gestures.
 The onset wrapper establishes a scoped live-input identity; only stock-accepted

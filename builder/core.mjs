@@ -6,7 +6,7 @@
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'ca119b16884595ffa18b37046db2c79593880b13029d9fded8960fa629dab126';
+export const PROFILE_SHA256 = 'c4b7aaf500149551242adb74774edca5e43780cc6a56ea417e7d7776da855672';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
