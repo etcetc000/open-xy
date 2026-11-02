@@ -6,6 +6,7 @@
 #include "arranger_ui_model.hpp"
 #include "arranger_clip.hpp"
 #include "arranger_history.hpp"
+#include "arranger_timing.hpp"
 #include "arranger_piano.hpp"
 #include "arranger_phase.hpp"
 #include "arranger_menu.hpp"
@@ -14,6 +15,7 @@
 #include "arranger_project.hpp"
 #include "screen.hpp"
 #include "arranger_pending_add.hpp"
+#include "arranger_song_import.hpp"
 
 extern "C" {
 extern const char arranger_screen_slots[] __asm__("__stock_screen_slots");
@@ -84,6 +86,8 @@ bool active;
 u32 cursor, ui_track, selected_pattern;
 platform::ArrangerClipboard clipboard{};
 platform::ArrangerHistory history;
+u32 timing_project, timing_generation;
+u8 timing_lengths[8][16], timing_scales[8][16];
 i32 selected_slot = -1;
 bool fine_grid;
 bool editing, exit_edit_pending;
@@ -107,6 +111,7 @@ platform::ArrangerMenuGesture menu_gesture;
 bool arrange_owned, menu_open;
 u32 menu_index, menu_tool, menu_project, menu_generation, menu_slot, menu_cursor;
 arranger::Model menu_preview;
+u32 menu_source;
 const char* const menu_labels[] = {
     "Split at cursor (Shift + 1)", "Make unique (Shift + 2)",
     "Undo (Shift + 3)", "Redo (Shift + 4)",
@@ -117,7 +122,8 @@ const char* const menu_labels[] = {
     "Edit notes (click E4)", "Piano roll (Shift + click E4)",
     "Bounce to Sampler", "Bounce to Drum Sampler",
     "Add clip (+)", "Paste (Shift + +)", "Duplicate (Stop + +)",
-    "Cut (Shift + -)", "Delete (-)"
+    "Cut (Shift + -)", "Delete (-)",
+    "Add existing clip", "Import Song at cursor"
 };
 const u32 menu_count = sizeof(menu_labels) / sizeof(menu_labels[0]);
 platform::ArrangerStopGesture stop_gesture;
@@ -378,6 +384,50 @@ bool commit_edit(bool changed, const char* success) {
     return true;
 }
 
+// Observe native edits only within one live project. Loading establishes a
+// baseline; it must not reinterpret the saved duration of an existing clip.
+void reconcile_source_timing() {
+    if (!active || pending_add.pending || menu_tool || menu_open || bounce_choice.open ||
+        sdk_arranger_bounce_busy() || !sdk_arranger_project_edit_ready()) return;
+    const u32 project = platform::word(0x840a0524), generation = stock<u32()>(0x8d584224)();
+    if (!project) return;
+    if (timing_project != project || timing_generation != generation) {
+        timing_project = project; timing_generation = generation;
+        for (u32 track = 0; track < 8; ++track) for (u32 pattern = 0; pattern < 16; ++pattern)
+            timing_lengths[track][pattern] = 0;
+    }
+    arranger::Model& model = sdk_arranger_model();
+    bool changed = false, native_changed = false;
+    for (u32 track = 0; track < 8; ++track) for (u32 pattern = 0; pattern < 16; ++pattern) {
+        const u8* source = platform::arranger_pattern_source(reinterpret_cast<const u8*>(project), track, pattern, false);
+        if (!source || !source[0] || source[8] >= 16) { timing_lengths[track][pattern] = 0; continue; }
+        const u32 old_length = timing_lengths[track][pattern], old_scale = timing_scales[track][pattern];
+        if (old_length && (old_length != source[0] || old_scale != source[8])) {
+            native_changed = true;
+            for (u32 slot = 0; slot < arranger::Model::capacity; ++slot) {
+                const arranger::Clip* selected = model.clip(slot);
+                if (!selected || selected->track != track || selected->pattern != pattern) continue;
+                const arranger::Clip before = *selected;
+                const u32 steps = source[0] > 64 ? 64 : source[0];
+                if (!platform::arranger_rescale_clip(model, slot, old_scale, source[8], steps)) continue;
+                arranger::Clip value = *model.clip(slot);
+                value.source_length = u32(source[0]) * 480;
+                value.offset %= value.source_length;
+                if (model.replace(slot, value) && (before.length != value.length ||
+                    before.source_length != value.source_length || before.offset != value.offset)) changed = true;
+            }
+        }
+        timing_lengths[track][pattern] = source[0]; timing_scales[track][pattern] = source[8];
+    }
+    if (native_changed) {
+        // Undo stores geometry but not native timing; stale snapshots cannot be replayed.
+        history.reset(); resizing_slot = -1;
+        if (changed && sdk_arranger_project_changed(active, ui_track)) {
+            sdk_arranger_publish(active, false); select_clip(false); announce("SOURCE TIMING UPDATED");
+        }
+    }
+}
+
 platform::ArrangerAddContext add_context() {
     return {platform::word(0x840a0524), stock<u32()>(0x8d584224)(), ui_track, cursor, selected_pattern, selected_slot};
 }
@@ -562,14 +612,18 @@ void timeline_key(u32 key, bool shifted) {
 
 const char* menu_unavailable(u32 action) {
     if (!sdk_arranger_project_edit_ready()) return "PROJECT BUSY";
+    if ((action == 21 || action == 22) &&
+        (platform::byte(platform::kPlaying) || platform::byte(platform::kPlaying + 1) ||
+         platform::byte(platform::kPlaying + 2) || platform::byte(platform::kPlaying + 3) ||
+         sdk_arranger_record_status())) return "STOP TRANSPORT FIRST";
     const arranger::Model& model = sdk_arranger_model();
     const arranger::Clip* clip = selected_slot < 0 ? nullptr : model.clip(static_cast<u32>(selected_slot));
     if (action == 2) return history.canUndo() ? nullptr : "NOTHING TO UNDO";
     if (action == 3) return history.canRedo() ? nullptr : "NOTHING TO REDO";
     if (action == 17) return clipboard.valid ? nullptr : "CLIPBOARD EMPTY";
-    if (action == 5 || action == 6 || action == 7 || action == 16) return nullptr;
+    if (action == 5 || action == 6 || action == 7 || action == 16 || action == 21 || action == 22) return nullptr;
     if (!clip) return "NO CLIP";
-    if ((action == 0 || action == 9) && (cursor <= clip->start || cursor >= clip->start + clip->length))
+    if ((action == 0 || action == 8 || action == 9) && (cursor <= clip->start || cursor >= clip->start + clip->length))
         return "CURSOR MUST BE INSIDE CLIP";
     const u8* project = reinterpret_cast<const u8*>(platform::word(0x840a0524));
     if (action == 1 || action == 11 || action == 14 || action == 15) {
@@ -581,10 +635,21 @@ const char* menu_unavailable(u32 action) {
     }
     return nullptr;
 }
+void menu_parameter_reset() {
+    menu_tool = 0;
+    menu_project = platform::word(0x840a0524);
+    menu_generation = stock<u32()>(0x8d584224)();
+    menu_cursor = cursor;
+    menu_slot = static_cast<u32>(selected_slot);
+    menu_preview = sdk_arranger_model();
+    const u8* project = reinterpret_cast<const u8*>(menu_project);
+    menu_source = menu_index == 22 ? (project && project[7] < 14 ? project[7] : 0) : selected_pattern;
+}
 void open_menu() {
     if (!view_active() || piano_view || stop_gesture.pending || sdk_arranger_bounce_busy() || bounce_choice.open) return;
     history.breakGroup(); stop_sequence.interrupt();
     menu_open = true; menu_index = selected_slot < 0 ? 16 : 0;
+    menu_parameter_reset();
     announce("ACTIONS / SHORTCUT HELP");
 }
 bool menu_context_valid() {
@@ -595,6 +660,29 @@ void finish_menu_tool(bool apply) {
     if (!menu_tool) return;
     const u32 tool = menu_tool; menu_tool = 0;
     if (!apply || !menu_context_valid()) { announce("EDIT CANCELLED"); return; }
+    if (tool == 22 || tool == 23) {
+        begin_history();
+        bool ok = false;
+        if (tool == 22) {
+            const i32 slot = platform::arranger_add_source_clip(sdk_arranger_model(),
+                reinterpret_cast<const u8*>(menu_project), ui_track, menu_cursor, menu_source);
+            ok = slot >= 0;
+            if (ok) selected_slot = slot;
+        } else {
+            const auto result = platform::arranger_import_song(sdk_arranger_model(),
+                reinterpret_cast<const u8*>(menu_project), menu_source, menu_cursor, menu_preview);
+            ok = result == platform::SongImportResult::Ok;
+            if (!ok) {
+                history.cancel();
+                announce(result == platform::SongImportResult::Empty ? "SONG EMPTY" :
+                    result == platform::SongImportResult::NoRoom ? "COLLISION / TIMELINE FULL" :
+                    result == platform::SongImportResult::CurrentSceneMuted ? "UNMUTE CURRENT SCENE FIRST" : "SONG STATE UNSUPPORTED");
+                return;
+            }
+        }
+        if (commit_edit(ok, tool == 22 ? "EXISTING CLIP ADDED" : "SONG INSTRUMENT CLIPS IMPORTED")) select_clip(false);
+        return;
+    }
     const arranger::Clip* changed = menu_preview.clip(menu_slot);
     const arranger::Clip* before = sdk_arranger_model().clip(menu_slot);
     if (!changed || !before) { announce("CLIP NO LONGER AVAILABLE"); return; }
@@ -614,6 +702,15 @@ void finish_menu_tool(bool apply) {
 }
 void menu_tool_turn(i32 delta, bool fine) {
     if (!menu_context_valid()) { finish_menu_tool(false); return; }
+    if (menu_tool == 22 || menu_tool == 23) {
+        const u8* project = reinterpret_cast<const u8*>(menu_project);
+        const u32 count = menu_tool == 23 ? 14 :
+            *reinterpret_cast<const u32*>(project + 0xd7c + ui_track * 0x53f44 + 0x53f40);
+        if (!count || count > 16) { announce("SOURCE POOL UNAVAILABLE"); return; }
+        const i32 next = static_cast<i32>(menu_source) + delta;
+        menu_source = next < 0 ? 0 : static_cast<u32>(next) >= count ? count - 1 : static_cast<u32>(next);
+        return;
+    }
     const arranger::Clip* clip = menu_preview.clip(menu_slot);
     if (!clip) { finish_menu_tool(false); return; }
     const u32 step = fine || fine_grid ? 1 : 480;
@@ -635,17 +732,26 @@ void run_menu_action() {
     const u32 action = menu_index;
     if (const char* reason = menu_unavailable(action)) { announce(reason); return; }
     menu_open = false;
+    if (action == 21 || action == 22 || action == 10 || action == 11) {
+        menu_tool = action + 1;
+        finish_menu_tool(true);
+        return;
+    }
     if (action < 8) { timeline_key(14 + action, true); return; }
-    if (action == 8 || action == 10 || action == 11) {
-        menu_tool = action + 1; menu_preview = sdk_arranger_model();
-        menu_project = platform::word(0x840a0524); menu_generation = stock<u32()>(0x8d584224)();
-        menu_slot = static_cast<u32>(selected_slot); menu_cursor = cursor;
-        announce("PREVIEW: E4 ADJUST / CLICK APPLY"); return;
+    if (action == 8) {
+        if (!menu_context_valid()) { announce("EDIT CANCELLED"); return; }
+        if (!platform::arranger_trim_clip_left(menu_preview, reinterpret_cast<u8*>(menu_project), menu_slot, cursor)) {
+            announce("CURSOR MUST BE INSIDE CLIP"); return;
+        }
+        menu_tool = 9; finish_menu_tool(true); return;
     }
     if (action == 12) { open_edit(); return; }
     if (action == 13) { open_piano(); return; }
     if (action == 14 || action == 15) {
-        bounce_choice.begin(); bounce_choice.engine = action == 14 ? 2 : 3; return;
+        const u32 result = sdk_arranger_bounce_request(static_cast<u32>(selected_slot), action == 14 ? 2 : 3, false);
+        if (result) announce(result == 1 ? "BOUNCE BUSY" : result == 3 ? "CLIP TOO SHORT / LONG" :
+            result == 4 ? "PROJECT BUSY" : "FREE LANE BELOW REQUIRED / SHIFT SAMPLE TO REPLACE");
+        return;
     }
     if (action == 16 || action == 17) { timeline_key(54, action == 17); return; }
     if (action == 19 || action == 20) { timeline_key(53, action == 19); return; }
@@ -786,10 +892,17 @@ void render_menu(Object* o) {
     const arranger::Clip* clip = selected_slot < 0 ? nullptr : sdk_arranger_model().clip(static_cast<u32>(selected_slot));
     if (clip) { end = append(end, " / CLIP "); *end++ = 'A' + clip->pattern; *end = 0; }
     else end = append(end, " / GAP");
-    end = append(end, " / "); end = number(end, menu_index + 1); end = append(end, "/"); number(end, menu_count);
+    end = append(end, " / "); end = number(end, menu_index + 1); end = append(end, "/"); end = number(end, menu_count);
+    if (menu_index == 21 || menu_index == 22 || menu_index == 10 || menu_index == 11) {
+        end = append(end, " / E4 ");
+        if (menu_index == 21) { *end++ = 'A' + menu_source; *end = 0; }
+        else if (menu_index == 22) number(end, menu_source + 1);
+        else if (const arranger::Clip* value = menu_preview.clip(menu_slot))
+            number(end, menu_index == 11 ? value->track + 1 : value->offset);
+    }
     if (const char* reason = menu_unavailable(menu_index)) set_text(o->controls, reason);
     else set_text(o->controls, context);
-    set_text(o->feedback, "E1 SELECT / E4 CLICK CONFIRM / ARRANGE CLOSE");
+    set_text(o->feedback, "E1 SELECT / E4 ADJUST + CLICK APPLY / ARRANGE CLOSE");
     render_toast(o); draw(&o->base);
 }
 void hide_menu(Object* o) {
@@ -942,9 +1055,12 @@ struct Renderer {
         if (menu_tool) {
             const arranger::Clip* preview = menu_preview.clip(menu_slot);
             char tool_label[80]; char* at = append(tool_label, menu_tool == 9 ? "TRIM LEFT " :
-                menu_tool == 11 ? "SOURCE OFFSET " : "MOVE TO TRACK ");
-            if (preview) at = number(at, menu_tool == 9 ? preview->start : menu_tool == 11 ? preview->offset : preview->track + 1);
-            append(at, fine_grid ? " / E4 ADJUST (FINE)" : " / E4 ADJUST (GRID)");
+                menu_tool == 11 ? "SOURCE OFFSET " : menu_tool == 22 ? "EXISTING CLIP " :
+                menu_tool == 23 ? "IMPORT SONG " : "MOVE TO TRACK ");
+            if (menu_tool == 22) { *at++ = 'A' + menu_source; *at = 0; }
+            else if (menu_tool == 23) at = number(at, menu_source + 1);
+            else if (preview) at = number(at, menu_tool == 9 ? preview->start : menu_tool == 11 ? preview->offset : preview->track + 1);
+            append(at, menu_tool >= 22 ? " / E4 SELECT" : fine_grid ? " / E4 ADJUST (FINE)" : " / E4 ADJUST (GRID)");
             set_text(o->controls, tool_label);
             set_text(o->feedback, "E4 CLICK APPLY / ARRANGE CANCEL / E1 CLICK GRID-FINE");
         }
@@ -983,6 +1099,18 @@ bool registered() {
     return page_id >= 82 && page_id < 128 &&
         reinterpret_cast<Base* volatile*>(slots_address())[page_id] == &screen_state.base &&
         screen_state.base.vtable == &vtable && screen_state.base.loader;
+}
+
+// Shift+Arrange enters the same controller as plain Arrange. Stock's shifted
+// handler selects Song/controller41, whose page getter is intentionally stock.
+bool enter_arranger_menu() {
+    if (!sdk_arranger_project_linear() || editing || !registered()) return false;
+    stock<void(u32)>(0x8c094178)(40);
+    piano_view = false;
+    sync_selected_lane(true);
+    open_menu();
+    stock<void()>(0x8c093f50)();
+    return true;
 }
 
 bool consume_play(bool shifted) {
@@ -1038,6 +1166,7 @@ void press(const void* raw, bool shifted) {
         if (key == 13) { if (menu_tool) finish_menu_tool(true); else run_menu_action(); }
         return;
     }
+    if (key == 4 && shifted && enter_arranger_menu()) return;
     if (view_active() && key >= 10 && key <= 13) {
         if (key == 10) { fine_grid = !fine_grid; announce(fine_grid ? "FINE: 1 TICK" : "GRID: 1 STEP"); }
         if (key == 13) { history.breakGroup(); if (shifted) open_piano(); else if (!piano_view) open_edit(); }
@@ -1101,7 +1230,9 @@ void sdk_arranger_raw_event(const void* raw) {
             if (menu_gesture.poll(ui_now())) open_menu();
             const bool tap = menu_gesture.release(ui_now());
             arrange_owned = false;
-            if (tap) { stock_arranger_raw_event(&pending_arrange); stock_arranger_raw_event(raw); }
+            if (tap && !(held(55) && enter_arranger_menu())) {
+                stock_arranger_raw_event(&pending_arrange); stock_arranger_raw_event(raw);
+            }
         }
         return;
     }
@@ -1134,7 +1265,6 @@ void sdk_arranger_raw_event(const void* raw) {
             }
             if (key == 13) {
                 if (menu_tool) finish_menu_tool(true);
-                else if (held(55)) { menu_open = false; open_piano(); }
                 else run_menu_action();
                 raw_edit_gate.consume(key, true, true, false, false); return;
             }
@@ -1151,6 +1281,12 @@ void sdk_arranger_raw_event(const void* raw) {
             }
         }
         if (menu_open || menu_tool) { stock_arranger_raw_event(raw); return; }
+    }
+    if (key == 4 && down && held(55) && !held(key) && enter_arranger_menu()) {
+        // Neither half enters stock held bookkeeping; Shift retains its own
+        // original press/release ownership. Repeats are consumed by this gate.
+        raw_edit_gate.consume(key, true, true, false, false);
+        return;
     }
     if (key == 4 && down && view_active() && !piano_view && !held(key)) {
         pending_arrange = event; arrange_owned = true; menu_gesture.press(ui_now()); return;
@@ -1317,7 +1453,17 @@ void sdk_arranger_encoder(void* controller, u32 encoder, const void* raw) {
                 if (!sdk_arranger_request_seek(selected->start)) { history.cancel(); announce("SEEK UNAVAILABLE"); return; }
                 cursor = selected->start; model.seek(cursor); resizing_slot = selected_slot;
             }
-            const u32 length = platform::arranger_resize_length(selected->length, bounded, step);
+            const u8* source = platform::arranger_pattern_source(reinterpret_cast<const u8*>(platform::word(0x840a0524)),
+                selected->track, selected->pattern, false);
+            if (!source || !source[0] || source[8] >= 16) { history.cancel(); announce("SOURCE UNAVAILABLE"); return; }
+            const u32 source_step = platform::arranger_step_ticks(source[8]);
+            const u32 maximum = platform::arranger_clip_limit(model, static_cast<u32>(selected_slot), source[8],
+                source[0] > 64 ? 64 : source[0]);
+            const u32 minimum = source_step < maximum ? source_step : maximum;
+            const u32 increment = (fine_grid || encoder >= 4) ? 1 : source_step;
+            u32 length = platform::arranger_shift_time(selected->length, bounded, increment);
+            if (length < minimum) length = minimum;
+            if (length > maximum) length = maximum;
             if (commit_edit(model.resize(static_cast<u32>(selected_slot), length), "LENGTH UPDATED"))
                 select_clip(false);
         }
@@ -1333,8 +1479,14 @@ void sdk_arranger_encoder_dispatch(u32 encoder, const void* event) {
         if (!delta) return;
         if (menu_tool) { if (encoder % 4 == 3) menu_tool_turn(delta, encoder >= 4 || platform::shift_held()); }
         else if (encoder % 4 == 0) {
+            const u32 previous = menu_index;
             if (delta > 0 && menu_index + 1 < menu_count) ++menu_index;
             if (delta < 0 && menu_index) --menu_index;
+            if (menu_index != previous) menu_parameter_reset();
+        } else if (encoder % 4 == 3 && (menu_index == 10 || menu_index == 11 || menu_index == 21 || menu_index == 22)) {
+            menu_tool = menu_index + 1;
+            menu_tool_turn(delta, encoder >= 4 || platform::shift_held());
+            menu_tool = 0;
         } else if (encoder % 4 >= 2 && (stop_gesture.pending || platform::shift_held())) {
             menu_open = false; stock_arranger_encoder_dispatch(encoder, event);
         }
@@ -1389,6 +1541,7 @@ void sdk_arranger_poll() {
     stock_arranger_poll();
     if (pending_add.pending) { process_pending_add(); return; }
     sdk_arranger_project_poll();
+    reconcile_source_timing();
     sync_selected_lane();
     sdk_arranger_publish_poll();
     sdk_arranger_bounce_poll();
@@ -1408,6 +1561,7 @@ void sdk_arranger_poll() {
 }
 
 void sdk_arranger_project_restored(bool enabled, u32 track) {
+    timing_project = 0;
     pending_add_uncommitted = false; // Lifecycle already replaced the model; never restore old scratch.
     pending_add.cancel();
     bounce_choice.open = bounce_choice.confirmed = false;

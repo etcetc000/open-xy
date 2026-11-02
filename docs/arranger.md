@@ -1,6 +1,6 @@
 # Linear Arranger — User Guide
 
-**MVP-010 · OP-XY OS 1.2.1 · Experimental firmware**
+**MVP-025 · OP-XY OS 1.2.1 · Experimental firmware**
 
 Build an arrangement across eight tracks, placing clips anywhere on the timeline.
 This guide starts with the everyday workflow, then covers independent clip
@@ -13,7 +13,9 @@ versions, detailed editing, piano roll, bounce and project backups.
 Open **Project Settings → General → arranger mode** and choose **Linear**.
 Press **Arrange** to open the timeline. This choice is saved with the project.
 Switching back to Song retains the arrangement. Leaving the timeline does not
-turn off Linear playback.
+turn off Linear playback. Native patterns remain on their tracks in Song mode,
+including their notes and instrument settings; switching modes does not generate
+Song scenes from the timeline. Switching back to Linear restores its placement.
 
 ### Understand the screen
 
@@ -41,7 +43,12 @@ sources within each track.
 
 **Two clips marked A on the same track share their notes.** Editing either A
 changes both. Their timeline positions, lengths and offsets remain independent.
-Extending a clip repeats its source pattern.
+A new source contains 64 steps; its initial timeline clip exposes 16 steps.
+E4 can reveal more of the source, up to its native length (four bars at normal
+16th-note timing), and shorten it to one native step. Changing the source timing
+in the stock editor scales its timeline instances automatically, stopping at the
+next clip on the same track. Slower timing can therefore span more than four bars.
+A change to the source's internal step count also limits the visible duration.
 
 To change only one instance, select it and press **Shift + 2 — Make Unique**
 before editing its notes. Source letters are local to each track: A on track 1
@@ -60,7 +67,7 @@ menu. Release Arrange: the menu stays open. Turn **E1** to browse, click **E4**
 to choose, or press **Arrange** to close it. This gesture is available from the
 timeline, not from piano roll or the stock note editor.
 
-The menu has 21 actions and displays the existing shortcut beside each action
+The menu has 23 actions and displays the existing shortcut beside each action
 that has one:
 
 - Split, Make Unique, Undo and Redo: **Shift + 1–4**.
@@ -68,23 +75,43 @@ that has one:
 - Trim left, trim right at cursor, Slip contents and Move to track.
 - Edit notes, Piano roll, Bounce to Sampler and Bounce to Drum Sampler.
 - Add clip, Paste, Duplicate, Cut and Delete.
+- Add existing clip and Import Song at cursor.
 
 Unavailable actions are dimmed and show the reason. Existing Shift/Stop button shortcuts
 remain usable: they close the menu and perform their usual action.
 
-Choosing **Trim left**, **Slip contents** or **Move to track** opens a preview.
-Turn **E4** to adjust, click **E4** to apply, or press **Arrange** or **Stop** to
-cancel. Click **E1** to toggle GRID/FINE. Preview adjustments do not change the
-arrangement until applied. The direct encoder shortcuts still edit immediately.
+A click on **E4** executes the highlighted action immediately. For **Slip
+contents**, **Move to track**, **Add existing clip** and **Import Song**, turn
+**E4** to choose the value inside the menu before clicking. **Trim left** trims
+to the cursor; the cursor must be inside the clip. There is no second confirmation
+on the timeline. Press **Arrange** to close the menu without applying a choice.
+The direct encoder shortcuts still edit immediately.
 
-The two bounce entries open the regular bounce controls with the selected
-sampler type; destination selection and replacement confirmation still follow.
+**Shift + Arrange** also opens this menu in a Linear project; it does not enter
+Song mode. Use the project setting to switch modes deliberately.
+
+**Add existing clip:** choose a source A–P on the selected track with E4, then
+click E4 once to place another instance at the cursor. It shares the source's notes
+and instrument; it does not allocate another pattern.
+
+**Import Song at cursor:** choose a Song with E4 and click to insert its eight
+instrument lanes. Existing clips are retained; a collision, unsupported scene
+state or insufficient capacity rejects the entire import. Repeated scenes retain
+their duration. AUX/send automation is not copied. The native Song is unchanged.
+Stop playback and recording before importing or adding an existing source.
+Import requires all eight instrument tracks unmuted in the current native scene;
+it rejects source timings 1/9 and 1/32, which the current phase model cannot
+represent exactly.
+
+The two bounce entries start bounce immediately with the selected sampler type
+when the destination below is free. To replace an occupied destination, use the
+regular **Shift + Sample** bounce controls and their replacement confirmation.
 
 ## 2. Make your first phrase
 
 1. Choose a track with **1–8** and move the cursor with **E1**.
-2. With transport stopped and recording disarmed, press **+** to create an empty clip. Its new source has 16 steps at 1× speed.
-3. Turn **E4** to set the clip length; the minimum is one grid step, or one tick in fine mode.
+2. With transport stopped and recording disarmed, press **+** to create an empty clip. Its new source has 64 steps at 1× speed; the visible clip starts at 16 steps (one bar).
+3. Turn **E4** to set the clip length; the minimum is one native step; the maximum follows the source length and timing, capped at the next clip.
 4. Click **E4** to open the stock keyboard/step editor and enter notes.
 5. Release held editing keys, then press **Arrange** to return to the timeline.
 6. Press **Play** to hear the arrangement from the edit cursor.

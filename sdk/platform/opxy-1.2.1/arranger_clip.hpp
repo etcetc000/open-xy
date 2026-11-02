@@ -2,6 +2,7 @@
 #include <opxy/arranger.hpp>
 #include "arranger_resolver.hpp"
 #include "arranger_phase.hpp"
+#include "arranger_timing.hpp"
 #include "barrier.hpp"
 
 namespace opxy { namespace platform {
@@ -17,17 +18,35 @@ inline i32 arranger_add_empty_clip(arranger::Model& model, u8* project, u32 trac
     u32* count = reinterpret_cast<u32*>(pool + 0x53f40);
     if (*count >= 16) return -1;
     const arranger::Clip value = {static_cast<u8>(track), static_cast<u8>(*count), cursor,
-                                  16 * 480, 0, 16 * 480};
+                                  16 * 480, 0, 64 * 480};
     const i32 slot = model.insert(value);
     if (slot < 0) return -1;
     u8* destination = pool + *count * 0x53f4;
     // Stock copies this inline pattern representation; reset only its sequencing data.
     for (u32 i = 0; i < 0x53f4; ++i) destination[i] = source[i];
     initialize(destination);
+    destination[0] = 64;
+    destination[8] = 3; // New clips start with normal native timing.
     barrier();
     ++*count;
     barrier();
     return slot;
+}
+
+// Add an instance of an existing source without changing notes or native timing.
+inline i32 arranger_add_source_clip(arranger::Model& model, const u8* project, u32 track,
+                                   u32 cursor, u32 pattern) {
+    const u8* source = arranger_pattern_source(project, track, pattern, false);
+    if (!source || !source[0] || source[0] > 64 || source[8] >= 16) return -1;
+    const u32 steps = source[0] < 16 ? source[0] : 16;
+    u32 length = steps * arranger_step_ticks(source[8]);
+    if (length > arranger::Model::max_time - cursor) length = arranger::Model::max_time - cursor;
+    for (u32 slot = 0; slot < arranger::Model::capacity; ++slot) {
+        const arranger::Clip* other = model.clip(slot);
+        if (other && other->track == track && other->start > cursor && other->start - cursor < length)
+            length = other->start - cursor;
+    }
+    return model.insert({static_cast<u8>(track), static_cast<u8>(pattern), cursor, length, 0, u32(source[0]) * 480});
 }
 
 inline bool arranger_clip_track_locked(const u8* project, u32 source, u32 destination) {

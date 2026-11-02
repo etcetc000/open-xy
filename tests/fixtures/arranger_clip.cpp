@@ -10,7 +10,28 @@ static void require(bool ok, const char* message) { if (!ok) { std::puts(message
 alignas(4) static u8 project[0xd7c + 8 * 0x53f44];
 static u8* pool(u32 track) { return project + 0xd7c + track * 0x53f44; }
 static u32& count(u32 track) { return *reinterpret_cast<u32*>(pool(track) + 0x53f40); }
+static void initialize_empty(u8* source) { source[0] = 16; source[8] = 7; source[0x457c] = 0; }
 int main() {
+    count(0) = 1; pool(0)[0] = 12; pool(0)[8] = 1; pool(0)[100] = 79;
+    arranger::Model empty;
+    const i32 added = arranger_add_empty_clip(empty, project, 0, 0, 0, initialize_empty);
+    require(added == 0 && count(0) == 2, "new source append");
+    require(empty.clip(0)->length == 16*480 && empty.clip(0)->source_length == 64*480, "new visible bar and 64 step source");
+    require(pool(0)[0x53f4] == 64 && pool(0)[0x53f4+8] == 3 && pool(0)[0x53f4+100] == 79, "native new source length rate and instrument");
+    require(pool(0)[0] == 12 && pool(0)[8] == 1, "new source preserves original timing");
+    require(arranger_add_empty_clip(empty, project, 0, 0, 0, initialize_empty) < 0 && count(0) == 2, "failed insertion does not append");
+    arranger::Model source_instances;
+    pool(0)[0] = 8; pool(0)[8] = 5;
+    require(arranger_add_source_clip(source_instances, project, 0, 100, 0) == 0 &&
+        source_instances.clip(0)->length == 8*960 && source_instances.clip(0)->source_length == 8*480,
+        "existing source insertion respects shorter source and slower rate");
+    require(pool(0)[0] == 8 && pool(0)[8] == 5 && count(0) == 2, "existing insertion does not change native source");
+    require(source_instances.insert({0,0,9000,100,0,8*480}) == 1, "existing source collision setup");
+    require(arranger_add_source_clip(source_instances, project, 0, 8000, 0) == 2 &&
+        source_instances.clip(2)->length == 1000, "existing source caps at next clip");
+    require(arranger_add_source_clip(source_instances, project, 0, 8100, 0) < 0, "existing source rejects inside occupied interval");
+    pool(0)[0] = 65;
+    require(arranger_add_source_clip(source_instances, project, 0, 10000, 0) < 0, "invalid native source length rejected");
     arranger::Model model;
     count(0) = 1;
     for (u32 i = 0; i < 0x53f4; ++i) pool(0)[i] = static_cast<u8>(i * 13 + 7);
