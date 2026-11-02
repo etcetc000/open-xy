@@ -35,8 +35,7 @@ bool ready() {
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
-            (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count)) ||
-            (entry.claims && !entry.hooks->queued_control && !entry.hooks->layer)) return false;
+            (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count))) return false;
         // A layer claim reaches its owner's layer hook, any other its queued control.
         for (u32 c = 0; c < known.claim_count; ++c) {
             if (!(entry.claims & (1u << c))) continue;
@@ -114,15 +113,16 @@ void notify(const char* text) {
     extension_notify(notification);
 }
 // One snapshot write (take, load or clear) per callback.
-bool snapshot_write() {
-    if (!(transaction.granted & action_snapshot) || transaction.snapped) return false;
-    transaction.snapped = true;
-    return true;
-}
-bool take_snapshot(u32 slot) { return slot < snapshots::slots && snapshot_write() && sdk_snapshot_take(slot); }
-bool load_snapshot(u32 slot) { return slot < snapshots::slots && snapshot_write() && sdk_snapshot_load(slot); }
+// A refused one (an empty slot to load, nothing to clear) does not count.
+bool may_write() { return (transaction.granted & action_snapshot) && !transaction.snapped; }
+bool wrote(bool done) { transaction.snapped = transaction.snapped || done; return done; }
+bool take_snapshot(u32 slot) { return slot < snapshots::slots && may_write() && wrote(sdk_snapshot_take(slot)); }
+bool load_snapshot(u32 slot) { return slot < snapshots::slots && may_write() && wrote(sdk_snapshot_load(slot)); }
 u32 clear_snapshots(u32 mask) {
-    return mask && !(mask >> snapshots::slots) && snapshot_write() ? sdk_snapshot_clear(mask) : 0;
+    if (!mask || (mask >> snapshots::slots) || !may_write()) return 0;
+    const u32 cleared = sdk_snapshot_clear(mask);
+    wrote(cleared != 0);
+    return cleared;
 }
 u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, false);

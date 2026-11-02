@@ -129,7 +129,7 @@ bool opxy::platform::snapshot_load(u32 slot) {
         if (!engine || s.engines[t] != engine) continue;
         const u32 block = stock<u32(u32)>(0x8d587708)(t);
         for (u32 p = 0; p < control::track_parameters; ++p)
-            if (base(t, p) != s.values[t][p]) {
+            if (static_cast<i32>(word(block + 0x3864 + p * 4)) != s.values[t][p]) {
                 // The stored value first: stock's setter stores it only on synth
                 // tracks. Then the setter an encoder edit ends in, which publishes.
                 *at<i32>(block + 0x3864 + p * 4) = s.values[t][p];
