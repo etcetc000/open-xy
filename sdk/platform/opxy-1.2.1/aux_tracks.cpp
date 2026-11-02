@@ -211,9 +211,14 @@ void take(u32 track, u32 choice) {
         for (u32 i = 0; i < kControls; ++i) param_set(track, i, m->defaults[i]);
         return;
     }
+    // Another pattern's, from one a machine still holds: stock may have pasted or
+    // cleared a role pattern over one whose controls are still kept.
     u32 from = p;
     if (!(kept->patterns & bit))
-        for (from = 0; from < kPatterns && !(kept->patterns & 1u << from); ++from) {}
+        for (from = 0; from < kPatterns; ++from)
+            if (kept->patterns & 1u << from && from < pattern_count(track) &&
+                machine_for(track, word(pattern_block(track, from) + 0x18)))
+                break;
     if (from < kPatterns)
         for (u32 i = 0; i < kControls; ++i) param_set(track, i, kept->values[from][i]);
     kept->patterns &= ~bit;
@@ -314,8 +319,12 @@ bool field(u32 length, const char* key, u32& at) {
         u32 k = 0;
         while (key[k] && i + 1 + k < length && text[i + 1 + k] == key[k]) ++k;
         if (key[k] || i + 1 + k >= length || text[i + 1 + k] != '"') continue;
+        // A key is followed by a colon; the same text as a string value is not.
         u32 j = i + 2 + k;
-        while (j < length && (text[j] == ' ' || text[j] == ':' || text[j] == '\n' || text[j] == '\t' || text[j] == '\r')) ++j;
+        while (j < length && (text[j] == ' ' || text[j] == '\n' || text[j] == '\t' || text[j] == '\r')) ++j;
+        if (j >= length || text[j] != ':') continue;
+        ++j;
+        while (j < length && (text[j] == ' ' || text[j] == '\n' || text[j] == '\t' || text[j] == '\r')) ++j;
         if (j < length) { at = j; return true; }
     }
     return false;
@@ -571,7 +580,9 @@ const char* sdk_aux_lfo_label(u32 track, u32 slot) {
 extern "C" void sdk_lfo_aux_publish(u32 track, u32 slot, i32 wave, i32 depth) {
     stock<void(u32, u32, i32, i32)>(0x8d4d68b8)(track, slot, wave, depth);
     if (track != kCv) return;
-    const i32 amount = (depth >> 16) * (wave >> 16) * 2;
+    // Q15 x Q15, doubled: -1 x -1 would be 2^31, so it saturates.
+    const long long product = static_cast<long long>(depth >> 16) * (wave >> 16) * 2;
+    const i32 amount = product > 0x7fffffff ? 0x7fffffff : static_cast<i32>(product);
     stock<u32(u32, u32)>(0x8d4d666a)(25, (0xa0000000u | kCv << 24) | (slot & 0xff) << 16 | static_cast<u32>(amount) >> 16);
 }
 

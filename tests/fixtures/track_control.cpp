@@ -150,13 +150,17 @@ opxy::u32 aux_engine(opxy::u32 track) { return track < control::all_tracks ? aux
 void aux_tick() { ++aux_ticks; }
 const volatile unsigned short* stock_project_tempo() { return &tempo; }
 
+// Machine 42 keeps data with projects.
+opxy::u32 keep_save(opxy::u8*) { return 0; }
+void keep_load(const opxy::u8*, opxy::u32) {}
+
 extern "C" {
 const opxy::platform::ControlMachine sdk_control_machines[] = {
     // 40 and 41 may run on tracks 1-8 here, as no real machine does; 42 is an
     // aux machine as every real one is.
     {reinterpret_cast<const char*>(40), ready, reset, run, nullptr, 0, nullptr, nullptr, true, 0, nullptr, {}, true},
     {reinterpret_cast<const char*>(41), ready, reset_other, run_other, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}},
-    {reinterpret_cast<const char*>(42), ready, reset, run, nullptr, 0, nullptr, nullptr, true, 1u << 11, nullptr, {}},
+    {reinterpret_cast<const char*>(42), ready, reset, run, nullptr, 4, keep_save, keep_load, true, 1u << 11, nullptr, {}},
     {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}}};
 const opxy::u32 sdk_control_machine_count = 3;
 }
@@ -575,16 +579,22 @@ int main() {
     aux_engines[11] = 40;
     tick(0, "Nothing to write");
 
-    // A machine whose state a load set is reset then, not again when it arrives.
+    // A machine that keeps data with projects is reset before its load, never on
+    // arrival: leaving the track and coming back keeps its state. Others reset on arrival.
+    aux_engines[11] = 0;
     tick(0, "Nothing to write");
     sdk_control_forget();
     const u32 load_resets = resets;
-    opxy::platform::control_loaded(sdk_control_machines[0]);
+    opxy::platform::control_loaded(sdk_control_machines[2]);
     require(resets == load_resets + 1, "Loaded machine not reset before its load");
+    aux_engines[11] = 42;
     tick(0, "Nothing to write");
-    require(resets == load_resets + 1 && hosts[11], "Loaded machine reset on arrival, losing its state");
-    // Without a load, arriving resets as before.
-    sdk_control_forget();
+    aux_engines[11] = 0;
+    tick(0, "Nothing to write");
+    aux_engines[11] = 42;
+    tick(0, "Nothing to write");
+    require(resets == load_resets + 1 && hosts[11], "Machine keeping data reset on arrival, losing its state");
+    aux_engines[11] = 40;
     tick(0, "Nothing to write");
     require(resets == load_resets + 2, "Arriving machine not reset");
 
