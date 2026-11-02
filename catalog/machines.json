@@ -739,6 +739,12 @@
         "runs": 3,
         "block_percent": 3.758297
       }
+    },
+    {
+      "id": "westfold",
+      "kind": "synth",
+      "maintainer": "kristapskristaps",
+      "status": "reserved"
     }
   ]
 }
