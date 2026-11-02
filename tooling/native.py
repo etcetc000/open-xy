@@ -232,7 +232,7 @@ def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, and
     'extension' when it links extensions (native builds link all of the collection's)."""
     return [m.kind for m in machines] + (['extension'] if extensions_of(machines) else []) + (
-        ['master_filter'] if any(e.master_filter is not None for e in extensions_of(machines)) else [])
+        ['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else [])
 
 
 def module_bytes(profile):
@@ -417,10 +417,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step.startswith('extension:'):
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
-                return cxx(str(extensions.generate_extension(folder, extension)), obj)
-            if step == 'master_filter_panel':
-                source,root=extensions.generate_master_panel(folder,extensions_of(machines))
-                return compile_cxx(gcc['cxx'],tools['as'],str(source),obj,[*includes(),root])
+                return compile_cxx(gcc['cxx'], tools['as'], str(extensions.generate_extension(folder, extension)),
+                                   obj, includes() + [str(extension.root)])
             if step == 'master_filter_collection':
                 return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
             if step == 'extension_runtime':
@@ -845,8 +843,8 @@ def prepare_assets(catalog, profile, machines):
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
     for e in extensions_of(machines):
-        if e.master_filter is not None:
-            path = e.root / e.master_filter['artwork']
+        if e.master_processor is not None:
+            path = e.root / e.master_processor['artwork']
             name = 'content/display/' + path.name
             require(name not in outputs, 'Display asset collision: ' + name)
             outputs[name] = extensions.validate_master_artwork(path)

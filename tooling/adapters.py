@@ -137,14 +137,14 @@ def screen_bytes(m):
     return 76 + 4 * words
 
 
-def generate_display(directory, *, machine=None, definition=None, kind="synth", namespace=None):
+def generate_display(directory, *, machine=None, definition=None, kind="synth", namespace=None, symbol_prefix=None, binding_namespace="binding"):
     """Same authored display callback for host, WebAssembly and native wrappers."""
     if definition is None:
         definition, assignment = machine.definition, stock_identity(machine)
     else:
         validate_definition(definition, kind)
         assignment = {'symbol_prefix': 'local_preview'}
-    namespace, prefix = namespace or definition['id'], assignment['symbol_prefix']
+    namespace, prefix = namespace or definition['id'], symbol_prefix or assignment['symbol_prefix']
     display = definition['resources']['display']
     layout = drawing_layout(display)
     frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**layout)
@@ -205,6 +205,8 @@ extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
 }}
 '''
     directory = Path(directory)
+    header = header.replace('namespace binding', 'namespace '+binding_namespace).replace('opxy::binding', 'opxy::'+binding_namespace)
+    source = source.replace('opxy::binding', 'opxy::'+binding_namespace)
     (directory / 'display_binding.hpp').write_text(header, encoding='utf-8', newline='\n')
     (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
 

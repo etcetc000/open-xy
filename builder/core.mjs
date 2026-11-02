@@ -330,13 +330,14 @@ export const chosenByDefault = m => m.origin !== 'catalog';
 export const sourceUrl = source => source.repository + '/tree/' + source.commit;
 export const sourceName = source => source.repository.slice('https://github.com/'.length);
 
+function processorOf(e) { return e.master_processor ?? e.master_filter; }
+
 // Validate choices and retain the SDK's declared callback order.
 export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e => e.id)) {
   const entries = kit.extensions ?? [];
   check(Array.isArray(selection) && new Set(selection).size === selection.length &&
     selection.every(id => entries.some(e => e.id === id)), 'Choose each available extension once.');
   const selected = entries.filter(e => selection.includes(e.id));
-  check(selected.filter(e => e.master_filter).length <= 1, 'Choose only one master filter.');
   const shared = sharedClaim(selected);
   check(!shared, shared && `These extensions both use ${claimLabel(selected, shared)}. Choose only one.`);
   return selected.map(e => e.id); // Collection order, never checkbox order.
@@ -388,7 +389,7 @@ export async function openKit(kit) {
   check(Array.isArray(extensions) && extensions.length <= 16, 'Invalid extension collection');
   check(!kit.objects.some(o => o.name === 'sdk/extension_collection.o') || Array.isArray(kit.extensions),
     'This kit predates extension selection. Export a new kit to choose extensions.');
-  const extensionIds = new Set();
+  const extensionIds = new Set(), processorIds = new Set(), processorAssets = new Set();
   for (const e of extensions) {
     check(e && /^[a-z][a-z0-9_]{0,31}$/.test(e.id) && !extensionIds.has(e.id) &&
       Object.entries({name: 32, description: 140, note: 100}).every(([key, limit]) => key === 'note' && e[key] === undefined ||
@@ -400,9 +401,14 @@ export async function openKit(kit) {
       ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
         new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))),
       'Invalid extension metadata');
-    if(e.master_filter) {
-      const f=e.master_filter;
-      check(Object.keys(f).sort().join() === 'artwork,asset,sha256' &&
+    if(processorOf(e)) {
+      check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
+      const f=processorOf(e), stateId=f.state_id ?? e.id;
+      check(typeof stateId==='string' && /^[a-z][a-z0-9_]{0,31}$/.test(stateId) && stateId!=='eq' && !processorIds.has(stateId),
+        'Invalid or duplicate master processor identity');
+      check(!processorAssets.has(f.asset), 'Duplicate master processor asset');
+      processorIds.add(stateId);processorAssets.add(f.asset);
+      check(['artwork,asset,sha256','artwork,asset,sha256,state_id'].includes(Object.keys(f).sort().join()) &&
         /^[a-z][a-z0-9_]*\.svg$/.test(f.asset) && typeof f.artwork === 'string', 'Invalid master filter asset');
       const data=decode64(f.artwork);
       check(data.length>0 && data.length<=65536 && await sha256(data)===f.sha256, 'Master filter artwork differs');
@@ -434,9 +440,10 @@ export async function openKit(kit) {
     const owned = objects.filter(o => o.extension === id);
     check(owned.length === 1 && owned[0].symbols.some(s => s.section && s.binding === 1 &&
       s.name === 'sdk_extension_' + id + '_hooks'), 'Missing extension accessor: ' + id);
-    if(extensions.find(e => e.id===id).master_filter)
-      check(owned[0].symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+id+'_filter'),
-        'Missing master filter accessor: '+id);
+    if(processorOf(extensions.find(e => e.id===id))) {
+      const has = suffix => owned[0].symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+id+'_'+suffix);
+      check((has('processor') && has('panel')) || has('filter'), 'Missing master processor accessors: '+id);
+    }
   }
   return {...kit, objects};
 }
@@ -493,7 +500,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(extensions.size ? [{kind: 'extension'}] : []),
-    ...(kit.extensions?.some(e => extensions.has(e.id) && e.master_filter) ? [{kind: 'master_filter'}] : [])]);
+    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : [])]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
@@ -536,7 +543,8 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   // those resolve to the declared fallbacks. Machine objects never do.
   const aliases = new Map();
   for (const e of kit.extensions ?? []) if (!extensions.has(e.id)) {
-    for(const suffix of ['hooks', ...(e.master_filter ? ['filter'] : [])]) {
+    for(const suffix of ['hooks', ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
+      kit.objects.some(o => o.extension===e.id && o.symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+e.id+'_'+suffix))) : [])]) {
       const symbol = 'sdk_extension_' + e.id + '_' + suffix;
       check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
       aliases.set(symbol, globals.get('kit_absent'));
@@ -865,7 +873,7 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
   check(JSON.stringify(JSON.parse(text)) === JSON.stringify(expected), 'Unexpected catalog modification');
   const files = {'content/op1_factory.json': extended};
   for(const id of extensionSelection(kit,extensionIds)) {
-    const filter=kit.extensions.find(e => e.id===id).master_filter;
+    const filter=processorOf(kit.extensions.find(e => e.id===id));
     if(!filter)continue;
     const data=decode64(filter.artwork);
     check(data.length<=65536 && await sha256(data)===filter.sha256, 'Master filter artwork differs');

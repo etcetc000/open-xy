@@ -8,13 +8,28 @@
 #include "stock_browser.hpp"
 using namespace opxy;
 using namespace opxy::platform;
+// Match production asm labels before any host definition or call (Clang/GCC).
+extern "C" {
+u32 sdk_master_buttons(void *, const u32 *) __asm__("sdk_master_buttons");
+u32 sdk_master_shift_buttons(void *, const u32 *) __asm__("sdk_master_shift_buttons");
+void sdk_master_turn(void *, u32, const i32 *) __asm__("sdk_master_turn");
+void sdk_master_frame(void *, i32) __asm__("sdk_master_frame");
+void sdk_master_receive(u32, u32, i32) __asm__("sdk_master_receive");
+void sdk_master_process(void *, i32 *, i32 *) __asm__("sdk_master_process");
+u32 sdk_master_project() __asm__("sdk_master_project");
+void sdk_project_stock_new() __asm__("sdk_project_stock_new");
+u32 sdk_master_stock_buttons(void *, const u32 *) __asm__("sdk_master_stock_buttons");
+u32 sdk_master_stock_shift_buttons(void *, const u32 *) __asm__("sdk_master_stock_shift_buttons");
+void sdk_master_stock_turn(void *, u32, const i32 *) __asm__("sdk_master_stock_turn");
+void sdk_master_stock_frame(void *, i32) __asm__("sdk_master_stock_frame");
+}
 static void require(bool ok, const char *why) {
     if (!ok) {
         std::fprintf(stderr, "%s\n", why);
         std::exit(1);
     }
 }
-namespace opxy { namespace platform { namespace master_filter {
+namespace opxy { namespace platform { namespace master_processor {
 // Only host diagnostics use the old sweep packet, never production transport.
 const u32 initial_packet=512;
 struct Controls {u32 sweep,type;static Controls unpack(u32 n){return {n&1023,(n>>30)&1};}};
@@ -51,15 +66,15 @@ static void show_browser(void *object, browser_abi::Catalog *data, i32 selected,
                          browser_abi::Delegate *delegate, u32 mode) {
     require(object == browser_storage && mode == 0 && data->filesystem == 0,
             "Stock non-filesystem browser API");
-    require(data->rows.end - data->rows.begin == 2 && data->rows.capacity == data->rows.end,
-            "Exactly two rows");
-    for (u32 i = 0; i < 2; ++i) {
+    require(data->rows.end - data->rows.begin == 3 && data->rows.capacity == data->rows.end,
+            "Registered processors plus EQ");
+    for (u32 i = 0; i < 3; ++i) {
         const browser_abi::Row &row = data->rows.begin[i];
         require(row.id == static_cast<i32>(i) && row.flags == 0 && row.name.allocator == 0 &&
                     row.name.capacity == 15,
                 "Stock inline row ABI");
         require(row.name.length == std::strlen(row.name.text) &&
-                    std::strcmp(row.name.text, i ? "probe filter" : "original eq") == 0,
+                    std::strcmp(row.name.text, i==2 ? "probe second" : i ? "probe filter" : "original eq") == 0,
                 "Stock labels");
         require(!row.items.begin && !row.items.end && !row.items.capacity && !row.children.begin &&
                     !row.children.end && !row.children.capacity && !row.parent,
@@ -111,7 +126,6 @@ void sdk_master_stock_frame(void *, i32) {
 static u32 shift() {
     return shifted;
 }
-extern "C" void sdk_master_receive(u32,u32,i32);
 static void send(u32 id, i32 value) {
     sdk_master_receive(123,id,value);
     if(id==opxy::platform::master_filter::commit_id){sent_id=opxy::platform::master_filter::message_id;sent_packet=opxy::platform::master_filter::legacy_packet();}
@@ -197,41 +211,43 @@ Address host_stock_address(Address a) {
     }
 }
 }} // namespace opxy::platform
-namespace opxy { namespace platform { namespace master_filter {
-static u32 frames, resets, follows, projects;
+namespace opxy { namespace platform { namespace master_processor {
+static u32 frames, resets, projects;
 void frame(i32) {
     ++frames;
 }
 void parameter_reset(u32) {
     ++resets;
 }
-void reset_visual() {
-    ++resets;
-}
-void follow_visual(u32) {
-    ++follows;
-}
 void reset_project() {
     ++projects;
 }
 }}} // namespace opxy::platform::master_filter
-namespace opxy { namespace platform { namespace master_filter {
-void reset_audio() {
+namespace opxy { namespace platform { namespace master_processor {
+u32 audio_resets[2],audio_prepares[2],audio_processes[2];
+i32 retained[2],prepared_values[2][parameter_slots];
+bool tail_mode;
+void reset_audio(){++audio_resets[0];retained[0]=0;}
+void reset_second(){++audio_resets[1];retained[1]=0;}
+void prepare_audio(Parameters p){++audio_prepares[0];for(u32 i=0;i<parameter_slots;++i)prepared_values[0][i]=p[i];}
+void prepare_second(Parameters p){++audio_prepares[1];for(u32 i=0;i<parameter_slots;++i)prepared_values[1][i]=p[i];}
+void process_probe(u32 which,i32* left,i32* right) {
+    ++audio_processes[which];const i32 input=left[0];
+    if(tail_mode)for(u32 i=0;i<block_frames;++i)left[i]=right[i]=retained[which];
+    retained[which]=input;
 }
-void prepare_audio(Parameters) {
-}
-void process_audio(i32 *, i32 *) {
-}
-const master::Filter probe_filter = {"probe filter", reset_audio, prepare_audio, process_audio};
-const master::Filter *descriptor() {
-    return &probe_filter;
-}
+void process_audio(i32* left,i32* right){process_probe(0,left,right);}
+void process_second(i32* left,i32* right){process_probe(1,left,right);}
+const master::Processor probe_processor={"probe filter",reset_audio,prepare_audio,process_audio};
+const master::Processor second_processor={"probe second",reset_second,prepare_second,process_second};
 u32 parameter_count=1;
-const Parameter* parameters(u32& count) {
-    static const Parameter p[]={{"sweep","filter",0x40000000,0,0},{"gain","gain",100,1,0},{"mix","mix",200,2,0},{"mode","mode",0,3,3},{"alternate","alt",300,0,0}};count=parameter_count;return p;
-}
-const char *owner() {
-    return "probe";
+u32 processor_count(){return 2;}
+Registration registration(u32 type){
+    static const Parameter p[]={{"sweep","filter",0x40000000,0,0},{"gain","gain",100,1,0},{"mix","mix",200,2,0},{"mode","mode",0,3,3},{"alternate","alt",300,0,0}};
+    static const Parameter second[]={{"depth","depth",1234,0,0},{"speed","speed",4321,1,0}};
+    if(type==1)return {"probe",&probe_processor,p,parameter_count,nullptr};
+    if(type==2)return {"second",&second_processor,second,2,nullptr};
+    return {};
 }
 }}} // namespace opxy::platform::master_filter
 extern "C" void sdk_project_stock_new() {
@@ -260,7 +276,7 @@ int main() {
     require(press(controller, key) == 1, "Shift M2 reaches shifted method and opens selector on EQ");
     shifted = false; // Shift release goes to stock browser, not MIX.
     sdk_master_frame(nullptr, 16);
-    require(active_browser && browser_opens == 1 && browser_selected == 0 && constructors == 0 && draws == 0,
+    require(active_browser && browser_opens == 1 && browser_selected == 0 && constructors == 0 && draws == 0 && strokes == 0,
             "Stock selector owns rendering; custom selector text is absent");
     browser_highlight_id(0, 1); // Stock left encoder selection is unchanged.
     browser_highlight_id(0, 99);
@@ -391,14 +407,62 @@ int main() {
     require(menu.values[3]>enum_before && menu.values[3]<0x40000000,"Enum advances one detent");
     menu.values[1]=999;menu.click(1);require(menu.values[1]==100,"Reset uses declared default");
     const State previous=audio_state;
-    sdk_master_receive(123,message_id,(21<<5)|(5<<1)|1);
+    sdk_master_receive(123,message_id,(21<<10)|(5<<5)|1);
     sdk_master_receive(123,message_id+1,1000);
     sdk_master_receive(123,commit_id,21);
     require(audio_state.values[0]==previous.values[0],"Incomplete snapshot never reaches audio");
-    sdk_master_receive(123,message_id,(22<<5)|(5<<1)|1);
+    sdk_master_receive(123,message_id,(22<<10)|(5<<5)|1);
     for(u32 i=0;i<5;++i)sdk_master_receive(123,message_id+1+i,1234567+i);
     require(audio_state.values[0]==previous.values[0],"Complete staged snapshot waits for commit");
     sdk_master_receive(123,commit_id,22);
     for(u32 i=0;i<5;++i)require(audio_state.values[i]==static_cast<i32>(1234567+i),"All slots published together");
+
+    // Registry, independent parameter banks and audio-safe lifecycle.
+    auto choose=[&](u32 type) {
+        shifted=true;key[0]=7;controller[34]=1;press(controller,key);shifted=false;
+        browser_highlight_id(0,static_cast<i32>(type));browser_click_encoder(0);
+        require(menu.type==type,"Chooser selects any registered processor");
+    };
+    auto blocks=[&](u32 count,i32 input) {
+        for(u32 b=0;b<count;++b) {
+            const u32 a=audio_processes[0],c=audio_processes[1];
+            for(u32 i=0;i<block_frames;++i){l[i]=input;r[i]=input;}
+            sdk_master_process(nullptr,l,r);
+            require(!(audio_processes[0]!=a && audio_processes[1]!=c),"One processor per audio block; no chaining");
+        }
+    };
+    choose(0);blocks(40,0);
+    require(!retained[0] && !retained[1],"Deactivated processors discard retained audio");
+    tail_mode=true; // Dummy delay: one block of retained audio.
+    const u32 reset_a=audio_resets[0];
+    choose(1);require(audio_resets[0]==reset_a,"GUI switch never calls audio reset");
+    blocks(40,12345);
+    require(audio_resets[0]==reset_a+1 && retained[0]==12345,"First activation starts from fresh DSP state");
+    menu.values[0]=7654321;publish();blocks(2,12345);
+    require(audio_resets[0]==reset_a+1,"Parameter changes preserve DSP state");
+    choose(2);require(menu.values[0]==1234 && menu.values[1]==4321,"Second processor has independent defaults");
+    const u32 a_before=audio_processes[0],b_before=audio_processes[1];
+    blocks(40,6789);
+    require(audio_processes[0]>a_before && audio_processes[1]>b_before && !retained[0],"Switch fades old processor then discards its tail");
+    menu.values[0]=24680;publish();blocks(1,6789);
+    choose(1);require(menu.values[0]==7654321,"Returning restores that processor's control bank");
+    blocks(40,0);require(!retained[1],"Second processor discards audio when inactive");
+    choose(2);require(menu.values[0]==24680,"Other bank is preserved independently");blocks(40,0);
+    // A project reset followed by a parameter update before the next block must
+    // retain the reset request, even when the selected processor has not changed.
+    blocks(1,1000000000);require(retained[1]!=0,"Delay has audio before project change");
+    State restored=defaults(2);restored.values[0]=9999;loaded_state(567,restored);
+    const u32 reset_b=audio_resets[1];sdk_master_project();
+    require(audio_resets[1]==reset_b,"Project publication never resets DSP in GUI/receiver");
+    menu.values[0]=8888;publish();blocks(40,0);
+    require(audio_resets[1]==reset_b+2 && prepared_values[1][0]==8888 && !retained[1],
+            "Project change discards old state and starts clean with the latest controls");
+    blocks(1,1000000000);
+    choose(0);blocks(40,0);
+    const u32 inactive_a=audio_processes[0],inactive_b=audio_processes[1];
+    blocks(10,0);
+    require(audio_processes[0]==inactive_a && audio_processes[1]==inactive_b,"EQ stops all extension processing after transition");
+    choose(2);blocks(1,0);
+    require(!retained[1] && l[63]==0,"Reselection cannot replay old audio");
 
 }

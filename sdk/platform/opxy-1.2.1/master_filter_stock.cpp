@@ -1,4 +1,4 @@
-#include "master_filter.hpp"
+#include "master_processor.hpp"
 #include "stock.hpp"
 #include "stock_browser.hpp"
 #include "synth_controls.hpp"
@@ -8,7 +8,7 @@
 
 using namespace opxy;
 using namespace opxy::platform;
-using namespace opxy::platform::master_filter;
+using namespace opxy::platform::master_processor;
 
 extern "C" {
 u32 sdk_master_buttons(void *, const u32 *) __asm__("sdk_master_buttons");
@@ -31,21 +31,23 @@ State audio_state = {}, staged = {};
 u32 staged_sequence, staged_mask, staged_count;
 bool staging;
 i32 selection;
-bool selected_target;
+u32 audio_epoch, active_epoch;
+State active_state = {};
+bool fading_out;
 u32 selection_remaining;
 i32 selection_step, selection_rest, selection_error, selection_sign;
-const master::Filter *audio_filter;
+const master::Processor *audio_processor;
 bool audio_ready;
 i32 eq_left[block_frames], eq_right[block_frames];
 
 u32 &page(void *controller) { return static_cast<u32 *>(controller)[0x88 / 4]; }
-void publish() {
+void publish(bool reset_audio = false) {
     static u32 sequence = 0;
-    sequence = (sequence + 1) & 0x1ffffffu;
+    sequence = (sequence + 1) & 0x1fffffu;
     u32 count = 0;
-    parameters(count);
+    parameters(count, menu.type);
     stock<void(u32, i32)>(0x8d4dc84c)(message_id,
-                                      static_cast<i32>((sequence << 5) | (count << 1) | menu.type));
+                                      static_cast<i32>((sequence << 10) | (count << 5) | (reset_audio ? 512u : 0u) | menu.type));
     for (u32 i = 0; i < count; ++i)
         stock<void(u32, i32)>(0x8d4dc84c)(message_id + 1 + i, menu.values[i]);
     stock<void(u32, i32)>(0x8d4dc84c)(commit_id, static_cast<i32>(sequence));
@@ -59,25 +61,28 @@ void publish_edit(u32 before) {
 } // namespace
 
 namespace {
-stock_browser::StockSelector<2> selector = {};
+stock_browser::StockSelector<max_processors + 1> selector = {};
 void selected(void *, u32 index) {
     if (menu.open) {
-        const u32 before = menu.signature();
+        const u32 before = menu.signature(), old_type = menu.type;
         menu.candidate = index;
         menu.confirm();
-        publish_edit(before);
+        master_processor::reset_project();
+        if(before != menu.signature())stock<void()>(0x8d585ee8)();
+        publish(old_type != menu.type);
     }
 }
 void cancelled(void *) { menu.cancel(); }
 void show_browser() {
     if (menu.open)
         return;
-    const auto *filter = descriptor();
-    if (!filter)
+    const u32 count = processor_count();
+    if (!count)
         return;
     menu.show();
-    const char *const labels[] = {"original eq", filter->label};
-    if (!selector.open("filter", labels, menu.type, {nullptr, selected, cancelled}))
+    const char* labels[max_processors + 1] = {"original eq"};
+    for(u32 i=1;i<=count;++i)labels[i]=registration(i).processor->label;
+    if (!selector.open("filter", labels, count+1, menu.type, {nullptr, selected, cancelled}))
         menu.cancel();
 }
 u32 buttons(void *controller, const u32 *event, bool shifted) {
@@ -98,7 +103,7 @@ u32 buttons(void *controller, const u32 *event, bool shifted) {
         u32 count = 0;
         parameters(count);
         if (slot < count && menu.shown[encoder] == slot)
-            master_filter::parameter_reset(slot);
+            master_processor::parameter_reset(slot);
         publish_edit(before);
         return 1;
     }
@@ -144,96 +149,82 @@ void sdk_master_frame(void *object, i32 elapsed) {
         sdk_master_stock_frame(object, elapsed);
         return;
     }
-    master_filter::frame(elapsed);
+    master_processor::frame(elapsed);
 }
 
 void sdk_master_receive(u32 base, u32 id, i32 value) {
-    if (id >= message_id && id <= commit_id) {
-        if (id == message_id) {
-            staging = value >= 0;
-            staged_mask = 0;
-            staged_count = (static_cast<u32>(value) >> 1) & 15;
-            u32 declared_count = 0;
-            parameters(declared_count);
-            if (staged_count < 1 || staged_count != declared_count)
-                staging = false;
-            staged_sequence = static_cast<u32>(value) >> 5;
-            staged = {};
-            staged.type = value & 1;
-        } else if (staging && id == commit_id) {
-            if (value >= 0 && static_cast<u32>(value) == staged_sequence &&
-                staged_mask == ((1u << staged_count) - 1))
-                audio_state = staged;
-            staging = false;
-        } else if (staging && id < commit_id) {
-            const u32 slot = id - message_id - 1;
-            if (value < 0 || slot >= staged_count) {
-                staging = false;
-                return;
+    // The receiver only publishes bounded state. DSP lifecycle runs at block boundaries.
+    static bool staged_reset;
+    if(id>=message_id && id<=commit_id) {
+        if(id==message_id) {
+            staging=value>=0;staged_mask=0;staged={};
+            const u32 word=static_cast<u32>(value);
+            staged.type=word&31u;staged_count=(word>>5)&15u;
+            staged_reset=(word&512u)!=0;staged_sequence=word>>10;
+            u32 count=0;parameters(count,staged.type);
+            if(staged.type>processor_count() || staged_count!=count || staged_count>parameter_slots)staging=false;
+        } else if(staging && id==commit_id) {
+            if(value>=0 && static_cast<u32>(value)==staged_sequence && staged_mask==((1u<<staged_count)-1)) {
+                if(staged_reset || staged.type!=audio_state.type)++audio_epoch;
+                audio_state=staged;
             }
-            staged.values[slot] = value;
-            staged_mask |= 1u << slot;
+            staging=false;
+        } else if(staging && id<commit_id) {
+            const u32 slot=id-message_id-1;
+            if(value<0 || slot>=staged_count){staging=false;return;}
+            staged.values[slot]=value;staged_mask|=1u<<slot;
         }
         return;
     }
-    stock<void(u32, u32, i32)>(0x8d50eb8c)(base, id, value);
+    stock<void(u32,u32,i32)>(0x8d50eb8c)(base,id,value);
 }
-void sdk_master_process(void *object, i32 *left, i32 *right) {
-    if (!audio_ready) {
-        audio_filter = descriptor();
-        if (audio_filter)
-            audio_filter->reset();
-        audio_ready = true;
+namespace {
+void ramp(i32 target) {
+    selection_remaining=ramp_frames;selection_error=0;
+    const i32 delta=target-selection;
+    selection_step=delta/static_cast<i32>(ramp_frames);
+    const i32 rest=delta%static_cast<i32>(ramp_frames);
+    selection_sign=rest<0 ? -1 : 1;selection_rest=rest<0 ? -rest : rest;
+}
+}
+void sdk_master_process(void* object,i32* left,i32* right) {
+    if(!audio_ready){audio_ready=true;active_epoch=audio_epoch;}
+    // On switch/project reset, fade the old processor to EQ before discarding it.
+    // Never run two processor extensions, including during a transition.
+    if(audio_processor && (active_state.type!=audio_state.type || active_epoch!=audio_epoch) && !fading_out) {
+        fading_out=true;ramp(0);
     }
-    const bool selected = audio_state.type && audio_filter;
-    if (selected != selected_target) {
-        selected_target = selected;
-        selection_remaining = ramp_frames;
-        selection_error = 0;
-        const i32 delta = (selected ? 32768 : 0) - selection;
-        selection_step = delta / static_cast<i32>(ramp_frames);
-        const i32 rest = delta % static_cast<i32>(ramp_frames);
-        selection_sign = rest < 0 ? -1 : 1;
-        selection_rest = rest < 0 ? -rest : rest;
-    }
-    if (!selected && !selection_remaining && !selection) {
-        stock<void(void *, i32 *, i32 *)>(0x11a02c10)(object, left, right);
-        return;
-    }
-    if (!audio_filter) {
-        stock<void(void *, i32 *, i32 *)>(0x11a02c10)(object, left, right);
-        return;
-    }
-    const bool run_stock = !selected || selection_remaining;
-    if (run_stock) {
-        for (u32 i = 0; i < block_frames; ++i) {
-            eq_left[i] = left[i];
-            eq_right[i] = right[i];
+    if(!audio_processor && audio_state.type) {
+        const auto entry=registration(audio_state.type);
+        audio_processor=entry.processor;
+        if(audio_processor) {
+            audio_processor->reset();active_state=audio_state;active_epoch=audio_epoch;
+            fading_out=false;ramp(32768);
         }
-        stock<void(void *, i32 *, i32 *)>(0x11a02c10)(object, eq_left, eq_right);
     }
-    audio_filter->prepare(audio_state.values);
-    audio_filter->process(left, right);
-    if (run_stock)
-        for (u32 i = 0; i < block_frames; ++i) {
-            if (selection_remaining) {
-                const i32 target = selected ? 32768 : 0;
-                selection += selection_step;
-                selection_error += selection_rest;
-                if (selection_error >= static_cast<i32>(ramp_frames)) {
-                    selection += selection_sign;
-                    selection_error -= ramp_frames;
-                }
-                if (!--selection_remaining)
-                    selection = target;
-            }
-            left[i] = static_cast<i32>(
-                (opxy::q31::wide(eq_left[i], 32768 - selection) + opxy::q31::wide(left[i], selection)) /
-                32768);
-            right[i] = static_cast<i32>(
-                (opxy::q31::wide(eq_right[i], 32768 - selection) + opxy::q31::wide(right[i], selection)) /
-                32768);
+    if(!audio_processor) {
+        stock<void(void*,i32*,i32*)>(0x11a02c10)(object,left,right);return;
+    }
+    if(!fading_out)active_state=audio_state;
+    const bool run_stock=fading_out || selection_remaining || selection<32768;
+    if(run_stock) {
+        for(u32 i=0;i<block_frames;++i){eq_left[i]=left[i];eq_right[i]=right[i];}
+        stock<void(void*,i32*,i32*)>(0x11a02c10)(object,eq_left,eq_right);
+    }
+    audio_processor->prepare(active_state.values);
+    audio_processor->process(left,right);
+    if(run_stock)for(u32 i=0;i<block_frames;++i) {
+        if(selection_remaining) {
+            selection+=selection_step;selection_error+=selection_rest;
+            if(selection_error>=static_cast<i32>(ramp_frames)){selection+=selection_sign;selection_error-=ramp_frames;}
+            if(!--selection_remaining)selection=fading_out ? 0 : 32768;
         }
+        left[i]=static_cast<i32>((opxy::q31::wide(eq_left[i],32768-selection)+opxy::q31::wide(left[i],selection))/32768);
+        right[i]=static_cast<i32>((opxy::q31::wide(eq_right[i],32768-selection)+opxy::q31::wide(right[i],selection))/32768);
+    }
+    if(fading_out && !selection_remaining) {
+        audio_processor->reset();audio_processor=nullptr;active_state={};fading_out=false;
+    }
 }
 u32 sdk_master_project() {
     // Called only by the full active-project parameter publication, after
@@ -244,8 +235,9 @@ u32 sdk_master_project() {
     menu.type = menu.candidate = restored.type;
     for (u32 i = 0; i < parameter_slots; ++i)
         menu.values[i] = restored.values[i];
-    master_filter::reset_project();
-    publish();
+    for(u32 i=0;i<parameter_slots;++i)menu.bank[restored.type ? restored.type : 1][i]=restored.values[i];
+    master_processor::reset_project();
+    publish(true);
     return project;
 }
 

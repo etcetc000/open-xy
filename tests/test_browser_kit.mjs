@@ -180,6 +180,27 @@ test('extensions omit code/state and resolve only shared registry imports to an 
   assert.throws(() => linkKit(k, ['a'], null, []), /Unresolved import/);
 });
 
+test('master processors are independently selectable and omitted accessors resolve safely', () => {
+  const k=fixture();k.definitions.kit_absent=k.profile.module_base;
+  k.extensions=['first','second'].map(id=>({id,claims:[],actions:[],master_processor:{state_id:id}}));
+  assert.deepEqual(extensionSelection(k,['second','first']),['first','second']);
+  const registry=k.objects[0];registry.owner=null;
+  for(const id of ['first','second']) {
+    const object={...readObject(elf()),name:id+'.o',owner:null,extension:id};
+    object.symbols[1].name='sdk_extension_'+id+'_hooks';
+    for(const suffix of ['processor','panel'])object.symbols.push({...object.symbols[1],name:'sdk_extension_'+id+'_'+suffix});
+    object.sections.push({index:5,name:'.bss',group:'bss',type:8,size:128,alignment:4});
+    k.objects.push(object);
+    for(const suffix of ['hooks','processor','panel'])registry.symbols.push({name:'sdk_extension_'+id+'_'+suffix,section:0,value:0,size:0,binding:1,type:0});
+  }
+  const both=linkKit(k,['a'],null,['second','first']),one=linkKit(k,['a'],null,['second']),none=linkKit(k,['a'],null,[]);
+  assert.equal(both.sizes.bss,256);assert.equal(one.sizes.bss,128);assert.equal(none.sizes.bss,0);
+  for(const suffix of ['hooks','processor','panel']) {
+    assert.equal(one.aliases.get('sdk_extension_first_'+suffix),k.definitions.kit_absent);
+    assert.equal(one.aliases.has('sdk_extension_second_'+suffix),false);
+  }
+});
+
 test('extension selections preserve collection order, empty choices and exclusive gestures', () => {
   const k = {extensions:[{id:'observer', claims:[]}, {id:'capture', claims:['record_double_tap']}, {id:'replace', claims:['record_double_tap']}]};
   assert.deepEqual(extensionSelection(k, []), []);

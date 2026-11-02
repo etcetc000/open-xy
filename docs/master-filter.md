@@ -1,11 +1,13 @@
 # Master processor extensions
 
 An extension may replace the master EQ with one stereo processor. Stock EQ
-remains the other choice in the shared stock `filter` selector, opened with
+remains a choice in the shared stock `filter` selector, opened with
 Shift+M2 on MIX page 2. Left-encoder navigation and left/white click confirmation
-reuse the stock selector adapter. One included extension may own this capability.
+reuse the stock selector adapter. The chooser lists all included, registered
+processor extensions; only one processor is active at a time. Adding another
+processor requires an extension entry, not a change to the SDK menu.
 
-Declare `"master_filter": {"artwork": "artwork/my_processor.svg"}` in
+Declare `"master_processor": {"artwork": "artwork/my_processor.svg"}` in
 `extension.json`. Optional `state_id` keeps project identity stable across an
 extension rename; it defaults to the extension ID and cannot be `eq`.
 DSP and artwork live in the extension repository, not in the SDK.
@@ -20,12 +22,12 @@ clicking a position with alternates selects its next parameter, otherwise it
 resets the shown parameter to its declared default. Enum turns select one choice
 per detent. A project change resets alternate selection to its first positions.
 
-Export `opxy::extensions::<id>::hooks` and `opxy::extensions::<id>::filter`, an
-immutable `opxy::master::Filter` from `<opxy/master_filter.hpp>`:
+Export `opxy::extensions::<id>::hooks` and `opxy::extensions::<id>::processor`, an
+immutable `opxy::master::Processor` from `<opxy/master_processor.hpp>` (label: 1–15 bytes):
 
 | Callback | Audio-role contract |
 | --- | --- |
-| `reset()` | Initialize private audio state on the first audio block |
+| `reset()` | Discard all retained audio; called at audio block boundaries on activation and after fade-out |
 | `prepare(opxy::Parameters)` | Read eight normalized Q31 slots before each block; undeclared slots are zero |
 | `process(left,right)` | Transform 64 stereo Q31 samples at 44.1 kHz in place |
 
@@ -34,6 +36,17 @@ Complete parameter sets cross the stock B3 transport and become visible to audio
 only after a matching commit. The SDK owns the 20 ms stock/extension crossfade.
 No sweep, neutral position, filter algorithm or control count is built into the
 processor interface. The old sweep encoding is accepted only for `.oxy` migration.
+
+A switch fades the current processor to stock EQ over 20 ms, discards its state
+with `reset()`, then starts the selected processor with a fresh `reset()` and a
+20 ms fade from EQ. A project activation does the same even when it selects the
+same processor. Controls on the outgoing processor stay frozen during fade-out;
+the incoming one uses the latest complete snapshot. Ordinary parameter edits do
+not reset audio. Inactive processors do not run or retain a tail. This policy
+intentionally cuts tails after fade-out, preventing old project audio from
+replaying on reselection; processors never overlap or form an effect chain.
+Reset requests survive intervening parameter updates before the next block.
+Both reset and processing must have bounded cost and use preallocated state.
 
 ## Display
 
@@ -75,7 +88,17 @@ The SDK saves processor identity and parameters in
 [`open-xy.master-filter`](projects.md#open-xymaster-filter), retaining the shared
 streaming companion reader and machine remapping. State becomes active only at
 project publication. Missing/unusable state selects stock EQ and declared
-parameter defaults, preserving stock EQ's own values.
+parameter defaults, preserving stock EQ's own values. Identity is resolved by
+`state_id`, never a saved menu index, so changing collection order does not change
+the selected processor. State IDs and artwork filenames must be unique within
+a collection. Controls are remembered separately while switching processors in
+the current project; only the active processor's controls are persisted.
+
+The saved section name `open-xy.master-filter`, versions 1 and 2, and existing
+state IDs (including `dj`) are unchanged. For source compatibility, legacy
+`master_filter` manifests, `Filter` and `<opxy/master_filter.hpp>` still compile;
+new extensions use the processor names above. Platform service and hook names
+retain their existing firmware identifiers.
 
 Native builds install the authored SVG. Kits include its source hash and install
 it only when its owner is selected. Without an owner, capability hooks remain

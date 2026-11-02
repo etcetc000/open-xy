@@ -62,6 +62,9 @@ template<u32 N> struct StockSelector {
     static_assert(N > 0 && N <= 0x7fffffffu / 72, "Nonempty bounded stock catalog");
     detail::Row rows[N];
     detail::Session session;
+    bool open(const char* title, const char* const* labels, u32 count, u32 initial, Callbacks callbacks) {
+        return count && count <= N && detail::open(session, rows, count, title, labels, initial, callbacks);
+    }
     bool open(const char* title, const char* const (&labels)[N], u32 initial, Callbacks callbacks) {
         return detail::open(session, rows, N, title, labels, initial, callbacks);
     }

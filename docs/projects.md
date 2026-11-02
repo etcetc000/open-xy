@@ -133,7 +133,10 @@ activate the processor. Version 1's integer `sweep` (0–1023, neutral 512) rema
 readable: it maps to the first parameter as `sweep << 21`; later parameters use
 their defaults. The extension identity `dj` remains stable.
 
-The SDK writes this section only with a master owner included, using the same
+Processor identity is independent of menu order. An unavailable processor falls
+back to EQ, even if another processor now occupies its former menu index.
+
+The SDK writes this section only with a master processor included, using the same
 streaming writer, size/CRC binding and reader as machine remapping. Choice and
 all parameters become active only when their matching project is published.
 Missing/unusable state selects stock EQ and declared defaults. Stock EQ values
