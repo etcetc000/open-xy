@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import statistics
 
-from .benchmark import case_label, combined_label, combined_positions, decode, position
+from .benchmark import case_label, combined_label, combined_positions, decode, drum_label, position
 from .cpu_measurement import BENCHMARKS, RECOMMENDED_PERCENT, above_recommended, validate
 from .formats import require, sha
 
@@ -37,6 +37,8 @@ def aggregate(captures, expected, identity, name, commit, url):
     own = [c for c in expected if c['name'] == name and c['source'] == 'sdk']
     require(own and 'benchmark' in own[0], 'Machine is not in this diagnostic package')
     case = own[0]
+    if case['kind'] == 'drum':
+        return aggregate_drum(captures, expected, identity, name, commit, url, own)
     swept = own[1:]
     require(case['kind'] != 'synth' or swept,
             'A synth record is a control sweep: rebuild the package with --sweep on (the default with profiling); '
@@ -99,6 +101,44 @@ def aggregate(captures, expected, identity, name, commit, url):
             combinations, silent)
 
 
+def aggregate_drum(captures, expected, identity, name, commit, url, own):
+    """A kit's record: each run's median across captures; its heaviest single voice is
+    block_percent, whatever a level does to its sound (the workload always reports those)."""
+    case = own[0]
+    seen, collectors = set(), set()
+    values = {index: [] for index in range(len(own))}
+    for capture in captures:
+        fingerprint = sha(json.dumps(capture, sort_keys=True).encode())
+        require(fingerprint not in seen, 'Do not reuse a capture as another run')
+        seen.add(fingerprint)
+        require(capture.get('mode') == 'benchmark' and capture.get('package') == identity and
+                capture.get('expected_cases') == expected, 'Capture belongs to a different build or workload')
+        collectors.add(capture.get('collector_sha256'))
+        results = [r for r in decode(capture, expected) if r['machine'] in own]
+        for index, result in enumerate(results):
+            metric = result['metrics'][case['metric']]
+            require(metric['encoded_average'] < 65535,
+                    f"{name} saturated the block budget ({case_label(own[index])}): it is above the whole budget "
+                    'there, so no CPU number can be published; make that path lighter or lower voiceCapacity')
+            require(metric['encoded_average'] > 0 and not result['insufficient_voice_activity'],
+                    f'Inactive or failed workload ({case_label(own[index])}); do not publish a CPU number')
+            values[index].append(metric['average_budget_percent'])
+    require(len(collectors) == 1 and None not in collectors, 'Use the same collector for all runs')
+    medians = {index: round(statistics.median(runs), 6) for index, runs in values.items()}
+    of = lambda kind: [index for index, c in enumerate(own) if c['drum']['run'] == kind]
+    voices = of('voice')
+    worst = max(voices, key=lambda index: (medians[index], -index))
+    measurement = dict(benchmark=case['benchmark'], commit=commit, firmware_sha256=identity['firmware_sha256'],
+                       runs=len(captures), block_percent=medians[worst],
+                       midpoint_percent=max(medians[i] for i in voices if own[i]['drum']['level'] == 64),
+                       kit_percent=medians[of('kit')[0]], choke_percent=medians[of('choke')[0]],
+                       ceiling_percent=medians[of('ceiling')[0]], worst_model=own[worst]['drum'])
+    if url is not None:
+        measurement['report'] = url
+    validate(measurement, case['kind'], commit, legacy=False)
+    return measurement, values[worst], case, [(own[index], medians[index]) for index in values], [], []
+
+
 def create(package, paths, name, url, out):
     from . import native, catalog
     manifest, report, identity = package_data(package)
@@ -123,9 +163,22 @@ def create(package, paths, name, url, out):
     require(not destination.exists(), 'Use a fresh report directory')
     destination.mkdir(parents=True)
     (destination / 'catalog-cpu.json').write_text(json.dumps({'cpu': measurement}, indent=2) + '\n')
-    scope = 'whole voice, including oscillator/filter' if case['kind'] == 'synth' else 'machine render callback only'
+    scope = ('whole voice, including oscillator/filter' if case['kind'] == 'synth' else
+             "the kit's voices through the SDK's drum adapter, not stock's drum renderer" if case['kind'] == 'drum' else
+             'machine render callback only')
     warning = above_recommended(measurement)
-    if 'worst_setting' in measurement:
+    if case['kind'] == 'drum':
+        each = 'from one capture' if len(values) == 1 else f'each the median of {len(values)} captures'
+        published = (f"Heaviest single voice, {each}: **{measurement['block_percent']:.3f}%** of the stock 580,352-cycle "
+                     f"block budget ({drum_label(measurement['worst_model'])}). Heaviest at the middle: "
+                     f"{measurement['midpoint_percent']:.3f}%. Whole kit: its own keys "
+                     f"{measurement['kit_percent']:.3f}%, same-key retriggers {measurement['choke_percent']:.3f}%, "
+                     f"full polyphony of the heaviest voice {measurement['ceiling_percent']:.3f}%.")
+        table = ['| Run | ' + ('Mean block budget' if len(values) == 1 else 'Median') + ' |', '| --- | ---: |']
+        table += [f'| {case_label(run)} | {median:.3f}% |' for run, median in runs]
+        published += '\n\n' + '\n'.join(table)
+        limits = "stock's drum renderer, its amplitude envelope or mixing, or settings between the levels. "
+    elif 'worst_setting' in measurement:
         setting = measurement['worst_setting']
         measured = sum(median is not None for run, median in runs if 'setting' in run)
         each = 'from one capture' if len(values) == 1 else f'each the median of {len(values)} captures'

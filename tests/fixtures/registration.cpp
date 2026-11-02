@@ -177,6 +177,7 @@ int main() {
     require(ready(engines, pages, probe, &screen) == 1);
     initialized = 0;
     require(ready(engines, pages, probe, &screen) == 0);
+    require(ready(engines, pages, probe, nullptr) == 1);  // audio record needs no GUI
     initialized = 1;
     reinterpret_cast<u32*>(state)[3] = 83;
     require(ready(engines, pages, probe, &screen) == 0);

@@ -5,6 +5,7 @@ const ns = 'http://www.w3.org/2000/svg';
 const paths = {
   firmware: 'M10 3h15l10 10v31H10z M25 3v11h10 M16 24h13 M16 31h13',
   machines: 'M5 7h12v12H5z M26 7h12v12H26z M5 28h12v12H5z M26 28h12v12H26z',
+  settings: 'M18 4h8l1 6 5 3 6-2 4 7-5 4v5l5 4-4 7-6-2-5 3-1 6h-8l-1-6-5-3-6 2-4-7 5-4v-5l-5-4 4-7 6 2 5-3z M29 25a7 7 0 1 0-14 0 7 7 0 0 0 14 0',
   controls: 'M8 10h30 M8 24h30 M8 38h30 M17 5v10 M29 19v10 M20 33v10',
   install: 'M22 3v26 M13 20l9 9 9-9 M6 33v10h32V33',
   synth: 'M2 24c8-27 13 27 21 0s13 27 21 0',
@@ -155,4 +156,115 @@ export function guide(stage, {install, computer, files, disabling = false}) {
   if (stage === 'write-result') return bootGuide('written', null, 'Once “firmware written ok!” appears, it’s safe to power cycle.', {highlight: 'firmware written ok!'});
   if (stage === 'write-help') return bootGuide('writing', null, '“looking for /os.ldr” alone doesn’t confirm a completed write.', {highlight: 'looking for /os.ldr'});
   return device({cable: ['enable', 'computer', 'missing-os'].includes(stage)});
+}
+
+// Illustrative machine screens, authored here rather than taken from a catalog
+// machine. Keep their paint in SVG so the installation converter can process it.
+export function graphicsExampleArtwork() {
+  const text = (x, y, value, fill = '#b8c4d0', size = 10) =>
+    `<text x="${x}" y="${y}" fill="${fill}" font-family="sans-serif" font-size="${size}">${value}</text>`;
+  const header = (names, values) => Array.from({length:4}, (_, i) => {
+    const x = i * 120, ink = i < 2 ? '#dddddd' : '#111111';
+    return `<rect x="${x}" width="120" height="20" fill="${['#242424','#555555','#aaaaaa','#dddddd'][i]}"/>` +
+      text(x + 5, 10, names[i], ink, 9) + text(x + 65, 17, values[i], ink, 18);
+  }).join('');
+  const wave = (id, y, phase, color) => {
+    const points = Array.from({length:81}, (_, i) => {
+      const x = 22 + i * 4;
+      return `${i ? 'L' : 'M'}${x} ${(y + Math.sin(i / 80 * Math.PI * 6 + phase) * 22).toFixed(2)}`;
+    }).join(' ');
+    return `<path id="${id}" d="${points}" fill="none" stroke="${color}" stroke-width="2.5"/>`;
+  };
+  // The same three authored tone roles identify traces, labels and meters.
+  const waveformTones = {a:'#f0f0f0', b:'#999999', mix:'#c8c8c8'};
+  const spectrum = `<g><rect id="waveform_background" width="480" height="220" fill="#000000"/>` +
+    header(['shape','detune','blend','level'], ['sine','7','42','80']) +
+    text(22, 43, 'TWIN OSCILLATOR', '#c8c8c8', 11) +
+    [77, 111, 145, 179].map((y, i) => `<path id="waveform_grid_${i}" d="M22 ${y} H342" fill="none" stroke="#303030" stroke-width="1"/>`).join('') +
+    wave('waveform_osc_a', 96, 0, waveformTones.a) + wave('waveform_osc_b', 153, 1.3, waveformTones.b) +
+    text(7, 100, 'A', waveformTones.a, 11) + text(7, 157, 'B', waveformTones.b, 11) +
+    ['a', 'b', 'mix'].map((role, i) => {
+      const x = 370 + i * 29, height = [74, 116, 91][i];
+      return `<rect id="waveform_meter_${role}" x="${x}" y="${181 - height}" width="18" height="${height}" fill="${waveformTones[role]}"/>` +
+        text(x + (role === 'mix' ? -1 : 6), 195, role.toUpperCase(), waveformTones[role], 11);
+    }).join('') +
+    text(22, 213, 'OSC A', waveformTones.a, 11) + text(108, 213, 'OSC B', waveformTones.b, 11) + text(370, 213, 'OUTPUT', '#c8c8c8', 11) + '</g>';
+  const heights = [40, 64, 91, 113, 54, 78, 102, 67, 119, 49, 85, 38, 105, 72, 94, 56];
+  // Four semantic groups: distinct hues AND brightness, with neutral labels and
+  // tracks so decoration does not consume the converter's hue-separation budget.
+  const sequenceColors = ['#3b8b78','#79a9e0','#d4b7ee','#ffd3bf'];
+  const sequence = `<g><rect width="480" height="220" fill="#000000"/>` +
+    header(['rate','length','swing','level'], ['1/16','16','12','75']) +
+    text(20, 44, 'STEP SEQUENCER', '#c8c8c8', 11) + text(363, 44, 'PATTERN 01', '#c8c8c8') +
+    sequenceColors.map((_, i) => text(20 + i * 112, 62, 'GROUP ' + 'ABCD'[i], '#c8c8c8', 11)).join('') +
+    heights.map((originalHeight, i) => {
+      const x = 20 + i * 28, height = Math.round(originalHeight * .88), color = sequenceColors[Math.floor(i / 4)];
+      return `<rect id="sequence_track_${i + 1}" x="${x}" y="72" width="19" height="111" fill="#101010"/>` +
+        `<rect id="sequence_step_${i + 1}" x="${x}" y="${183 - height}" width="19" height="${height}" fill="${color}"/>` +
+        text(x + 3, 201, String(i + 1).padStart(2, '0'), '#c8c8c8', 11);
+    }).join('') + '<rect id="sequence_current_step" x="101" y="69" width="25" height="117" fill="none" stroke="#ffffff" stroke-width="1.5"/></g>';
+  return [{name:'Waveform', artwork:spectrum}, {name:'Step sequence', artwork:sequence}];
+}
+
+export function graphicsExamples(convert) {
+  let position = 50, animation = null, destination = 50;
+  const examples = graphicsExampleArtwork().map(({name, artwork}) => {
+    const figure = element('figure', '', 'comparison-figure');
+    const grayscale = convert(artwork, 'grayscale');
+    const caption = element('figcaption', name + (grayscale === artwork ? ' · grayscale by design' : ''));
+    const frame = element('div', '', 'comparison-screen');
+    const before = element('div', '', 'comparison-layer');
+    const after = element('div', '', 'comparison-layer comparison-after');
+    before.append(svg(artwork, '0 0 480 220'));
+    after.append(svg(grayscale, '0 0 480 220'));
+    const divider = element('div', '', 'comparison-divider');
+    divider.setAttribute('aria-hidden', 'true');
+    const handle = element('span', '', 'comparison-handle');
+    handle.append(svg('<path d="M7 5 2 10l5 5m6-10 5 5-5 5" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>', '0 0 20 20'));
+    divider.append(handle);
+    const range = element('input', '', 'comparison-range');
+    range.type = 'range'; range.min = '0'; range.max = '100'; range.step = '1'; range.value = '50';
+    range.setAttribute('aria-label', name + ' color and grayscale comparison');
+    const render = value => {
+      range.value = String(Math.round(value));
+      frame.style.setProperty('--split', value + '%');
+      range.setAttribute('aria-valuetext', `${range.value}% original color, ${100 - Number(range.value)}% grayscale`);
+    };
+    // Either control takes over the shared position and animation immediately.
+    range.onpointerdown = stop;
+    range.oninput = () => { stop(); update(Number(range.value)); };
+    render(position);
+    frame.append(before, after, divider, range);
+    figure.append(caption, frame);
+    return {element:figure, render};
+  });
+  function update(value) {
+    position = Math.min(100, Math.max(0, value));
+    examples.forEach(example => example.render(position));
+  }
+  function stop() {
+    if (animation !== null) cancelAnimationFrame(animation);
+    animation = null;
+  }
+  function move(target) {
+    if (animation !== null && destination === target) return;
+    stop(); destination = target;
+    if (position === target || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      update(target); return;
+    }
+    const from = position, started = performance.now();
+    const tick = now => {
+      const progress = Math.min(1, Math.max(0, (now - started) / 420));
+      const eased = progress === 1 ? 1 : 1 - 2 ** (-10 * progress);
+      update(from + (target - from) * eased);
+      animation = progress < 1 ? requestAnimationFrame(tick) : null;
+    };
+    animation = requestAnimationFrame(tick);
+  }
+  return {
+    elements:examples.map(example => example.element),
+    setGraphics(mode) {
+      move(mode === 'grayscale' ? 0 : 100);
+    },
+  };
 }

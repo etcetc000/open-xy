@@ -40,6 +40,13 @@ declared-peak, voice-lifecycle and drawing smoke checks. They do not prove
 callback correctness or timing; sound correctness is the machine maintainer's
 responsibility.
 
+Use **Graphics → Colorful / Grayscale** to inspect the same controls and
+animations in both modes. Grayscale uses the machine's declared
+[alternate artwork](display.md#grayscale-artwork), or automatic conversion when
+none is declared. An already-grayscale original stays unchanged. The selector
+does not change audio, control values or saved patches. It starts in Colorful
+for authoring; the installer defaults to Grayscale.
+
 ## Host behavior
 
 The AudioWorklet runs compiled C++ at 44.1 kHz in 64-sample blocks, with eight
