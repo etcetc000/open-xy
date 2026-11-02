@@ -6,7 +6,7 @@ import {openKit} from './builder/core.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const browserRoot = resolve(root, 'builder');
-const renderers = ['controls.mjs', 'display.mjs', 'engine.mjs', 'processor.mjs', 'graphics.mjs'].map(name => resolve(root, 'sdk/browser', name));
+const renderers = ['controls.mjs', 'display.mjs', 'engine.mjs', 'effect.mjs', 'processor.mjs', 'graphics.mjs'].map(name => resolve(root, 'sdk/browser', name));
 // Data core.mjs shares with the tooling: the init preset template (tooling.adapters.default_preset).
 const sharedData = [resolve(root, 'tooling/default_preset.json')];
 const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'graphics-configuration.mjs', 'machine-snapshots.mjs', 'graphics-dialog.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs', 'manager.mjs'];

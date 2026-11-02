@@ -234,10 +234,11 @@ def write_builder(kit, output):
         'export ', '') + '\nreturn {createWizard};\n})();\n'
     audition = read(ROOT / 'builder/audition.mjs').decode('utf-8')
     audition_imports = ("import engineSource from '../sdk/browser/engine.mjs?raw';\n"
+                        "import effectSource from '../sdk/browser/effect.mjs?raw';\n"
                         "import processorSource from '../sdk/browser/processor.mjs?raw';\n")
     require(audition.startswith(audition_imports), 'Unexpected audition imports')
     bundled += 'const Audition = (() => {\n'
-    for variable, file in [('engineSource', 'engine.mjs'), ('processorSource', 'processor.mjs')]:
+    for variable, file in [('engineSource', 'engine.mjs'), ('effectSource', 'effect.mjs'), ('processorSource', 'processor.mjs')]:
         bundled += 'const ' + variable + '=' + json.dumps(read(ROOT / 'sdk/browser' / file).decode('utf-8')) + ';\n'
     bundled += audition[len(audition_imports):].replace('export ', '') + '\nreturn Audition;\n})();\n'
     bundled += read(ROOT / 'builder/browser.mjs').decode('utf-8').replace('export ', '') + '\n'

@@ -646,3 +646,7 @@ footer details[open] { flex-basis:100%; }
 .manager-review { margin-top:20px; }
 [data-manager="status"][data-error="true"] { color:var(--error); white-space:pre-wrap; overflow-wrap:anywhere; }
 @media(max-width:850px) { .manager-columns { grid-template-columns:1fr; } }
+.manager-audition-keys { display:flex; flex-wrap:wrap; gap:4px; }
+.manager-audition-control { display:grid; grid-template-columns:minmax(80px,1fr) minmax(60px,2fr) 3em; gap:8px; align-items:center; margin:12px 0; }
+.manager-audition-control input { min-width:0; width:100%; }
+.manager-audition .flow-actions { flex-wrap:wrap; }

@@ -59,6 +59,25 @@ platform's private OPXY-SDK directory and remembers its completed builds there.
 It needs the matching collection's analysis report and layout, not just a copy
 of its executable file.
 
+**Audition** plays synths, drums and effects on the computer without sending any
+device commands or changing the selection. Installed rows offer the saved build
+and, when different, the selected channel's catalog release separately. Imported
+local machines can be auditioned too. The connector compiles the exact source
+snapshot to WebAssembly using the running SDK's preview API; configure an optional
+`preview_cxx` path in the connector config if `clang++` on PATH lacks wasm32 support
+(see [preview setup](preview.md)). A browser audition can work even when the
+installed firmware cannot accept that release; installation compatibility and
+memory checks still apply separately.
+
+Hold a note button for synths/drums; drums also have a model selector. Effects
+use a repeating stereo pluck phrase at 120 BPM, with an audition wet mix and
+**Bypass effect** for comparison. Bypass keeps the phrase and effect running.
+The audition uses the effect's wet-return DSP, not the stock send mixer. A
+machine's stock Dry control is replaced by the separate audition mix. Stop,
+close, leaving the manager, switching machines/channels, starting another manager
+operation or hiding the page silences the preview. Audio requires a Play/note
+gesture and does not start when a preview finishes building.
+
 1. Connect a normally running OP-XY over USB and close other MTP apps. Select
    **Connect and read installed machines**. Allow Web MIDI access if prompted.
    The page verifies the OP-XY identity and requests regular MTP. If it is

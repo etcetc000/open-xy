@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {changes, sourceFiles, encodeFolder, isXYIdentity, enterRegularMTP, Client, withRegularMTP, installedVersion, canSelectRelease, releaseAction} from '../builder/manager.mjs';
+import {changes, sourceFiles, encodeFolder, isXYIdentity, enterRegularMTP, Client, withRegularMTP, installedVersion, canSelectRelease, releaseAction, auditionModule} from '../builder/manager.mjs';
+
+test('audition compiles only the authenticated browser module and rejects changed bytes', async () => {
+  const bytes = Uint8Array.from([0,97,115,109,1,0,0,0]);
+  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(n=>n.toString(16).padStart(2,'0')).join('');
+  const preview = {kind:'effect',wasm:btoa(String.fromCharCode(...bytes)),wasm_sha256:hash};
+  assert.ok(await auditionModule(preview) instanceof WebAssembly.Module);
+  await assert.rejects(auditionModule({...preview,wasm_sha256:'0'.repeat(64)}),/verification failed/);
+  await assert.rejects(auditionModule({...preview,kind:'sample'}),/Invalid audition/);
+});
 
 test('machine changes preserve installed machines unless explicitly unchecked', () => {
   const installed = [{id:'keep'}, {id:'remove'}];

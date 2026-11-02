@@ -190,7 +190,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('manager-workspace').querySelector('h1').focus();
     } else navigate(1);
   }
-  Manager.mount($('manager-workspace'), {canWrite:() => acknowledged, back:() => showManager(false)});
+  Manager.mount($('manager-workspace'), {canWrite:() => acknowledged, back:() => showManager(false),
+    createAudition:(...args) => new audition(...args)});
   $('open-manager').onclick = () => showManager(true);
   $('open-manager').hidden = location.protocol === 'file:';
   if (/^#manage(?:=|$)/.test(location.hash)) showManager(true);

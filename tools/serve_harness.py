@@ -13,6 +13,7 @@ from tooling.preview import preview_bundle
 ALLOWED = {
     '/sdk/browser/controls.mjs': 'sdk/browser/controls.mjs',
     '/sdk/browser/engine.mjs': 'sdk/browser/engine.mjs',
+    '/sdk/browser/effect.mjs': 'sdk/browser/effect.mjs',
     '/sdk/browser/processor.mjs': 'sdk/browser/processor.mjs',
     '/sdk/browser/display.mjs': 'sdk/browser/display.mjs',
     '/sdk/browser/graphics.mjs': 'sdk/browser/graphics.mjs',

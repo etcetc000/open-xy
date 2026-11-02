@@ -14,7 +14,7 @@ import sys
 import threading
 from urllib.parse import urlsplit
 
-from . import catalog, collection_bundle, collection_manifest as inventory, device, manager_releases
+from . import catalog, collection_bundle, collection_manifest as inventory, device, manager_releases, manager_audition
 from .formats import require, sha
 from .pipeline import ROOT, document, fresh_output, save_json
 from .release import outside_checkouts
@@ -221,6 +221,41 @@ class Manager:
                 shutil.copyfile(source, destination)
         return str(target)
 
+    def audition(self, payload):
+        name, source = payload.get('id'), payload.get('source')
+        require(isinstance(name, str), 'Choose a machine to audition')
+        expected = None
+        if source == 'catalog':
+            offered = self.releases.selected(payload)
+            require(name in offered, 'Unknown catalog machine')
+            entry = offered[name]
+            root = catalog.fetch(entry, self.home / 'catalog').root
+            version = entry['tag'] + ' · ' + payload['channel'] + ' · ' + entry['commit'][:8]
+        elif source == 'local':
+            require(name in self.local, 'Import the local folder first')
+            root = self.local[name]['path']
+            version = 'Local folder'
+        else:
+            require(source == 'installed' and self.current is not None, 'Load the installed collection first')
+            previous = Path(self.known[self.current['selection']['digest']])
+            entries = document(previous / 'collection.json')['collection']
+            matches = [e['path'] for e in entries if 'path' in e and identity_at(e['path'])['id'] == name]
+            require(len(matches) == 1, 'Unknown installed machine')
+            root = matches[0]
+            expected = source_hashes(document(previous / 'analysis/compile-report.json'), name)
+            version = 'Installed build'
+        run = fresh_output(self.home / ('audition-' + secrets.token_hex(12)))
+        snapshot = self._snapshot(root, run / 'source')
+        if expected is not None:
+            from .machines import machine_at
+            actual = {key: sha(path.read_bytes()) for key, path in machine_at(snapshot).files().items()}
+            require(actual == expected, 'Installed source changed; cannot audition the saved build')
+        output = run / 'preview'
+        output.mkdir()
+        result = manager_audition.build(snapshot, output, self.config.get('preview_cxx', 'clang++'))
+        require(result['id'] == name, 'Audition source identity changed')
+        return dict(result, source=source, version=version)
+
     def prepare(self, payload):
         require(self.current and (self.current['can_manage'] or self.current.get('can_prepare')), 'Connect and verify the installed collection first')
         before = copy.deepcopy(self.current)
@@ -337,14 +372,14 @@ class Manager:
         return result
 
     def start(self, action, payload):
-        require(action in ('status', 'catalog', 'import', 'prepare', 'apply'), 'Unknown manager action')
+        require(action in ('status', 'catalog', 'import', 'prepare', 'apply', 'audition'), 'Unknown manager action')
         require(self.lock.acquire(blocking=False), 'Another manager operation is running')
         key = secrets.token_hex(12)
         self.jobs[key] = dict(state='running', action=action)
         def run():
             try:
                 fn = {'status': self.read_status, 'catalog': self.select_catalog, 'import': self.import_folder,
-                      'prepare': self.prepare, 'apply': self.apply}[action]
+                      'prepare': self.prepare, 'apply': self.apply, 'audition': self.audition}[action]
                 result = fn() if action == 'status' else fn(payload)
                 self.jobs[key] = dict(state='complete', action=action, result=result)
             except Exception as error:
