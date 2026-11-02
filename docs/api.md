@@ -389,7 +389,7 @@ and reading are separate:
 - **Track control machines only read them**, on the GUI side in `control()`:
   `snapshots::get(slot)` (null when the slot is empty), `snapshots::matches(s,
   track)` (whether the track still holds the engine it held then, so its words
-  still mean the same) and `snapshots::generation()` (changes whenever any slot
+  still mean the same), `snapshots::engine(track)` (the engine it holds now, 0 for none) and `snapshots::generation()` (changes whenever any slot
   is taken, loaded or cleared) and `snapshots::holds(slot)` (whether the tracks
   hold a slot's values now). What a machine does with them is an ordinary
   overlay; a snapshot is never a mode or a parameter, so no LFO, lock or preset

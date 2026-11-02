@@ -39,6 +39,9 @@ struct Snapshot {
 inline const Snapshot* get(u32 slot) {
     return slot < slots ? static_cast<const Snapshot*>(sdk_snapshot(slot)) : nullptr;
 }
+// The engine an instrument track holds now, 0 when it has none: what a snapshot's
+// engines[] are compared with.
+inline u32 engine(u32 track) { return track < control::tracks ? sdk_snapshot_engine(track) : 0; }
 // Whether `track` still holds the engine it held when `snapshot` was taken; never
 // a track without one, which load leaves alone too.
 inline bool matches(const Snapshot& snapshot, u32 track) {
