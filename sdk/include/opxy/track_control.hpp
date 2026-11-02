@@ -31,7 +31,14 @@ const u32 overlay_capacity = 64;
 // Stored writes a machine may make in one tick (store).
 const u32 store_capacity = 16;
 // Words the machine passes to its own display each tick (Overlay::display).
-const u32 display_words = 4;
+const u32 display_words = 16;
+// Notes a machine may start in one tick, and notes every machine together
+// may hold sounding; the longest a note sounds.
+const u32 note_capacity = 32;
+const u32 held_capacity = 48;
+const u32 longest_note_us = 8000000;
+// Turns of the machine's own encoders one tick can deliver.
+const u32 turn_capacity = 16;
 // A machine that declares resources.trackControl.savedBytes (1..saved_capacity)
 // keeps data with each project, on the GUI side, through two more functions:
 //   u32 control_save(const ControlState&, u8* data, u32 capacity);
@@ -44,6 +51,12 @@ const u32 saved_capacity = 8192;
 
 // One parameter of an instrument track: an overlay entry or a stored write.
 struct Entry { u8 track, index; u16 reserved; i32 value; };
+// A note to play on instrument track `track` (0..7): MIDI pitch 0..127,
+// velocity 1..127, sounding for length_us.
+struct Note { u8 track, pitch, velocity, reserved; u32 length_us; };
+// A detent of one of the machine's own encoders: the parameter slot its page
+// position shows (0..7) and the direction, +1 or -1.
+struct Turn { u8 slot, reserved; i16 direction; };
 
 struct Input {
     u32 track;  // the aux track this machine holds (zero-based)
@@ -65,6 +78,12 @@ struct Input {
     // its overlays apply then; it still runs, so its page
     // can say so.
     u32 muted;
+    // 1 while Shift is held.
+    u32 shift;
+    // While this copy takes its own turns (Overlay::own_turns): detents of
+    // its track's encoders since the last tick, oldest first.
+    u32 turn_count;
+    Turn turns[turn_capacity];
 };
 
 // What the machine returns each tick. An overlay entry for the machine's own
@@ -83,6 +102,18 @@ struct Overlay {
     // order after control() returns.
     u32 stored_count;
     Entry stored[store_capacity];
+    // 0 on entry: notes to start now, through stock's live note-on, as a
+    // track's keyboard would play them but never recorded. Each ends after
+    // its length (at most longest_note_us), when the sequencer stops, or when
+    // the copy leaves its track; one on a track and pitch this copy already
+    // holds ends that one first. A note outside the ranges, or beyond
+    // held_capacity sounding notes from every machine, is dropped.
+    u32 note_count;
+    Note notes[note_capacity];
+    // 0 on entry. 1 asks for the next tick's turns of the machine's own
+    // encoders: while it is in effect they edit nothing and arrive in
+    // Input::turns instead.
+    u32 own_turns;
 };
 
 // GUI side, for a display: how many tracks hold the same machine as `track`,
@@ -121,5 +152,15 @@ inline bool store(Overlay& overlay, u32 track, u32 index, i32 value) {
     entry.reserved = 0;
     entry.value = value;
     return true;
+}
+
+inline void play(Overlay& overlay, u32 track, u32 pitch, u32 velocity, u32 length_us) {
+    if (overlay.note_count >= note_capacity) return;
+    Note& note = overlay.notes[overlay.note_count++];
+    note.track = static_cast<u8>(track < 256 ? track : 255);
+    note.pitch = static_cast<u8>(pitch < 256 ? pitch : 255);
+    note.velocity = static_cast<u8>(velocity < 256 ? velocity : 255);
+    note.reserved = 0;
+    note.length_us = length_us;
 }
 }}
