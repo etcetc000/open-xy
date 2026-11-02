@@ -16,7 +16,7 @@ COMMANDS = '''Commands:
   kit       Browser builder export: python sdk.py kit --help
   release   Catalog kit and site: python sdk.py release --help
   toolchain Install the pinned Blackfin tools: python sdk.py toolchain fetch
-  device    Copy a build to a connected OP-XY (Windows): python sdk.py device push <build>/candidate | list | pull
+  device    Copy a build to a connected OP-XY (Windows, macOS, Linux): python sdk.py device push <build>/candidate | list | pull
   doctor    Check tools: python sdk.py doctor --preview | --toolchain [<dir>]
 Preview server: python tools/serve_harness.py --preview local/preview-001'''
 

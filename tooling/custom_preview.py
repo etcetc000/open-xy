@@ -6,12 +6,13 @@ from pathlib import Path
 import re
 import shutil
 import sys
+from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
 from .contributors import validate_source_boundary
 from .definitions import ROOT, label, stock_name, validate_definition
 from .formats import require, sha
-from .pipeline import fresh_output
+from .pipeline import add_overwrite_argument, fresh_output
 
 KIND = 'cpp-browser-custom-preview'
 REQUIRED = {'definition.json', 'core.h', 'engine.cpp', 'display.h', 'display.cpp', 'panel.svg.fragment'}
@@ -89,7 +90,22 @@ def metadata(files):
         require(node is not None and node.tag in {'path', 'circle'} and
                 all(re.fullmatch(r'#[0-9a-fA-F]{6}', node.get(key, '')) for key in ('fill', 'stroke')) and
                 0 < float(node.get('stroke-width', '0')) <= 8, 'Invalid drawing palette: ' + identity)
-    return definition, dict(graphics, asset_sha256=sha(artwork))
+    result = dict(graphics, asset_sha256=sha(artwork))
+    variant = grayscale_source(files)
+    if variant:
+        from .graphics import validate_grayscale
+        m = SimpleNamespace(prefix=prefix, definition=definition, display='drawing', source=lambda path: path)
+        validate_grayscale(m, artwork, files[variant])
+        result['grayscale_sha256'] = sha(files[variant])
+    return definition, result
+
+
+def grayscale_source(files):
+    from .machines import graphics_path
+    record = json.loads(files['machine.json']) if 'machine.json' in files else {}
+    name = graphics_path(record)
+    require(not name or name in files, 'Missing declared grayscale artwork: ' + str(name))
+    return name
 
 
 def source_hashes(files):
@@ -102,7 +118,7 @@ def source_hashes(files):
             'sdk': {name: sha((ROOT / name).read_bytes()) for name in sorted(paths)}}
 
 
-def build(compiler, source, out):
+def build(compiler, source, out, overwrite=False):
     from .preview import compile_preview, preview_bundle
     source = Path(os.path.abspath(source))
     require(not Path(out).resolve().is_relative_to(source.resolve()), 'Keep preview output outside the machine source directory')
@@ -112,10 +128,13 @@ def build(compiler, source, out):
     compiler = shutil.which(str(compiler))
     require(compiler, 'Clang++ with wasm32/wasm-ld required; run python sdk.py doctor --preview')
     compiler = Path(compiler).resolve()
-    out = fresh_output(out)
+    out = fresh_output(out, overwrite, [source])
     compile_preview(compiler, definition, out, source)
     require(source_hashes(source_files(source)) == before, 'Sources changed during preview build')
     (out / 'panel.svg').write_bytes(files['panel.svg.fragment'])
+    variant = grayscale_source(files)
+    if variant:
+        (out / 'panel.grayscale.svg').write_bytes(files[variant])
     manifest = dict(schema=1, kind=KIND, engine=definition['id'], sample_rate=44100, definition=definition,
                     source_root=str(source), sources=before, graphics=graphics,
                     wasm_sha256=sha((out / 'engine.wasm').read_bytes()), compiler={'sha256': sha(compiler.read_bytes())})
@@ -136,6 +155,9 @@ def authenticate(manifest, artifacts):
     require(manifest['sources'] == source_hashes(files), 'Preview is stale; rebuild from current source')
     require(manifest['definition'] == definition and manifest['engine'] == definition['id'] and
             manifest['graphics'] == graphics, 'Custom preview metadata differs from source')
+    variant = grayscale_source(files)
+    if variant:
+        require(artifacts.get('panel.grayscale.svg') == files[variant], 'Grayscale preview differs from source')
     require(artifacts['panel.svg'] == files['panel.svg.fragment'] and
             artifacts['engine.wasm'][:8] == b'\0asm\x01\0\0\0' and
             sha(artifacts['engine.wasm']) == manifest['wasm_sha256'], 'Custom preview artifact identity mismatch')
@@ -145,13 +167,13 @@ def authenticate(manifest, artifacts):
 STARTERS = ('synth', 'effect')
 
 
-def scaffold(out, identity, name, kind='synth', repository=False, controls=None):
+def scaffold(out, identity, name, kind='synth', repository=False, controls=None, overwrite=False):
     require(kind in STARTERS, 'sdk.py new starts a ' + ' or '.join(STARTERS))
     controls = 4 if controls is None else controls
     require(type(controls) is int and 4 <= controls <= 8 and (kind == 'synth' or controls == 4),
             'Use 4 to 8 controls for a synth; effects use 4')
     custom_identity(identity); label(name)
-    out = fresh_output(out)
+    out = fresh_output(out, overwrite)
     starters = [ROOT / 'sdk/templates' / kind]
     if kind == 'synth' and controls > 4:
         starters.append(ROOT / 'sdk/templates/synth-eight')
@@ -251,10 +273,12 @@ def main(argv=None):
     parser.add_argument('--controls', type=int, choices=range(4, 9),
                         help='control count (default: 4); synths with 5..8 use two pages; effects use 4')
     parser.add_argument('--out', required=True, type=Path, help='new source folder, such as ../mymachine')
+    add_overwrite_argument(parser)
     parser.add_argument('--repository', action='store_true', help='include README, agent instructions, licence and CI for a standalone repository')
     args = parser.parse_args(argv)
     try:
-        scaffold(args.out, args.id, args.name, args.kind, repository=args.repository, controls=args.controls)
+        scaffold(args.out, args.id, args.name, args.kind, repository=args.repository, controls=args.controls,
+                 overwrite=args.overwrite)
         return 0
     except (ValueError, OSError, ET.ParseError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

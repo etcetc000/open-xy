@@ -13,8 +13,9 @@ backed-up files (folders it created stay, empty of new files). It never deletes
 anything it did not replace, never writes
 firmware to the boot partition and never ejects. The record folder (default
 under the private OPXY-SDK folder; always outside every checkout, since backups
-hold stock firmware) keeps transfer.json and the backups. Windows only
-(tooling/wpd.py); on a Mac use the browser builder's transfer.
+hold stock firmware) keeps transfer.json and the backups. Windows goes through
+its own MTP driver (tooling/wpd.py, needs comtypes); macOS and Linux speak MTP
+over libusb (tooling/usbmtp.py, needs the libusb library).
 
 Pass --no-backup --no-verify together to replace every supplied file without
 reading device file contents, saving backups or rolling back failed writes.
@@ -355,7 +356,10 @@ def entry_at(device, path):
 
 
 def open_device():
-    from .wpd import Device
+    if sys.platform == 'win32':
+        from .wpd import Device
+    else:
+        from .usbmtp import Device
     return Device()
 
 
