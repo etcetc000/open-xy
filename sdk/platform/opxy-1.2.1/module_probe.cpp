@@ -1,8 +1,9 @@
-// Module-file probe, diagnostic only. Once per processor role it loads
-// /projects/openxy/test.opx into stock heap memory, calls the module's init
-// and writes gui-module.oxc or audio-module.oxc beside it. It answers two
-// questions: does each role read the user drive, and does code run from the
-// heap. A failed check leaves the module out; startup goes on unchanged.
+// Module files, diagnostic build. Once per processor role, at startup, every
+// <name>.opx in /projects/openxy is loaded into stock heap memory, in name
+// order, and its init is called (module_loader.hpp has the format). A module
+// that fails any check is left out and startup goes on. Each role then writes
+// gui-module.oxc or audio-module.oxc beside the modules: one entry per module
+// with its status ("loaded" or "m-<code>"), base, notes and init result.
 #include "module_loader.hpp"
 #include "stock.hpp"
 #include <opxy/module.hpp>
@@ -14,14 +15,15 @@ namespace {
 // reservation (profile module_base) begins; 8 MiB stay free for stock.
 const u32 arena_base = 0x8c0d0380, protected_base = 0x8d2d0380, reserve_bytes = 0x800000;
 const u32 file_limit = 0x40000;
-const char* const module_path = "/fat32/projects/openxy/test.opx";
+const char folder[] = "/fat32/projects/openxy";
+const u32 modules_max = 16, name_max = 15;  // name without ".opx"
 
 bool attempted;
-char report[640];
+char report[2048];
 u32 used;
 u32 notes;
 
-void put(const char* s) { while (*s && used < sizeof(report) - 16) report[used++] = *s++; }
+void put(const char* s) { while (*s && used < sizeof(report) - 48) report[used++] = *s++; }
 void put_hex(u32 v) {
     put("0x");
     for (int shift = 28; shift >= 0; shift -= 4) { char c[2] = {"0123456789abcdef"[(v >> shift) & 15], 0}; put(c); }
@@ -33,7 +35,8 @@ void put_dec(u32 v) {
     while (n) { c[0] = digits[--n]; put(c); }
 }
 
-// One short line from the module; quotes and control characters are dropped.
+// One short line from the module being initialized; quotes and control
+// characters are dropped.
 void note(const char* text) {
     if (!text || notes >= 8) return;
     put(notes++ ? ",\"" : "\"");
@@ -72,12 +75,36 @@ u32 read(void* file, void* out, u32 bytes) { return stock<u32(void*, u32, u32, v
 bool failed(void* file) { return (*static_cast<const volatile u16*>(file) & 0x200u) != 0; }
 void close(void* file) { stock<int(void*)>(0x8fed00ae)(file); }
 
-// The whole file into a heap buffer; 0 bytes when missing, unreadable or too large.
-unsigned char* read_file(u32& bytes, bool& found) {
-    bytes = 0; found = false;
-    void* file = open(module_path, "rb");
+// The stock VFS folder calls, as stock's preset scan (8d4eb928) uses them on
+// /presets. An entry holds its type at +0xa (4 = folder) and its name at +0xb.
+void* dir_open(const char* path) { return stock<void*(const char*)>(0x8c0be54a)(path); }
+const unsigned char* dir_next(void* dir) { return stock<const unsigned char*(void*)>(0x8c0be6a4)(dir); }
+void dir_close(void* dir) { stock<void(void*)>(0x8c0be7b2)(dir); }
+const u32 dirent_type = 0xa, dirent_name = 0xb, dirent_folder = 4;
+
+// A module name: letters, digits, _ and -, at most name_max, then ".opx".
+bool module_name(const char* file, char* name) {
+    u32 n = 0;
+    for (; n < name_max && file[n] && file[n] != '.'; ++n) {
+        const char c = file[n];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
+            return false;
+        name[n] = c;
+    }
+    name[n] = 0;  // n <= name_max: inside the buffer
+    return n && file[n] == '.' && file[n + 1] == 'o' && file[n + 2] == 'p' && file[n + 3] == 'x' && !file[n + 4];
+}
+
+bool before(const char* a, const char* b) {
+    while (*a && *a == *b) { ++a; ++b; }
+    return static_cast<unsigned char>(*a) < static_cast<unsigned char>(*b);
+}
+
+// The whole file into a heap buffer; null when unreadable or too large.
+unsigned char* read_file(const char* path, u32& bytes) {
+    bytes = 0;
+    void* file = open(path, "rb");
     if (!file) return nullptr;
-    found = true;
     unsigned char* data = allocate(nullptr, file_limit);
     if (data) {
         for (u32 n; bytes < file_limit && (n = read(file, data + bytes, file_limit - bytes > 4096 ? 4096 : file_limit - bytes)); )
@@ -89,25 +116,23 @@ unsigned char* read_file(u32& bytes, bool& found) {
     return data;
 }
 
-// The report is written by a task of its own, well after startup: writing
-// and flushing from inside startup blocked the boot (probe 002). fclose's FAT
-// sync discards the card-flush result (#339's collection_io.hpp), so the role-aware
-// stock flush runs explicitly, as #339's helper task does. If either blocks,
-// only this task waits. The report is the text so far plus a closing brace,
-// so it is valid JSON even if init never returned.
+// The report is written by a task of its own, after startup: writing and
+// flushing from inside startup blocked the boot (probe 002). fclose's FAT sync
+// discards the card-flush result (#339's collection_io.hpp), so the role-aware stock
+// flush runs explicitly, as #339's helper task does. If either blocks, only
+// this task waits. Without "done" the report stops where startup stopped.
 bool report_gui;
-volatile u32 finished;  // set once the probe, init included, has returned
+volatile u32 finished;
 u32 started_at, finished_at;
-u32 ticks() { return stock<u32()>(0x8c03ee20)(); }
 alignas(8) unsigned char report_tcb[112];
 alignas(8) u32 report_stack[2048];
+u32 ticks() { return stock<u32()>(0x8c03ee20)(); }
 void delay(u32 ticks) { stock<void(u32)>(0x8c040188)(ticks); }
 void write_report(void*) {
-    // Waits for the probe; a report without "done" means init never returned.
     for (u32 waited = 0; !finished && waited < 60000; waited += 100) delay(100);
     delay(5000);  // startup I/O first
     const char* path = report_gui ? "/fat32/projects/openxy/gui-module.oxc" : "/fat32/projects/openxy/audio-module.oxc";
-    put(finished ? ",\"done\":true" : ",\"done\":false");
+    put(finished ? "],\"done\":true" : "],\"done\":false");
     put(",\"probe_ticks\":"); put_dec(finished ? finished_at - started_at : 0);
     put(",\"report_ticks\":"); put_dec(ticks() - started_at);
     put("}\n");
@@ -123,6 +148,54 @@ void start_report(bool gui) {
     stock<void*(void (*)(void*), const char*, u32, void*, u32, u32*, void*)>(0x8c03f744)(
         write_report, "openxy-modules", 2048, nullptr, 1, report_stack, report_tcb);
 }
+
+char names[modules_max][name_max + 1];
+u32 count;
+bool too_many;
+
+void scan() {
+    void* dir = dir_open(folder);
+    if (!dir) return;
+    char name[name_max + 1];
+    while (const unsigned char* entry = dir_next(dir)) {
+        if (entry[dirent_type] == dirent_folder) continue;
+        if (!module_name(reinterpret_cast<const char*>(entry + dirent_name), name)) continue;
+        if (count == modules_max) { too_many = true; continue; }
+        // Insertion in name order: both roles load the same set in the same order.
+        u32 at = count++;
+        for (; at && before(name, names[at - 1]); --at)
+            for (u32 i = 0; i <= name_max; ++i) names[at][i] = names[at - 1][i];
+        for (u32 i = 0; i <= name_max; ++i) names[at][i] = name[i];
+    }
+    dir_close(dir);
+}
+
+void load(const char* name, bool gui) {
+    static const ModuleApi api_gui = {module_api_version, 1, note}, api_audio = {module_api_version, 0, note};
+    char path[sizeof folder + 1 + name_max + 5];
+    u32 n = 0;
+    for (const char* p = folder; *p; ++p) path[n++] = *p;
+    path[n++] = '/';
+    for (const char* p = name; *p; ++p) path[n++] = *p;
+    for (const char* p = ".opx"; *p; ++p) path[n++] = *p;
+    path[n] = 0;
+
+    put("{\"name\":\""); put(name); put("\",\"status\":\"");
+    u32 bytes;
+    unsigned char* data = read_file(path, bytes);
+    modules::Module module = {};
+    const modules::Status status = !data ? modules::io_error :
+        modules::stage(data, bytes, modules::os_1_2_1, modules::Memory{nullptr, allocate, release, synchronize}, module);
+    if (data) release(nullptr, data);
+    if (status != modules::loaded) { put("m-"); put_dec(status); put("\"}"); return; }
+    put("loaded\",\"base\":\""); put_hex(module.base); put("\",\"bytes\":"); put_dec(module.bytes);
+    put(",\"notes\":["); notes = 0;
+    const int result = reinterpret_cast<int (*)(const ModuleApi*)>(static_cast<Address>(module.init))(gui ? &api_gui : &api_audio);
+    put("],\"init\":"); put_dec(static_cast<u32>(result));
+    if (result) put(",\"status_after_init\":\"m-108\"");
+    // A module whose init refused stays in memory but is never called again.
+    put("}");
+}
 }
 
 extern "C" void sdk_module_probe() __asm__("sdk_module_probe");
@@ -130,28 +203,18 @@ void sdk_module_probe() {
     if (attempted) return;
     attempted = true;
     const bool gui = stock<u32()>(0x8d5c3eac)() != 0;
-    used = 0; notes = 0;
-    put("{\"format\":\"openxy-module-probe/1\",\"role\":\"");
-    put(gui ? "gui" : "audio");
-    put("\",\"status\":\"");
+    used = 0;
     started_at = ticks();
+    put("{\"format\":\"openxy-module-probe/2\",\"role\":\"");
+    put(gui ? "gui" : "audio");
+    put("\",\"modules\":[");
     start_report(gui);
-    u32 bytes; bool found;
-    unsigned char* data = read_file(bytes, found);
-    modules::Module module = {};
-    modules::Status status = !found ? modules::io_error : !data ? modules::no_space :
-        modules::stage(data, bytes, modules::os_1_2_1, modules::Memory{nullptr, allocate, release, synchronize}, module);
-    if (data) release(nullptr, data);
-    if (!found) put("missing\"");
-    else if (status != modules::loaded) { put("m-"); put_dec(status); put("\""); }
-    else {
-        static const ModuleApi api_gui = {module_api_version, 1, note}, api_audio = {module_api_version, 0, note};
-        put("staged\",\"base\":\""); put_hex(module.base); put("\",\"bytes\":"); put_dec(module.bytes);
-        put(",\"notes\":[");
-        const int result = reinterpret_cast<int (*)(const ModuleApi*)>(static_cast<Address>(module.init))(gui ? &api_gui : &api_audio);
-        put("],\"init\":"); put_dec(static_cast<u32>(result));
-        // A module whose init refused stays in memory but is never called again.
+    scan();
+    for (u32 i = 0; i < count; ++i) {
+        if (i) put(",");
+        load(names[i], gui);
     }
+    if (too_many) put(count ? ",{\"status\":\"m-109\"}" : "{\"status\":\"m-109\"}");
     finished_at = ticks();
     finished = 1;
 }
