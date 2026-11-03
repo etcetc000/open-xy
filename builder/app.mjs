@@ -426,8 +426,48 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('machine-sort').value = browsing.sort;
     document.querySelectorAll('[data-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.filter === browsing.kind)));
     $('favorites-filter').setAttribute('aria-pressed', String(browsing.favoritesOnly));
-    for (const chip of $('keyword-filters').children) chip.setAttribute('aria-pressed', String(browsing.keywords.includes(chip.dataset.keyword)));
+    for (const chip of $('keyword-filters').querySelectorAll('.keyword-filter')) chip.setAttribute('aria-pressed', String(browsing.keywords.includes(chip.dataset.keyword)));
+    fitKeywords();
   }
+  // Keyword filters take at most three lines, still in alphabetical order: the least used
+  // (core.keywordsByUse) give way first, a keyword in use as a filter always shows, and
+  // "+N more" shows the rest. Fitted again when the row's width changes, including when the
+  // Machines step first appears (a hidden row has no width to measure).
+  const KEYWORD_LINES = 3;
+  let keywordsExpanded = false, keywordsWidth = 0;
+  function fitKeywords() {
+    const row = $('keyword-filters'), more = row.querySelector?.('.keyword-more');
+    if (!more) return;
+    const chips = [...row.querySelectorAll('.keyword-filter')];
+    chips.forEach(chip => chip.hidden = false);
+    more.hidden = true;
+    keywordsWidth = row.clientWidth;
+    if (!keywordsWidth || !chips.length) return;
+    const gap = parseFloat(getComputedStyle(row).rowGap) || 0;
+    const limit = KEYWORD_LINES * chips[0].offsetHeight + (KEYWORD_LINES - 1) * gap + 1;
+    if (row.offsetHeight <= limit) return;
+    // Least used first, keeping the ones filtering the list.
+    const giving = core.keywordsByUse(kit.machines).map(k => k.keyword).reverse()
+      .filter(keyword => !browsing.keywords.includes(keyword));
+    const hidden = [];
+    more.hidden = false;
+    const label = () => {
+      more.textContent = keywordsExpanded ? 'Fewer' : '+' + hidden.length + ' more';
+      more.setAttribute('aria-expanded', String(keywordsExpanded));
+      more.setAttribute('aria-label', keywordsExpanded ? 'Show fewer keywords' : 'Show ' + hidden.length + ' more keywords');
+    };
+    label();
+    for (const keyword of giving) {
+      if (row.offsetHeight <= limit && hidden.length) break;
+      chips.find(chip => chip.dataset.keyword === keyword).hidden = true;
+      hidden.push(keyword);
+      label();
+    }
+    if (keywordsExpanded) { chips.forEach(chip => chip.hidden = false); label(); }
+  }
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => {
+    if ($('keyword-filters').clientWidth !== keywordsWidth) fitKeywords();
+  }).observe($('keyword-filters'));
   function clearBrowsing() {
     Object.assign(browsing, {query: '', kind: 'all', keywords: [], favoritesOnly: false});
     syncBrowsing(); renderMachines();
@@ -451,6 +491,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       };
       return chip;
     }));
+    const more = node('button', undefined, 'keyword-more'); more.type = 'button'; more.hidden = true;
+    more.onclick = () => { keywordsExpanded = !keywordsExpanded; fitKeywords(); more.focus(); };
+    $('keyword-filters').append(more);
     syncBrowsing();
   }
   function renderMachines() {

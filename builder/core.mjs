@@ -341,6 +341,14 @@ export const validKeywords = m => m.keywords === undefined || Array.isArray(m.ke
   m.keywords.length <= MAX_KEYWORDS && new Set(m.keywords).size === m.keywords.length && m.keywords.every(keyword => MACHINE_KEYWORDS.includes(keyword));
 // Who maintains a machine: its catalog maintainer; a personal kit's own machines have none.
 export const machineAuthor = m => m.source?.maintainer ?? '';
+// The keywords the machines use, with how many use each, most used first, then by name: the
+// order in which the builder keeps keyword filters when only some fit (builder/app.mjs).
+export function keywordsByUse(machines) {
+  const counts = new Map();
+  for (const m of machines) for (const keyword of m.keywords ?? []) counts.set(keyword, (counts.get(keyword) ?? 0) + 1);
+  return [...counts].map(([keyword, count]) => ({keyword, count}))
+    .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword));
+}
 const KIND_ORDER = ['synth', 'drum', 'sample', 'effect', 'player'];
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true});
 const SORTS = {

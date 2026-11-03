@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -425,6 +425,10 @@ test('machines are found by name, author, kind, description and keyword, in a ch
   assert.equal(machineAuthor(machines[3]), '');
   assert.equal(machineAuthor(machines[1]), 'Carol');
   assert.ok(MACHINE_KEYWORDS.length && MACHINE_KEYWORDS.every(keyword => /^[a-z]+$/.test(keyword)));
+  // Most used first, then by name: the order keyword filters are kept when only some fit.
+  assert.deepEqual(keywordsByUse([...machines, {id:'pads', keywords:['pad', 'bass']}]),
+    [{keyword:'pad', count:2}, {keyword:'bass', count:1}, {keyword:'delay', count:1}, {keyword:'fm', count:1}, {keyword:'pluck', count:1}]);
+  assert.deepEqual(keywordsByUse([{id:'none'}]), []);
 });
 test('machine presets save, replace, delete and choose named selections by ID', () => {
   let presets = savePreset([], '  Night   set ', ['moth', 'fm2op']);
