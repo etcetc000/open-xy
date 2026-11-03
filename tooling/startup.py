@@ -14,7 +14,7 @@ def _declare(name, signature='()'):
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False):
+           control=False, aux=False, master=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -22,7 +22,9 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     registers on the GUI role.
     control: the build links the control service. Without it, the companion's
     calls into the service do nothing.
-    aux: the build links the aux service (aux tracks), which starts after it."""
+    aux: the build links the aux service (aux tracks), which starts after it.
+    master: the build links the master processor service, whose processor runs the
+    master stage in place of stock's EQ."""
     require(prefixes or effects or player_pages, 'Startup needs at least one machine')
     require(0 <= len(prefixes) <= ENGINE_COUNT and len(set(prefixes)) == len(prefixes),
             'Startup needs distinct engine prefixes')
@@ -74,6 +76,11 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
         require(control, 'The aux service needs the control service')
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
         screens.append('    sdk_aux_startup();')
+    stage = 'sdk_master_stock_stage'
+    if master:
+        declarations.append('void sdk_master_process(void*, i32*, i32*) __asm__("sdk_master_process");')
+        stage = 'sdk_master_process'
+    master_stage = f'void sdk_master_stage(void* object, i32* left, i32* right) {{ {stage}(object, left, right); }}'
     owned += [f'    if (page == value({prefix}_fx_page_id)) return {prefix}_ready() == 1;' for prefix in effect_screens]
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
@@ -81,7 +88,7 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
                   EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
                   SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
-                  PROJECT_KEPT=kept,
+                  PROJECT_KEPT=kept, MASTER_STAGE=master_stage,
                   INSTALLED='\n'.join(f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes))
     source = (ROOT / TEMPLATE).read_text(encoding='utf-8')
     for key, text in values.items():
@@ -92,8 +99,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False):
+             control=False, aux=False, master=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux), encoding='utf-8', newline='\n')
+                                  control, aux, master), encoding='utf-8', newline='\n')
     return destination

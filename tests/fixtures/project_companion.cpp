@@ -12,6 +12,9 @@ void opxy::platform::control_loaded(const opxy::platform::ControlMachine&) {}
 
 extern "C" opxy::u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }
 extern "C" void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }
+// The cpu meter's indicator: on while CPU is set.
+extern "C" bool sdk_cpu_indicator() { return std::getenv("CPU") != nullptr; }
+extern "C" void sdk_cpu_indicator_load(bool) {}
 
 using opxy::platform::Address;
 

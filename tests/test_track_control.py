@@ -263,7 +263,8 @@ class TrackControl(unittest.TestCase):
         # Startup reaches the saved data's writer only with the service.
         from tooling.startup import render
         plain_startup, control_startup = render(['probe']), render(['probe'], control=True)
-        self.assertNotIn('sdk_overlay_startup', plain_startup + control_startup)
+        # The SDK's overlay registers in every build: the cpu meter draws on it (overlay.hpp).
+        self.assertIn('    sdk_overlay_startup();', plain_startup)
         self.assertIn('u32 sdk_project_kept(void*) { return 0; }', plain_startup)
         self.assertNotIn('sdk_control_kept_write', plain_startup)
         self.assertIn('{ return sdk_control_kept_write(file); }', control_startup)

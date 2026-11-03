@@ -998,6 +998,14 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
     check(data.length<=65536 && await sha256(data)===filter.sha256, 'Master filter artwork differs');
     files['content/display/'+filter.asset]=data;
   }
+  // The SDK's overlay over every page (tooling.native.prepare_assets). Every exported kit
+  // carries it (tooling.browser_kit); without the file the overlay stops asking to paint
+  // once its load has had time (overlay.cpp).
+  if (kit.overlayArtwork !== undefined) {
+    check(typeof kit.overlayArtwork === 'string' && kit.overlayArtwork.split('</svg>').length === 2,
+          'The site’s machine data is damaged. Reload this page.');
+    files['content/display/openxy_overlay.svg'] = utf8.encode(kit.overlayArtwork);
+  }
   for (const machine of machines)
     for (const [path, preset] of Object.entries(presetFiles(machine)))
       files[path] = utf8.encode(JSON.stringify(preset, null, 2) + '\n');

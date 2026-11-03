@@ -161,6 +161,12 @@ all parameters become active only when their matching project is published.
 Missing/unusable state selects stock EQ and declared defaults. Stock EQ values
 remain in `.xy`; projects without `.oxy` remain compatible. New projects and
 abandoned loads cannot inherit pending state from another project.
+## `open-xy.cpu`
+
+Version 1. `indicator` is `true` when the [cpu meter's indicator](profiling.md#load-while-you-play)
+is on for the project. The firmware writes the section only while it is on, so a
+project without it, or whose companion no longer matches it, opens with the
+indicator off. A new project keeps the setting until it is saved or another loads.
 
 ## Commands
 

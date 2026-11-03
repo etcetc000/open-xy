@@ -31,6 +31,8 @@ using opxy::i32;
 using opxy::u32;
 using opxy::platform::stock;
 using opxy::platform::word;
+using opxy::platform::lock;
+using opxy::platform::unlock;
 const u32 kHeap = 0x08036aa4;           // stock heap: mutex, then pool
 const u32 kSampleManager = 0x84048894;  // stock sample cache manager pointer
 const u32 kSendState = 0x84297630;      // desired-list send state: +12 sent sum, +16 current sum
@@ -72,8 +74,8 @@ void* sdk_sample_cache_alloc(u32 bytes) {
 }
 void sdk_sample_cache_free(void* block) { stock<void(void*)>(0x8d4d2910)(block); }
 u32 sdk_sample_cache_stock_hash(const char* path) { return stock<u32(const char*)>(0x8d4e813a)(path); }
-void sdk_sample_cache_keys_lock() { stock<void(u32)>(0x8d5be032)(word(kSampleManager)); }
-void sdk_sample_cache_keys_unlock() { stock<void(u32)>(0x8d5be060)(word(kSampleManager)); }
+void sdk_sample_cache_keys_lock() { lock(word(kSampleManager)); }
+void sdk_sample_cache_keys_unlock() { unlock(word(kSampleManager)); }
 const void* sdk_sample_cache_sample_acquire(u32 key) {
     return stock<const void*(u32, u32)>(0x8d509d70)(word(kSampleManager), key);
 }

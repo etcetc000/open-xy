@@ -35,6 +35,9 @@ extern "C" u32 sdk_project_load(void* project, const char* path) __asm__("sdk_pr
 // The control service's sections, or nothing: generated in startup.cpp.
 extern "C" u32 sdk_project_kept(void* file) __asm__("sdk_project_kept");
 extern "C" void sdk_project_loaded(const char* path) __asm__("sdk_project_loaded");
+// The cpu meter's indicator, the project's setting (open-xy.cpu; cpu_meter.cpp).
+extern "C" bool sdk_cpu_indicator() __asm__("sdk_cpu_indicator");
+extern "C" void sdk_cpu_indicator_load(bool on) __asm__("sdk_cpu_indicator_load");
 
 namespace {
 typedef void File;
@@ -151,6 +154,8 @@ void write_companion(u32 bytes, u32 crc) {
     // Track control's section goes here, before open-xy.machines, written to the file directly.
     w.flush();
     sdk_project_kept(file);
+    // The cpu meter's section, only while its indicator is on: none means off.
+    if (sdk_cpu_indicator()) w.put("    \"open-xy.cpu\": {\n      \"indicator\": true,\n      \"version\": 1\n    },\n");
     w.put("    \"open-xy.machines\": {\n      \"machines\": {");
     u32 listed = 0;
     for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m) {
@@ -379,6 +384,16 @@ public:
             while (digit(source_.peek())) source_.next();
         }
         return true;
+    }
+
+    // A boolean member: false only for malformed JSON; `ok` says it is true or false.
+    bool boolean(bool& value, bool& ok) {
+        ok = false;
+        const int c = peek();
+        if (c != 't' && c != 'f') return skip();
+        value = c == 't';
+        ok = true;
+        return word(value ? "true" : "false");
     }
 
     // An integer member: false only for malformed JSON; `ok` says it is a non-negative
@@ -739,6 +754,23 @@ bool master_section(Parser& p,bool& valid) {
     return read;
 }
 
+// open-xy.cpu: false only for malformed JSON; `ok` as for any other owner's section.
+// `on` is its indicator, when the section is version 1 and says so.
+bool cpu_section(Parser& p, bool& ok, bool& on) {
+    ok = on = false;
+    if (p.peek() != '{') return p.skip();
+    bool positive = false, have_indicator = false, indicator = false;
+    u32 version = 0;
+    const bool read = p.object([&](const Text& field) {
+        if (field.is("version")) return p.natural(version, positive);
+        if (field.is("indicator")) return p.boolean(indicator, have_indicator);
+        return p.skip();
+    });
+    ok = positive && version >= 1;
+    on = ok && version == 1 && have_indicator && indicator;
+    return read;
+}
+
 // Other owners' sections whose last value so far is invalid, by name (at most
 // kKeyBytes, so held whole).
 Text invalid_sections[kInvalidSections];
@@ -760,9 +792,9 @@ bool note_section(const Text& name, bool ok) {
     return true;
 }
 
-// Reads the companion: true when it is valid and its machines section applies to this
-// firmware, the maps then filled, with the binding it gives.
-bool read_document(File* file, u32& bytes, u32& crc, bool& applies) {
+// Reads the companion: true when it is valid, with the binding it gives, whether its
+// machines section applies to this firmware (the maps then filled) and the cpu indicator.
+bool read_document(File* file, u32& bytes, u32& crc, bool& applies, bool& indicator) {
     Parser p(file);
     bool format = false, version = false, binding = false, sections = false, valid = false;
     applies=false;master_applies=false;master_defaults();
@@ -789,6 +821,7 @@ bool read_document(File* file, u32& bytes, u32& crc, bool& applies) {
         master_applies=false;master_defaults();
         valid = true;
         invalid_count = 0;
+        indicator = false;
         clear_maps();
         sections = p.peek() == '{';
         if (!sections) return p.skip();
@@ -805,7 +838,7 @@ bool read_document(File* file, u32& bytes, u32& crc, bool& applies) {
                 if(!note_section(name,ok))valid=false;
                 return true;
             }
-            if (!other_section(p, ok)) return false;
+            if (name.is("open-xy.cpu") ? !cpu_section(p, ok, indicator) : !other_section(p, ok)) return false;
             if (!note_section(name, ok)) valid = false;
             return true;
         });
@@ -832,20 +865,22 @@ void remap(unsigned char* project) {
     }
 }
 
-void apply_companion(void* project, const char* path) {
-    if (!companion_path(path, read_companion_path)) return;
+// Returns the cpu indicator the companion gives: off unless it applies.
+bool apply_companion(void* project, const char* path) {
+    if (!companion_path(path, read_companion_path)) return false;
     File* file = file_open(read_companion_path, "rb");
-    if (!file) return;  // no companion: the numbers are read as saved
+    if (!file) return false;  // no companion: the numbers are read as saved
     u32 bytes = 0, crc = 0, measured_bytes, measured_crc;
-    bool machines_apply=false;
-    const bool applies = read_document(file, bytes, crc, machines_apply);
+    bool machines_apply = false, indicator = false;
+    const bool applies = read_document(file, bytes, crc, machines_apply, indicator);
     file_close(file);
     // Saved since by stock or another tool, for other firmware, or invalid: as saved.
     if (!applies || !measure(path, read_chunk, measured_bytes, measured_crc) || measured_bytes != bytes ||
         measured_crc != crc)
-        return;
+        return false;
     if(machines_apply)remap(static_cast<unsigned char*>(project));
     if(master_applies)master_processor::loaded_state(static_cast<u32>(reinterpret_cast<opxy::platform::Address>(project)),master_state);
+    return indicator;
 }
 }
 
@@ -863,7 +898,7 @@ u32 sdk_project_load(void* project, const char* path) {
     master_processor::clear_pending();
     const u32 loaded = deserialize(project, path);
     if (loaded && project && path) {
-        apply_companion(project, path);
+        sdk_cpu_indicator_load(apply_companion(project, path));
         sdk_project_loaded(path);
     }
     return loaded;

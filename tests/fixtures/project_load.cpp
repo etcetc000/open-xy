@@ -2,7 +2,8 @@
 // calls are host stdio, and stock's deserialize fills a project buffer of stock's
 // layout with the patterns the command line gives, or fails.
 // project_load <path> <deserialize result> [<track>:<number>,<number>...]...
-// prints each given track's pattern numbers after the load, as signed integers.
+// prints each given track's pattern numbers after the load, as signed integers, and
+// with CPU set, the cpu indicator the load gave as "cpu=0" or "cpu=1".
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -12,6 +13,10 @@
 // What startup.cpp gives a build without the control service.
 extern "C" opxy::u32 sdk_project_kept(void*) { return 0; }
 extern "C" void sdk_project_loaded(const char*) {}
+// The cpu meter's indicator, as the load gives it (-1: not given).
+int indicator = -1;
+extern "C" bool sdk_cpu_indicator() { return false; }
+extern "C" void sdk_cpu_indicator_load(bool on) { indicator = on; }
 
 using opxy::platform::Address;
 
@@ -107,6 +112,7 @@ int main(int argc, char** argv) {
         const auto consumed=(defaults.type<<30)|(static_cast<opxy::u32>(defaults.values[0])>>21);
         std::printf("master:%u,%u\n",packet,consumed);
     }
+    if (std::getenv("CPU")) std::printf("cpu=%d\n", indicator);
     std::free(project);
     return 0;
 }

@@ -2023,14 +2023,73 @@
     },
     {
       "kind": "hook",
-      "name": "Master EQ audio call: selected stereo processor",
+      "name": "The cpu meter times the whole DSP callback",
+      "address": "0x8c0c6ffe",
+      "file_offset": "0xfe23a",
+      "length": 8,
+      "before": "00dea01164280000",
+      "symbol": "sdk_cpu_audio",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu meter times each track's synth voices",
+      "address": "0x8d510bea",
+      "file_offset": "0x147e46",
+      "length": 4,
+      "before": "00e38f5d",
+      "symbol": "sdk_cpu_track",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu meter times aux 5",
+      "address": "0x8d51234e",
+      "file_offset": "0x1495aa",
+      "length": 4,
+      "before": "ffe339ed",
+      "symbol": "sdk_cpu_aux",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu meter times tape",
+      "address": "0x8d511486",
+      "file_offset": "0x1486e2",
+      "length": 4,
+      "before": "ffe301f3",
+      "symbol": "sdk_cpu_tape",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu meter times FX I",
+      "address": "0x8d5116a0",
+      "file_offset": "0x1488fc",
+      "length": 4,
+      "before": "ffe37aef",
+      "symbol": "sdk_cpu_fx1",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu meter times FX II",
+      "address": "0x8d511908",
+      "file_offset": "0x148b64",
+      "length": 4,
+      "before": "ffe346ee",
+      "symbol": "sdk_cpu_fx2",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu meter times the master stage, running the selected master processor",
       "address": "0x8d511b80",
       "file_offset": "0x148ddc",
       "length": 8,
       "before": "00dea011102c0000",
-      "symbol": "sdk_master_process",
-      "call": true,
-      "service": "master_filter"
+      "symbol": "sdk_cpu_master",
+      "call": true
     },
     {
       "kind": "hook",
@@ -2053,6 +2112,66 @@
       "symbol": "sdk_project_new",
       "call": false,
       "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "The DSP board's bridge dispatcher answers the cpu meter's poll",
+      "address": "0x8c0c2384",
+      "file_offset": "0xf95c0",
+      "length": 8,
+      "before": "a8e5080088093618",
+      "symbol": "sdk_cpu_dispatch",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Project > M4 lists the cpu page after midi",
+      "address": "0x8c088456",
+      "file_offset": "0xbf692",
+      "length": 8,
+      "before": "073000e3ec99666c",
+      "symbol": "sdk_cpu_page_list",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu page's header shows the load",
+      "address": "0x8c09a4fa",
+      "file_offset": "0xd1736",
+      "length": 8,
+      "before": "02da008404c20000",
+      "symbol": "sdk_cpu_page_fmt",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu page's header reads \"now\"",
+      "address": "0x8c09a50c",
+      "file_offset": "0xd1748",
+      "length": 8,
+      "before": "01da008404c20000",
+      "symbol": "sdk_cpu_page_hdr",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu page lists its settings",
+      "address": "0x8c09a544",
+      "file_offset": "0xd1780",
+      "length": 12,
+      "before": "0530ffe3f16330e427008160",
+      "symbol": "sdk_cpu_page_more",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "The cpu page drops voices' track rows",
+      "address": "0x8c09a638",
+      "file_offset": "0xd1874",
+      "length": 8,
+      "before": "31e42a0032e42900",
+      "symbol": "sdk_cpu_page_end",
+      "call": true
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"
