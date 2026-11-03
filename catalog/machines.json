@@ -718,13 +718,35 @@
       "id": "ghost",
       "kind": "sample",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Nonagon",
+      "tag": "v0.7.0",
+      "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+      "path": "ghost",
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v1",
+        "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+        "firmware_sha256": "531fafab7eb846e4c3eeb9fd8a1176c0636cc931c6d7ae577e80990f09c9b708",
+        "runs": 1,
+        "block_percent": 3.065537
+      }
     },
     {
       "id": "recur",
       "kind": "sample",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Nonagon",
+      "tag": "v0.7.0",
+      "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+      "path": "recur",
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v1",
+        "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+        "firmware_sha256": "531fafab7eb846e4c3eeb9fd8a1176c0636cc931c6d7ae577e80990f09c9b708",
+        "runs": 1,
+        "block_percent": 1.156634
+      }
     },
     {
       "id": "mdkit",
