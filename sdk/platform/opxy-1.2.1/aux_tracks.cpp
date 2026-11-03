@@ -588,9 +588,10 @@ const char* sdk_aux_lfo_label(u32 track, u32 slot) {
 extern "C" void sdk_lfo_aux_publish(u32 track, u32 slot, i32 wave, i32 depth) {
     stock<void(u32, u32, i32, i32)>(0x8d4d68b8)(track, slot, wave, depth);
     if (track != kCv) return;
-    // Q15 x Q15, doubled: -1 x -1 would be 2^31, so it saturates.
-    const long long product = static_cast<long long>(depth >> 16) * (wave >> 16) * 2;
-    const i32 amount = product > 0x7fffffff ? 0x7fffffff : static_cast<i32>(product);
+    // Q15 x Q15, doubled: -1 x -1 would be 2^31, so it saturates. The product
+    // fits 32 bits (at most 2^30), so no 64-bit multiply needs the runtime.
+    const i32 product = (depth >> 16) * (wave >> 16);
+    const i32 amount = product >= 0x40000000 ? 0x7fffffff : product * 2;
     stock<u32(u32, u32)>(0x8d4d666a)(25, (0xa0000000u | kCv << 24) | (slot & 0xff) << 16 | static_cast<u32>(amount) >> 16);
 }
 
