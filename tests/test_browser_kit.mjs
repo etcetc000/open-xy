@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, browseMachines, machineAuthor, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -446,6 +446,47 @@ test('machines are found by name, author, kind, description and keyword, in a ch
   assert.equal(machineAuthor(machines[3]), '');
   assert.equal(machineAuthor(machines[1]), 'Carol');
   assert.ok(MACHINE_KEYWORDS.length && MACHINE_KEYWORDS.every(keyword => /^[a-z]+$/.test(keyword)));
+  // Most used first, then by name: the order keyword filters are kept when only some fit.
+  assert.deepEqual(keywordsByUse([...machines, {id:'pads', keywords:['pad', 'bass']}]),
+    [{keyword:'pad', count:2}, {keyword:'bass', count:1}, {keyword:'delay', count:1}, {keyword:'fm', count:1}, {keyword:'pluck', count:1}]);
+  assert.deepEqual(keywordsByUse([{id:'none'}]), []);
+});
+test('machine presets save, replace, delete and choose named selections by ID', () => {
+  let presets = savePreset([], '  Night   set ', ['moth', 'fm2op']);
+  assert.deepEqual(presets, [{name:'Night set', machines:['moth', 'fm2op']}]);
+  presets = savePreset(presets, 'ambient 2', ['bloom']);
+  presets = savePreset(presets, 'Ambient 10', ['wane']);
+  // By name, numbers by value; saving a name again in any case replaces it in place.
+  assert.deepEqual(presets.map(p => p.name), ['ambient 2', 'Ambient 10', 'Night set']);
+  presets = savePreset(presets, 'NIGHT SET', ['karplus', 'karplus']);
+  assert.deepEqual(presets.map(p => [p.name, p.machines]), [['ambient 2', ['bloom']], ['Ambient 10', ['wane']], ['NIGHT SET', ['karplus']]]);
+  for (const [name, machines, message] of [['', ['moth'], /Name the preset/], ['   ', ['moth'], /Name the preset/],
+    ['x'.repeat(PRESET_NAME_LIMIT + 1), ['moth'], /40 characters/], ['empty', [], /at least one machine/]])
+    assert.throws(() => savePreset(presets, name, machines), message, name);
+  let many = [];
+  for (let i = 0; i < 50; i++) many = savePreset(many, 'p' + i, ['moth']);
+  assert.throws(() => savePreset(many, 'one more', ['moth']), /at most 50/);
+  savePreset(many, 'P7', ['bloom']);  // replacing one is still allowed
+  assert.deepEqual(deletePreset(presets, 'night set').map(p => p.name), ['ambient 2', 'Ambient 10']);
+  // Update saves the selection under the preset's own name; a matching selection, in any order, changes nothing.
+  const night = {name:'Night', machines:['moth', 'fm2op']};
+  assert.ok(presetMatches(night, ['fm2op', 'moth']) && presetMatches(night, ['moth', 'fm2op', 'moth']));
+  for (const machines of [['moth'], ['moth', 'fm2op', 'bloom'], ['moth', 'bloom'], []])
+    assert.ok(!presetMatches(night, machines), machines.join());
+  assert.deepEqual(savePreset([night], night.name, ['bloom']), [{name:'Night', machines:['bloom']}]);
+  // Reading what a browser kept drops what is malformed, repeated or too long.
+  assert.deepEqual(readPresets(null), []);
+  assert.deepEqual(readPresets('[]'), []);
+  assert.deepEqual(readPresets([{name:'b', machines:['moth']}, {name:'B', machines:['bloom']}, {name:'a', machines:['moth']},
+    {name:'', machines:['moth']}, {name:'c', machines:[]}, {name:'d', machines:['Moth']}, {name:'e', machines:['moth', 'moth']},
+    {name:'f', machines:'moth'}, {name:'x'.repeat(41), machines:['moth']}, {name:3, machines:['moth']}, null, 'g',
+    {name:'h', machines:[['moth']]}, {name:'i', machines:['a'.repeat(16)]}]),
+    [{name:'a', machines:['moth']}, {name:'b', machines:['moth']}]);
+  assert.equal(readPresets(Array.from({length:60}, (_, i) => ({name:'p' + i, machines:['moth']}))).length, 50);
+  // Choosing one selects the machines this kit has, in collection order, and names the rest.
+  const kit = {machines:[{id:'fm2op'}, {id:'karplus'}, {id:'moth'}]};
+  assert.deepEqual(applyPreset(kit, {name:'n', machines:['moth', 'gone', 'fm2op']}), {selected:['fm2op', 'moth'], missing:['gone']});
+  assert.deepEqual(applyPreset(kit, {name:'n', machines:['gone']}), {selected:[], missing:['gone']});
 });
 test('malformed loader records and unsafe ZIP paths are rejected', () => {
   for(const bytes of [new Uint8Array(),new Uint8Array(16),elf()]) assert.throws(()=>readLdr(bytes));

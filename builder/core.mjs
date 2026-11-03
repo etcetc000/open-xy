@@ -341,6 +341,14 @@ export const validKeywords = m => m.keywords === undefined || Array.isArray(m.ke
   m.keywords.length <= MAX_KEYWORDS && new Set(m.keywords).size === m.keywords.length && m.keywords.every(keyword => MACHINE_KEYWORDS.includes(keyword));
 // Who maintains a machine: its catalog maintainer; a personal kit's own machines have none.
 export const machineAuthor = m => m.source?.maintainer ?? '';
+// The keywords the machines use, with how many use each, most used first, then by name: the
+// order in which the builder keeps keyword filters when only some fit (builder/app.mjs).
+export function keywordsByUse(machines) {
+  const counts = new Map();
+  for (const m of machines) for (const keyword of m.keywords ?? []) counts.set(keyword, (counts.get(keyword) ?? 0) + 1);
+  return [...counts].map(([keyword, count]) => ({keyword, count}))
+    .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword));
+}
 const KIND_ORDER = ['synth', 'drum', 'sample', 'effect', 'player'];
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true});
 const SORTS = {
@@ -375,6 +383,50 @@ export function browseMachines(machines, {query = '', kind = 'all', keywords = [
 }
 
 function processorOf(e) { return e.master_processor ?? e.master_filter; }
+
+// Machine presets: named selections a person keeps in this browser (builder/app.mjs),
+// by machine ID, so one outlives a collection that drops or adds machines. Sorted by name.
+export const PRESET_NAME_LIMIT = 40;
+export const PRESET_LIMIT = 50;
+// A machine ID, as tooling.definitions.stock_name allows it.
+const MACHINE_ID = /^[a-z][a-z0-9_]{0,14}$/;
+const presetName = name => typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : '';
+const sameName = (a, b) => a.localeCompare(b, undefined, {sensitivity: 'base'}) === 0;
+const byPresetName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true});
+// What a browser stored, keeping only well-formed presets: a name, and machine IDs once each.
+export function readPresets(value) {
+  if (!Array.isArray(value)) return [];
+  const presets = [];
+  for (const p of value) {
+    const name = presetName(p?.name);
+    if (!name || name.length > PRESET_NAME_LIMIT || !Array.isArray(p.machines) || !p.machines.length ||
+        !p.machines.every(id => typeof id === 'string' && MACHINE_ID.test(id)) ||
+        new Set(p.machines).size !== p.machines.length || presets.some(q => sameName(q.name, name))) continue;
+    presets.push({name, machines: [...p.machines]});
+    if (presets.length === PRESET_LIMIT) break;
+  }
+  return presets.sort(byPresetName);
+}
+// The presets with `machines` saved as `name`, replacing a preset of that name (in any case).
+export function savePreset(presets, name, machines) {
+  const clean = presetName(name);
+  check(clean, 'Name the preset.');
+  check(clean.length <= PRESET_NAME_LIMIT, `Keep the preset name to ${PRESET_NAME_LIMIT} characters.`);
+  check(machines.length > 0, 'Select at least one machine to save a preset.');
+  const others = presets.filter(p => !sameName(p.name, clean));
+  check(others.length < PRESET_LIMIT, `Keep at most ${PRESET_LIMIT} presets; delete one first.`);
+  return [...others, {name: clean, machines: [...new Set(machines)]}].sort(byPresetName);
+}
+export const deletePreset = (presets, name) => presets.filter(p => !sameName(p.name, name));
+// Whether a preset already holds exactly these machines, in any order: updating it would change nothing.
+export const presetMatches = (preset, machines) =>
+  new Set(machines).size === preset.machines.length && preset.machines.every(id => machines.includes(id));
+// A preset's machines this kit offers, in collection order, and the IDs it does not offer.
+export function applyPreset(kit, preset) {
+  const offered = new Set(kit.machines.map(m => m.id));
+  return {selected: kit.machines.filter(m => preset.machines.includes(m.id)).map(m => m.id),
+    missing: preset.machines.filter(id => !offered.has(id))};
+}
 
 // Validate choices and retain the SDK's declared callback order.
 export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e => e.id)) {

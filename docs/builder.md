@@ -47,10 +47,17 @@ leaves the browser.
    Above the list, search by name, maintainer, repository (such as a collection's
    name), description, kind or keyword, sort by name, maintainer or kind, and
    filter by kind, by the catalog's [keywords](catalog.md#keywords) or by your
-   favorites. Star a row to make it a
+   favorites. Keyword filters take up to three lines, in alphabetical order:
+   when they don't all fit, the most used ones show, with any you are filtering
+   by, and **+N more** shows the rest. Star a row to make it a
    favorite; favorites are kept in this browser only. Filtering never changes
    the selection: the count under the filters says how many selected machines
-   it hides.
+   it hides. **Presets**, beside the selection count, saves the selected
+   machines under a name and chooses them again in one step, replacing the
+   selection. **Update** on a preset replaces its machines with the current
+   selection, as saving its name again does. Presets are kept in this browser
+   only and name machines by ID: a machine the collection no longer offers is
+   left out and named.
 4. Choose optional extensions using the same checkbox rows as machines. Select
    a row to read what it does and how to use it in the details panel.
    Firmware extensions start off; continuing with none is valid. The summary lists your

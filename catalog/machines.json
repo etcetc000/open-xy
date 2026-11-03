@@ -1249,6 +1249,98 @@
       "kind": "effect",
       "maintainer": "carlosedp",
       "status": "reserved"
+    },
+    {
+      "id": "halcyon",
+      "kind": "synth",
+      "maintainer": "colorsinspace1",
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/halcyon",
+      "tag": "1.3",
+      "commit": "eb2fac61eec271a055b3b845310f88bf15f76496",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "eb2fac61eec271a055b3b845310f88bf15f76496",
+        "firmware_sha256": "94314bd510c151188c8298b5d4846184f88ae0abedaadb951b7a9a2247b624a9",
+        "runs": 3,
+        "block_percent": 3.170825
+      }
+    },
+    {
+      "id": "wander",
+      "kind": "synth",
+      "maintainer": "colorsinspace1",
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/wander",
+      "tag": "1.0",
+      "commit": "8e3b0e63479cdd40ea48a6af8cb478fc05a251fc",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "8e3b0e63479cdd40ea48a6af8cb478fc05a251fc",
+        "firmware_sha256": "c4e9870e510b3382231e9d5319f105399e8aa3be3848ea6bce4808eb34647482",
+        "runs": 3,
+        "block_percent": 1.744106
+      }
+    },
+    {
+      "id": "hkeys",
+      "kind": "synth",
+      "maintainer": "colorsinspace1",
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/halcyon-keys",
+      "tag": "1.4",
+      "commit": "a7b53ab7facb600e087996c2878c9a81f7cd3028",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "a7b53ab7facb600e087996c2878c9a81f7cd3028",
+        "firmware_sha256": "94314bd510c151188c8298b5d4846184f88ae0abedaadb951b7a9a2247b624a9",
+        "runs": 3,
+        "block_percent": 3.736934
+      }
+    },
+    {
+      "id": "hwander",
+      "kind": "synth",
+      "maintainer": "colorsinspace1",
+      "status": "published",
+      "repository": "https://github.com/colorsinspace1/halcyon-wander",
+      "tag": "1.6",
+      "commit": "577d387776a2e3753ebc3cfc9c38e3f07a828789",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-v1",
+        "commit": "577d387776a2e3753ebc3cfc9c38e3f07a828789",
+        "firmware_sha256": "94314bd510c151188c8298b5d4846184f88ae0abedaadb951b7a9a2247b624a9",
+        "runs": 3,
+        "block_percent": 3.454643
+      }
+    },
+    {
+      "id": "acidrain",
+      "kind": "synth",
+      "maintainer": "frankoooooooo",
+      "status": "published",
+      "repository": "https://github.com/frankoooooooo/acid-rain",
+      "tag": "v1.0.1",
+      "commit": "346a0dec231f03d757ca18a409548eb2b8d887f9",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "7f9c8dcf4483db06239cc0cb0ad715f0e82c2180",
+        "firmware_sha256": "b059011829f96d42861775b2c67723b3b946c29750110a79b7490b0f157fef30",
+        "runs": 3,
+        "block_percent": 3.167773,
+        "midpoint_percent": 3.106737,
+        "combined_percent": 3.054856,
+        "worst_setting": {
+          "control": 6,
+          "label": "ph",
+          "value": 268435455
+        }
+      }
     }
   ]
 }
