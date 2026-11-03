@@ -12,7 +12,9 @@ static Shared shared;
 static opxy::u32 owner(Voice* voice) { return static_cast<opxy::u32>(voice - voices) + 1; }
 // A drum kit's previewed model (the harness's Shift + 1); unused by synths.
 static opxy::u32 drum_model;
-// The note velocity primed per voice by opxy_note; the machine's state is untouched.
+// The note velocity primed per voice by opxy_note; the machine's state is
+// untouched. Unprimed slots hold a full onset, so a runner without opxy_note
+// (an older workbench) still gives the hook a valid 1..127 value.
 static opxy::u8 note_velocity[8];
 // The machine's optional note hook, dispatched as the firmware adapter does: an
 // engine may define note(Voice&, Shared&, opxy::u32) in its namespace, and an
@@ -33,7 +35,10 @@ opxy::u32 opxy_sample_rate() { return 44100; }
 opxy::u32 opxy_output_peak_q31() { return @PEAK@; }
 opxy::u32 opxy_voice_capacity() { return 8; }
 Voice* opxy_voice_state(opxy::u32 index) { return index < 8 ? &voices[index] : nullptr; }
-void opxy_initialize(Voice* voice) { @NAMESPACE@::initialize(*voice, shared, owner(voice)); }
+void opxy_initialize(Voice* voice) {
+    note_velocity[voice - voices] = 127;  // a full onset until a runner primes the note's
+    @NAMESPACE@::initialize(*voice, shared, owner(voice));
+}
 void opxy_start(Voice* voice) {
     sdk_voice_note::call(*voice, shared, note_velocity[voice - voices]);
     @NAMESPACE@::start(*voice, shared, owner(voice));

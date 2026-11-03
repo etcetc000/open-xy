@@ -21,4 +21,13 @@ assert.equal(low, quantized(0.25), `The 0.25 velocity renders ${quantized(0.25)}
 assert.equal(high, quantized(1.0), `The full velocity renders ${quantized(1.0)}, not ${high}`);
 assert.ok(low < high, 'The lower velocity renders the lower level');
 assert.ok(Math.abs(low - high * 32 / 127) <= 1, 'The levels hold the quantized 32:127 ratio');
+// An older workbench has no opxy_note: an unprimed onset must still hand the
+// hook a valid velocity, the full default, never zero.
+const legacy = new WebAssembly.Instance(module).exports;
+legacy.opxy_initialize(legacy.opxy_voice_state(0));
+legacy.opxy_start(legacy.opxy_voice_state(0));
+const scratch = Number(legacy.__heap_base.value);
+legacy.opxy_render(legacy.opxy_voice_state(0), scratch, scratch + 256, scratch + 512);
+const unprimed = new Int32Array(legacy.memory.buffer, scratch, 1)[0];
+assert.equal(unprimed, 127 << 16, `An unprimed onset renders ${127 << 16}, not ${unprimed}`);
 console.log('PASS: the previewed note hook renders the primed velocity (' + low + ' against ' + high + ').');
