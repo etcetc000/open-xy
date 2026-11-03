@@ -148,6 +148,16 @@
       "path": "machines/pingpong"
     },
     {
+      "id": "chords",
+      "kind": "player",
+      "maintainer": "etcetc000",
+      "status": "published",
+      "repository": "https://github.com/etcetc000/open-xy-core-machines",
+      "tag": "v1.9.0",
+      "commit": "c8508d7f55fbaabb470faec9c16f65d456a41d04",
+      "path": "machines/chords"
+    },
+    {
       "id": "nightdrive",
       "kind": "synth",
       "maintainer": "V714",
