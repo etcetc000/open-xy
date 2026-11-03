@@ -10,6 +10,9 @@ opxy::draw::SampleOverview sample;
 }
 const opxy::draw::SampleOverview* opxy_sample_overview() { return &sample; }
 extern "C" {
+// A preview shows one machine on one track.
+opxy::u32 sdk_control_copies(opxy::u32) { return 1; }
+opxy::i32 sdk_control_display(opxy::u32) { return 0; }
 opxy::u32 opxy_display_abi() { return 4; }
 opxy::u32 opxy_display_state_bytes() { return sizeof(state); }
 opxy::u32 opxy_display_input_bytes() { return sizeof(input); }

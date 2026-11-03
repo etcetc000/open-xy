@@ -55,6 +55,12 @@ note-activity baselines. Continuing to show the same page and track does not
 reset it. Browser hosts call `PreviewDisplay.reset()` when reactivating a
 preview. Audio state, note routing and the drawing input ABI are unchanged.
 
+A display host that resets a parameter may notify the optional GUI-only callback
+`display_parameter_reset(DisplayState&, u32 slot)` through
+`draw::parameter_reset(state, slot)`. It can animate back to that parameter's
+default without resetting the whole display. Omitting it is supported. This
+lifecycle callback does not change `draw::Input` or its browser ABI.
+
 ## Input
 
 Input holds the Q31 value each of the four control positions shows, Q10 elapsed
@@ -156,6 +162,17 @@ element. Both renderers apply only what changed.
 | `texts[i]` | `x`, `y`, `scale` like a node's, without turning, and up to 23 characters. |
 | `header[i]` | Text for control position `i` in place of the stock value, at its position and size: keep it to about five characters. An empty string keeps the stock value. |
 
+Standalone native hosts without the synth template can opt into the same header
+contract by authoring text leaves named `<prefix>_header_value_0` through
+`<prefix>_header_value_3`, and optional labels `<prefix>_header_title_0` through
+`<prefix>_header_title_3`. These leaves keep their authored position, font and
+paint; they do not consume or alias animated text slots. The shared platform
+header adapter binds them and applies `Frame.header`. A standalone host restores
+the shown parameter's declared label and normalized 0..100 value each frame;
+nonempty `Frame.header[i]` overrides that value. Supply mapped units and enum
+captions in the display callback. Missing leaves are supported and add no visual
+header. Synths retain their stock template and stock mapped-value formatting.
+
 | Field | Bounds |
 | --- | --- |
 | Path coordinates | ±`path_extent` (64) pixels, Q10 |
@@ -246,9 +263,13 @@ Elements bind by index and the machine's symbol prefix:
 
 | Frame part | Artwork |
 | --- | --- |
-| Node `i` | `<prefix>_node_<i>`: a `path` or `circle`. Path nodes are a `path` of exactly `M`, `points - 1` `L` and `Z` with no fill, every point distinct: the OP-XY's SVG parser merges repeated points, leaving fewer than the frame binds, and the device then no longer reshapes the outline. |
+| Node `i` | `<prefix>_node_<i>`: a `path` or `circle`. Path nodes are a `path` of exactly `M`, `points - 1` `L` and `Z`, every point distinct: the OP-XY's SVG parser merges repeated points, leaving fewer than the frame binds, and the device then no longer reshapes the outline. |
 | Text slot `i` | `<prefix>_text_<i>`: a `text` with explicit font, positioned by its transform, with no `x` or `y` |
 | Palette entry `i` | `<prefix>_palette_<i>`: a `path` or `circle` with explicit `#RRGGBB` fill and stroke and a stroke width; it lends them to the nodes that select it. Park entries off screen. |
+
+Mutable paths may have an explicit `#RRGGBB` fill when their authored geometry encloses area.
+Use a nonzero initial fill for shapes that must stay opaque: both renderers
+preserve `fill="none"` as disabled when applying palette changes.
 
 Every outline a frame draws must enclose area. A line traced out and back over
 itself, or an outline that turns straight back at a point, has none there, and the

@@ -27,12 +27,19 @@ test('dev server serves browser sources and rejects private paths and writes', a
     }
     // Vite's client and the shared renderers load through /@fs/ on every platform.
     const clientEnv = fileURLToPath(new URL('../../node_modules/vite/dist/client/env.mjs', import.meta.url));
-    const shared = ['display.mjs','controls.mjs','graphics.mjs'].map(name =>
-      fileURLToPath(new URL('../../sdk/browser/' + name, import.meta.url)));
+    const shared = [...['display.mjs','controls.mjs','graphics.mjs'].map(name =>
+      fileURLToPath(new URL('../../sdk/browser/' + name, import.meta.url))),
+      // core.mjs imports the init preset template it shares with the tooling.
+      fileURLToPath(new URL('../../tooling/default_preset.json', import.meta.url))];
+    const fsPath = file => '/@fs/' + file.replaceAll('\\', '/').replace(/^\//, '');
     for (const file of [clientEnv, ...shared]) {
-      const path = '/@fs/' + file.replaceAll('\\', '/').replace(/^\//, '');
-      assert.equal((await fetch(url + path)).status, 200, path);
+      assert.equal((await fetch(url + fsPath(file))).status, 200, fsPath(file));
+      // As the browser asks for a JSON module.
+      if (file.endsWith('.json')) assert.equal((await fetch(url + fsPath(file) + '?import')).status, 200);
     }
+    // Only that file of the tooling.
+    const tooling = fsPath(fileURLToPath(new URL('../../tooling/catalog.py', import.meta.url)));
+    assert.equal((await fetch(url + tooling)).status, 404, tooling);
     for (const path of ['/kit.json','/.env.local','/local/inputs/os.ldr','/builder/../local/inputs/os.ldr',
       '/%2e%2e/local/inputs/os.ldr','/@fs/C:/Windows/win.ini','/@fs/etc/passwd','/@fs//etc/passwd','/vite.config.mjs','/__open-in-editor?file=README.md']) {
       const response = await fetch(url+path); assert.equal(response.status,404,path);

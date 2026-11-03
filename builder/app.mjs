@@ -36,6 +36,30 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     numbers = value;
     try { localStorage.setItem(NUMBERS_KEY, JSON.stringify({profile: kit.profile.id, machines: value})); } catch {}
   }
+  // How the machine list is searched, filtered and sorted (core.browseMachines).
+  // Favorites are kept in this browser only, by machine ID.
+  const FAVORITES_KEY = 'open-xy-favorite-machines';
+  const browsing = {query: '', kind: 'all', keywords: [], favoritesOnly: false, sort: 'featured'};
+  let favorites = new Set();
+  try {
+    const stored = JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? '[]');
+    if (Array.isArray(stored)) favorites = new Set(stored.filter(id => typeof id === 'string'));
+  } catch {}
+  function toggleFavorite(id) {
+    if (!favorites.delete(id)) favorites.add(id);
+    try { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites])); } catch {}
+  }
+  // Named machine selections, kept in this browser only (core.readPresets). A preset
+  // chooses machines; their numbers still come from the layout.
+  const PRESETS_KEY = 'open-xy-machine-presets';
+  let presets = [];
+  try { presets = core.readPresets(JSON.parse(localStorage.getItem(PRESETS_KEY) ?? '[]')); } catch {}
+  function storePresets(next) {
+    presets = next;
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); }
+    catch { $('preset-message').textContent = 'This browser could not keep the preset; it lasts until you leave the page.'; }
+    renderPresets();
+  }
   let stopPreview = () => {}, previewRevision = 0;
   let stopAudio = () => {};
   window.addEventListener('blur', () => stopAudio());
@@ -240,6 +264,17 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const field = name => target.querySelector('.' + name);
     field('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', drum: 'Synthesis drum kit', sample: 'Sample engine', player: 'Note player'}[m.kind];
     field('detail-name').textContent = m.name; field('detail-description').textContent = m.description;
+    // Each catalog keyword lists every machine that shares it.
+    field('detail-keywords').hidden = !m.keywords?.length;
+    field('detail-keywords').replaceChildren(...(m.keywords ?? []).map(keyword => {
+      const button = node('button', keyword, 'tag'); button.type = 'button';
+      button.setAttribute('aria-label', 'Show all ' + keyword + ' machines');
+      button.onclick = () => {
+        Object.assign(browsing, {query: '', kind: 'all', keywords: [keyword], favoritesOnly: false});
+        syncBrowsing(); renderMachines();
+      };
+      return button;
+    }));
     field('community-notice').hidden = m.origin !== 'catalog';
     // Credit the catalog's maintainer and repository, with the exact release source;
     // Open-XY's own catalog machines (core.ORIGINS) name the project instead.
@@ -385,22 +420,109 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       } catch (error) { if (ticket === previewRevision) $('art-caption').textContent = 'Display preview unavailable: ' + error.message; }
     }
   }
-  function renderMachines(filter = 'all') {
+  // The browsing controls, matched to `browsing`.
+  function syncBrowsing() {
+    $('machine-search').value = browsing.query;
+    $('machine-sort').value = browsing.sort;
+    document.querySelectorAll('[data-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.filter === browsing.kind)));
+    $('favorites-filter').setAttribute('aria-pressed', String(browsing.favoritesOnly));
+    for (const chip of $('keyword-filters').querySelectorAll('.keyword-filter')) chip.setAttribute('aria-pressed', String(browsing.keywords.includes(chip.dataset.keyword)));
+    fitKeywords();
+  }
+  // Keyword filters take at most three lines, still in alphabetical order: the least used
+  // (core.keywordsByUse) give way first, a keyword in use as a filter always shows, and
+  // "+N more" shows the rest. Fitted again when the row's width changes, including when the
+  // Machines step first appears (a hidden row has no width to measure).
+  const KEYWORD_LINES = 3;
+  let keywordsExpanded = false, keywordsWidth = 0;
+  function fitKeywords() {
+    const row = $('keyword-filters'), more = row.querySelector?.('.keyword-more');
+    if (!more) return;
+    const chips = [...row.querySelectorAll('.keyword-filter')];
+    chips.forEach(chip => chip.hidden = false);
+    more.hidden = true;
+    keywordsWidth = row.clientWidth;
+    if (!keywordsWidth || !chips.length) return;
+    const gap = parseFloat(getComputedStyle(row).rowGap) || 0;
+    const limit = KEYWORD_LINES * chips[0].offsetHeight + (KEYWORD_LINES - 1) * gap + 1;
+    if (row.offsetHeight <= limit) return;
+    // Least used first, keeping the ones filtering the list.
+    const giving = core.keywordsByUse(kit.machines).map(k => k.keyword).reverse()
+      .filter(keyword => !browsing.keywords.includes(keyword));
+    const hidden = [];
+    more.hidden = false;
+    const label = () => {
+      more.textContent = keywordsExpanded ? 'Fewer' : '+' + hidden.length + ' more';
+      more.setAttribute('aria-expanded', String(keywordsExpanded));
+      more.setAttribute('aria-label', keywordsExpanded ? 'Show fewer keywords' : 'Show ' + hidden.length + ' more keywords');
+    };
+    label();
+    for (const keyword of giving) {
+      if (row.offsetHeight <= limit && hidden.length) break;
+      chips.find(chip => chip.dataset.keyword === keyword).hidden = true;
+      hidden.push(keyword);
+      label();
+    }
+    if (keywordsExpanded) { chips.forEach(chip => chip.hidden = false); label(); }
+  }
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => {
+    if ($('keyword-filters').clientWidth !== keywordsWidth) fitKeywords();
+  }).observe($('keyword-filters'));
+  function clearBrowsing() {
+    Object.assign(browsing, {query: '', kind: 'all', keywords: [], favoritesOnly: false});
+    syncBrowsing(); renderMachines();
+  }
+  // Kinds and keywords this kit has: the others are not offered as filters.
+  function renderBrowsing() {
+    document.querySelectorAll('[data-filter]').forEach(b =>
+      b.hidden = b.dataset.filter !== 'all' && !kit.machines.some(m => m.kind === b.dataset.filter));
+    if (!kit.machines.some(m => m.kind === browsing.kind)) browsing.kind = 'all';
+    const counts = new Map(core.MACHINE_KEYWORDS.map(keyword => [keyword, kit.machines.filter(m => m.keywords?.includes(keyword)).length]));
+    const offered = core.MACHINE_KEYWORDS.filter(keyword => counts.get(keyword));
+    browsing.keywords = browsing.keywords.filter(keyword => offered.includes(keyword));
+    $('keyword-filters').hidden = !offered.length;
+    $('keyword-filters').replaceChildren(...offered.map(keyword => {
+      const chip = node('button', keyword, 'keyword-filter'); chip.type = 'button'; chip.dataset.keyword = keyword;
+      const count = node('span', String(counts.get(keyword)), 'keyword-count'); count.setAttribute('aria-hidden', 'true');
+      chip.append(count); chip.setAttribute('aria-label', keyword + ', ' + counts.get(keyword) + (counts.get(keyword) === 1 ? ' machine' : ' machines'));
+      chip.onclick = () => {
+        browsing.keywords = browsing.keywords.includes(keyword) ? browsing.keywords.filter(t => t !== keyword) : [...browsing.keywords, keyword];
+        syncBrowsing(); renderMachines();
+      };
+      return chip;
+    }));
+    const more = node('button', undefined, 'keyword-more'); more.type = 'button'; more.hidden = true;
+    more.onclick = () => { keywordsExpanded = !keywordsExpanded; fitKeywords(); more.focus(); };
+    $('keyword-filters').append(more);
+    syncBrowsing();
+  }
+  function renderMachines() {
     $('machines').style.setProperty('--machine-count', kit.machines.length);
     $('machines').replaceChildren();
-    const priority = m => m.origin === 'bundled' || m.origin === 'official' ? 0 : 1;
-    // Preserve collection order within each group and the memory-map color indexes.
-    const rows = kit.machines.map((m, index) => ({m, index}))
-      .sort((a, b) => priority(a.m) - priority(b.m));
+    // Each row keeps its collection index, and so its memory-map colour, in any order.
+    const rows = core.browseMachines(kit.machines, {...browsing, favorites: browsing.favoritesOnly ? favorites : null});
+    const filtered = Boolean(browsing.query.trim() || browsing.kind !== 'all' || browsing.keywords.length || browsing.favoritesOnly);
+    const hiddenSelected = selected.filter(id => !rows.some(({m}) => m.id === id)).length;
+    $('browse-result').textContent = !filtered ? '' : rows.length + ' of ' + kit.machines.length + ' machines' +
+      (hiddenSelected ? ' · ' + hiddenSelected + ' selected not shown' : '');
+    if (!rows.length) {
+      const empty = node('p', browsing.favoritesOnly && !favorites.size ? 'No favorites yet. Star a machine to keep it here.'
+        : 'No machines match.', 'machine-empty');
+      const clear = node('button', 'Clear filters', 'text-button'); clear.type = 'button';
+      clear.onclick = () => { clearBrowsing(); $('machine-search').focus(); };
+      empty.append(' ', clear); $('machines').append(empty);
+    }
     rows.forEach(({m, index}) => {
-      if (filter !== 'all' && m.kind !== filter) return;
       const row = node('article', undefined, 'machine' + (selected.includes(m.id) ? ' selected' : ''));
       row.dataset.origin = m.origin;
       row.style.setProperty('--machine', colors[index % colors.length]);
       const label = node('label'), input = node('input'); input.type = 'checkbox'; input.checked = selected.includes(m.id);
       input.setAttribute('aria-label', 'Include ' + m.name); label.append(input);
       const button = node('button'); button.dataset.id = m.id; button.setAttribute('aria-pressed', String(inspected === m.id));
-      button.append(node('span', m.name, 'machine-name'), node('span', m.description, 'machine-desc'));
+      const name = node('span', m.name, 'machine-name');
+      // Its catalog maintainer, beside the name; a personal kit's own machines have none.
+      if (core.machineAuthor(m)) name.append(' ', node('span', '(' + core.machineAuthor(m) + ')', 'machine-author'));
+      button.append(name, node('span', m.description, 'machine-desc'));
       const meta = node('span', undefined, 'machine-meta');
       meta.append(node('span', {synth: 'Synth', effect: 'Effect', drum: 'Drum kit', sample: 'Sample', player: 'Player'}[m.kind]), node('span', m.controls.length + (m.controls.length === 1 ? ' control' : ' controls')));
       const ownBytes = kit.objects.filter(o => o.owner === m.id)
@@ -417,7 +539,18 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       };
       const glyph = node('span', undefined, 'machine-icon');
       glyph.append(visuals.icon(m.kind, m.icon));
-      row.append(label, glyph, button); $('machines').append(row);
+      // A row stays listed when unstarred under Favorites, until the list changes, so a
+      // mistaken click can be undone in place.
+      // Outlined or filled, so its state does not rest on colour alone.
+      const star = node('button', undefined, 'machine-favorite'); star.type = 'button';
+      star.setAttribute('aria-label', 'Favorite ' + m.name);
+      const showFavorite = () => {
+        star.textContent = favorites.has(m.id) ? '★' : '☆';
+        star.setAttribute('aria-pressed', String(favorites.has(m.id)));
+      };
+      showFavorite();
+      star.onclick = () => { toggleFavorite(m.id); showFavorite(); };
+      row.append(label, glyph, button, star); $('machines').append(row);
     });
   }
   function selectionNames() {
@@ -510,7 +643,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const result = core.linkKit(kit, selection, numbers, extensions);
-      const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings);
+      const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
       files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
@@ -551,9 +684,82 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     if (type === 'drop') acceptFirmware(e.dataTransfer.files[0]);
   });
   document.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => {
-    document.querySelectorAll('[data-filter]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-    renderMachines(b.dataset.filter);
+    browsing.kind = b.dataset.filter; syncBrowsing(); renderMachines();
   });
+  $('favorites-filter').onclick = () => { browsing.favoritesOnly = !browsing.favoritesOnly; syncBrowsing(); renderMachines(); };
+  $('machine-search').oninput = e => { browsing.query = e.target.value; renderMachines(); };
+  $('machine-sort').onchange = e => { browsing.sort = e.target.value; renderMachines(); };
+  // Each saved preset: choose it, update it to the current selection, or delete it. A machine
+  // this collection lacks is counted apart, since choosing the preset cannot select it here.
+  // Rendered again whenever the menu opens, so Update reflects the selection made since.
+  function renderPresets() {
+    $('presets-empty').hidden = presets.length > 0;
+    $('presets-list').hidden = !presets.length;
+    $('presets-list').replaceChildren(...presets.map(preset => {
+      const {selected: offered, missing} = kit ? core.applyPreset(kit, preset) : {selected: preset.machines, missing: []};
+      const item = node('li', undefined, 'preset');
+      const choose = node('button', undefined, 'preset-apply'); choose.type = 'button';
+      choose.append(node('span', preset.name, 'preset-name'),
+        node('span', offered.length + (offered.length === 1 ? ' machine' : ' machines') +
+          (missing.length ? ' · ' + missing.length + ' not here' : ''), 'preset-count'));
+      choose.title = [...offered.map(id => kit?.machines.find(m => m.id === id)?.name ?? id), ...missing].join(', ');
+      choose.onclick = () => choosePreset(preset);
+      // Saves the current selection into this preset; nothing to do when it already matches.
+      const update = node('button', 'Update', 'preset-update'); update.type = 'button';
+      update.setAttribute('aria-label', 'Update preset ' + preset.name + ' to the selected machines');
+      update.disabled = !selected.length || core.presetMatches(preset, selected);
+      update.title = !selected.length ? 'Select machines to update this preset'
+        : update.disabled ? 'Already the selected machines'
+        : selected.length === 1 ? 'Replace with the selected machine' : 'Replace with the ' + selected.length + ' selected machines';
+      update.onclick = () => {
+        storePresets(core.savePreset(presets, preset.name, selected));
+        $('preset-message').textContent = 'Updated “' + preset.name + '”: ' + selected.length +
+          (selected.length === 1 ? ' machine.' : ' machines.');
+        // Its row is drawn again; keep focus on it.
+        [...$('presets-list').querySelectorAll('.preset-apply')].find(b => b.querySelector('.preset-name').textContent === preset.name)?.focus();
+      };
+      const remove = node('button', '✕', 'preset-delete'); remove.type = 'button';
+      remove.setAttribute('aria-label', 'Delete preset ' + preset.name);
+      remove.onclick = () => {
+        storePresets(core.deletePreset(presets, preset.name));
+        $('preset-message').textContent = 'Deleted “' + preset.name + '”.';
+        $('preset-name').focus();
+      };
+      item.append(choose, update, remove);
+      return item;
+    }));
+  }
+  $('machine-presets').addEventListener('toggle', () => {
+    if ($('machine-presets').open) { $('preset-message').textContent = ''; renderPresets(); }
+  });
+  // Choosing a preset replaces the selection, as ticking its machines would.
+  function choosePreset(preset) {
+    const {selected: chosen, missing} = core.applyPreset(kit, preset);
+    selected = chosen;
+    invalidate(); renderMachines(); recalculate();
+    $('machine-presets').open = false;
+    status('Preset “' + preset.name + '”: ' + chosen.length + (chosen.length === 1 ? ' machine' : ' machines') + ' selected.' +
+      (missing.length ? ' Not in this collection: ' + missing.join(', ') + '.' : ''));
+  }
+  // The menu closes as menus do: Escape returns to its button, and a click elsewhere leaves it.
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !$('machine-presets').open) return;
+    $('machine-presets').open = false; $('machine-presets').querySelector('summary').focus();
+  });
+  document.addEventListener('pointerdown', event => {
+    if ($('machine-presets').open && !$('machine-presets').contains(event.target)) $('machine-presets').open = false;
+  });
+  $('preset-form').onsubmit = event => {
+    event.preventDefault();
+    try {
+      const name = $('preset-name').value;
+      const replaced = presets.some(p => p.name.localeCompare(name.trim(), undefined, {sensitivity: 'base'}) === 0);
+      storePresets(core.savePreset(presets, name, selected));
+      $('preset-name').value = '';
+      $('preset-message').textContent = (replaced ? 'Updated “' : 'Saved “') + name.trim().replace(/\s+/g, ' ') + '”: ' +
+        selected.length + (selected.length === 1 ? ' machine.' : ' machines.');
+    } catch (error) { $('preset-message').textContent = error.message; }
+  };
   $('restore').onchange = async e => {
     try {
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
@@ -592,7 +798,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     catalog = core.decode64(kit.stockCatalog);
     $('notices').textContent = kit.notices;
     $('notices').closest('details').hidden = false;
-    sizeMachineSummary(); renderMachines(); renderExtensions(); inspect(kit.machines[0].id); recalculate();
+    sizeMachineSummary(); renderBrowsing(); renderMachines(); renderPresets(); renderExtensions(); inspect(kit.machines[0].id); recalculate();
   }
   document.querySelector('.memory-bar').onclick = e => e.currentTarget.classList.toggle('open');
   try {

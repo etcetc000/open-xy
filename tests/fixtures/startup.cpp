@@ -46,6 +46,8 @@ int effect_screen_register() { calls += "effect-page "; return 1; }
 int effect_ready() { calls += "effect? "; return ready_state; }
 int player_screen_register() { calls += "player-page "; return 1; }
 u32 stock_gui_role() { calls += "role "; return gui; }
+u32 sdk_control_kept_write(void* file) { calls += "kept "; return file ? 2 : 0; }
+void sdk_control_kept_load(const char* path) { calls += path; }
 u32 stock_catalog_insert(void*, const void*, u32 id) { inserted = id; return 7; }
 int sdk_stock_engine_known(const void*) { return named && std::string(named) == "prism"; }
 
@@ -93,6 +95,13 @@ int main() {
     require(catalog("stock", 33) == 0 && inserted == 0);
     require(catalog("first", 33) == 0 && inserted == 0);
     require(kit_absent() == 0);
+    // The companion writer reaches the control service's kept data.
+    calls.clear();
+    require(sdk_project_kept(&calls) == 2 && calls == "kept ");
+    // A project load gives the control service the project's path.
+    calls.clear();
+    sdk_project_loaded("song.xy");
+    require(calls == "song.xy");
 
     // Only a ready machine's own page is owned; readiness must be exactly 1.
     calls.clear();

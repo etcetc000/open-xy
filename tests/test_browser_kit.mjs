@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -180,6 +180,27 @@ test('extensions omit code/state and resolve only shared registry imports to an 
   assert.throws(() => linkKit(k, ['a'], null, []), /Unresolved import/);
 });
 
+test('master processors are independently selectable and omitted accessors resolve safely', () => {
+  const k=fixture();k.definitions.kit_absent=k.profile.module_base;
+  k.extensions=['first','second'].map(id=>({id,claims:[],actions:[],master_processor:{state_id:id}}));
+  assert.deepEqual(extensionSelection(k,['second','first']),['first','second']);
+  const registry=k.objects[0];registry.owner=null;
+  for(const id of ['first','second']) {
+    const object={...readObject(elf()),name:id+'.o',owner:null,extension:id};
+    object.symbols[1].name='sdk_extension_'+id+'_hooks';
+    for(const suffix of ['processor','panel'])object.symbols.push({...object.symbols[1],name:'sdk_extension_'+id+'_'+suffix});
+    object.sections.push({index:5,name:'.bss',group:'bss',type:8,size:128,alignment:4});
+    k.objects.push(object);
+    for(const suffix of ['hooks','processor','panel'])registry.symbols.push({name:'sdk_extension_'+id+'_'+suffix,section:0,value:0,size:0,binding:1,type:0});
+  }
+  const both=linkKit(k,['a'],null,['second','first']),one=linkKit(k,['a'],null,['second']),none=linkKit(k,['a'],null,[]);
+  assert.equal(both.sizes.bss,256);assert.equal(one.sizes.bss,128);assert.equal(none.sizes.bss,0);
+  for(const suffix of ['hooks','processor','panel']) {
+    assert.equal(one.aliases.get('sdk_extension_first_'+suffix),k.definitions.kit_absent);
+    assert.equal(one.aliases.has('sdk_extension_second_'+suffix),false);
+  }
+});
+
 test('extension selections preserve collection order, empty choices and exclusive gestures', () => {
   const k = {extensions:[{id:'observer', claims:[]}, {id:'capture', claims:['record_double_tap']}, {id:'replace', claims:['record_double_tap']}]};
   assert.deepEqual(extensionSelection(k, []), []);
@@ -215,6 +236,24 @@ test('SDK objects of a profile service link only when a selected machine uses it
   assert.deepEqual(linked.objects.map(o=>o.name),['a.o']); assert.equal(linked.services.size,0);
   k.machines.push({...machine('b',46,7),kind:'sample'});
   assert.throws(()=>linkKit(k,['a','b']),/Duplicate global symbol: entry/);
+});
+test('track control and hidden pages use the control service, whose entry points fall back while unused', () => {
+  const k=fixture(), o=k.objects[0];
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['hidePages']}])],['control']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'}])],[]);
+  // Shared startup calls the control service's saved data, which only a control build links.
+  k.definitions.fallback=k.profile.module_base;
+  o.owner=null;
+  o.symbols.push({name:'sdk_control_kept_write',section:0,value:0,size:0,binding:1,type:0});
+  o.relocations.push({section:1,offset:0,type:18,symbol:o.symbols.length-1,addend:0});
+  assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
+  k.serviceFallbacks={control:{sdk_control_kept_write:'fallback'}};
+  assert.doesNotThrow(()=>linkKit(k,['a']));
+  k.machines[0].features=['trackControl'];
+  assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
+  k.serviceFallbacks={control:{sdk_control_kept_write:'undefined_fallback'}}; delete k.machines[0].features;
+  assert.throws(()=>linkKit(k,['a']),/Invalid service fallback/);
 });
 test('empty, unknown, repeated selections, duplicate globals and memory exhaustion are rejected', () => {
   const k=fixture(); for(const s of [[],['missing'],['a','a']]) assert.throws(()=>linkKit(k,s),/Choose each machine once/);
@@ -363,6 +402,91 @@ test('a machine says where it comes from: a catalog release or a personal folder
   k.fixed={a:{engine:35,page:83}}; await assert.rejects(openKit(k), /Fixed machine numbers differ: a/); k.fixed={};
   k.machines[0].source = {...source, repository:'https://evil.example/a/b'};
   await assert.rejects(openKit(k), /Invalid machine origin/);
+  k.machines[0].source = source;
+  // Catalog keywords are words from one list, at most five, each once.
+  for (const keywords of [['fm', 'bell'], undefined]) { k.machines[0].keywords = keywords; await openKit(k); }
+  for (const keywords of [[], ['fm', 'fm'], ['FM'], ['<b>'], 'fm', ['fm', 'bell', 'pad', 'bass', 'lofi', 'noise']]) {
+    k.machines[0].keywords = keywords;
+    await assert.rejects(openKit(k), /Invalid machine keywords/, JSON.stringify(keywords));
+  }
+});
+test('machines are found by name, author, kind, description and keyword, in a chosen order', () => {
+  const by = (maintainer, name = 'x') => ({repository:'https://github.com/' + maintainer + '/' + name, tag:'v1', commit:'a'.repeat(40), maintainer});
+  const machines = [
+    {id:'zeta', name:'Zeta', kind:'synth', origin:'catalog', description:'Bright pads.', source:by('bob', 'OP-XY-Hexagon'), keywords:['pad', 'fm']},
+    {id:'alpha', name:'alpha', kind:'effect', origin:'catalog', description:'A tape delay.', source:by('Carol'), keywords:['delay']},
+    {id:'core', name:'Mid', kind:'synth', origin:'official', description:'Plucked strings.', source:by('etc'), keywords:['pluck']},
+    {id:'mine', name:'Beta 10', kind:'drum', origin:'personal', description:'Kicks.'},
+    {id:'beta2', name:'Beta 2', kind:'synth', origin:'catalog', description:'Granular clouds.', source:by('bob')},
+  ];
+  const ids = options => browseMachines(machines, options).map(({m}) => m.id);
+  // Open-XY's own first, then the rest, each by name; each row keeps its collection index (its colour).
+  assert.deepEqual(ids(), ['core', 'alpha', 'beta2', 'mine', 'zeta']);
+  assert.deepEqual(browseMachines(machines).map(({index}) => index), [2, 1, 4, 3, 0]);
+  assert.deepEqual(ids({sort:'name'}), ['alpha', 'beta2', 'mine', 'core', 'zeta']);
+  // By maintainer, ignoring case; a personal machine has none and comes first.
+  assert.deepEqual(ids({sort:'author'}), ['mine', 'beta2', 'zeta', 'alpha', 'core']);
+  assert.deepEqual(ids({sort:'kind'}), ['beta2', 'core', 'zeta', 'mine', 'alpha']);
+  assert.deepEqual(ids({sort:'unknown'}), ids());
+  assert.deepEqual(ids({query:'BOB'}), ['beta2', 'zeta']);
+  assert.deepEqual(ids({query:'  tape   delay '}), ['alpha']);
+  assert.deepEqual(ids({query:'pad bob'}), ['zeta']);
+  assert.deepEqual(ids({query:'drum'}), ['mine']);
+  // A collection by its repository's name, and kinds by the words the builder shows for them.
+  assert.deepEqual(ids({query:'hexagon'}), ['zeta']);
+  assert.deepEqual(ids({query:'drums'}), ['mine']);
+  assert.deepEqual(ids({query:'fx'}), ['alpha']);
+  assert.deepEqual(ids({query:'synthesizer'}), ['core', 'beta2', 'zeta']);
+  assert.deepEqual(ids({query:'nothing'}), []);
+  assert.deepEqual(ids({kind:'synth'}), ['core', 'beta2', 'zeta']);
+  assert.deepEqual(ids({keywords:['pad']}), ['zeta']);
+  assert.deepEqual(ids({keywords:['pad', 'delay']}), []);
+  assert.deepEqual(ids({favorites:new Set(['alpha', 'mine', 'gone'])}), ['alpha', 'mine']);
+  assert.deepEqual(ids({kind:'synth', query:'b', sort:'name'}), ['beta2', 'zeta']);
+  assert.equal(machineAuthor(machines[3]), '');
+  assert.equal(machineAuthor(machines[1]), 'Carol');
+  assert.ok(MACHINE_KEYWORDS.length && MACHINE_KEYWORDS.every(keyword => /^[a-z]+$/.test(keyword)));
+  // Most used first, then by name: the order keyword filters are kept when only some fit.
+  assert.deepEqual(keywordsByUse([...machines, {id:'pads', keywords:['pad', 'bass']}]),
+    [{keyword:'pad', count:2}, {keyword:'bass', count:1}, {keyword:'delay', count:1}, {keyword:'fm', count:1}, {keyword:'pluck', count:1}]);
+  assert.deepEqual(keywordsByUse([{id:'none'}]), []);
+});
+test('machine presets save, replace, delete and choose named selections by ID', () => {
+  let presets = savePreset([], '  Night   set ', ['moth', 'fm2op']);
+  assert.deepEqual(presets, [{name:'Night set', machines:['moth', 'fm2op']}]);
+  presets = savePreset(presets, 'ambient 2', ['bloom']);
+  presets = savePreset(presets, 'Ambient 10', ['wane']);
+  // By name, numbers by value; saving a name again in any case replaces it in place.
+  assert.deepEqual(presets.map(p => p.name), ['ambient 2', 'Ambient 10', 'Night set']);
+  presets = savePreset(presets, 'NIGHT SET', ['karplus', 'karplus']);
+  assert.deepEqual(presets.map(p => [p.name, p.machines]), [['ambient 2', ['bloom']], ['Ambient 10', ['wane']], ['NIGHT SET', ['karplus']]]);
+  for (const [name, machines, message] of [['', ['moth'], /Name the preset/], ['   ', ['moth'], /Name the preset/],
+    ['x'.repeat(PRESET_NAME_LIMIT + 1), ['moth'], /40 characters/], ['empty', [], /at least one machine/]])
+    assert.throws(() => savePreset(presets, name, machines), message, name);
+  let many = [];
+  for (let i = 0; i < 50; i++) many = savePreset(many, 'p' + i, ['moth']);
+  assert.throws(() => savePreset(many, 'one more', ['moth']), /at most 50/);
+  savePreset(many, 'P7', ['bloom']);  // replacing one is still allowed
+  assert.deepEqual(deletePreset(presets, 'night set').map(p => p.name), ['ambient 2', 'Ambient 10']);
+  // Update saves the selection under the preset's own name; a matching selection, in any order, changes nothing.
+  const night = {name:'Night', machines:['moth', 'fm2op']};
+  assert.ok(presetMatches(night, ['fm2op', 'moth']) && presetMatches(night, ['moth', 'fm2op', 'moth']));
+  for (const machines of [['moth'], ['moth', 'fm2op', 'bloom'], ['moth', 'bloom'], []])
+    assert.ok(!presetMatches(night, machines), machines.join());
+  assert.deepEqual(savePreset([night], night.name, ['bloom']), [{name:'Night', machines:['bloom']}]);
+  // Reading what a browser kept drops what is malformed, repeated or too long.
+  assert.deepEqual(readPresets(null), []);
+  assert.deepEqual(readPresets('[]'), []);
+  assert.deepEqual(readPresets([{name:'b', machines:['moth']}, {name:'B', machines:['bloom']}, {name:'a', machines:['moth']},
+    {name:'', machines:['moth']}, {name:'c', machines:[]}, {name:'d', machines:['Moth']}, {name:'e', machines:['moth', 'moth']},
+    {name:'f', machines:'moth'}, {name:'x'.repeat(41), machines:['moth']}, {name:3, machines:['moth']}, null, 'g',
+    {name:'h', machines:[['moth']]}, {name:'i', machines:['a'.repeat(16)]}]),
+    [{name:'a', machines:['moth']}, {name:'b', machines:['moth']}]);
+  assert.equal(readPresets(Array.from({length:60}, (_, i) => ({name:'p' + i, machines:['moth']}))).length, 50);
+  // Choosing one selects the machines this kit has, in collection order, and names the rest.
+  const kit = {machines:[{id:'fm2op'}, {id:'karplus'}, {id:'moth'}]};
+  assert.deepEqual(applyPreset(kit, {name:'n', machines:['moth', 'gone', 'fm2op']}), {selected:['fm2op', 'moth'], missing:['gone']});
+  assert.deepEqual(applyPreset(kit, {name:'n', machines:['gone']}), {selected:[], missing:['gone']});
 });
 test('malformed loader records and unsafe ZIP paths are rejected', () => {
   for(const bytes of [new Uint8Array(),new Uint8Array(16),elf()]) assert.throws(()=>readLdr(bytes));
