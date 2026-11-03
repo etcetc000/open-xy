@@ -4,6 +4,8 @@ no machines of its own; these are small, valid folders, not copies of published 
 - probesynth: a synth with a drawing display (two paths) and its panel.svg.fragment.
 - probesources: a synth with an extra translation unit and include folder, and a
   display without paths.
+- probevelocity: a synth whose voices render their note velocity through the
+  optional note hook.
 - probefx: an effect with a Dry control (dryParameter) and controls of each mapping.
 - probesample: a drum-page (page 7) sample engine declaring every optional service.
 """
@@ -13,7 +15,7 @@ from tooling.machines import machine_at, read_collection
 
 FOLDER = Path(__file__).resolve().parent / 'fixtures/machines'
 # Firmware order for a collection holding every kind.
-NAMES = ('probesynth', 'probesources', 'probefx', 'probesample')
+NAMES = ('probesynth', 'probesources', 'probevelocity', 'probefx', 'probesample')
 
 
 def fixture(name):
