@@ -31,6 +31,7 @@ int drawn_screen_register() { calls += "drawn-page "; return drawn_screen; }
 int drawn_screen_ready() { calls += "drawn-page? "; return drawn_screen; }
 static int overlays;
 void sdk_overlay_startup() { ++overlays; }  // the SDK's overlay, after every screen
+void sdk_master_stock_stage(void*, int*, int*) {}  // stock's EQ: the master stage without a processor
 // The selected track's engine, through stock's getters (host addresses).
 static u32 track = 0, engine = 0;
 static u32 selected() { return track; }

@@ -1024,9 +1024,12 @@ control's choice as a ninth to twelfth.
 
 The conditional `master_filter` service redirects these stock 1.2.1 sites.
 Eight-byte entry branches replay their exact original prologues in adapter
-trampolines before resuming stock. Four-byte call sites remain relative; the
-master audio call retains its eight-byte absolute footprint. The existing
-project save/deserialize hooks are shared, not replaced or duplicated.
+trampolines before resuming stock. Four-byte call sites remain relative. The
+existing project save/deserialize hooks are shared, not replaced or duplicated.
+The master audio call is the cpu meter's, in every build. It times
+`sdk_master_stage`, which startup defines as `sdk_master_process` when the
+build links this service and as stock's EQ otherwise. A browser selection
+without a master processor resolves `sdk_master_process` to stock's EQ.
 
 | Site | Purpose | Original bytes |
 | --- | --- | --- |
@@ -1034,7 +1037,7 @@ project save/deserialize hooks are shared, not replaced or duplicated.
 | `8c09392c` | MIX Shift buttons entry | `093200e803006160` |
 | `8c093888` | MIX encoder entry | `4360990900e80300` |
 | `8d537d04` | EQ frame entry | `00e82400e305666f` |
-| `8d511b80` | Master stereo EQ processing call | `00dea011102c0000` |
+| `8d511b80` | Master stereo EQ processing call (the cpu meter's hook, in every build) | `00dea011102c0000` |
 | `8d5b145e` | B3 parameter receiver call | `fae397eb` |
 | `8d598a3c` | Active project publication getter call | `ffe3ea5b` |
 | `8d588114` | New-project preparation entry | `00e80c15e305666f` |
