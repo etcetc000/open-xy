@@ -218,6 +218,13 @@ unselected extensions entirely. The SDK's extension hooks form the profile's
 `extensions` service: a build with no extension selected links none of the
 runtime and leaves every one of its stock call sites unchanged.
 
+## Master processor
+
+A [master-processor extension](master-filter.md) supplies a stereo audio transform
+and an authored panel through the SDK's shared master-processor capability, with one active processor at a time.
+It uses the stock selector and the project companion service; it does not
+intercept the controller recording events listed above.
+
 ## Change the SDK for an extension
 
 Reuse first: read the events table. Most needs are a subscriber that filters an

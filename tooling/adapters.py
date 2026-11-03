@@ -14,7 +14,8 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import ROOT, SYNTH_POSITIONS, control_positions, paged, shift_parameters, validate_definition
+from .definitions import (ROOT, SYNTH_POSITIONS, control_positions, hidden_pages, paged, shift_parameters,
+                          validate_definition)
 
 # An effect's shift-row controls follow its eight parameter words (slots 8..11).
 SHIFT_SLOT = 8
@@ -137,14 +138,14 @@ def screen_bytes(m):
     return 76 + 4 * words
 
 
-def generate_display(directory, *, machine=None, definition=None, kind='synth'):
+def generate_display(directory, *, machine=None, definition=None, kind="synth", namespace=None, symbol_prefix=None, binding_namespace="binding"):
     """Same authored display callback for host, WebAssembly and native wrappers."""
     if definition is None:
         definition, assignment = machine.definition, stock_identity(machine)
     else:
         validate_definition(definition, kind)
         assignment = {'symbol_prefix': 'local_preview'}
-    namespace, prefix = definition['id'], assignment['symbol_prefix']
+    namespace, prefix = namespace or definition['id'], symbol_prefix or assignment['symbol_prefix']
     display = definition['resources']['display']
     layout = drawing_layout(display)
     frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**layout)
@@ -205,6 +206,8 @@ extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
 }}
 '''
     directory = Path(directory)
+    header = header.replace('namespace binding', 'namespace '+binding_namespace).replace('opxy::binding', 'opxy::'+binding_namespace)
+    source = source.replace('opxy::binding', 'opxy::'+binding_namespace)
     (directory / 'display_binding.hpp').write_text(header, encoding='utf-8', newline='\n')
     (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
 
@@ -450,7 +453,7 @@ def generate_synth_controls(directory, machines):
             extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
-                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {absent}{extra}}},")
+                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {hidden_pages(m.definition)}, {absent}{extra}}},")
     return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters), LFO_MACHINES='\n'.join(lfo_rows)),
                   Path(directory) / 'synth_control_table.cpp')
 
@@ -473,6 +476,101 @@ def generate_project_companion_table(directory, machines):
 FX_BUFFER_INIT = '''    // Stock's per-send scratch memory, which stock delay and reverb use the same way.
     object->buffer = slot == 14 || slot == 15
         ? opxy::platform::stock<opxy::i32*(opxy::u32, opxy::u32)>(0x8d50e048)(slot, {bytes}u) : nullptr;'''
+
+
+def track_control(m):
+    """A synth's declared track control (resources.trackControl), or {}."""
+    return (m.definition['resources'].get('trackControl') if m.kind == 'synth' else None) or {}
+
+
+def generate_control(directory, m):
+    """A synth's track control callbacks behind C entry points, with its state."""
+    control, namespace, p = track_control(m), m.definition['id'], m.prefix
+    copies = 1 if control.get('unique') else 16  # a copy per track, aux tracks included
+    source = f'''// Generated: {m.native_name}'s track control behind C entry points.
+#include "control.cpp"
+static_assert(sizeof({namespace}::ControlState) == {control['stateBytes']},
+              "Declared track control state size differs from C++ type");
+static_assert(alignof({namespace}::ControlState) == {control['stateAlignment']},
+              "Declared track control state alignment differs from C++ type");
+static_assert(__is_trivial({namespace}::ControlState) && __is_standard_layout({namespace}::ControlState),
+              "Track control state must be trivial standard-layout data");
+// One state per copy: a unique machine has one, any other one per track.
+namespace {{ {namespace}::ControlState states[{copies}]; }}
+extern "C" void {p}_control_reset(opxy::u32) __asm__("{p}_control_reset");
+extern "C" void {p}_control(opxy::u32, const opxy::control::Input*, opxy::control::Overlay*) __asm__("{p}_control");
+extern "C" void {p}_control_reset(opxy::u32 copy) {{ {namespace}::control_reset(states[copy]); }}
+extern "C" void {p}_control(opxy::u32 copy, const opxy::control::Input* input, opxy::control::Overlay* overlay) {{
+    {namespace}::control(states[copy], *input, *overlay);
+}}
+'''
+    if 'savedBytes' in control:
+        source += f'''extern "C" opxy::u32 {p}_control_save(opxy::u8*) __asm__("{p}_control_save");
+extern "C" void {p}_control_load(const opxy::u8*, opxy::u32) __asm__("{p}_control_load");
+extern "C" opxy::u32 {p}_control_save(opxy::u8* data) {{
+    const opxy::u32 bytes = {namespace}::control_save(states[0], data, {control['savedBytes']});
+    return bytes <= {control['savedBytes']} ? bytes : 0;
+}}
+extern "C" void {p}_control_load(const opxy::u8* data, opxy::u32 bytes) {{
+    {namespace}::control_load(states[0], data, bytes);
+}}
+'''
+    destination = Path(directory) / 'control_binding.cpp'
+    destination.write_text(source, encoding='utf-8', newline='\n')
+    return destination
+
+
+def control_callbacks(m):
+    """The C entry points a synth with track control exports."""
+    control = track_control(m)
+    if not control:
+        return []
+    suffixes = ('_control_reset', '_control') + (('_control_save', '_control_load') if 'savedBytes' in control else ())
+    return [m.prefix + suffix for suffix in suffixes]
+
+
+def generate_track_controls(directory, machines):
+    """The collection's synths with track control, as one table (track_control.hpp)."""
+    # Shift + M1 on an aux track lists its stock role and every machine that may take
+    # it over (aux_tracks.cpp, kChoices): refuse a build whose list would not fit.
+    for m in machines:
+        require(not track_control(m).get('aux') or m.id not in AUX_ROLES.values(),
+                f'A machine that takes over aux tracks is not named as a stock role ({m.id})')
+    for track in AUX_ROLES:
+        holders = [m.id for m in machines if track_control(m) and track in track_control(m).get('aux', ())]
+        require(len(holders) <= AUX_CHOICES - 1,
+                f'At most {AUX_CHOICES - 1} machines may take over aux track {track} in one build, not {len(holders)}')
+    declarations, rows = [], []
+    for m in machines:
+        if not track_control(m):
+            continue
+        p, saved = m.prefix, track_control(m).get('savedBytes', 0)
+        declarations += [f'int {p}_ready() __asm__("{p}_ready");',
+                         f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
+                         f'void {p}_control_reset(opxy::u32) __asm__("{p}_control_reset");',
+                         f'void {p}_control(opxy::u32, const opxy::control::Input*, opxy::control::Overlay*) '
+                         f'__asm__("{p}_control");']
+        if saved:
+            declarations += [f'opxy::u32 {p}_control_save(opxy::u8*) __asm__("{p}_control_save");',
+                             f'void {p}_control_load(const opxy::u8*, opxy::u32) __asm__("{p}_control_load");']
+        callbacks = f'{p}_control_save, {p}_control_load' if saved else 'nullptr, nullptr'
+        unique = 'true' if track_control(m).get('unique') else 'false'
+        shared_lfo = 'true' if track_control(m).get('sharedLfo') else 'false'
+        # The aux tracks it may take over, by index; there it shows its own page
+        # and starts from its defaults, as stock applies them on tracks 1-8.
+        aux = sum(1 << (t - 1) for t in track_control(m).get('aux', ()))
+        require(not aux or m.display != 'stock', 'A machine that takes over aux tracks needs its own display')
+        page = f'{p}_page_id' if m.display != 'stock' else 'nullptr'
+        if m.display != 'stock':
+            declarations.append(f'extern const char {p}_page_id[] __asm__("{p}_page_id");')
+        defaults = ', '.join(str(d << 16) for d in catalog_defaults(m.definition))
+        # Its presets become files in content/aux_presets (aux_preset_files), named by them.
+        require(not aux or all(len(name) <= 15 for name in m.definition['presets']),
+                'A machine that takes over aux tracks names its presets in at most 15 characters')
+        rows.append(f'    {{{p}_engine_id, {p}_ready, {p}_control_reset, {p}_control, "{m.id}", {saved}, {callbacks}, '
+                    f'{unique}, {aux:#x}u, {page}, {{{defaults}}}, {shared_lfo}}},')
+    return expand('track_control_table.cpp.in', dict(CONTROL_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows)),
+                  Path(directory) / 'track_control_table.cpp')
 
 
 # An effect's shift row (SDK 1.7): its choices, packed into the send track's
@@ -536,6 +634,53 @@ def stock_labels(m):
     return ', '.join(json.dumps(p['label'].lower()) for p in m.definition['parameters'])
 
 
+# The stock role of each aux track a machine can take over (1-based), as presets name it.
+AUX_ROLES = {12: 'cv'}
+# The entries of an aux track's Shift + M1 list: its stock role, then machines (aux_tracks.cpp kChoices).
+AUX_CHOICES = 32
+# The aux presets the device lists, in every folder together, and its folders
+# (aux_tracks.cpp kPresets, kFolders).
+AUX_PRESETS, AUX_FOLDERS = 64, 16
+
+
+def check_aux_presets(machines):
+    """Refuses a build whose aux preset list the device cannot show whole."""
+    paths = {path for m in machines for path in aux_preset_files(m)}
+    require(len(paths) <= AUX_PRESETS, f'The aux machines in one build have at most {AUX_PRESETS} presets '
+                                       f'together, the role inits included, not {len(paths)}')
+    folders = {path.split('/')[2] for path in paths}
+    require(len(folders) <= AUX_FOLDERS, f'The aux machines in one build have at most {AUX_FOLDERS} preset '
+                                         f'folders together, the roles included, not {len(folders)}')
+
+
+def aux_preset_files(m):
+    """A machine that takes over aux tracks: its definition's presets as the files the
+    aux preset list reads (aux_tracks.cpp), by path. Each names the machine in "type"
+    and holds its eight controls as instrument presets store them (0..32767). With
+    them, an `init` for the stock role of each of its tracks, without controls: it
+    gives the track back to that role, so the role is listed for those who only
+    choose presets."""
+    if not (track_control(m) and track_control(m).get('aux')):
+        return {}
+    parameters = m.definition['parameters']
+    # The device lists at most 64 aux presets (aux_tracks.cpp kPresets), the role's init among them.
+    names = [name.lower() for name in m.definition['presets']]
+    require(len(set(names)) == len(names), 'A machine that takes over aux tracks names its presets apart, ignoring case')
+    require(len(names) + len(track_control(m)['aux']) <= AUX_PRESETS,
+            f'A machine that takes over aux tracks has at most {AUX_PRESETS - 1} presets')
+    files = {}
+    for track in track_control(m)['aux']:
+        role = AUX_ROLES[track]
+        document = {'platform': 'OP-XY', 'type': role, 'version': 1}
+        files[f'content/aux_presets/{role}/init.json'] = (json.dumps(document, indent=2) + '\n').encode()
+    for name, preset in m.definition['presets'].items():
+        params = [math.floor(preset.get(p['id'], p['default']) * 32767 + 0.5) for p in parameters]
+        params += [0] * (8 - len(params))
+        document = {'params': params, 'platform': 'OP-XY', 'type': m.id, 'version': 1}
+        files[f'content/aux_presets/{m.id}/{name.lower()}.json'] = (json.dumps(document, indent=2) + '\n').encode()
+    return files
+
+
 def catalog_defaults(definition):
     """Eight Q15 stock parameter defaults from normalized definition defaults."""
     defaults = [math.floor(p['default'] * 32767 + 0.5) for p in definition['parameters']]
@@ -543,7 +688,10 @@ def catalog_defaults(definition):
 
 
 def catalog_entry(m):
-    """The stock catalog text inserted for a machine, in the reviewed byte layout."""
+    """The stock catalog text inserted for a machine, in the reviewed byte layout. A machine
+    that takes over aux tracks has none: it is chosen there, never in tracks 1-8's engine list."""
+    if track_control(m) and track_control(m).get('aux'):
+        return ''
     if m.kind in ('effect', 'player'):
         return (',\n        {\n            "type": ' + json.dumps(m.native_name) +
                 ',\n            "id": ' + str(m.identity['effect'] if m.kind == 'effect' else m.identity['player'] + PLAYER_CATALOG_OFFSET) +
@@ -592,17 +740,10 @@ PLAYER_CATALOG_OFFSET = 4
 def preset_path(m):
     """content/presets/<id>/default.json for an instrument; None for an effect, a
     player or a machine on an aux track (builder/core.mjs presetPath). An aux machine
-    has no catalog entry and keeps its presets under content/aux_presets/ instead (#234,
-    not yet merged; track_control is a placeholder until that PR defines its shape)."""
+    has no catalog entry and keeps its presets under content/aux_presets/ instead
+    (aux_preset_files)."""
     return (None if m.kind in ('effect', 'player') or track_control(m).get('aux')
             else f'content/presets/{m.id}/default.json')
-
-
-def track_control(m):
-    """A machine's track-control declaration (definition.json `trackControl`), or {}
-    if it has none. Placeholder pending #234 (machines on aux tracks); revisit once
-    that PR lands and defines the real shape."""
-    return m.definition.get('trackControl') or {}
 
 
 def default_preset(m):

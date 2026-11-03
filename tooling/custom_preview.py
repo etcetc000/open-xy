@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
+from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
 from .contributors import validate_source_boundary
@@ -89,7 +90,22 @@ def metadata(files):
         require(node is not None and node.tag in {'path', 'circle'} and
                 all(re.fullmatch(r'#[0-9a-fA-F]{6}', node.get(key, '')) for key in ('fill', 'stroke')) and
                 0 < float(node.get('stroke-width', '0')) <= 8, 'Invalid drawing palette: ' + identity)
-    return definition, dict(graphics, asset_sha256=sha(artwork))
+    result = dict(graphics, asset_sha256=sha(artwork))
+    variant = grayscale_source(files)
+    if variant:
+        from .graphics import validate_grayscale
+        m = SimpleNamespace(prefix=prefix, definition=definition, display='drawing', source=lambda path: path)
+        validate_grayscale(m, artwork, files[variant])
+        result['grayscale_sha256'] = sha(files[variant])
+    return definition, result
+
+
+def grayscale_source(files):
+    from .machines import graphics_path
+    record = json.loads(files['machine.json']) if 'machine.json' in files else {}
+    name = graphics_path(record)
+    require(not name or name in files, 'Missing declared grayscale artwork: ' + str(name))
+    return name
 
 
 def source_hashes(files):
@@ -116,6 +132,9 @@ def build(compiler, source, out, overwrite=False):
     compile_preview(compiler, definition, out, source)
     require(source_hashes(source_files(source)) == before, 'Sources changed during preview build')
     (out / 'panel.svg').write_bytes(files['panel.svg.fragment'])
+    variant = grayscale_source(files)
+    if variant:
+        (out / 'panel.grayscale.svg').write_bytes(files[variant])
     manifest = dict(schema=1, kind=KIND, engine=definition['id'], sample_rate=44100, definition=definition,
                     source_root=str(source), sources=before, graphics=graphics,
                     wasm_sha256=sha((out / 'engine.wasm').read_bytes()), compiler={'sha256': sha(compiler.read_bytes())})
@@ -136,6 +155,9 @@ def authenticate(manifest, artifacts):
     require(manifest['sources'] == source_hashes(files), 'Preview is stale; rebuild from current source')
     require(manifest['definition'] == definition and manifest['engine'] == definition['id'] and
             manifest['graphics'] == graphics, 'Custom preview metadata differs from source')
+    variant = grayscale_source(files)
+    if variant:
+        require(artifacts.get('panel.grayscale.svg') == files[variant], 'Grayscale preview differs from source')
     require(artifacts['panel.svg'] == files['panel.svg.fragment'] and
             artifacts['engine.wasm'][:8] == b'\0asm\x01\0\0\0' and
             sha(artifacts['engine.wasm']) == manifest['wasm_sha256'], 'Custom preview artifact identity mismatch')
@@ -143,6 +165,8 @@ def authenticate(manifest, artifacts):
 
 # Machine kinds sdk.py new starts, each from sdk/templates/<kind>/.
 STARTERS = ('synth', 'effect')
+# The parts of the repository's device checklist (QA.md) that differ by kind.
+QA_PARTS = ('setup', 'listed', 'playing', 'lfo', 'presets')
 
 
 def scaffold(out, identity, name, kind='synth', repository=False, controls=None, overwrite=False):
@@ -163,9 +187,16 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None,
                 if kind == 'synth' else
                 'Effects have no browser preview. Run the host tests below, then audition on your XY\n'
                 'using the hardware workflow linked below.')
+    # The device checklist's parts for this kind (sdk/templates/qa/<kind>/), each in place of its
+    # placeholder's line: a part the kind lacks leaves the line out.
+    qa = {part: (ROOT / 'sdk/templates/qa' / kind / (part + '.md')) for part in QA_PARTS}
+    qa = {part: path.read_text(encoding='utf-8') if path.is_file() else '' for part, path in qa.items()}
     for starter in starters:
         for template in sorted(starter.rglob('*.in')):
             text = template.read_text(encoding='utf-8').replace('@AUDITION@', audition)
+            for part, part_text in qa.items():
+                text = text.replace('@QA_' + part.upper() + '@\n', part_text)
+            text = text.replace('@KIND@', kind)
             text = text.replace('@ID@', identity).replace('@NAME@', name)
             text = text.replace('@CONTROLS@', str(controls))
             text = text.replace('@PAGE_SLOTS@', ', '.join(str(i + 4 if i + 4 < controls else i) for i in range(4)))
@@ -174,7 +205,7 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None,
             destination.write_text(text, encoding='utf-8', newline='\n')
     if repository:
         shutil.copyfile(ROOT / 'LICENSE', out / 'LICENSE')
-        print('Repository-ready source: README.md, AGENTS.md and CI included; Git is not initialized.')
+        print('Repository-ready source: README.md, AGENTS.md, QA.md and CI included; Git is not initialized.')
     from .machines import SDK_VERSION
     python = 'python3' if Path(sys.executable).name.startswith('python3') else 'python'
     if kind == 'effect':

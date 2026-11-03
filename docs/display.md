@@ -55,6 +55,12 @@ note-activity baselines. Continuing to show the same page and track does not
 reset it. Browser hosts call `PreviewDisplay.reset()` when reactivating a
 preview. Audio state, note routing and the drawing input ABI are unchanged.
 
+A display host that resets a parameter may notify the optional GUI-only callback
+`display_parameter_reset(DisplayState&, u32 slot)` through
+`draw::parameter_reset(state, slot)`. It can animate back to that parameter's
+default without resetting the whole display. Omitting it is supported. This
+lifecycle callback does not change `draw::Input` or its browser ABI.
+
 ## Input
 
 Input holds the Q31 value each of the four control positions shows, Q10 elapsed
@@ -156,6 +162,17 @@ element. Both renderers apply only what changed.
 | `texts[i]` | `x`, `y`, `scale` like a node's, without turning, and up to 23 characters. |
 | `header[i]` | Text for control position `i` in place of the stock value, at its position and size: keep it to about five characters. An empty string keeps the stock value. |
 
+Standalone native hosts without the synth template can opt into the same header
+contract by authoring text leaves named `<prefix>_header_value_0` through
+`<prefix>_header_value_3`, and optional labels `<prefix>_header_title_0` through
+`<prefix>_header_title_3`. These leaves keep their authored position, font and
+paint; they do not consume or alias animated text slots. The shared platform
+header adapter binds them and applies `Frame.header`. A standalone host restores
+the shown parameter's declared label and normalized 0..100 value each frame;
+nonempty `Frame.header[i]` overrides that value. Supply mapped units and enum
+captions in the display callback. Missing leaves are supported and add no visual
+header. Synths retain their stock template and stock mapped-value formatting.
+
 | Field | Bounds |
 | --- | --- |
 | Path coordinates | ±`path_extent` (64) pixels, Q10 |
@@ -246,9 +263,13 @@ Elements bind by index and the machine's symbol prefix:
 
 | Frame part | Artwork |
 | --- | --- |
-| Node `i` | `<prefix>_node_<i>`: a `path` or `circle`. Path nodes are a `path` of exactly `M`, `points - 1` `L` and `Z` with no fill, every point distinct: the OP-XY's SVG parser merges repeated points, leaving fewer than the frame binds, and the device then no longer reshapes the outline. |
+| Node `i` | `<prefix>_node_<i>`: a `path` or `circle`. Path nodes are a `path` of exactly `M`, `points - 1` `L` and `Z`, every point distinct: the OP-XY's SVG parser merges repeated points, leaving fewer than the frame binds, and the device then no longer reshapes the outline. |
 | Text slot `i` | `<prefix>_text_<i>`: a `text` with explicit font, positioned by its transform, with no `x` or `y` |
 | Palette entry `i` | `<prefix>_palette_<i>`: a `path` or `circle` with explicit `#RRGGBB` fill and stroke and a stroke width; it lends them to the nodes that select it. Park entries off screen. |
+
+Mutable paths may have an explicit `#RRGGBB` fill when their authored geometry encloses area.
+Use a nonzero initial fill for shapes that must stay opaque: both renderers
+preserve `fill="none"` as disabled when applying palette changes.
 
 Every outline a frame draws must enclose area. A line traced out and back over
 itself, or an outline that turns straight back at a point, has none there, and the
@@ -288,6 +309,64 @@ See [2op display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/ma
 [Macro display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/display.cpp) (segment characters,
 glow, dials and header text) for implementations.
 How screens reach stock is described in the [firmware ABI](abi-1.2.1.md#screens).
+
+## Grayscale artwork
+
+A synth targeting SDK 1.5 can offer its own grayscale design:
+
+```json
+"sdk": "1.5",
+"graphics": {"grayscale": "panel.grayscale.svg.fragment"}
+```
+
+This is an optional machine.json entry. The path names a separate SVG fragment
+inside the machine, at most 64 KiB; redirects and paths outside the machine are
+rejected. Start with a copy of `panel.svg.fragment`, then choose grayscale fills,
+strokes, text colors and off-screen palette donors. Retain every bound node,
+text and palette ID and its element type. Retain bound origins, ancestor
+transforms, fill versus none, and mutable-outline topology and distinct points.
+Static geometry, stroke widths, labels and brightness can be designed for
+grayscale. Both versions use the same display.cpp, resource budget and sound.
+For palette choices and visual review, consider the optional
+[color design guidance](ux.md#color-design-guidance): prioritize meaningful
+hue-based distinctions over matching source brightness, with consistent roles
+across static artwork and animation palettes.
+
+`sdk.py test --machine <folder>` and preview builds validate both SVGs. All paint
+in the alternate, including decorative elements and animation palettes, must be
+grayscale. Invalid variants fail with an error; they are never silently converted.
+The workbench's Graphics selector previews both versions using the current
+controls and animation state. Check notes, releases, control extremes, page
+changes and reduced motion in both modes. Review meaningful hue-based
+distinctions, the closest gray tones and their backgrounds across the full
+animation palette. Validation alone cannot judge clarity.
+
+On the installer's **Extensions** page, **Grayscale machine graphics** keeps
+an already-grayscale original byte for byte; otherwise it uses the validated
+developer variant unchanged, or automatic conversion when no variant is declared.
+The checkbox reflects whether any selected custom screen is configured for
+grayscale. **Configure** can set individual screens to grayscale or original;
+checking or unchecking the option applies that choice to all selected custom screens.
+The automatic fallback builds one palette from every fill and stroke, including
+off-screen animation donors. It groups strongly chromatic colors into hue
+families and assigns separate gray ranges to those families, prioritizing hue
+distinctions over matching original brightness. Brightness remains a secondary
+cue within each range. Allocation adapts to the number of unique chromatic
+colors, hue families and shades: smaller palettes distinguish closer hues;
+single-color families consume no shade band, and multi-shade families share
+at most a quarter of the usable range. The rest separates hue families across
+gray levels 96–248, retaining visibility on black backgrounds. Repeated colors
+and aliases do not consume extra tones. Exact neutral grays remain unchanged;
+weak tints and palettes with only one hue family retain luminance-based
+conversion. This keeps subdued backgrounds and grids from becoming bright
+accents. The mapping is
+independent of SVG order and repeated paint usage, and stays fixed throughout
+animation. It is a palette heuristic: many hues, opacity and overlapping shapes
+can still limit visible separation. Supply a deliberate grayscale variant when
+automatic conversion does not preserve the intended distinctions.
+The selection happens while packaging, without a firmware drawing ABI change or
+a new saved sound parameter. Preview artifacts authenticate the variant's hash
+and source alongside the original; rebuilding is required after editing either.
 
 ## Migrating from before SDK 1.0
 

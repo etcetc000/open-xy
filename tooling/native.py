@@ -19,12 +19,14 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
-from .adapters import (generate_player_object, generate_player_table, catalog_entry, generate_display,
-                       generate_extension_palette_stock, generate_fx_object, generate_registration,
+from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display,
+                       generate_extension_palette_stock, generate_fx_object, generate_player_object,
+                       generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
-                       generate_synth_controls, generate_project_companion_table, generate_voice,
-                       generate_drum_callbacks, preset_files, sample_callbacks)
+                       generate_synth_controls, generate_project_companion_table, generate_track_controls,
+                       generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
+                       control_callbacks)
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
@@ -53,13 +55,8 @@ CXX_FLAGS = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-excep
              '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-asynchronous-unwind-tables',
              '-fno-unwind-tables', '-fno-common', '-fno-tree-loop-distribute-patterns',
              '-fomit-frame-pointer', '-nostdinc++', '-Wall', '-Werror', '-Wno-unused-variable']
-# Stock SVG parse (0x8d5f38ba) accepts at most four fractional digits and no exponents.
-SVG_ELEMENTS = {'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text'}
-SVG_NUMERIC = {'d', 'points', 'transform', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
-               'width', 'height', 'stroke-width', 'stroke-miterlimit', 'stroke-dasharray',
-               'stroke-dashoffset', 'font-size', 'opacity', 'fill-opacity', 'stroke-opacity'}
-NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)'
-SVG_INHERITED = {'fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 'style'}
+from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes, validate_xml
+
 
 
 class Collection(list):
@@ -191,7 +188,8 @@ def plan(machines, profile=None):
     units = []
     for m in machines:
         if m.kind in ('synth', 'drum'):
-            steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration')
+            steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration',
+                     *(('control',) if track_control(m) else ()))
         elif m.kind == 'player':
             steps = ('player_object',)
         elif m.kind == 'effect':
@@ -216,7 +214,11 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_palette', 'extension_palette_stock', 'extension_system_stock', 'extension_system_hook', 'extension_collection', 'extension_stock', 'presets',
+             'extension_runtime', 'extension_palette', 'extension_palette_stock', 'extension_system_stock',
+             'extension_system_hook', 'extension_collection', 'extension_stock', 'track_control',
+             'track_control_table', 'track_control_hooks', 'track_control_project',
+             'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
+             'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
@@ -230,12 +232,26 @@ UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_palette', 'e
                                    'extension_system_stock', 'extension_system_hook', 'extension_collection', 'extension_stock'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
+# Track control and hidden pages run from the GUI tick hook; startup stands in for
+# the saved data's entry points in builds that don't link it.
+UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
+                                    'track_control_project', 'synth_pages'), 'control'))
+# Machines that take over aux tracks: the chooser, presets, pages and the stock
+# roles' silencers; startup starts it, and control reaches it through sdk_aux.
+UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
+
+UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
 
 
 def service_users(machines):
-    """What a native build's services are chosen by: its machines' kinds, and
-    'extension' when it links extensions (native builds link all of the collection's)."""
-    return [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    """What a native build's services are chosen by: its machines' kinds, the features
+    they declare ('trackControl', 'auxTrack', 'hidePages'), and 'extension' when it
+    links extensions (native builds link all of the collection's)."""
+    users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    return (users + ['trackControl' for m in machines if track_control(m)] +
+            ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
+            ['hidePages' for m in machines if 'hidePages' in m.definition] +
+            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
 
 
 def module_bytes(profile):
@@ -309,6 +325,8 @@ def absent_symbols(m):
             absent[m.prefix + '_screen_register'] = 'kit_absent'
         if m.kind == 'sample' and m.display != 'stock':
             absent[m.prefix + '_screen_ready'] = 'kit_absent'
+        # The shared track control table names these; unselected, its ready check declines first.
+        absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
     if m.kind in ('effect', 'sample', 'drum'):
         absent[m.prefix + '_benchmark'] = 'kit_absent'
     return absent
@@ -333,14 +351,26 @@ def runtime_objects(directory, gcc, units, definitions):
     return members
 
 
+def number_suffixes(kind, own_screen=False):
+    """A machine's link-time number symbols, after its prefix (configuration). By kind, not
+    by name: an ID may extend another with "_fx" or "_screen"."""
+    return (('_player_id', '_page_id') if kind == 'player' else ('_fx_id', '_fx_page_id') if kind == 'effect' else
+            ('_engine_id', '_page_id', '_screen_page_id') if kind == 'sample' and own_screen else ('_engine_id', '_page_id'))
+
+
+def absent_numbers(absent):
+    """Unselected machines have no numbers (builder/core.mjs numberSymbols): each number
+    symbol they have, a sample engine's own screen page included, is 0."""
+    return {m.prefix + suffix: 0 for m in absent
+            for suffix in number_suffixes(m.kind, m.kind == 'sample' and m.display != 'stock')}
+
+
 def link(directory, tools, profile, definitions, machines, selected, name='module', runtime_members=()):
     """Link the selected machines' objects, compiled in `directory` for the whole collection,
     as the builder does; None, or how they overflow the shared module memory."""
     absent = [m for m in machines if m not in selected]
     aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
-    # Unselected machines have no numbers (builder/core.mjs numberSymbols).
-    definitions = {**definitions, **{m.prefix + suffix: 0 for m in absent for suffix in (
-        ('_player_id', '_page_id') if m.kind == 'player' else ('_fx_id', '_fx_page_id') if m.kind == 'effect' else ('_engine_id', '_page_id'))}}
+    definitions = {**definitions, **absent_numbers(absent)}
     # GNU ld synthesizes FILE symbols from object arguments; relative names keep
     # independent rebuilds byte-identical.
     command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',
@@ -420,7 +450,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step.startswith('extension:'):
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
-                return cxx(str(extensions.generate_extension(folder, extension)), obj)
+                return compile_cxx(gcc['cxx'], tools['as'], str(extensions.generate_extension(folder, extension)),
+                                   obj, includes() + [str(extension.root)])
+            if step == 'master_filter_collection':
+                return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
             if step == 'extension_palette':
@@ -439,6 +472,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_player_table(folder, machines)), obj)
             if step == 'project_companion_table':
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
+            if step == 'track_control_table':
+                return cxx(str(generate_track_controls(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
@@ -449,11 +484,13 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'drum', 'sample')]
+                services = active_services(profile, service_users(machines))
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
                                                 [x.prefix for x in sample_engines],
                                                 [x.prefix for x in sample_engines if x.display != 'stock'],
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
-                                                player_pages=[x.prefix for x in by_kind(machines, 'player')])), obj)
+                                                player_pages=[x.prefix for x in by_kind(machines, 'player')],
+                                                control='control' in services, aux='aux' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -462,6 +499,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
+                  'control': lambda: generate_control(folder, m),
                   'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
                   'player_object': lambda: generate_player_object(folder, m)}[step]
         return cxx(str(source()), obj, m)
@@ -612,6 +650,10 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
         entries = [word(symbols[table]['value'] + offset) for offset in slots]
         require(all(entry in body for entry in entries), 'Audio entry of ' + m.id + ' is not a function start')
         bounds[m.id] = max(depth(entry) for entry in entries)
+    if 'sdk_master_process' in symbols:
+        entry = symbols['sdk_master_process']['value']
+        require(entry in body, 'Master audio entry is not a function start')
+        bounds['sdk:master_filter'] = depth(entry)
     return bounds
 
 
@@ -703,8 +745,14 @@ def display_ids(prefix, display):
             [f'{prefix}_palette_{i}' for i in range(display['palette'])])
 
 
+def header_ids(prefix):
+    """Optional authored header leaves, values then titles, for standalone hosts."""
+    return [f'{prefix}_header_{kind}_{i}' for kind in ('value', 'title') for i in range(4)]
+
+
 def panel_root(fragment, source):
     """An artwork fragment: one well-formed root element, such as <g id="<prefix>_panel">."""
+    validate_xml(fragment)
     try:
         return ET.fromstring(fragment)
     except ET.ParseError as error:
@@ -712,21 +760,27 @@ def panel_root(fragment, source):
 
 
 def check_outlines(by_id, prefix, display):
-    """Drawing paths are the first nodes: exactly M, (points - 1) L and Z, unfilled."""
+    """Drawing paths are the first nodes: exactly M, (points - 1) L and Z; filled paths must enclose area."""
     points = display['points']
     for name in display_ids(prefix, display)[:display['paths']]:
         node = by_id.get(name)
         commands = re.findall(r'[A-Za-z]', node.get('d', '')) if node is not None else []
         coordinates = re.findall(NUMBER, node.get('d', '')) if node is not None else []
         require(node is not None and node.tag == 'path' and commands == ['M'] + ['L'] * (points - 1) + ['Z'] and
-                len(coordinates) == 2 * points and node.get('fill') == 'none',
-                'Mutable outline must contain exactly M, %d L and Z, with no fill: %s' % (points - 1, name))
+                len(coordinates) == 2 * points,
+                'Mutable outline must contain exactly M, %d L and Z: %s' % (points - 1, name))
         # The stock parser merges repeated points, leaving fewer than the frame
         # binds, and the device then no longer reshapes the outline. Points are
         # compared as the Q10 coordinates the device holds.
         pairs = [(round(float(x) * 1024), round(float(y) * 1024)) for x, y in zip(coordinates[::2], coordinates[1::2])]
         require(len(set(pairs)) == points,
                 'Mutable outline repeats a point; the device merges repeated points, so keep each distinct: ' + name)
+        if node.get('fill') != 'none':
+            require(re.fullmatch(r'#[0-9A-Fa-f]{6}', node.get('fill', '')),
+                    'Filled mutable paths need an explicit #RRGGBB fill: ' + name)
+            area = sum(x * pairs[(i + 1) % points][1] - pairs[(i + 1) % points][0] * y
+                       for i, (x, y) in enumerate(pairs))
+            require(area != 0, 'Filled mutable paths must enclose area: ' + name)
 
 
 def check_bindings(by_id, prefix, display):
@@ -747,11 +801,28 @@ def check_bindings(by_id, prefix, display):
         node = by_id[name]
         require(not {'x', 'y'} & set(node.keys()) and len(node.text or '') < 24,
                 'Text slots are positioned by their transform and hold at most 23 characters: ' + name)
+    for name in header_ids(prefix):
+        node = by_id.get(name)
+        if node is not None:
+            require(node.tag == 'text', 'Header bindings must be text leaves: ' + name)
+            require(len(node.text or '') < 24, 'Header bindings hold at most 23 characters: ' + name)
     return palette
+
+
+def check_palette(by_id, palette):
+    """Renderers copy donor paint verbatim; every consumer uses this policy."""
+    for name in palette:
+        node = by_id.get(name)
+        require(node is not None and node.tag in ('path', 'circle') and node.get('fill') not in (None, 'none') and
+                node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
+                'Bound node needs visible explicit fill and stroke: ' + name)
+        require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', node.get(k)) for k in ('fill', 'stroke')),
+                'Palette donors need #RRGGBB fill and stroke: ' + name)
 
 
 def validate_panel(m, fragment=None):
     """The authored SVG subset plus the display contract's required node bindings."""
+    check_variant = fragment is None and getattr(m, 'grayscale', None)
     fragment = read(m.root / 'panel.svg.fragment') if fragment is None else fragment
     nodes = list(panel_root(fragment, m.source('panel.svg.fragment')).iter())
     ids = [node.get('id') for node in nodes if node.get('id')]
@@ -763,12 +834,6 @@ def validate_panel(m, fragment=None):
         require(node is not None and node.tag in tags and node.get('fill') not in (None, 'none') and
                 node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
                 'Bound node needs visible explicit fill and stroke: ' + name)
-
-    def donor(name):
-        # Renderers copy donor paint verbatim: explicit #RRGGBB fill and stroke.
-        visible(name)
-        require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', by_id[name].get(k)) for k in ('fill', 'stroke')),
-                'Palette donors need #RRGGBB fill and stroke: ' + name)
 
     if m.display == 'player':
         # A player page: dots that show or hide, and the line its text replaces.
@@ -786,26 +851,11 @@ def validate_panel(m, fragment=None):
         require(line is not None and line.tag == 'text' and re.fullmatch(translate, line.get('transform', '')),
                 'Player page line must be a text node with transform="matrix(1 0 0 1 x y)"')
     else:
-        palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
-        for name in palette:
-            donor(name)
-    for node in nodes:
-        for attribute in SVG_NUMERIC.intersection(node.attrib):
-            value = node.attrib[attribute]
-            require(not re.search(r'\d[eE][-+]?\d', value), 'Exponent notation is outside the authored SVG numeric subset')
-            require(not re.search(r'\.\d{5,}', value), 'Authored SVG numbers must have at most four decimal places')
-        require(node.tag in SVG_ELEMENTS, 'Unsupported authored SVG element')
-        require('style' not in node.attrib and not any(k.lower().startswith('on') or 'href' in k.lower()
-                for k in node.attrib), 'Unsupported SVG style, event or external reference')
-        if node.tag == 'g':
-            require(not SVG_INHERITED.intersection(node.attrib), 'Put SVG paint/font attributes on leaves')
-        else:
-            require('fill' in node.attrib, 'Missing explicit SVG fill')
-            if node.tag == 'text':
-                require({'font-family', 'font-size'} <= node.attrib.keys(), 'Missing explicit text font')
-            if node.get('fill') == 'none':
-                require(node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
-                        'Invisible authored SVG outline')
+        check_palette(by_id, check_bindings(by_id, m.prefix, m.definition['resources']['display']))
+    validate_nodes(nodes)
+    if check_variant:
+        from .graphics import validate_grayscale
+        validate_grayscale(m, fragment, read(m.root / m.grayscale))
     return fragment
 
 
@@ -814,8 +864,9 @@ def extend_catalog(catalog, profile, machines):
 
     The insertion offsets are bound to the exact authenticated stock catalog.
     """
-    groups = dict(engine_types=by_kind(machines, 'synth', 'drum', 'sample'), fx_types=by_kind(machines, 'effect'),
-                  seq_types=by_kind(machines, 'player'))
+    listed = [m for m in machines if catalog_entry(m)]  # aux machines are not in tracks 1-8's list
+    groups = dict(engine_types=by_kind(listed, 'synth', 'drum', 'sample'), fx_types=by_kind(listed, 'effect'),
+                  seq_types=by_kind(listed, 'player'))
     result, base = catalog, json.loads(catalog)
     for key, at in sorted(profile['stock_catalog_inserts'].items(), key=lambda item: -item[1]):
         result = result[:at] + ''.join(catalog_entry(m) for m in groups[key]).encode('utf-8') + result[at:]
@@ -834,6 +885,15 @@ def prepare_assets(catalog, profile, machines):
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
+    check_aux_presets(machines)
+    for m in machines:
+        outputs.update(aux_preset_files(m))
+    for e in extensions_of(machines):
+        if e.master_processor is not None:
+            path = e.root / e.master_processor['artwork']
+            name = 'content/display/' + path.name
+            require(name not in outputs, 'Display asset collision: ' + name)
+            outputs[name] = extensions.validate_master_artwork(path)
     return outputs
 
 

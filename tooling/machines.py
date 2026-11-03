@@ -21,7 +21,7 @@ from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources', 'includes', 'icon', 'presetDefaults',
-          'presets', 'dryParameter', 'dryLevel'}
+          'presets', 'dryParameter', 'dryLevel', 'graphics'}
 # The public machine contract: headers, definition schema, artwork rules and
 # callbacks. A machine names the version it was written for; the SDK builds a
 # machine of the same major version and an equal or older minor version.
@@ -31,13 +31,15 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.4 adds the reusable header and partial second pages sharing unassigned controls.
 # 1.5 drops identity numbers: the layout gives every number, and a sample engine
 # names its base instead of a stock page.
+# 1.5 also supports optional developer-authored grayscale artwork.
 # 1.6 extends PadSettings to 18 bits and supplies held-pad and multi-edit services.
 # 1.7 supplies a frozen source-audition clock for tempo-aware sample slicing, lets an
 # effect page its controls, have a shift row, draw its own page and fix its source dry
 # (dryLevel), and adds a saturating Q31 add and up to 32 display text slots.
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
-SDK_VERSION = (1, 8)
+# 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
+SDK_VERSION = (1, 9)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -80,6 +82,7 @@ class Machine:
     dry_parameter: int | None = None
     dry_level: int | None = None  # a fixed source dry, Q31 (SDK 1.7)
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
+    grayscale: str | None = None
 
     @property
     def sample_page(self):
@@ -121,6 +124,20 @@ def _relative(machine_root, value):
     path = (machine_root / value).resolve()
     require(path.is_relative_to(machine_root.resolve()) and path.exists(), 'Missing machine path: ' + value)
     return value
+
+
+def graphics_path(record):
+    """The optional grayscale source, explicitly opted into by SDK 1.5 synths."""
+    if 'graphics' not in record:
+        return None
+    require_sdk(sdk_version(record.get('sdk')), (1, 5), 'Developer grayscale artwork')
+    graphics = record['graphics']
+    require(record.get('kind') == 'synth' and isinstance(graphics, dict) and set(graphics) == {'grayscale'},
+            'graphics requires a synth and exactly one grayscale artwork path')
+    path = graphics['grayscale']
+    require(relative_path(path) and path.endswith('.svg.fragment') and path != 'panel.svg.fragment',
+            'graphics.grayscale names a separate local .svg.fragment file')
+    return path
 
 
 def check_preset(value, identity):
@@ -315,6 +332,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), 'A press that switches the page ("press": "page")')
         if len(definition['parameters']) < 8:
             require_sdk(version, (1, 4), 'A partially filled second page')
+    if 'hidePages' in definition:
+        require_sdk(version, (1, 9), 'Hidden stock pages ("hidePages")')
     if kind == 'effect' and paged(definition):
         require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
     if shift_parameters(definition):
@@ -326,6 +345,7 @@ def machine_at(root, identity=None):
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
+    grayscale = graphics_path(value)
     # After the feature checks, which name the SDK version each feature needs.
     requested = requested_numbers(config()['identities'], kind, value, version,
                                   'drawing' if 'display' in definition['resources'] else 'stock')
@@ -363,6 +383,9 @@ def machine_at(root, identity=None):
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
         require(requested['page'] == SAMPLE_BASES['drumSampler'],
                 'Pad settings and drum controls need the drum sampler base ("base": "drumSampler")')
+    if 'trackControl' in definition['resources']:
+        require_sdk(version, (1, 9), 'Track control (trackControl)')
+        require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
     require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
     amp = defaults.get('amp', {})
@@ -373,11 +396,19 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), "A machine's own presets")
         require(kind in ('synth', 'drum', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
         presets = read_presets(root, value['presets'], identity)
-    return Machine(id=identity, kind=kind, name=definition['name'], description=value['description'],
+    if grayscale:
+        path = root / grayscale
+        require(path.resolve() == path and path.is_file() and 0 < path.stat().st_size <= 65536,
+                'Missing, redirected or oversized grayscale artwork: ' + grayscale)
+    result = Machine(id=identity, kind=kind, name=definition['name'], description=value['description'],
                    display=display, sources=sources, includes=includes,
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
-                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets)
+                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, grayscale=grayscale)
+    if grayscale:
+        from .native import validate_panel
+        validate_panel(result)
+    return result
 
 
 # Machine numbers. Projects store a track's engine, effect and page numbers, so a
@@ -514,7 +545,10 @@ def number_layout(rules, fixed, layout, machines):
             new.append((name, kind, dict(requested), slots))
     # An effect number is also held as an engine number (occupied).
     keys = lambda slot, n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
-    free = lambda slot, n: not any(k in holders for k in keys(slot, n))
+    # The last page is reserved for an SDK overlay screen: in the pool, so every
+    # other machine keeps its own place, never given out, and still valid in a
+    # layout that already gave it (check_identity), as earlier SDKs did.
+    free = lambda slot, n: not (slot == 'page' and n == rules['pages'] - 1) and not any(k in holders for k in keys(slot, n))
 
     def take(name, identity, slot, n):
         identity[slot] = n

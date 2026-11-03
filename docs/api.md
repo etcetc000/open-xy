@@ -5,7 +5,7 @@ A machine is a folder under `machines/` named after the machine. Every kind has
 
 | Kind | C++ the machine supplies | Example |
 | --- | --- | --- |
-| `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment` | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
+| `synth` | `engine.cpp` with `Voice`/`Shared` state, `display.cpp` and `panel.svg.fragment`; `control.cpp` with [track control](#track-control) (SDK 1.9) | [2op FM](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/engine.cpp), [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/engine.cpp) |
 | `drum` | The synth callbacks and drawing display, plus per-key model/control callbacks ([synthesis drum kits](#synthesis-drum-kits)), from SDK 1.8 | Independent model selection on 24 keys |
 | `sample` | `sample.cpp` with `Voice` state; the stock sampler it forks provides its screen, or from SDK 1.8, forking the sampler, optionally its own (`display.cpp` and `panel.svg.fragment`) | [Timestretch](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/timestretch/sample.cpp) |
 | `effect` | `fx.cpp` with `State`; the stock FX page is its screen, or its own (SDK 1.7) | [Ring Mod](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/ringmod/fx.cpp) |
@@ -180,6 +180,15 @@ editing a shared control keeps the current page. Use the SDK's
 emphasis and motion. `sdk.py new` supplies it by default. Macro Osc is the
 [worked reference](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json).
 
+A synth for which a stock instrument page means nothing (one that makes no
+sound of its own, say) may declare `"hidePages"` at the top of
+`definition.json` (SDK 1.9), listing `"envelope"` (M2), `"filter"` (M3) or both. On its
+track, those keys then leave the page shown as it was, and selecting the track
+while another track shows a hidden page shows the engine page. The SDK
+corrects the page once per GUI tick, so the hidden page may flash for a frame.
+The LFO page (M4) always stays on instrument tracks. Aux replacements own their
+pages and receive their page keys directly; see [aux tracks](#aux-tracks).
+
 A synth may leave a slot empty yet keep later parameters at their indices
 (projects save by index): declare it
 `{"id": ..., "label": "", "default": 0, "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent", "absent": true}`,
@@ -227,6 +236,7 @@ A synth declares:
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
 | `display` | The screen's frame budget; see the [display API](display.md) |
+| `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -289,6 +299,153 @@ method table and voice pool; none of that belongs in `Voice`.
 ownership; `release` cannot free a stolen lease. The engine decides how a
 voice behaves after losing a resource. This pool has no locks and requires
 serialized access.
+
+## Track control
+
+A synth can steer other tracks (SDK 1.9). A build without such a machine (or
+one with [hidden pages](#alternate-controls)) applies none of track control's
+firmware edits and links none of its code. Such a synth runs on an
+[aux track](#aux-tracks), never in an instrument track's place. It declares
+`"trackControl": {"stateBytes": n, "stateAlignment": a, "unique": true, "aux": [12]}`
+in `resources`, with `"sdk": "1.9"` in `machine.json`, and supplies
+`control.cpp` with:
+
+```cpp
+struct ControlState { ... };  // trivial, standard-layout; starts zeroed
+void control_reset(ControlState& state);
+void control(ControlState& state, const opxy::control::Input& input, opxy::control::Overlay& overlay);
+```
+
+[track_control.hpp](../sdk/include/opxy/track_control.hpp) defines the types.
+`control` runs on the GUI side once per stock GUI tick while its machine holds
+an aux track ([aux tracks](#aux-tracks)). Currently only track 12 is supported,
+so one controller runs in each pattern. `unique: true` is required: it has one
+`ControlState`. `opxy::control::copies(track)` reports the number of tracks
+holding that machine (browser previews answer 1). `control_reset` runs before
+its first call and whenever it arrives on a track.
+
+| `Input` field | Contract |
+| --- | --- |
+| `track` | The aux track the machine holds, zero-based |
+| `values[track][index]` | Every track's 58 live parameter words (`all_tracks`, 16; aux tracks are 8..15), as stock sets them (edits, parameter locks, sequencing), without any machine's overlay. Indices 0..7 are the engine's controls; the rest are stock's own track parameters, in stock's units. The machine's own engine controls are the values its page shows, including its LFO |
+| `elapsed_us` | Microseconds since the previous tick, from the core clock: 0 on the first tick after a reset, at most one second |
+| `transport` | The project's tempo in tenths of BPM (0 when unknown), the song position in 96ths of a quarter note, which advances only while playing, and whether the sequencer plays |
+| `page_key` | Last directly handled page key since the last tick: 1..4 for M1..M4, or 0. M1 returns to the machine page; M2/M3 leave the current page alone. With `sharedLfo: true`, M4 belongs to the shared LFO and is not delivered |
+| `muted` | 1 while the machine's track is muted in the current scene (aux + track key, or the mixer). As with stock's brain, a muted machine has no effect: none of its overlays apply. It still runs, so its page can say so |
+
+`overlay` arrives empty; `opxy::control::add` appends up to 64 entries, each a
+track, parameter index and value for this tick. Entries for the machine's own
+track or outside the table are ignored, the last entry for a parameter wins and
+negative values count as 0. When two machines overlay one parameter, the one on
+the later track wins. A parameter no machine overlays any more returns to
+stock's value. Overlays are live values only: saved projects keep stock's
+values, and an edit or parameter lock under an overlay reaches `values` on the
+next tick. Pages show an overlaid parameter's overlay, whether or not the
+sequencer plays; for a moment after the parameter's encoder is turned, they
+show the track's own value, which the turn changes.
+
+A step's parameter lock plays as written: while a lock holds a parameter, no
+overlay is written over it. The lock ends when stock sets the parameter to
+something else, a step (24 ticks) after it was written if the track then plays
+its own value, or when the sequencer stops; the next tick overlays it again. Loading or creating a project discards outstanding overlays.
+Like the display, `control` is bounded
+and allocation-free; it is not an audio callback. Browser previews do not run
+it.
+
+A unique machine can keep data with each project, such as Morphose's states.
+It adds `"savedBytes": n` (1..8192) to `trackControl` and supplies:
+
+```cpp
+u32 control_save(const ControlState& state, u8* data, u32 capacity);  // bytes written, at most capacity (n)
+void control_load(ControlState& state, const u8* data, u32 bytes);
+```
+
+When stock saves a project, the workspace included, `control_save` writes what
+to keep; the SDK stores it in the project's [companion](projects.md). After
+stock loads a project, `control_load` gets those bytes back, or `bytes` 0 when
+the project has none (saved before, on stock, or without the machine) or is a
+new one, so the machine can start empty. Both run on the GUI side. Such a
+machine's `control_reset` runs just before each `control_load`, and when it
+arrives on a track only if no load has run since startup: its state is the
+project's, through every pattern change.
+
+A machine's control and display are compiled separately, so they share no
+variables. The control can pass four words to its display each tick in
+`overlay.display`, which the display reads with
+`opxy::control::from_control(index)`: the words of the copy on the selected
+track, 0 when it did not run, and always 0 in browser previews.
+
+A machine draws only on its own page: track control paints nothing over other
+tracks' pages.
+
+### Reading and setting other tracks
+
+A track control machine reaches instrument tracks 1-8 (indices 0..7) three ways:
+
+| To | Use | Lasts |
+| --- | --- | --- |
+| Get a value | `input.values[track][index]`: the live word, as stock sets it, without any overlay | Read each tick |
+| Set it live | `opxy::control::add(overlay, track, index, value)` | This tick only: stock's value comes back when the machine stops adding it, and the project never saves it |
+| Set it stored | `opxy::control::store(overlay, track, index, value)` | Until something else sets it: the track's current pattern keeps it, the project saves it and the page shows it, as an encoder edit would |
+
+`store` returns false, and writes nothing, for a track outside 0..7, an index
+outside 0..57 or once this tick holds `store_capacity` (16) stored writes. The
+SDK applies them in order after `control` returns: it sets the stored value,
+then calls stock's setter that an encoder edit ends in, which publishes it, so
+`values` holds it from the next tick. It ignores a write to the machine's own
+track, and every write while the machine's track is muted; negative values count
+as 0. Beneath an overlay of the same parameter, the overlay still plays, and its
+release restores the stored value. A step's parameter lock on it plays on as
+written; stock's next step plays the stored value. Use `store` for changes the user should
+keep (recalling a state), and overlays for movement (a morph or modulation):
+each stored write changes the project, as an edit does.
+
+Indices 0..7 are the engine's eight controls, the rest stock's own track
+parameters. The SDK does not tell a machine a parameter's label, range or type:
+the engine's controls are 0..32767 for whatever the engine on that track names
+them, and stock's own words are in stock's units.
+
+### Aux tracks
+
+A track control machine, unique and with its own display, runs on an aux
+track (SDK 1.9): it lists it in `"aux"` (`[12]`, CV) in `trackControl`. That track is the
+only one for now, the one whose stock role the SDK keeps silent. Such a machine
+is not in tracks 1-8's engine list: it is chosen on its aux track only.
+
+- **Choosing:** Shift + M1 on track 12 opens a list, "engine", with the
+  track's stock role (`cv`) first, then each machine that may take it over.
+  As tracks 1-8 hold an engine, each pattern holds its own choice: it applies
+  to the current pattern, is copied with it and saved with the project, and
+  chained patterns switch between CV and the machine. While a machine holds the
+  playing pattern, CV and gate stay silent. A new project starts with `cv`.
+- **Its interface:** M1 shows the machine's display. Its encoders, clicks,
+  fine turns and parameter locks use the machine's controls directly; CV's
+  page dispatch does not run. M2/M3 are delivered as `page_key` actions and
+  do not open stock pages. `hidePages` is unnecessary for an aux replacement.
+- **Optional shared LFO:** `"sharedLfo": true` in `trackControl` gives M4 to the
+  shared LFO page, naming destinations after the machine's first four
+  parameters. By default M4 is another machine action, no stock page is
+  exposed, and stock LFO modulation is excluded from the machine's controls.
+  The shared LFO uses the track's existing LFO settings.
+- **Its controls:** words 0..7 of track 12, so they are sequenced, locked and
+  saved like any track parameter, and `values[11]` holds them. Taking a
+  pattern over sets the machine's defaults; giving it back restores the role's
+  values (a pattern copied from one the machine held takes another pattern's). A project opened with a build that lacks the machine gets the role's
+  values back too. Opened on stock firmware, CV plays the machine's values.
+- **Presets:** Shift + track key on track 12 lists presets in two columns, as
+  stock's preset browser does: folders, then the presets in them that can run
+  on the track. Choosing one gives the track to its machine (or role) and sets
+  its controls. The builders install a machine's definition presets as
+  `content/aux_presets/<id>/<name>.json` (names lowercased, at most 15
+  characters), and `content/aux_presets/cv/init.json` so CV is listed too;
+  users add their own as `aux_presets/<folder>/<name>.json` over MTP. Each is
+  `{"params": [eight values 0..32767], "platform": "OP-XY", "type": "<machine
+  id or cv>", "version": 1}`. Without `params`, a preset only gives the track
+  to its machine or role, leaving the controls as they were, as CV's `init`
+  does.
+
+It runs on the GUI side like any track control machine; nothing changes on the
+audio side but the silenced CV output.
 
 ## Synthesis drum kits
 
@@ -705,7 +862,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.8 and builds 1.0 to 1.8 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.9 and builds 1.0 to 1.9 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -713,6 +870,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
+| `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
 
 An effect's optional `dryParameter` field names the control used by the stock
 source dry mixer, as described under [effects](#effects).
