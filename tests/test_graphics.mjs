@@ -618,3 +618,20 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.deepEqual(manifest().settings, {graphics:'colorful'});
   assert.doesNotMatch($('download-summary').textContent, /Grayscale machine graphics/);
 });
+
+test('machine graphics settings preserve selected master artwork and reject asset collisions', async () => {
+  const {kit, catalog} = await fixture();
+  const bytes = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 222"><path d="M0 0 L1 0 L1 1 Z" fill="#2F2F2F"/></svg>');
+  kit.extensions = [{id:'processor', master_filter:{asset:'processor.svg',
+    artwork:Buffer.from(bytes).toString('base64'), sha256:await sha256(bytes)}}];
+  const path = 'content/display/processor.svg';
+  const omitted = await buildAssets(kit, ['probe'], catalog, {}, {graphics:'grayscale'});
+  assert.equal(omitted[path], undefined);
+  const selected = await buildAssets(kit, ['probe'], catalog, {}, {graphics:'grayscale'}, ['processor']);
+  assert.deepEqual(selected[path], bytes);
+  const legacy = await buildAssets(kit, ['probe'], catalog, {}, ['processor']);
+  assert.deepEqual(legacy[path], bytes);
+  assert.notDeepEqual(selected['content/display/probe.svg'], legacy['content/display/probe.svg']);
+  kit.machines[0].asset = 'processor.svg';
+  await assert.rejects(buildAssets(kit, ['probe'], catalog, {}, {graphics:'grayscale'}, ['processor']), /asset collision/i);
+});

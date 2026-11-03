@@ -54,13 +54,8 @@ CXX_FLAGS = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-excep
              '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-asynchronous-unwind-tables',
              '-fno-unwind-tables', '-fno-common', '-fno-tree-loop-distribute-patterns',
              '-fomit-frame-pointer', '-nostdinc++', '-Wall', '-Werror', '-Wno-unused-variable']
-# Stock SVG parse (0x8d5f38ba) accepts at most four fractional digits and no exponents.
-SVG_ELEMENTS = {'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text'}
-SVG_NUMERIC = {'d', 'points', 'transform', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
-               'width', 'height', 'stroke-width', 'stroke-miterlimit', 'stroke-dasharray',
-               'stroke-dashoffset', 'font-size', 'opacity', 'fill-opacity', 'stroke-opacity'}
-NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)'
-SVG_INHERITED = {'fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 'style'}
+from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes, validate_xml
+
 
 
 class Collection(list):
@@ -221,6 +216,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
+             'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
@@ -241,6 +237,8 @@ UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'tra
 # roles' silencers; startup starts it, and control reaches it through sdk_aux.
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
+UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
@@ -249,7 +247,8 @@ def service_users(machines):
     users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
-            ['hidePages' for m in machines if 'hidePages' in m.definition])
+            ['hidePages' for m in machines if 'hidePages' in m.definition] +
+            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
 
 
 def module_bytes(profile):
@@ -448,7 +447,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step.startswith('extension:'):
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
-                return cxx(str(extensions.generate_extension(folder, extension)), obj)
+                return compile_cxx(gcc['cxx'], tools['as'], str(extensions.generate_extension(folder, extension)),
+                                   obj, includes() + [str(extension.root)])
+            if step == 'master_filter_collection':
+                return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
             if step == 'extension_collection':
@@ -641,6 +643,10 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
         entries = [word(symbols[table]['value'] + offset) for offset in slots]
         require(all(entry in body for entry in entries), 'Audio entry of ' + m.id + ' is not a function start')
         bounds[m.id] = max(depth(entry) for entry in entries)
+    if 'sdk_master_process' in symbols:
+        entry = symbols['sdk_master_process']['value']
+        require(entry in body, 'Master audio entry is not a function start')
+        bounds['sdk:master_filter'] = depth(entry)
     return bounds
 
 
@@ -732,8 +738,14 @@ def display_ids(prefix, display):
             [f'{prefix}_palette_{i}' for i in range(display['palette'])])
 
 
+def header_ids(prefix):
+    """Optional authored header leaves, values then titles, for standalone hosts."""
+    return [f'{prefix}_header_{kind}_{i}' for kind in ('value', 'title') for i in range(4)]
+
+
 def panel_root(fragment, source):
     """An artwork fragment: one well-formed root element, such as <g id="<prefix>_panel">."""
+    validate_xml(fragment)
     try:
         return ET.fromstring(fragment)
     except ET.ParseError as error:
@@ -741,21 +753,27 @@ def panel_root(fragment, source):
 
 
 def check_outlines(by_id, prefix, display):
-    """Drawing paths are the first nodes: exactly M, (points - 1) L and Z, unfilled."""
+    """Drawing paths are the first nodes: exactly M, (points - 1) L and Z; filled paths must enclose area."""
     points = display['points']
     for name in display_ids(prefix, display)[:display['paths']]:
         node = by_id.get(name)
         commands = re.findall(r'[A-Za-z]', node.get('d', '')) if node is not None else []
         coordinates = re.findall(NUMBER, node.get('d', '')) if node is not None else []
         require(node is not None and node.tag == 'path' and commands == ['M'] + ['L'] * (points - 1) + ['Z'] and
-                len(coordinates) == 2 * points and node.get('fill') == 'none',
-                'Mutable outline must contain exactly M, %d L and Z, with no fill: %s' % (points - 1, name))
+                len(coordinates) == 2 * points,
+                'Mutable outline must contain exactly M, %d L and Z: %s' % (points - 1, name))
         # The stock parser merges repeated points, leaving fewer than the frame
         # binds, and the device then no longer reshapes the outline. Points are
         # compared as the Q10 coordinates the device holds.
         pairs = [(round(float(x) * 1024), round(float(y) * 1024)) for x, y in zip(coordinates[::2], coordinates[1::2])]
         require(len(set(pairs)) == points,
                 'Mutable outline repeats a point; the device merges repeated points, so keep each distinct: ' + name)
+        if node.get('fill') != 'none':
+            require(re.fullmatch(r'#[0-9A-Fa-f]{6}', node.get('fill', '')),
+                    'Filled mutable paths need an explicit #RRGGBB fill: ' + name)
+            area = sum(x * pairs[(i + 1) % points][1] - pairs[(i + 1) % points][0] * y
+                       for i, (x, y) in enumerate(pairs))
+            require(area != 0, 'Filled mutable paths must enclose area: ' + name)
 
 
 def check_bindings(by_id, prefix, display):
@@ -776,7 +794,23 @@ def check_bindings(by_id, prefix, display):
         node = by_id[name]
         require(not {'x', 'y'} & set(node.keys()) and len(node.text or '') < 24,
                 'Text slots are positioned by their transform and hold at most 23 characters: ' + name)
+    for name in header_ids(prefix):
+        node = by_id.get(name)
+        if node is not None:
+            require(node.tag == 'text', 'Header bindings must be text leaves: ' + name)
+            require(len(node.text or '') < 24, 'Header bindings hold at most 23 characters: ' + name)
     return palette
+
+
+def check_palette(by_id, palette):
+    """Renderers copy donor paint verbatim; every consumer uses this policy."""
+    for name in palette:
+        node = by_id.get(name)
+        require(node is not None and node.tag in ('path', 'circle') and node.get('fill') not in (None, 'none') and
+                node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
+                'Bound node needs visible explicit fill and stroke: ' + name)
+        require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', node.get(k)) for k in ('fill', 'stroke')),
+                'Palette donors need #RRGGBB fill and stroke: ' + name)
 
 
 def validate_panel(m, fragment=None):
@@ -794,12 +828,6 @@ def validate_panel(m, fragment=None):
                 node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
                 'Bound node needs visible explicit fill and stroke: ' + name)
 
-    def donor(name):
-        # Renderers copy donor paint verbatim: explicit #RRGGBB fill and stroke.
-        visible(name)
-        require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', by_id[name].get(k)) for k in ('fill', 'stroke')),
-                'Palette donors need #RRGGBB fill and stroke: ' + name)
-
     if m.display == 'player':
         # A player page: dots that show or hide, and the line its text replaces.
         names = player_page_ids(m.prefix)
@@ -816,26 +844,8 @@ def validate_panel(m, fragment=None):
         require(line is not None and line.tag == 'text' and re.fullmatch(translate, line.get('transform', '')),
                 'Player page line must be a text node with transform="matrix(1 0 0 1 x y)"')
     else:
-        palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
-        for name in palette:
-            donor(name)
-    for node in nodes:
-        for attribute in SVG_NUMERIC.intersection(node.attrib):
-            value = node.attrib[attribute]
-            require(not re.search(r'\d[eE][-+]?\d', value), 'Exponent notation is outside the authored SVG numeric subset')
-            require(not re.search(r'\.\d{5,}', value), 'Authored SVG numbers must have at most four decimal places')
-        require(node.tag in SVG_ELEMENTS, 'Unsupported authored SVG element')
-        require('style' not in node.attrib and not any(k.lower().startswith('on') or 'href' in k.lower()
-                for k in node.attrib), 'Unsupported SVG style, event or external reference')
-        if node.tag == 'g':
-            require(not SVG_INHERITED.intersection(node.attrib), 'Put SVG paint/font attributes on leaves')
-        else:
-            require('fill' in node.attrib, 'Missing explicit SVG fill')
-            if node.tag == 'text':
-                require({'font-family', 'font-size'} <= node.attrib.keys(), 'Missing explicit text font')
-            if node.get('fill') == 'none':
-                require(node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
-                        'Invisible authored SVG outline')
+        check_palette(by_id, check_bindings(by_id, m.prefix, m.definition['resources']['display']))
+    validate_nodes(nodes)
     if check_variant:
         from .graphics import validate_grayscale
         validate_grayscale(m, fragment, read(m.root / m.grayscale))
@@ -871,6 +881,12 @@ def prepare_assets(catalog, profile, machines):
     check_aux_presets(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))
+    for e in extensions_of(machines):
+        if e.master_processor is not None:
+            path = e.root / e.master_processor['artwork']
+            name = 'content/display/' + path.name
+            require(name not in outputs, 'Display asset collision: ' + name)
+            outputs[name] = extensions.validate_master_artwork(path)
     return outputs
 
 

@@ -643,7 +643,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const result = core.linkKit(kit, selection, numbers, extensions);
-      const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings);
+      const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
       files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);

@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <string>
 #include <project_companion.cpp>
+#include "project_master.hpp"
 #include <track_control_project.cpp>
 extern "C" void sdk_control_forget() {}
 void opxy::platform::control_loaded(const opxy::platform::ControlMachine&) {}
@@ -119,13 +120,22 @@ Address opxy::platform::host_stock_address(Address address) {
 // loads the project, starts a new one (clear or random), or tries to while a project
 // is loading (busy), and prints what the keeping machine got back as hex, or "none".
 int main(int argc, char** argv) {
-    if (argc != 3 && argc != 4) return 2;
+    if (argc != 3 && argc != 4 && argc != 5) return 2;
+    char* packet_end=nullptr;
+    const unsigned packet=argc>=4 ? static_cast<unsigned>(std::strtoul(argv[3],&packet_end,10)) : 0;
+    const bool master=argc>=4 && argv[3][0] && packet_end && !*packet_end;
+    if(master)opxy::platform::master_filter::test_enable(packet);
+    if(argc==5){
+        if(!master)return 2;
+        opxy::platform::master_filter::test_parameter_count=5;
+        for(unsigned i=1;i<5;++i)opxy::platform::master_filter::menu.values[i]=static_cast<int>(i*1234567);
+    }
     saving = argv[1];
     save_result = static_cast<unsigned>(std::atoi(argv[2]));
     holding = std::getenv("HOLD") != nullptr;
     // The aux service, as its startup fills it in (unless NOAUX: a build without it).
     if (!std::getenv("NOAUX")) sdk_aux = opxy::platform::AuxService{nullptr, nullptr, aux_kept, aux_restore, aux_forget};
-    if (argc == 3) return sdk_project_save(nullptr, saving) == save_result ? 0 : 1;
+    if (argc == 3 || master) return sdk_project_save(nullptr, saving) == save_result ? 0 : 1;
     const std::string mode = argv[3];
     loading = mode == "busy";
     if (mode == "read") {

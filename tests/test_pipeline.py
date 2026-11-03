@@ -100,7 +100,8 @@ class Services(unittest.TestCase):
                                    if m is None and not step.startswith('extension:')]
         # The fixtures declare no track control, hidden pages, aux tracks or players: those services stay off.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS
-                                          if native.UNIT_SERVICES.get(u) not in ('control', 'aux', 'players')])
+                                          if native.UNIT_SERVICES.get(u) not in ('control', 'aux', 'players', 'master_filter')])
+        self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
         self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'drums', 'extensions'})

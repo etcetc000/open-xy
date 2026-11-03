@@ -63,6 +63,7 @@ RESOURCES = {
     'drum': ('voiceBytes', 'voiceAlignment', 'voiceCapacity', 'sharedBytes', 'outputPeakQ31', 'display', 'modelCount'),
     'sample': ('voiceCapacity',),
     'effect': (),
+    'master': ('display',),
     'player': (),
 }
 # A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
@@ -101,7 +102,7 @@ DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum
 # A synth's first four fill the four-control page; up to four more are alternates
 # (see control_positions). Sample engines and effects use one to eight; an
 # effect's after the first four are alternates on the send page.
-CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'player': (4, 4)}
+CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8), 'player': (4, 4)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
 SYNTH_POSITIONS = 4
@@ -142,7 +143,9 @@ def validate_definition(value, kind):
     optional = tuple(k for k in ('press', 'hidePages', 'shift') if k in value)
     keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *optional), 'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
-    stock_name(value['id']); label(value['name'])
+    if kind == 'master': identifier(value['id'])
+    else: stock_name(value['id'])
+    label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
                'synth': ('trackControl',)}.get(kind, ())
@@ -181,6 +184,8 @@ def validate_definition(value, kind):
             validate_display(resources['display'])
     if kind in ('synth', 'drum'):
         validate_synth_resources(resources)
+    if kind == 'master':
+        validate_display(resources['display'])
     if kind == 'drum':
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
         require(resources.get('chokeSameKey', 0) in (0, 1), 'chokeSameKey must be 0 or 1')
@@ -201,7 +206,7 @@ def validate_definition(value, kind):
             f'Control count outside {low}..{high} for this kind')
     names = set()
     for i, parameter in enumerate(parameters):
-        alternate = kind in ('synth', 'drum', 'effect') and i >= SYNTH_POSITIONS
+        alternate = kind in ('synth', 'drum', 'effect', 'master') and i >= SYNTH_POSITIONS
         require(kind == 'synth' or not (isinstance(parameter, dict) and 'absent' in parameter),
                 'Only a synth leaves a slot absent')
         validate_parameter(parameter, alternate, required=kind in ('synth', 'drum'))

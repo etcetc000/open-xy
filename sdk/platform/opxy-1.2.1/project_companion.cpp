@@ -22,8 +22,11 @@
 // does nothing in a build without the control service.
 #include "project_companion.hpp"
 #include "stock.hpp"
+#include "master_processor.hpp"
+namespace master_processor = opxy::platform::master_processor;
 
 using opxy::u32;
+using opxy::i32;
 using opxy::platform::CompanionMachine;
 using opxy::platform::stock;
 
@@ -162,7 +165,20 @@ void write_companion(u32 bytes, u32 crc) {
         w.put("\n        }");
     }
     w.put(listed ? "\n      },\n" : "},\n");
-    w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }\n  },\n  \"version\": 1\n}\n");
+    w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }");
+    if(master_processor::processor_count()) {
+        const auto controls=master_processor::current();
+        u32 count=0;const auto* parameters=master_processor::parameters(count,controls.type ? controls.type : 1);
+        w.put(",\n    \"open-xy.master-filter\": {\n      \"version\": 2,\n      \"processor\": \"");
+        w.put(controls.type ? master_processor::owner(controls.type) : "eq");
+        w.put("\",\n      \"parameters\": {");
+        for(u32 i=0;i<count;++i) {
+            w.put(i ? ", " : "");w.put("\"");w.put(parameters[i].id);w.put("\": ");
+            w.number(static_cast<u32>(controls.values[i]));
+        }
+        w.put("}\n    }");
+    }
+    w.put("\n  },\n  \"version\": 1\n}\n");
     w.flush();
     file_close(file);
 }
@@ -672,6 +688,57 @@ bool other_section(Parser& p, bool& ok) {
     return read;
 }
 
+master_processor::State master_state;
+bool master_applies;
+master_processor::State parsed_master[master_processor::max_processors+1];
+bool master_values_ok[master_processor::max_processors+1];
+void master_defaults() {
+    for(u32 i=0;i<=master_processor::max_processors;++i){parsed_master[i]=master_processor::defaults(i);master_values_ok[i]=true;}
+    master_state=master_processor::defaults();
+}
+bool master_section(Parser& p,bool& valid) {
+    master_applies=false;master_defaults();valid=false;
+    if(p.peek()!='{')return p.skip();
+    bool version_ok=false,sweep_ok=false,processor_ok=false,available=false,known_eq=false;
+    u32 version=0,sweep=512,type=0;
+    const bool read=p.object([&](const Text& key){
+        if(key.is("version"))return p.natural(version,version_ok);
+        if(key.is("sweep"))return p.natural(sweep,sweep_ok);
+        if(key.is("parameters")) {
+            master_defaults();
+            if(p.peek()!='{'){for(u32 i=0;i<=master_processor::max_processors;++i)master_values_ok[i]=false;return p.skip();}
+            return p.object([&](const Text& id){
+                // Keep bounded candidate values until processor identity is known;
+                // JSON field order must not select another processor's parameter map.
+                bool matched=false,ok=false;u32 value=0;
+                for(u32 t=0;t<=master_processor::processor_count();++t) {
+                    u32 count=0;const auto* params=master_processor::parameters(count,t ? t : 1);
+                    for(u32 i=0;i<count;++i)if(id.is(params[i].id)) {
+                        if(!matched){matched=true;if(!p.natural(value,ok))return false;}
+                        if(!ok || value>0x7fffffffu)master_values_ok[t]=false;
+                        else parsed_master[t].values[i]=static_cast<i32>(value);
+                    }
+                }
+                return matched ? true : p.skip();
+            });
+        }
+        if(!key.is("processor"))return p.skip();
+        processor_ok=false;available=false;known_eq=false;type=0;
+        if(p.peek()!='"')return p.skip();
+        Text id;if(!p.string(id))return false;
+        for(u32 i=1;i<=master_processor::processor_count();++i)if(id.is(master_processor::owner(i))){type=i;available=true;break;}
+        known_eq=id.is("eq");processor_ok=true;return true;
+    });
+    valid=version_ok && version>=1;
+    master_applies=valid && processor_ok && ((version==1 && sweep_ok && sweep<=1023) || (version==2 && (!available || master_values_ok[type])));
+    if(master_applies) {
+        master_state=parsed_master[type];master_state.type=type;
+        if(!available && !known_eq)master_state=master_processor::defaults();
+        if(version==1 && (available || known_eq))master_state.values[0]=static_cast<i32>(sweep<<21);
+    }
+    return read;
+}
+
 // Other owners' sections whose last value so far is invalid, by name (at most
 // kKeyBytes, so held whole).
 Text invalid_sections[kInvalidSections];
@@ -695,9 +762,10 @@ bool note_section(const Text& name, bool ok) {
 
 // Reads the companion: true when it is valid and its machines section applies to this
 // firmware, the maps then filled, with the binding it gives.
-bool read_document(File* file, u32& bytes, u32& crc) {
+bool read_document(File* file, u32& bytes, u32& crc, bool& applies) {
     Parser p(file);
-    bool format = false, version = false, binding = false, sections = false, applies = false, valid = false;
+    bool format = false, version = false, binding = false, sections = false, valid = false;
+    applies=false;master_applies=false;master_defaults();
     clear_maps();
     const bool read = p.object([&](const Text& key) {
         if (key.is("format")) {
@@ -718,6 +786,7 @@ bool read_document(File* file, u32& bytes, u32& crc) {
         if (!key.is("sections")) return p.skip();
         // Only the last sections object counts.
         applies = false;
+        master_applies=false;master_defaults();
         valid = true;
         invalid_count = 0;
         clear_maps();
@@ -731,6 +800,11 @@ bool read_document(File* file, u32& bytes, u32& crc) {
             }
             if (name.is("open-xy.machines")) return machines_section(p, applies, machines_ok);
             bool ok;
+            if(name.is("open-xy.master-filter") && master_processor::processor_count()) {
+                if(!master_section(p,ok))return false;
+                if(!note_section(name,ok))valid=false;
+                return true;
+            }
             if (!other_section(p, ok)) return false;
             if (!note_section(name, ok)) valid = false;
             return true;
@@ -738,7 +812,7 @@ bool read_document(File* file, u32& bytes, u32& crc) {
         valid = valid && machines_ok && !invalid_count;
         return members;
     });
-    return read && p.end() && format && version && binding && sections && valid && applies;
+    return read && p.end() && format && version && binding && sections && valid && (applies || master_applies);
 }
 
 // Rewrites every pattern's machine number on the instrument, CV and send tracks
@@ -763,13 +837,15 @@ void apply_companion(void* project, const char* path) {
     File* file = file_open(read_companion_path, "rb");
     if (!file) return;  // no companion: the numbers are read as saved
     u32 bytes = 0, crc = 0, measured_bytes, measured_crc;
-    const bool applies = read_document(file, bytes, crc);
+    bool machines_apply=false;
+    const bool applies = read_document(file, bytes, crc, machines_apply);
     file_close(file);
     // Saved since by stock or another tool, for other firmware, or invalid: as saved.
     if (!applies || !measure(path, read_chunk, measured_bytes, measured_crc) || measured_bytes != bytes ||
         measured_crc != crc)
         return;
-    remap(static_cast<unsigned char*>(project));
+    if(machines_apply)remap(static_cast<unsigned char*>(project));
+    if(master_applies)master_processor::loaded_state(static_cast<u32>(reinterpret_cast<opxy::platform::Address>(project)),master_state);
 }
 }
 
@@ -784,6 +860,7 @@ u32 sdk_project_save(void* project, const char* path) {
 // Stock's deserialize, then the companion's numbers. The project is the inactive buffer,
 // which nothing reads until stock validates it and makes it pending.
 u32 sdk_project_load(void* project, const char* path) {
+    master_processor::clear_pending();
     const u32 loaded = deserialize(project, path);
     if (loaded && project && path) {
         apply_companion(project, path);

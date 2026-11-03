@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'a2459b844130f0991a331908d687e15cf806264f4b881d0b317a43a10a737c82';
+export const PROFILE_SHA256 = '387eba1070299f301c2295064facbcd3b43228982c3fca2e4ebe85e253b9593c';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -382,6 +382,8 @@ export function browseMachines(machines, {query = '', kind = 'all', keywords = [
     .sort(SORTS[sort] ?? SORTS.featured);
 }
 
+function processorOf(e) { return e.master_processor ?? e.master_filter; }
+
 // Machine presets: named selections a person keeps in this browser (builder/app.mjs),
 // by machine ID, so one outlives a collection that drops or adds machines. Sorted by name.
 export const PRESET_NAME_LIMIT = 40;
@@ -484,7 +486,7 @@ export async function openKit(kit) {
   check(Array.isArray(extensions) && extensions.length <= 16, 'Invalid extension collection');
   check(!kit.objects.some(o => o.name === 'sdk/extension_collection.o') || Array.isArray(kit.extensions),
     'This kit predates extension selection. Export a new kit to choose extensions.');
-  const extensionIds = new Set();
+  const extensionIds = new Set(), processorIds = new Set(), processorAssets = new Set();
   for (const e of extensions) {
     check(e && /^[a-z][a-z0-9_]{0,31}$/.test(e.id) && !extensionIds.has(e.id) &&
       Object.entries({name: 32, description: 140, note: 100}).every(([key, limit]) => key === 'note' && e[key] === undefined ||
@@ -496,6 +498,18 @@ export async function openKit(kit) {
       ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
         new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))),
       'Invalid extension metadata');
+    if(processorOf(e)) {
+      check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
+      const f=processorOf(e), stateId=f.state_id ?? e.id;
+      check(typeof stateId==='string' && /^[a-z][a-z0-9_]{0,31}$/.test(stateId) && stateId!=='eq' && !processorIds.has(stateId),
+        'Invalid or duplicate master processor identity');
+      check(!processorAssets.has(f.asset), 'Duplicate master processor asset');
+      processorIds.add(stateId);processorAssets.add(f.asset);
+      check(['artwork,asset,sha256','artwork,asset,sha256,state_id'].includes(Object.keys(f).sort().join()) &&
+        /^[a-z][a-z0-9_]*\.svg$/.test(f.asset) && typeof f.artwork === 'string', 'Invalid master filter asset');
+      const data=decode64(f.artwork);
+      check(data.length>0 && data.length<=65536 && await sha256(data)===f.sha256, 'Master filter artwork differs');
+    }
     extensionIds.add(e.id);
   }
   check(kit.linked === undefined || (Array.isArray(kit.linked) && kit.linked.length > 0 &&
@@ -523,6 +537,10 @@ export async function openKit(kit) {
     const owned = objects.filter(o => o.extension === id);
     check(owned.length === 1 && owned[0].symbols.some(s => s.section && s.binding === 1 &&
       s.name === 'sdk_extension_' + id + '_hooks'), 'Missing extension accessor: ' + id);
+    if(processorOf(extensions.find(e => e.id===id))) {
+      const has = suffix => owned[0].symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+id+'_'+suffix);
+      check((has('processor') && has('panel')) || has('filter'), 'Missing master processor accessors: '+id);
+    }
   }
   return {...kit, objects};
 }
@@ -579,7 +597,8 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
-    ...(extensions.size ? [{kind: 'extension'}] : [])]);
+    ...(extensions.size ? [{kind: 'extension'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : [])]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
@@ -622,9 +641,12 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   // those resolve to the declared fallbacks. Machine objects never do.
   const aliases = new Map();
   for (const e of kit.extensions ?? []) if (!extensions.has(e.id)) {
-    const symbol = 'sdk_extension_' + e.id + '_hooks';
-    check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
-    aliases.set(symbol, globals.get('kit_absent'));
+    for(const suffix of ['hooks', ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
+      kit.objects.some(o => o.extension===e.id && o.symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+e.id+'_'+suffix))) : [])]) {
+      const symbol = 'sdk_extension_' + e.id + '_' + suffix;
+      check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
+      aliases.set(symbol, globals.get('kit_absent'));
+    }
   }
   for (const m of kit.machines) if (!selected.has(m.id)) {
     for (const [symbol, fallback] of Object.entries(m.absent)) {
@@ -705,9 +727,9 @@ export function redirect(edit, destination) {
   }
   check(edit.kind === 'hook' && typeof edit.call === 'boolean', 'Not a hook');
   if (edit.length === 8 || edit.length === 12) {
-    check(edit.call, 'Wide hook must be a call');
+    check(edit.call || edit.length === 8, 'Invalid absolute hook policy');
     const after = new Uint8Array(edit.length);
-    after.set(words(0xde00, destination >>> 16, destination & 0xffff, 0));
+    after.set(words(edit.call ? 0xde00 : 0xdc00, destination >>> 16, destination & 0xffff, 0));
     return after;
   }
   const delta = destination - Number(edit.address);
@@ -941,7 +963,10 @@ export function graphicsForMachine(machine, {graphics = 'colorful', graphicsOver
   return machine.artwork ? mode : 'colorful';
 }
 
-export async function buildAssets(kit, selection, catalog, numbers, {graphics = 'colorful', graphicsOverrides = {}} = {}) {
+export async function buildAssets(kit, selection, catalog, numbers, options = {}, extensionIds = []) {
+  // Older extension-aware callers pass their selection as the fifth argument.
+  if (Array.isArray(options)) { extensionIds = options; options = {}; }
+  const {graphics = 'colorful', graphicsOverrides = {}} = options;
   check(['colorful', 'grayscale'].includes(graphics), 'Invalid machine graphics setting');
   check(graphicsOverrides && typeof graphicsOverrides === 'object' && !Array.isArray(graphicsOverrides), 'Invalid machine graphics overrides');
   for (const [id, mode] of Object.entries(graphicsOverrides))
@@ -966,6 +991,13 @@ export async function buildAssets(kit, selection, catalog, numbers, {graphics = 
     expected[key] = [...base[key], ...group.map(m => JSON.parse(catalogEntry(m, numbers).trim().replace(/^,/, '')))];
   check(JSON.stringify(JSON.parse(text)) === JSON.stringify(expected), 'Unexpected catalog modification');
   const files = {'content/op1_factory.json': extended};
+  for(const id of extensionSelection(kit,extensionIds)) {
+    const filter=processorOf(kit.extensions.find(e => e.id===id));
+    if(!filter)continue;
+    const data=decode64(filter.artwork);
+    check(data.length<=65536 && await sha256(data)===filter.sha256, 'Master filter artwork differs');
+    files['content/display/'+filter.asset]=data;
+  }
   for (const machine of machines)
     for (const [path, preset] of Object.entries(presetFiles(machine)))
       files[path] = utf8.encode(JSON.stringify(preset, null, 2) + '\n');
@@ -981,6 +1013,7 @@ export async function buildAssets(kit, selection, catalog, numbers, {graphics = 
     check(baseSvg.split('</svg>').length === 2, 'Unexpected stock artwork boundary');
     for (const m of machines.filter(m => m.artwork)) {
       check(/^[a-z][a-z0-9_]*\.svg$/.test(m.asset), 'Invalid artwork filename');
+      check(files['content/display/' + m.asset] === undefined, 'Display asset collision: ' + m.asset);
       try {
         const fragment = selectArtwork(m, graphicsForMachine(m, {graphics, graphicsOverrides}));
         const artwork = baseSvg.replace('</svg>', fragment + '</svg>');

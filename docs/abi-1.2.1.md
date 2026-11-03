@@ -1018,3 +1018,49 @@ the value hook's stand-in vector puts the same choices in the bars. The effect's
 keeps its slot from `init(object, slot)`, reads word 36 of track 14 or 15
 from `84eab39c + slot × 0xe8`, and passes the DSP its eight words and each
 control's choice as a ninth to twelfth.
+
+## Master-processor capability
+
+The conditional `master_filter` service redirects these stock 1.2.1 sites.
+Eight-byte entry branches replay their exact original prologues in adapter
+trampolines before resuming stock. Four-byte call sites remain relative; the
+master audio call retains its eight-byte absolute footprint. The existing
+project save/deserialize hooks are shared, not replaced or duplicated.
+
+| Site | Purpose | Original bytes |
+| --- | --- | --- |
+| `8c093a70` | MIX ordinary buttons entry | `00e80000eb052132` |
+| `8c09392c` | MIX Shift buttons entry | `093200e803006160` |
+| `8c093888` | MIX encoder entry | `4360990900e80300` |
+| `8d537d04` | EQ frame entry | `00e82400e305666f` |
+| `8d511b80` | Master stereo EQ processing call | `00dea011102c0000` |
+| `8d5b145e` | B3 parameter receiver call | `fae397eb` |
+| `8d598a3c` | Active project publication getter call | `ffe3ea5b` |
+| `8d588114` | New-project preparation entry | `00e80c15e305666f` |
+
+MIX page is word `+0x88`, with EQ at index 1; M2 key 7 takes the shifted
+vtable method while Shift is held. Keys 10–13 are encoder clicks. Stock
+continuous stepping is `8d4d6cc8`; an actual edit uses dirty marker `8d585ee8`.
+B3 virtual IDs 128–137 are consumed before stock's unbounded parameter setter
+`8d50eb8c`, including malformed values. ID 128 begins a parameter transaction:
+selection in bits 0–4 (0 is EQ, 1–16 are registered processors), count in bits
+5–8, explicit audio reset in bit 9, and a 21-bit sequence in bits 10–30.
+IDs 129–136 stage full nonnegative Q31 slot values. ID 137 commits the sequence
+only if every declared slot has arrived. Incomplete/mismatched transactions leave
+the previous audio snapshot intact; no virtual ID reaches a stock array index. Audio state is private to the audio
+role; processing is 64 stereo Q31 samples at 44.1 kHz. A committed reset request
+advances an audio epoch so a later parameter update cannot erase it. Audio block
+boundaries implement the reset/fade policy in the [processor contract](master-filter.md#parameters-and-audio).
+
+Project publication calls getter `8d584210` after activation. Companion
+state is associated with the deserialized project buffer and consumed once
+when that buffer is published; new-project preparation clears pending state.
+The existing deserialize call at `8d58913e` still performs machine remapping
+before stock validation.
+
+For standalone panels, constructor `8d520844` with ID zero explicitly avoids
+stock screen registration. Per-document loader `8d520ce0` loads that document
+before binding; EQ slot 33 is never overwritten. Path commands remain fixed
+32-byte records (type at +24); the shared retained renderer checks exact command counts
+and types and caches geometry/palette references. Author frames use the normal
+positive-scale hide transform for degenerate geometry. All this runs on the GUI role.

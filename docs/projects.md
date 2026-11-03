@@ -142,6 +142,26 @@ stock role again and gets those controls back. Early test builds of aux tracks w
 track instead (`"machine"` and `"controls"`); the reader skips it, so such a
 project opens with CV on track 12, playing the machine's values as its controls.
 
+## `open-xy.master-filter`
+
+Version 2 contains `processor` (`eq` or the extension's stable `state_id`) and
+`parameters`, an object mapping the shared parameter IDs to normalized Q31
+integers, 0–2147483647. Missing parameters use their declared defaults; unknown
+parameters are ignored. Invalid known values or unsupported versions do not
+activate the processor. Version 1's integer `sweep` (0–1023, neutral 512) remains
+readable: it maps to the first parameter as `sweep << 21`; later parameters use
+their defaults. The extension identity `dj` remains stable.
+
+Processor identity is independent of menu order. An unavailable processor falls
+back to EQ, even if another processor now occupies its former menu index.
+
+The SDK writes this section only with a master processor included, using the same
+streaming writer, size/CRC binding and reader as machine remapping. Choice and
+all parameters become active only when their matching project is published.
+Missing/unusable state selects stock EQ and declared defaults. Stock EQ values
+remain in `.xy`; projects without `.oxy` remain compatible. New projects and
+abandoned loads cannot inherit pending state from another project.
+
 ## Commands
 
 | Command | Does |
