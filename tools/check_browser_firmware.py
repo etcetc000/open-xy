@@ -12,6 +12,7 @@ from tooling.formats import elf32, ldr, mapped_offset, require, sha
 from tooling import screen, startup_label
 from tooling.adapters import catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
+from tooling.machines import number_layout
 from tooling.native import configuration, package_collection
 
 
@@ -60,9 +61,12 @@ def main():
     # reproduces it exactly.
     selections = json.loads((directory / 'reference/selections.json').read_text())
     linked = kit.get('linked', [m['id'] for m in kit['machines']])
-    full = [r for r in selections if set(r['selected']) == set(linked) and
+    full = [r for r in selections if set(r['selected']) == set(linked) and r['layout'] is not None and
             r['extensions'] == [e['id'] for e in kit.get('extensions', [])]]
-    require(len(full) == 1, 'The checked selections must include the linked machines with every extension')
+    require(len(full) == 1, 'The checked selections must include the linked machines with every extension, '
+                            "numbered with the native package's layout")
+    require(full[0]['layout'] == json.loads((directory / 'source/layout.json').read_bytes())['machines'],
+            "The linked machines' selection must use the native package's layout")
     everything = directory / 'reference' / full[0]['name']
     source_profiling = json.loads((directory / 'source/manifest.json').read_bytes()).get('profiling')
     require(type(source_profiling) is bool, 'Source package profiling must be a boolean')
@@ -82,6 +86,21 @@ def main():
                 sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs')
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
+        # The selection's numbers, worked out again by the Python numbering the native build
+        # uses: each selected machine's number symbols and menu entry must carry them.
+        numbers = number_layout(kit['profile']['identities'], [(i, None, n) for i, n in kit['fixed'].items()],
+                                result['layout'], [(m['id'], m['kind'], m['identity']) for m in kit['machines']
+                                                   if m['id'] in result['selected']])
+        for machine in kit['machines']:
+            if machine['id'] not in result['selected']:
+                continue
+            own = numbers[machine['id']]
+            # A sample engine's page symbol is its stock page; its own screen's page has its own symbol.
+            pairs = {'player': (('_player_id', 'player'), ('_page_id', 'page')),
+                     'effect': (('_fx_id', 'effect'), ('_fx_page_id', 'page')),
+                     'sample': (('_engine_id', 'engine'),)}.get(machine['kind'], (('_engine_id', 'engine'), ('_page_id', 'page')))
+            require(all(symbols[machine['prefix'] + suffix]['value'] == own[key] for suffix, key in pairs),
+                    'Selection numbers differ: ' + machine['id'])
         services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
                                    (['extension'] if result['extensions'] else []))
         modes = {}
@@ -113,12 +132,12 @@ def main():
         for machine in selected:
             key = {'effect': 'fx_types', 'player': 'seq_types'}.get(machine['kind'], 'engine_types')
             entry = json.loads(machine['catalog'].strip().lstrip(','))
-            # An effect's or player's menu entry carries the number this selection's
-            # module links (its GNU symbol), which need not be the native package's.
+            # An effect's or player's menu entry carries this selection's number, which
+            # need not be the native package's.
             if machine['kind'] == 'effect':
-                entry['id'] = symbols[machine['prefix'] + '_fx_id']['value']
+                entry['id'] = numbers[machine['id']]['effect']
             elif machine['kind'] == 'player':
-                entry['id'] = symbols[machine['prefix'] + '_player_id']['value'] + 4
+                entry['id'] = numbers[machine['id']]['player'] + 4
             catalog[key].append(entry)
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
