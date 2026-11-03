@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from .adapters import catalog_entry
+from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
 from .definitions import control_positions, paged
 from .formats import require, sha
@@ -79,7 +79,14 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['source'] = {key: sources[m.id][key] for key in ('repository', 'tag', 'commit', 'maintainer')}
             if 'cpu' in sources[m.id]:
                 entry['cpu'] = sources[m.id]['cpu']
+        uses = sorted(set(native.service_users([m])) - {m.kind, 'extension'})
+        if uses:
+            entry['features'] = uses
         entry['presetDefaults'] = m.preset_defaults
+        # A machine that takes over aux tracks: its preset files, which the builder installs as they are.
+        aux_presets = aux_preset_files(m)
+        if aux_presets:
+            entry['auxPresets'] = {path: data.decode('utf-8') for path, data in aux_presets.items()}
         if m.presets:
             entry['presets'] = m.presets
         if m.icon:
@@ -131,6 +138,13 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
+    services = native.active_services(profile, native.service_users(machines))
+    # Track control: startup's calls into the saved data, while a selection does not use the service.
+    if 'control' in services:
+        kit['serviceFallbacks'] = {'control': dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'),
+                                                            'kit_absent')}
+    if 'aux' in services:
+        kit.setdefault('serviceFallbacks', {})['aux'] = {'sdk_aux_startup': 'kit_absent'}
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves

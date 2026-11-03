@@ -19,11 +19,13 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
-from .adapters import (generate_player_object, generate_player_table, catalog_entry, generate_display, generate_fx_object, generate_registration,
+from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
+                       generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
-                       generate_synth_controls, generate_project_companion_table, generate_voice,
-                       generate_drum_callbacks, preset_files, sample_callbacks)
+                       generate_synth_controls, generate_project_companion_table, generate_track_controls,
+                       generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
+                       control_callbacks)
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
@@ -190,7 +192,8 @@ def plan(machines, profile=None):
     units = []
     for m in machines:
         if m.kind in ('synth', 'drum'):
-            steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration')
+            steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration',
+                     *(('control',) if track_control(m) else ()))
         elif m.kind == 'player':
             steps = ('player_object',)
         elif m.kind == 'effect':
@@ -215,7 +218,9 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'presets',
+             'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
+             'track_control_table', 'track_control_hooks', 'track_control_project',
+             'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
@@ -228,12 +233,23 @@ UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
+# Track control and hidden pages run from the GUI tick hook; startup stands in for
+# the saved data's entry points in builds that don't link it.
+UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
+                                    'track_control_project', 'synth_pages'), 'control'))
+# Machines that take over aux tracks: the chooser, presets, pages and the stock
+# roles' silencers; startup starts it, and control reaches it through sdk_aux.
+UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 
 def service_users(machines):
-    """What a native build's services are chosen by: its machines' kinds, and
-    'extension' when it links extensions (native builds link all of the collection's)."""
-    return [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    """What a native build's services are chosen by: its machines' kinds, the features
+    they declare ('trackControl', 'auxTrack', 'hidePages'), and 'extension' when it
+    links extensions (native builds link all of the collection's)."""
+    users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    return (users + ['trackControl' for m in machines if track_control(m)] +
+            ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
+            ['hidePages' for m in machines if 'hidePages' in m.definition])
 
 
 def module_bytes(profile):
@@ -307,6 +323,8 @@ def absent_symbols(m):
             absent[m.prefix + '_screen_register'] = 'kit_absent'
         if m.kind == 'sample' and m.display != 'stock':
             absent[m.prefix + '_screen_ready'] = 'kit_absent'
+        # The shared track control table names these; unselected, its ready check declines first.
+        absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
     if m.kind in ('effect', 'sample', 'drum'):
         absent[m.prefix + '_benchmark'] = 'kit_absent'
     return absent
@@ -433,6 +451,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_player_table(folder, machines)), obj)
             if step == 'project_companion_table':
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
+            if step == 'track_control_table':
+                return cxx(str(generate_track_controls(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
@@ -443,11 +463,13 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'drum', 'sample')]
+                services = active_services(profile, service_users(machines))
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
                                                 [x.prefix for x in sample_engines],
                                                 [x.prefix for x in sample_engines if x.display != 'stock'],
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
-                                                player_pages=[x.prefix for x in by_kind(machines, 'player')])), obj)
+                                                player_pages=[x.prefix for x in by_kind(machines, 'player')],
+                                                control='control' in services, aux='aux' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -456,6 +478,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
+                  'control': lambda: generate_control(folder, m),
                   'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
                   'player_object': lambda: generate_player_object(folder, m)}[step]
         return cxx(str(source()), obj, m)
@@ -812,8 +835,9 @@ def extend_catalog(catalog, profile, machines):
 
     The insertion offsets are bound to the exact authenticated stock catalog.
     """
-    groups = dict(engine_types=by_kind(machines, 'synth', 'drum', 'sample'), fx_types=by_kind(machines, 'effect'),
-                  seq_types=by_kind(machines, 'player'))
+    listed = [m for m in machines if catalog_entry(m)]  # aux machines are not in tracks 1-8's list
+    groups = dict(engine_types=by_kind(listed, 'synth', 'drum', 'sample'), fx_types=by_kind(listed, 'effect'),
+                  seq_types=by_kind(listed, 'player'))
     result, base = catalog, json.loads(catalog)
     for key, at in sorted(profile['stock_catalog_inserts'].items(), key=lambda item: -item[1]):
         result = result[:at] + ''.join(catalog_entry(m) for m in groups[key]).encode('utf-8') + result[at:]
@@ -832,6 +856,9 @@ def prepare_assets(catalog, profile, machines):
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
+    check_aux_presets(machines)
+    for m in machines:
+        outputs.update(aux_preset_files(m))
     return outputs
 
 
