@@ -38,6 +38,7 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (dryLevel), and adds a saturating Q31 add and up to 32 display text slots.
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
+# 1.8 also lets a synth declare an optional note(voice, shared, velocity) hook.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
 # 1.10 gives display code the track's amp envelope (draw::Input amp), lets Shift on a
 # sample engine's own screen give any encoder to one of the stock sampler page's own
