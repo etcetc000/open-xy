@@ -43,7 +43,7 @@ u32 shown_key;   // the key the GUI's copy is of
 void clear() {
     overview.generation = overview.assigned = overview.loaded = 0;
     overview.frames = overview.rate = overview.channels = 0;
-    overview.begin = overview.end = overview.reverse = 0;
+    overview.begin = overview.end = overview.reverse = overview.level = 0;
     for (u32 i = 0; i < overview_bins; ++i) overview.low[i] = overview.high[i] = 0;
     shown_key = 0;
 }
@@ -143,6 +143,7 @@ void sdk_sample_overview_update(u32 track) {
             overview.begin = outer.begin;
             overview.end = outer.end;
             overview.reverse = outer.reverse;
+            overview.level = outer.level;
             if (overview.frames) {
                 if (overview.begin > overview.frames) overview.begin = overview.frames;
                 if (overview.end > overview.frames) overview.end = overview.frames;

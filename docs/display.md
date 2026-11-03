@@ -249,6 +249,7 @@ engine plays it.
 | `loaded` | 0 until the overview is ready, while the sample loads and the file worker reads it. The fields below it are then 0, never the last sample's |
 | `frames`, `rate`, `channels` | The whole sample's length, rate and channels |
 | `begin`, `end`, `reverse` | The outer markers, in frames, as the engine plays them, and 1 if it plays backwards. These follow edits in any frame |
+| `level` | The region's gain as the engine plays it, unsigned Q27 (`opxy::sample_unity_level` is unity; SDK 1.10). It follows edits as the markers do, and is 0 until a sample loads |
 | `low`, `high` | 96 bins of equal length across the whole sample: the smallest and largest 16-bit value of any channel in each |
 
 The file worker reads the sample in the background; the screen only copies the

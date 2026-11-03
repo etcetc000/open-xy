@@ -28,6 +28,9 @@ struct SynthControls {
     u8 shift;
     u8 shift_choices[4];
     const char* const* shift_titles;
+    // A sample engine's own screen whose Shift turns edit the stock sampler's
+    // start, end, direction and gain (SDK 1.10, resources.shiftTrim).
+    bool stock_shift;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // An owned effect on send track 14 or 15 as its own page shows it (SDK 1.7):
@@ -63,6 +66,9 @@ extern const opxy::u32 sdk_synth_control_count __asm__("sdk_synth_control_count"
 // 0..3 unless an owned synth's encoder press selected an alternate. GUI only.
 void sdk_synth_shown(opxy::u32 track, opxy::u8* shown) __asm__("sdk_synth_shown");
 bool sdk_synth_value(opxy::u32 track, opxy::u32 slot, opxy::i32 value, char* text) __asm__("sdk_synth_value");
+// Whether Shift on the track's sample engine's own screen edits the stock
+// sampler's trim (resources.shiftTrim, drum_controls_stock.cpp). GUI only.
+bool sdk_sample_shift_trim(opxy::u32 track) __asm__("sdk_sample_shift_trim");
 // The slot shown at page position `index` while engine is the selected track's
 // owned synth, as last refreshed; other indices and engines map to themselves.
 // For stock control titles.

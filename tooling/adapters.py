@@ -446,6 +446,9 @@ def generate_synth_controls(directory, machines):
             declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
             choices = [len(p['mapping']['labels']) for p in shift] + [1] * (SYNTH_POSITIONS - len(shift))
             extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
+        elif own_screen and m.definition['resources'].get('shiftTrim'):
+            # Shift on its own screen edits the stock sampler's trim (drum_controls_stock.cpp).
+            extra = ', 0, {1, 1, 1, 1}, nullptr, true'
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
                     f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {hidden_pages(m.definition)}, {absent}{extra}}},")

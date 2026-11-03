@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from tooling import machines
+from tooling import adapters, machines
 from tooling.pipeline import config
 from machine_fixtures import FOLDER, NAMES, fixture, fixture_entries
 
@@ -429,6 +429,38 @@ class OutsideMachines(unittest.TestCase):
         self.numberless(folder, base=None, sdk='1.4', identity={'engine': 47, 'page': 90})
         with self.assertRaisesRegex(ValueError, 'stock sample page'):
             machines.machine_at(folder)
+
+    def test_shift_on_a_sample_engines_own_screen_may_go_to_the_stock_sampler(self):
+        folder = self.copy('probesample')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        for name in ('padSettings', 'drumControls'):
+            definition['resources'].pop(name)
+        definition['resources']['shiftTrim'] = 1
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        # Shift's trim belongs to an own screen, which took the sampler page's encoders.
+        self.numberless(folder, base='sampler', sdk='1.10')
+        with self.assertRaisesRegex(ValueError, 'shiftTrim .* needs resources.display'):
+            machines.machine_at(folder)
+        synth = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+        definition['resources']['display'] = synth['resources']['display']
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(folder, base='sampler', sdk='1.9')
+        with self.assertRaisesRegex(ValueError, r'''\(shiftTrim\) needs "sdk": "1.10"'''):
+            machines.machine_at(folder)
+        self.numberless(folder, base='sampler', sdk='1.10')
+        m = machines.machine_at(folder)
+        # Its controls row asks the sampler page for stock's Shift turns; without
+        # the flag the row leaves it false, and Shift turns stay fine steps.
+        with tempfile.TemporaryDirectory() as out:
+            adapters.generate_synth_controls(out, [m])
+            table = (Path(out) / 'synth_control_table.cpp').read_text(encoding='utf-8')
+        self.assertIn(', 0, {1, 1, 1, 1}, nullptr, true},', table)
+        definition['resources']['shiftTrim'] = 0
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        with tempfile.TemporaryDirectory() as out:
+            adapters.generate_synth_controls(out, [machines.machine_at(folder)])
+            table = (Path(out) / 'synth_control_table.cpp').read_text(encoding='utf-8')
+        self.assertNotIn('nullptr, true},', table)
 
     def test_only_a_sample_engines_own_screen_reads_the_overview_from_sdk_1_8(self):
         include = '#include <opxy/sample_overview.hpp>\n'

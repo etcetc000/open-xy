@@ -589,7 +589,21 @@ its loop markers, or the other things that page's encoders edit, from there.
 `SampleBlock.region` still reports the markers already in the region: the whole
 sample when one is newly assigned, or whatever a preset or the same track on the
 stock sampler left. If your instrument needs trimming, give it your own controls for
-it and read them in `render_sample`. The stock sample browser and recorder are unaffected.
+it and read them in `render_sample`, or declare `shiftTrim` (SDK 1.10): Shift and the
+encoders then edit the stock sampler's own settings, which stock saves with the track
+and `SampleBlock.region` reports, in place of Shift's fine turns:
+
+| Shift + encoder | Edits | The stock sampler's |
+| --- | --- | --- |
+| 1 | Sample start | Encoder 1 |
+| 2 | Sample end | Encoder 4 |
+| 3 | Direction | Shift + encoder 1 |
+| 4 | Gain | Shift + encoder 4 |
+
+The [overview](display.md#sample-overview) gives the screen the start, the end, the
+direction and the gain, and its input's `shift` is 1 while Shift is held, so it can
+show them then. The stock sample
+browser and recorder are unaffected.
 
 ### Services
 
@@ -603,6 +617,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
+| `shiftTrim` | 0 or 1; needs an [own screen](#own-screen) and SDK 1.10 | Shift and the encoders edit the stock sampler's start, end, direction and gain | |
 | `sampleAnalysis` | Budget in bytes, 4096..2 MiB, whole words | Prepared per-sample data | `analysis_words`, `prepare_begin`, `prepare_step`, `prepared` |
 
 ### Audio block
@@ -862,7 +877,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.9 and builds 1.0 to 1.9 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.10 and builds 1.0 to 1.10 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

@@ -24,6 +24,7 @@ opxy::u32 sdk_sample_ui_engine(opxy::u32) __asm__("sdk_sample_ui_engine");
 opxy::u32 sdk_sample_press_engine_owned(opxy::u32, opxy::u32) __asm__("sdk_sample_press_engine_owned");
 opxy::u32 sdk_sample_region_control(opxy::u32, opxy::u32, const opxy::u32*, opxy::u32) __asm__("sdk_sample_region_control");
 opxy::u32 sdk_sample_page_turn(opxy::u32, opxy::u32, const opxy::u32*) __asm__("sdk_sample_page_turn");
+opxy::u32 sdk_sample_page_shift() __asm__("sdk_sample_page_shift");
 opxy::u32 sdk_sample_param_engine(opxy::u32) __asm__("sdk_sample_param_engine");
 opxy::u32 sdk_sample_neutral_engine(opxy::u32) __asm__("sdk_sample_neutral_engine");
 opxy::u32 sdk_screen_visible(opxy::u32) __asm__("sdk_screen_visible");
@@ -421,12 +422,31 @@ u32 sdk_sample_region_control(u32 key, u32 control, const u32* event, u32 fine) 
 // The same handler turns the track's other pages, its envelope, filter and
 // LFO (the instrument page word, 1..3): there, and otherwise, stock asks its
 // flag as before.
+//
+// An engine declaring shiftTrim gives Shift turns on its engine page to stock
+// instead: they replay through this handler (8c0b12e4) as the stock sampler's
+// own turns, encoders 1 and 4 unshifted (sample start and end) for encoders 1
+// and 2, and shifted (direction and gain) for 3 and 4. Stock picks its row of
+// four functions from its Shift test (8c0b13e6, sdk_sample_page_shift), which
+// the replay answers, and then edits and saves the region as on its own page.
 const u32 kInstrumentPage = 0x080238bc;  // 0 on the engine page, 1..3 on the others
+namespace {
+bool replaying, replay_shifted;
+}
 u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
+    if (replaying) return stock<u32()>(0x8d5b7c28)();
     const u32 track = byte(kSelectedTrack);
     const u32 id = track < kTracks && word(kInstrumentPage) == 0 ? track_engine(track) : kNoEngine;
     const SynthControls* controls = own_controls(id);
     // The handler reads the encoder as its low two bits; negative means none.
+    if (controls && controls->stock_shift && static_cast<i32>(encoder) >= 0 && event && shift_held()) {
+        static const u32 kStockEncoder[opxy::page_controls] = {0, 3, 0, 3};
+        replaying = true;
+        replay_shifted = (encoder & 3) >= 2;
+        stock<u32(u32, u32, const u32*)>(0x8c0b12e4)(object, (encoder & ~3u) | kStockEncoder[encoder & 3], event);
+        replaying = false;
+        return 1;
+    }
     if (controls && static_cast<i32>(encoder) >= 0 && event) {
         opxy::u8 shown[opxy::page_controls];
         sdk_synth_shown(track, shown);
@@ -441,6 +461,18 @@ u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
     }
     (void)object;
     return stock<u32()>(0x8d5b7c28)();
+}
+
+bool sdk_sample_shift_trim(u32 track) {
+    const SynthControls* controls = track < kTracks ? own_controls(track_engine(track)) : nullptr;
+    return controls && controls->stock_shift;
+}
+
+// 8c0b13e6: the sample page's turn handler asks 8d51f184 whether Shift is
+// held, which picks its second row of functions. A replayed Shift turn
+// (sdk_sample_page_turn) answers for the row it replays; any other asks stock.
+u32 sdk_sample_page_shift() {
+    return replaying ? (replay_shifted ? 1 : 0) : stock<u32()>(0x8d51f184)();
 }
 
 // 8d5acf3e: stock's parameter writer 8d5acf28 (project, track, index, value)

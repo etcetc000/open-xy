@@ -78,7 +78,7 @@ SDK_1_7_NODES = 256
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
 # A sample engine's optional services: integer 0/1 flags and the analysis budget.
-SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming')
+SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming', 'shiftTrim')
 SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS, 'display')   # display: its own screen
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
@@ -173,6 +173,8 @@ def validate_definition(value, kind):
                 'sliceTiming needs drumControls')
         if 'display' in resources:
             validate_display(resources['display'])
+        require('display' in resources or not resources.get('shiftTrim', 0),
+                "shiftTrim gives Shift on a sample engine's own screen to the stock sampler: it needs resources.display")
     if kind == 'effect' and 'bufferBytes' in resources:
         size = resources['bufferBytes']
         require(4 <= size <= EFFECT_BUFFER_LIMIT and size % 4 == 0,
