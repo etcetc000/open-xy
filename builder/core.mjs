@@ -333,12 +333,12 @@ export const chosenByDefault = m => m.origin !== 'catalog';
 export const sourceUrl = source => source.repository + '/tree/' + source.commit;
 export const sourceName = source => source.repository.slice('https://github.com/'.length);
 
-// The catalog's words for browsing machines (tooling.catalog.TAGS, which tests compare).
-export const MACHINE_TAGS = ['additive', 'ambient', 'analog', 'bass', 'bell', 'chord', 'delay', 'drone', 'emulation',
+// The catalog's words for browsing machines (tooling.catalog.KEYWORDS, which tests compare).
+export const MACHINE_KEYWORDS = ['additive', 'ambient', 'analog', 'bass', 'bell', 'chord', 'delay', 'drone', 'emulation',
   'experimental', 'fm', 'granular', 'lofi', 'modulation', 'noise', 'pad', 'percussion', 'physical', 'pluck', 'reverb', 'vocal'];
-const MAX_TAGS = 5;
-export const validTags = m => m.tags === undefined || Array.isArray(m.tags) && m.tags.length > 0 &&
-  m.tags.length <= MAX_TAGS && new Set(m.tags).size === m.tags.length && m.tags.every(tag => MACHINE_TAGS.includes(tag));
+const MAX_KEYWORDS = 5;
+export const validKeywords = m => m.keywords === undefined || Array.isArray(m.keywords) && m.keywords.length > 0 &&
+  m.keywords.length <= MAX_KEYWORDS && new Set(m.keywords).size === m.keywords.length && m.keywords.every(keyword => MACHINE_KEYWORDS.includes(keyword));
 // Who maintains a machine: its catalog maintainer; a personal kit's own machines have none.
 export const machineAuthor = m => m.source?.maintainer ?? '';
 const KIND_ORDER = ['synth', 'drum', 'sample', 'effect', 'player'];
@@ -352,18 +352,23 @@ const SORTS = {
   kind: (a, b) => KIND_ORDER.indexOf(a.m.kind) - KIND_ORDER.indexOf(b.m.kind) || byName(a.m, b.m) || a.index - b.index,
 };
 export const MACHINE_SORTS = Object.keys(SORTS);
+// The words people use for each kind, as the builder's filters and details name them.
+const KIND_WORDS = {synth: 'synth synths synthesizer', drum: 'drum drums drum kit', sample: 'sample sampler samplers sample engine',
+  effect: 'effect effects fx send effect', player: 'player players note player'};
 // The machines to list, each with its collection index (which keeps its memory-map
 // colour), in the chosen order. Every word of `query` must appear in the machine's name,
-// ID, description, maintainer, kind or one of its tags; every tag in `tags` must be its own.
-export function browseMachines(machines, {query = '', kind = 'all', tags = [], favorites = null, sort = 'featured'} = {}) {
+// ID, description, maintainer, repository (owner/name, which names a collection), kind
+// or one of its keywords; every keyword in `keywords` must be its own.
+export function browseMachines(machines, {query = '', kind = 'all', keywords = [], favorites = null, sort = 'featured'} = {}) {
   const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
   return machines.map((m, index) => ({m, index}))
     .filter(({m}) => kind === 'all' || m.kind === kind)
     .filter(({m}) => !favorites || favorites.has(m.id))
-    .filter(({m}) => tags.every(tag => m.tags?.includes(tag)))
+    .filter(({m}) => keywords.every(keyword => m.keywords?.includes(keyword)))
     .filter(({m}) => {
       if (!words.length) return true;
-      const text = [m.name, m.id, m.description, machineAuthor(m), m.kind, ...(m.tags ?? [])].join('\n').toLocaleLowerCase();
+      const text = [m.name, m.id, m.description, machineAuthor(m), m.source ? sourceName(m.source) : '',
+        KIND_WORDS[m.kind] ?? m.kind, ...(m.keywords ?? [])].join('\n').toLocaleLowerCase();
       return words.every(word => text.includes(word));
     })
     .sort(SORTS[sort] ?? SORTS.featured);
@@ -421,7 +426,7 @@ export async function openKit(kit) {
   check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
-  check(kit.machines.every(validTags), 'Invalid machine tags');
+  check(kit.machines.every(validKeywords), 'Invalid machine keywords');
   for (const machine of kit.machines) if (Object.hasOwn(machine, 'grayscaleArtwork')) selectArtwork(machine, 'colorful');
   const extensions = kit.extensions ?? [];
   check(Array.isArray(extensions) && extensions.length <= 16, 'Invalid extension collection');

@@ -1,8 +1,9 @@
 name: Catalog label
 # Labels a pull request that changes only the catalog (catalog/machines.json,
-# catalog/extensions.json) "catalog", including one from a fork. pull_request_target
-# runs in this repository with a token that can label; it reads only the pull
-# request's list of changed files and never checks out or runs its code.
+# catalog/extensions.json) "catalog", including one from a fork, and removes the
+# label once it changes anything else. pull_request_target runs in this repository
+# with a token that can label; it reads only the pull request's list of changed
+# files and never checks out or runs its code.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
@@ -21,12 +22,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
+          LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'catalog') }}
         shell: bash
         run: |
           changed=$(gh api --paginate "repos/$REPO/pulls/$NUMBER/files" --jq '.[].filename')
           if [ -n "$changed" ] && ! grep -vqxE 'catalog/(machines|extensions)\.json' <<<"$changed"; then
             gh api --method POST "repos/$REPO/issues/$NUMBER/labels" -f 'labels[]=catalog' >/dev/null
             echo "Labelled catalog: changes only $(echo $changed)"
+          elif [ "$LABELLED" = true ]; then
+            gh api --method DELETE "repos/$REPO/issues/$NUMBER/labels/catalog" >/dev/null
+            echo "Removed catalog: also changes other files: $(echo $changed)"
           else
             echo "Not catalog-only: $(echo $changed)"
           fi

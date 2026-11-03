@@ -39,12 +39,12 @@ STATUSES = ('reserved', 'draft', 'published', 'retired')
 COMMON = {'id', 'kind', 'maintainer', 'status'}
 RELEASE = {'repository', 'tag', 'commit', 'path'}
 # Words the builder lets people browse machines by. An entry may list up to
-# MAX_TAGS of them; builder/core.mjs MACHINE_TAGS holds the same list
-# (tests/test_catalog.py compares them). Tags describe; they never change a release.
-TAGS = ('additive', 'ambient', 'analog', 'bass', 'bell', 'chord', 'delay', 'drone', 'emulation',
+# MAX_KEYWORDS of them; builder/core.mjs MACHINE_KEYWORDS holds the same list
+# (tests/test_catalog.py compares them). Keywords describe; they never change a release.
+KEYWORDS = ('additive', 'ambient', 'analog', 'bass', 'bell', 'chord', 'delay', 'drone', 'emulation',
         'experimental', 'fm', 'granular', 'lofi', 'modulation', 'noise', 'pad', 'percussion',
         'physical', 'pluck', 'reverb', 'vocal')
-MAX_TAGS = 5
+MAX_KEYWORDS = 5
 # A release's fields; builder/core.mjs validSource checks kits with the same patterns
 # (tests/test_catalog.py compares them).
 REPOSITORY = r'https://github\.com/[A-Za-z0-9-]+/(?!\.\.?$)[A-Za-z0-9._-]+'
@@ -83,13 +83,15 @@ def validate(value, listed='machines'):
             require('commit' in entry and status != 'reserved', f'{name}: cpu needs a pinned release')
             cpu_measurement.validate(entry['cpu'], entry.get('kind'))
             required = required | {'cpu'}
-        if 'tags' in entry:
-            tags = entry['tags']
-            require(listed == 'machines', f'{name}: only machines carry tags')
-            require(isinstance(tags, list) and 0 < len(tags) <= MAX_TAGS and len(set(tags)) == len(tags)
-                    and all(tag in TAGS for tag in tags),
-                    f'{name}: tags are 1 to {MAX_TAGS} different words from: ' + ', '.join(TAGS))
-            required = required | {'tags'}
+        if 'keywords' in entry:
+            keywords = entry['keywords']
+            require(listed == 'machines', f'{name}: only machines carry keywords')
+            # Words first, so a list or object among them fails cleanly rather than as unhashable.
+            require(isinstance(keywords, list) and all(isinstance(keyword, str) for keyword in keywords)
+                    and 0 < len(keywords) <= MAX_KEYWORDS and len(set(keywords)) == len(keywords)
+                    and all(keyword in KEYWORDS for keyword in keywords),
+                    f'{name}: keywords are 1 to {MAX_KEYWORDS} different words from: ' + ', '.join(KEYWORDS))
+            required = required | {'keywords'}
         require(set(entry) == required, f'{name}: catalog fields for a {status} machine: '
                 + ', '.join(sorted(required)))
         if listed == 'machines':
@@ -121,16 +123,16 @@ MOVES = {'reserved': {'reserved', 'draft', 'published', 'retired'},
          'retired': {'retired'}}
 
 
-def untagged(entry):
-    """An entry without its tags: what decides whether its release changed."""
-    return None if entry is None else {k: v for k, v in entry.items() if k != 'tags'}
+def release_fields(entry):
+    """An entry without its keywords: what decides whether its release changed."""
+    return None if entry is None else {k: v for k, v in entry.items() if k != 'keywords'}
 
 
 def audio_changes(entry, previous, allow_carried_cpu=False):
     """A new or updated synth, drum, sample or effect release carries a hardware cpu
     measurement of its pinned commit, unless a catalog maintainer lets it keep its previous one.
-    Retagging is not an update: it needs no new measurement."""
-    if entry['status'] not in ('draft', 'published') or untagged(entry) == untagged(previous):
+    Changing only keywords is not an update: it needs no new measurement."""
+    if entry['status'] not in ('draft', 'published') or release_fields(entry) == release_fields(previous):
         return
     require('cpu' in entry, f"{entry['id']}: new or updated submissions require hardware cpu measurements (docs/profiling.md)")
     earlier = (previous or {}).get('cpu')
@@ -150,19 +152,19 @@ def audio_changes(entry, previous, allow_carried_cpu=False):
 def changes(before, after, allow_carried_cpu=False):
     """An updated catalog keeps every machine it held, with its kind, and only moves a
     status forward. A catalog maintainer may let an update keep its previous cpu record.
-    A new or updated machine lists at least one tag."""
+    A new or updated machine lists at least one keyword."""
     current = {e['id']: e for e in after}
     previous = {e['id']: e for e in before}
     for entry in after:
         # Extensions and players run on the controller path, not in audio: they carry no cpu record.
         if entry['kind'] not in ('extension', 'player'):
             audio_changes(entry, previous.get(entry['id']), allow_carried_cpu)
-        # A machine submitted for the builder is listed there under at least one tag; entries
-        # from before tags can stay as they are until they change.
+        # A machine submitted for the builder is listed there under at least one keyword; entries
+        # from before keywords can stay as they are until they change.
         submitted = entry['status'] in ('draft', 'published') and entry != previous.get(entry['id'])
-        require(not submitted or entry['kind'] == 'extension' or 'tags' in entry,
-                f"{entry['id']}: new or updated machines list at least one tag (docs/catalog.md#entries): "
-                + ', '.join(TAGS))
+        require(not submitted or entry['kind'] == 'extension' or 'keywords' in entry,
+                f"{entry['id']}: new or updated machines list at least one keyword (docs/catalog.md#entries): "
+                + ', '.join(KEYWORDS))
     for entry in before:
         name = entry['id']
         require(name in current, f'{name}: catalog entries are never removed; retire the machine instead')
@@ -386,7 +388,7 @@ def main(argv=None):
                 # Against a base, only the entries this change touches; alone, every entry.
                 earlier = {e['id']: e for e in before} if args.base else {}
                 for entry in entries:
-                    if args.base and untagged(earlier.get(entry['id'])) == untagged(entry):
+                    if args.base and release_fields(earlier.get(entry['id'])) == release_fields(entry):
                         continue
                     warning = 'cpu' in entry and cpu_measurement.above_recommended(entry['cpu'])
                     if warning:
@@ -405,8 +407,8 @@ def main(argv=None):
                             f"{entry['id']}: tag {entry['tag']} no longer names the catalog's commit")
                 fetched = fetch(entry, args.cache)
                 found[listed].append(fetched.root)
-                # A retagged entry builds as before, so it needs no test of its own.
-                if not earlier or untagged(earlier.get(entry['id'])) != untagged(entry):
+                # An entry whose keywords alone changed builds as before, so it needs no test of its own.
+                if not earlier or release_fields(earlier.get(entry['id'])) != release_fields(entry):
                     tested[listed].append(fetched.root)
                 print(f"Fetched {fetched.id} {entry['tag']} ({entry['commit'][:12]}): {fetched.root}")
         # Every published machine and extension, in catalog order: a collection for any build command.

@@ -44,9 +44,10 @@ leaves the browser.
    link to the machine's code at the commit the catalog pins. Open-XY's own
    example machines from the catalog are labelled as Open-XY machines. A
    [personal kit](#export-a-kit)'s own machines are marked **Yours**.
-   Above the list, search by name, maintainer, description or tag, sort by
-   name, maintainer or kind, and filter by kind, by the catalog's
-   [tags](catalog.md#entries) or by your favorites. Star a row to make it a
+   Above the list, search by name, maintainer, repository (such as a collection's
+   name), description, kind or keyword, sort by name, maintainer or kind, and
+   filter by kind, by the catalog's [keywords](catalog.md#keywords) or by your
+   favorites. Star a row to make it a
    favorite; favorites are kept in this browser only. Filtering never changes
    the selection: the count under the filters says how many selected machines
    it hides.

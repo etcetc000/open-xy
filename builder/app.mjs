@@ -39,7 +39,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   // How the machine list is searched, filtered and sorted (core.browseMachines).
   // Favorites are kept in this browser only, by machine ID.
   const FAVORITES_KEY = 'open-xy-favorite-machines';
-  const browsing = {query: '', kind: 'all', tags: [], favoritesOnly: false, sort: 'featured'};
+  const browsing = {query: '', kind: 'all', keywords: [], favoritesOnly: false, sort: 'featured'};
   let favorites = new Set();
   try {
     const stored = JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? '[]');
@@ -253,13 +253,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const field = name => target.querySelector('.' + name);
     field('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', drum: 'Synthesis drum kit', sample: 'Sample engine', player: 'Note player'}[m.kind];
     field('detail-name').textContent = m.name; field('detail-description').textContent = m.description;
-    // Each catalog tag lists every machine that shares it.
-    field('detail-tags').hidden = !m.tags?.length;
-    field('detail-tags').replaceChildren(...(m.tags ?? []).map(tag => {
-      const button = node('button', tag, 'tag'); button.type = 'button';
-      button.setAttribute('aria-label', 'Show all ' + tag + ' machines');
+    // Each catalog keyword lists every machine that shares it.
+    field('detail-keywords').hidden = !m.keywords?.length;
+    field('detail-keywords').replaceChildren(...(m.keywords ?? []).map(keyword => {
+      const button = node('button', keyword, 'tag'); button.type = 'button';
+      button.setAttribute('aria-label', 'Show all ' + keyword + ' machines');
       button.onclick = () => {
-        Object.assign(browsing, {query: '', kind: 'all', tags: [tag], favoritesOnly: false});
+        Object.assign(browsing, {query: '', kind: 'all', keywords: [keyword], favoritesOnly: false});
         syncBrowsing(); renderMachines();
       };
       return button;
@@ -415,27 +415,27 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('machine-sort').value = browsing.sort;
     document.querySelectorAll('[data-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.filter === browsing.kind)));
     $('favorites-filter').setAttribute('aria-pressed', String(browsing.favoritesOnly));
-    for (const chip of $('tag-filters').children) chip.setAttribute('aria-pressed', String(browsing.tags.includes(chip.dataset.tag)));
+    for (const chip of $('keyword-filters').children) chip.setAttribute('aria-pressed', String(browsing.keywords.includes(chip.dataset.keyword)));
   }
   function clearBrowsing() {
-    Object.assign(browsing, {query: '', kind: 'all', tags: [], favoritesOnly: false});
+    Object.assign(browsing, {query: '', kind: 'all', keywords: [], favoritesOnly: false});
     syncBrowsing(); renderMachines();
   }
-  // Kinds and tags this kit has: the others are not offered as filters.
+  // Kinds and keywords this kit has: the others are not offered as filters.
   function renderBrowsing() {
     document.querySelectorAll('[data-filter]').forEach(b =>
       b.hidden = b.dataset.filter !== 'all' && !kit.machines.some(m => m.kind === b.dataset.filter));
     if (!kit.machines.some(m => m.kind === browsing.kind)) browsing.kind = 'all';
-    const counts = new Map(core.MACHINE_TAGS.map(tag => [tag, kit.machines.filter(m => m.tags?.includes(tag)).length]));
-    const offered = core.MACHINE_TAGS.filter(tag => counts.get(tag));
-    browsing.tags = browsing.tags.filter(tag => offered.includes(tag));
-    $('tag-filters').hidden = !offered.length;
-    $('tag-filters').replaceChildren(...offered.map(tag => {
-      const chip = node('button', tag, 'tag-filter'); chip.type = 'button'; chip.dataset.tag = tag;
-      const count = node('span', String(counts.get(tag)), 'tag-count'); count.setAttribute('aria-hidden', 'true');
-      chip.append(count); chip.setAttribute('aria-label', tag + ', ' + counts.get(tag) + (counts.get(tag) === 1 ? ' machine' : ' machines'));
+    const counts = new Map(core.MACHINE_KEYWORDS.map(keyword => [keyword, kit.machines.filter(m => m.keywords?.includes(keyword)).length]));
+    const offered = core.MACHINE_KEYWORDS.filter(keyword => counts.get(keyword));
+    browsing.keywords = browsing.keywords.filter(keyword => offered.includes(keyword));
+    $('keyword-filters').hidden = !offered.length;
+    $('keyword-filters').replaceChildren(...offered.map(keyword => {
+      const chip = node('button', keyword, 'keyword-filter'); chip.type = 'button'; chip.dataset.keyword = keyword;
+      const count = node('span', String(counts.get(keyword)), 'keyword-count'); count.setAttribute('aria-hidden', 'true');
+      chip.append(count); chip.setAttribute('aria-label', keyword + ', ' + counts.get(keyword) + (counts.get(keyword) === 1 ? ' machine' : ' machines'));
       chip.onclick = () => {
-        browsing.tags = browsing.tags.includes(tag) ? browsing.tags.filter(t => t !== tag) : [...browsing.tags, tag];
+        browsing.keywords = browsing.keywords.includes(keyword) ? browsing.keywords.filter(t => t !== keyword) : [...browsing.keywords, keyword];
         syncBrowsing(); renderMachines();
       };
       return chip;
@@ -447,7 +447,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('machines').replaceChildren();
     // Each row keeps its collection index, and so its memory-map colour, in any order.
     const rows = core.browseMachines(kit.machines, {...browsing, favorites: browsing.favoritesOnly ? favorites : null});
-    const filtered = Boolean(browsing.query.trim() || browsing.kind !== 'all' || browsing.tags.length || browsing.favoritesOnly);
+    const filtered = Boolean(browsing.query.trim() || browsing.kind !== 'all' || browsing.keywords.length || browsing.favoritesOnly);
     const hiddenSelected = selected.filter(id => !rows.some(({m}) => m.id === id)).length;
     $('browse-result').textContent = !filtered ? '' : rows.length + ' of ' + kit.machines.length + ' machines' +
       (hiddenSelected ? ' · ' + hiddenSelected + ' selected not shown' : '');
@@ -487,10 +487,15 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       glyph.append(visuals.icon(m.kind, m.icon));
       // A row stays listed when unstarred under Favorites, until the list changes, so a
       // mistaken click can be undone in place.
-      const star = node('button', '★', 'machine-favorite'); star.type = 'button';
+      // Outlined or filled, so its state does not rest on colour alone.
+      const star = node('button', undefined, 'machine-favorite'); star.type = 'button';
       star.setAttribute('aria-label', 'Favorite ' + m.name);
-      star.setAttribute('aria-pressed', String(favorites.has(m.id)));
-      star.onclick = () => { toggleFavorite(m.id); star.setAttribute('aria-pressed', String(favorites.has(m.id))); };
+      const showFavorite = () => {
+        star.textContent = favorites.has(m.id) ? '★' : '☆';
+        star.setAttribute('aria-pressed', String(favorites.has(m.id)));
+      };
+      showFavorite();
+      star.onclick = () => { toggleFavorite(m.id); showFavorite(); };
       row.append(label, glyph, button, star); $('machines').append(row);
     });
   }
