@@ -182,6 +182,14 @@ def generate_collection(folder, extensions):
     for e in extensions:
         symbol = 'sdk_extension_' + e.id + '_hooks'
         lines.append('extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");')
+        lines.append('namespace opxy { namespace extensions { namespace ' + e.id +
+                     ' { extern const Hooks hooks; }}}')
+    lines += ['extern "C" {',
+              'const opxy::extensions::Hooks* sdk_extension_hooks_static[' +
+              str(max(1, len(extensions))) + '] = {' +
+              table(['&opxy::extensions::' + e.id + '::hooks' for e in extensions]) + '};',
+              'opxy::u32 sdk_extension_hooks_static_count = ' + str(len(extensions)) + ';',
+              '}']
     lines += ['namespace opxy { namespace platform {', 'namespace {',
               'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
