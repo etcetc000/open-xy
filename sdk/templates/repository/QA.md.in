@@ -87,6 +87,18 @@ Unmute it everywhere.
       a profiling build from the committed source, a run collected at the machine's heaviest setting, and
       the readout kept with the commit it measured
 
+## In the builder
+
+Once the machine's catalog entry is merged and released (the beta site from `staging`, open-xy.com from
+`main`; see [submitting a machine](https://github.com/etcetc000/open-xy/blob/staging/docs/catalog.md#submit-a-machine)):
+
+- [ ] The machine list shows @NAME@ as Community, with its name, maintainer and description
+- [ ] Filtering by its kind (@KIND@s) lists it, and filtering by the other kinds doesn't
+- [ ] Searching its name, and each of its keywords, finds it; its details panel lists its keywords, and
+      clicking one lists it among that keyword's machines
+- [ ] Choosing it builds a firmware that includes it, and that firmware passes
+      [Firmware basics](#firmware-basics)
+
 ## Known limits
 
 Not failures, but worth confirming they haven't changed. List what the machine can't do yet, and stock
