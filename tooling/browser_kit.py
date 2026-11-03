@@ -140,7 +140,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                extensions=extensions.metadata(native.extensions_of(machines),
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
-               screenTemplate=screen.template().decode('utf-8'))
+               screenTemplate=screen.template().decode('utf-8'),
+               overlayArtwork=(ROOT / native.OVERLAY_ARTWORK).read_text(encoding='utf-8'))
     services = native.active_services(profile, native.service_users(machines))
     # Track control: startup's calls into the saved data, while a selection does not use the service.
     if 'control' in services:
@@ -148,6 +149,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                                             'kit_absent')}
     if 'aux' in services:
         kit.setdefault('serviceFallbacks', {})['aux'] = {'sdk_aux_startup': 'kit_absent'}
+    # The master stage: stock's EQ while a selection has no master processor.
+    if 'master_filter' in services:
+        kit.setdefault('serviceFallbacks', {})['master_filter'] = {'sdk_master_process': 'sdk_master_stock_stage'}
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves
@@ -165,6 +169,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
 def write_builder(kit, output):
     """Bundle reviewed data and the shared UI without recompiling machine code."""
     require(kit.get('screenTemplate') == screen.template().decode('utf-8'), 'Unsupported platform screen template')
+    require('overlayArtwork' not in kit or
+            kit['overlayArtwork'] == (ROOT / native.OVERLAY_ARTWORK).read_text(encoding='utf-8'),
+            'Unsupported overlay artwork')
     if 'stockCatalog' in kit:
         catalog = base64.b64decode(kit['stockCatalog'], validate=True)
         require(sha(catalog) == kit['profile']['stock_catalog_sha256'], 'Bundled stock catalog hash mismatch')

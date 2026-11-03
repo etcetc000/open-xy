@@ -635,3 +635,12 @@ test('machine graphics settings preserve selected master artwork and reject asse
   kit.machines[0].asset = 'processor.svg';
   await assert.rejects(buildAssets(kit, ['probe'], catalog, {}, {graphics:'grayscale'}, ['processor']), /asset collision/i);
 });
+
+test('a kit carrying the SDK overlay installs it with every build, and a damaged one is refused', async () => {
+  const {kit, catalog} = await fixture();
+  const overlay = '<svg xmlns="http://www.w3.org/2000/svg"><g id="indicator"/></svg>';
+  const files = await buildAssets({...kit, overlayArtwork:overlay}, ['probe'], catalog, {});
+  assert.equal(new TextDecoder().decode(files['content/display/openxy_overlay.svg']), overlay);
+  assert.equal((await buildAssets(kit, ['probe'], catalog, {}))['content/display/openxy_overlay.svg'], undefined);
+  await assert.rejects(buildAssets({...kit, overlayArtwork:'<svg>'}, ['probe'], catalog, {}));
+});

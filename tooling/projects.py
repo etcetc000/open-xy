@@ -30,6 +30,9 @@ MACHINES_VERSION = 1
 # over, by track and pattern index.
 CONTROL = 'open-xy.control'
 CONTROL_VERSION = 1
+# The cpu meter's indicator, the project's setting: written only while on.
+CPU = 'open-xy.cpu'
+CPU_VERSION = 1
 # The track and pattern keys of open-xy.control's aux section: indices 0..15.
 AUX_KEYS = {str(i) for i in range(16)}
 # owner.name: the owner is a GitHub user or organisation, lowercased; `open-xy` is the SDK's.
@@ -159,6 +162,14 @@ def aux_kept(document, data):
     return result
 
 
+def cpu_indicator(document, data):
+    """Whether the cpu meter's indicator is on for the project: only a companion that
+    still describes it, with a version 1 open-xy.cpu section saying so."""
+    section = document['sections'].get(CPU)
+    return bool(describes(document, data) and section and section['version'] == CPU_VERSION and
+                section.get('indicator') is True)
+
+
 def translation(saved, layout):
     """Each saved (slot, number) and what it is in `layout`: the machine's own number
     there, or None when the machine is not in it, which a reader opens as FALLBACK.
@@ -179,14 +190,17 @@ def translation(saved, layout):
     return {key: None if key[0] != 'page' and claims[key] > 1 else number for key, number in result.items()}
 
 
-def companion(data, layout, previous=None, profile=None, kept=None, aux=None):
+def companion(data, layout, previous=None, profile=None, kept=None, aux=None, indicator=False):
     """The companion for project bytes `data` saved with `layout`, what track control
-    machines `kept` (bytes by machine ID) and the role's eight controls kept for `aux`
-    track patterns machines held (by track and pattern index), as the firmware writes
-    it. Other sections are kept from `previous` only while it still describes the same bytes."""
+    machines `kept` (bytes by machine ID), the role's eight controls kept for `aux`
+    track patterns machines held (by track and pattern index), and whether the cpu
+    meter's `indicator` is on, as the firmware writes it. Other sections are kept from
+    `previous` only while it still describes the same bytes."""
     sections = {}
     if previous and describes(previous, data):
-        sections = {name: section for name, section in previous['sections'].items() if name != MACHINES}
+        sections = {name: section for name, section in previous['sections'].items() if name not in (MACHINES, CPU)}
+    if indicator:
+        sections[CPU] = {'version': CPU_VERSION, 'indicator': True}
     sections[MACHINES] = {'version': MACHINES_VERSION, 'profile': profile or config()['id'],
                           'machines': check_layout_numbers(layout, 'the layout')}
     if kept or aux:

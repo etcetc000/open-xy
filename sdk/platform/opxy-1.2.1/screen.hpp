@@ -73,6 +73,11 @@ inline void update_controls(Base* o, u32 track, const Parameters* p) {
 inline u32 note_serial(u32 track) { return stock<u32(u32)>(0x8d4d6c08)(track); }
 inline void set_matrix(Leaf* node, const i32* matrix) { stock<void(Leaf*, const i32*)>(0x8d5f06a6)(node, matrix); }
 inline void set_text(Leaf* node, const char* text) { platform::set_text(node, text); }
+// Shows or hides a node and its children: its visibility byte, as stock's own
+// pages set it (the aux track's input icons, 8d5299c2).
+inline void set_shown(void* node, bool shown) {
+    if (node) static_cast<unsigned char*>(node)[0x5c] = shown;
+}
 inline void set_fill(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa986)(node, id); }
 inline void set_stroke(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa966)(node, id); }
 inline void invalidate(PathNode* node) { stock<void(PathNode*)>(0x8d5fa9c4)(node); }
@@ -301,6 +306,9 @@ template <class Object> void destroy(Object* o) {
 }
 
 // Stock method table: destructors, a stock entry, frame, init, a stock entry.
+// Entry +8 says whether to paint a slot that isn't the current page, as stock's
+// own overlays do; kPaintOwnPage (stock's) paints only the current one.
+const u32 kPaintOwnPage = 0x8d51fcd4, kStockEntry20 = 0x8c0867f0;
 template <class Renderer> struct VTable {
     typedef typename Renderer::Object Object;
     void (*destroy)(Object*);
@@ -325,8 +333,8 @@ template <class Renderer> struct VTable {
     const char opxy_screen_asset[] = ASSET;                                                                \
     const opxy::screen::VTable<Renderer> opxy_screen_vtable = {                                            \
         &opxy::screen::destroy<Renderer::Object>, &opxy::screen::destroy<Renderer::Object>,                \
-        reinterpret_cast<const void*>(0x8d51fcd4), &Renderer::frame, &Renderer::init,                      \
-        reinterpret_cast<const void*>(0x8c0867f0)};                                                        \
+        reinterpret_cast<const void*>(opxy::screen::kPaintOwnPage), &Renderer::frame, &Renderer::init,      \
+        reinterpret_cast<const void*>(opxy::screen::kStockEntry20)};                                       \
     Renderer::Object* opxy_screen_ctor(Renderer::Object* o, opxy::u32 page) {                              \
         return opxy::screen::construct(o, page, PAGE_LIMIT, opxy_screen_asset, &opxy_screen_vtable);       \
     }                                                                                                      \

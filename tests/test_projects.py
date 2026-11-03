@@ -14,8 +14,8 @@ from tooling import native
 from tooling.adapters import generate_project_companion_table
 from tooling.pipeline import ROOT, config
 from machine_fixtures import NAMES, fixture
-from tooling.projects import (FALLBACK, LIMIT, MACHINE_LIMIT, MACHINES, aux_kept, binding, canonical, companion,
-                              companion_path, kept_data, main, parse, saved_numbers, translation)
+from tooling.projects import (CPU, FALLBACK, LIMIT, MACHINE_LIMIT, MACHINES, aux_kept, binding, canonical, companion,
+                              companion_path, cpu_indicator, kept_data, main, parse, saved_numbers, translation)
 
 PROJECT = bytes(range(256)) * 4
 SAVED = {'karplus': {'engine': 36, 'page': 84}, 'pingpong': {'effect': 40, 'page': 21},
@@ -132,6 +132,23 @@ class FirmwareWriter(unittest.TestCase):
             # what its track control machine keeps.
             self.assertEqual((folder / 'song.oxy').read_bytes(),
                              companion(project.read_bytes(), SAVED, kept={'morph': b'stat\xff'}))
+
+    def test_the_cpu_indicator_is_written_only_while_on(self):
+        with tempfile.TemporaryDirectory(prefix='companion-') as directory:
+            folder = Path(directory)
+            writer, project = host_writer(folder), folder / 'song.xy'
+            kept = {'morph': b'stat\xff'}
+            on = subprocess.run([str(writer), str(project), '1'], env=dict(os.environ, CPU='1'), timeout=30)
+            self.assertEqual(on.returncode, 0)
+            raw = (folder / 'song.oxy').read_bytes()
+            self.assertEqual(raw, companion(project.read_bytes(), SAVED, kept=kept, indicator=True))
+            self.assertTrue(cpu_indicator(parse(raw), project.read_bytes()))
+            off = dict(os.environ)
+            off.pop('CPU', None)
+            self.assertEqual(subprocess.run([str(writer), str(project), '1'], env=off, timeout=30).returncode, 0)
+            raw = (folder / 'song.oxy').read_bytes()
+            self.assertNotIn(CPU, parse(raw)['sections'])
+            self.assertEqual(raw, companion(project.read_bytes(), SAVED, kept=kept))
 
     def test_track_control_keeps_its_bytes_with_the_project(self):
         with tempfile.TemporaryDirectory(prefix='companion-') as directory:
@@ -493,6 +510,38 @@ class FirmwareReader(unittest.TestCase):
         raw = companion(PROJECT, SAVED)
         raw += b' ' * (LIMIT - len(raw))
         self.check(raw, self.load(companion(PROJECT, SAVED)))
+
+    def indicator(self, raw, project=PROJECT, result=1):
+        """The cpu indicator the firmware gives after loading `project` beside `raw`."""
+        with tempfile.TemporaryDirectory(prefix='companion-') as directory:
+            song = Path(directory) / 'song.xy'
+            song.write_bytes(project)
+            if raw is not None:
+                (Path(directory) / 'song.oxy').write_bytes(raw)
+            run = subprocess.run([str(self.reader), str(song), str(result)], capture_output=True, text=True,
+                                 env=dict(os.environ, CPU='1'), timeout=30)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout.split()[-1]
+
+    def test_a_project_turns_the_cpu_indicator_on_only_while_its_companion_applies(self):
+        on = companion(PROJECT, SAVED, indicator=True)
+        document = json.loads(on)
+        self.assertEqual(self.indicator(on), 'cpu=1')
+        self.assertTrue(cpu_indicator(parse(on), PROJECT))
+        cases = {
+            'no companion': None,
+            'no section': companion(PROJECT, SAVED),
+            'off': edited(document, sections=dict(document['sections'], **{CPU: {'version': 1, 'indicator': False}})),
+            'not a boolean': edited(document, sections=dict(document['sections'], **{CPU: {'version': 1, 'indicator': 1}})),
+            'newer section': edited(document, sections=dict(document['sections'], **{CPU: {'version': 2, 'indicator': True}})),
+            'project saved since': companion(PROJECT + b'!', SAVED, indicator=True),
+        }
+        for name, raw in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self.indicator(raw), 'cpu=0')
+                if raw is not None:
+                    self.assertFalse(cpu_indicator(parse(raw), PROJECT))
+        self.assertEqual(self.indicator(on, result=0), 'cpu=-1', 'a failed load leaves it alone')
 
     def test_no_companion_or_a_failed_load_changes_nothing(self):
         self.assertEqual(self.load(None), TRACKS)

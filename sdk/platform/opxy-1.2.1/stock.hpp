@@ -68,6 +68,9 @@ inline void* pad_region(u32 track, u32 key) {
     u32 scratch;
     return stock<void*(u32, u32, u32*, u32)>(0x8d58926c)(track, key, &scratch, 0);
 }
+// A stock lock object's lock and unlock (the sample manager's, the SPI bridge's).
+inline void lock(u32 object) { stock<void(u32)>(0x8d5be032)(object); }
+inline void unlock(u32 object) { stock<void(u32)>(0x8d5be060)(object); }
 inline void set_text(void* node, const char* text) { stock<void(void*, const char*)>(0x8d6011f0)(node, text); }
 inline void* find_node(void* page, const char* id) { return stock<void*(void*, const char*, u32)>(0x8d520308)(page, id, 1); }
 }}

@@ -13,7 +13,7 @@ from tooling import extensions, screen, startup_label
 from tooling.adapters import catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
 from tooling.machines import number_layout
-from tooling.native import configuration, number_suffixes, package_collection
+from tooling.native import OVERLAY_ARTWORK, ROOT, configuration, number_suffixes, package_collection
 
 
 def check_startup_label(module, symbols, base, expected):
@@ -113,7 +113,7 @@ def main():
                     'Selection numbers differ: ' + machine['id'])
         services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
                                    (['extension'] if result['extensions'] else []) +
-                                   (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
+                                   (['master_filter'] if any((e.get('master_processor') or e.get('master_filter')) and e['id'] in result['extensions']
                                                             for e in kit.get('extensions', [])) else []))
         modes = {}
         for profiling in (True, False):
@@ -154,6 +154,11 @@ def main():
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
+        # The SDK's overlay, installed with every build (tooling.native.prepare_assets).
+        overlay = (ROOT / OVERLAY_ARTWORK).read_bytes()
+        require(kit['overlayArtwork'].encode('utf-8') == overlay and
+                (prefix / 'content/display/openxy_overlay.svg').read_bytes() == overlay, 'Overlay artwork differs')
+        expected_files['content/display/openxy_overlay.svg'] = overlay
         for machine in selected:
             if machine['kind'] in ('synth', 'drum', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'

@@ -29,6 +29,9 @@ const char first_page_id[1] = {}, second_page_id[1] = {}, drawn_screen_page_id[1
 static int drawn_screen = 1;
 int drawn_screen_register() { calls += "drawn-page "; return drawn_screen; }
 int drawn_screen_ready() { calls += "drawn-page? "; return drawn_screen; }
+static int overlays;
+void sdk_overlay_startup() { ++overlays; }  // the SDK's overlay, after every screen
+void sdk_master_stock_stage(void*, int*, int*) {}  // stock's EQ: the master stage without a processor
 // The selected track's engine, through stock's getters (host addresses).
 static u32 track = 0, engine = 0;
 static u32 selected() { return track; }
@@ -75,6 +78,7 @@ int main() {
     calls.clear();
     sdk_startup_screen();
     require(calls == "effect-page first-page first second-page second sampled drawn-page drawn player-page ");
+    require(overlays == 1);  // registered once the screens are in place, whatever they did
     // A sample engine plays without its own screen: the screen never holds it back.
     calls.clear(); screens = false; drawn_screen = 0;
     sdk_startup_screen();

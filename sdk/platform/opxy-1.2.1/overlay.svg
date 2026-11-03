@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220">
+  <!-- The SDK's overlay over every page (overlay.hpp), installed as
+       content/display/openxy_overlay.svg: one group per client, hidden until it
+       shows it. The cpu meter's (cpu_overlay.cpp) writes every text in its groups. -->
+  <g id="breakdown">
+    <path fill="#000000" d="M0,0h480v220h-480z"/>
+    <path fill="#323232" d="M240,10v200h1v-200z"/>
+    <text id="bd_k0" transform="matrix(1 0 0 1 24 24)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v0" transform="matrix(1 0 0 1 150 24)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k1" transform="matrix(1 0 0 1 24 42)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v1" transform="matrix(1 0 0 1 150 42)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k2" transform="matrix(1 0 0 1 24 60)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v2" transform="matrix(1 0 0 1 150 60)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k3" transform="matrix(1 0 0 1 24 78)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v3" transform="matrix(1 0 0 1 150 78)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k4" transform="matrix(1 0 0 1 24 96)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v4" transform="matrix(1 0 0 1 150 96)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k5" transform="matrix(1 0 0 1 24 114)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v5" transform="matrix(1 0 0 1 150 114)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k6" transform="matrix(1 0 0 1 24 132)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v6" transform="matrix(1 0 0 1 150 132)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k7" transform="matrix(1 0 0 1 24 150)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v7" transform="matrix(1 0 0 1 150 150)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k8" transform="matrix(1 0 0 1 24 168)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v8" transform="matrix(1 0 0 1 150 168)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k9" transform="matrix(1 0 0 1 24 186)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v9" transform="matrix(1 0 0 1 150 186)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k10" transform="matrix(1 0 0 1 24 204)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v10" transform="matrix(1 0 0 1 150 204)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k11" transform="matrix(1 0 0 1 264 24)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v11" transform="matrix(1 0 0 1 390 24)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k12" transform="matrix(1 0 0 1 264 42)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v12" transform="matrix(1 0 0 1 390 42)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k13" transform="matrix(1 0 0 1 264 60)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v13" transform="matrix(1 0 0 1 390 60)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k14" transform="matrix(1 0 0 1 264 78)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v14" transform="matrix(1 0 0 1 390 78)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k15" transform="matrix(1 0 0 1 264 96)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v15" transform="matrix(1 0 0 1 390 96)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k16" transform="matrix(1 0 0 1 264 114)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v16" transform="matrix(1 0 0 1 390 114)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k17" transform="matrix(1 0 0 1 264 132)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v17" transform="matrix(1 0 0 1 390 132)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_k18" transform="matrix(1 0 0 1 264 150)" fill="#969696" font-family="UniversNextPro-Light" font-size="12px">-</text>
+    <text id="bd_v18" transform="matrix(1 0 0 1 390 150)" fill="#CDCDCD" font-family="UniversNextPro-Light" font-size="12px">-</text>
+  </g>
+  <g id="indicator">
+    <path fill="#000000" d="M402,204h76v14h-76z"/>
+    <path id="ind_alert" fill="#F91400" d="M414,211c0,2.2-1.8,4-4,4s-4-1.8-4-4s1.8-4,4-4S414,208.8,414,211z"/>
+    <text id="ind_cpu" transform="matrix(1 0 0 1 420 215.5)" fill="#F91400" font-family="UniversNextPro-Light" font-size="12px">cpu</text>
+  </g>
+</svg>
