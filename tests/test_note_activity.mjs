@@ -119,14 +119,19 @@ test('partial second pages repeat the same saved controls without switching page
   assert.deepEqual(editedShown([0, 4, 5, 6], drone, 3, true), [0, 1, 2, 3]);
 });
 
-test('ABI 3 publishes Shift and its choices, and ABI 4 a drum kit\'s model after them', () => {
+test('ABI 3 publishes Shift and its choices, and ABI 4 a drum kit\'s model and an effect\'s send levels after them', () => {
   const shifted = new PreviewDisplay(fixture(3, 84));
   shifted.tick(input(), 17, 3, 2, false, null, 0, 1, [2, 5, 1, 0]);
   assert.deepEqual([...shifted.input.slice(19)], [1, 2 | 5 << 8 | 1 << 16]);
-  const kit = new PreviewDisplay(fixture(4, 88));
+  const kit = new PreviewDisplay(fixture(4, 96));
   kit.tick(input(), 17, 3, 2, false, null, 30, 1, [3, 0, 2, 0]);
-  assert.deepEqual([...kit.input.slice(19)], [1, 3 | 2 << 16, 30]);
+  assert.deepEqual([...kit.input.slice(19)], [1, 3 | 2 << 16, 30, 0, 0]);
+  kit.tick(input(), 17, 3, 14, false, null, 0, 0, [0, 0, 0, 0], {in: 0x40000000, out: 0x7fffffff});
+  assert.deepEqual([...kit.input.slice(21)], [0, 0x40000000, 0x7fffffff]);
+  kit.tick(input(), 17, 3, 14, false, null, 0, 0, [0, 0, 0, 0], {in: -0x40000000, out: -0x80000000});
+  assert.deepEqual([...kit.input.slice(22)].map(word => word | 0), [-0x40000000, -0x80000000], 'Levels are signed');
+  assert.throws(() => kit.tick(input(), 17, 3, 14, false, null, 0, 0, [0, 0, 0, 0], {in: 0x80000000, out: 0}), /Invalid send level/);
   assert.throws(() => kit.tick(input(), 17, 3, 2, false, null, 0, 2), /Invalid shift/);
   assert.throws(() => kit.tick(input(), 17, 3, 2, false, null, 0, 0, [256, 0, 0, 0]), /Invalid shift choice/);
-  assert.throws(() => new PreviewDisplay(fixture(4, 80)), /Unsupported drawing ABI/);
+  assert.throws(() => new PreviewDisplay(fixture(4, 88)), /Unsupported drawing ABI/);
 });

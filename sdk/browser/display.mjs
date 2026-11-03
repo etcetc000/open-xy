@@ -4,9 +4,9 @@ import { inputWords } from './controls.mjs';
 
 // draw::Input: parameters[4], elapsed, track, note_serial, reduced_motion,
 // shown[4 bytes], slots[8], held_notes, note_off_serial, shift, choices[4 bytes],
-// model. ABI 1 ends after slots, ABI 2 after note_off_serial, ABI 3 after
-// choices; ABI 4 adds a drum kit's model.
-const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88};
+// model, level_in, level_out. ABI 1 ends after slots, ABI 2 after note_off_serial,
+// ABI 3 after choices; ABI 4 adds a drum kit's model and an effect's send levels.
+const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 96};
 const integer = (value, low, high, name) => {
   if (!Number.isInteger(value) || value < low || value > high) throw new Error(`Invalid ${name}`);
   return value;
@@ -107,8 +107,10 @@ export class PreviewDisplay {
   reset() { this.api.opxy_display_reset(); }
   // input: shownControls(words, shown) from controls.mjs.
   // model: a drum kit's selected machine (0..127), 0 for other kinds; shift: 1
-  // while Shift is held, with its controls' choices (0..255 each).
-  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0]) {
+  // while Shift is held, with its controls' choices (0..255 each); levels: an
+  // effect's send {in, out} as signed Q31 levels, null reading as silence.
+  tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0],
+       levels = null) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -121,11 +123,13 @@ export class PreviewDisplay {
     integer(shift, 0, 1, 'shift');
     if (!Array.isArray(choices) || choices.length !== 4) throw new Error('Invalid shift choices');
     const packed = choices.reduce((word, c, i) => (word | integer(c, 0, 255, 'shift choice') << 8 * i) >>> 0, 0);
+    const level = name => levels === null ? 0 : integer(levels[name], -0x80000000, 0x7fffffff, 'send level');
+    const [levelIn, levelOut] = [level('in'), level('out')];
     if (this.api.memory.buffer !== this.memory) throw new Error('Display memory changed');
     this.input.set([p0, p1, p2, p3, elapsed >>> 0, track, serial, Number(reducedMotion), shown, ...slots]);
     if (this.noteActivity) this.input.set([held, released], 17);
     if (this.hasShift) this.input.set([shift, packed], 19);
-    if (this.hasModel) this.input[21] = model;
+    if (this.hasModel) this.input.set([model, levelIn, levelOut], 21);
     this.api.opxy_display_render();
     if (this.api.opxy_display_valid() !== 1) throw new Error('Display emitted an invalid drawing frame');
     return this.frame;

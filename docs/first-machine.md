@@ -55,6 +55,11 @@ controls with one saved value. `--kind effect` starts a four-control send effect
 .gitignore and a GitHub Actions workflow beside the machine. It creates files without running
 `git init`, committing or contacting GitHub. Initialize Git in that folder when
 ready. Omit the flag to create just a machine folder in an existing repository.
+`--from <folder>` copies an existing machine under your `--id` and `--name`
+instead, renaming its namespace, artwork IDs and tests: the
+[machine template](https://github.com/etcetc000/open-xy-machine-template)'s starters, such as
+`machines/myeffect8`, an eight-control effect on the SDK's
+[effect page](display.md#effect-page).
 The workflow checks the root-level machine against SDK `staging`; pin a compatible
 SDK commit when releasing. Read the
 [core machines](https://github.com/etcetc000/open-xy-core-machines) as the worked

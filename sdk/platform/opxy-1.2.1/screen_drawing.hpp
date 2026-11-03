@@ -167,6 +167,8 @@ template <class Machine> struct Drawing {
         // A sample engine's own screen reads its sample (opxy_sample_overview).
         if (Machine::sample) sdk_sample_overview_update(controls.track);
         display_input.reduced_motion = 0;
+        display_input.level_in = controls.level_in;
+        display_input.level_out = controls.level_out;
         binding::display_render(&display_state, &display_input, &display_frame);
         if (!binding::display_valid(&display_frame)) return;
         for (u32 p = 0; p < path_count; ++p) apply_path(o, p);
