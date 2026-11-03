@@ -77,6 +77,22 @@ inline void render(Voice&, Shared&, opxy::u32, opxy::Output output,
 }
 }
 '''
+# An engine that counts its onsets: a start that ran before the hook leaves an
+# unstored velocity, and the counts must meet one hook before every start.
+COUNTED = '''#include "core.h"
+namespace probevelocity {
+unsigned note_calls, start_calls, unstored_starts;
+inline void initialize(Voice& voice, Shared&, opxy::u32) { voice.velocity = 0; }
+inline void start(Voice& voice, Shared&, opxy::u32) { ++start_calls; if (!voice.velocity) ++unstored_starts; }
+inline void destroy(Voice&, Shared&, opxy::u32) {}
+inline void note(Voice& voice, Shared&, opxy::u32 velocity) { voice.velocity = velocity; ++note_calls; }
+inline void render(Voice& voice, Shared&, opxy::u32, opxy::Output output,
+                   opxy::Parameters, opxy::Pitch) {
+    for (unsigned i = 0; i < opxy::block_frames; ++i)
+        output[i] = static_cast<opxy::i32>(voice.velocity << 16);
+}
+}
+'''
 # Drive the generated adapter as stock does: one note, started at two velocities.
 # The driver is engine-agnostic: it prints the two rendered levels, and the test
 # asserts its engine's regime.
@@ -130,10 +146,73 @@ int main() {
     return 0;
 }
 '''
+# Every voice busy, then notes that wait: the velocity of a waiting note's
+# latest start is the one that begins when the voice it takes fades out, and a
+# waiting note that ends never sounds.
+WAITING = r'''#include "voice.cpp"
+#include <cstdio>
+opxy::u32 sdk_voice_ticks() { return 0; }
+opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
+
+namespace {
+void* handle[256];
+const void* const* table(unsigned index) {
+    return *static_cast<const void* const* const*>(handle[index]);
+}
+int start(unsigned index, opxy::u32 note, opxy::u32 velocity) {
+    typedef int (*Start)(void*, opxy::u32, opxy::u32);
+    return reinterpret_cast<Start>(const_cast<void*>(table(index)[4]))(handle[index], note, velocity);
+}
+void destroy(unsigned index) {
+    typedef int (*Method)(void*);
+    reinterpret_cast<Method>(const_cast<void*>(table(index)[0]))(handle[index]);
+}
+opxy::i32 rendered(unsigned index) {
+    typedef int (*Render)(void*, opxy::i32*, const opxy::i32*);
+    opxy::i32 output[64], parameters[8] = {};
+    reinterpret_cast<Render>(const_cast<void*>(table(index)[2]))(handle[index], output, parameters);
+    for (opxy::i32 word : output)
+        if (word != output[0]) return -1;
+    return output[0] >> 16;
+}
+}
+
+int main() {
+    for (unsigned i = 0; i < 256; ++i) handle[i] = probevelocity_factory(i);
+    // Every voice sounds, and one more note waits at 100, then 40: the latest
+    // velocity is the one that begins once the taken note has faded.
+    for (unsigned i = 0; i < kVoices; ++i) start(i, 60u + i, 10u + i);
+    const unsigned waiting = kVoices;
+    start(waiting, 60u, 100u);
+    start(waiting, 60u, 40u);
+    if (rendered(0) != -1) return 1;  // the taken note fades out over its block
+    const opxy::i32 promoted = rendered(waiting);
+    if (promoted != 40) return 2;
+    // A note that ends while it waits never sounds.
+    const unsigned cancelled = kVoices + 1;
+    start(cancelled, 61u, 77u);
+    destroy(cancelled);
+    if (rendered(cancelled) != 0) return 3;
+    // The stock range reaches the hook whole, and a note on a fresh factory
+    // object begins normally.
+    start(2, 62u, 1u);
+    if (rendered(2) != 1) return 4;
+    start(2, 62u, 127u);
+    if (rendered(2) != 127) return 5;
+    handle[2] = probevelocity_factory(2);
+    start(2, 62u, 2u);
+    if (rendered(2) != 2) return 6;
+    // One hook per start, each before it: the fading block took no hook, the
+    // cancelled waiter none, and 9 + 1 + 3 notes began or restarted.
+    std::printf("%d %u %u %u\n", promoted, probevelocity::note_calls,
+                probevelocity::start_calls, probevelocity::unstored_starts);
+    return 0;
+}
+'''
 
 
 class VoiceVelocity(unittest.TestCase):
-    def run_engine(self, engine):
+    def run_engine(self, engine, driver=DRIVER):
         m = SimpleNamespace(kind='synth', definition=copy.deepcopy(fixture('probevelocity').definition),
                             prefix='probevelocity', native_name='probevelocity',
                             identity=fixture('probevelocity').identity)
@@ -142,7 +221,7 @@ class VoiceVelocity(unittest.TestCase):
             generate_voice(folder, m)
             (folder / 'core.h').write_text(CORE, encoding='utf-8')
             (folder / 'engine.cpp').write_text(engine, encoding='utf-8')
-            (folder / 'test.cpp').write_text(DRIVER, encoding='utf-8')
+            (folder / 'test.cpp').write_text(driver, encoding='utf-8')
             binary = folder / ('test.exe' if os.name == 'nt' else 'test')
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-Wno-unused-function',
                        *('-I' + str(path) for path in (ROOT / 'sdk/include', ROOT / 'sdk/platform/opxy-1.2.1', folder)),
@@ -164,6 +243,13 @@ class VoiceVelocity(unittest.TestCase):
         # Without the hook the fallback is a no-op: the fixed level holds for
         # every velocity, as before the hook existed.
         self.assertEqual(self.run_engine(PLAIN), (100, 100))
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_waiting_note_starts_with_its_latest_velocity(self):
+        # Nine notes fill the pool; the tenth waits at 100, then 40. The fade
+        # hands the voice over with the latest 40, a cancelled waiter never
+        # sounds, the full 1..127 range reaches the hook, and every start
+        # follows its hook.
+        self.assertEqual(self.run_engine(COUNTED, WAITING), (40, 13, 13, 0))
 
     @unittest.skipUnless(WASM_CXX, 'No working preview WASM compiler and Node (set OPXY_TEST_PREVIEW_CXX)')
     def test_preview_note_velocity_end_to_end(self):
