@@ -648,8 +648,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Nonagon",
-      "tag": "v0.4.0",
-      "commit": "9f19d4aad32f98ed2e4a155c16e4c754ebbceb09",
+      "tag": "v0.7.1",
+      "commit": "d7581247984ada0cd31426e266226a8db4c404e2",
       "path": "mach",
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
