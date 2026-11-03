@@ -112,7 +112,14 @@ def main():
         catalog = json.loads((content / 'op1_factory.json').read_bytes())
         for machine in selected:
             key = {'effect': 'fx_types', 'player': 'seq_types'}.get(machine['kind'], 'engine_types')
-            catalog[key].append(json.loads(machine['catalog'].strip().lstrip(',')))
+            entry = json.loads(machine['catalog'].strip().lstrip(','))
+            # An effect's or player's menu entry carries the number this selection's
+            # module links (its GNU symbol), which need not be the native package's.
+            if machine['kind'] == 'effect':
+                entry['id'] = symbols[machine['prefix'] + '_fx_id']['value']
+            elif machine['kind'] == 'player':
+                entry['id'] = symbols[machine['prefix'] + '_player_id']['value'] + 4
+            catalog[key].append(entry)
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}

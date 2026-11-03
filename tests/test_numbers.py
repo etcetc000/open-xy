@@ -52,6 +52,19 @@ def sources(directory, machines):
 
 
 class LinkTimeNumbers(unittest.TestCase):
+    def test_a_machine_left_out_of_a_link_has_no_numbers(self):
+        from tooling import native
+        _profile, machines, definitions = native.configuration(fixture_entries())
+        sample = next(m for m in machines if m.kind == 'sample')
+        # A sample engine drawing its own screen also has a screen page symbol.
+        definitions[sample.prefix + '_screen_page_id'] = 99
+        for m in machines:
+            with self.subTest(machine=m.id):
+                numbers = {k for k in definitions if k[len(m.prefix):] in native.NUMBER_SUFFIXES and k.startswith(m.prefix)}
+                self.assertTrue(numbers)
+                self.assertEqual(native.absent_numbers([m], definitions), dict.fromkeys(numbers, 0))
+        self.assertIn(sample.prefix + '_screen_page_id', native.absent_numbers([sample], definitions))
+
     def test_generated_sources_do_not_depend_on_machine_numbers(self):
         machines = collection(fixture_entries())
         self.assertEqual({m.kind for m in machines}, {'synth', 'effect', 'sample'})

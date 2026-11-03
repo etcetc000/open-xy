@@ -349,14 +349,22 @@ def runtime_objects(directory, gcc, units, definitions):
     return members
 
 
+# The link-time number symbols a machine may have (configuration).
+NUMBER_SUFFIXES = ('_engine_id', '_page_id', '_screen_page_id', '_fx_id', '_fx_page_id', '_player_id')
+
+
+def absent_numbers(absent, definitions):
+    """Unselected machines have no numbers (builder/core.mjs numberSymbols): each number
+    symbol they have, a sample engine's own screen page included, is 0."""
+    return {m.prefix + suffix: 0 for m in absent for suffix in NUMBER_SUFFIXES if m.prefix + suffix in definitions}
+
+
 def link(directory, tools, profile, definitions, machines, selected, name='module', runtime_members=()):
     """Link the selected machines' objects, compiled in `directory` for the whole collection,
     as the builder does; None, or how they overflow the shared module memory."""
     absent = [m for m in machines if m not in selected]
     aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
-    # Unselected machines have no numbers (builder/core.mjs numberSymbols).
-    definitions = {**definitions, **{m.prefix + suffix: 0 for m in absent for suffix in (
-        ('_player_id', '_page_id') if m.kind == 'player' else ('_fx_id', '_fx_page_id') if m.kind == 'effect' else ('_engine_id', '_page_id'))}}
+    definitions = {**definitions, **absent_numbers(absent, definitions)}
     # GNU ld synthesizes FILE symbols from object arguments; relative names keep
     # independent rebuilds byte-identical.
     command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',

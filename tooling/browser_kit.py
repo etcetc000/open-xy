@@ -149,8 +149,12 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves
     # diagnostics only; no deliverable HTML is emitted.
+    # The native package's layout numbers the selection that reproduces it: the package
+    # numbers its whole collection, so a machine it leaves out can still hold a number
+    # one it links asked for.
     subprocess.run(['node', str(ROOT / 'tools/check_browser_kit.mjs'), str(kit_path),
-                    str(object_dir), str(tools['ld']), str(tools['objcopy'])], cwd=ROOT, check=True)
+                    str(object_dir), str(tools['ld']), str(tools['objcopy']), str(package / 'layout.json')],
+                   cwd=ROOT, check=True)
     write_builder(kit, output)
     return kit
 
