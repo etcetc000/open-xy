@@ -54,7 +54,7 @@ MAINTAINER = r'[A-Za-z0-9-]{1,39}'
 # Catalog machines that are Open-XY's own rather than community ones, by
 # ID. Maintainers keep this list; a catalog entry has no field to claim it, and
 # who hosts the repository does not decide it.
-OFFICIAL = ('fm2op', 'macroosc', 'karplus', 'timestretch', 'ringmod', 'pingpong')
+OFFICIAL = ('fm2op', 'macroosc', 'karplus', 'timestretch', 'ringmod', 'pingpong', 'chords')
 OFFICIAL_EXTENSIONS = ('capture',)
 
 
