@@ -356,7 +356,7 @@ def number_suffixes(kind, own_screen=False):
             ('_engine_id', '_page_id', '_screen_page_id') if kind == 'sample' and own_screen else ('_engine_id', '_page_id'))
 
 
-def absent_numbers(absent, definitions=None):
+def absent_numbers(absent):
     """Unselected machines have no numbers (builder/core.mjs numberSymbols): each number
     symbol they have, a sample engine's own screen page included, is 0."""
     return {m.prefix + suffix: 0 for m in absent
