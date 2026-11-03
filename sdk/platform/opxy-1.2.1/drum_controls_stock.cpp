@@ -413,15 +413,18 @@ u32 sdk_sample_region_control(u32 key, u32 control, const u32* event, u32 fine) 
 
 // 8c0b12f2: the sample page's encoder turn (object, encoder, event) first asks
 // 8d5b7c28, a mode flag taking no arguments, and returns at once when it is
-// set. On an owned page-2 engine drawing its own screen every turn edits the
-// control its position shows (an encoder press switches pages,
-// synth_controls.cpp) through stock's parameter editor, which owns stepping,
-// locks and publication, and the sample page edits nothing more. Shift turns
-// a continuous control in tenths of a step, as on a synth's page. Otherwise
-// stock asks its flag as before.
+// set. On an owned page-2 engine drawing its own screen, on its engine page,
+// every turn edits the control its position shows (an encoder press switches
+// pages, synth_controls.cpp) through stock's parameter editor, which owns
+// stepping, locks and publication, and the sample page edits nothing more.
+// Shift turns a continuous control in tenths of a step, as on a synth's page.
+// The same handler turns the track's other pages, its envelope, filter and
+// LFO (the instrument page word, 1..3): there, and otherwise, stock asks its
+// flag as before.
+const u32 kInstrumentPage = 0x080238bc;  // 0 on the engine page, 1..3 on the others
 u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
     const u32 track = byte(kSelectedTrack);
-    const u32 id = track < kTracks ? track_engine(track) : kNoEngine;
+    const u32 id = track < kTracks && word(kInstrumentPage) == 0 ? track_engine(track) : kNoEngine;
     const SynthControls* controls = own_controls(id);
     // The handler reads the encoder as its low two bits; negative means none.
     if (controls && static_cast<i32>(encoder) >= 0 && event) {
