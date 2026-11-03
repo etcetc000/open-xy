@@ -801,6 +801,30 @@
         "runs": 3,
         "block_percent": 3.454643
       }
+    },
+    {
+      "id": "acidrain",
+      "kind": "synth",
+      "maintainer": "frankoooooooo",
+      "status": "draft",
+      "repository": "https://github.com/frankoooooooo/acid-rain",
+      "tag": "v1.0.0",
+      "commit": "7f9c8dcf4483db06239cc0cb0ad715f0e82c2180",
+      "path": ".",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "7f9c8dcf4483db06239cc0cb0ad715f0e82c2180",
+        "firmware_sha256": "b059011829f96d42861775b2c67723b3b946c29750110a79b7490b0f157fef30",
+        "runs": 3,
+        "block_percent": 3.167773,
+        "midpoint_percent": 3.106737,
+        "combined_percent": 3.054856,
+        "worst_setting": {
+          "control": 6,
+          "label": "ph",
+          "value": 268435455
+        }
+      }
     }
   ]
 }
