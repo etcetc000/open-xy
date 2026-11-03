@@ -50,7 +50,12 @@ leaves the browser.
    favorites. Star a row to make it a
    favorite; favorites are kept in this browser only. Filtering never changes
    the selection: the count under the filters says how many selected machines
-   it hides.
+   it hides. **Presets**, beside the selection count, saves the selected
+   machines under a name and chooses them again in one step, replacing the
+   selection; saving a name again replaces that preset. Presets are kept in this
+   browser only and name machines by ID: a machine the collection no longer
+   offers is left out and named. They choose machines, not machine numbers,
+   which come from your layout ([below](#capacity-and-machine-numbers)).
 4. Choose optional extensions using the same checkbox rows as machines. Select
    a row to read what it does and how to use it in the details panel.
    Firmware extensions start off; continuing with none is valid. The summary lists your

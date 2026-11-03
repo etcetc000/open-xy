@@ -92,7 +92,16 @@
     <div id="file-actions" class="actions flow-shell" hidden><button id="files-back" class="secondary">← Back</button><button id="choose" class="primary" disabled>Choose machines <span aria-hidden="true">→</span></button></div>
   </section>
   <section data-page="2" hidden aria-labelledby="machines-title">
-    <div class="page-header"><div><span class="eyebrow">Step 2 of 4 · Choose machines</span><h1 id="machines-title" tabindex="-1">Choose machines</h1><p>Select the instruments and effects to install.</p></div><span id="selection-count" class="counter">0 selected</span></div>
+    <div class="page-header"><div><span class="eyebrow">Step 2 of 4 · Choose machines</span><h1 id="machines-title" tabindex="-1">Choose machines</h1><p>Select the instruments and effects to install.</p></div><div class="selection-tools"><span id="selection-count" class="counter">0 selected</span>
+      <details id="machine-presets" class="presets"><summary>Presets</summary>
+        <div class="presets-panel">
+          <p id="presets-empty" class="presets-note">Save the machines you’ve selected to choose them again in one step.</p>
+          <ul id="presets-list" class="presets-list" aria-label="Saved presets"></ul>
+          <form id="preset-form" class="preset-form"><input id="preset-name" type="text" maxlength="40" placeholder="Preset name" aria-label="Preset name" autocomplete="off" spellcheck="false"><button type="submit" class="secondary">Save selection</button></form>
+          <p id="preset-message" class="presets-note" role="status" aria-live="polite"></p>
+          <p class="presets-note">Kept in this browser only. Machine numbers come from your layout, not from presets.</p>
+        </div>
+      </details></div></div>
     <div class="workspace">
       <div><div class="browse" role="search" aria-label="Find machines">
         <div class="browse-row"><input id="machine-search" type="search" placeholder="Search by name, author or keyword" aria-label="Search machines" autocomplete="off" spellcheck="false">

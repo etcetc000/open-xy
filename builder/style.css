@@ -591,3 +591,31 @@ footer details[open] { flex-basis:100%; }
 
 .graphics-bulk-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
 .graphics-bulk-actions button { min-height:40px; padding:8px 14px; border:1px solid var(--line); color:var(--ink); }
+
+/* Machine presets: a menu beside the selection count. After the page-header rules, and more
+   specific than them, as their paragraph styles (hiding, on these pages) must not reach its notes. */
+.page-header .selection-tools { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:12px; }
+.page-header .selection-tools .counter { position:static; margin:0; }
+.presets { position:relative; margin:0; font-size:12px; }
+.presets summary { width:auto; list-style:none; padding:5px 10px; color:var(--ink); border:1px solid var(--line); border-radius:6px; }
+.presets summary::-webkit-details-marker { display:none; }
+.presets summary::after { content:' ▾'; color:var(--muted); }
+.presets[open] summary { background:var(--soft); }
+.presets-panel { position:absolute; left:50%; transform:translateX(-50%); top:calc(100% + 6px); z-index:3; width:min(300px, calc(100vw - 32px)); padding:12px; text-align:left; background:var(--paper); border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px #0009; }
+.page-header .presets-panel .presets-note { display:block; max-width:none; margin:0 0 10px; font-size:11px; line-height:1.5; color:var(--muted); }
+.page-header .presets-panel .presets-note:empty { display:none; }
+.page-header .presets-panel .presets-note:last-child { margin-bottom:0; }
+.presets-list { list-style:none; margin:0 0 10px; padding:0; display:grid; gap:2px; max-height:240px; overflow-y:auto; scrollbar-width:thin; }
+.preset { display:flex; align-items:center; gap:2px; }
+.preset .preset-apply { flex:1; min-width:0; min-height:36px; padding:6px 8px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; text-align:left; border-radius:6px; }
+.preset-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.preset-count { flex:none; font-size:11px; color:var(--muted); }
+.preset .preset-delete { min-height:36px; padding:0 10px; color:var(--muted); }
+.preset .preset-delete:hover { color:var(--ink); }
+.preset-form { display:flex; gap:6px; margin:0 0 10px; }
+#preset-name { flex:1; min-width:0; min-height:36px; padding:6px 8px; font-size:12px; color:var(--ink); background:var(--panel); border:1px solid var(--line); border-radius:6px; }
+.preset-form button { min-height:36px; padding:6px 10px; font-size:12px; color:var(--ink); border:1px solid var(--line); white-space:nowrap; }
+@media(min-width:1000px) {
+  .page-header .selection-tools { position:absolute; top:0; right:0; margin:0; }
+  .presets-panel { left:auto; right:0; transform:none; }
+}
