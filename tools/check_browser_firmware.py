@@ -13,7 +13,7 @@ from tooling import screen, startup_label
 from tooling.adapters import catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
 from tooling.machines import number_layout
-from tooling.native import NUMBER_SUFFIXES, configuration, package_collection
+from tooling.native import configuration, number_suffixes, package_collection
 
 
 def check_startup_label(module, symbols, base, expected):
@@ -92,21 +92,22 @@ def main():
                                 result['layout'], [(m['id'], m['kind'], m['identity']) for m in kit['machines']
                                                    if m['id'] in result['selected']])
         for machine in kit['machines']:
-            prefix_symbols = {suffix: symbols[machine['prefix'] + suffix]['value'] for suffix in NUMBER_SUFFIXES
-                              if machine['prefix'] + suffix in symbols}
+            # A sample engine asking for no page draws its own screen (builder/core.mjs numberSymbols).
+            own_screen = machine['kind'] == 'sample' and machine['identity']['page'] is None
+            value = lambda suffix: symbols.get(machine['prefix'] + suffix, {}).get('value')
             if machine['id'] not in result['selected']:
                 # An unselected machine has no numbers: no startup, catalog or control lookup matches it.
-                require(not any(prefix_symbols.values()), 'Unselected machine has numbers: ' + machine['id'])
+                require(all(value(s) == 0 for s in number_suffixes(machine['kind'], own_screen)),
+                        'Unselected machine has numbers: ' + machine['id'])
                 continue
             own = numbers[machine['id']]
-            # A sample engine drawing its own screen numbers that screen's page; otherwise its
-            # page symbol is its page.
+            # A sample engine drawing its own screen numbers that screen's page; its page
+            # symbol stays its stock page.
             pairs = {'player': (('_player_id', 'player'), ('_page_id', 'page')),
                      'effect': (('_fx_id', 'effect'), ('_fx_page_id', 'page')),
-                     'sample': (('_engine_id', 'engine'),
-                                ('_screen_page_id' if '_screen_page_id' in prefix_symbols else '_page_id', 'page'))
+                     'sample': (('_engine_id', 'engine'), ('_screen_page_id' if own_screen else '_page_id', 'page'))
                      }.get(machine['kind'], (('_engine_id', 'engine'), ('_page_id', 'page')))
-            require(all(prefix_symbols.get(suffix) == own[key] for suffix, key in pairs),
+            require(all(value(suffix) == own[key] for suffix, key in pairs),
                     'Selection numbers differ: ' + machine['id'])
         services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
                                    (['extension'] if result['extensions'] else []))

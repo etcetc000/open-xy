@@ -55,15 +55,21 @@ class LinkTimeNumbers(unittest.TestCase):
     def test_a_machine_left_out_of_a_link_has_no_numbers(self):
         from tooling import native
         _profile, machines, definitions = native.configuration(fixture_entries())
-        sample = next(m for m in machines if m.kind == 'sample')
-        # A sample engine drawing its own screen also has a screen page symbol.
-        definitions[sample.prefix + '_screen_page_id'] = 99
+        # Each number symbol configuration defines for a machine becomes 0 when it is left out.
         for m in machines:
             with self.subTest(machine=m.id):
-                numbers = {k for k in definitions if k[len(m.prefix):] in native.NUMBER_SUFFIXES and k.startswith(m.prefix)}
+                numbers = {k for k in definitions if k.startswith(m.prefix + '_') and k.endswith('_id') and
+                           k[len(m.prefix):] in ('_engine_id', '_page_id', '_screen_page_id', '_fx_id', '_fx_page_id',
+                                                 '_player_id')}
                 self.assertTrue(numbers)
-                self.assertEqual(native.absent_numbers([m], definitions), dict.fromkeys(numbers, 0))
-        self.assertIn(sample.prefix + '_screen_page_id', native.absent_numbers([sample], definitions))
+                self.assertEqual(native.absent_numbers([m]), dict.fromkeys(numbers, 0))
+        # A sample engine drawing its own screen also gives up its screen page.
+        sample = next(m for m in machines if m.kind == 'sample')
+        own = replace(sample, display='custom')
+        self.assertEqual(set(native.absent_numbers([own])), {sample.prefix + s for s in ('_engine_id', '_page_id', '_screen_page_id')})
+        # By kind, not by name: an ID extending another's with "_fx" keeps its own symbols apart.
+        synth = next(m for m in machines if m.kind == 'synth')
+        self.assertNotIn(synth.prefix + '_fx_page_id', native.absent_numbers([synth]))
 
     def test_generated_sources_do_not_depend_on_machine_numbers(self):
         machines = collection(fixture_entries())

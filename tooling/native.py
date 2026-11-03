@@ -349,14 +349,18 @@ def runtime_objects(directory, gcc, units, definitions):
     return members
 
 
-# The link-time number symbols a machine may have (configuration).
-NUMBER_SUFFIXES = ('_engine_id', '_page_id', '_screen_page_id', '_fx_id', '_fx_page_id', '_player_id')
+def number_suffixes(kind, own_screen=False):
+    """A machine's link-time number symbols, after its prefix (configuration). By kind, not
+    by name: an ID may extend another with "_fx" or "_screen"."""
+    return (('_player_id', '_page_id') if kind == 'player' else ('_fx_id', '_fx_page_id') if kind == 'effect' else
+            ('_engine_id', '_page_id', '_screen_page_id') if kind == 'sample' and own_screen else ('_engine_id', '_page_id'))
 
 
-def absent_numbers(absent, definitions):
+def absent_numbers(absent, definitions=None):
     """Unselected machines have no numbers (builder/core.mjs numberSymbols): each number
     symbol they have, a sample engine's own screen page included, is 0."""
-    return {m.prefix + suffix: 0 for m in absent for suffix in NUMBER_SUFFIXES if m.prefix + suffix in definitions}
+    return {m.prefix + suffix: 0 for m in absent
+            for suffix in number_suffixes(m.kind, m.kind == 'sample' and m.display != 'stock')}
 
 
 def link(directory, tools, profile, definitions, machines, selected, name='module', runtime_members=()):
@@ -364,7 +368,7 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     as the builder does; None, or how they overflow the shared module memory."""
     absent = [m for m in machines if m not in selected]
     aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
-    definitions = {**definitions, **absent_numbers(absent, definitions)}
+    definitions = {**definitions, **absent_numbers(absent)}
     # GNU ld synthesizes FILE symbols from object arguments; relative names keep
     # independent rebuilds byte-identical.
     command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',
