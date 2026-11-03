@@ -50,22 +50,28 @@ static u32 press(void* object, u32 note, u32, u32, u32 velocity) {
     return 1;
 }
 // +0x18: note-off (object, note). Stock Maestro releases the chord whose root it is.
+// The key is up either way, so no later update can start it.
 static void release(void* object, u32 note) {
     if (!@NAMESPACE@::release(state(object), note))
         opxy::platform::stock<void(void*, u32)>(opxy::platform::kMaestroRelease)(object, note);
+    opxy::platform::player_release(object, note);
     apply_updates(object);
 }
 static void reset_player(void* object) {
     opxy::platform::stock<void(void*)>(opxy::platform::kMaestroReset)(object);
+    opxy::platform::player_reset(object);
     clear_state(state(object), 0);
 }
 static void all_off(void* object) {
     opxy::platform::stock<void(void*)>(opxy::platform::kMaestroAllOff)(object);
+    opxy::platform::player_reset(object);
     clear_state(state(object), 0);
 }
 // Run control-driven edits on the same role as note input and stock stepping,
 // before sounding the next tones. The GUI never edits chord records or State.
+// The step count moves first, so this step's updates see it.
 static void step_player(void* object) {
+    opxy::platform::player_step(object);
     apply_updates(object);
     opxy::platform::stock<void(void*)>(opxy::platform::kMaestroStep)(object);
 }

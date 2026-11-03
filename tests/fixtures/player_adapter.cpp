@@ -9,7 +9,7 @@
 namespace {
 opxy::player::Controls controls = {};
 opxy::player::Plan sounded = {};
-opxy::u32 released = 0, releases = 0;
+opxy::u32 released = 0, releases = 0, ups = 0, up = 0;
 }
 void stock_release(void*, opxy::u32 note) { released = note; ++releases; }
 void stock_reset(void*) {}
@@ -24,6 +24,9 @@ void* player_state(void* object) { return object; }
 player::Controls player_controls(void*) { return controls; }
 void play_plan(void*, u32, const player::Plan& plan) { sounded = plan; }
 void update_plan(void*, const player::Update&) { require(false); }
+void player_release(void*, u32 note) { up = note; ++ups; }
+void player_step(void*) {}
+void player_reset(void*) {}
 }}
 extern "C" const char probeplayer_player_id[] = "";
 
@@ -38,16 +41,17 @@ int main() {
         probeplayer::State state = {};
         for (unsigned i = 0; i < 4; ++i)
             controls.value[i] = combinations & (1u << i) ? 0x7fffffff : 0;
-        releases = 0;
+        releases = 0; ups = 0;
         require(mode(&state) == 0);
         require(on(&state, 65, 0, 0, 91) == 1 && sounded.count == 0);
         require(on(&state, 53, 0, 0, 91) == 1 && sounded.count == 1);
         require(sounded.tones[0].pitch == (controls.value[3] ? 65 : 53));
         require(sounded.tones[0].velocity == 91);
         off(&state, 53);
-        require(releases == 1 && released == 53);
+        require(releases == 1 && released == 53 && ups == 1 && up == 53);
         off(&state, 65);
-        require(releases == 1 && !state.modifier);
+        // A key the player kept from stock's release is still up for the SDK.
+        require(releases == 1 && !state.modifier && ups == 2 && up == 65);
     }
     std::puts("player controls never select the stock mode; root and modifier release routes ok");
 }

@@ -36,7 +36,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.7 supplies a frozen source-audition clock for tempo-aware sample slicing, lets an
 # effect page its controls, have a shift row, draw its own page and fix its source dry
 # (dryLevel), and adds a saturating Q31 add and up to 32 display text slots.
-# 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
+# 1.8 adds note players, which can generate notes from held keys (step count, transport and
+# silent held roots), and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
 SDK_VERSION = (1, 9)

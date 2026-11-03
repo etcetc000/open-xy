@@ -29,13 +29,21 @@ void* player_object(u32 track, const void* const* vtable);
 // Registers a player's own page (sdk_register_screen) and, once one is in
 // place, lets the compositor paint it for the Maestro page.
 int register_player_page(const Record* record, const Screen* screen);
-// The track's four page parameters.
+// The track's four page parameters, keyboard octave, step count and transport.
 opxy::player::Controls player_controls(void* object);
-// Appends one chord record that stock plays from the next step and releases
-// with the key `root`; drops the plan when the object already holds eight.
+// A press the player took: marks `root` held, then appends one chord record
+// that stock plays from the next step and releases with the key `root`; drops
+// the plan when the object already holds eight.
 void play_plan(void* object, u32 root, const opxy::player::Plan& plan);
-// Changes an existing root only; a stale update cannot revive a released key.
+// Changes a root that has a record or whose key is still held; a stale update
+// cannot revive a released key.
 void update_plan(void* object, const opxy::player::Update& update);
+// The key `note` is up, whether or not the player kept stock's release.
+void player_release(void* object, u32 note);
+// Counts one stock player step, before that step's updates.
+void player_step(void* object);
+// Stock reset or all-notes-off: no key is held any more.
+void player_reset(void* object);
 // GUI snapshot of notes stock has emitted and still holds.
 void player_output(void* object, opxy::player::Display& display);
 // Stock Maestro methods a player keeps.

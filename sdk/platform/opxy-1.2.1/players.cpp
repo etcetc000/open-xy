@@ -51,6 +51,21 @@ static_assert(kRecords + kMaxHeld * sizeof(ChordRecord) == kHeld, "Stock Maestro
 // 0x480, so the SDK state follows at a fixed offset.
 const u32 kStateOffset = 0x800;
 static_assert(kStateOffset + opxy::player::state_bytes <= 0x10000, "Player state exceeds the stock slot");
+// The SDK's own words follow the machine's state: the steps stock has run and
+// the keys the player took that are still down. Note callbacks and steps
+// write them on the sequencer role; the GUI only reads the step count.
+struct Runtime {
+    u32 steps;
+    u32 held[4];
+};
+const u32 kRuntimeOffset = kStateOffset + opxy::player::state_bytes;
+static_assert(kRuntimeOffset + sizeof(Runtime) <= 0x10000, "Player runtime exceeds the stock slot");
+volatile Runtime& runtime(void* object) {
+    return *reinterpret_cast<volatile Runtime*>(static_cast<char*>(object) + kRuntimeOffset);
+}
+bool key_held(void* object, u32 note) {
+    return note < 128 && (runtime(object).held[note / 32] & (1u << (note % 32)));
+}
 
 char* bytes(void* object) { return static_cast<char*>(object); }
 
@@ -96,22 +111,37 @@ opxy::player::Controls player_controls(void* object) {
     for (u32 i = 0; i < 4; ++i) controls.value[i] = words[i];
     const i32 octave = track < kTracks ? sdk_track_octaves[track] : 0;
     controls.lowest_key = static_cast<u32>(static_cast<i32>(kLowestKey) + 12 * octave);
+    controls.steps = runtime(object).steps;
+    controls.transport = audio_transport();
     return controls;
 }
 
 void play_plan(void* object, u32 root, const Plan& plan) {
+    if (root < 128) runtime(object).held[root / 32] |= 1u << (root % 32);
     volatile u32& held = *reinterpret_cast<volatile u32*>(bytes(object) + kHeld);
     if (!plan.count) return;  // silent input must not alter an existing root
     player_store(reinterpret_cast<ChordRecord*>(bytes(object) + kRecords), held,
         root, plan, false, false, [object](u32 note) { stock<void(void*, u32)>(kMaestroRelease)(object, note); });
 }
 
+// A held key may gain a record again after an empty Replace silenced it, or
+// after a press that sounded nothing; a released key never does.
 void update_plan(void* object, const opxy::player::Update& update) {
     if (update.mode != opxy::player::Replace && update.mode != opxy::player::Add) return;
     volatile u32& held = *reinterpret_cast<volatile u32*>(bytes(object) + kHeld);
     player_store(reinterpret_cast<ChordRecord*>(bytes(object) + kRecords), held,
-        update.root, update.plan, true, update.mode == opxy::player::Add,
+        update.root, update.plan, !key_held(object, update.root), update.mode == opxy::player::Add,
         [object](u32 note) { stock<void(void*, u32)>(kMaestroRelease)(object, note); });
+}
+
+void player_release(void* object, u32 note) {
+    if (note < 128) runtime(object).held[note / 32] &= ~(1u << (note % 32));
+}
+
+void player_step(void* object) { runtime(object).steps = runtime(object).steps + 1; }
+
+void player_reset(void* object) {
+    for (u32 i = 0; i < 4; ++i) runtime(object).held[i] = 0;
 }
 
 void player_output(void* object, opxy::player::Display& display) {
@@ -132,6 +162,7 @@ void* sdk_player_build(u32 track, u32 type, u32) {
     void* object = stock<void*(u32, u32, u32)>(kFactory)(track, kMaestro, 0);
     if (object) {
         __builtin_memset(player_state(object), 0, opxy::player::state_bytes);
+        __builtin_memset(bytes(object) + kRuntimeOffset, 0, sizeof(Runtime));
         *static_cast<const void* const**>(object) = p->vtable;
     }
     return object;

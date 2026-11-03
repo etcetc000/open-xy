@@ -161,8 +161,8 @@ template<class Function> Function* stock(u32 address) { return reinterpret_cast<
                        check=True, capture_output=True, timeout=120)
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
 
-    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
-    def test_owned_turns_never_enter_stock_hold_mode(self):
+    def run_bridge_fixture(self, name):
+        """Compiles the actual players.cpp beside stock fakes and runs a fixture against it."""
         (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
         (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
 #include <opxy/types.hpp>
@@ -177,20 +177,42 @@ inline void refresh_keyboard_octaves() {}
         (self.root / 'registration.hpp').write_text('''#pragma once
 #include "players.hpp"
 const void* stock_address(opxy::u32);
+extern opxy::Transport fake_transport;
 namespace opxy { namespace platform {
 using Address=__UINTPTR_TYPE__;
 template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+inline Transport audio_transport() { return fake_transport; }
 struct Record {}; struct Screen {};
 inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
 }}
 ''', encoding='utf-8')
-        binary = self.root / ('turn.exe' if os.name == 'nt' else 'turn')
+        binary = self.root / (name + ('.exe' if os.name == 'nt' else ''))
         subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',
                         '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
-                        str(ROOT/'tests/fixtures/player_turn.cpp'), '-o', str(binary)],
+                        str(ROOT/'tests/fixtures'/(name + '.cpp')), '-o', str(binary)],
                        check=True, capture_output=True, timeout=120)
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_owned_turns_never_enter_stock_hold_mode(self):
+        self.run_bridge_fixture('player_turn')
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_steps_transport_and_silent_held_roots(self):
+        self.run_bridge_fixture('player_runtime')
+        # The runtime words follow the machine's state inside the stock slot,
+        # and the generated methods count steps and release held keys.
+        source = (PLATFORM / 'players.cpp').read_text(encoding='utf-8')
+        self.assertIn('kRuntimeOffset = kStateOffset + opxy::player::state_bytes', source)
+        methods = (PLATFORM / 'player_object.cpp.in').read_text(encoding='utf-8')
+        step = methods[methods.index('static void step_player'):]
+        self.assertLess(step.index('player_step(object)'), step.index('apply_updates(object)'))
+        release = methods[methods.index('static void release'):methods.index('static void reset_player')]
+        self.assertLess(release.index('player_release(object, note)'), release.index('apply_updates(object)'))
+        for method in ('static void reset_player', 'static void all_off'):
+            body = methods[methods.index(method):]
+            self.assertIn('player_reset(object)', body[:body.index('}')])
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_optional_update_and_reset_callbacks(self):

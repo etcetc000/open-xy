@@ -2,11 +2,11 @@
 #include <cstdlib>
 #include "player_object_probeplayer.cpp"
 #define require(x) do { if (!(x)) { std::fprintf(stderr,"line %d\n",__LINE__); std::abort(); } } while(0)
-namespace { opxy::u32 updates=0, releases=0, resets=0, offs=0, ticks=0, before_tick=0; }
+namespace { opxy::u32 updates=0, releases=0, resets=0, offs=0, ticks=0, before_tick=0, ups=0, cleared=0, counted=0, counted_at_update=0; }
 void release_stock(void*,opxy::u32) { ++releases; }
 void reset_stock(void*) { ++resets; }
 void all_off_stock(void*) { ++offs; }
-void step_stock(void*) { ++ticks; require(updates==before_tick); }
+void step_stock(void*) { ++ticks; require(updates==before_tick && counted==ticks); }
 const void* stock_address(opxy::u32 address) {
     using namespace opxy::platform;
     if(address==kMaestroRelease) return reinterpret_cast<const void*>(&release_stock);
@@ -18,7 +18,10 @@ namespace opxy { namespace platform {
 void* player_state(void* object) { return object; }
 player::Controls player_controls(void*) { return player::Controls{}; }
 void play_plan(void*,u32,const player::Plan&) {}
-void update_plan(void*,const player::Update& change) { require(change.root==60); ++updates; }
+void update_plan(void*,const player::Update& change) { require(change.root==60); ++updates; counted_at_update=counted; }
+void player_release(void*,u32 note) { require(note==60 && updates==2); ++ups; } // before the release's updates
+void player_step(void*) { ++counted; }
+void player_reset(void*) { ++cleared; }
 }}
 extern "C" const char probeplayer_player_id[]="";
 int main() {
@@ -30,13 +33,13 @@ int main() {
     auto step=reinterpret_cast<void(*)(void*)>(const_cast<void*>(vt[13]));
     probeplayer::State s={}; s.option=3;
     on(&s,60,0,0,90); require(updates==2 && s.pending==0);
-    off(&s,60); require(updates==3 && releases==1);
+    off(&s,60); require(updates==3 && releases==1 && ups==1);
     s.pending=100; on(&s,61,0,0,90); require(updates==11 && s.pending==92); // bounded drain
-    reset(&s); require(resets==1 && s.pending==0 && s.option==3);
+    reset(&s); require(resets==1 && cleared==1 && s.pending==0 && s.option==3);
     s.pending=100; before_tick=updates+8; step(&s);
-    require(ticks==1 && s.pending==92); // bounded updates precede stock scheduling
+    require(ticks==1 && s.pending==92 && counted_at_update==1); // the step is counted, then bounded updates precede stock scheduling
     s.pending=1; before_tick=updates+1; step(&s);
     require(ticks==2 && s.pending==0);
-    s.pending=2; alloff(&s); require(offs==1 && s.pending==0 && s.option==3);
+    s.pending=2; alloff(&s); require(offs==1 && cleared==2 && s.pending==0 && s.option==3);
     std::puts("optional player updates and reset callbacks executed through generated vtable");
 }
