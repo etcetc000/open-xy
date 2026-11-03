@@ -485,11 +485,6 @@ u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
     return stock<u32()>(0x8d5b7c28)();
 }
 
-bool sdk_sample_shift_trim(u32 track) {
-    const SynthControls* controls = track < kTracks ? own_controls(track_engine(track)) : nullptr;
-    return controls && controls->stock_shift;
-}
-
 // 8c0b13e6: the sample page's turn handler asks 8d51f184 whether Shift is
 // held, which picks its second row of functions. A replayed Shift turn
 // (sdk_sample_page_turn) answers for the row it replays; any other asks stock.

@@ -97,6 +97,17 @@ const SynthControls* machine(u32 track, Track*& t) {
 
 // The owned synth on instrument track 0..7, or null.
 const SynthControls* synth(u32 track) { return track < kTracks ? owned(track_engine(track)) : nullptr; }
+}  // namespace
+
+// Whether Shift on a track's own screen edits the stock sampler's trim
+// (shiftTrim). Here rather than with the sample page's objects, because every
+// screen asks it (screen.hpp), an effect's and a synth's included.
+bool sdk_sample_shift_trim(u32 track) {
+    const SynthControls* m = synth(track);
+    return m && m->stock_shift;
+}
+
+namespace {
 
 // The owned synth on instrument track 0..7 or holding an aux track, or the
 // owned effect on send track 14 or 15: the machines whose parameters stock
