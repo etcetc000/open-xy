@@ -49,6 +49,17 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     if (!favorites.delete(id)) favorites.add(id);
     try { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites])); } catch {}
   }
+  // Named machine selections, kept in this browser only (core.readPresets). A preset
+  // chooses machines; their numbers still come from the layout.
+  const PRESETS_KEY = 'open-xy-machine-presets';
+  let presets = [];
+  try { presets = core.readPresets(JSON.parse(localStorage.getItem(PRESETS_KEY) ?? '[]')); } catch {}
+  function storePresets(next) {
+    presets = next;
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); }
+    catch { $('preset-message').textContent = 'This browser could not keep the preset; it lasts until you leave the page.'; }
+    renderPresets();
+  }
   let stopPreview = () => {}, previewRevision = 0;
   let stopAudio = () => {};
   window.addEventListener('blur', () => stopAudio());
@@ -635,6 +646,77 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('favorites-filter').onclick = () => { browsing.favoritesOnly = !browsing.favoritesOnly; syncBrowsing(); renderMachines(); };
   $('machine-search').oninput = e => { browsing.query = e.target.value; renderMachines(); };
   $('machine-sort').onchange = e => { browsing.sort = e.target.value; renderMachines(); };
+  // Each saved preset: choose it, update it to the current selection, or delete it. A machine
+  // this collection lacks is counted apart, since choosing the preset cannot select it here.
+  // Rendered again whenever the menu opens, so Update reflects the selection made since.
+  function renderPresets() {
+    $('presets-empty').hidden = presets.length > 0;
+    $('presets-list').hidden = !presets.length;
+    $('presets-list').replaceChildren(...presets.map(preset => {
+      const {selected: offered, missing} = kit ? core.applyPreset(kit, preset) : {selected: preset.machines, missing: []};
+      const item = node('li', undefined, 'preset');
+      const choose = node('button', undefined, 'preset-apply'); choose.type = 'button';
+      choose.append(node('span', preset.name, 'preset-name'),
+        node('span', offered.length + (offered.length === 1 ? ' machine' : ' machines') +
+          (missing.length ? ' · ' + missing.length + ' not here' : ''), 'preset-count'));
+      choose.title = [...offered.map(id => kit?.machines.find(m => m.id === id)?.name ?? id), ...missing].join(', ');
+      choose.onclick = () => choosePreset(preset);
+      // Saves the current selection into this preset; nothing to do when it already matches.
+      const update = node('button', 'Update', 'preset-update'); update.type = 'button';
+      update.setAttribute('aria-label', 'Update preset ' + preset.name + ' to the selected machines');
+      update.disabled = !selected.length || core.presetMatches(preset, selected);
+      update.title = !selected.length ? 'Select machines to update this preset'
+        : update.disabled ? 'Already the selected machines'
+        : selected.length === 1 ? 'Replace with the selected machine' : 'Replace with the ' + selected.length + ' selected machines';
+      update.onclick = () => {
+        storePresets(core.savePreset(presets, preset.name, selected));
+        $('preset-message').textContent = 'Updated “' + preset.name + '”: ' + selected.length +
+          (selected.length === 1 ? ' machine.' : ' machines.');
+        // Its row is drawn again; keep focus on it.
+        [...$('presets-list').querySelectorAll('.preset-apply')].find(b => b.querySelector('.preset-name').textContent === preset.name)?.focus();
+      };
+      const remove = node('button', '✕', 'preset-delete'); remove.type = 'button';
+      remove.setAttribute('aria-label', 'Delete preset ' + preset.name);
+      remove.onclick = () => {
+        storePresets(core.deletePreset(presets, preset.name));
+        $('preset-message').textContent = 'Deleted “' + preset.name + '”.';
+        $('preset-name').focus();
+      };
+      item.append(choose, update, remove);
+      return item;
+    }));
+  }
+  $('machine-presets').addEventListener('toggle', () => {
+    if ($('machine-presets').open) { $('preset-message').textContent = ''; renderPresets(); }
+  });
+  // Choosing a preset replaces the selection, as ticking its machines would.
+  function choosePreset(preset) {
+    const {selected: chosen, missing} = core.applyPreset(kit, preset);
+    selected = chosen;
+    invalidate(); renderMachines(); recalculate();
+    $('machine-presets').open = false;
+    status('Preset “' + preset.name + '”: ' + chosen.length + (chosen.length === 1 ? ' machine' : ' machines') + ' selected.' +
+      (missing.length ? ' Not in this collection: ' + missing.join(', ') + '.' : ''));
+  }
+  // The menu closes as menus do: Escape returns to its button, and a click elsewhere leaves it.
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !$('machine-presets').open) return;
+    $('machine-presets').open = false; $('machine-presets').querySelector('summary').focus();
+  });
+  document.addEventListener('pointerdown', event => {
+    if ($('machine-presets').open && !$('machine-presets').contains(event.target)) $('machine-presets').open = false;
+  });
+  $('preset-form').onsubmit = event => {
+    event.preventDefault();
+    try {
+      const name = $('preset-name').value;
+      const replaced = presets.some(p => p.name.localeCompare(name.trim(), undefined, {sensitivity: 'base'}) === 0);
+      storePresets(core.savePreset(presets, name, selected));
+      $('preset-name').value = '';
+      $('preset-message').textContent = (replaced ? 'Updated “' : 'Saved “') + name.trim().replace(/\s+/g, ' ') + '”: ' +
+        selected.length + (selected.length === 1 ? ' machine.' : ' machines.');
+    } catch (error) { $('preset-message').textContent = error.message; }
+  };
   $('restore').onchange = async e => {
     try {
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
@@ -673,7 +755,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     catalog = core.decode64(kit.stockCatalog);
     $('notices').textContent = kit.notices;
     $('notices').closest('details').hidden = false;
-    sizeMachineSummary(); renderBrowsing(); renderMachines(); renderExtensions(); inspect(kit.machines[0].id); recalculate();
+    sizeMachineSummary(); renderBrowsing(); renderMachines(); renderPresets(); renderExtensions(); inspect(kit.machines[0].id); recalculate();
   }
   document.querySelector('.memory-bar').onclick = e => e.currentTarget.classList.toggle('open');
   try {
