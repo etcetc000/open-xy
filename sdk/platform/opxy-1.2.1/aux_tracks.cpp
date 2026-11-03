@@ -200,8 +200,10 @@ void take(u32 track, u32 choice) {
     }
     sdk_synth_queue_page_key(control::all_tracks, 0);
     const u32 p = current_pattern(track), bit = 1u << p;
-    // The role's controls, kept aside; not those of a machine this build can't run.
-    if (!before && word(current_block(track) + 0x18) == kRoleEngine) {
+    // The role's controls, kept aside. A pattern naming a machine this build can't
+    // run holds the role's controls too once a load gave them back (aux_tick), or
+    // else what CV plays now.
+    if (!before) {
         for (u32 i = 0; i < kControls; ++i) kept->values[p][i] = base(track, i);
         kept->patterns |= bit;
     }
@@ -501,7 +503,8 @@ void aux_tick() {
         if (m) mark(t);
         else unmark(t);
         if (loading) continue;
-        if (m && seen_block[t] && block != seen_block[t])
+        // Only while playing: stopped, stock's own publish of the stored values stands.
+        if (m && seen_block[t] && block != seen_block[t] && (byte(kPlaying) || byte(kPlaying + 1)))
             for (u32 i = 0; i < kControls; ++i) live_set(t, i, first_step_value(t, block, i));
         seen_block[t] = block;
     }
