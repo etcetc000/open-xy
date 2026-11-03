@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from .adapters import catalog_entry
+from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
 from .definitions import control_positions, paged
 from .formats import require, sha
@@ -79,7 +79,17 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['source'] = {key: sources[m.id][key] for key in ('repository', 'tag', 'commit', 'maintainer')}
             if 'cpu' in sources[m.id]:
                 entry['cpu'] = sources[m.id]['cpu']
+            # The catalog's words for browsing it in the builder (catalog.KEYWORDS).
+            if 'keywords' in sources[m.id]:
+                entry['keywords'] = list(sources[m.id]['keywords'])
+        uses = sorted(set(native.service_users([m])) - {m.kind, 'extension'})
+        if uses:
+            entry['features'] = uses
         entry['presetDefaults'] = m.preset_defaults
+        # A machine that takes over aux tracks: its preset files, which the builder installs as they are.
+        aux_presets = aux_preset_files(m)
+        if aux_presets:
+            entry['auxPresets'] = {path: data.decode('utf-8') for path, data in aux_presets.items()}
         if m.presets:
             entry['presets'] = m.presets
         if m.icon:
@@ -131,12 +141,23 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
+    services = native.active_services(profile, native.service_users(machines))
+    # Track control: startup's calls into the saved data, while a selection does not use the service.
+    if 'control' in services:
+        kit['serviceFallbacks'] = {'control': dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'),
+                                                            'kit_absent')}
+    if 'aux' in services:
+        kit.setdefault('serviceFallbacks', {})['aux'] = {'sdk_aux_startup': 'kit_absent'}
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves
     # diagnostics only; no deliverable HTML is emitted.
+    # The native package's layout numbers the selection that reproduces it: the package
+    # numbers its whole collection, so a machine it leaves out can still hold a number
+    # one it links asked for.
     subprocess.run(['node', str(ROOT / 'tools/check_browser_kit.mjs'), str(kit_path),
-                    str(object_dir), str(tools['ld']), str(tools['objcopy'])], cwd=ROOT, check=True)
+                    str(object_dir), str(tools['ld']), str(tools['objcopy']), str(package / 'layout.json')],
+                   cwd=ROOT, check=True)
     write_builder(kit, output)
     return kit
 
@@ -166,7 +187,8 @@ def write_builder(kit, output):
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes openKit linkKit readLdr '
-               'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName').split()
+               'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName '
+               'MACHINE_KEYWORDS keywordsByUse browseMachines machineAuthor PRESET_NAME_LIMIT readPresets savePreset deletePreset presetMatches applyPreset').split()
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
     bundled += 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'

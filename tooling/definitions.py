@@ -87,6 +87,15 @@ EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 # and chokeSameKey 1 for a note to cut the voices still sounding its track's same key.
 DRUM_OPTIONS = ('modelGroups', 'chokeSameKey')
 EFFECT_BUFFER_LIMIT = 524288
+# A synth's optional GUI-side track control (opxy/track_control.hpp): its state.
+CONTROL_FIELDS = ('stateBytes', 'stateAlignment')
+# Optional: whether only one copy runs, and the data kept with a project.
+CONTROL_OPTIONS = ('unique', 'savedBytes', 'aux', 'sharedLfo')
+# The aux tracks (1-based) a machine may take over: those whose stock role the
+# SDK can keep silent (sdk/platform/opxy-1.2.1/aux_tracks.cpp).
+AUX_TRACKS = (12,)
+# The most a track control machine keeps with a project (opxy::control::saved_capacity).
+SAVED_CAPACITY = 8192
 DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum', 'division')
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
 # A synth's first four fill the four-control page; up to four more are alternates
@@ -115,21 +124,31 @@ def control_positions(definition):
             for i, parameter in enumerate(definition['parameters'])]
 
 
+# The stock instrument pages a synth may hide, by their page index (M1 is 0).
+HIDDEN_PAGES = {'envelope': 1, 'filter': 2}
+
+
+def hidden_pages(definition):
+    """The stock instrument pages a synth hides, as a bitmask of page indices (SDK 1.4)."""
+    return sum(1 << HIDDEN_PAGES[p] for p in definition.get('hidePages', ()))
+
+
 def paged(definition):
     """Whether a press switches the synth's whole page (`"press": "page"`, SDK 1.3)."""
     return definition.get('press') == 'page'
 
 
 def validate_definition(value, kind):
-    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources',
-                 *(k for k in ('press', 'shift') if k in value)), 'definition')
+    optional = tuple(k for k in ('press', 'hidePages', 'shift') if k in value)
+    keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *optional), 'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     stock_name(value['id']); label(value['name'])
     resources = value['resources']
-    options = SAMPLE_OPTIONS if kind == 'sample' else EFFECT_OPTIONS if kind == 'effect' else DRUM_OPTIONS if kind == 'drum' else ()
+    options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
+               'synth': ('trackControl',)}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
-    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups')),
+    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl')),
             'Numeric resource requirements must be integers')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
@@ -202,6 +221,11 @@ def validate_definition(value, kind):
                 "a drum kit's press always pages its row")
     if 'shift' in value:
         validate_shift(value['shift'], kind, set(names))
+    # Stock instrument pages a synth hides: M2 (envelope), M3 (filter) and M4 (LFO).
+    if 'hidePages' in value:
+        pages = value['hidePages']
+        require(kind == 'synth' and isinstance(pages, list) and pages and len(set(pages)) == len(pages) and
+                all(p in HIDDEN_PAGES for p in pages), '"hidePages" lists "envelope" and/or "filter" for a synth')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     present = {p['id'] for p in parameters if not p.get('absent')}
     for name, preset in value['presets'].items():
@@ -240,6 +264,30 @@ def validate_synth_resources(resources):
             'Shared state must occupy whole words')
     require(0 < resources['outputPeakQ31'] <= 0x7fffffff, 'Invalid oscillator output headroom')
     validate_display(resources['display'])
+    if 'trackControl' in resources:
+        control = resources['trackControl']
+        present = tuple(k for k in CONTROL_OPTIONS if isinstance(control, dict) and k in control)
+        keys(control, CONTROL_FIELDS + present, 'trackControl')
+        require(type(control['stateBytes']) is int and type(control['stateAlignment']) is int and
+                4 <= control['stateBytes'] and control['stateAlignment'] in (4, 8, 16) and
+                control['stateBytes'] % control['stateAlignment'] == 0,
+                'Track control state must occupy aligned whole words')
+        require('savedBytes' not in control or type(control['savedBytes']) is int and
+                1 <= control['savedBytes'] <= SAVED_CAPACITY,
+                f'Track control saves 1 to {SAVED_CAPACITY} bytes with a project')
+        require(type(control.get('unique', False)) is bool, 'Track control unique must be true or false')
+        require(type(control.get('sharedLfo', False)) is bool, 'Track control sharedLfo must be true or false')
+        require('savedBytes' not in control or control.get('unique') is True,
+                'A track control machine that keeps data with projects must be unique')
+        # Track control runs on aux tracks only, so a machine that steers other
+        # tracks never takes an instrument track's place.
+        require('aux' in control, 'Track control runs on an aux track: list it in trackControl.aux (' +
+                ', '.join(map(str, AUX_TRACKS)) + ')')
+        aux = control['aux']
+        require(type(aux) is list and aux and all(type(t) is int for t in aux) and len(set(aux)) == len(aux) and
+                set(aux) <= set(AUX_TRACKS),
+                'Track control aux lists the aux tracks to take over: ' + ', '.join(map(str, AUX_TRACKS)))
+        require(control.get('unique') is True, 'A track control machine that takes over aux tracks must be unique')
 
 
 def validate_display(display):

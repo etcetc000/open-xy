@@ -32,7 +32,7 @@
 
 This repository holds no machines. Examples to read before writing one are Open-XY's
 [core machines](https://github.com/etcetc000/open-xy-core-machines): synths 2op FM, Macro Osc and Karplus, the Timestretch
-sample engine, and the Ring Mod and Ping Pong send effects, each published
+sample engine, the Ring Mod and Ping Pong send effects, and the Chords note player, each published
 through the catalog like any other machine.
 
 For machine work, follow the complete [authoring journey](docs/first-machine.md)

@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'ca119b16884595ffa18b37046db2c79593880b13029d9fded8960fa629dab126';
+export const PROFILE_SHA256 = 'a2459b844130f0991a331908d687e15cf806264f4b881d0b317a43a10a737c82';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -239,7 +239,10 @@ export function numberLayout(rules, fixed, layout, machines) {
   }
   // An effect number is also held as an engine number (occupied).
   const keys = (slot, n) => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
-  const free = (slot, n) => !keys(slot, n).some(key => holders.has(key));
+  // The last page is reserved for an SDK overlay screen: in the pool, so every other
+  // machine keeps its own place, never given out, and still valid in a layout that
+  // already gave it (validIdentity), as earlier SDKs did (tooling.machines.number_layout).
+  const free = (slot, n) => !(slot === 'page' && n === rules.pages - 1) && !keys(slot, n).some(key => holders.has(key));
   const take = (name, identity, slot, n) => {
     identity[slot] = n;
     for (const key of keys(slot, n)) holders.set(key, name);
@@ -330,6 +333,99 @@ export const chosenByDefault = m => m.origin !== 'catalog';
 export const sourceUrl = source => source.repository + '/tree/' + source.commit;
 export const sourceName = source => source.repository.slice('https://github.com/'.length);
 
+// The catalog's words for browsing machines (tooling.catalog.KEYWORDS, which tests compare).
+export const MACHINE_KEYWORDS = ['additive', 'ambient', 'analog', 'bass', 'bell', 'chord', 'delay', 'drone', 'emulation',
+  'experimental', 'fm', 'granular', 'lofi', 'modulation', 'noise', 'pad', 'percussion', 'physical', 'pluck', 'reverb', 'vocal'];
+const MAX_KEYWORDS = 5;
+export const validKeywords = m => m.keywords === undefined || Array.isArray(m.keywords) && m.keywords.length > 0 &&
+  m.keywords.length <= MAX_KEYWORDS && new Set(m.keywords).size === m.keywords.length && m.keywords.every(keyword => MACHINE_KEYWORDS.includes(keyword));
+// Who maintains a machine: its catalog maintainer; a personal kit's own machines have none.
+export const machineAuthor = m => m.source?.maintainer ?? '';
+// The keywords the machines use, with how many use each, most used first, then by name: the
+// order in which the builder keeps keyword filters when only some fit (builder/app.mjs).
+export function keywordsByUse(machines) {
+  const counts = new Map();
+  for (const m of machines) for (const keyword of m.keywords ?? []) counts.set(keyword, (counts.get(keyword) ?? 0) + 1);
+  return [...counts].map(([keyword, count]) => ({keyword, count}))
+    .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword));
+}
+const KIND_ORDER = ['synth', 'drum', 'sample', 'effect', 'player'];
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true});
+const SORTS = {
+  // Open-XY's own machines first, then the rest, each group by name.
+  featured: (a, b) => (b.m.origin === 'official') - (a.m.origin === 'official') || byName(a.m, b.m) || a.index - b.index,
+  name: (a, b) => byName(a.m, b.m) || a.index - b.index,
+  author: (a, b) => machineAuthor(a.m).localeCompare(machineAuthor(b.m), undefined, {sensitivity: 'base'}) ||
+    byName(a.m, b.m) || a.index - b.index,
+  kind: (a, b) => KIND_ORDER.indexOf(a.m.kind) - KIND_ORDER.indexOf(b.m.kind) || byName(a.m, b.m) || a.index - b.index,
+};
+export const MACHINE_SORTS = Object.keys(SORTS);
+// The words people use for each kind, as the builder's filters and details name them.
+const KIND_WORDS = {synth: 'synth synths synthesizer', drum: 'drum drums drum kit', sample: 'sample sampler samplers sample engine',
+  effect: 'effect effects fx send effect', player: 'player players note player'};
+// The machines to list, each with its collection index (which keeps its memory-map
+// colour), in the chosen order. Every word of `query` must appear in the machine's name,
+// ID, description, maintainer, repository (owner/name, which names a collection), kind
+// or one of its keywords; every keyword in `keywords` must be its own.
+export function browseMachines(machines, {query = '', kind = 'all', keywords = [], favorites = null, sort = 'featured'} = {}) {
+  const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  return machines.map((m, index) => ({m, index}))
+    .filter(({m}) => kind === 'all' || m.kind === kind)
+    .filter(({m}) => !favorites || favorites.has(m.id))
+    .filter(({m}) => keywords.every(keyword => m.keywords?.includes(keyword)))
+    .filter(({m}) => {
+      if (!words.length) return true;
+      const text = [m.name, m.id, m.description, machineAuthor(m), m.source ? sourceName(m.source) : '',
+        KIND_WORDS[m.kind] ?? m.kind, ...(m.keywords ?? [])].join('\n').toLocaleLowerCase();
+      return words.every(word => text.includes(word));
+    })
+    .sort(SORTS[sort] ?? SORTS.featured);
+}
+
+// Machine presets: named selections a person keeps in this browser (builder/app.mjs),
+// by machine ID, so one outlives a collection that drops or adds machines. Sorted by name.
+export const PRESET_NAME_LIMIT = 40;
+export const PRESET_LIMIT = 50;
+// A machine ID, as tooling.definitions.stock_name allows it.
+const MACHINE_ID = /^[a-z][a-z0-9_]{0,14}$/;
+const presetName = name => typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : '';
+const sameName = (a, b) => a.localeCompare(b, undefined, {sensitivity: 'base'}) === 0;
+const byPresetName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true});
+// What a browser stored, keeping only well-formed presets: a name, and machine IDs once each.
+export function readPresets(value) {
+  if (!Array.isArray(value)) return [];
+  const presets = [];
+  for (const p of value) {
+    const name = presetName(p?.name);
+    if (!name || name.length > PRESET_NAME_LIMIT || !Array.isArray(p.machines) || !p.machines.length ||
+        !p.machines.every(id => typeof id === 'string' && MACHINE_ID.test(id)) ||
+        new Set(p.machines).size !== p.machines.length || presets.some(q => sameName(q.name, name))) continue;
+    presets.push({name, machines: [...p.machines]});
+    if (presets.length === PRESET_LIMIT) break;
+  }
+  return presets.sort(byPresetName);
+}
+// The presets with `machines` saved as `name`, replacing a preset of that name (in any case).
+export function savePreset(presets, name, machines) {
+  const clean = presetName(name);
+  check(clean, 'Name the preset.');
+  check(clean.length <= PRESET_NAME_LIMIT, `Keep the preset name to ${PRESET_NAME_LIMIT} characters.`);
+  check(machines.length > 0, 'Select at least one machine to save a preset.');
+  const others = presets.filter(p => !sameName(p.name, clean));
+  check(others.length < PRESET_LIMIT, `Keep at most ${PRESET_LIMIT} presets; delete one first.`);
+  return [...others, {name: clean, machines: [...new Set(machines)]}].sort(byPresetName);
+}
+export const deletePreset = (presets, name) => presets.filter(p => !sameName(p.name, name));
+// Whether a preset already holds exactly these machines, in any order: updating it would change nothing.
+export const presetMatches = (preset, machines) =>
+  new Set(machines).size === preset.machines.length && preset.machines.every(id => machines.includes(id));
+// A preset's machines this kit offers, in collection order, and the IDs it does not offer.
+export function applyPreset(kit, preset) {
+  const offered = new Set(kit.machines.map(m => m.id));
+  return {selected: kit.machines.filter(m => preset.machines.includes(m.id)).map(m => m.id),
+    missing: preset.machines.filter(id => !offered.has(id))};
+}
+
 // Validate choices and retain the SDK's declared callback order.
 export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e => e.id)) {
   const entries = kit.extensions ?? [];
@@ -382,6 +478,7 @@ export async function openKit(kit) {
   check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
+  check(kit.machines.every(validKeywords), 'Invalid machine keywords');
   for (const machine of kit.machines) if (Object.hasOwn(machine, 'grayscaleArtwork')) selectArtwork(machine, 'colorful');
   const extensions = kit.extensions ?? [];
   check(Array.isArray(extensions) && extensions.length <= 16, 'Invalid extension collection');
@@ -435,7 +532,8 @@ export async function openKit(kit) {
 // applies the same rule.
 export function activeServices(profile, machines) {
   return new Set(Object.entries(profile.services ?? {})
-    .filter(([, kinds]) => machines.some(m => kinds.includes(m.kind))).map(([name]) => name));
+    .filter(([, users]) => machines.some(m => users.includes(m.kind) || (m.features ?? []).some(f => users.includes(f))))
+    .map(([name]) => name));
 }
 
 // Same lazy arithmetic-member closure as tooling.runtime.select. Keeping this
@@ -531,6 +629,14 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   for (const m of kit.machines) if (!selected.has(m.id)) {
     for (const [symbol, fallback] of Object.entries(m.absent)) {
       check(!globals.has(symbol) && globals.has(fallback), 'Invalid absent-machine callback');
+      aliases.set(symbol, globals.get(fallback));
+    }
+  }
+  // Shared objects may import a service's entry points, which resolve to their
+  // fallbacks while the selection does not use the service.
+  for (const [service, fallbacks] of Object.entries(kit.serviceFallbacks ?? {})) if (!services.has(service)) {
+    for (const [symbol, fallback] of Object.entries(fallbacks)) {
+      check(!globals.has(symbol) && globals.has(fallback), 'Invalid service fallback');
       aliases.set(symbol, globals.get(fallback));
     }
   }
@@ -634,7 +740,8 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
       covering[0].offset + 16 + site - covering[0].target === offset &&
       equal(stock.subarray(offset, offset + before.length), before), 'Patch preimage/mapping mismatch');
     let after;
-    check(edit.service === undefined || (edit.kind === 'hook' && Object.hasOwn(p.services ?? {}, edit.service)),
+    // A service's hooks, and its text edits (the MTP allowlist), apply only with it.
+    check(edit.service === undefined || (['hook', 'text'].includes(edit.kind) && Object.hasOwn(p.services ?? {}, edit.service)),
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
@@ -767,10 +874,8 @@ export async function recoverFirmware(kit, input, layout = null) {
 }
 
 export function presetPath(machine) {
-  // An aux track-control machine has no catalog entry and is never an instrument;
-  // its presets live under content/aux_presets/ instead (#234, not yet merged:
-  // trackControl.aux is a placeholder until that PR defines its real shape).
-  if (machine.kind === 'effect' || machine.kind === 'player' || machine.trackControl?.aux) return null;
+  // An aux machine (no catalog entry) is never an instrument, so it has no instrument presets.
+  if (machine.kind === 'effect' || machine.kind === 'player' || machine.catalog === '') return null;
   check(['synth', 'drum', 'sample'].includes(machine.kind) && /^[a-z][a-z0-9_]{0,14}$/.test(machine.id),
     'Invalid preset instrument');
   return `content/presets/${machine.id}/default.json`;
@@ -780,6 +885,18 @@ export function presetPath(machine) {
 // each a version 4 preset of this machine, pointing at no samples. Its own
 // default replaces the generated init preset.
 export function presetFiles(machine) {
+  // An aux machine's presets: the files the kit generated (tooling.adapters.aux_preset_files).
+  if (machine.catalog === '') {
+    const files = {};
+    for (const [path, text] of Object.entries(machine.auxPresets ?? {})) {
+      // The machine's own presets, and the init of a stock role it can replace (tooling.adapters.AUX_ROLES).
+      const type = JSON.parse(text).type, folder = type === machine.id ? machine.id : ['cv'].includes(type) ? type : null;
+      check(folder !== null && new RegExp(`^content/aux_presets/${folder}/[a-z0-9][a-z0-9 _-]{0,14}\\.json$`).test(path),
+        'Invalid aux preset: ' + path);
+      files[path] = JSON.parse(text);
+    }
+    return files;
+  }
   const path = presetPath(machine);
   if (!path) return {};
   const presets = machine.presets ?? {};
@@ -834,8 +951,10 @@ export async function buildAssets(kit, selection, catalog, numbers, {graphics = 
   const machines = kit.machines.filter(m => selection.includes(m.id));
   // Each machine's entry ends its stock list; the offsets are bound to the
   // authenticated stock catalog (tooling.native.extend_catalog).
-  const groups = {engine_types: machines.filter(m => ['synth', 'drum', 'sample'].includes(m.kind)),
-    fx_types: machines.filter(m => m.kind === 'effect'), seq_types: machines.filter(m => m.kind === 'player')};
+  // Aux machines have no entry: they are chosen on their aux track, never in tracks 1-8's list.
+  const listed = machines.filter(m => m.catalog !== '');
+  const groups = {engine_types: listed.filter(m => ['synth', 'drum', 'sample'].includes(m.kind)),
+    fx_types: listed.filter(m => m.kind === 'effect'), seq_types: listed.filter(m => m.kind === 'player')};
   const inserts = Object.entries(kit.profile.stock_catalog_inserts).sort((a, b) => b[1] - a[1]);
   check(inserts.map(([key]) => key).sort().join() === Object.keys(groups).sort().join(), 'Unexpected catalog insertion points');
   let extended = catalog;
@@ -850,6 +969,12 @@ export async function buildAssets(kit, selection, catalog, numbers, {graphics = 
   for (const machine of machines)
     for (const [path, preset] of Object.entries(presetFiles(machine)))
       files[path] = utf8.encode(JSON.stringify(preset, null, 2) + '\n');
+  // The device lists at most 64 aux presets, every aux machine's and the roles' inits together
+  // (tooling.adapters.AUX_PRESETS).
+  const auxPaths = Object.keys(files).filter(path => path.startsWith('content/aux_presets/'));
+  check(auxPaths.length <= 64, `The chosen aux machines have ${auxPaths.length} presets together; the OP-XY lists 64. Choose fewer.`);
+  const auxFolders = new Set(auxPaths.map(path => path.split('/')[2])).size;
+  check(auxFolders <= 16, `The chosen aux machines have ${auxFolders} preset folders together; the OP-XY lists 16. Choose fewer.`);
   if (machines.some(m => m.artwork)) {
     check(await screenTemplateOk(kit), 'Platform screen template differs from the supported ABI');
     const baseSvg = kit.screenTemplate;

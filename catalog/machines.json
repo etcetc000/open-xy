@@ -9,7 +9,11 @@
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
       "tag": "v1.1.0",
       "commit": "32b257d924f65338ac6eb82639647ade90e8ac05",
-      "path": "machines/fm2op"
+      "path": "machines/fm2op",
+      "keywords": [
+        "fm",
+        "bell"
+      ]
     },
     {
       "id": "macroosc",
@@ -19,7 +23,13 @@
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
       "tag": "v1.8.0",
       "commit": "25336d7945aa91b275549d3c357670b2e510c9a8",
-      "path": "machines/macroosc"
+      "path": "machines/macroosc",
+      "keywords": [
+        "emulation",
+        "fm",
+        "physical",
+        "vocal"
+      ]
     },
     {
       "id": "timestretch",
@@ -29,7 +39,10 @@
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
       "tag": "v1.7.0-rc.1",
       "commit": "600ff0554369f3ff20336f64fb55bb8ad805f58e",
-      "path": "machines/timestretch"
+      "path": "machines/timestretch",
+      "keywords": [
+        "percussion"
+      ]
     },
     {
       "id": "ringmod",
@@ -39,7 +52,10 @@
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
       "tag": "v1.1.0",
       "commit": "32b257d924f65338ac6eb82639647ade90e8ac05",
-      "path": "machines/ringmod"
+      "path": "machines/ringmod",
+      "keywords": [
+        "modulation"
+      ]
     },
     {
       "id": "pluck",
@@ -60,6 +76,10 @@
       "tag": "v1.5.0",
       "commit": "09c86cb49689223dbecad556a43034350ecdc59e",
       "path": "machines/karplus",
+      "keywords": [
+        "physical",
+        "pluck"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "ec44ae53656ca6a363908eefdc2d406b926b06e6",
@@ -128,6 +148,10 @@
       "tag": "v1.3.1",
       "commit": "40ecf269226d265e66d0e667692f5f3e815ec66f",
       "path": ".",
+      "keywords": [
+        "physical",
+        "drone"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "1354c31b122aa3c05a3c028ff57cc7f198a9bea8",
@@ -145,7 +169,23 @@
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
       "tag": "v1.1.0",
       "commit": "32b257d924f65338ac6eb82639647ade90e8ac05",
-      "path": "machines/pingpong"
+      "path": "machines/pingpong",
+      "keywords": [
+        "delay"
+      ]
+    },
+    {
+      "id": "chords",
+      "kind": "player",
+      "maintainer": "etcetc000",
+      "status": "published",
+      "repository": "https://github.com/etcetc000/open-xy-core-machines",
+      "tag": "v1.9.0",
+      "commit": "c8508d7f55fbaabb470faec9c16f65d456a41d04",
+      "path": "machines/chords",
+      "keywords": [
+        "chord"
+      ]
     },
     {
       "id": "nightdrive",
@@ -156,6 +196,11 @@
       "tag": "v1.0.1",
       "commit": "c28339571117094548767fd1873556bff80ef15e",
       "path": ".",
+      "keywords": [
+        "fm",
+        "bass",
+        "pluck"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "c28339571117094548767fd1873556bff80ef15e",
@@ -174,6 +219,12 @@
       "tag": "v0.20.2",
       "commit": "93d0cd50fb0a596ed8b54176505abc0d638a1ecd",
       "path": ".",
+      "keywords": [
+        "analog",
+        "emulation",
+        "lofi",
+        "pad"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "ce965da802ddddf4aec0f98d8eca8689055a03b1",
@@ -192,6 +243,12 @@
       "tag": "v1.1.0",
       "commit": "f09f84ad237786e1cf0c39cf509f0cb26e519486",
       "path": "machines/metal",
+      "keywords": [
+        "fm",
+        "physical",
+        "bell",
+        "percussion"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "f09f84ad237786e1cf0c39cf509f0cb26e519486",
@@ -209,6 +266,10 @@
       "tag": "v1.0.2",
       "commit": "73a21dc9fff9eba5533a6929b55f979435deaeb7",
       "path": ".",
+      "keywords": [
+        "experimental",
+        "modulation"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "a36ff65728f7701ccf81f0f5f572dbd0e06347b5",
@@ -226,6 +287,9 @@
       "tag": "v1.0.1",
       "commit": "0361d821264a42fb765511b3f355f1eb129626cc",
       "path": ".",
+      "keywords": [
+        "vocal"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "453ff5288aa0000ecbb7f1c01654935560bbdd65",
@@ -243,6 +307,10 @@
       "tag": "v1.2.3",
       "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
       "path": "machines/mmdyn",
+      "keywords": [
+        "emulation",
+        "fm"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
@@ -267,6 +335,11 @@
       "tag": "v1.1.9",
       "commit": "5c5310144ae74bcb7f61c51c899b28269d65e5e8",
       "path": "machines/mmens",
+      "keywords": [
+        "emulation",
+        "analog",
+        "chord"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "ae67d287103c42c2fee486ba0ceaf93bf1da316d",
@@ -284,6 +357,10 @@
       "tag": "v1.2.3",
       "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
       "path": "machines/mmpar",
+      "keywords": [
+        "emulation",
+        "fm"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
@@ -308,6 +385,11 @@
       "tag": "v1.1.9",
       "commit": "5c5310144ae74bcb7f61c51c899b28269d65e5e8",
       "path": "machines/mmpulse",
+      "keywords": [
+        "emulation",
+        "analog",
+        "bass"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "ae67d287103c42c2fee486ba0ceaf93bf1da316d",
@@ -325,6 +407,10 @@
       "tag": "v1.1.9",
       "commit": "5c5310144ae74bcb7f61c51c899b28269d65e5e8",
       "path": "machines/mmsid",
+      "keywords": [
+        "emulation",
+        "lofi"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "ae67d287103c42c2fee486ba0ceaf93bf1da316d",
@@ -342,6 +428,10 @@
       "tag": "v1.2.3",
       "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
       "path": "machines/mmstat",
+      "keywords": [
+        "emulation",
+        "fm"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
@@ -366,6 +456,10 @@
       "tag": "v1.2.3",
       "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
       "path": "machines/mmvo6",
+      "keywords": [
+        "emulation",
+        "vocal"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
@@ -390,6 +484,11 @@
       "tag": "v1.1.0",
       "commit": "4a5f90abd751164af85abfd850bc791df0c3ba8e",
       "path": ".",
+      "keywords": [
+        "lofi",
+        "noise",
+        "emulation"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "4a5f90abd751164af85abfd850bc791df0c3ba8e",
@@ -414,6 +513,10 @@
       "tag": "v1.1.0",
       "commit": "dee67f6a3348959c1759143525b1fdeddff703ea",
       "path": ".",
+      "keywords": [
+        "granular",
+        "chord"
+      ],
       "cpu": {
         "benchmark": "opxy-sample-callback-v1",
         "commit": "dee67f6a3348959c1759143525b1fdeddff703ea",
@@ -431,6 +534,11 @@
       "tag": "v1.1.0",
       "commit": "0c7e216b1e2f44f98b81ce2426468ced265c3a7e",
       "path": "wane",
+      "keywords": [
+        "analog",
+        "pad",
+        "lofi"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "cde0abdfdd15f64389134157942237608ff39cf6",
@@ -448,6 +556,11 @@
       "tag": "v1.5.0",
       "commit": "94935b42ca3b7ccdd8b72aeb45baa03d4b4ad53c",
       "path": "bloom",
+      "keywords": [
+        "additive",
+        "pad",
+        "vocal"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "94935b42ca3b7ccdd8b72aeb45baa03d4b4ad53c",
@@ -472,6 +585,11 @@
       "tag": "v1.3.0",
       "commit": "db2970f657a294b16fa9847359e1c455a9ea5c05",
       "path": "hollow",
+      "keywords": [
+        "physical",
+        "vocal",
+        "pad"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "db2970f657a294b16fa9847359e1c455a9ea5c05",
@@ -496,6 +614,11 @@
       "tag": "v1.2.0",
       "commit": "dd1a62bc75ee0e0feda20cd4809e9c2f876ff07c",
       "path": "orbit",
+      "keywords": [
+        "emulation",
+        "lofi",
+        "pad"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "cde0abdfdd15f64389134157942237608ff39cf6",
@@ -513,6 +636,10 @@
       "tag": "v1.2.0",
       "commit": "dd1a62bc75ee0e0feda20cd4809e9c2f876ff07c",
       "path": "bend",
+      "keywords": [
+        "emulation",
+        "lofi"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "cde0abdfdd15f64389134157942237608ff39cf6",
@@ -527,9 +654,14 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Hexagon",
-      "tag": "v1.4.0",
-      "commit": "3e74b0184d5ba667ea8d6ec9d4660557b802fe36",
+      "tag": "v1.6.0",
+      "commit": "1cf85f85afa11342d6a4328bc4b03f4369eaae84",
       "path": "moth",
+      "keywords": [
+        "emulation",
+        "fm",
+        "pluck"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "3e74b0184d5ba667ea8d6ec9d4660557b802fe36",
@@ -554,6 +686,11 @@
       "tag": "v0.5.0",
       "commit": "d9ad12b828b8f0eeea9cfb89439984f93545ae81",
       "path": "sand",
+      "keywords": [
+        "physical",
+        "experimental",
+        "ambient"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "d9ad12b828b8f0eeea9cfb89439984f93545ae81",
@@ -578,6 +715,12 @@
       "tag": "v0.6.0",
       "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
       "path": "cocoa",
+      "keywords": [
+        "physical",
+        "experimental",
+        "percussion",
+        "bell"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
@@ -602,6 +745,11 @@
       "tag": "v0.6.0",
       "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
       "path": "coin",
+      "keywords": [
+        "physical",
+        "experimental",
+        "percussion"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
@@ -627,6 +775,11 @@
       "tag": "v0.6.0",
       "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
       "path": "fermi",
+      "keywords": [
+        "physical",
+        "experimental",
+        "additive"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
@@ -648,9 +801,13 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Nonagon",
-      "tag": "v0.4.0",
-      "commit": "9f19d4aad32f98ed2e4a155c16e4c754ebbceb09",
+      "tag": "v0.7.2",
+      "commit": "05e7bb62d05d8f8eeada2d09228308ef34547550",
       "path": "mach",
+      "keywords": [
+        "experimental",
+        "physical"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "9f19d4aad32f98ed2e4a155c16e4c754ebbceb09",
@@ -675,6 +832,11 @@
       "tag": "v0.6.0",
       "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
       "path": "butterfly",
+      "keywords": [
+        "experimental",
+        "physical",
+        "bell"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
@@ -699,6 +861,10 @@
       "tag": "v0.6.0",
       "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
       "path": "drop",
+      "keywords": [
+        "experimental",
+        "physical"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
@@ -718,13 +884,45 @@
       "id": "ghost",
       "kind": "sample",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Nonagon",
+      "tag": "v0.7.0",
+      "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+      "path": "ghost",
+      "keywords": [
+        "experimental",
+        "ambient",
+        "pad",
+        "drone"
+      ],
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v1",
+        "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+        "firmware_sha256": "531fafab7eb846e4c3eeb9fd8a1176c0636cc931c6d7ae577e80990f09c9b708",
+        "runs": 1,
+        "block_percent": 3.065537
+      }
     },
     {
       "id": "recur",
       "kind": "sample",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Nonagon",
+      "tag": "v0.7.0",
+      "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+      "path": "recur",
+      "keywords": [
+        "experimental",
+        "percussion"
+      ],
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v1",
+        "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+        "firmware_sha256": "531fafab7eb846e4c3eeb9fd8a1176c0636cc931c6d7ae577e80990f09c9b708",
+        "runs": 1,
+        "block_percent": 1.156634
+      }
     },
     {
       "id": "mdkit",
@@ -735,6 +933,10 @@
       "tag": "v1.2.2",
       "commit": "3a55a14c52ca8688e3b86aee6f13c728da8aa927",
       "path": "machines/mdkit",
+      "keywords": [
+        "emulation",
+        "percussion"
+      ],
       "cpu": {
         "benchmark": "opxy-drum-callback-v1",
         "commit": "3a55a14c52ca8688e3b86aee6f13c728da8aa927",
@@ -762,6 +964,11 @@
       "tag": "v1.1.9",
       "commit": "5c5310144ae74bcb7f61c51c899b28269d65e5e8",
       "path": "machines/mmsaw",
+      "keywords": [
+        "emulation",
+        "analog",
+        "bass"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "5c5310144ae74bcb7f61c51c899b28269d65e5e8",
@@ -786,6 +993,9 @@
       "tag": "v1.1.9",
       "commit": "5c5310144ae74bcb7f61c51c899b28269d65e5e8",
       "path": "machines/mmsin",
+      "keywords": [
+        "emulation"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "d6b40f13e580bf81485b7c1c22a14323606aba56",
@@ -810,6 +1020,10 @@
       "tag": "v1.2.3",
       "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
       "path": "machines/mmnois",
+      "keywords": [
+        "emulation",
+        "noise"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "b43e9071015c6c7ec2cafa9ff8a060e9f43a3486",
@@ -834,6 +1048,13 @@
       "tag": "v1.8.0",
       "commit": "389b462881b527eee59d5d4eb0ea7142cd030f62",
       "path": "lint",
+      "keywords": [
+        "emulation",
+        "lofi",
+        "delay",
+        "reverb",
+        "modulation"
+      ],
       "cpu": {
         "benchmark": "opxy-effect-callback-v1",
         "commit": "389b462881b527eee59d5d4eb0ea7142cd030f62",
@@ -851,6 +1072,13 @@
       "tag": "v1.7.0",
       "commit": "10452af857952deaf8b6adc4d67d845eeaaa67e0",
       "path": "chroma",
+      "keywords": [
+        "emulation",
+        "reverb",
+        "delay",
+        "modulation",
+        "ambient"
+      ],
       "cpu": {
         "benchmark": "opxy-effect-callback-v1",
         "commit": "10452af857952deaf8b6adc4d67d845eeaaa67e0",
@@ -863,7 +1091,25 @@
       "id": "omnifilter",
       "kind": "synth",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "draft",
+      "repository": "https://github.com/mmockett/OP-XY-ModFX",
+      "tag": "v1.9.0",
+      "commit": "4e2b9c87f0027e7356163ba0adb650033df5b036",
+      "path": "omnifilter",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "4e2b9c87f0027e7356163ba0adb650033df5b036",
+        "firmware_sha256": "daa22207d8137c385fdca8cfd0a69f01075d7030175357182d7b5e7ff10318db",
+        "runs": 1,
+        "block_percent": 0.801099,
+        "midpoint_percent": 0.796521,
+        "combined_percent": 0.794995,
+        "worst_setting": {
+          "control": 0,
+          "label": "Cutoff",
+          "value": 805306367
+        }
+      }
     },
     {
       "id": "daath",
@@ -874,6 +1120,11 @@
       "tag": "1.0",
       "commit": "ea60d4a7b1b67e4f00ac0ff8641ad28bbe5236c7",
       "path": ".",
+      "keywords": [
+        "bass",
+        "analog",
+        "lofi"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "ea60d4a7b1b67e4f00ac0ff8641ad28bbe5236c7",
@@ -899,6 +1150,11 @@
       "tag": "1.02",
       "commit": "0892a707b15a27a1434bcb32f8986323e545a105",
       "path": ".",
+      "keywords": [
+        "ambient",
+        "bell",
+        "noise"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "0892a707b15a27a1434bcb32f8986323e545a105",
@@ -916,6 +1172,11 @@
       "tag": "1.2",
       "commit": "9f5c8fbefd6452ea685b3665a5d37e8e26058329",
       "path": ".",
+      "keywords": [
+        "granular",
+        "reverb",
+        "ambient"
+      ],
       "cpu": {
         "benchmark": "opxy-effect-callback-v1",
         "commit": "9f5c8fbefd6452ea685b3665a5d37e8e26058329",
@@ -933,6 +1194,11 @@
       "tag": "v1.0.0",
       "commit": "3bcd475411398576f07434501846bb258abbe29b",
       "path": ".",
+      "keywords": [
+        "vocal",
+        "pad",
+        "drone"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-v1",
         "commit": "3bcd475411398576f07434501846bb258abbe29b",
@@ -951,6 +1217,11 @@
       "tag": "v1.2.0",
       "commit": "7cfff890307688fe281969ab8d3144a0c510b0d5",
       "path": "machines/chimes",
+      "keywords": [
+        "physical",
+        "emulation",
+        "bell"
+      ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "7cfff890307688fe281969ab8d3144a0c510b0d5",
