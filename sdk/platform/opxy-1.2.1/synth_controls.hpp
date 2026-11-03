@@ -89,6 +89,10 @@ void sdk_send_refresh() __asm__("sdk_send_refresh");
 // aux tracks (aux_tracks.cpp) in builds that link them, null in others.
 extern opxy::u32 (*sdk_aux_engine)(opxy::u32) __asm__("sdk_aux_engine");
 extern bool (*sdk_aux_owns_page)(opxy::u32) __asm__("sdk_aux_owns_page");
+// Offers a turn event of a track's owned synth, at the slot its position shows,
+// to the track's control machine; true when it took it. The control service's
+// startup fills it in; null without it.
+extern bool (*sdk_control_turn)(opxy::u32 track, opxy::u32 slot, const opxy::i32* event) __asm__("sdk_control_turn");
 // The send page's title for position `index` of the effect on the selected send
 // track: the name of the slot it shows, which a press may have moved to an alternate.
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");
