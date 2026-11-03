@@ -537,8 +537,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Hexagon",
-      "tag": "v1.4.0",
-      "commit": "3e74b0184d5ba667ea8d6ec9d4660557b802fe36",
+      "tag": "v1.6.0",
+      "commit": "1cf85f85afa11342d6a4328bc4b03f4369eaae84",
       "path": "moth",
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
