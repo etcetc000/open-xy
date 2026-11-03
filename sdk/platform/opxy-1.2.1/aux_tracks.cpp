@@ -178,8 +178,13 @@ void unmark(u32 track) {
         live_set(track, kMarkWord, kAuxRelease);
         marked[track] = false;
         releasing[track] = kReleaseTicks;
-    } else if (releasing[track] && --releasing[track] == 0 && live(track, kMarkWord) == kAuxRelease) {
-        live_set(track, kMarkWord, base(track, kMarkWord));
+    } else if (releasing[track]) {
+        // Stock may republish the track's words meanwhile (a start): the release stays out.
+        if (--releasing[track] == 0) {
+            if (live(track, kMarkWord) == kAuxRelease) live_set(track, kMarkWord, base(track, kMarkWord));
+        } else if (live(track, kMarkWord) != kAuxRelease) {
+            live_set(track, kMarkWord, kAuxRelease);
+        }
     }
 }
 
