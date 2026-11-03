@@ -38,7 +38,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (dryLevel), and adds a saturating Q31 add and up to 32 display text slots.
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
-SDK_VERSION = (1, 8)
+# 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
+SDK_VERSION = (1, 9)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -331,6 +332,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), 'A press that switches the page ("press": "page")')
         if len(definition['parameters']) < 8:
             require_sdk(version, (1, 4), 'A partially filled second page')
+    if 'hidePages' in definition:
+        require_sdk(version, (1, 9), 'Hidden stock pages ("hidePages")')
     if kind == 'effect' and paged(definition):
         require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
     if shift_parameters(definition):
@@ -380,6 +383,9 @@ def machine_at(root, identity=None):
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
         require(requested['page'] == SAMPLE_BASES['drumSampler'],
                 'Pad settings and drum controls need the drum sampler base ("base": "drumSampler")')
+    if 'trackControl' in definition['resources']:
+        require_sdk(version, (1, 9), 'Track control (trackControl)')
+        require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
     require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
     amp = defaults.get('amp', {})
@@ -539,7 +545,10 @@ def number_layout(rules, fixed, layout, machines):
             new.append((name, kind, dict(requested), slots))
     # An effect number is also held as an engine number (occupied).
     keys = lambda slot, n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
-    free = lambda slot, n: not any(k in holders for k in keys(slot, n))
+    # The last page is reserved for an SDK overlay screen: in the pool, so every
+    # other machine keeps its own place, never given out, and still valid in a
+    # layout that already gave it (check_identity), as earlier SDKs did.
+    free = lambda slot, n: not (slot == 'page' and n == rules['pages'] - 1) and not any(k in holders for k in keys(slot, n))
 
     def take(name, identity, slot, n):
         identity[slot] = n

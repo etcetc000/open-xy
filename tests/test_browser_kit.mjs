@@ -216,6 +216,24 @@ test('SDK objects of a profile service link only when a selected machine uses it
   k.machines.push({...machine('b',46,7),kind:'sample'});
   assert.throws(()=>linkKit(k,['a','b']),/Duplicate global symbol: entry/);
 });
+test('track control and hidden pages use the control service, whose entry points fall back while unused', () => {
+  const k=fixture(), o=k.objects[0];
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['hidePages']}])],['control']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'}])],[]);
+  // Shared startup calls the control service's saved data, which only a control build links.
+  k.definitions.fallback=k.profile.module_base;
+  o.owner=null;
+  o.symbols.push({name:'sdk_control_kept_write',section:0,value:0,size:0,binding:1,type:0});
+  o.relocations.push({section:1,offset:0,type:18,symbol:o.symbols.length-1,addend:0});
+  assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
+  k.serviceFallbacks={control:{sdk_control_kept_write:'fallback'}};
+  assert.doesNotThrow(()=>linkKit(k,['a']));
+  k.machines[0].features=['trackControl'];
+  assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
+  k.serviceFallbacks={control:{sdk_control_kept_write:'undefined_fallback'}}; delete k.machines[0].features;
+  assert.throws(()=>linkKit(k,['a']),/Invalid service fallback/);
+});
 test('empty, unknown, repeated selections, duplicate globals and memory exhaustion are rejected', () => {
   const k=fixture(); for(const s of [[],['missing'],['a','a']]) assert.throws(()=>linkKit(k,s),/Choose each machine once/);
   k.definitions.entry=42; assert.throws(()=>linkKit(k,['a']),/Duplicate global/); delete k.definitions.entry;
