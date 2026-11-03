@@ -44,6 +44,15 @@ u32 script_count;
 control::Entry stored_script[control::store_capacity + 2];
 u32 stored_script_count;
 bool stored_ok[control::store_capacity + 2];
+// Machine 40's scripted notes and own turns, and what it was given.
+control::Note note_script[control::note_capacity];
+u32 note_script_count, own_turns, shift, seen_shift, seen_turn_count;
+control::Turn seen_turns[control::turn_capacity];
+// Stock's live notes: those sounding, counts of note-ons and note-offs, and
+// the velocity of the last.
+struct Sounding { u32 track, pitch; };
+Sounding sounding[64];
+u32 sounding_count, note_ons, note_offs, last_velocity;
 
 void require(bool condition, const char* message) {
     if (!condition) { std::fprintf(stderr, "%s\n", message); std::exit(1); }
@@ -85,6 +94,37 @@ i32 stock_base(u32 project, u32 track, u32 index) {
     require(project == kProject && track < control::tracks && index < control::track_parameters, "Invalid base");
     return static_cast<i32>((pattern[track] ? second_bases : bases)[track][index]);
 }
+// 8d595738 and 8d595420 with the preview call sites' arguments, and the
+// controller's clock 8d59357c, whose 64-bit time note-on receives.
+const u32 kNoteController = 0x860c6adc;
+const __UINT64_TYPE__ kNoteTime = (static_cast<__UINT64_TYPE__>(5) << 32) | 1234;
+void stock_note_on(u32 c, u32 track, u32 pitch, u32 a3, u32 a4, u32 velocity, u32 a6, u32 source, u32 low,
+                   u32 high, u32 flags, const void* event) {
+    require(c == kNoteController && a3 == 0xf0 && a4 == 0 && a6 == 0 && source == 1 && low == 1234 && high == 5 &&
+            flags == 0 && !event, "Note-on arguments not the preview's");
+    require(track < control::tracks && pitch < 128 && velocity >= 1 && velocity <= 127, "Invalid note played");
+    require(sounding_count < 64, "Too many notes sounding");
+    sounding[sounding_count++] = Sounding{track, pitch};
+    ++note_ons;
+    last_velocity = velocity;
+}
+void stock_note_off(u32 c, u32 track, u32 pitch, u32 source, u32 flags, const void* event) {
+    require(c == kNoteController && source == 1 && flags == 0 && !event, "Note-off arguments not the preview's");
+    u32 i = 0;
+    while (i < sounding_count && !(sounding[i].track == track && sounding[i].pitch == pitch)) ++i;
+    require(i < sounding_count, "Note-off for a note not sounding");
+    sounding[i] = sounding[--sounding_count];
+    ++note_offs;
+}
+__UINT64_TYPE__ stock_note_time(u32 c) {
+    require(c == kNoteController, "Clock asked of another controller");
+    return kNoteTime;
+}
+u32 stock_shift() { return shift; }
+void notes(std::initializer_list<control::Note> list) {
+    note_script_count = 0;
+    for (const control::Note& n : list) note_script[note_script_count++] = n;
+}
 // 8d4d6f14: the GUI's selected track.
 u32 selected = 0;
 u32 stock_selected() { return selected; }
@@ -111,6 +151,12 @@ void run(u32 copy, const control::Input* input, control::Overlay* overlay) {
         const control::Entry& e = stored_script[i];
         stored_ok[i] = control::store(*overlay, e.track, e.index, e.value);
     }
+    require(overlay->note_count == 0 && overlay->own_turns == 0, "Notes and own turns not cleared");
+    for (u32 i = 0; i < note_script_count; ++i) overlay->notes[overlay->note_count++] = note_script[i];
+    overlay->own_turns = own_turns;
+    seen_shift = input->shift;
+    seen_turn_count = input->turn_count;
+    for (u32 i = 0; i < input->turn_count; ++i) seen_turns[i] = input->turns[i];
 }
 // Machine 41, not unique: each copy overlays its scripted entries, with its
 // copy's own count of runs.
@@ -144,6 +190,8 @@ void sdk_synth_pages() { ++page_checks; }
 u32 page_key;
 void sdk_synth_queue_page_key(u32, u32 key) { page_key = key; }
 u32 sdk_synth_page_key(u32 track) { return track == 2 ? page_key : 0; }
+// The turn hooks' pointer (synth_controls.cpp), which the GUI tick fills in.
+bool (*sdk_control_turn)(u32, u32, const i32*) = nullptr;
 opxy::u32 sdk_benchmark_cycles() { return cycles; }
 // The aux service's entry points, which its startup fills in on the device.
 opxy::u32 aux_engine(opxy::u32 track) { return track < control::all_tracks ? aux_engines[track] : 0; }
@@ -181,6 +229,10 @@ opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Addre
     if (address == 0x8d5ac910) return reinterpret_cast<Address>(&stock_base);
     if (address == 0x8d4d6f14) return reinterpret_cast<Address>(&stock_selected);
     if (address == 0x8d584210) return reinterpret_cast<Address>(&stock_project_tempo);
+    if (address == 0x8d595738) return reinterpret_cast<Address>(&stock_note_on);
+    if (address == 0x8d595420) return reinterpret_cast<Address>(&stock_note_off);
+    if (address == 0x8d59357c) return reinterpret_cast<Address>(&stock_note_time);
+    if (address == 0x8d51f184) return reinterpret_cast<Address>(&stock_shift);
     if (address == 0x86bd0080) return reinterpret_cast<Address>(&ticks96);
     if (address == 0x860c9b39) return reinterpret_cast<Address>(&playing[0]);
     if (address == 0x860c9b3a) return reinterpret_cast<Address>(&playing[1]);
@@ -617,5 +669,103 @@ int main() {
     sdk_param_step_set(kProject, 0, 4, 95);
     sdk_control_forget();
     require(!lock_holds(0, 4), "Lock kept into another project");
+
+    // Notes: only those in range play, through stock's live note-on.
+    aux_engines[11] = 0;
+    plan({});
+    engines[2] = 40;
+    tick(0, "Arrival wrote an overlay");
+    notes({{0, 60, 100, 0, 10000}, {8, 60, 100, 0, 10000}, {1, 128, 100, 0, 10000}, {1, 61, 0, 0, 10000},
+           {1, 62, 128, 0, 10000}, {1, 63, 100, 0, 0}});
+    tick(0, "Notes wrote an overlay");
+    require(note_ons == 1 && sounding_count == 1 && sounding[0].track == 0 && sounding[0].pitch == 60 &&
+            last_velocity == 100, "Notes out of range played");
+    // Each ends after its length, from the core clock.
+    notes({});
+    cycles += 400 * 4000;
+    tick(0, "Held note wrote an overlay");
+    require(sounding_count == 1, "Note ended early");
+    cycles += 400 * 7000;
+    tick(0, "Ending note wrote an overlay");
+    require(sounding_count == 0 && note_offs == 1, "Note not ended after its length");
+    // Playing a pitch the copy holds ends it first.
+    notes({{3, 50, 90, 0, 1000000}});
+    tick(0, "Note wrote an overlay");
+    tick(0, "Retrigger wrote an overlay");
+    require(note_ons == 3 && note_offs == 2 && sounding_count == 1, "Held pitch not ended before playing again");
+    // Stopping the sequencer ends every note.
+    notes({});
+    playing[1] = 1;
+    tick(0, "Start wrote an overlay");
+    require(sounding_count == 1, "Starting ended a note");
+    playing[1] = 0;
+    tick(0, "Stop wrote an overlay");
+    require(sounding_count == 0, "Stopping did not end the notes");
+    // A muted machine plays nothing and ends what it holds.
+    notes({{4, 70, 90, 0, 1000000}});
+    tick(0, "Note wrote an overlay");
+    const u32 ons = note_ons;
+    require(sounding_count == 1, "Note before muting not held");
+    mute_flags(project_bytes[6], 2) = 0x02;
+    notes({{4, 71, 90, 0, 1000000}});
+    tick(0, "Muted machine wrote an overlay");
+    require(note_ons == ons && sounding_count == 0, "Muted machine played or kept its notes");
+    mute_flags(project_bytes[6], 2) = 0;
+    // A copy leaving its track ends its notes.
+    notes({{4, 70, 90, 0, 1000000}});
+    tick(0, "Note wrote an overlay");
+    notes({});
+    engines[2] = 0;
+    tick(0, "Departure wrote an overlay");
+    require(sounding_count == 0, "Departed copy's notes kept sounding");
+    // No note outlasts the longest length; at most held_capacity sound at once.
+    engines[2] = 40;
+    notes({{5, 40, 90, 0, 0xffffffffu}});
+    tick(0, "Note wrote an overlay");
+    notes({});
+    cycles += 400u * (control::longest_note_us - 1);
+    tick(0, "Long note wrote an overlay");
+    require(sounding_count == 1, "Long note ended early");
+    cycles += 400u * 2;
+    tick(0, "Long note wrote an overlay");
+    require(sounding_count == 0, "Note outlasted the longest length");
+    for (u32 round = 0; round < 2; ++round) {
+        note_script_count = control::note_capacity;
+        for (u32 i = 0; i < control::note_capacity; ++i)
+            note_script[i] = control::Note{static_cast<opxy::u8>(i % 8), static_cast<opxy::u8>(round * 32 + i), 90, 0,
+                                           1000000};
+        tick(0, "Notes wrote an overlay");
+    }
+    require(sounding_count == control::held_capacity, "Held notes not bounded");
+    notes({});
+    playing[1] = 1;
+    tick(0, "Start wrote an overlay");
+    playing[1] = 0;
+    tick(0, "Stop wrote an overlay");
+    require(sounding_count == 0, "Bounded notes not ended");
+
+    // Own turns: while the copy asks, its track's detents edit nothing and
+    // reach it next tick, one direction each; other tracks' pass to stock.
+    const i32 up[3] = {3, 1, 0}, down[3] = {-2, 1, 0}, still[3] = {0, 0, 0};
+    require(!sdk_control_turn_offer(2, 5, up), "Turn taken before the copy asked");
+    own_turns = 1;
+    shift = 1;
+    tick(0, "Own turns wrote an overlay");
+    require(seen_shift == 1, "Shift not given");
+    require(sdk_control_turn == sdk_control_turn_offer, "Turn hooks not given the control service's offer");
+    require(sdk_control_turn_offer(2, 5, up) && sdk_control_turn_offer(2, 1, down) &&
+            sdk_control_turn_offer(2, 1, still), "Own turn not taken");
+    require(!sdk_control_turn_offer(3, 5, up) && !sdk_control_turn_offer(2, 8, up), "Another track's turn taken");
+    tick(0, "Own turns wrote an overlay");
+    require(seen_turn_count == 2 && seen_turns[0].slot == 5 && seen_turns[0].direction == 1 &&
+            seen_turns[1].slot == 1 && seen_turns[1].direction == -1, "Own turns not given");
+    tick(0, "Own turns wrote an overlay");
+    require(seen_turn_count == 0, "Own turns given twice");
+    own_turns = 0;
+    shift = 0;
+    tick(0, "End of own turns wrote an overlay");
+    require(!sdk_control_turn_offer(2, 5, up) && seen_shift == 0, "Turn taken after the copy stopped asking");
+    engines[2] = 0;
+    tick(0, "Nothing to release");
     return 0;
 }
