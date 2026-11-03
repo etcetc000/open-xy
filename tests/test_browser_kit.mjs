@@ -49,6 +49,20 @@ async function profilingFixture() {
   return {kit, stock, linked:linkKit(kit, ['a'])};
 }
 
+test('pointer and absolute-jump service hooks preserve exact firmware recovery', async () => {
+  const {kit, stock} = await profilingFixture();
+  kit.profile.patches = kit.profile.patches.slice(0, 2);
+  Object.assign(kit.profile.patches[0], {encoding:'pointer', call:false, length:4,
+    before:Buffer.from(stock.subarray(32, 36)).toString('hex')});
+  Object.assign(kit.profile.patches[1], {encoding:'absolute_jump', call:false});
+  for (const edit of kit.profile.patches) delete edit.profiling;
+  const linked = linkKit(kit, ['a']);
+  const candidate = await patchFirmware(kit, linked, stock);
+  assert.notDeepEqual(candidate.subarray(32, 36), stock.subarray(32, 36));
+  assert.deepEqual(candidate.subarray(40, 42), new Uint8Array([0, 0xdc]));
+  assert.deepEqual(await recoverFirmware(kit, candidate), {stock, selected:['a'], extensions:[]});
+});
+
 test('profiling defaults on; disabling it changes only the reviewed diagnostic hooks', async () => {
   const {kit, linked, stock} = await profilingFixture(), original = stock.slice();
   const on = await patchFirmware(kit, linked, stock);
