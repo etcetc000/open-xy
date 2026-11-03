@@ -20,7 +20,8 @@ inline void render(Voice& voice, Shared&, opxy::u32, opxy::Output output,
         if (voice.phase & 0x80000000u) folded = 0x7fffffffu - folded;
         const opxy::i32 triangle = static_cast<opxy::i32>(folded) - half;
         const opxy::i32 pulse = voice.phase < width ? half : -half;
-        const opxy::i32 mixed = opxy::q31::multiply(triangle, 0x7fffffff - blend)
+        const opxy::q31::Product triangle_product = opxy::q31::multiply_full(triangle, 0x7fffffff - blend);
+        const opxy::i32 mixed = triangle_product.high
                              + opxy::q31::multiply(pulse, blend);
         output[i] = opxy::q31::multiply(mixed, parameters[2]);
         voice.phase += pitch[i];

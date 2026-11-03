@@ -98,6 +98,11 @@ host does fast and the Blackfin does not:
 - **Floating point** has no hardware either. Keep audio in integers;
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
   saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
+  `q31::multiply_full(a, b)` returns a `q31::Product` with the full signed Q1.63
+  product in `high` and `low`. `high` equals `q31::multiply(a, b)`; `low` retains
+  the fractional bits for explicit rounding or accumulation. The exceptional
+  minimum-times-minimum product saturates to `{2147483647, 0xffffffffu}`.
+  It does not change the device's global rounding mode or accumulators.
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
