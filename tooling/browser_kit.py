@@ -79,7 +79,10 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['source'] = {key: sources[m.id][key] for key in ('repository', 'tag', 'commit', 'maintainer')}
             if 'cpu' in sources[m.id]:
                 entry['cpu'] = sources[m.id]['cpu']
-        uses = sorted(set(native.service_users([m])) - {m.kind, 'extension'})
+            # The catalog's words for browsing it in the builder (catalog.TAGS).
+            if 'tags' in sources[m.id]:
+                entry['tags'] = list(sources[m.id]['tags'])
+        uses =sorted(set(native.service_users([m])) - {m.kind, 'extension'})
         if uses:
             entry['features'] = uses
         entry['presetDefaults'] = m.preset_defaults
@@ -184,7 +187,8 @@ def write_builder(kit, output):
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes openKit linkKit readLdr '
-               'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName').split()
+               'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName '
+               'MACHINE_TAGS browseMachines machineAuthor').split()
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
     bundled += 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'

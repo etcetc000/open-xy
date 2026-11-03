@@ -20,6 +20,7 @@ effect and page numbers are not the catalog's: each firmware's
 | `maintainer` | The GitHub user who maintains it |
 | `status` | `reserved`: the ID is held for a machine being written. `draft`: its release is pinned for review but not built into kits or firmware. `published`: built from its release. `retired`: no longer built; its ID stays held |
 | `repository`, `tag`, `commit`, `path` | A draft or published machine's release: `https://github.com/<owner>/<repo>`, the tag, its full commit SHA, and the machine's folder in the repository (`.` at the root). A retired entry may keep them |
+| `tags` | One to five words people can filter the builder's machine list by. A new or updated draft or published machine lists at least one; an entry from before tags keeps none until it changes. From `additive`, `ambient`, `analog`, `bass`, `bell`, `chord`, `delay`, `drone`, `emulation`, `experimental`, `fm`, `granular`, `lofi`, `modulation`, `noise`, `pad`, `percussion`, `physical`, `pluck`, `reverb`, `vocal` (`TAGS` in [`tooling/catalog.py`](../tooling/catalog.py)). Changing only tags is not an update: it needs no new `cpu` record or machine test. Machines only, not extensions |
 
 Note players carry no audio-render CPU record; their note transforms are not
 covered by the profiler.
@@ -87,7 +88,8 @@ python sdk.py compile --collection local/catalog/collection.json --out <folder>
 5. **Tag the measured commit and submit it.** Push a release tag such as
    `v1.0.0`. Change the catalog entry to `draft` for review or `published` for
    inclusion, adding `repository`, `tag`, the full tagged `commit` and `path`
-   from the field table. Add the generated `cpu` member from `catalog-cpu.json`.
+   from the field table, and one to five `tags` that describe it. Add the
+   generated `cpu` member from `catalog-cpu.json`.
    A new CPU record's commit must equal the tagged machine commit. If you link a
    report, keep it in an issue/comment or separate evidence location so adding
    the readout does not change the machine commit after measurement.
@@ -110,7 +112,8 @@ reused, and retirement needs no new measurement.
 
 A machine submission from a fork changes only `catalog/machines.json`; CI
 refuses one that changes anything else. Changes the SDK needs for a machine are
-a separate pull request.
+a separate pull request. A pull request that changes only the catalog files is
+labelled `catalog` automatically ([Catalog label](../.github/workflows/catalog-label.yml)).
 
 The [Catalog workflow](../.github/workflows/catalog.yml) runs on every pull
 request that changes `catalog/` or anything published machines build against

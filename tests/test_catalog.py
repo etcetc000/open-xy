@@ -16,7 +16,9 @@ from machine_fixtures import FOLDER
 
 PUBLISHED = dict(id='probe', kind='synth', maintainer='someone',
                  status='published', repository='https://github.com/someone/opxy-probe', tag='v1.0.0',
-                 commit='0' * 40, path='.')
+                 commit='0' * 40, path='.', tags=['fm'])
+# An entry from before tags, as most catalog entries were.
+UNTAGGED = {k: v for k, v in PUBLISHED.items() if k != 'tags'}
 
 
 def document(*entries):
@@ -48,6 +50,18 @@ class Validation(unittest.TestCase):
                        dict(path='../x'), dict(path='/x')):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 catalog.validate(document(dict(PUBLISHED, **change)))
+
+    def test_tags_are_words_from_the_list(self):
+        reserved = {k: PUBLISHED[k] for k in catalog.COMMON} | {'status': 'reserved'}
+        for entry in (dict(PUBLISHED, tags=['fm', 'bell']), dict(reserved, tags=['pad']),
+                      dict(PUBLISHED, tags=list(catalog.TAGS[:catalog.MAX_TAGS]))):
+            catalog.validate(document(entry))
+        for tags in ([], ['fm', 'fm'], ['FM'], ['unknown'], 'fm', [1], list(catalog.TAGS[:catalog.MAX_TAGS + 1])):
+            with self.subTest(tags=tags), self.assertRaisesRegex(ValueError, 'tags'):
+                catalog.validate(document(dict(PUBLISHED, tags=tags)))
+        extension = dict(PUBLISHED, id='probe_extension', kind='extension', tags=['fm'])
+        with self.assertRaisesRegex(ValueError, 'only machines'):
+            catalog.validate({'schema': 1, 'extensions': [extension]}, 'extensions')
 
     def test_player_catalog_has_no_audio_render_cpu_record(self):
         player = dict(PUBLISHED, kind='player')
@@ -86,6 +100,10 @@ class BuilderPatterns(unittest.TestCase):
             found = re.search(key + r": /\^(.*?)\$/[,}]", source)
             self.assertIsNotNone(found, key)
             self.assertEqual(found.group(1).replace('\\/', '/'), pattern, key)
+        tags = re.search(r'export const MACHINE_TAGS = \[(.*?)\];', source, re.S)
+        self.assertIsNotNone(tags)
+        self.assertEqual(tuple(re.findall(r"'([a-z]+)'", tags.group(1))), catalog.TAGS)
+        self.assertIn(f'const MAX_TAGS = {catalog.MAX_TAGS};', source)
 
 
 class Changes(unittest.TestCase):
@@ -110,6 +128,37 @@ class Changes(unittest.TestCase):
                 catalog.changes([PUBLISHED], after)
         with self.assertRaises(ValueError):
             catalog.changes([dict(PUBLISHED, status='retired')], [PUBLISHED])
+
+    def test_retagging_is_not_an_update(self):
+        from test_cpu_measurement import measurement
+        # An entry from before measurements were required, and one measured at an earlier commit.
+        legacy = UNTAGGED
+        carried = dict(UNTAGGED, commit='1' * 40, cpu=measurement())
+        for entry in (legacy, carried):
+            with self.subTest(entry=entry['commit']):
+                catalog.changes([entry], [dict(entry, tags=['fm'])])
+                catalog.changes([dict(entry, tags=['fm'])], [dict(entry, tags=['pad', 'bass'])])
+                # A release change alongside a retag still needs its measurement.
+                with self.assertRaisesRegex(ValueError, 'cpu'):
+                    catalog.changes([entry], [dict(entry, tags=['fm'], tag='v2.0.0')])
+
+    def test_new_and_updated_machines_list_a_tag(self):
+        from test_cpu_measurement import measurement
+        measured = dict(UNTAGGED, cpu=measurement())
+        reserved = {k: PUBLISHED[k] for k in catalog.COMMON} | {'status': 'reserved'}
+        # Entries from before tags stay valid while unchanged, or as they retire.
+        catalog.changes([UNTAGGED], [UNTAGGED])
+        catalog.changes([UNTAGGED], [dict(UNTAGGED, status='retired')])
+        catalog.changes([], [reserved])
+        for before, after in (([], measured), ([reserved], measured), ([reserved], dict(measured, status='draft')),
+                              ([UNTAGGED], dict(measured, tag='v1.1.0')), ([PUBLISHED], UNTAGGED),
+                              ([], dict(UNTAGGED, kind='player'))):
+            with self.subTest(after=after), self.assertRaisesRegex(ValueError, 'at least one tag'):
+                catalog.changes(before, [after])
+            catalog.changes(before, [dict(after, tags=['pad'])])
+        # Extensions are not listed by tag.
+        extension = dict(UNTAGGED, id='probe_extension', kind='extension')
+        catalog.changes([], [extension])
 
 
 class Fetching(unittest.TestCase):

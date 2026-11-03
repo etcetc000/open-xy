@@ -36,6 +36,19 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     numbers = value;
     try { localStorage.setItem(NUMBERS_KEY, JSON.stringify({profile: kit.profile.id, machines: value})); } catch {}
   }
+  // How the machine list is searched, filtered and sorted (core.browseMachines).
+  // Favorites are kept in this browser only, by machine ID.
+  const FAVORITES_KEY = 'open-xy-favorite-machines';
+  const browsing = {query: '', kind: 'all', tags: [], favoritesOnly: false, sort: 'featured'};
+  let favorites = new Set();
+  try {
+    const stored = JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? '[]');
+    if (Array.isArray(stored)) favorites = new Set(stored.filter(id => typeof id === 'string'));
+  } catch {}
+  function toggleFavorite(id) {
+    if (!favorites.delete(id)) favorites.add(id);
+    try { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites])); } catch {}
+  }
   let stopPreview = () => {}, previewRevision = 0;
   let stopAudio = () => {};
   window.addEventListener('blur', () => stopAudio());
@@ -240,6 +253,17 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const field = name => target.querySelector('.' + name);
     field('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', drum: 'Synthesis drum kit', sample: 'Sample engine', player: 'Note player'}[m.kind];
     field('detail-name').textContent = m.name; field('detail-description').textContent = m.description;
+    // Each catalog tag lists every machine that shares it.
+    field('detail-tags').hidden = !m.tags?.length;
+    field('detail-tags').replaceChildren(...(m.tags ?? []).map(tag => {
+      const button = node('button', tag, 'tag'); button.type = 'button';
+      button.setAttribute('aria-label', 'Show all ' + tag + ' machines');
+      button.onclick = () => {
+        Object.assign(browsing, {query: '', kind: 'all', tags: [tag], favoritesOnly: false});
+        syncBrowsing(); renderMachines();
+      };
+      return button;
+    }));
     field('community-notice').hidden = m.origin !== 'catalog';
     // Credit the catalog's maintainer and repository, with the exact release source;
     // Open-XY's own catalog machines (core.ORIGINS) name the project instead.
@@ -385,22 +409,66 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       } catch (error) { if (ticket === previewRevision) $('art-caption').textContent = 'Display preview unavailable: ' + error.message; }
     }
   }
-  function renderMachines(filter = 'all') {
+  // The browsing controls, matched to `browsing`.
+  function syncBrowsing() {
+    $('machine-search').value = browsing.query;
+    $('machine-sort').value = browsing.sort;
+    document.querySelectorAll('[data-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.filter === browsing.kind)));
+    $('favorites-filter').setAttribute('aria-pressed', String(browsing.favoritesOnly));
+    for (const chip of $('tag-filters').children) chip.setAttribute('aria-pressed', String(browsing.tags.includes(chip.dataset.tag)));
+  }
+  function clearBrowsing() {
+    Object.assign(browsing, {query: '', kind: 'all', tags: [], favoritesOnly: false});
+    syncBrowsing(); renderMachines();
+  }
+  // Kinds and tags this kit has: the others are not offered as filters.
+  function renderBrowsing() {
+    document.querySelectorAll('[data-filter]').forEach(b =>
+      b.hidden = b.dataset.filter !== 'all' && !kit.machines.some(m => m.kind === b.dataset.filter));
+    if (!kit.machines.some(m => m.kind === browsing.kind)) browsing.kind = 'all';
+    const counts = new Map(core.MACHINE_TAGS.map(tag => [tag, kit.machines.filter(m => m.tags?.includes(tag)).length]));
+    const offered = core.MACHINE_TAGS.filter(tag => counts.get(tag));
+    browsing.tags = browsing.tags.filter(tag => offered.includes(tag));
+    $('tag-filters').hidden = !offered.length;
+    $('tag-filters').replaceChildren(...offered.map(tag => {
+      const chip = node('button', tag, 'tag-filter'); chip.type = 'button'; chip.dataset.tag = tag;
+      const count = node('span', String(counts.get(tag)), 'tag-count'); count.setAttribute('aria-hidden', 'true');
+      chip.append(count); chip.setAttribute('aria-label', tag + ', ' + counts.get(tag) + (counts.get(tag) === 1 ? ' machine' : ' machines'));
+      chip.onclick = () => {
+        browsing.tags = browsing.tags.includes(tag) ? browsing.tags.filter(t => t !== tag) : [...browsing.tags, tag];
+        syncBrowsing(); renderMachines();
+      };
+      return chip;
+    }));
+    syncBrowsing();
+  }
+  function renderMachines() {
     $('machines').style.setProperty('--machine-count', kit.machines.length);
     $('machines').replaceChildren();
-    const priority = m => m.origin === 'bundled' || m.origin === 'official' ? 0 : 1;
-    // Preserve collection order within each group and the memory-map color indexes.
-    const rows = kit.machines.map((m, index) => ({m, index}))
-      .sort((a, b) => priority(a.m) - priority(b.m));
+    // Each row keeps its collection index, and so its memory-map colour, in any order.
+    const rows = core.browseMachines(kit.machines, {...browsing, favorites: browsing.favoritesOnly ? favorites : null});
+    const filtered = Boolean(browsing.query.trim() || browsing.kind !== 'all' || browsing.tags.length || browsing.favoritesOnly);
+    const hiddenSelected = selected.filter(id => !rows.some(({m}) => m.id === id)).length;
+    $('browse-result').textContent = !filtered ? '' : rows.length + ' of ' + kit.machines.length + ' machines' +
+      (hiddenSelected ? ' · ' + hiddenSelected + ' selected not shown' : '');
+    if (!rows.length) {
+      const empty = node('p', browsing.favoritesOnly && !favorites.size ? 'No favorites yet. Star a machine to keep it here.'
+        : 'No machines match.', 'machine-empty');
+      const clear = node('button', 'Clear filters', 'text-button'); clear.type = 'button';
+      clear.onclick = () => { clearBrowsing(); $('machine-search').focus(); };
+      empty.append(' ', clear); $('machines').append(empty);
+    }
     rows.forEach(({m, index}) => {
-      if (filter !== 'all' && m.kind !== filter) return;
       const row = node('article', undefined, 'machine' + (selected.includes(m.id) ? ' selected' : ''));
       row.dataset.origin = m.origin;
       row.style.setProperty('--machine', colors[index % colors.length]);
       const label = node('label'), input = node('input'); input.type = 'checkbox'; input.checked = selected.includes(m.id);
       input.setAttribute('aria-label', 'Include ' + m.name); label.append(input);
       const button = node('button'); button.dataset.id = m.id; button.setAttribute('aria-pressed', String(inspected === m.id));
-      button.append(node('span', m.name, 'machine-name'), node('span', m.description, 'machine-desc'));
+      const name = node('span', m.name, 'machine-name');
+      // Its catalog maintainer, beside the name; a personal kit's own machines have none.
+      if (core.machineAuthor(m)) name.append(' ', node('span', '(' + core.machineAuthor(m) + ')', 'machine-author'));
+      button.append(name, node('span', m.description, 'machine-desc'));
       const meta = node('span', undefined, 'machine-meta');
       meta.append(node('span', {synth: 'Synth', effect: 'Effect', drum: 'Drum kit', sample: 'Sample', player: 'Player'}[m.kind]), node('span', m.controls.length + (m.controls.length === 1 ? ' control' : ' controls')));
       const ownBytes = kit.objects.filter(o => o.owner === m.id)
@@ -417,7 +485,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       };
       const glyph = node('span', undefined, 'machine-icon');
       glyph.append(visuals.icon(m.kind, m.icon));
-      row.append(label, glyph, button); $('machines').append(row);
+      // A row stays listed when unstarred under Favorites, until the list changes, so a
+      // mistaken click can be undone in place.
+      const star = node('button', '★', 'machine-favorite'); star.type = 'button';
+      star.setAttribute('aria-label', 'Favorite ' + m.name);
+      star.setAttribute('aria-pressed', String(favorites.has(m.id)));
+      star.onclick = () => { toggleFavorite(m.id); star.setAttribute('aria-pressed', String(favorites.has(m.id))); };
+      row.append(label, glyph, button, star); $('machines').append(row);
     });
   }
   function selectionNames() {
@@ -551,9 +625,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     if (type === 'drop') acceptFirmware(e.dataTransfer.files[0]);
   });
   document.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => {
-    document.querySelectorAll('[data-filter]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-    renderMachines(b.dataset.filter);
+    browsing.kind = b.dataset.filter; syncBrowsing(); renderMachines();
   });
+  $('favorites-filter').onclick = () => { browsing.favoritesOnly = !browsing.favoritesOnly; syncBrowsing(); renderMachines(); };
+  $('machine-search').oninput = e => { browsing.query = e.target.value; renderMachines(); };
+  $('machine-sort').onchange = e => { browsing.sort = e.target.value; renderMachines(); };
   $('restore').onchange = async e => {
     try {
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
@@ -592,7 +668,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     catalog = core.decode64(kit.stockCatalog);
     $('notices').textContent = kit.notices;
     $('notices').closest('details').hidden = false;
-    sizeMachineSummary(); renderMachines(); renderExtensions(); inspect(kit.machines[0].id); recalculate();
+    sizeMachineSummary(); renderBrowsing(); renderMachines(); renderExtensions(); inspect(kit.machines[0].id); recalculate();
   }
   document.querySelector('.memory-bar').onclick = e => e.currentTarget.classList.toggle('open');
   try {

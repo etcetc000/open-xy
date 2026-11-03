@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_TAGS, browseMachines, machineAuthor, activeServices, assignNumbers, checkedSelections, chosenByDefault,extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -381,6 +381,45 @@ test('a machine says where it comes from: a catalog release or a personal folder
   k.fixed={a:{engine:35,page:83}}; await assert.rejects(openKit(k), /Fixed machine numbers differ: a/); k.fixed={};
   k.machines[0].source = {...source, repository:'https://evil.example/a/b'};
   await assert.rejects(openKit(k), /Invalid machine origin/);
+  k.machines[0].source = source;
+  // Catalog tags are words from one list, at most five, each once.
+  for (const tags of [['fm', 'bell'], undefined]) { k.machines[0].tags = tags; await openKit(k); }
+  for (const tags of [[], ['fm', 'fm'], ['FM'], ['<b>'], 'fm', ['fm', 'bell', 'pad', 'bass', 'lofi', 'noise']]) {
+    k.machines[0].tags = tags;
+    await assert.rejects(openKit(k), /Invalid machine tags/, JSON.stringify(tags));
+  }
+});
+test('machines are found by name, author, kind, description and tag, in a chosen order', () => {
+  const by = maintainer => ({repository:'https://github.com/' + maintainer + '/x', tag:'v1', commit:'a'.repeat(40), maintainer});
+  const machines = [
+    {id:'zeta', name:'Zeta', kind:'synth', origin:'catalog', description:'Bright pads.', source:by('bob'), tags:['pad', 'fm']},
+    {id:'alpha', name:'alpha', kind:'effect', origin:'catalog', description:'A tape delay.', source:by('Carol'), tags:['delay']},
+    {id:'core', name:'Mid', kind:'synth', origin:'official', description:'Plucked strings.', source:by('etc'), tags:['pluck']},
+    {id:'mine', name:'Beta 10', kind:'drum', origin:'personal', description:'Kicks.'},
+    {id:'beta2', name:'Beta 2', kind:'synth', origin:'catalog', description:'Granular clouds.', source:by('bob')},
+  ];
+  const ids = options => browseMachines(machines, options).map(({m}) => m.id);
+  // Open-XY's own first, then the rest, each by name; each row keeps its collection index (its colour).
+  assert.deepEqual(ids(), ['core', 'alpha', 'beta2', 'mine', 'zeta']);
+  assert.deepEqual(browseMachines(machines).map(({index}) => index), [2, 1, 4, 3, 0]);
+  assert.deepEqual(ids({sort:'name'}), ['alpha', 'beta2', 'mine', 'core', 'zeta']);
+  // By maintainer, ignoring case; a personal machine has none and comes first.
+  assert.deepEqual(ids({sort:'author'}), ['mine', 'beta2', 'zeta', 'alpha', 'core']);
+  assert.deepEqual(ids({sort:'kind'}), ['beta2', 'core', 'zeta', 'mine', 'alpha']);
+  assert.deepEqual(ids({sort:'unknown'}), ids());
+  assert.deepEqual(ids({query:'BOB'}), ['beta2', 'zeta']);
+  assert.deepEqual(ids({query:'  tape   delay '}), ['alpha']);
+  assert.deepEqual(ids({query:'pad bob'}), ['zeta']);
+  assert.deepEqual(ids({query:'drum'}), ['mine']);
+  assert.deepEqual(ids({query:'nothing'}), []);
+  assert.deepEqual(ids({kind:'synth'}), ['core', 'beta2', 'zeta']);
+  assert.deepEqual(ids({tags:['pad']}), ['zeta']);
+  assert.deepEqual(ids({tags:['pad', 'delay']}), []);
+  assert.deepEqual(ids({favorites:new Set(['alpha', 'mine', 'gone'])}), ['alpha', 'mine']);
+  assert.deepEqual(ids({kind:'synth', query:'b', sort:'name'}), ['beta2', 'zeta']);
+  assert.equal(machineAuthor(machines[3]), '');
+  assert.equal(machineAuthor(machines[1]), 'Carol');
+  assert.ok(MACHINE_TAGS.length && MACHINE_TAGS.every(tag => /^[a-z]+$/.test(tag)));
 });
 test('malformed loader records and unsafe ZIP paths are rejected', () => {
   for(const bytes of [new Uint8Array(),new Uint8Array(16),elf()]) assert.throws(()=>readLdr(bytes));

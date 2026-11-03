@@ -333,6 +333,42 @@ export const chosenByDefault = m => m.origin !== 'catalog';
 export const sourceUrl = source => source.repository + '/tree/' + source.commit;
 export const sourceName = source => source.repository.slice('https://github.com/'.length);
 
+// The catalog's words for browsing machines (tooling.catalog.TAGS, which tests compare).
+export const MACHINE_TAGS = ['additive', 'ambient', 'analog', 'bass', 'bell', 'chord', 'delay', 'drone', 'emulation',
+  'experimental', 'fm', 'granular', 'lofi', 'modulation', 'noise', 'pad', 'percussion', 'physical', 'pluck', 'reverb', 'vocal'];
+const MAX_TAGS = 5;
+export const validTags = m => m.tags === undefined || Array.isArray(m.tags) && m.tags.length > 0 &&
+  m.tags.length <= MAX_TAGS && new Set(m.tags).size === m.tags.length && m.tags.every(tag => MACHINE_TAGS.includes(tag));
+// Who maintains a machine: its catalog maintainer; a personal kit's own machines have none.
+export const machineAuthor = m => m.source?.maintainer ?? '';
+const KIND_ORDER = ['synth', 'drum', 'sample', 'effect', 'player'];
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true});
+const SORTS = {
+  // Open-XY's own machines first, then the rest, each group by name.
+  featured: (a, b) => (b.m.origin === 'official') - (a.m.origin === 'official') || byName(a.m, b.m) || a.index - b.index,
+  name: (a, b) => byName(a.m, b.m) || a.index - b.index,
+  author: (a, b) => machineAuthor(a.m).localeCompare(machineAuthor(b.m), undefined, {sensitivity: 'base'}) ||
+    byName(a.m, b.m) || a.index - b.index,
+  kind: (a, b) => KIND_ORDER.indexOf(a.m.kind) - KIND_ORDER.indexOf(b.m.kind) || byName(a.m, b.m) || a.index - b.index,
+};
+export const MACHINE_SORTS = Object.keys(SORTS);
+// The machines to list, each with its collection index (which keeps its memory-map
+// colour), in the chosen order. Every word of `query` must appear in the machine's name,
+// ID, description, maintainer, kind or one of its tags; every tag in `tags` must be its own.
+export function browseMachines(machines, {query = '', kind = 'all', tags = [], favorites = null, sort = 'featured'} = {}) {
+  const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  return machines.map((m, index) => ({m, index}))
+    .filter(({m}) => kind === 'all' || m.kind === kind)
+    .filter(({m}) => !favorites || favorites.has(m.id))
+    .filter(({m}) => tags.every(tag => m.tags?.includes(tag)))
+    .filter(({m}) => {
+      if (!words.length) return true;
+      const text = [m.name, m.id, m.description, machineAuthor(m), m.kind, ...(m.tags ?? [])].join('\n').toLocaleLowerCase();
+      return words.every(word => text.includes(word));
+    })
+    .sort(SORTS[sort] ?? SORTS.featured);
+}
+
 // Validate choices and retain the SDK's declared callback order.
 export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e => e.id)) {
   const entries = kit.extensions ?? [];
@@ -385,6 +421,7 @@ export async function openKit(kit) {
   check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
+  check(kit.machines.every(validTags), 'Invalid machine tags');
   for (const machine of kit.machines) if (Object.hasOwn(machine, 'grayscaleArtwork')) selectArtwork(machine, 'colorful');
   const extensions = kit.extensions ?? [];
   check(Array.isArray(extensions) && extensions.length <= 16, 'Invalid extension collection');
