@@ -41,6 +41,10 @@ Its `OPEN_XY_REF` starts at `staging`; pin a compatible SDK commit for a release
 
 ## Hardware and publication
 
+Check the machine on the device with [QA.md](QA.md): one pass, top to bottom,
+in one project. Host tests can't hear the sound or see the screen. Keep it in
+step with the machine: its controls, and sections for its own behavior.
+
 Follow the SDK's [firmware build guide](https://github.com/etcetc000/open-xy/blob/staging/docs/build.md)
 and [hardware profiling workflow](https://github.com/etcetc000/open-xy/blob/staging/docs/profiling.md).
 Keep firmware and stock content outside every checkout. Commit the machine,
