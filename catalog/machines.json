@@ -808,8 +808,8 @@
       "maintainer": "frankoooooooo",
       "status": "draft",
       "repository": "https://github.com/frankoooooooo/acid-rain",
-      "tag": "v1.0.0",
-      "commit": "7f9c8dcf4483db06239cc0cb0ad715f0e82c2180",
+      "tag": "v1.0.1",
+      "commit": "346a0dec231f03d757ca18a409548eb2b8d887f9",
       "path": ".",
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
