@@ -612,6 +612,8 @@ footer details[open] { flex-basis:100%; }
 .preset-count { flex:none; font-size:11px; color:var(--muted); }
 .preset .preset-delete { min-height:36px; padding:0 10px; color:var(--muted); }
 .preset .preset-delete:hover { color:var(--ink); }
+.preset .preset-update { min-height:28px; padding:2px 8px; font-size:11px; color:var(--ink); border:1px solid var(--line); border-radius:5px; }
+.preset .preset-update:disabled { color:var(--muted); border-color:transparent; }
 .preset-form { display:flex; gap:6px; margin:0 0 10px; }
 #preset-name { flex:1; min-width:0; min-height:36px; padding:6px 8px; font-size:12px; color:var(--ink); background:var(--panel); border:1px solid var(--line); border-radius:6px; }
 .preset-form button { min-height:36px; padding:6px 10px; font-size:12px; color:var(--ink); border:1px solid var(--line); white-space:nowrap; }

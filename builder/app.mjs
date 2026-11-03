@@ -646,8 +646,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('favorites-filter').onclick = () => { browsing.favoritesOnly = !browsing.favoritesOnly; syncBrowsing(); renderMachines(); };
   $('machine-search').oninput = e => { browsing.query = e.target.value; renderMachines(); };
   $('machine-sort').onchange = e => { browsing.sort = e.target.value; renderMachines(); };
-  // Each saved preset: choose it, or delete it. A machine this collection lacks is counted
-  // apart, since choosing the preset cannot select it here.
+  // Each saved preset: choose it, update it to the current selection, or delete it. A machine
+  // this collection lacks is counted apart, since choosing the preset cannot select it here.
+  // Rendered again whenever the menu opens, so Update reflects the selection made since.
   function renderPresets() {
     $('presets-empty').hidden = presets.length > 0;
     $('presets-list').hidden = !presets.length;
@@ -660,6 +661,20 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           (missing.length ? ' · ' + missing.length + ' not here' : ''), 'preset-count'));
       choose.title = [...offered.map(id => kit?.machines.find(m => m.id === id)?.name ?? id), ...missing].join(', ');
       choose.onclick = () => choosePreset(preset);
+      // Saves the current selection into this preset; nothing to do when it already matches.
+      const update = node('button', 'Update', 'preset-update'); update.type = 'button';
+      update.setAttribute('aria-label', 'Update preset ' + preset.name + ' to the selected machines');
+      update.disabled = !selected.length || core.presetMatches(preset, selected);
+      update.title = !selected.length ? 'Select machines to update this preset'
+        : update.disabled ? 'Already the selected machines'
+        : selected.length === 1 ? 'Replace with the selected machine' : 'Replace with the ' + selected.length + ' selected machines';
+      update.onclick = () => {
+        storePresets(core.savePreset(presets, preset.name, selected));
+        $('preset-message').textContent = 'Updated “' + preset.name + '”: ' + selected.length +
+          (selected.length === 1 ? ' machine.' : ' machines.');
+        // Its row is drawn again; keep focus on it.
+        [...$('presets-list').querySelectorAll('.preset-apply')].find(b => b.querySelector('.preset-name').textContent === preset.name)?.focus();
+      };
       const remove = node('button', '✕', 'preset-delete'); remove.type = 'button';
       remove.setAttribute('aria-label', 'Delete preset ' + preset.name);
       remove.onclick = () => {
@@ -667,10 +682,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         $('preset-message').textContent = 'Deleted “' + preset.name + '”.';
         $('preset-name').focus();
       };
-      item.append(choose, remove);
+      item.append(choose, update, remove);
       return item;
     }));
   }
+  $('machine-presets').addEventListener('toggle', () => {
+    if ($('machine-presets').open) { $('preset-message').textContent = ''; renderPresets(); }
+  });
   // Choosing a preset replaces the selection, as ticking its machines would.
   function choosePreset(preset) {
     const {selected: chosen, missing} = core.applyPreset(kit, preset);

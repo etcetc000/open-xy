@@ -408,6 +408,9 @@ export function savePreset(presets, name, machines) {
   return [...others, {name: clean, machines: [...new Set(machines)]}].sort(byPresetName);
 }
 export const deletePreset = (presets, name) => presets.filter(p => !sameName(p.name, name));
+// Whether a preset already holds exactly these machines, in any order: updating it would change nothing.
+export const presetMatches = (preset, machines) =>
+  new Set(machines).size === preset.machines.length && preset.machines.every(id => machines.includes(id));
 // A preset's machines this kit offers, in collection order, and the IDs it does not offer.
 export function applyPreset(kit, preset) {
   const offered = new Set(kit.machines.map(m => m.id));
