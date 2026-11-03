@@ -104,6 +104,17 @@ host does fast and the Blackfin does not:
 - **Per-sample work that changes only per block**, such as coefficients and
   increments, belongs outside the sample loop.
 
+For paired signed 16-bit arithmetic, [`packed16.hpp`](../sdk/include/opxy/packed16.hpp)
+provides `packed16::pack(first, second)` and `packed16::dot(a, b)`. Packing puts
+each argument's low 16 bits in the low and high lanes respectively. The dot
+product interprets both lanes as signed integers, adds their two full products,
+then saturates the sum to signed 32 bits. It applies no fractional shift or
+per-product rounding. The native path leaves the accumulators and global
+rounding mode unchanged. For a Q15 FIR, accumulate the returned integer products
+and apply the filter's final shift, after proving that partial sums fit 32 bits.
+Algorithms that round or truncate each product separately must preserve those
+individual steps.
+
 Measure and publish the required [hardware CPU readout](profiling.md) before
 submitting a catalog entry. Host estimates do not satisfy that requirement.
 
