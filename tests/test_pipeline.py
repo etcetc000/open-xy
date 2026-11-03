@@ -98,8 +98,9 @@ class Services(unittest.TestCase):
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
+        # The fixtures declare no track control, hidden pages, aux tracks or players: those services stay off.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS
-                         if native.UNIT_SERVICES.get(u) not in ('master_filter', 'players')])
+                                          if native.UNIT_SERVICES.get(u) not in ('control', 'aux', 'players', 'master_filter')])
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
@@ -117,6 +118,15 @@ class Services(unittest.TestCase):
             check_patch_boundaries(profile, len(profile['patches']))
         plain.pop('after'); tagged['service'] = 'missing'
         with self.assertRaisesRegex(ValueError, 'Undeclared service'):
+            check_patch_boundaries(profile, len(profile['patches']))
+        # So may a service's text edit (an MTP allowlist edit), but not a fixed one.
+        profile = copy.deepcopy(config())
+        tagged = next(p for p in profile['patches'] if p['kind'] == 'text' and p.get('service'))
+        plain = next(p for p in profile['patches'] if p['kind'] == 'text' and not p.get('service'))
+        tagged['after'] = tagged['before']
+        check_patch_boundaries(profile, len(profile['patches']))
+        plain['after'] = plain['before']
+        with self.assertRaisesRegex(ValueError, 'Invalid instruction edit'):
             check_patch_boundaries(profile, len(profile['patches']))
 
 

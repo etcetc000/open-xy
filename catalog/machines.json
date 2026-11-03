@@ -148,6 +148,16 @@
       "path": "machines/pingpong"
     },
     {
+      "id": "chords",
+      "kind": "player",
+      "maintainer": "etcetc000",
+      "status": "published",
+      "repository": "https://github.com/etcetc000/open-xy-core-machines",
+      "tag": "v1.9.0",
+      "commit": "c8508d7f55fbaabb470faec9c16f65d456a41d04",
+      "path": "machines/chords"
+    },
+    {
       "id": "nightdrive",
       "kind": "synth",
       "maintainer": "V714",
@@ -527,8 +537,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Hexagon",
-      "tag": "v1.4.0",
-      "commit": "3e74b0184d5ba667ea8d6ec9d4660557b802fe36",
+      "tag": "v1.6.0",
+      "commit": "1cf85f85afa11342d6a4328bc4b03f4369eaae84",
       "path": "moth",
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
@@ -648,8 +658,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Nonagon",
-      "tag": "v0.4.0",
-      "commit": "9f19d4aad32f98ed2e4a155c16e4c754ebbceb09",
+      "tag": "v0.7.2",
+      "commit": "05e7bb62d05d8f8eeada2d09228308ef34547550",
       "path": "mach",
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
@@ -718,13 +728,35 @@
       "id": "ghost",
       "kind": "sample",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Nonagon",
+      "tag": "v0.7.0",
+      "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+      "path": "ghost",
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v1",
+        "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+        "firmware_sha256": "531fafab7eb846e4c3eeb9fd8a1176c0636cc931c6d7ae577e80990f09c9b708",
+        "runs": 1,
+        "block_percent": 3.065537
+      }
     },
     {
       "id": "recur",
       "kind": "sample",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Nonagon",
+      "tag": "v0.7.0",
+      "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+      "path": "recur",
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v1",
+        "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+        "firmware_sha256": "531fafab7eb846e4c3eeb9fd8a1176c0636cc931c6d7ae577e80990f09c9b708",
+        "runs": 1,
+        "block_percent": 1.156634
+      }
     },
     {
       "id": "mdkit",
@@ -863,7 +895,25 @@
       "id": "omnifilter",
       "kind": "synth",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "draft",
+      "repository": "https://github.com/mmockett/OP-XY-ModFX",
+      "tag": "v1.9.0",
+      "commit": "4e2b9c87f0027e7356163ba0adb650033df5b036",
+      "path": "omnifilter",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "4e2b9c87f0027e7356163ba0adb650033df5b036",
+        "firmware_sha256": "daa22207d8137c385fdca8cfd0a69f01075d7030175357182d7b5e7ff10318db",
+        "runs": 1,
+        "block_percent": 0.801099,
+        "midpoint_percent": 0.796521,
+        "combined_percent": 0.794995,
+        "worst_setting": {
+          "control": 0,
+          "label": "Cutoff",
+          "value": 805306367
+        }
+      }
     },
     {
       "id": "daath",
