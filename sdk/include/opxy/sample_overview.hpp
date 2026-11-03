@@ -25,9 +25,6 @@ struct SampleOverview {
     u32 begin, end;
     u32 reverse;
     i16 low[overview_bins], high[overview_bins];
-    // The region's gain as the engine plays it (SampleRegion level, unsigned
-    // Q27, sample_unity_level for unity; SDK 1.10), 0 while no sample is loaded.
-    u32 level;
 };
 }}
 

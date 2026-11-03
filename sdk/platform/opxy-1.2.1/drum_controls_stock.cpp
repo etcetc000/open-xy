@@ -425,13 +425,29 @@ u32 sdk_sample_region_control(u32 key, u32 control, const u32* event, u32 fine) 
 //
 // An engine declaring shiftTrim gives Shift turns on its engine page to stock
 // instead: they replay through this handler (8c0b12e4) as the stock sampler's
-// own turns, encoders 1 and 4 unshifted (sample start and end) for encoders 1
-// and 2, and shifted (direction and gain) for 3 and 4. Stock picks its row of
-// four functions from its Shift test (8c0b13e6, sdk_sample_page_shift), which
-// the replay answers, and then edits and saves the region as on its own page.
+// own turns, encoder 1 unshifted (sample start) for encoder 1, its encoder 4
+// unshifted (sample end) for 2, and shifted (gain) for 4. Encoder 3 moves the
+// whole window: the end and the start by the same turn, the leading edge
+// first and the other only if it moved, so the window keeps its length and
+// stops at the sample's ends. Stock picks its row of four functions from its
+// Shift test (8c0b13e6, sdk_sample_page_shift), which the replay answers, and
+// then edits and saves the region as on its own page.
 const u32 kInstrumentPage = 0x080238bc;  // 0 on the engine page, 1..3 on the others
 namespace {
 bool replaying, replay_shifted;
+// One turn through stock's handler as its own encoder `stock_encoder`, with
+// Shift held or not as far as the handler's row is concerned.
+void replay(u32 object, u32 encoder, u32 stock_encoder, bool shifted, const u32* event) {
+    replaying = true;
+    replay_shifted = shifted;
+    stock<u32(u32, u32, const u32*)>(0x8c0b12e4)(object, (encoder & ~3u) | stock_encoder, event);
+    replaying = false;
+}
+// The selected track's trim as the sampler page edits it.
+opxy::SampleRegion trim(u32 track) {
+    const void* raw = pad_region(track, 0);
+    return raw ? sample_gui_region(raw) : opxy::SampleRegion{0, 0, opxy::sample_unity_level, false, 0};
+}
 }
 u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
     if (replaying) return stock<u32()>(0x8d5b7c28)();
@@ -440,11 +456,17 @@ u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
     const SynthControls* controls = own_controls(id);
     // The handler reads the encoder as its low two bits; negative means none.
     if (controls && controls->stock_shift && static_cast<i32>(encoder) >= 0 && event && shift_held()) {
-        static const u32 kStockEncoder[opxy::page_controls] = {0, 3, 0, 3};
-        replaying = true;
-        replay_shifted = (encoder & 3) >= 2;
-        stock<u32(u32, u32, const u32*)>(0x8c0b12e4)(object, (encoder & ~3u) | kStockEncoder[encoder & 3], event);
-        replaying = false;
+        const u32 position = encoder & 3;
+        if (position == 2) {
+            const bool later = *reinterpret_cast<const i32*>(event) > 0;  // the turn's signed step
+            const opxy::SampleRegion before = trim(track);
+            replay(object, encoder, later ? 3 : 0, false, event);
+            const opxy::SampleRegion after = trim(track);
+            if (later ? after.end != before.end : after.begin != before.begin)
+                replay(object, encoder, later ? 0 : 3, false, event);
+            return 1;
+        }
+        replay(object, encoder, position ? 3 : 0, position == 3, event);
         return 1;
     }
     if (controls && static_cast<i32>(encoder) >= 0 && event) {

@@ -597,12 +597,11 @@ and `SampleBlock.region` reports, in place of Shift's fine turns:
 | --- | --- | --- |
 | 1 | Sample start | Encoder 1 |
 | 2 | Sample end | Encoder 4 |
-| 3 | Direction | Shift + encoder 1 |
+| 3 | The start and end together: the window moves, keeping its length, and stops at the sample's ends | Encoders 4 and 1 |
 | 4 | Gain | Shift + encoder 4 |
 
-The [overview](display.md#sample-overview) gives the screen the start, the end, the
-direction and the gain, and its input's `shift` is 1 while Shift is held, so it can
-show them then. The stock sample
+The [overview](display.md#sample-overview) gives the screen the start and the end, and
+its input's `shift` is 1 while Shift is held, so it can show them then. The stock sample
 browser and recorder are unaffected.
 
 ### Services
