@@ -885,7 +885,25 @@
       "id": "omnifilter",
       "kind": "synth",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "draft",
+      "repository": "https://github.com/mmockett/OP-XY-ModFX",
+      "tag": "v1.9.0",
+      "commit": "4e2b9c87f0027e7356163ba0adb650033df5b036",
+      "path": "omnifilter",
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "4e2b9c87f0027e7356163ba0adb650033df5b036",
+        "firmware_sha256": "daa22207d8137c385fdca8cfd0a69f01075d7030175357182d7b5e7ff10318db",
+        "runs": 1,
+        "block_percent": 0.801099,
+        "midpoint_percent": 0.796521,
+        "combined_percent": 0.794995,
+        "worst_setting": {
+          "control": 0,
+          "label": "Cutoff",
+          "value": 805306367
+        }
+      }
     },
     {
       "id": "daath",
