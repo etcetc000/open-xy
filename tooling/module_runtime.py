@@ -8,9 +8,10 @@ from .formats import require, sha
 from .pipeline import ROOT, check_patch_boundaries, read
 
 OVERLAY = 'profiles/modules-1.2.1.json'
-OVERLAY_SHA256 = '119675f487ff8c33b95dacf2d44a6c5786aacade1d26d750cf73539b1348beeb'
+OVERLAY_SHA256 = '1de7a390e66629c05443a222efff5541b66d6055b38d2eec7b362e3d2272ba63'
 TARGETS = {'sdk_module_mtp_folder_match': 0x8d5c1bb0, 'sdk_module_mtp_match': 0x8d5c1bb0,
-           'sdk_module_asset_load': 0x8d5f2400, 'sdk_module_catalog_load': 0x8c042490}
+           'sdk_module_asset_load': 0x8d5f2400, 'sdk_module_catalog_load': 0x8c042490,
+           'sdk_module_board_receive': 0x8d5aeb58}
 
 
 def profile(base):

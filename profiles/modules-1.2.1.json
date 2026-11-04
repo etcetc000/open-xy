@@ -41,6 +41,16 @@
       "before": "00de048c90240000",
       "symbol": "sdk_module_catalog_load",
       "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Board messages of the module runtime before stock's handler for every other type",
+      "address": "0x8d5b18c4",
+      "file_offset": "0x1e8b1c",
+      "length": 4,
+      "before": "ffe34ae9",
+      "symbol": "sdk_module_board_receive",
+      "call": true
     }
   ]
 }
