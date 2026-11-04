@@ -2146,6 +2146,17 @@
       "symbol": "sdk_drum_lock_publish",
       "call": true,
       "service": "drum_locks"
+    },
+    {
+      "kind": "hook",
+      "name": "Sequencer: a step's lock pass before its note starts, noting the step-lock handle it applied",
+      "address": "0x8d5939aa",
+      "file_offset": "0x1cac06",
+      "length": 4,
+      "before": "ffe38bfe",
+      "symbol": "sdk_lock_step",
+      "call": true,
+      "service": "drum_locks"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

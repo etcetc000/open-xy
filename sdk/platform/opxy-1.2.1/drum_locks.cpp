@@ -14,6 +14,7 @@
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
 #include "drum_values.hpp"
+#include "lock_handles.hpp"
 #include "stock.hpp"
 
 extern "C" {
@@ -73,4 +74,10 @@ u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
     }
     note_track = kNoTrack;
     return stock<u32(u32, u32, u32, i32*)>(0x8d5ad194)(project, track, kind, payload);
+}
+
+// The step-lock handles' one client check (lock_handles.hpp): an owned padMix kit.
+bool opxy::platform::step_locks::handle_client(u32 track) {
+    const DrumMachine* kit = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
+    return kit && kit->pad_mix;
 }

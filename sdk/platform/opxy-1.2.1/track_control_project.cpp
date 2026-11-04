@@ -67,12 +67,14 @@ private:
 
 // What this section may take, so the whole companion stays within what its readers
 // take (kReadBytes): less its envelope and this section's end (kFixedBytes) and the
-// open-xy.machines section after it, at most kEntryBytes for each machine listed.
+// open-xy.machines section after it, at most kEntryBytes for each machine listed,
+// and the open-xy.locks section the companion writer has sized (sdk_companion_reserved).
 u32 section_budget() {
     const u32 kFixedBytes = 1024, kEntryBytes = 128;
     u32 machines = 0;
     for (const opxy::platform::CompanionMachine* m = sdk_companion_machines; m->id; ++m) ++machines;
-    const u32 rest = kFixedBytes + kEntryBytes * machines;
+    // And what open-xy.locks, written after this section, takes (project_companion.cpp).
+    const u32 rest = kFixedBytes + kEntryBytes * machines + sdk_companion_reserved;
     return rest < kReadBytes ? kReadBytes - rest : 0;
 }
 u32 length_of(const char* s) {

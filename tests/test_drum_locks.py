@@ -75,7 +75,9 @@ class DrumLocks(unittest.TestCase):
 
     def test_the_profile_hooks_the_builder_and_its_publisher_for_padmix_kits_only(self):
         self.assertEqual(PROFILE['services']['drum_locks'], ['padMix'])
-        hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') == 'drum_locks'}
+        # The service's third hook, the step hook, is the handles' (test_lock_handles).
+        hooks = {p['address']: p for p in PROFILE['patches']
+                 if p.get('service') == 'drum_locks' and p['symbol'] != 'sdk_lock_step'}
         self.assertEqual(set(hooks), set(SITES))
         source = (PLATFORM / 'drum_locks.cpp').read_text(encoding='utf-8')
         for address, (symbol, before, target) in SITES.items():
