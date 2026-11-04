@@ -206,6 +206,7 @@ def plan(machines, profile=None):
     if getattr(machines, 'modules', False):
         units += [('sdk/module_loader.o', None, 'module_loader'),
                   ('sdk/module_loader_stock.o', None, 'module_loader_stock'),
+                  ('sdk/safe_mode.o', None, 'safe_mode'),
                   ('sdk/module_mtp.o', None, 'module_mtp'),
                   ('sdk/module_synths.o', None, 'module_synths'),
                   ('sdk/synth_pool.o', None, 'synth_pool'),

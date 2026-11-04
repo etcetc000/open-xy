@@ -4,6 +4,7 @@
 // check, or whose init refuses, is left out and startup goes on.
 #include "module_loader.hpp"
 #include "module_synths.hpp"
+#include "safe_mode.hpp"
 #include "stock.hpp"
 #include <opxy/module.hpp>
 using namespace opxy;
@@ -183,6 +184,8 @@ void sdk_module_load() {
     attempted = true;
     const bool gui = stock<u32()>(0x8d5c3eac)() != 0;
     if (gui) start_folders();
+    // Safe mode loads nothing; the folders still appear, so a module can be removed.
+    if (safe_mode()) { finished = 1; return; }
     scan();
     sdk_module_registration(true);
     for (u32 i = 0; i < count; ++i) load(names[i], gui);

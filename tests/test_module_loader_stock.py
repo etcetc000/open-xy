@@ -21,7 +21,8 @@ class ModuleLoaderStock(unittest.TestCase):
         self.assertTrue(native.subset(machines, []).modules)
         plain = {name for name, _, _ in native.plan(native.Collection())}
         loading = {name for name, _, _ in native.plan(machines)}
-        self.assertEqual(loading - plain, {'sdk/module_loader.o', 'sdk/module_loader_stock.o', 'sdk/module_mtp.o',
+        self.assertEqual(loading - plain, {'sdk/module_loader.o', 'sdk/module_loader_stock.o', 'sdk/safe_mode.o',
+                                           'sdk/module_mtp.o',
                                            'sdk/module_cache.o', 'sdk/module_synths.o', 'sdk/synth_pool.o'})
 
     def test_profile_adds_only_the_module_hooks(self):
