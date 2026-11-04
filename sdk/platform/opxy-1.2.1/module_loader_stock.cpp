@@ -169,8 +169,7 @@ void load(const char* name, bool gui) {
 }
 }
 
-extern "C" void sdk_module_probe() __asm__("sdk_module_probe");
-void sdk_module_probe() {
+void sdk_module_load() {
     if (attempted) return;
     attempted = true;
     const bool gui = stock<u32()>(0x8d5c3eac)() != 0;
@@ -181,4 +180,3 @@ void sdk_module_probe() {
     sdk_module_registration(false);
     finished = 1;
 }
-void sdk_module_load_now() { sdk_module_probe(); }

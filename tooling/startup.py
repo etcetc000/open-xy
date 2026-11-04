@@ -14,7 +14,7 @@ def _declare(name, signature='()'):
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False, module_probe=False):
+           control=False, aux=False, modules=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -35,8 +35,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     for prefix in (*prefixes, *effects, *player_pages):
         require(re.fullmatch(r'[a-z][a-z0-9_]{0,31}', prefix) is not None, 'Invalid engine prefix')
     declarations = [_declare(prefix + '_fx_register') for prefix in effects]
-    if module_probe:
-        declarations.append('void sdk_module_probe() __asm__("sdk_module_probe");')
+    if modules:
+        declarations.append('void sdk_module_load() __asm__("sdk_module_load");')
     declarations += [_declare(prefix + '_screen_register') for prefix in player_pages]
     require(set(effect_screens) <= set(effects), 'Effects with their own page must be listed effects')
     for prefix in effect_screens:
@@ -80,7 +80,7 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
     installed = [f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes]
-    if module_probe:
+    if modules:
         # Module synths (module_synths.cpp) join every place a built-in synth is in.
         declarations += ['void sdk_module_screens() __asm__("sdk_module_screens");',
                          'int sdk_module_catalog(void*, const void*, u32, u32*) __asm__("sdk_module_catalog");',
@@ -91,7 +91,7 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
         owned.append('    if (sdk_module_screen_owned(page)) return 1;')
         installed.append('    if (sdk_module_engine_installed(name)) return 1;')
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned), SAMPLE_SCREENS='\n'.join(sample),
-                  EFFECTS='\n'.join((['    sdk_module_probe();'] if module_probe else []) +
+                  EFFECTS='\n'.join((['    sdk_module_load();'] if modules else []) +
                                     [f'    {prefix}_fx_register();' for prefix in effects]),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
                   SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
@@ -106,8 +106,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False, module_probe=False):
+             control=False, aux=False, modules=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux, module_probe), encoding='utf-8', newline='\n')
+                                  control, aux, modules), encoding='utf-8', newline='\n')
     return destination

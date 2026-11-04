@@ -7,7 +7,7 @@ import json
 from .formats import require, sha
 from .pipeline import ROOT, check_patch_boundaries, read
 
-OVERLAY = 'profiles/module-probe-1.2.1.json'
+OVERLAY = 'profiles/modules-1.2.1.json'
 OVERLAY_SHA256 = '119675f487ff8c33b95dacf2d44a6c5786aacade1d26d750cf73539b1348beeb'
 TARGETS = {'sdk_module_mtp_folder_match': 0x8d5c1bb0, 'sdk_module_mtp_match': 0x8d5c1bb0,
            'sdk_module_asset_load': 0x8d5f2400, 'sdk_module_catalog_load': 0x8c042490}

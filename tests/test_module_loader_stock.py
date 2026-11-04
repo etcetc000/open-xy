@@ -1,4 +1,4 @@
-"""Module-probe builds: opt-in, and MTP admits module files beside stock's project rules."""
+"""Module builds: opt-in, and MTP admits module files beside stock's project rules."""
 import os
 from pathlib import Path
 import shutil
@@ -11,17 +11,17 @@ from tooling.pipeline import ROOT, config
 from tooling.startup import render
 
 
-class ModuleProbe(unittest.TestCase):
-    def test_probe_is_opt_in_and_runs_before_registration(self):
+class ModuleLoaderStock(unittest.TestCase):
+    def test_loading_is_opt_in_and_runs_before_registration(self):
         ordinary = render(['example'])
-        enabled = render(['example'], module_probe=True)
-        self.assertNotIn('sdk_module_probe', ordinary)
-        self.assertLess(enabled.index('    sdk_module_probe();'), enabled.index('    example_register();'))
-        machines = native.Collection(module_probe=True)
-        self.assertTrue(native.subset(machines, []).module_probe)
+        enabled = render(['example'], modules=True)
+        self.assertNotIn('sdk_module_load', ordinary)
+        self.assertLess(enabled.index('    sdk_module_load();'), enabled.index('    example_register();'))
+        machines = native.Collection(modules=True)
+        self.assertTrue(native.subset(machines, []).modules)
         plain = {name for name, _, _ in native.plan(native.Collection())}
         loading = {name for name, _, _ in native.plan(machines)}
-        self.assertEqual(loading - plain, {'sdk/module_loader.o', 'sdk/module_probe.o', 'sdk/module_mtp.o',
+        self.assertEqual(loading - plain, {'sdk/module_loader.o', 'sdk/module_loader_stock.o', 'sdk/module_mtp.o',
                                            'sdk/module_cache.o', 'sdk/module_synths.o', 'sdk/synth_pool.o'})
 
     def test_profile_adds_only_the_module_hooks(self):

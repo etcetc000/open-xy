@@ -398,7 +398,7 @@ void* sdk_module_asset_load(const char* path) {
 // parser reads the result into the caller's value, as collection_resource_stock
 // does for a whole collection. Anything unexpected: stock reads the file alone.
 bool sdk_module_catalog_load(const char* path, void* out) {
-    sdk_module_load_now();  // the catalog may be read before startup reaches the loader
+    sdk_module_load();  // the catalog may be read before startup reaches the loader
     const auto original = stock<bool(const char*, void*)>(0x8c042490);
     u32 extra = 0;
     for (u32 i = 0; i < count; ++i) if (entries[i].d->catalog_entry) extra += length(entries[i].d->catalog_entry) + 1;
