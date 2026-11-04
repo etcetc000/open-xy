@@ -10,6 +10,8 @@ using RecordedNote = extensions::Note;
 // each claim's key, and each action the claims that grant it (0: any claim).
 const u32 action_edit_notes = 1u << 0;
 const u32 action_notify = 1u << 1;
+const u32 action_loop_bars = 1u << 2;
+const u32 action_play_from = 1u << 3;
 
 struct ExtensionEntry {
     const char* id;
@@ -44,4 +46,15 @@ i32 extension_collision_radius(u32 track);
 bool extension_record_held();
 u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replace);
 void extension_notify(const char* text);
+// The sequencer's tracks, and the bars they are held in (no_bar: none).
+void extension_sequencer(extensions::Sequencer& sequencer);
+bool extension_shift();
+bool extension_loop(const extensions::BarLoop& loop);
+// Start playback with the song clock at a point of the scene.
+bool extension_play_from(u32 song_tick);
+// Whether a claimed key has a stock label slot, and the text for it ("": stock's).
+bool extension_labels(u32 key);
+void extension_key_label(u32 key, const char* text);
+// The bar menu was built again (its texts are stock's again).
+void extension_bar_menu_built();
 }}

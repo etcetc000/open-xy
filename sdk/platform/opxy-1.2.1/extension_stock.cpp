@@ -25,6 +25,7 @@ const u32 kRecorder = 0x860c072c;
 const u32 kProject = 0x840a0524;
 const u32 kRecordHeld = kPlaying + 3;  // byte: Record held
 const u32 kInputEnabled = 0x08023c48;
+const u32 kBarMenuScreen = 0x23;  // BAR's screen (8c09291c opens it with 8c094284)
 using Wide = __UINT64_TYPE__;
 // Only the normal live-input call establishes this scope. Sequencer playback
 // calls the broad dispatcher directly and cannot become a history event.
@@ -41,7 +42,20 @@ bool unmodified(u32 key) {
         if (other != key && stock<u32(u32)>(0x8d5b7d7c)(other)) return false;
     return true;
 }
+// The one other key held, without Shift (a hold-menu such as the bar menu).
+u32 held_with(u32 key) {
+    if (shift_held()) return extensions::keys::none;
+    u32 found = extensions::keys::none;
+    for (u32 other = 0; other < 56; ++other) {
+        if (other == key || !stock<u32(u32)>(0x8d5b7d7c)(other)) continue;
+        if (found != extensions::keys::none) return extensions::keys::none;
+        found = other;
+    }
+    return found;
 }
+}
+
+bool extension_shift() { return shift_held(); }
 
 TrackPattern extension_pattern(u32 track) {
     TrackPattern p = {};
@@ -165,7 +179,8 @@ void sdk_extensions_live_note_off(u32 controller, u32 track, u32 note, u32 a3, u
 }
 void sdk_extensions_key(const u32* event) {
     extensions_sync();
-    extensions::Control control = {event[0], event[1] != 0, false, unmodified(event[0]), 0};
+    extensions::Control control = {event[0], event[1] != 0, false, unmodified(event[0]), 0, held_with(event[0]),
+                                   shift_held(), word(kScreen) == kBarMenuScreen};
     const bool was_held = extension_record_held();
     const bool enabled = byte(kInputEnabled) != 0;
     // The clock writes a full 64-bit microsecond value through its argument.

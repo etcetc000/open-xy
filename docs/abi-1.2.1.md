@@ -206,6 +206,102 @@ after a successful insertion, on track/context changes and on a new playback
 start. Stop preserves the partial take. Host adapter tests use stock doubles;
 they do not establish device scheduling or timing.
 
+### Bar loops
+
+`loop_bars` ([`extension_loop.cpp`](../sdk/platform/opxy-1.2.1/extension_loop.cpp))
+uses seven more hooks of the `extensions` service, and `play_from` one, tagged with the action instead
+of events. The sequencer's 16 track objects sit at `0x860c6adc + 0x108 + track *
+0x290`; each keeps its time (`+0x198`, 1680 units per pattern tick), the last
+time whose events it played (`+0x19c`) and its step (`+0x1a0`). Every playhead
+move goes through `0x8d5ac4d8(track, time, events, steps, edit)`, which plays
+the events after `+0x19c` up to the new time, applies step components on
+entering a step, and takes a move behind `+0x19c` for a pattern wrap. Its three
+callers are replaced: advance by a tick (`0x8d5ab84c`), set position
+(`0x8d5ab7d0`, step jumps and play start) and resync from the song clock
+(`0x8d5ac000`). The step components' go-to target is written by `0x8d583e44`,
+called at `0x8d5ac76e`.
+
+A looped track's moves stay in its bar. A move past the bar's end plays to the
+end, restarts the pass as stock's pattern wrap does (`0x8d5accf8` copies the
+saved parameters over the live ones), jumps to the bar's start without events,
+restores the step it left so the first step's components run, and plays on. A
+jump elsewhere lands at the same offset within the bar; one behind `+0x19c` is
+first reached without events. A go-to target lands on the same step of the bar.
+A component on the bar's last step that jumps keeps its jump. Loops end when the
+project word, the selected song (`g_project + 7`) or a looped track's playing
+pattern (`g_project + 0x98 + scene * 33 + track`, the scene at `g_project + 6`)
+changes. The scene index alone is not checked: a song changes it at its scene
+ends; a track whose looped bar
+no longer exists lets go of that track only. Tracks driven by another
+caller of `0x8d5ac4d8` are not held.
+
+The step display follows the playhead: a move with steps on that enters
+another bar shows it (`0x8d587458(track, bar)` at `0x8d5ac6ce`). Play start
+(`0x8d597f7c`) positions every track, then shows bar 1 of each; that call
+(`0x8d598038`) is replaced so a looped track shows its looped bar, which it
+never leaves; another bar can still be shown and edited.
+
+The sequencer tick (`0x8d5986b8`) gets the transport's scene end back from
+its tick (`11a0a8a4`: -1 for none) and hands it to `0x8d598040(seq, ticks,
+scene_end)`. Playing, at a scene end, that handler asks whether a song is
+selected (`0x8d5842bc(song)`, bit 4 of `g_project + 7`, at `0x8d598608`) before
+moving the song to its next entry (song position `seq + 0x3068`) and having the
+tracks follow the switch (`0x8d5abd18`). That call is replaced: while bars loop
+the answer is "none", so the song stays in the current scene. After a loop ends
+(by the holder, or because the pattern, song or project changed), the scene
+clock is set from the longest track's place (time / `factor[scale]`) right
+after that track next advances, since it ran on during the loop or the loop
+moved the tracks.
+
+The bar menu's refresh (`0x8d547474`) colours each of its 4 bar boxes with
+`0x8d520608(screen, node, rgba)` (at `0x8d5474ee`; node ids at `screen + 0x38`):
+black for the shown bar, the theme colour (`0x84eb3ad8`) for the others, for
+the track `0x8d4d6f14` returns. That call is replaced so the looped bar's box
+is half the theme colour's brightness, shown or not. Each bar is a group
+`barN` in `bar.svg` with a `rect` (the box), a `frame` (hidden for bars that
+don't exist, `screen + 0x40 + 4N`) and a `val` text node (its number, `screen +
+0x50 + 4N`, stock's text kind, set like its other texts with `0x8d6011f0(node,
+text)`); the replacement also gives the number of the bar that track is playing
+a dot ("3."), set only when it changes.
+
+The transport (`0x86bd0064`) keeps the scene clock at `+4` (song ticks into the
+scene, wrapping at the longest pattern, which ends the scene) and a total count
+at `+8` (the metronome's). A track takes its place from the scene clock at play
+start and at each pattern end (`0x8d5abf80(track, 0)`: the clock times
+`factor[scale]`, mod the track's length; a second argument of 1 asserts the two
+agree instead). The Play key (51)
+asks the transport to start (`0x8d5aa9ee(transport, 1)`, after copying the
+count-in setting `seq + 0x305f` to `seq + 0x3061`), stopped or playing (a
+restart from the top); it calls `0x8d592998` instead when `seq + 0x3060` is
+set, or when playing with the count-in on (pressed during a count-in, it turns
+recording off and plays on). Play start (`0x8d597f7c`)
+then resets the transport (`0x8d5aaa38(transport, count_in)`). `play_from` asks
+the same way, and that reset (`0x8d597ffc`) is replaced by
+`sdk_extensions_play_reset`: after stock's reset it sets the scene clock, places
+each track with `0x8d5abf80`, and shows the bar each starts in. A count-in
+(`transport + 0x31`) resets the transport again when it ends, from the
+transport tick (`0x8d5aaa38(transport, 0)` at `0x11a0aa80`, after which the
+tick re-reads the scene clock); that call is replaced by
+`sdk_extensions_count_in_end`, which sets the clock for a start that counted
+in. Such a start places its tracks already at play start, with the clock put
+back to zero for the count-in, so a note played just before the count-in ends
+is picked up on the start's bar.
+
+The bar menu's controller (`0x8c084594`) handles BAR (25: the next bar is
+shown), M1, M2 and M4; it does not handle M3, and stock's global M-key handler
+(`0x8c091008`) acts only on screens 5, 8, 11 and 38. Each sequencer track's
+bar length in song ticks is `16 * 480 * 1680 / factor[scale]`, with the factors
+at `0x840aa47c`.
+
+Stock menus label M1–M4 through one object per screen:
+`0x8d56a758(labels, slot, text, shown, enabled)`. The bar menu builds its labels
+once (`0x8d546de8`) and leaves M3 empty, hidden and disabled; that call
+(`0x8d547004`) is replaced by `sdk_extensions_bar_label`
+([`extension_label.cpp`](../sdk/platform/opxy-1.2.1/extension_label.cpp)). It
+records the menu's label object and shows the `bar_menu_m3` holder's
+`key_label`, if there is one. Later changes to the label go through the same
+stock call; an empty label restores stock's arguments.
+
 ## Startup
 
 1. The synth initializer's exit registers every effect, then, on the audio
