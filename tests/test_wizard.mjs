@@ -308,6 +308,9 @@ test('stopping a Mac read discards it and releases USB before a retry', async t 
   const f = sourceFlow(t, {fake, bytes, hash: await sha256(bytes)});
   f.reachTransfer('mac'); f.click('field-kit-closed'); const reading = f.click('mtp-read');
   while (!fake.state.abort) await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.$('mtp-help-button').disabled, true);
+  f.$('mtp-help-button').onclick();
+  assert.equal(f.$('device-flow').dataset.stage, 'transfer');
   assert.equal(f.$('missing-os-help').disabled, true);
   f.$('missing-os-help').onclick();
   assert.equal(f.$('device-flow').dataset.stage, 'transfer');
@@ -406,6 +409,16 @@ test('installation links preview the edited steps without a build or device acce
     assert.equal(wizard.previewLink(hash), false);
     assert.equal($('device-flow').dataset.stage, 'enable');
   }
+  wizard.previewLink('#preview/mac/mtp-help');
+  action('format-start').onclick(); action('Connected and at te-boot').onclick();
+  action('menu-yes').onclick();
+  assert.equal($('device-flow').dataset.stage, 'format-drive');
+  action('Format finished · Reinstall OS 1.2.1').onclick();
+  assert.equal($('recovery-disable-again').hidden, true);
+  action('recovery-retry').onclick();
+  assert.equal(action('dev-enable').disabled, true);
+  await action('dev-enable').onclick();
+  assert.equal(deviceRequests, 0);
   wizard.previewLink('#preview/mac/restart');
   assert.equal(action('dev-disable').disabled, true);
   await action('dev-disable').onclick();
@@ -509,4 +522,16 @@ test('MTP format guidance requires acknowledgement and resumes the original copy
       ? 'Read the original OS from your OP–XY.' : 'Send the files to your OP–XY.');
     assert.equal(f.requests(), 0);
   });
+});
+
+
+test('leaving format preparation resets the next installation route', async t => {
+  const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
+  const {$, click} = f;
+  f.reachTransfer('mac');
+  $('mtp-help-button').onclick(); click('format-start');
+  $('flow-exit').onclick(); $('source-device').onclick();
+  click('Connected and at te-boot'); click('menu-yes');
+  assert.equal($('device-flow').dataset.stage, 'open-dev-menu');
+  assert.equal(f.requests(), 0);
 });
