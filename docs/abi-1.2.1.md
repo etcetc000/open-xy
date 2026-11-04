@@ -1231,10 +1231,17 @@ a lock slot follows its step through all of them with no hook. Word 37 has a slo
 (`8d4e4130`), and none of the 99 calls of stock's word setters and readers by
 index (`8d518d78`, `8d518d94`, `8d5acf28`, `8d5acea8`, `8d5ad5bc`) loads 36 or
 37 as its index, while the lock pass, which applies it, publishes it to the
-track's audio record (tested from the stock bytes). That it is silent on every
-engine is inferred: engines that read the record by a computed index are not
-covered, and listening on a synth, an SDK kit and stock Drumline is the first
-device check.
+track's audio record (tested from the stock bytes). No word load at `+0x90` or `+0x94`
+(36, 37) in the audio code reads a track record either: those found are a voice's
+own fields (`+0x94` its machine), an object's own state (`8d516554`) and one
+engine's `this` (`8d501cc8`); the audio side's note-on and note-off for drum
+tracks (`8d50e81c`, `8d50e964`, where `8d5b79f0` is tested) read only the play
+mode (word 12) and, through `8d5047fe`, the LFO's words. That it is silent on
+every engine is still inferred: a read by a computed index is not covered, and
+where stock Drumline's M3 filter acts on the kit is not traced, so listening on
+a synth, an SDK kit and stock Drumline is the first device check. Should word
+37 prove live, word 36 has the same standing; without either, the handle has
+no home in stock's slots (the spare mask bits 58..63 are too few).
 
 **The pool.** Handles 1..4095; each holds up to 25 entries (one step-wide, which
 every key the step plays takes, and up to 24 per key, which win field by field)
