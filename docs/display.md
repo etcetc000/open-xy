@@ -145,7 +145,10 @@ shorter slope, so a preset's `release: 32767` is stock's shortest release.
 These are control positions, not times, and stock maps them to times along its
 own curves. The values are the ones stock's envelope page draws, read once per
 frame on the GUI side: a snapshot for drawing, not a measurement of a voice's
-envelope.
+envelope. A drum kit's voices play no amp envelope: stock's drum renderer
+ignores these words, so a kit's voice plays until `finished`, a choke or a
+steal, whatever its envelope page shows, and a kit's screen shouldn't follow
+`amp`.
 
 When the envelope cannot be read, every word is `envelope_unavailable` (-1);
 `envelope_known(input.amp)` tests for it. Treat an unknown envelope as the
