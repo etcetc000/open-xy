@@ -4,8 +4,9 @@
 // amplitude rather than stock's, every key stored and read back as a saved key is:
 // one voice of each model at each level; the kit's own keys at full polyphony; retriggers on one
 // key, which the same-key choke fades; and full polyphony of the heaviest model.
-// A note's start is timed with its block. Run with playback stopped, on handles
-// stock has no note on, and freed afterwards.
+// A note's start is timed with its block. A kit that hears the tempo gets a running
+// one, 120 BPM and playing (benchmark.hpp), so its tempo path is measured. Run with
+// playback stopped, on handles stock has no note on, and freed afterwards.
 #include "benchmark.hpp"
 extern "C" opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32) __asm__("@PREFIX@_benchmark");
 namespace {
@@ -69,9 +70,10 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
                 if ((block + v * 5u) % kBenchmarkHit == 0) @PREFIX@_start(voices_of[v], 53 + v % 24u);
         }
         spent = cycles() - spent;
+        const Transport time = transport(block);
         for (u32 v = 0; v < sounding; ++v) {
             const u32 begin = cycles();
-            render_voice(voices_of[v], output, payloads[run == 0 ? v % 24u : 0], parameters, pitch, gain);
+            render_voice(voices_of[v], output, payloads[run == 0 ? v % 24u : 0], parameters, pitch, gain, time);
             spent += cycles() - begin;
             stats.observe(output, block_frames);
         }
