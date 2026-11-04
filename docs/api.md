@@ -620,9 +620,9 @@ The adapter calls it before every `render`, after `drum_select` and
 state, the same [`opxy::Transport`](../sdk/include/opxy/transport.hpp) sample
 engines get. `bpm_x10` is 0 when there is no tempo. As with `finished`,
 argument-dependent lookup finds it in the namespace that defines `Voice`; include
-`<opxy/transport.hpp>` in the kit's source. It needs no resource: SDKs before
-1.10 build the same source and never call it, nor does this SDK for a kit
-declaring an older version. Keep a fallback for when it is not called or
+`<opxy/transport.hpp>` in the kit's source. It needs no resource: an SDK
+without it builds the same source and never calls it, nor does this SDK for a
+kit declaring an older version. Keep a fallback for when it is not called or
 `bpm_x10` is 0, such as a tempo of the kit's own. The profiling workload passes
 120 BPM, playing. The browser preview has no tempo and never calls it.
 
