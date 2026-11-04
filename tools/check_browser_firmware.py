@@ -118,12 +118,19 @@ def main():
                                    [c for e in chosen for c in e.get('capabilities', [])] +
                                    (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
                                                             for e in kit.get('extensions', [])) else []))
+        # Each capability setting takes the first chosen extension's value, as the builder does.
+        values = {}
+        for e in chosen:
+            for capability, setting in e.get('settings', {}).items():
+                values.setdefault(capability, setting['value'])
         modes = {}
         for profiling in (True, False):
             profile = copy.deepcopy(kit['profile'])
             for patch in profile['patches']:
                 if not patch_active(patch, services, profiling):
                     patch['after'] = patch['before']
+                elif 'setting' in patch and patch['setting'] in values:
+                    patch['after'] = patch['choices'][str(values[patch['setting']])]
                 elif patch['kind'] == 'hook':
                     patch['after'] = hook_instruction(patch, symbols[patch['symbol']]['value']).hex()
                 elif patch['kind'] == 'startup':

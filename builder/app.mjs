@@ -26,7 +26,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
   const kib = n => (n / 1024).toFixed(1) + ' KiB';
   const graphicsConfiguration = createGraphicsConfiguration();
-  let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+  let kit, stock, catalog, selected = [], selectedExtensions = [], extensionSettings = {}, inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
@@ -220,7 +220,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       if (current !== ticket || !isCurrent()) return false;
       stock = recovered.stock;
       if (recovered.selected) {
-        selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
+        selected = recovered.selected; selectedExtensions = recovered.extensions ?? []; extensionSettings = {...recovered.settings};
         renderMachines(); renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
@@ -607,6 +607,21 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('extension-description').textContent = extension.description;
     $('extension-note').textContent = extension.note ?? '';
     $('extension-note').hidden = !extension.note;
+    // Capability settings: one slider each, written into the OS when it is built.
+    $('extension-settings').replaceChildren();
+    for (const [capability, setting] of Object.entries(extension.settings ?? {})) {
+      const label = node('label', undefined, 'extension-setting'), input = node('input'), value = node('output');
+      const show = () => { value.textContent = input.value + ' ' + setting.unit + (Number(input.value) === setting.minimum ? ' (stock)' : ''); };
+      input.type = 'range'; input.min = setting.minimum; input.max = setting.maximum; input.step = 1;
+      input.value = extensionSettings[capability] ?? setting.value;
+      input.disabled = !selectedExtensions.includes(extension.id);
+      input.oninput = () => { extensionSettings[capability] = Number(input.value); show(); };
+      input.onchange = () => { invalidate(); recalculate(); };
+      show();
+      label.append(node('span', setting.label), input, value);
+      $('extension-settings').append(label);
+    }
+    $('extension-settings').hidden = !extension.settings;
     document.querySelectorAll('#extensions button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
   }
   function recalculate() {
@@ -644,7 +659,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const result = core.linkKit(kit, selection, numbers, extensions);
       const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
-      files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false});
+      const capabilitySettings = Object.fromEntries(Object.entries(extensionSettings).filter(([c]) =>
+        (kit.extensions ?? []).some(e => result.extensions.includes(e.id) && e.settings?.[c])));
+      files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false, settings: capabilitySettings});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
@@ -652,7 +669,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
-        settings, sizes: result.sizes, files: hashes, hardware_qualified: false, cpu_measured: false});
+        settings, capability_settings: capabilitySettings, sizes: result.sizes, files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
       if (ticket !== revision) return;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));

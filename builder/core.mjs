@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '313f465c19f0fad8da49328dfe91f807c744e3fea0741decab22608cacd6c277';
+export const PROFILE_SHA256 = '985bda8138d5c652567e08585d51bdb7f24a3faac7152f4bce276570ca68d13a';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -505,6 +505,12 @@ export async function openKit(kit) {
       e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c)) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
+    // A capability setting: its range and the extension's value; the profile lists every value's bytes.
+    check(e.settings === undefined || typeof e.settings === 'object' && Object.entries(e.settings).every(([c, v]) =>
+      e.capabilities?.includes(c) && [v.minimum, v.maximum, v.default, v.value].every(Number.isInteger) &&
+      v.minimum <= v.value && v.value <= v.maximum && typeof v.label === 'string' && typeof v.unit === 'string' &&
+      kit.profile.patches.some(edit => edit.setting === c && Object.hasOwn(edit.choices ?? {}, String(v.value)))),
+      'Invalid extension settings');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
       const f=processorOf(e), stateId=f.state_id ?? e.id;
@@ -750,8 +756,16 @@ export function redirect(edit, destination) {
   after.set(words((edit.call ? 0xe300 : 0xe200) | value >>> 16, value & 0xffff));
   return after;
 }
-export async function patchFirmware(kit, linked, stock, {profiling = true} = {}) {
+// Capability settings a build writes: chosen values, else each selected extension's own.
+function chosenSettings(kit, linked, settings) {
+  const chosen = {};
+  for (const e of (kit.extensions ?? []).filter(e => (linked.extensions ?? []).includes(e.id)))
+    for (const [c, v] of Object.entries(e.settings ?? {})) chosen[c] ??= v.value;
+  return {...chosen, ...settings};
+}
+export async function patchFirmware(kit, linked, stock, {profiling = true, settings = {}} = {}) {
   check(typeof profiling === 'boolean', 'Profiling must be a boolean');
+  const values = chosenSettings(kit, linked, settings);
   const p = kit.profile;
   check(stock.length === p.stock_bytes && await sha256(stock) === p.stock_sha256,
     'Only OP–XY OS 1.2.1 is supported. Choose the OS file, os.ldr, copied from your OP–XY, not a .tfw update file.');
@@ -787,7 +801,10 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
       after = redirect(edit, destination);
     } else {
       check(['heap', 'table', 'limit', 'text'].includes(edit.kind), 'Unknown edit kind');
-      after = unhex(edit.after);
+      // A setting edit writes the reviewed bytes of its chosen value (tooling.extensions.capabilities).
+      check(!edit.choices || values[edit.setting] === undefined || Object.hasOwn(edit.choices, String(values[edit.setting])),
+        'Setting outside its range: ' + edit.setting);
+      after = unhex(edit.choices && values[edit.setting] !== undefined ? edit.choices[String(values[edit.setting])] : edit.after);
     }
     check(before.length === edit.length && after.length === edit.length, 'Patch length mismatch');
     for (let i = 0; i < edit.length; i++) {
@@ -846,8 +863,19 @@ const presentExtensions = (kit, payload, input) => (kit.extensions ?? [])
     : holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
 // A capability's edits are fixed bytes (tooling.extensions.capabilities): applied
 // in an image exactly when every one holds its reviewed bytes.
+const siteBytes = (input, edit) => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
 const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
-  equal(input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length), unhex(edit.after)));
+  edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
+    : equal(siteBytes(input, edit), unhex(edit.after)));
+// The setting values an image holds, read from its reviewed bytes.
+export function imageSettings(kit, input) {
+  const found = {};
+  for (const edit of kit.profile.patches.filter(e => e.choices)) {
+    const value = Object.entries(edit.choices).find(([, b]) => equal(siteBytes(input, edit), unhex(b)))?.[0];
+    if (value !== undefined && !equal(siteBytes(input, edit), unhex(edit.before))) found[edit.setting] = Number(value);
+  }
+  return found;
+}
 const UPDATE = 'Update your OP–XY to OS 1.2.1 with teenage engineering’s updater, then copy its OS file (os.ldr) again; a .tfw update file will not work.';
 const UNSUPPORTED = 'Only OP–XY OS 1.2.1 is supported. This file is not OS 1.2.1 or an open-xy OS made from it. ' + UPDATE;
 export async function recoverFirmware(kit, input, layout = null) {
@@ -874,11 +902,12 @@ export async function recoverFirmware(kit, input, layout = null) {
     // or infer ownership from its label. SDK builds retain timing; site builds
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
+    const settings = imageSettings(kit, input), withSettings = Object.keys(settings).length ? {settings} : {};
     const rebuilds = async (selected, extensions) => {
       const linked = linkKit(kit, selected, layout, extensions);
       if (!equal(linked.module, payload)) return false;
       for (const profiling of [true, false]) {
-        if (equal(await patchFirmware(kit, linked, stock, {profiling}), input)) return true;
+        if (equal(await patchFirmware(kit, linked, stock, {profiling, settings}), input)) return true;
       }
       return false;
     };
@@ -891,7 +920,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       : guess.length ? [guess, []] : [[]];
     for (const extensions of present.length ? [guess, ...choices] : []) {
       try {
-        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions};
+        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions, ...withSettings};
       } catch {}  // a guess that cannot link is not this kit's build
     }
     // Small kits also try every selection: at most 1,023 deterministic links per
@@ -901,7 +930,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
         for (const extensions of choices) {
-          if (await rebuilds(selected, extensions)) return {stock, selected, extensions};
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...withSettings};
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }

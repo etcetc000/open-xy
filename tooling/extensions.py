@@ -7,7 +7,7 @@ holds the registry of claims, actions and capabilities (PROFILE) and the runtime
 a build's collection lists the extensions it links, in callback order. No dynamic
 loading or arbitrary hooks.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import base64
@@ -57,15 +57,47 @@ def registry():
 
 def capabilities():
     """The registry's capabilities: each is the firmware profile service of the same name,
-    which only extensions that declare it use. A capability carries no fields."""
+    which only extensions that declare it use. A capability carries no fields, or one
+    whole-number `setting` (label, unit, minimum, maximum, default) whose edit lists the
+    reviewed bytes of every value in `choices`."""
     data, firmware = document(ROOT / PROFILE)['capabilities'], document(ROOT / FIRMWARE_PROFILE)
     require(isinstance(data, dict) and len(data) <= 32, 'Capabilities are a registry')
     for name, capability in data.items():
         edits = [p for p in firmware['patches'] if p.get('service') == name]
         # Fixed bytes only, so the builder can tell from an image that a capability is on.
-        require(NAME.fullmatch(name) and capability == {} and firmware['services'].get(name) == [name] and edits and
+        require(NAME.fullmatch(name) and firmware['services'].get(name) == [name] and edits and
                 all(p['kind'] not in ('hook', 'startup') for p in edits), 'Invalid capability: ' + name)
+        require(capability == {} or set(capability) == {'setting'}, 'Invalid capability: ' + name)
+        chosen = [p for p in edits if 'setting' in p or 'choices' in p]
+        if capability:
+            spec = capability['setting']
+            require(isinstance(spec, dict) and set(spec) == {'label', 'unit', 'minimum', 'maximum', 'default'} and
+                    all(isinstance(spec[k], str) and 0 < len(spec[k]) <= 24 for k in ('label', 'unit')) and
+                    all(type(spec[k]) is int for k in ('minimum', 'maximum', 'default')) and
+                    spec['minimum'] <= spec['default'] <= spec['maximum'], 'Invalid capability setting: ' + name)
+            values = {str(v) for v in range(spec['minimum'], spec['maximum'] + 1)}
+            require(chosen and all(p.get('setting') == name and isinstance(p.get('choices'), dict) and
+                                   set(p['choices']) == values and p['after'] == p['choices'][str(spec['default'])] and
+                                   all(len(bytes.fromhex(b)) == p['length'] for b in p['choices'].values())
+                                   for p in chosen), 'Invalid capability setting edits: ' + name)
+        else:
+            require(not chosen, 'Invalid capability: ' + name)
     return tuple(data)
+
+
+def capability_settings():
+    """Capability name -> its setting (label, unit, minimum, maximum, default), for those with one."""
+    return {name: c['setting'] for name, c in document(ROOT / PROFILE)['capabilities'].items() if c}
+
+
+def setting_edits(profile, settings):
+    """Each setting edit's chosen bytes: address -> after, from {capability: value}; missing
+    values take their defaults."""
+    specs = capability_settings()
+    require(set(settings) <= set(specs), 'Unknown capability setting')
+    return {p['address']: p['choices'][str(settings.get(p['setting'], specs[p['setting']]['default']))]
+            for p in profile['patches'] if 'setting' in p}
+
 
 @dataclass(frozen=True)
 class Extension:
@@ -78,6 +110,7 @@ class Extension:
     master_processor: dict = None
     capabilities: tuple = ()  # firmware services it turns on (capabilities())
     linked: bool = True  # False for a settings extension: no code, no runtime
+    settings: dict = field(default_factory=dict)  # capability -> chosen value (capability_settings())
 
     @property
     def master_filter(self):
@@ -96,8 +129,8 @@ def extension_at(folder):
     data = document(root / 'extension.json')
     linked = (root / 'extension.cpp').is_file()
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'capabilities'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and optional note, master_processor and capabilities')
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'capabilities', 'settings'}, f'{root}: extension.json fields are '
+            'id, name, description, claims, actions and optional note, master_processor, capabilities and settings')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -135,6 +168,11 @@ def extension_at(folder):
     require(isinstance(declared, list) and len(set(declared)) == len(declared) and
             all(isinstance(c, str) and c in known for c in declared) and ('capabilities' not in data or declared),
             f'{name}: unknown or repeated capability; the SDK declares them in {PROFILE}')
+    settings, specs = data.get('settings', {}), capability_settings()
+    require(isinstance(settings, dict) and ('settings' not in data or settings) and
+            all(c in declared and c in specs and type(v) is int and specs[c]['minimum'] <= v <= specs[c]['maximum']
+                for c, v in settings.items()),
+            f'{name}: settings choose a value within range for a capability it declares that has a setting')
     if not linked:
         # A settings extension only turns on SDK capabilities: nothing of its own runs.
         sources = [p for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts and
@@ -147,7 +185,7 @@ def extension_at(folder):
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
                      {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter,
-                     tuple(declared), linked)
+                     tuple(declared), linked, dict(settings))
 
 
 def check_collection(extensions):
@@ -257,6 +295,11 @@ def metadata(extensions, origins):
     for e, row in zip(extensions, rows):
         if e.capabilities:
             row['capabilities'] = list(e.capabilities)
+            # The builder shows each capability setting with the extension's value as its default.
+            specs = capability_settings()
+            chosen = {c: dict(specs[c], value=e.settings.get(c, specs[c]['default'])) for c in e.capabilities if c in specs}
+            if chosen:
+                row['settings'] = chosen
         if not e.linked:
             row['linked'] = False
         if e.master_processor is not None:

@@ -40,4 +40,4 @@ def check_edits(patches):
 
 def check_profile(profile):
     require(profile['services'].get(SERVICE) == [SERVICE], 'Expected the long_samples service')
-    check_edits([p for p in profile['patches'] if p['kind'] == 'limit'])
+    check_edits([p for p in profile['patches'] if p['kind'] == 'limit' and p.get('service') == SERVICE])

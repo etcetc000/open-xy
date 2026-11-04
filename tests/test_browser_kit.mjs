@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, imageSettings, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -87,6 +87,30 @@ test('a settings extension links no code, applies only its capability edits and 
   assert.deepEqual(plain, longer);  // the capability's edit is the only difference
   assert.deepEqual(await recoverFirmware(kit, longer), {stock, selected:['a'], extensions:['longer']});
   assert.deepEqual(await recoverFirmware(kit, await patchFirmware(kit, off, stock)), {stock, selected:['a'], extensions:[]});
+});
+
+test('a capability setting writes the reviewed bytes of its value and is recovered with it', async () => {
+  const {kit, stock} = await profilingFixture();
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
+  const choices = {'-40':'01da470114ae0000', '-48':'01da8200a6730000', '-66':before};
+  kit.profile.services = {...kit.profile.services, release_floor:['release_floor']};
+  kit.profile.patches.push({kind:'limit', service:'release_floor', setting:'release_floor', address:0x1018, file_offset:56,
+    length:8, before, after:choices['-48'], choices});
+  const setting = {label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48};
+  kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false,
+    settings:{release_floor:{...setting, value:-40}}}];
+  const on = linkKit(kit, ['a'], null, ['idle']), off = linkKit(kit, ['a'], null, []);
+  const site = image => Buffer.from(image.subarray(56, 64)).toString('hex');
+  // The extension's own value, then a chosen one; without the extension, stock.
+  assert.equal(site(await patchFirmware(kit, on, stock)), choices['-40']);
+  const chosen = await patchFirmware(kit, on, stock, {settings:{release_floor:-66}});
+  assert.equal(site(chosen), before);
+  assert.equal(site(await patchFirmware(kit, off, stock)), before);
+  await assert.rejects(patchFirmware(kit, on, stock, {settings:{release_floor:-30}}), /outside its range/);
+  const built = await patchFirmware(kit, on, stock);
+  assert.deepEqual(imageSettings(kit, built), {release_floor:-40});
+  assert.deepEqual(await recoverFirmware(kit, built),
+    {stock, selected:['a'], extensions:['idle'], settings:{release_floor:-40}});
 });
 
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {
