@@ -2,12 +2,15 @@
 // control index and encoder event. Keep publication on stock's existing route.
 #include "drum_values.hpp"
 #include "synth_controls.hpp"
+#include "drumline.hpp"
 
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine) {
     using namespace opxy;
     using namespace opxy::platform;
     const u32 track = byte(kSelectedTrack);
     const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
+    // Stock Drumline's second Shift row, with the build option drumlineRow2 (drumline.hpp).
+    if (!machine && drumline_track(track) && sdk_drumline->edit(track, key, control, event)) return 0;
     if (!machine) return stock<u32(u32, u32, const u32*, u32)>(0x8d4d5f60)(key, control, event, fine);
     if (!event || control >= kDrumControlCount) return 0;
     void* region = pad_region(track, key);

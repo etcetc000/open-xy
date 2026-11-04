@@ -14,6 +14,10 @@
 #include <opxy/q31.hpp>
 // The stock buffers drum_send.cpp names, as the test substitutes them.
 extern opxy::i32 host_sum[], host_voice[], host_fx1[], host_fx2[];
+// A stock dbox voice's method table (0x8404ce3c) and its object's index, as
+// the test substitutes them for stock's addresses.
+extern const void* host_dbox_table[];
+opxy::u32 host_dbox_index(const void* object);
 #include "drum_send.cpp"
 
 using opxy::i32;
@@ -35,6 +39,12 @@ const DrumSendKit sdk_drum_send_kits[] = {{kit_table, kit_codes}};
 const u32 sdk_drum_send_kit_count = 1;
 
 namespace {
+u32 host_dbox_index_of(const void* handle);
+}
+const void* host_dbox_table[11];
+u32 host_dbox_index(const void* object) { return host_dbox_index_of(object); }
+
+namespace {
 // FX I's code in bits 0..2, FX II's in 3..5, as drum_send_codes gives them.
 // 0 follows the track (TRK); 1 is dry; 7 is a full send of the key's own.
 u32 pair(u32 fx1, u32 fx2) { return fx1 | fx2 << kDrumSendCodeBits; }
@@ -47,6 +57,13 @@ void bind(StockVoice& voice, bool kit, u32 codes) {
     const void* object = &voice.handle;
     std::memcpy(voice.bytes + 0x94, &object, sizeof object);
 }
+// A stock Drumline (dbox) voice: the dbox method table, its object's index
+// held where a kit's handle holds its codes.
+void bind_dbox(StockVoice& voice, u32 index) {
+    bind(voice, false, index);
+    voice.handle.vtable = host_dbox_table;
+}
+u32 host_dbox_index_of(const void* handle) { return static_cast<const Handle*>(handle)->codes; }
 
 // The engine's gains for one track: main, FX I's start and step, FX II's, and
 // the level ([FP-0x68]) both sends are scaled from.
@@ -327,7 +344,54 @@ void codes_and_amounts() {
 }
 }
 
+// Stock Drumline voices (the build option drumlineRow2): each sends the codes
+// its render kept (sdk_drum_send_dbox), mixed exactly as a padSend kit's key
+// with those codes; codes of 0, as every build without the option keeps them,
+// mix as stock does; an object outside stock's 27 follows the track.
+void drumline_voices_send_their_kept_codes() {
+    static StockVoice lines[4], kits[4];
+    static i32 start[kDrumSendWords];
+    static Buses a, b;
+    fill(start, 1 << 6);
+    const Gains g = {0x60000000, 0x10000000, 0x00100000, 0x50000000, 0x40000000};
+    const u32 codes[4] = {pair(7, 1), pair(0, 4), pair(2, 0), 0};
+    for (u32 v = 0; v < 4; ++v) {
+        fill(lines[v].audio, 1 << 4);
+        std::memcpy(kits[v].audio, lines[v].audio, sizeof lines[v].audio);
+        sdk_drum_send_dbox[3 + v] = static_cast<opxy::u8>(codes[v]);
+        bind_dbox(lines[v], 3 + v);
+        bind(kits[v], true, codes[v]);
+    }
+    std::memset(&a, 0, sizeof a);
+    std::memset(&b, 0, sizeof b);
+    sdk_drum_send_dbox[0] = static_cast<opxy::u8>(pair(7, 7));
+    sdk_drum_send_state.level_known = 0;
+    mix(a, 1, lines, 4, start, g, true, false);
+    sdk_drum_send_state.level_known = 0;
+    mix(b, 1, kits, 4, start, g, true, false);
+    CHECK(same(a, b));
+    CHECK(std::memcmp(a.fx1, a.fx2, sizeof a.fx1) != 0);
+    // Without the option every kept code stays 0: the hooks mix as stock.
+    for (u32 v = 0; v < kDboxVoices; ++v) sdk_drum_send_dbox[v] = 0;
+    static Buses stock_buses;
+    std::memset(&a, 0, sizeof a);
+    std::memset(&stock_buses, 0, sizeof stock_buses);
+    mix(stock_buses, 1, lines, 4, start, g, false, false);
+    mix(a, 1, lines, 4, start, g, true, false);
+    CHECK(same(stock_buses, a) && idle());
+    // An index outside the 27 reads as TRK.
+    sdk_drum_send_dbox[0] = static_cast<opxy::u8>(pair(7, 7));
+    bind_dbox(lines[0], kDboxVoices);
+    std::memset(&a, 0, sizeof a);
+    mix(a, 1, lines, 1, start, g, true, false);
+    std::memset(&stock_buses, 0, sizeof stock_buses);
+    mix(stock_buses, 1, lines, 1, start, g, false, false);
+    CHECK(same(stock_buses, a));
+    sdk_drum_send_dbox[0] = 0;
+}
+
 int main() {
+    drumline_voices_send_their_kept_codes();
     codes_and_amounts();
     stock_and_followers_are_unchanged();
     own_amounts_ignore_the_track_knob();

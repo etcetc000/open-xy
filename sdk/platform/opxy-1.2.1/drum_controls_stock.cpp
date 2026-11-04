@@ -4,6 +4,7 @@
 // Machine policy is in the generated sample callbacks.
 #include "sample_machines.hpp"
 #include "drum_machines.hpp"
+#include "drumline.hpp"
 #include "keyboard_octaves.hpp"
 #include "stock.hpp"
 #include "synth_controls.hpp"
@@ -382,6 +383,10 @@ u32 sdk_sample_press_engine_owned(u32 track, u32 button) {
         if (button >= 4 && button < 8 && shift_held()) sdk_drum_shift_press(track, button - 4);
         return id;
     }
+    // Stock Drumline with the build option drumlineRow2: Shift and a press of
+    // encoder 2..4 switch its Shift rows (drumline.hpp). Stock's own action for
+    // engine 4 acts on encoder 1 only (8c0b2758: the play-mode cycle) and runs as before.
+    if (id == kDrumlineEngine && sdk_drumline && button > 4 && button < 8 && shift_held()) sdk_drumline->press(track, button);
     // An own screen's press switches its controls' page (synth_controls.cpp), never stock's mode.
     if (own_controls(id)) return id;
     if (!pad_settings(id)) return sdk_sample_alias(id);

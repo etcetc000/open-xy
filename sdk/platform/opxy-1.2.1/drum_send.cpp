@@ -1,6 +1,7 @@
 // Per-key sends (drum_send.hpp): the C++ side of the stock mixer hooks in
 // drum_send_hooks.s. Audio role only; nothing here allocates or waits.
 #include "drum_send.hpp"
+#include "drumline.hpp"
 
 using opxy::i32;
 using opxy::u32;
@@ -15,6 +16,7 @@ extern DrumSendState sdk_drum_send_state __asm__("sdk_drum_send_state");
 }
 
 DrumSendState sdk_drum_send_state;
+opxy::u8 sdk_drum_send_dbox[kDboxVoices];
 
 namespace {
 // Per send, the followers' sum and the own-amount sum. One set is enough: the
@@ -41,6 +43,13 @@ u32 codes_of(const unsigned char* voice) {
     const void* object = *reinterpret_cast<const void* const*>(voice + kVoiceObject);
     if (!object) return 0;
     const void* table = *static_cast<const void* const*>(object);
+    // A stock Drumline voice: the codes its render kept (drumline.cpp, the
+    // drumlineRow2 option; 0 without it). Only stock's dbox factory makes an
+    // object with this method table, so no kit's voice reads here.
+    if (reinterpret_cast<__UINTPTR_TYPE__>(table) == kDboxMethods) {
+        const u32 index = dbox_index(static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(object)));
+        return index < kDboxVoices ? sdk_drum_send_dbox[index] : 0;
+    }
     for (u32 i = 0; i < sdk_drum_send_kit_count; ++i)
         if (sdk_drum_send_kits[i].vtable == table) return sdk_drum_send_kits[i].codes(object);
     return 0;

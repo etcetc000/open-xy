@@ -6,6 +6,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <synth_controls.cpp>
+#include "drumline.hpp"
+// Built without the build option drumlineRow2: the generated startup defines it null.
+const opxy::platform::Drumline* const sdk_drumline = nullptr;
 // This fixture has no synthesis drum kits.
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
 bool sdk_drum_values(opxy::u32, opxy::u8*, opxy::u8*) { return false; }

@@ -597,24 +597,41 @@ def assign_numbers(machines, layout=None, fixed=None):
     return assigned, numbers
 
 
-def read_collection(path=None, extra=(), extensions=()):
+# Build options: changes to stock behaviour a build makes only when its collection
+# names them ("options" in a collection file, or --option). Each turns on the profile
+# services that list it as a user (tooling.native.service_users).
+BUILD_OPTIONS = {
+    # Stock Drumline (engine 4): a second Shift row with each key's SRR, FX I and FX II,
+    # and per-hit step locks of its Shift settings (sdk/platform/opxy-1.2.1/drumline.hpp).
+    'drumlineRow2': "Drumline's second Shift row: per-key SRR, FX I and FX II, and Shift step locks",
+}
+
+
+def read_collection(path=None, extra=(), extensions=(), options=()):
     """A collection file's entries, resolved: each machine's absolute folder
-    ({"path": ...}) and each extension's ({"extension": ...}), relative to the
-    file. Machine folders in `extra` and extension folders in `extensions` follow."""
+    ({"path": ...}), each extension's ({"extension": ...}), relative to the
+    file, and each build option ({"option": ...}). Machine folders in `extra`,
+    extension folders in `extensions` and the options in `options` follow."""
     entries = []
+    named = []
     if path is not None:
         path = Path(path)
         value = json.loads(path.read_text(encoding='utf-8'))
-        require(isinstance(value, dict) and {'schema', 'machines'} <= set(value) <= {'schema', 'machines', 'extensions'}
+        require(isinstance(value, dict) and {'schema', 'machines'} <= set(value) <= {'schema', 'machines', 'extensions', 'options'}
                 and value['schema'] == 1 and isinstance(value['machines'], list) and
-                isinstance(value.get('extensions', []), list), 'Unsupported collection file: ' + str(path))
+                isinstance(value.get('extensions', []), list) and isinstance(value.get('options', []), list),
+                'Unsupported collection file: ' + str(path))
         for kind, key in (('machines', 'path'), ('extensions', 'extension')):
             for entry in value.get(kind, []):
                 require(isinstance(entry, dict) and set(entry) == {'path'} and isinstance(entry['path'], str),
                         'Collection entries are {"path": ...}: the SDK holds no machines or extensions of its own')
                 entries.append({key: str((path.parent / entry['path']).resolve())})
+        named += value.get('options', [])
+    named += list(options)
+    require(all(isinstance(o, str) and o in BUILD_OPTIONS for o in named), 'Unknown build option')
     return (entries + [{'path': str(Path(folder).resolve())} for folder in extra] +
-            [{'extension': str(Path(folder).resolve())} for folder in extensions])
+            [{'extension': str(Path(folder).resolve())} for folder in extensions] +
+            [{'option': o} for o in dict.fromkeys(named)])
 
 
 def collection(entries=None, layout=None):

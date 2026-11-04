@@ -4,6 +4,15 @@
 static void host_barrier() {}
 #include <drum_controls_stock.cpp>
 #include <keyboard_octaves.cpp>
+#include "drumline.hpp"
+// Built with the build option drumlineRow2: a stand-in service that only
+// records Shift's presses (drumline.cpp's switch the rows).
+static unsigned drumline_presses, drumline_track_pressed, drumline_button;
+static void drumline_press(opxy::u32 track, opxy::u32 button) {
+    ++drumline_presses; drumline_track_pressed = track; drumline_button = button;
+}
+static const opxy::platform::Drumline drumline_service = {nullptr, nullptr, drumline_press};
+const opxy::platform::Drumline* const sdk_drumline = &drumline_service;
 // This fixture has no synthesis drum kits.
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
 bool sdk_drum_shift_press(opxy::u32, opxy::u32) { return false; }
@@ -519,4 +528,22 @@ int main() {
     check(sdk_sample_page_shift() == 1);
     shifted = false;
     check(sdk_sample_page_shift() == 0);
+    // Stock Drumline with the build option drumlineRow2: Shift and a press of
+    // encoder 2..4 (buttons 5..7) switch its rows; encoder 1 keeps stock's
+    // play-mode cycle, and every press returns what stock acts on, as before.
+    selected_track_value = 0;
+    for (unsigned id : {4u, 3u, 2u, 30u}) {
+        engine = id;
+        for (bool shift : {false, true}) {
+            shifted = shift;
+            for (unsigned button = 4; button < 8; ++button) {
+                const unsigned presses = drumline_presses;
+                check(sdk_sample_press_engine_owned(0, button) == sdk_sample_alias(id));
+                const bool switches = id == 4 && shift && button > 4;
+                check(drumline_presses == presses + (switches ? 1 : 0));
+                check(!switches || (drumline_track_pressed == 0 && drumline_button == button));
+            }
+        }
+    }
+    shifted = false;
 }

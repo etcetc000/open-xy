@@ -29,7 +29,7 @@ from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, 
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
-from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, tree
+from .machines import BUILD_OPTIONS, FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, tree
 from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
                        fresh_output, host_pins, host_platform,
                        hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
@@ -59,12 +59,14 @@ from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, valida
 
 
 class Collection(list):
-    """A build's machines, in firmware order, and the extensions it links, in
-    callback order (`extensions`). A subset of its machines keeps its extensions."""
+    """A build's machines, in firmware order, the extensions it links, in
+    callback order (`extensions`), and its build options (`options`,
+    machines.BUILD_OPTIONS). A subset of its machines keeps its extensions and options."""
 
-    def __init__(self, machines=(), extensions_=()):
+    def __init__(self, machines=(), extensions_=(), options=()):
         super().__init__(machines)
         self.extensions = tuple(extensions_)
+        self.options = tuple(options)
 
 
 def extensions_of(machines):
@@ -72,9 +74,14 @@ def extensions_of(machines):
     return getattr(machines, 'extensions', ())
 
 
+def options_of(machines):
+    """The build options a machine list carries: none for a plain list."""
+    return getattr(machines, 'options', ())
+
+
 def subset(machines, chosen):
-    """Some of a collection's machines, with all of its extensions."""
-    return Collection(chosen, extensions_of(machines))
+    """Some of a collection's machines, with all of its extensions and options."""
+    return Collection(chosen, extensions_of(machines), options_of(machines))
 
 
 def configuration(entries=None, layout=None):
@@ -86,7 +93,8 @@ def configuration(entries=None, layout=None):
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
-        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
+        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]),
+        collection_options(entries))
     definitions = dict(DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
@@ -116,7 +124,8 @@ def provenance(machines):
     for e in extensions_of(machines):
         hashes.update({f'extension:{e.id}/{name}': sha(read(path)) for name, path in e.sources().items()})
     hashes['collection'] = sha(json.dumps([m.id for m in machines] +
-                                          ['extension:' + e.id for e in extensions_of(machines)]).encode('utf-8'))
+                                          ['extension:' + e.id for e in extensions_of(machines)] +
+                                          ['option:' + o for o in options_of(machines)]).encode('utf-8'))
     return dict(sorted(hashes.items()))
 
 
@@ -219,7 +228,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'drum_locks')
+             'drum_send', 'drum_send_hooks', 'drum_locks', 'drumline', 'drumline_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -234,6 +243,9 @@ UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
 UNIT_SERVICES['drum_locks'] = 'drum_locks'
+# The build option drumlineRow2: stock Drumline's second Shift row and per-hit locks
+# (drumline.hpp). It also uses the drums, samples, drum_sends and drum_locks services' hooks.
+UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.
 UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
@@ -247,10 +259,12 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
-    they declare ('trackControl', 'auxTrack', 'hidePages', 'padSend', 'padMix'), and
-    'extension' when it links extensions (native builds link all of the collection's).
-    A padMix kit hides M3, so it also uses 'hidePages'."""
-    users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    they declare ('trackControl', 'auxTrack', 'hidePages', 'padSend', 'padMix'),
+    'extension' when it links extensions (native builds link all of the collection's),
+    and its build options (machines.BUILD_OPTIONS). A padMix kit hides M3, so it also
+    uses 'hidePages'."""
+    users = ([m.kind for m in machines] + (['extension'] if extensions_of(machines) else []) +
+             list(options_of(machines)))
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition or pad_mix(m)] +
@@ -494,7 +508,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 [x.prefix for x in sample_engines if x.display != 'stock'],
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
-                                                control='control' in services, aux='aux' in services)), obj)
+                                                control='control' in services, aux='aux' in services,
+                                                drumline='drumline' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -1032,10 +1047,20 @@ def add_collection_arguments(parser):
                         help='a machine folder to add to the collection; repeatable')
     parser.add_argument('--extension', type=Path, action='append', default=[],
                         help='an extension folder to add to the collection; repeatable')
+    parser.add_argument('--option', action='append', default=[], choices=sorted(BUILD_OPTIONS),
+                        help='a build option to add to the collection (docs/build.md); repeatable')
 
 
 def selected_collection(args):
-    return read_collection(args.collection, args.machine, args.extension)
+    return read_collection(args.collection, args.machine, args.extension, args.option)
+
+
+def collection_options(entries):
+    """The build options a collection's entries name, in order, each once."""
+    options = [e['option'] for e in entries or () if 'option' in e]
+    require(all(o in BUILD_OPTIONS for o in options) and len(set(options)) == len(options),
+            'Unknown or repeated build option')
+    return options
 
 
 COMMANDS = {

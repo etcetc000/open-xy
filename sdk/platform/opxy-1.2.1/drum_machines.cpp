@@ -1,6 +1,7 @@
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
 #include "drum_locks.hpp"
+#include "drumline.hpp"
 #include "stock.hpp"
 
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32 engine) {
@@ -17,9 +18,11 @@ opxy::u32 sdk_drum_alias(opxy::u32 engine) { return sdk_drum_machine(engine) ? 4
 // Project load's check of each pattern's track object (drum_hooks.s, 8d588ec8):
 // the engine's alias, after a padMix kit's lock words get their neutral base
 // in the object's stored words (+0x3864), as stock gives a Drumline track's
-// eight just after (8d588dfe).
+// eight just after (8d588dfe); so do a stock Drumline track's lock words with
+// the build option drumlineRow2 (drumline.hpp).
 opxy::u32 sdk_drum_load_engine(opxy::u32 engine, opxy::u32 object) {
     using namespace opxy::platform;
+    if (engine == kDrumlineEngine && sdk_drumline && object) sdk_drumline->load(object);
     const DrumMachine* machine = sdk_drum_machine(engine);
     if (machine && machine->pad_mix && object)
         for (opxy::u32 i = 0; i < kDrumLocks; ++i)

@@ -129,7 +129,11 @@ class DrumSend(unittest.TestCase):
         for stock, host in (('reinterpret_cast<i32*>(0x11903600)', 'host_sum'),
                             ('reinterpret_cast<const i32*>(0x11b01548)', 'host_voice'),
                             ('reinterpret_cast<i32*>(0x84caa140)', 'host_fx1'),
-                            ('reinterpret_cast<i32*>(0x84caa340)', 'host_fx2')):
+                            ('reinterpret_cast<i32*>(0x84caa340)', 'host_fx2'),
+                            # A stock dbox voice (drumline.hpp): its method table and object index.
+                            ('reinterpret_cast<__UINTPTR_TYPE__>(table) == kDboxMethods', 'table == host_dbox_table'),
+                            ('dbox_index(static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(object)))',
+                             'host_dbox_index(object)')):
             self.assertEqual(source.count(stock), 1, stock)
             source = source.replace(stock, host)
         with tempfile.TemporaryDirectory(prefix='drum-send-') as folder:
@@ -164,7 +168,7 @@ class DrumSend(unittest.TestCase):
 
     def test_only_a_pad_send_kit_links_the_mixer_hooks(self):
         services = PROFILE['services']
-        self.assertEqual(services['drum_sends'], ['padSend'])
+        self.assertEqual(services['drum_sends'], ['padSend', 'drumlineRow2'])
         with_sends, without = kit(1), kit()
         self.assertIn('padSend', native.service_users([with_sends]))
         self.assertNotIn('padSend', native.service_users([without]))
