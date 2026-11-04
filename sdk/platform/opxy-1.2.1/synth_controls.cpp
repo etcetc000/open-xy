@@ -99,12 +99,12 @@ const SynthControls* machine(u32 track, Track*& t) {
 const SynthControls* synth(u32 track) { return track < kTracks ? owned(track_engine(track)) : nullptr; }
 }  // namespace
 
-// Whether Shift on a track's own screen edits the stock sampler's trim
-// (shiftTrim). Here rather than with the sample page's objects, because every
-// screen asks it (screen.hpp), an effect's and a synth's included.
-bool sdk_sample_shift_trim(u32 track) {
+// Whether Shift on a track's own screen gives an encoder to the stock sampler
+// page (stockShift). Here rather than with the sample page's objects, because
+// every screen asks it (screen.hpp), an effect's and a synth's included.
+bool sdk_sample_stock_shift(u32 track) {
     const SynthControls* m = synth(track);
-    return m && m->stock_shift;
+    return m && (m->stock_shift[0] | m->stock_shift[1] | m->stock_shift[2] | m->stock_shift[3]);
 }
 
 namespace {

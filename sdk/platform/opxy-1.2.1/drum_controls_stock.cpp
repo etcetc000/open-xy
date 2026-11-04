@@ -423,15 +423,17 @@ u32 sdk_sample_region_control(u32 key, u32 control, const u32* event, u32 fine) 
 // LFO (the instrument page word, 1..3): there, and otherwise, stock asks its
 // flag as before.
 //
-// An engine declaring shiftTrim gives Shift turns on its engine page to stock
-// instead: they replay through this handler (8c0b12e4) as the stock sampler's
-// own turns, encoder 1 unshifted (sample start) for encoder 1, its encoder 4
-// unshifted (sample end) for 2, and shifted (gain) for 4. Encoder 3 moves the
-// whole window: the end and the start by the same turn, the leading edge
-// first and the other only if it moved, so the window keeps its length and
-// stops at the sample's ends. Stock picks its row of four functions from its
-// Shift test (8c0b13e6, sdk_sample_page_shift), which the replay answers, and
-// then edits and saves the region as on its own page.
+// An engine declaring stockShift gives the Shift turns of the encoders its map
+// names to stock instead, on its engine page only: each replays through this
+// handler (8c0b12e4) as the stock sampler page's own encoder, with or without
+// Shift (stock_shift codes, synth_controls.hpp). Stock picks its row of four
+// functions from its Shift test (8c0b13e6, sdk_sample_page_shift), which the
+// replay answers, and then edits, steps and saves the region as on its own
+// page. A window moves a pair of markers by the same turn, the leading one
+// first and the other only if the pair changed, so the window keeps its
+// length and stops at the sample's ends. An encoder the map leaves out keeps
+// Shift's fine turn of the machine's own control; unshifted turns are always
+// the machine's.
 const u32 kInstrumentPage = 0x080238bc;  // 0 on the engine page, 1..3 on the others
 namespace {
 bool replaying, replay_shifted;
@@ -443,10 +445,27 @@ void replay(u32 object, u32 encoder, u32 stock_encoder, bool shifted, const u32*
     stock<u32(u32, u32, const u32*)>(0x8c0b12e4)(object, (encoder & ~3u) | stock_encoder, event);
     replaying = false;
 }
-// The selected track's trim as the sampler page edits it.
-opxy::SampleRegion trim(u32 track) {
-    const void* raw = pad_region(track, 0);
-    return raw ? sample_gui_region(raw) : opxy::SampleRegion{0, 0, opxy::sample_unity_level, false, 0};
+// Two of the selected track's GUI region words, the markers a window moves:
+// the outer pair (start, end) or the loop pair (loop start, loop end).
+struct Pair { i32 a, b; bool operator!=(const Pair& o) const { return a != o.a || b != o.b; } };
+Pair markers(u32 track, u32 first) {
+    const i32* raw = static_cast<const i32*>(pad_region(track, 0));
+    return raw ? Pair{raw[first], raw[first + 1]} : Pair{0, 0};
+}
+void stock_shift_turn(u32 object, u32 encoder, opxy::u8 code, u32 track, const u32* event) {
+    if (code < stock_shift::kWindow) {
+        const u32 function = code - 1;
+        replay(object, encoder, function & 3, function >= 4, event);
+        return;
+    }
+    // The start and end are stock's encoders 0 and 3, the loop start and end 1 and 2.
+    const bool loop = code == stock_shift::kLoopWindow;
+    const u32 low = loop ? 1 : 0, high = loop ? 2 : 3;
+    const u32 first = loop ? pad_record::kLoopStart : pad_record::kStart;
+    const bool later = *reinterpret_cast<const i32*>(event) > 0;  // the turn's signed step
+    const Pair before = markers(track, first);
+    replay(object, encoder, later ? high : low, false, event);
+    if (markers(track, first) != before) replay(object, encoder, later ? low : high, false, event);
 }
 }
 u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
@@ -455,19 +474,11 @@ u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
     const u32 id = track < kTracks && word(kInstrumentPage) == 0 ? track_engine(track) : kNoEngine;
     const SynthControls* controls = own_controls(id);
     // The handler reads the encoder as its low two bits; negative means none.
-    if (controls && controls->stock_shift && static_cast<i32>(encoder) >= 0 && event && shift_held()) {
-        const u32 position = encoder & 3;
-        if (position == 2) {
-            const bool later = *reinterpret_cast<const i32*>(event) > 0;  // the turn's signed step
-            const opxy::SampleRegion before = trim(track);
-            replay(object, encoder, later ? 3 : 0, false, event);
-            const opxy::SampleRegion after = trim(track);
-            if (later ? after.end != before.end : after.begin != before.begin)
-                replay(object, encoder, later ? 0 : 3, false, event);
+    if (controls && static_cast<i32>(encoder) >= 0 && event && shift_held()) {
+        if (const opxy::u8 code = controls->stock_shift[encoder & 3]) {
+            stock_shift_turn(object, encoder, code, track, event);
             return 1;
         }
-        replay(object, encoder, position ? 3 : 0, position == 3, event);
-        return 1;
     }
     if (controls && static_cast<i32>(encoder) >= 0 && event) {
         opxy::u8 shown[opxy::page_controls];

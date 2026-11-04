@@ -435,32 +435,46 @@ class OutsideMachines(unittest.TestCase):
         definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
         for name in ('padSettings', 'drumControls'):
             definition['resources'].pop(name)
-        definition['resources']['shiftTrim'] = 1
-        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
-        # Shift's trim belongs to an own screen, which took the sampler page's encoders.
-        self.numberless(folder, base='sampler', sdk='1.10')
-        with self.assertRaisesRegex(ValueError, 'shiftTrim .* needs resources.display'):
+
+        def declare(stock_shift, display=True, sdk='1.10'):
+            resources = {k: v for k, v in definition['resources'].items() if k not in ('display', 'stockShift')}
+            if display:
+                synth = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+                resources['display'] = synth['resources']['display']
+            if stock_shift is not None:
+                resources['stockShift'] = stock_shift
+            (folder / 'definition.json').write_text(json.dumps(dict(definition, resources=resources)), encoding='utf-8')
+            self.numberless(folder, base='sampler', sdk=sdk)
+
+        def table():
+            with tempfile.TemporaryDirectory() as out:
+                adapters.generate_synth_controls(out, [machines.machine_at(folder)])
+                return (Path(out) / 'synth_control_table.cpp').read_text(encoding='utf-8')
+        # Shift's stock controls belong to an own screen, which took the sampler page's encoders.
+        declare(['start'], display=False)
+        with self.assertRaisesRegex(ValueError, 'stockShift .* needs resources.display'):
             machines.machine_at(folder)
-        synth = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
-        definition['resources']['display'] = synth['resources']['display']
-        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
-        self.numberless(folder, base='sampler', sdk='1.9')
-        with self.assertRaisesRegex(ValueError, r'''\(shiftTrim\) needs "sdk": "1.10"'''):
+        declare(['start'], sdk='1.9')
+        with self.assertRaisesRegex(ValueError, r'''\(stockShift\) needs "sdk": "1.10"'''):
             machines.machine_at(folder)
-        self.numberless(folder, base='sampler', sdk='1.10')
-        m = machines.machine_at(folder)
-        # Its controls row asks the sampler page for stock's Shift turns; without
-        # the flag the row leaves it false, and Shift turns stay fine steps.
-        with tempfile.TemporaryDirectory() as out:
-            adapters.generate_synth_controls(out, [m])
-            table = (Path(out) / 'synth_control_table.cpp').read_text(encoding='utf-8')
-        self.assertIn(', 0, {1, 1, 1, 1}, nullptr, true},', table)
-        definition['resources']['shiftTrim'] = 0
-        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
-        with tempfile.TemporaryDirectory() as out:
-            adapters.generate_synth_controls(out, [machines.machine_at(folder)])
-            table = (Path(out) / 'synth_control_table.cpp').read_text(encoding='utf-8')
-        self.assertNotIn('nullptr, true},', table)
+        for bad, message in ((['pitch'], 'stockShift names "pitch"'), (['crossfade'], "can't name crossfade"),
+                             ([], 'at most four names'),
+                             (['', '', '', '', 'gain'], 'at most four names'), ('gain', 'at most four names'),
+                             (['', ''], 'names no stock control'), (['gain', '', 'gain'], 'twice')):
+            declare(bad)
+            with self.assertRaisesRegex(ValueError, message):
+                machines.machine_at(folder)
+        # Each encoder takes any one of the stock page's eight turns or a window;
+        # an empty name, or one past the list, keeps Shift's fine turn.
+        declare(['end', 'loopWindow', '', 'start'])
+        self.assertIn(', 0, {1, 1, 1, 1}, nullptr, {4, 10, 0, 1}},', table())
+        declare(['direction', 'tune', '', 'gain'])
+        self.assertIn('nullptr, {5, 6, 0, 8}},', table())
+        declare(['window', 'loopStart', 'loopEnd'])
+        self.assertIn('nullptr, {9, 2, 3, 0}},', table())
+        # Without it the row leaves every code zero, and Shift turns stay fine steps.
+        declare(None)
+        self.assertNotIn('{1, 1, 1, 1}, nullptr', table())
 
     def test_only_a_sample_engines_own_screen_reads_the_overview_from_sdk_1_8(self):
         include = '#include <opxy/sample_overview.hpp>\n'

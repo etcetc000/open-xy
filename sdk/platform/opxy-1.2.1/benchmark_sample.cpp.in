@@ -20,7 +20,7 @@ opxy::benchmark::Stats @PREFIX@_benchmark() {
     const i32 parameters[8] = {@DEFAULTS@};
     u32 pitch[64];
     for (u32 i = 0; i < 64; ++i) pitch[i] = 25480118u; // C4 at 44.1 kHz
-    const SampleRegion region{0, sample_frames, sample_unity_level, false, 0};
+    const SampleRegion region{0, sample_frames, sample_unity_level, false, 0, sample_frames, sample_frames};
     PadSettings settings = 0;
 @SETTINGS@
     i32 output[64 * @CHANNELS@];

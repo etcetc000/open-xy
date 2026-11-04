@@ -55,11 +55,19 @@ int main() {
     opxy::i32 words[] = {10, 20, 80, 90, 1, 0, 0, 0x08000000};
     auto region = sample_region(words, 100, 0);
     check(region.begin == 20 && region.end == 80 && region.reverse, "inner region lost");
+    check(region.loop_begin == 20 && region.loop_end == 80, "loop markers lost");
     region = sample_region(words, 100, 0, true);
     check(region.begin == 10 && region.end == 90, "drum trim constrained by hidden loop markers");
+    check(region.loop_begin == 20 && region.loop_end == 80, "outer-only playback dropped the loop markers");
+    check(sample_region(nullptr, 100, 0).loop_begin == 100 && sample_region(nullptr, 100, 0).loop_end == 100,
+          "a missing region set a loop");
     opxy::i32 gui[] = {100, 10, 90, 20, 80, 0, 60, 0};
     auto visible = sample_gui_region(gui);
     check(visible.begin == region.begin && visible.end == region.end, "GUI/audio marker layouts disagree");
+    check(visible.loop_begin == region.loop_begin && visible.loop_end == region.loop_end, "GUI/audio loop layouts disagree");
+    gui[4] = -1;
+    check(sample_gui_region(gui).loop_end == 100, "GUI loop-end sentinel lost");
+    gui[4] = 80;
     gui[1] = gui[3] = 0; gui[2] = gui[4] = 100;
     visible = sample_gui_region(gui);
     check(visible.begin == 0 && visible.end == 100, "new assignment displays loop start as end");
@@ -91,5 +99,7 @@ int main() {
     check(region.begin == 10 && region.end == 90 && !region.reverse, "outer region lost");
     words[3] = -1; words[7] = -1; region = sample_region(words, 100, 0);
     check(region.end == 100 && region.level == 0, "end sentinel or negative volume failed");
+    words[2] = -1; words[1] = 500; region = sample_region(words, 100, 0);
+    check(region.loop_end == 100 && region.loop_begin == 100, "loop markers escaped the sample");
     std::puts("sample state, tuning and bounds contracts passed");
 }

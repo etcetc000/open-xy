@@ -39,8 +39,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
-# 1.10 lets Shift on a sample engine's own screen edit the stock sampler's
-# start, end, direction and gain (resources.shiftTrim).
+# 1.10 lets Shift on a sample engine's own screen give any encoder to one of the
+# stock sampler page's own controls (resources.stockShift).
 SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -330,8 +330,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and 'display' in definition['resources']:
         require_sdk(version, (1, 8), "A sample engine's own screen (resources.display)")
-    if definition['resources'].get('shiftTrim'):
-        require_sdk(version, (1, 10), "Shift for the stock sampler's trim (shiftTrim)")
+    if 'stockShift' in definition['resources']:
+        require_sdk(version, (1, 10), "Shift for the stock sampler page's controls (stockShift)")
     if paged(definition):
         require_sdk(version, (1, 3), 'A press that switches the page ("press": "page")')
         if len(definition['parameters']) < 8:
