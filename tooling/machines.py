@@ -39,7 +39,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
-SDK_VERSION = (1, 9)
+# 1.10 gives display code the track's amp envelope (draw::Input amp).
+SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}

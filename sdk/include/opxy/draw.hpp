@@ -51,6 +51,10 @@ struct Frame {
     Text texts[Texts > 0 ? Texts : 1];
     char header[page_controls][header_capacity];
 };
+// The track's stock amplitude envelope as Q31 words, 0..0x7fffffff, on the
+// scale of slots: a larger attack, decay or release is a longer stage, as
+// stock's envelope page draws it. These are control positions, not times.
+struct Envelope { i32 attack, decay, sustain, release; };
 struct Input {
     i32 parameters[page_controls];
     i32 elapsed;             // Q10 seconds; the author clamps late/invalid frames.
@@ -69,14 +73,19 @@ struct Input {
     u32 shift;
     u8 choices[4];
     u32 model;               // A drum kit's selected key's model (its machine); 0 for other kinds.
+    Envelope amp;            // The track's amp envelope (SDK 1.10); every word envelope_unavailable if unknown.
 };
 const u32 notes_unavailable = 0xffffffffu;
-static_assert(sizeof(Input) == 88 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
+const i32 envelope_unavailable = -1;
+inline bool envelope_known(const Envelope& envelope) {
+    return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
+}
+static_assert(sizeof(Input) == 104 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
               __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72 &&
               __builtin_offsetof(Input, shift) == 76 && __builtin_offsetof(Input, choices) == 80 &&
-              __builtin_offsetof(Input, model) == 84,
+              __builtin_offsetof(Input, model) == 84 && __builtin_offsetof(Input, amp) == 88,
               "Drawing input layout (display.mjs)");
 static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (display.mjs)");
 
