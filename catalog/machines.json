@@ -180,8 +180,8 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.9.0",
-      "commit": "c8508d7f55fbaabb470faec9c16f65d456a41d04",
+      "tag": "v1.9.1",
+      "commit": "b17d21f6ae5c8893e552a4ac5d3d17831e89bf7c",
       "path": "machines/chords",
       "keywords": [
         "chord"
