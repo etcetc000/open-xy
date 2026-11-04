@@ -32,17 +32,23 @@ u32 get16(const unsigned char* p) { return p[0] | p[1] << 8; }
 struct Spec {
     u32 image_bytes = 16, bss_bytes = 8, init_offset = 12, os = m::os_1_2_1, format = m::format, size = m::trailer_bytes;
     std::vector<m::Reloc> relocs = {{m::abs32 << 28 | 0, 20}, {m::hi16 << 28 | 4, 8}, {m::lo16 << 28 | 6, 8}};
+    const char* manifest = "";
+    u32 extra_manifest_bytes = 0;  // claimed beyond the text, into the image
     bool corrupt_crc = false, corrupt_magic = false;
 };
 
-// Image: word 0 relocated in full, word 1 as a hi/lo pair, words 2-3 plain.
+// Manifest text from offset 0, then the image (4-aligned): word 0 relocated in
+// full, word 1 as a hi/lo pair, words 2-3 plain.
 std::vector<unsigned char> build(const Spec& s) {
-    const u32 image_offset = 0, reloc_offset = s.image_bytes;
-    std::vector<unsigned char> f(s.image_bytes + 8 * s.relocs.size() + m::trailer_bytes, 0);
-    for (u32 i = 8; i < s.image_bytes; ++i) f[i] = static_cast<unsigned char>(i);
+    const u32 manifest_bytes = u32(std::strlen(s.manifest));
+    const u32 image_offset = (manifest_bytes + 3) & ~3u, reloc_offset = image_offset + s.image_bytes;
+    std::vector<unsigned char> f(reloc_offset + 8 * s.relocs.size() + m::trailer_bytes, 0);
+    std::memcpy(f.data(), s.manifest, manifest_bytes);
+    for (u32 i = 8; i < s.image_bytes; ++i) f[image_offset + i] = static_cast<unsigned char>(i);
     for (u32 i = 0; i < s.relocs.size(); ++i) { put32(f, reloc_offset + 8 * i, s.relocs[i].where); put32(f, reloc_offset + 8 * i + 4, s.relocs[i].target); }
-    const u32 crc = m::crc32(m::crc32(0, f.data(), s.image_bytes), f.data() + reloc_offset, 8 * u32(s.relocs.size()));
+    const u32 crc = m::crc32(m::crc32(0, f.data() + image_offset, s.image_bytes), f.data() + reloc_offset, 8 * u32(s.relocs.size()));
     const u32 t = u32(f.size()) - m::trailer_bytes;
+    put32(f, t, manifest_bytes + s.extra_manifest_bytes);
     put32(f, t + 4, image_offset); put32(f, t + 8, s.image_bytes); put32(f, t + 12, s.bss_bytes);
     put32(f, t + 16, reloc_offset); put32(f, t + 20, u32(s.relocs.size())); put32(f, t + 24, s.init_offset);
     put32(f, t + 28, s.corrupt_crc ? crc ^ 1 : crc); put32(f, t + 32, s.os);
@@ -117,6 +123,16 @@ int main(int argc, char** argv) {
     }
     { Spec s; s.relocs.clear(); s.bss_bytes = 0; Context c = {}; m::Module out;
       require(run(s, c, out) == m::loaded, "module without relocs refused"); release(&c, out.block); }
+    {
+        // A manifest in front moves the image, not what it becomes in memory.
+        Spec s; s.manifest = "{\"manifest\": 1, \"name\": \"x\"}\n"; Context c = {}; m::Module out;
+        require(run(s, c, out) == m::loaded, "module with a manifest refused");
+        require(get32(out.start) == out.base + 20 && out.start[8] == 8 && out.init == out.base + 12,
+                "module with a manifest staged wrongly");
+        release(&c, out.block);
+    }
+    { Spec s; s.manifest = "{\"manifest\": 1}\n"; s.extra_manifest_bytes = 4;
+      expect(s, m::bad_layout, "manifest reaching into the image admitted"); }
 
     { Spec s; s.corrupt_magic = true; expect(s, m::bad_trailer, "bad magic admitted"); }
     { Spec s; s.format = 1; expect(s, m::bad_trailer, "unknown format admitted"); }

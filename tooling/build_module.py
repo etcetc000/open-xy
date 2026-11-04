@@ -1,17 +1,18 @@
 """Build a module file (.opx, format 0, see sdk/platform/module_loader.hpp) from a module folder.
 
-  python sdk.py module build <folder> --out <file>.opx
+  python sdk.py module build <folder> --version 1.0.0 --out <file>.opx
 
 The folder holds src/*.cpp; one unit exports extern "C" opxy_module_init.
 Steps: compile with the pinned compiler, link at base 0 with relocations kept
 (ld -q), turn the kept relocations into the .opx list (ABS32 / HI16 / LO16 with
-target offsets; pc-relative ones need nothing), write image + relocs + trailer.
-Self-check: link again at another base and require that applying the list to
-the base-0 image gives exactly that second image.
+target offsets; pc-relative ones need nothing), write manifest + image + relocs
++ trailer. Self-check: link again at another base and require that applying the
+list to the base-0 image gives exactly that second image.
 """
 import argparse
 import json
 from pathlib import Path
+import re
 import struct
 import tempfile
 import zlib
@@ -32,6 +33,26 @@ PC_RELATIVE = {0x01, 0x03, 0x04, 0x08, 0x09, 0x0a, 0x0d, 0x0e, 0x13}
 KINDS = {R_BFIN_BYTE4_DATA: ABS32, R_BFIN_HUIMM16: HI16, R_BFIN_LUIMM16: LO16}
 LOADED = ('.text', '.rodata', '.data')
 ENTRY = '_opxy_module_init'
+MANIFEST = 1
+NAME = re.compile(r'[A-Za-z0-9_-]{1,15}')  # the file name on the device, without .opx
+# MAJOR.MINOR.PATCH, so a catalog can refuse an update that does not raise it.
+VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)')
+
+
+def api_version():
+    """module_api_version, as sdk/include/opxy/module.hpp declares it."""
+    text = (ROOT / 'sdk/include/opxy/module.hpp').read_text(encoding='utf-8')
+    found = re.search(r'const u32 module_api_version = ([0-9]+);', text)
+    require(found, 'module_api_version not found in module.hpp')
+    return int(found.group(1))
+
+
+def manifest(name, version, kind):
+    """The module's manifest: what it is, for people and tools. The loader does
+    not read it; see module_loader.hpp for what it may carry later."""
+    require(NAME.fullmatch(name), f'Module name "{name}": letters, digits, _ and -, at most 15')
+    require(type(version) is str and VERSION.fullmatch(version), f'Module version "{version}": MAJOR.MINOR.PATCH')
+    return dict(manifest=MANIFEST, name=name, version=version, kind=kind, os='1.2.1', api=api_version())
 
 
 def parse(data):
@@ -117,24 +138,29 @@ def apply(image, relocs, base):
     return bytes(image)
 
 
-def pack(image, bss, init, relocs):
+def pack(manifest_, image, bss, init, relocs):
+    """Manifest JSON from offset 0, zero-padded to 4, then image, relocs, trailer."""
+    text = (json.dumps(manifest_, indent=2) + '\n').encode('ascii')
+    image_offset = len(text) + -len(text) % 4
     reloc_bytes = b''.join(struct.pack('<2I', w, t) for w, t in relocs)
     crc = zlib.crc32(reloc_bytes, zlib.crc32(image))
-    trailer = TRAILER.pack(0, 0, len(image), bss, len(image), len(relocs), init, crc,
+    trailer = TRAILER.pack(len(text), image_offset, len(image), bss, image_offset + len(image), len(relocs), init, crc,
                            OS_1_2_1, FORMAT, TRAILER.size, MAGIC)
     require(TRAILER.size == 48, 'Trailer size')
-    return image + reloc_bytes + trailer
+    return text + bytes(image_offset - len(text)) + image + reloc_bytes + trailer
 
 
 def inspect(data):
-    """The loader's own checks, host side: trailer, layout, CRC and relocations."""
+    """The loader's own checks, host side: trailer, layout, CRC and relocations;
+    and the manifest, which the loader leaves alone."""
     require(len(data) >= TRAILER.size, 'Truncated module file')
-    (_manifest, image_offset, image_bytes, bss, reloc_offset, reloc_count, init, crc, os_version,
+    (manifest_bytes, image_offset, image_bytes, bss, reloc_offset, reloc_count, init, crc, os_version,
      format_, size, magic) = TRAILER.unpack(data[-TRAILER.size:])
     require(magic == MAGIC and format_ == FORMAT and size == TRAILER.size, 'Not a module file (format 0)')
     require(os_version == OS_1_2_1, 'Module built for another OS')
     end = len(data) - TRAILER.size
     require(not (image_offset | image_bytes) & 3 and image_bytes and image_offset + image_bytes <= end and
+            manifest_bytes <= image_offset and
             reloc_offset + 8 * reloc_count <= end and init < image_bytes and not init & 1 and
             bss <= 0x01000000 and image_bytes <= 0x01000000, 'Module layout outside the file')
     image = data[image_offset:image_offset + image_bytes]
@@ -144,11 +170,19 @@ def inspect(data):
         kind, offset = where >> 28, where & 0x0fffffff
         require(kind in (ABS32, HI16, LO16) and offset + (4 if kind == ABS32 else 2) <= image_bytes and
                 target <= image_bytes + bss, 'Invalid module relocation')
-    return dict(image=image_bytes, bss=bss, relocs=reloc_count, init=init)
+    try:
+        manifest_ = json.loads(data[:manifest_bytes]) if manifest_bytes else None
+    except ValueError:
+        manifest_ = None
+    require(type(manifest_) is dict and manifest_.get('manifest') == MANIFEST, 'Module manifest missing or unreadable')
+    return dict(manifest=manifest_, image=image_bytes, bss=bss, relocs=reloc_count, init=init)
 
 
-def build(folder, out, toolchain=None, compiler=None):
+def build(folder, out, version, toolchain=None, compiler=None):
+    """A module folder: named after the folder, kind "module" (its own init, no
+    machine around it)."""
     from . import native
+    description = manifest(Path(folder).resolve().name, version, 'module')
     tool_dir, compiler_dir = resolve_toolchain(toolchain, compiler)
     tools = tool_paths(tool_dir)
     cxx = native.compiler_paths(compiler_dir)['cxx']
@@ -169,12 +203,13 @@ def build(folder, out, toolchain=None, compiler=None):
                     for i in range(len(image)) if moved[i] != image1[i]]
             raise ValueError('Relocation list does not reproduce the second link:\n  ' + '\n  '.join(diff[:20]))
         require(apply(image, relocs, 0) == image, 'Relocation list changes the base-0 image')
-    data = pack(image, bss, init, relocs)
+    data = pack(description, image, bss, init, relocs)
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(data)
-    return dict(file=str(out), bytes=len(data), image=len(image), bss=bss, relocs=len(relocs),
-                init=hex(init), crc=hex(zlib.crc32(data[len(image):len(image) + 8 * len(relocs)], zlib.crc32(image))))
+    checked = inspect(data)
+    return dict(file=str(out), manifest=checked['manifest'], bytes=len(data), image=len(image), bss=bss,
+                relocs=len(relocs), init=hex(init), image_offset=len(data) - TRAILER.size - 8 * len(relocs) - len(image))
 
 
 MACHINE_INIT = '''// Generated by the module builder: {name} as a module. The machine's own
@@ -231,10 +266,11 @@ extern "C" int opxy_module_init(const opxy::ModuleApi* a) {{
 '''
 
 
-def build_machine(folder, out, layout, toolchain=None, compiler=None):
+def build_machine(folder, out, layout, version, toolchain=None, compiler=None):
     """A machine folder, unchanged, as a module: its sources, the generated
     display binding, a generated init that registers it, and the freestanding
-    runtime. Its engine and page numbers come from the layout."""
+    runtime. Its engine and page numbers come from the layout; the module is
+    named after the machine's ID."""
     import json as _json
     from . import native
     from .adapters import generate_display
@@ -247,6 +283,7 @@ def build_machine(folder, out, layout, toolchain=None, compiler=None):
     m = machines[0]
     require(m.kind == 'synth', f'Only synths can be modules so far, not {m.kind}')
     require(m.display != 'stock', 'A synth module needs its own display')
+    description = manifest(m.id, version, m.kind)
     from .adapters import catalog_entry
     ids = native.display_ids(m.prefix, m.definition['resources']['display'])
     artwork = native.screen.compose(native.validate_panel(m))
@@ -278,12 +315,12 @@ def build_machine(folder, out, layout, toolchain=None, compiler=None):
         image1, bss1, init1, _ = link(tools, work, objects, CHECK_BASE)
         require((bss1, init1, len(image1)) == (bss, init, len(image)), 'Second link differs in layout')
         require(apply(image, relocs, CHECK_BASE) == image1, 'Relocation list does not reproduce the second link')
-    data = pack(image, bss, init, relocs)
+    data = pack(description, image, bss, init, relocs)
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(data)
-    return dict(file=str(out), machine=m.id, engine_id=values['engine_id'], page_id=values['page_id'],
-                bytes=len(data), image=len(image), bss=bss, relocs=len(relocs))
+    return dict(file=str(out), manifest=inspect(data)['manifest'], engine_id=values['engine_id'],
+                page_id=values['page_id'], bytes=len(data), image=len(image), bss=bss, relocs=len(relocs))
 
 
 def main(argv=None):
@@ -294,6 +331,8 @@ def main(argv=None):
     command.add_argument('folder', type=Path, nargs='?')
     command.add_argument('--machine', type=Path, help='an unchanged machine folder, wrapped as a module')
     command.add_argument('--layout', type=Path, help="with --machine: the layout.json that numbers the machine")
+    command.add_argument('--version', required=True,
+                         help="the module's version, MAJOR.MINOR.PATCH; raise it with every release")
     command.add_argument('--out', type=Path, required=True)
     command.add_argument('--toolchain', type=Path)
     command.add_argument('--compiler', type=Path)
@@ -301,10 +340,11 @@ def main(argv=None):
     try:
         if args.machine:
             require(args.layout and not args.folder, '--machine needs --layout and no module folder')
-            print(json.dumps(build_machine(args.machine, args.out, args.layout, args.toolchain, args.compiler), indent=2))
+            print(json.dumps(build_machine(args.machine, args.out, args.layout, args.version,
+                                           args.toolchain, args.compiler), indent=2))
             return 0
         require(args.folder, 'A module folder or --machine')
-        print(json.dumps(build(args.folder, args.out, args.toolchain, args.compiler), indent=2))
+        print(json.dumps(build(args.folder, args.out, args.version, args.toolchain, args.compiler), indent=2))
         return 0
     except (ValueError, OSError, KeyError) as error:
         parser.exit(1, str(error) + '\n')

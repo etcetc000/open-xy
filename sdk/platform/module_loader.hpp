@@ -2,6 +2,7 @@
 // startup on each processor role into memory of its own.
 //
 // File layout, little-endian:
+//   manifest JSON text, manifest_bytes from offset 0, zero-padded to image_offset
 //   image    code, rodata, data, linked at 0; image_bytes at image_offset (4-aligned)
 //   relocs   reloc_count Reloc entries at reloc_offset
 //   trailer  Trailer, the last trailer_bytes of the file
@@ -9,6 +10,28 @@
 // aligned to one cache line. A relocation writes base + target: Abs32 the word
 // at its offset, Hi16 / Lo16 the 16-bit immediate of a Blackfin "reg.H/.L = imm16".
 // crc is CRC-32 (IEEE) over the image as stored, then the relocs.
+//
+// Trailer: manifest_bytes, image_offset, image_bytes, bss_bytes, reloc_offset,
+// reloc_count, init_offset, crc, os (u32 each); format, trailer_bytes (u16);
+// magic (8 bytes).
+//
+// The manifest says what the module is, for people and tools (the builder,
+// a catalog, a web installer); the loader only requires that it ends before
+// the image. Manifest 1, as tooling/build_module.py writes it:
+//   {"manifest": 1, "name": "karplus", "version": "1.0.0", "kind": "synth",
+//    "os": "1.2.1", "api": 2}
+//   name     the file name without .opx: [A-Za-z0-9_-], at most 15
+//   version  MAJOR.MINOR.PATCH; a catalog can refuse an update that does not raise it
+//   kind     a machine kind (synth, ...), or "module" for a bare module with its own init
+//   os       the stock OS the module is linked against (also the trailer's os)
+//   api      the ModuleApi version it was built with (module_api_version)
+// Room for more, none of it read yet; each would be checked before a module
+// runs, by the loader or by the tool that installs it:
+//   - the SDK version and the version of each contract it uses
+//     (sdk/include/opxy/*.hpp), so an old module never reads a changed struct
+//   - a tier: what the module may touch (audio only, screens, files, the sequencer)
+//   - what it claims (keys, controls, pages), so overlaps show at boot
+//   - modules it needs, and a hash or signature of its author or catalog
 #pragma once
 #include <opxy/types.hpp>
 namespace opxy { namespace modules {

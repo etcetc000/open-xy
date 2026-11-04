@@ -1,8 +1,6 @@
 """The custom firmware's own folder on the user drive, /open-xy. `device push`
 hands every file it is given there to check(); each kind of file has its own
 place and its own check here, so the transfer tool never changes per feature."""
-import re
-
 from .formats import require
 
 FOLDER = 'open-xy'
@@ -10,9 +8,12 @@ FOLDER = 'open-xy'
 
 def check_module(name, data):
     from . import build_module
-    require(re.fullmatch(r'[\w\-]+\.opx', name, re.ASCII) is not None,
-            'Module file names are letters, digits, _ and -, then .opx: ' + name)
-    build_module.inspect(data)
+    stem = name.removesuffix('.opx')
+    require(name.endswith('.opx') and build_module.NAME.fullmatch(stem) is not None,
+            'Module file names are letters, digits, _ and -, at most 15, then .opx: ' + name)
+    # A module is known by its name: the file carries the one it was built with.
+    require(build_module.inspect(data)['manifest'].get('name') == stem,
+            'Module file name differs from the name in its manifest: ' + name)
 
 
 # Subfolder of /open-xy: the check for each file in it.

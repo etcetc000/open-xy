@@ -10,7 +10,7 @@ COMMANDS = '''Commands:
   test      Check machine and extension folders anywhere: python sdk.py test --machine ../mymachine | --extension ../myextension [--firmware]
   catalog   Published machines and extensions: python sdk.py catalog check | fetch | test [--tags]
   project   Project companions: python sdk.py project write --layout layout.json song.xy | check song.xy
-  module    Module files: python sdk.py module build <folder> --out <file>.opx
+  module    Module files: python sdk.py module build <folder> --version 1.0.0 --out <file>.opx
   compile   Native module only: python sdk.py compile --help
   build     Native firmware package: python sdk.py build [--machine <folder>] --help
   verify    Rebuild and compare a native package: python sdk.py verify --help

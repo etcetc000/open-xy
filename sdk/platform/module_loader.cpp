@@ -7,14 +7,13 @@ void put16(unsigned char* p, u32 v) { p[0] = static_cast<unsigned char>(v); p[1]
 void put32(unsigned char* p, u32 v) { put16(p, v); put16(p + 2, v >> 16); }
 
 struct Trailer {
-    u32 image_offset, image_bytes, bss_bytes, reloc_offset, reloc_count, init_offset, crc, os;
+    u32 manifest_bytes, image_offset, image_bytes, bss_bytes, reloc_offset, reloc_count, init_offset, crc, os;
     u16 format, size;
 };
 
 Trailer parse(const unsigned char* p) {
-    // manifest_size at offset 0 is reserved and ignored.
     Trailer t;
-    t.image_offset = get32(p + 4); t.image_bytes = get32(p + 8); t.bss_bytes = get32(p + 12);
+    t.manifest_bytes = get32(p); t.image_offset = get32(p + 4); t.image_bytes = get32(p + 8); t.bss_bytes = get32(p + 12);
     t.reloc_offset = get32(p + 16); t.reloc_count = get32(p + 20); t.init_offset = get32(p + 24);
     t.crc = get32(p + 28); t.os = get32(p + 32); t.format = get16(p + 36); t.size = get16(p + 38);
     return t;
@@ -68,7 +67,7 @@ Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory,
     if (t.os != os) return wrong_os;
     const u32 end = bytes - trailer_bytes;
     if ((t.image_offset | t.image_bytes) & 3 || !t.image_bytes ||
-        t.image_offset > end || t.image_bytes > end - t.image_offset ||
+        t.image_offset > end || t.image_bytes > end - t.image_offset || t.manifest_bytes > t.image_offset ||
         t.reloc_offset > end || t.reloc_count > (end - t.reloc_offset) / sizeof(Reloc) ||
         t.init_offset >= t.image_bytes || (t.init_offset & 1) ||
         t.bss_bytes > 0x01000000u || t.image_bytes > 0x01000000u) return bad_layout;
