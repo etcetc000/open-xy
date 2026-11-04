@@ -28,6 +28,7 @@ import os
 from pathlib import Path, PurePosixPath
 import sys
 
+from . import cfw_files
 from .formats import require, sha
 from .pipeline import fresh_output
 from .release import outside_checkouts
@@ -35,7 +36,7 @@ from .release import outside_checkouts
 # Explorer and Finder leave these beside copied files; they never belong on the device.
 JUNK = {'thumbs.db', 'desktop.ini', '.ds_store'}
 # What a build or kit installs; anything else at the top is the wrong folder.
-TOP = {'os.ldr', 'content', 'open-xy'}
+TOP = {'os.ldr', 'content', cfw_files.FOLDER}
 IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003  # A directory junction; cloud and dedup reparse points are ordinary files.
 
 
@@ -65,7 +66,7 @@ def source_files(folder):
     require(not (folder / 'candidate').is_dir(), f'{folder} holds a build; push its candidate folder: {folder / "candidate"}')
     unexpected = sorted(x.name for x in folder.iterdir() if x.name.lower() not in TOP and not junk(x.name))
     require(not unexpected, f'{folder} is not laid out like the device (only os.ldr, content/ and '
-            'open-xy/modules/<name>.opx at the top): ' + ', '.join(unexpected))
+            f'{cfw_files.FOLDER}/ at the top): ' + ', '.join(unexpected))
     files, skipped = {}, []
     for directory, folders, names in os.walk(folder, onerror=unreadable):  # Never push part of a source.
         here = Path(directory)
@@ -81,21 +82,9 @@ def source_files(folder):
     require(files, f'No files below {folder}')
     distinct_without_case(files)
     for parts, data in files.items():
-        if parts[0].lower() == 'open-xy':
-            validate_module_file(parts, data)
+        if parts[0].lower() == cfw_files.FOLDER:
+            cfw_files.check(parts, data)
     return dict(sorted(files.items())), sorted(skipped)
-
-
-def validate_module_file(parts, data):
-    # DIRTY (feat/module-files), to be ripped out: a feature check inside the generic
-    # transfer tool. Module files need a validation hook of their own.
-    import re
-    from . import build_module
-    require(parts[:2] == ('open-xy', 'modules') and len(parts) == 3,
-            'Only module files may be pushed under open-xy/, in open-xy/modules/')
-    require(re.fullmatch(r'[\w\-]+\.opx', parts[2], re.ASCII) is not None,
-            'Module file names are letters, digits, _ and -: ' + parts[2])
-    build_module.inspect(data)
 
 
 def distinct_without_case(paths):

@@ -1,9 +1,7 @@
-// Module files, diagnostic build. Once per processor role, at startup, every
-// <name>.opx in /open-xy/modules is loaded into stock heap memory, in name
-// order, and its init is called (module_loader.hpp has the format). A module
-// that fails any check is left out and startup goes on. Each role then writes
-// gui-module.oxc or audio-module.oxc into /open-xy: one entry per module
-// with its status ("loaded" or "m-<code>"), base, notes and init result.
+// Module files. Once per processor role, at startup, every <name>.opx in
+// /open-xy/modules is loaded into stock heap memory, in name order, and its
+// init is called (module_loader.hpp has the format). A module that fails any
+// check, or whose init refuses, is left out and startup goes on.
 #include "module_loader.hpp"
 #include "module_synths.hpp"
 #include "stock.hpp"
@@ -22,33 +20,10 @@ const char folder[] = "/fat32/open-xy/modules";
 const u32 modules_max = 16, name_max = 15;  // name without ".opx"
 
 bool attempted;
-char report[2048];
-u32 used;
-u32 notes;
 
-void put(const char* s) { while (*s && used < sizeof(report) - 48) report[used++] = *s++; }
-void put_hex(u32 v) {
-    put("0x");
-    for (int shift = 28; shift >= 0; shift -= 4) { char c[2] = {"0123456789abcdef"[(v >> shift) & 15], 0}; put(c); }
-}
-void put_dec(u32 v) {
-    char digits[11]; int n = 0;
-    do digits[n++] = static_cast<char>('0' + v % 10); while (v /= 10);
-    char c[2] = {0, 0};
-    while (n) { c[0] = digits[--n]; put(c); }
-}
-
-// One short line from the module being initialized; quotes and control
-// characters are dropped.
-void note(const char* text) {
-    if (!text || notes >= 8) return;
-    put(notes++ ? ",\"" : "\"");
-    for (u32 i = 0; text[i] && i < 48; ++i) {
-        const char c = text[i];
-        if (c >= 32 && c < 127 && c != '"' && c != '\\') { char s[2] = {c, 0}; put(s); }
-    }
-    put("\"");
-}
+// A short line from a module's init. Kept in the API for the live log
+// monitor to come; nothing reads it yet.
+void note(const char*) {}
 
 bool in_arena(const unsigned char* p, u32 bytes) {
     const u32 a = static_cast<u32>(reinterpret_cast<Address>(p));
@@ -127,50 +102,32 @@ unsigned char* read_file(const char* path, u32& bytes) {
 unsigned char* sdk_module_read_file(const char* path, u32& bytes) { return read_file(path, bytes); }
 namespace {
 
-// The report is written by a task of its own, after startup: writing and
-// flushing from inside startup blocked the boot (probe 002). fclose's FAT sync
-// discards the card-flush result (#339's collection_io.hpp), so the role-aware stock
-// flush runs explicitly, as #339's helper task does. If either blocks, only
-// this task waits. Without "done" the report stops where startup stopped.
-// The GUI role first creates /open-xy and /open-xy/modules, so they show over
-// MTP before the first module is copied; stock's mkdir (8c0bd5bc, as its MTP
-// folder creation calls it) fails harmlessly when a folder exists. Done here
-// rather than in startup for the same reason as the report.
-bool report_gui;
+// The GUI role creates /open-xy and /open-xy/modules, so they show over MTP
+// before the first module is copied. Stock's mkdir (8c0bd5bc, as its MTP
+// folder creation calls it) fails harmlessly when a folder exists. A task of
+// its own does it, after startup: writing and flushing from inside startup
+// blocked the boot (probe 002). The FAT sync discards the card-flush result
+// (#339's collection_io.hpp), so the role-aware stock flush runs explicitly.
+// If either blocks, only this task waits.
 volatile u32 finished;
-u32 started_at, finished_at;
-alignas(8) unsigned char report_tcb[112];
-alignas(8) u32 report_stack[2048];
-u32 ticks() { return stock<u32()>(0x8c03ee20)(); }
+alignas(8) unsigned char folders_tcb[112];
+alignas(8) u32 folders_stack[2048];
 void delay(u32 ticks) { stock<void(u32)>(0x8c040188)(ticks); }
-void write_report(void*) {
+void make_folders(void*) {
     for (u32 waited = 0; !finished && waited < 60000; waited += 100) delay(100);
     delay(5000);  // startup I/O first
-    if (report_gui) {
-        stock<i32(const char*, u32)>(0x8c0bd5bc)(root, 0x1ff);
-        stock<i32(const char*, u32)>(0x8c0bd5bc)(folder, 0x1ff);
-    }
-    const char* path = report_gui ? "/fat32/open-xy/gui-module.oxc" : "/fat32/open-xy/audio-module.oxc";
-    put(finished ? "],\"done\":true" : "],\"done\":false");
-    put(",\"probe_ticks\":"); put_dec(finished ? finished_at - started_at : 0);
-    put(",\"report_ticks\":"); put_dec(ticks() - started_at);
-    put("}\n");
-    if (void* file = open(path, "wb")) {
-        stock<u32(const void*, u32, u32, void*)>(0x8fed0780)(report, 1, used, file);
-        close(file);
-        stock<i32()>(0x8c0c0f00)();
-    }
+    stock<i32(const char*, u32)>(0x8c0bd5bc)(root, 0x1ff);
+    stock<i32(const char*, u32)>(0x8c0bd5bc)(folder, 0x1ff);
+    stock<i32()>(0x8c0c0f00)();
     for (;;) delay(60000);
 }
-void start_report(bool gui) {
-    report_gui = gui;
+void start_folders() {
     stock<void*(void (*)(void*), const char*, u32, void*, u32, u32*, void*)>(0x8c03f744)(
-        write_report, "openxy-modules", 2048, nullptr, 1, report_stack, report_tcb);
+        make_folders, "openxy-modules", 2048, nullptr, 1, folders_stack, folders_tcb);
 }
 
 char names[modules_max][name_max + 1];
 u32 count;
-bool too_many;
 
 void scan() {
     void* dir = dir_open(folder);
@@ -179,7 +136,7 @@ void scan() {
     while (const unsigned char* entry = dir_next(dir)) {
         if (entry[dirent_type] == dirent_folder) continue;
         if (!module_name(reinterpret_cast<const char*>(entry + dirent_name), name)) continue;
-        if (count == modules_max) { too_many = true; continue; }
+        if (count == modules_max) continue;  // the rest are left out
         // Insertion in name order: both roles load the same set in the same order.
         u32 at = count++;
         for (; at && before(name, names[at - 1]); --at)
@@ -200,21 +157,15 @@ void load(const char* name, bool gui) {
     for (const char* p = ".opx"; *p; ++p) path[n++] = *p;
     path[n] = 0;
 
-    put("{\"name\":\""); put(name); put("\",\"status\":\"");
     u32 bytes;
     unsigned char* data = read_file(path, bytes);
     modules::Module module = {};
     const modules::Status status = !data ? modules::io_error :
         modules::stage(data, bytes, modules::os_1_2_1, modules::Memory{nullptr, allocate, release, synchronize}, module);
     if (data) release(nullptr, data);
-    if (status != modules::loaded) { put("m-"); put_dec(status); put("\"}"); return; }
-    put("loaded\",\"base\":\""); put_hex(module.base); put("\",\"bytes\":"); put_dec(module.bytes);
-    put(",\"notes\":["); notes = 0;
-    const int result = reinterpret_cast<int (*)(const ModuleApi*)>(static_cast<Address>(module.init))(gui ? &api_gui : &api_audio);
-    put("],\"init\":"); put_dec(static_cast<u32>(result));
-    if (result) put(",\"status_after_init\":\"m-108\"");
-    // A module whose init refused stays in memory but is never called again.
-    put("}");
+    if (status != modules::loaded) return;
+    // A module whose init refuses stays in memory but is never called again.
+    reinterpret_cast<int (*)(const ModuleApi*)>(static_cast<Address>(module.init))(gui ? &api_gui : &api_audio);
 }
 }
 
@@ -223,21 +174,11 @@ void sdk_module_probe() {
     if (attempted) return;
     attempted = true;
     const bool gui = stock<u32()>(0x8d5c3eac)() != 0;
-    used = 0;
-    started_at = ticks();
-    put("{\"format\":\"openxy-module-probe/2\",\"role\":\"");
-    put(gui ? "gui" : "audio");
-    put("\",\"modules\":[");
-    start_report(gui);
+    if (gui) start_folders();
     scan();
     sdk_module_registration(true);
-    for (u32 i = 0; i < count; ++i) {
-        if (i) put(",");
-        load(names[i], gui);
-    }
+    for (u32 i = 0; i < count; ++i) load(names[i], gui);
     sdk_module_registration(false);
-    if (too_many) put(count ? ",{\"status\":\"m-109\"}" : "{\"status\":\"m-109\"}");
-    finished_at = ticks();
     finished = 1;
 }
 void sdk_module_load_now() { sdk_module_probe(); }

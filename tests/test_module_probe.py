@@ -58,10 +58,9 @@ template<class Function> Function* stock(u32 address) {
 
             def match(path, kind='file', other_rule=False):
                 return subprocess.check_output([str(runner), path, kind, str(int(other_rule))], text=True).strip() == '1'
-            for path in ('/open-xy/modules/test.opx', '/open-xy/modules/my-synth_2.opx',
-                         '/open-xy/gui-module.oxc', '/projects/folder/song.xy'):
+            for path in ('/open-xy/modules/test.opx', '/open-xy/modules/my-synth_2.opx', '/projects/folder/song.xy'):
                 self.assertTrue(match(path), path)
-            for path in ('/open-xy/test.opx', '/projects/openxy/test.opx', '/open-xy/modules/.opx',
+            for path in ('/open-xy/test.opx', '/open-xy/gui-module.oxc', '/projects/openxy/test.opx', '/open-xy/modules/.opx',
                          '/open-xy/modules/a b.opx', '/open-xy/modules/a.opx/extra', '/open-xy/modules/a.opxx',
                          '/open-xy/modules/../a.opx', '/open-xy/modules/x.oxc', '/test.opx'):
                 self.assertFalse(match(path), path)

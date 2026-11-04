@@ -335,7 +335,7 @@ class DeviceTransferTests(unittest.TestCase):
 
     def test_source_must_be_laid_out_like_the_device(self):
         candidate(self.source, {'manifest.json': b'{}'})
-        with self.assertRaisesRegex(ValueError, 'only os.ldr, content/ and open-xy/modules/<name>.opx at the top\\): manifest.json'):
+        with self.assertRaisesRegex(ValueError, 'only os.ldr, content/ and open-xy/ at the top\\): manifest.json'):
             transfer.source_files(self.source)
 
     def test_only_symlinks_and_junctions_count_as_links(self):
@@ -439,23 +439,22 @@ class DeviceTransferTests(unittest.TestCase):
         self.assertEqual((self.temp / 'os.ldr').read_bytes(), b'new os')
 
     def test_cli_pulls_several_files_and_folders_in_one_session(self):
-        device = FakeDevice({'/open-xy/gui-module.oxc': b'g', '/open-xy/audio-module.oxc': b'a',
-                             '/open-xy/modules/x.opx': b'x', '/os.ldr': b'os'})
+        device = FakeDevice({'/open-xy/modules/gui.opx': b'g', '/open-xy/modules/audio.opx': b'a',
+                             '/open-xy/modules/sub/x.opx': b'x', '/os.ldr': b'os'})
         sessions = []
         def connect():
             sessions.append(1)
             return device
         with contextlib.redirect_stdout(io.StringIO()):
-            transfer.main(['pull', 'open-xy', 'os.ldr', '--out', str(self.temp / 'reports')], connect=connect)
+            transfer.main(['pull', 'open-xy/modules', 'os.ldr', '--out', str(self.temp / 'several')], connect=connect)
         self.assertEqual(len(sessions), 1)
-        self.assertEqual(sorted(p.name for p in (self.temp / 'reports').iterdir()),
-                         ['audio-module.oxc', 'gui-module.oxc', 'os.ldr'])
-        self.assertEqual((self.temp / 'reports/gui-module.oxc').read_bytes(), b'g')
+        self.assertEqual(sorted(p.name for p in (self.temp / 'several').iterdir()), ['audio.opx', 'gui.opx', 'os.ldr'])
+        self.assertEqual((self.temp / 'several/gui.opx').read_bytes(), b'g')
         with contextlib.redirect_stdout(io.StringIO()):
-            transfer.main(['pull', 'open-xy', '--out', str(self.temp / 'one-folder')], connect=connect)
+            transfer.main(['pull', 'open-xy/modules', '--out', str(self.temp / 'one-folder')], connect=connect)
         self.assertTrue((self.temp / 'one-folder').is_dir())
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            transfer.main(['pull', 'open-xy/missing.oxc', '--out', str(self.temp / 'none')], connect=connect)
+            transfer.main(['pull', 'open-xy/modules/missing.opx', '--out', str(self.temp / 'none')], connect=connect)
         self.assertFalse((self.temp / 'none').exists())
 
     def test_cli_rejects_bad_source_without_connecting(self):

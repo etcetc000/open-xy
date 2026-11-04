@@ -13,8 +13,6 @@ u32 match(const char* pattern, const void* path) { return stock<u32(const char*,
 const char root_pattern[] = "^/open-xy$";
 const char modules_pattern[] = "^/open-xy/modules$";
 const char module_pattern[] = "^/open-xy/modules/[\\w\\-]+\\.opx$";
-// The probe reports (gui-module.oxc, audio-module.oxc), so they can be read back.
-const char report_pattern[] = "^/open-xy/[\\w\\-]+\\.oxc$";
 }
 
 extern "C" u32 sdk_module_mtp_folder_match(const char* pattern, const void* path) __asm__("sdk_module_mtp_folder_match");
@@ -28,5 +26,5 @@ extern "C" u32 sdk_module_mtp_match(const char* pattern, const void* path) __asm
 u32 sdk_module_mtp_match(const char* pattern, const void* path) {
     if (match(pattern, path)) return 1;
     if (pattern != reinterpret_cast<const char*>(0x840ae4b0)) return 0;
-    return match(module_pattern, path) || match(report_pattern, path);
+    return match(module_pattern, path);
 }

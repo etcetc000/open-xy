@@ -24,7 +24,7 @@ struct Reloc {
     u32 target;  // offset in the module (image or bss) the value points to
 };
 
-// Shown as "m-<code>" in reports; codes are part of the format.
+// Codes are part of the format (a log names them "m-<code>").
 enum Status : u32 {
     loaded = 0,
     short_file = 101, bad_trailer = 102, wrong_os = 103, bad_layout = 104,
