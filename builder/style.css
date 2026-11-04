@@ -72,6 +72,9 @@ main { display:grid; grid-template-columns:230px minmax(0,1fr); gap:24px; max-wi
 .primary { display:inline-flex; align-items:center; justify-content:center; gap:20px; background:var(--accent); color:var(--accent-ink); border:1px solid var(--accent); border-radius:7px; padding:12px 22px; min-height:46px; font-weight:400; font-size:14px; text-decoration:none; }
 .primary:not(:disabled):hover { background:var(--accent-hover); }
 .secondary,.text-button { color:var(--muted); font-size:13px; }
+.mtp-help-button { margin-top:12px; padding:10px 16px; min-height:44px; max-width:100%; color:var(--ink); background:transparent; border:1px solid var(--line); border-radius:7px; font-size:14px; }
+.mtp-help-button:not(:disabled):hover { background:var(--soft); border-color:var(--muted); }
+.mtp-help-button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .os-note { max-width:520px; margin:18px auto 0; font-size:13px; line-height:1.5; color:var(--muted); text-align:center; }
 .os-note strong { color:var(--ink); font-weight:700; }
 .flow-actions { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:12px; margin-top:28px; }

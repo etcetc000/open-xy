@@ -194,7 +194,7 @@
     <button id="recovery-disable-again" class="secondary">Dev menu still visible · Disable again</button>
   </div>
   <aside id="flow-missing-os" class="install-reminder" aria-labelledby="missing-os-title" hidden>
-    <h3 id="missing-os-title">Can't connect to MTP, or can't find os.ldr?</h3>
+    <h3 id="missing-os-title">Connected, but can’t find os.ldr?</h3>
     <p>On rare occasions, a factory reset or initialization can leave your OP–XY without the original os.ldr file. Disable the dev menu, reinstall OS 1.2.1 with the dev menu disabled, then try again.</p>
     <button id="missing-os-help" class="primary">The OS file is missing · Help me recover it</button>
   </aside>
@@ -213,7 +213,18 @@
     <div id="mtp-sending" hidden><div class="transfer-bar"><span id="mtp-bar"></span></div><p id="mtp-progress" class="file-result"></p><p id="mtp-current" class="transfer-current"></p></div>
     <ol id="mtp-log" class="transfer-log" aria-label="Transfer log" aria-live="polite" hidden></ol>
   </section>
+  <details id="mtp-faq" hidden><summary>MTP troubleshooting FAQ</summary>
+    <h3>Did installing soundpacks cause this?</h3>
+    <p>We don’t know. Persistent failures were reported with soundpacks installed, but that does not establish a cause. Removing soundpacks has not been verified as a fix.</p>
+    <h3>Field Kit and OpenMTP both fail. What next?</h3>
+    <p>The fresh-install guide walks you through formatting the drive and reinstalling official OS 1.2.1 before installing Open-XY. Back up your files first: formatting erases the drive. This resolved a reported MTP problem, but is not a guaranteed fix.</p>
+    <h3>MTP works, but the original OS file is missing.</h3>
+    <p>This is a separate problem. Return to the OS-copy step and select “The OS file is missing · Help me recover it”. That guide reinstalls the official OS without directing you to format the drive.</p>
+    <h3>Where do the new build files go?</h3>
+    <p>Copy <code>os.ldr</code> to the root and merge <code>content/</code> into the root’s content folder. After copying, follow the write-OS steps; copying alone does not install firmware.</p>
+  </details>
   <div id="flow-actions" class="flow-actions"></div>
+  <button type="button" id="mtp-help-button" class="secondary mtp-help-button" hidden>I’m having trouble connecting to MTP</button>
   <p id="dev-status" role="status" aria-live="polite"></p>
   <button type="button" id="dev-cancel" hidden>Cancel connection</button>
   <details id="connection-help" hidden><summary>Connection help</summary><p>Use a compatible desktop browser, such as Chrome or Edge. Close other MIDI apps. If this page cannot get MIDI permission, use the <a href="https://bagofwaffles.github.io/ferret/op-xy/" target="_blank" rel="noopener noreferrer">hosted Ferret tool</a>, then check the menu here again.</p><div id="midi-diagnostics" hidden><p>MIDI ports reported by this browser at the last connection attempt:</p><pre id="midi-ports"></pre></div><p class="attribution"><a href="https://github.com/bagofwaffles/ferret" target="_blank" rel="noopener noreferrer">Ferret by Bag of Waffles</a> · MIT license</p></details>
