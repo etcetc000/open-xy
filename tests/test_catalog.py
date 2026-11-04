@@ -8,7 +8,9 @@ import re
 import shutil
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 from tooling import catalog
 from tooling.machines import FIXED_NUMBERS, ROOT
@@ -16,7 +18,9 @@ from machine_fixtures import FOLDER
 
 PUBLISHED = dict(id='probe', kind='synth', maintainer='someone',
                  status='published', repository='https://github.com/someone/opxy-probe', tag='v1.0.0',
-                 commit='0' * 40, path='.')
+                 commit='0' * 40, path='.', keywords=['fm'])
+# An entry from before keywords, as most catalog entries were.
+UNLISTED = {k: v for k, v in PUBLISHED.items() if k != 'keywords'}
 
 
 def document(*entries):
@@ -41,13 +45,32 @@ class Validation(unittest.TestCase):
                 catalog.validate(document(broken))
 
     def test_fields_are_checked(self):
-        for change in (dict(id='Bad'), dict(id='sdk_probe'), dict(kind='player'), dict(identity=dict(engine=36, page=85)),
+        for change in (dict(id='Bad'), dict(id='sdk_probe'), dict(kind='unknown'), dict(identity=dict(engine=36, page=85)),
                        dict(maintainer='not a user'), dict(repository='https://example.com/a/b'),
                        dict(repository='https://github.com/someone/..'),
                        dict(repository='git@github.com:a/b'), dict(commit='abc'), dict(tag='v 1'),
                        dict(path='../x'), dict(path='/x')):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 catalog.validate(document(dict(PUBLISHED, **change)))
+
+    def test_keywords_are_words_from_the_list(self):
+        reserved = {k: PUBLISHED[k] for k in catalog.COMMON} | {'status': 'reserved'}
+        for entry in (dict(PUBLISHED, keywords=['fm', 'bell']), dict(reserved, keywords=['pad']),
+                      dict(PUBLISHED, keywords=list(catalog.KEYWORDS[:catalog.MAX_KEYWORDS]))):
+            catalog.validate(document(entry))
+        for keywords in ([], ['fm', 'fm'], ['FM'], ['unknown'], 'fm', [1], [['fm']], [{}], [None], list(catalog.KEYWORDS[:catalog.MAX_KEYWORDS + 1])):
+            with self.subTest(keywords=keywords), self.assertRaisesRegex(ValueError, 'keywords'):
+                catalog.validate(document(dict(PUBLISHED, keywords=keywords)))
+        extension = dict(PUBLISHED, id='probe_extension', kind='extension', keywords=['fm'])
+        with self.assertRaisesRegex(ValueError, 'only machines'):
+            catalog.validate({'schema': 1, 'extensions': [extension]}, 'extensions')
+
+    def test_player_catalog_has_no_audio_render_cpu_record(self):
+        player = dict(PUBLISHED, kind='player')
+        catalog.validate(document(player))
+        catalog.changes([], [player])
+        with self.assertRaisesRegex(ValueError, 'audio cpu'):
+            catalog.validate(document(dict(player, cpu={})))
 
     def test_ids_are_held_once(self):
         other = dict(PUBLISHED, id='other')
@@ -79,6 +102,15 @@ class BuilderPatterns(unittest.TestCase):
             found = re.search(key + r": /\^(.*?)\$/[,}]", source)
             self.assertIsNotNone(found, key)
             self.assertEqual(found.group(1).replace('\\/', '/'), pattern, key)
+        keywords = re.search(r'export const MACHINE_KEYWORDS = \[(.*?)\];', source, re.S)
+        self.assertIsNotNone(keywords)
+        self.assertEqual(tuple(re.findall(r"'([a-z]+)'", keywords.group(1))), catalog.KEYWORDS)
+        self.assertIn(f'const MAX_KEYWORDS = {catalog.MAX_KEYWORDS};', source)
+        # docs/catalog.md explains each word, in the same order.
+        docs = (ROOT / 'docs/catalog.md').read_text(encoding='utf-8')
+        table = re.search(r'^\| Keyword \| A machine that \|\n\| --- \| --- \|\n((?:\|.*\n)+)', docs, re.M)
+        self.assertIsNotNone(table)
+        self.assertEqual(tuple(re.findall(r'^\| `([a-z]+)` \|', table.group(1), re.M)), catalog.KEYWORDS)
 
 
 class Changes(unittest.TestCase):
@@ -103,6 +135,37 @@ class Changes(unittest.TestCase):
                 catalog.changes([PUBLISHED], after)
         with self.assertRaises(ValueError):
             catalog.changes([dict(PUBLISHED, status='retired')], [PUBLISHED])
+
+    def test_changing_only_keywords_is_not_an_update(self):
+        from test_cpu_measurement import measurement
+        # An entry from before measurements were required, and one measured at an earlier commit.
+        legacy = UNLISTED
+        carried = dict(UNLISTED, commit='1' * 40, cpu=measurement())
+        for entry in (legacy, carried):
+            with self.subTest(entry=entry['commit']):
+                catalog.changes([entry], [dict(entry, keywords=['fm'])])
+                catalog.changes([dict(entry, keywords=['fm'])], [dict(entry, keywords=['pad', 'bass'])])
+                # A release change alongside a keyword change still needs its measurement.
+                with self.assertRaisesRegex(ValueError, 'cpu'):
+                    catalog.changes([entry], [dict(entry, keywords=['fm'], tag='v2.0.0')])
+
+    def test_new_and_updated_machines_list_a_keyword(self):
+        from test_cpu_measurement import measurement
+        measured = dict(UNLISTED, cpu=measurement())
+        reserved = {k: PUBLISHED[k] for k in catalog.COMMON} | {'status': 'reserved'}
+        # Entries from before keywords stay valid while unchanged, or as they retire.
+        catalog.changes([UNLISTED], [UNLISTED])
+        catalog.changes([UNLISTED], [dict(UNLISTED, status='retired')])
+        catalog.changes([], [reserved])
+        for before, after in (([], measured), ([reserved], measured), ([reserved], dict(measured, status='draft')),
+                              ([UNLISTED], dict(measured, tag='v1.1.0')), ([PUBLISHED], UNLISTED),
+                              ([], dict(UNLISTED, kind='player'))):
+            with self.subTest(after=after), self.assertRaisesRegex(ValueError, 'at least one keyword'):
+                catalog.changes(before, [after])
+            catalog.changes(before, [dict(after, keywords=['pad'])])
+        # Extensions are not listed by keyword.
+        extension = dict(UNLISTED, id='probe_extension', kind='extension')
+        catalog.changes([], [extension])
 
 
 class Fetching(unittest.TestCase):
@@ -143,6 +206,17 @@ class Fetching(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'changed'):
             catalog.fetch(self.entry, self.cache)
 
+    def test_prune_keeps_only_the_pinned_folders(self):
+        m = catalog.fetch(self.entry, self.cache)
+        earlier = self.cache / 'probe-0123456789ab'
+        catalog.git('clone', '-q', str(self.repository), str(earlier))
+        (self.cache / 'probe-fedcba987654.partial').mkdir()
+        (self.cache / 'collection.json').write_text('{}', encoding='utf-8')
+        self.assertEqual(catalog.prune(self.cache, [m.root]), ['probe-0123456789ab', 'probe-fedcba987654.partial'])
+        self.assertEqual(sorted(p.name for p in self.cache.iterdir()),
+                         sorted(['collection.json', m.root.relative_to(self.cache.resolve()).parts[0]]))
+        self.assertEqual(catalog.fetch(self.entry, self.cache).root, m.root)
+
     def test_an_interrupted_fetch_is_started_again(self):
         broken = self.cache / f"probe-{self.entry['commit'][:12]}"
         broken.mkdir(parents=True)
@@ -162,6 +236,55 @@ class Fetching(unittest.TestCase):
         self.assertTrue(catalog.pinned(m, catalog.load(listing)))
         listing.write_text(json.dumps(document(dict(listed, commit='1' * 40))), encoding='utf-8')
         self.assertFalse(catalog.pinned(m, catalog.load(listing)))
+
+
+class KeywordOnlyChanges(unittest.TestCase):
+    """`check --base` and `test --changed-from` pass over an entry whose keywords alone
+    changed, and still take one whose release moved with them."""
+    def setUp(self):
+        from test_cpu_measurement import measurement
+        # Above the recommended CPU, so check names each entry it reviews with a warning.
+        self.before = [dict(PUBLISHED, id='same', cpu=measurement()), dict(PUBLISHED, id='moved', cpu=measurement())]
+        self.after = [dict(self.before[0], keywords=['pad']),
+                      dict(self.before[1], keywords=['pad'], tag='v2.0.0', commit='1' * 40, cpu=measurement(commit='1' * 40))]
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.cache = Path(temporary.name)
+        # No git, network or machine build: the catalogs, their base and fetching are given.
+        self.patches = [mock.patch.object(catalog, 'load', lambda: self.after),
+                        mock.patch.object(catalog, 'load_extensions', lambda: []),
+                        mock.patch.object(catalog, 'base_entries',
+                                          lambda base, listed, path: copy.deepcopy(self.before) if listed == 'machines' else []),
+                        mock.patch.object(catalog, 'release_controls', lambda *args: []),
+                        mock.patch.object(catalog, 'fetch',
+                                          lambda entry, cache: SimpleNamespace(id=entry['id'], root=self.cache / entry['id']))]
+        for patcher in self.patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def run_main(self, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            return catalog.main(list(argv)), out.getvalue()
+
+    def test_check_reviews_only_the_moved_release(self):
+        status, out = self.run_main('check', '--base', 'base')
+        self.assertEqual(status, 0, out)
+        self.assertIn('WARNING: moved:', out)
+        self.assertNotIn('WARNING: same:', out)
+        # The moved release still needs its measurement; the keyword change alone does not.
+        self.after[1] = {k: v for k, v in self.after[1].items() if k != 'cpu'}
+        status, out = self.run_main('check', '--base', 'base')
+        self.assertEqual(status, 1)
+        self.assertIn('moved: new or updated submissions require hardware cpu', out)
+
+    def test_changed_from_tests_only_the_moved_release(self):
+        with mock.patch('tooling.machine_test.main', return_value=0) as machine_test:
+            status, out = self.run_main('test', '--changed-from', 'base', '--cache', str(self.cache))
+        self.assertEqual(status, 0, out)
+        self.assertIn('Testing 1 machine and 0 extension entries', out)
+        machines = [a for a in machine_test.call_args.args[0] if a.startswith('--machine=')]
+        self.assertEqual(machines, [f'--machine={self.cache / "moved"}'])
 
 
 class Controls(unittest.TestCase):

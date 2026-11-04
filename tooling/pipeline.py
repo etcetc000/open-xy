@@ -1,9 +1,11 @@
 """Shared local build utilities and stock firmware compatibility boundary."""
 import argparse
 import json
+import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -55,9 +57,10 @@ def check_patch_boundaries(profile, count):
                 'Invalid profiling hook')
         if 'after' in patch:
             after = bytes.fromhex(patch['after'])
-            # Optional hooks stay stock in builds that leave them out.
+            # Optional hooks, and a service's text edits, stay stock in builds that leave them out.
             require(len(after) == len(before) and (after != before or
-                    (kind == 'hook' and ('service' in patch or 'profiling' in patch))),
+                    (kind == 'hook' and ('service' in patch or 'profiling' in patch)) or
+                    (kind == 'text' and 'service' in patch)),
                     'Invalid instruction edit')
         else:
             require(kind in ('hook', 'startup'), 'Heap, table and text edits carry their reviewed bytes')
@@ -179,11 +182,37 @@ def tool_paths(directory):
 
 
 def execute(args):
-    return subprocess.check_output([str(a) for a in args], stderr=subprocess.STDOUT, text=True, timeout=120)
+    return subprocess.check_output([str(a) for a in args], stderr=subprocess.STDOUT, text=True, timeout=120,
+                                   **hidden_process())
 
 
-def fresh_output(path):
+def hidden_process():
+    return dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+
+
+def add_overwrite_argument(parser):
+    parser.add_argument('--overwrite', action='store_true',
+                        help='first delete --out with everything in it if it already exists')
+
+
+def wipe_output(path, keep):
+    """Delete an existing output folder, refusing any that holds the checkout, the working folder, home or an input."""
+    require(path.is_dir(), f'Output exists and is not a folder: {path}')
+    protected = [Path.cwd().resolve(), Path.home().resolve(), ROOT, *(Path(os.path.abspath(k)).resolve() for k in keep)]
+    require(not any(p.is_relative_to(path) for p in protected),
+            f'Refusing to overwrite a folder holding the working folder, the checkout, your home or an input: {path}')
+    require(not path.is_relative_to(ROOT) or path.is_relative_to(ROOT / 'local'),
+            'Inside the checkout, only local/ can be overwritten')
+    shutil.rmtree(path)
+
+
+def fresh_output(path, overwrite=False, keep=()):
+    """A new empty folder; with `overwrite`, an existing one is deleted first. `keep` lists inputs it must not hold."""
+    given = Path(os.path.abspath(path))
+    if overwrite and given.exists():
+        require(not given.is_symlink(), f'Refusing to overwrite a link: {given}')
+        wipe_output(given.resolve(), keep)
     path = Path(path).resolve()
-    require(not path.exists(), f'Output already exists; choose a new directory: {path}')
+    require(not path.exists(), f'Output already exists; choose a new directory or pass --overwrite: {path}')
     path.mkdir(parents=True)
     return path

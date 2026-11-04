@@ -5,7 +5,8 @@ reader of the three tables: each loads its table's base as a 32-bit immediate,
 and a few compare an ID or loop index with the stock count, or clear the stock
 table length. Table edits rewrite only those immediates, except the
 compositor's screen bound, whose loop advance is hooked instead
-(screen_order.hpp). Each table is declared once below; the edits, layout and
+(screen_order.hpp), and the engine validity bound, which imm7 cannot raise
+past 63 and is hooked too (registration_stock.cpp.in). Each table is declared once below; the edits, layout and
 template values derive from the declarations, and this module decodes the
 profile's bytes independently of them.
 """
@@ -39,17 +40,20 @@ class Table(NamedTuple):
 
 
 RECORD_BYTES = 48
-# 63 is the largest bound imm7 encodes, which caps the engine and effect tables.
-ENGINES = Table('engine records', 0x080394fc, 33, 0x8d4cf580, 63, RECORD_BYTES,
+# 63 is the largest bound imm7 encodes, which caps the effect table. The engine
+# table's imm7 bound, in the validity check every engine lookup calls, is hooked
+# instead (ENGINE_BOUND), so engines and pages run to 256: the effect records,
+# then the engine records, then the screen slots fill the last 16 KiB.
+ENGINES = Table('engine records', 0x080394fc, 33, 0x8d4ccf50, 256, RECORD_BYTES,
                 (0x8d505292, 0x8d50533e, 0x8d505366, 0x8d50652a, 0x8d5067e2, 0x8d506c74, 0x8d506e9e),
-                ((0x8d505356, 'imm7', 1), (0x8d5067dc, 'imm16', RECORD_BYTES)))
-SCREENS = Table('screen slots', 0x84eb3228, 81, 0x8d4cf380, 128, 4,
+                ((0x8d5067dc, 'imm16', RECORD_BYTES),))
+SCREENS = Table('screen slots', 0x84eb3228, 81, 0x8d4cff50, 256, 4,
                 (0x8d520792, 0x8d5207c8),
                 ((0x8d5208be, 'imm16', 1), (0x8d520d3e, 'imm16', 1)))
 # Bounds: the validity check, the factory dispatch and the send-track (14/15)
 # type setter. The per-track filter setter keeps stock's bound, so filter
 # types stay below the effect sentinel.
-EFFECTS = Table('effect records', 0x0803916c, 19, 0x8d4ce380, 63, RECORD_BYTES,
+EFFECTS = Table('effect records', 0x0803916c, 19, 0x8d4cc380, 63, RECORD_BYTES,
                 (0x8d505276, 0x8d5052b6, 0x8d505314, 0x8d5066ba, 0x8d506cb8, 0x8d506f28),
                 ((0x8d505304, 'imm7', 1), (0x8d506f20, 'imm7', 1), (0x8d50e768, 'imm7', 1)))
 TABLES = (ENGINES, SCREENS, EFFECTS)  # the profile's order
@@ -77,6 +81,10 @@ EDITS = tuple(edit for table in TABLES for edit in table.edits())
 SIZES = dict(imm32=8, imm16=4, imm7=2)
 # The compositor's loop advance: R7 += 1; R0 = 81 (imm16); CC = R7 < R0.
 COMPOSITOR_ADVANCE, COMPOSITOR_BOUND = 0x8d5214c2, 0x8d5214c4
+# The engine validity check (0x8d50534e), between its LINK and UNLINK: R1 = 33;
+# CC = R0 < R1. A call there sets R1 to the relocated count and CC alike; the
+# function's UNLINK restores the RETS the call replaces.
+ENGINE_BOUND = 0x8d505356
 
 
 # Template values for the stock side of registration and the page renderers.
@@ -110,6 +118,7 @@ def check_profile(profile):
     require(end == RESERVATION_END and end - profile['table_bytes'] == TABLES_START, 'Table bytes differ from the tables')
     check_edits([p for p in profile['patches'] if p['kind'] == 'table'])
     check_compositor([p for p in profile['patches'] if p['kind'] == 'hook'])
+    check_engine_bound([p for p in profile['patches'] if p['kind'] == 'hook'])
 
 
 def decode(kind, raw):
@@ -148,3 +157,15 @@ def check_compositor(hooks):
     at = COMPOSITOR_BOUND - COMPOSITOR_ADVANCE
     bound = bytes.fromhex(advance[0]['before'])[at:at + SIZES['imm16']]
     require(decode('imm16', bound)[1] == STOCK_SCREEN_COUNT, 'Compositor hook preimage differs from the audited bound')
+
+
+def check_engine_bound(hooks):
+    """The engine validity check's stock-count bound is replaced by its hook."""
+    bound = [p for p in hooks if int(p['address'], 16) == ENGINE_BOUND]
+    # Never gated: the relocated engine table is always in place, so its bound must be too.
+    require(len(bound) == 1 and bound[0]['symbol'] == 'sdk_engine_bound' and bound[0]['length'] == 4 and
+            bound[0]['call'] is True and 'service' not in bound[0] and 'profiling' not in bound[0],
+            'The engine validity bound must be hooked in every build')
+    before = bytes.fromhex(bound[0]['before'])
+    require(decode('imm7', before[:2])[1] == STOCK_ENGINE_COUNT and before[2:] == bytes.fromhex('8808'),
+            'Engine bound hook preimage differs from the audited R1 = 33; CC = R0 < R1')

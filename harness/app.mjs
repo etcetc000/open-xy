@@ -12,70 +12,86 @@ async function readPreviewManifest() {
 const previewManifest = await readPreviewManifest();
 const customPreview = previewManifest.kind === 'cpp-browser-custom-preview';
 if (customPreview) {
-  document.querySelector('.badge').textContent = 'LOCAL AUTHORING';
   document.getElementById('preview-mode').textContent = 'Local authoring preview. This audition does not qualify a firmware build.';
 }
 import { createControls, editedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
 const controls = createControls(previewManifest.definition);
 const { definition, parameters, positions, defaults, presets, displayValue, makePatch, readPatch, validateParameters, q31 } = controls;
 import { renderScreen as renderBase } from './screen.mjs';
+import { bindKnob } from './knobs.mjs';
+import { createAudioActivation } from './audio-activation.mjs';
+import { createOutputMute } from './audio-output.mjs';
 import { PreviewDisplay, SvgDisplay, NoteActivity } from '../sdk/browser/display.mjs';
+import { selectArtwork } from '../sdk/browser/graphics.mjs';
+import { createGraphicsSelector } from './graphics.mjs';
 const noteActivity = new NoteActivity();
 const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header);
 const $ = id => document.getElementById(id);
 const controlId = id => customPreview ? `custom-control-${parameters.findIndex(p => p.id === id)}` : id;
 // Page copy comes from the machine: its definition and machine.json description.
-document.querySelector('.instrument-top h2').firstChild.textContent = definition.name + ' ';
-document.title = definition.name + ' · Machine workbench';
+document.querySelector('.instrument-top h1').textContent = definition.name;
+document.title = definition.name + ' · Open-XY Machine Workbench';
 document.querySelector('.instrument').setAttribute('aria-label', definition.name + ' instrument');
-document.querySelector('.intro h1').textContent = definition.name;
-if (previewManifest.description) document.querySelector('.intro .lede').textContent = previewManifest.description;
+if (previewManifest.description) $('machine-description').textContent = previewManifest.description;
 if (!Object.keys(presets).length) document.querySelector('#presets').closest('.side-section').hidden = true;
 if (customPreview) {
-  document.querySelector('.intro .eyebrow').textContent = 'LOCAL MACHINE / AUTHORING';
-  document.querySelector('.intro .lede').textContent = 'Edit your C++ sound and display, then rebuild to hear and see the change.';
+  $('machine-description').textContent = 'Edit your C++ sound and display, then rebuild to hear and see the change.';
 }
 // The parameter each control position shows: the one last edited there.
 let values = defaults(), view = VIEWS[0], octave = 3, shown = [0, 1, 2, 3];
+let artworkChoice = null, graphicsMode = 'colorful';
 let visualNotes = 0, display = null, scene = null, displayBackend = null;
-// Stand-in for the track's stock amp envelope: control positions 0..1, which
-// the display receives as Q31 words. The audition's own gate ignores them.
-let envelope = { attack: 0, decay: 0.25, sustain: 1, release: 0.25 };
-const envelopeWords = () => Object.fromEntries(Object.entries(envelope).map(([stage, value]) => [stage, Math.round(value * 0x7fffffff)]));
-const validateEnvelope = next => {
-  if (!next || typeof next !== 'object' || Object.keys(next).some(stage => !Object.hasOwn(envelope, stage)) ||
-      Object.values(next).some(value => !Number.isFinite(value) || value < 0 || value > 1)) throw new Error('Invalid amp envelope');
-  return { ...envelope, ...next };
-};
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-let context, processor, gain, analyser, samples, starting;
+let context, processor, gain, muteGain, analyser, samples, starting;
 let audioBackend = null;
+const outputMute = createOutputMute();
 const parameterWords = () => q31(values);
 const held = new Map(), timers = new Set();
 const keys = ['a', 'w', 's', 'e', 'd', 'f', 't', 'g', 'y', 'h', 'u', 'j', 'k'];
 const black = new Set([1, 3, 6, 8, 10]);
 const status = text => { $('status').textContent = text; };
 const send = message => processor?.port.postMessage(message);
+const activation = createAudioActivation({
+  isReady: () => context?.state === 'running' && Boolean(audioBackend) && !starting,
+  enableAudio,
+});
+const phraseRequest = Symbol('phrase');
+function renderMuteButton() {
+  const label = outputMute.muted ? 'Unmute' : 'Mute';
+  $('audio').textContent = label;
+  $('audio').setAttribute('aria-label', label + ' audio');
+  $('audio').dataset.muted = String(outputMute.muted);
+}
+function playbackStatus() {
+  if (outputMute.muted) return 'Audio muted';
+  return context?.state === 'running' && audioBackend
+    ? `Audio on · ${context.sampleRate.toLocaleString()} Hz · 8 preview voices`
+    : 'Play a key or phrase to start audio';
+}
 
 for (const [i, param] of parameters.entries()) {
   const id = controlId(param.id);
   const item = document.createElement('div');
   item.className = 'control';
-  item.innerHTML = `<label for="${id}">${positions[i] + 1} / ${param.label}</label><svg class="dial" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="27"/><line id="dial-${id}" x1="30" y1="9" x2="30" y2="18"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${param.label}">`;
+  item.dataset.controlPosition = positions[i] + 1;
+  item.innerHTML = `<label for="${id}">${param.label}</label><svg id="knob-${id}" class="dial" viewBox="0 0 60 60" role="slider" tabindex="0" aria-label="${param.label} knob" aria-valuemin="0" aria-valuemax="1" aria-orientation="vertical"><title>Drag up or down to adjust. Hold Shift for fine control.</title><circle class="dial-ring" cx="30" cy="30" r="27"/><circle class="dial-cap" cx="30" cy="30" r="18"/><line id="dial-${id}" x1="30" y1="16" x2="30" y2="23"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${param.label}">`;
   $('controls').append(item);
   $(id).addEventListener('input', event => {
     values[param.id] = Number(event.target.value);
     shown = editedShown(shown, positions, i, previewManifest.definition.press === 'page');
     update();
   });
+  bindKnob($(`knob-${id}`), $(id));
 }
-for (const stage of Object.keys(envelope)) {
-  const label = document.createElement('label'), input = document.createElement('input');
-  label.textContent = stage;
-  input.id = `envelope-${stage}`; input.type = 'range'; input.min = '0'; input.max = '1'; input.step = '0.001';
-  input.value = String(envelope[stage]); input.setAttribute('aria-label', `Amp envelope ${stage}`);
-  input.addEventListener('input', () => { envelope = { ...envelope, [stage]: Number(input.value) }; draw(); });
-  label.append(input); $('envelope').append(label);
+// A drum kit's model, chosen on the device with Shift and the first encoder.
+let model = 0;
+const models = previewManifest.definition?.resources?.modelCount ?? 0;
+if (models) {
+  const item = document.createElement('div');
+  item.className = 'control';
+  item.innerHTML = `<label for="drum-model">Shift + 1 / Model</label><output id="value-drum-model">1</output><input id="drum-model" type="range" min="0" max="${models - 1}" step="1" value="0" aria-label="Model">`;
+  $('controls').append(item);
+  $('drum-model').addEventListener('input', event => { model = Number(event.target.value); update(); });
 }
 for (const [name, preset] of Object.entries(presets)) {
   const button = document.createElement('button');
@@ -87,7 +103,7 @@ function draw(elapsed = 0) {
   if (display) {
     const input = shownControls(parameterWords(), shown);
     try {
-      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity, envelopeWords()));
+      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity, model));
     }
     catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
   }
@@ -95,28 +111,46 @@ function draw(elapsed = 0) {
 }
 async function loadPreview() {
   const manifest = previewManifest;
-  const responses = await Promise.all([fetch('/preview/engine.wasm'), fetch('/preview/panel.svg')]);
+  const paths = ['/preview/engine.wasm', '/preview/panel.svg'];
+  if (manifest.graphics.grayscale_sha256) paths.push('/preview/panel.grayscale.svg');
+  const responses = await Promise.all(paths.map(path => fetch(path)));
   if (responses.some(response => !response.ok)) throw new Error('Compiled preview or artwork is unavailable.');
-  const [bytes, artwork] = await Promise.all(responses.map(response => response.arrayBuffer()));
+  const [bytes, artwork, grayscale] = await Promise.all(responses.map(response => response.arrayBuffer()));
   const digestOf = async buffer => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)),
     byte => byte.toString(16).padStart(2, '0')).join('');
   const [digest, artDigest] = await Promise.all([digestOf(bytes), digestOf(artwork)]);
   if (digest !== manifest.wasm_sha256 || artDigest !== manifest.graphics.asset_sha256) throw new Error('Preview identity mismatch.');
+  if (grayscale && await digestOf(grayscale) !== manifest.graphics.grayscale_sha256) throw new Error('Grayscale preview identity mismatch.');
+  const choice = {artwork:new TextDecoder().decode(artwork), preview:{graphics:manifest.graphics}};
+  if (grayscale) choice.grayscaleArtwork = new TextDecoder().decode(grayscale);
   const module = await WebAssembly.compile(bytes);
   const readyDisplay = new PreviewDisplay(module);
-  const readyScene = new SvgDisplay(new TextDecoder().decode(artwork), manifest.graphics);
+  const readyScene = new SvgDisplay(selectArtwork(choice, graphicsMode), manifest.graphics);
+  artworkChoice = choice;
+  $('graphics').disabled = false;
   display = readyDisplay;
   scene = readyScene;
   displayBackend = { backend: 'cpp-wasm', stateBytes: display.stateBytes, frameBytes: readyDisplay.frame.byteLength, wasmSha256: digest };
   draw();
   return { manifest, digest, module };
 }
+const graphicsSelect = createGraphicsSelector(next => {
+  if (!artworkChoice || !display) return;
+  try {
+    const replacement = new SvgDisplay(selectArtwork(artworkChoice, next), previewManifest.graphics);
+    scene = replacement; graphicsMode = next; draw();
+    status(next === 'colorful' ? 'Original artwork' : artworkChoice.grayscaleArtwork ? 'Grayscale · developer artwork' : 'Grayscale · automatic conversion');
+  } catch (error) { graphicsSelect.value = graphicsMode; status('Graphics unchanged: ' + error.message); }
+});
+
 let preview;
 function update() {
   for (const p of parameters) {
     const id = controlId(p.id);
     $(id).value = values[p.id];
     $(id).setAttribute('aria-valuetext', displayValue(p.id, values));
+    $(`knob-${id}`).setAttribute('aria-valuenow', values[p.id]);
+    $(`knob-${id}`).setAttribute('aria-valuetext', displayValue(p.id, values));
     $(`value-${id}`).textContent = displayValue(p.id, values);
     $(`dial-${id}`).setAttribute('transform', `rotate(${-135 + 270 * values[p.id]} 30 30)`);
   }
@@ -125,17 +159,19 @@ function update() {
   }
   for (const mode of VIEWS) $(mode).setAttribute('aria-pressed', String(mode === view));
   send({ type: 'parameters', value: parameterWords() });
+  if (models) { $('value-drum-model').textContent = String(model + 1); send({ type: 'model', value: model }); }
   draw();
 }
 async function enableAudio() {
   if (starting) return starting;
   starting = (async () => {
-    $('audio').disabled = true;
+    status('Starting audio…');
     try {
       if (!context) {
-        const { manifest, digest, module } = await preview;
-        context = new AudioContext({ latencyHint: 'interactive', sampleRate: manifest.sample_rate });
-        if (context.sampleRate !== manifest.sample_rate) throw new Error('Browser cannot provide the kernel sample rate.');
+        // Create/resume on the input gesture, before awaiting compilation or the worklet.
+        context = new AudioContext({ latencyHint: 'interactive', sampleRate: previewManifest.sample_rate });
+        if (context.sampleRate !== previewManifest.sample_rate) throw new Error('Browser cannot provide the kernel sample rate.');
+        const [{ manifest, digest, module }] = await Promise.all([preview, context.resume()]);
         await context.audioWorklet.addModule('/harness/processor.mjs');
         processor = new AudioWorkletNode(context, 'opxy-engine', { numberOfInputs: 0, numberOfOutputs: 1,
           outputChannelCount: [1], processorOptions: { module, parameters: parameterWords() } });
@@ -153,30 +189,31 @@ async function enableAudio() {
           };
         });
         gain = context.createGain(); gain.gain.value = Number($('monitor').value);
+        muteGain = context.createGain();
+        outputMute.attach(muteGain.gain, context);
         analyser = context.createAnalyser(); analyser.fftSize = 1024;
         samples = new Float32Array(analyser.fftSize);
-        processor.connect(gain).connect(analyser).connect(context.destination);
+        processor.connect(gain).connect(analyser).connect(muteGain).connect(context.destination);
         const activeContext = context;
         context.onstatechange = () => {
           if (context !== activeContext) return;
-          $('audio').textContent = context.state === 'running' ? 'Mute audio' : 'Enable audio';
           if (context.state !== 'running') panic();
         };
         send({ type: 'parameters', value: parameterWords() });
+        if (models) send({ type: 'model', value: model });
         await Promise.all([context.resume(), ready]);
       }
       await context.resume();
-      $('audio').textContent = 'Mute audio';
-      status(`Audio on · ${context.sampleRate.toLocaleString()} Hz · 8 preview voices`);
+      status(playbackStatus());
       return true;
     } catch (error) {
       if (context) await context.close().catch(() => {});
-      context = processor = gain = analyser = samples = null;
+      outputMute.detach();
+      context = processor = gain = muteGain = analyser = samples = null;
       audioBackend = null;
-      $('audio').textContent = 'Enable audio';
       status(`Audio unavailable: ${error.message}`);
       return false;
-    } finally { $('audio').disabled = false; }
+    }
   })();
   try { return await starting; } finally { starting = null; }
 }
@@ -189,7 +226,7 @@ function paintKeys() {
 }
 function noteOn(source, note, velocity = 0.8) {
   if (!Number.isInteger(note) || note < 0 || note > 127 || !Number.isFinite(velocity) || velocity <= 0 || velocity > 1) return false;
-  if (context?.state !== 'running') { status('Enable audio first, then play a key.'); return false; }
+  if (context?.state !== 'running' || !audioBackend) { status('Play a key or phrase to start audio.'); return false; }
   if (held.has(source)) return false;
   const existing = [...held.values()].includes(note);
   held.set(source, note);
@@ -202,7 +239,11 @@ function noteOn(source, note, velocity = 0.8) {
   paintKeys();
   return true;
 }
+function playKey(source, note) {
+  return activation.run(source, () => noteOn(source, note));
+}
 function noteOff(source) {
+  activation.cancel(source);
   const note = held.get(source);
   held.delete(source);
   if (note !== undefined && ![...held.values()].includes(note)) {
@@ -213,6 +254,7 @@ function noteOff(source) {
   paintKeys();
 }
 function panic() {
+  activation.cancelAll();
   for (const timer of timers) clearTimeout(timer);
   timers.clear(); held.clear(); send({ type: 'panic' });
   noteActivity.panic(); draw();
@@ -224,12 +266,12 @@ for (const [i, key] of keys.entries()) {
   button.textContent = key.toUpperCase();
   button.setAttribute('aria-label', `Play semitone ${i}, keyboard ${key.toUpperCase()}`);
   button.addEventListener('pointerdown', event => {
-    event.preventDefault(); button.focus({ preventScroll: true }); button.setPointerCapture(event.pointerId);
-    noteOn(`pointer-${event.pointerId}`, (octave + 1) * 12 + i);
+    event.preventDefault(); button.blur(); button.setPointerCapture(event.pointerId);
+    playKey(`pointer-${event.pointerId}`, (octave + 1) * 12 + i);
   });
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(type, event => noteOff(`pointer-${event.pointerId}`));
   button.addEventListener('keydown', event => {
-    if ([' ', 'Enter'].includes(event.key)) { event.preventDefault(); if (!event.repeat) noteOn(`button-${i}`, (octave + 1) * 12 + i); }
+    if ([' ', 'Enter'].includes(event.key)) { event.preventDefault(); if (!event.repeat) playKey(`button-${i}`, (octave + 1) * 12 + i); }
   });
   button.addEventListener('keyup', event => { if ([' ', 'Enter'].includes(event.key)) noteOff(`button-${i}`); });
   button.addEventListener('blur', () => noteOff(`button-${i}`));
@@ -239,14 +281,15 @@ window.addEventListener('keydown', event => {
   if (event.key === 'Escape') { panic(); return; }
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat || /INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
   const i = keys.indexOf(event.key.toLowerCase());
-  if (i >= 0) { event.preventDefault(); noteOn(`key-${event.code}`, (octave + 1) * 12 + i); }
+  if (i >= 0) { event.preventDefault(); playKey(`key-${event.code}`, (octave + 1) * 12 + i); }
 });
 window.addEventListener('keyup', event => noteOff(`key-${event.code}`));
 window.addEventListener('blur', panic);
 document.addEventListener('visibilitychange', () => { if (document.hidden) panic(); });
-$('audio').addEventListener('click', async () => {
-  if (context?.state === 'running') { panic(); await context.suspend(); status('Audio muted'); }
-  else await enableAudio();
+$('audio').addEventListener('click', () => {
+  outputMute.toggle();
+  renderMuteButton();
+  status(playbackStatus());
 });
 $('panic').addEventListener('click', () => { panic(); status('All notes stopped'); });
 $('monitor').addEventListener('input', () => gain?.gain.setTargetAtTime(Number($('monitor').value), context.currentTime, 0.01));
@@ -259,14 +302,18 @@ function later(callback, ms) {
   const timer = setTimeout(() => { timers.delete(timer); callback(); }, ms); timers.add(timer);
 }
 $('phrase').addEventListener('click', () => {
-  if (timers.size) { panic(); return; }
-  if (context?.state !== 'running') { status('Enable audio first to play the phrase.'); return; }
-  panic(); $('phrase').textContent = 'Stop phrase';
-  [0, 7, 12, 3, 10, 7, 2, 0].forEach((offset, i) => {
-    later(() => noteOn(`phrase-${i}`, (octave + 1) * 12 + offset), i * 280);
-    later(() => noteOff(`phrase-${i}`), i * 280 + 220);
+  if (timers.size || activation.isPending(phraseRequest)) { panic(); return; }
+  $('phrase').textContent = 'Stop phrase';
+  activation.run(phraseRequest, () => {
+    panic(); $('phrase').textContent = 'Stop phrase';
+    [0, 7, 12, 3, 10, 7, 2, 0].forEach((offset, i) => {
+      later(() => noteOn(`phrase-${i}`, (octave + 1) * 12 + offset), i * 280);
+      later(() => noteOff(`phrase-${i}`), i * 280 + 220);
+    });
+    later(() => { $('phrase').textContent = 'Play phrase'; }, 2240);
+  }).then(started => {
+    if (!started && !timers.size && !activation.isPending(phraseRequest)) $('phrase').textContent = 'Play phrase';
   });
-  later(() => { $('phrase').textContent = 'Play phrase'; }, 2240);
 });
 function download(name, body, type) {
   const url = URL.createObjectURL(new Blob([body], { type }));
@@ -292,18 +339,12 @@ window.machineLab = Object.freeze({
   getPatch: () => makePatch(values, view),
   loadPatch: patch => { const p = readPatch(patch); panic(); values = p.parameters; view = p.view; update(); },
   setParameters: next => { values = validateParameters(next); update(); },
-  setEnvelope: next => {
-    envelope = validateEnvelope(next);
-    for (const [stage, value] of Object.entries(envelope)) $(`envelope-${stage}`).value = String(value);
-    draw();
-  },
   noteOn: (note, velocity = 0.8) => noteOn(`api-${note}`, note, velocity),
   noteOff: note => noteOff(`api-${note}`), panic,
-  getStatus: () => ({ audio: context?.state || 'off', heldNotes: held.size, sampleRate: context?.sampleRate || null,
+  getStatus: () => ({ audio: context?.state || 'off', muted: outputMute.muted, heldNotes: held.size, sampleRate: context?.sampleRate || null,
     audioBackend, displayBackend,
     visualNotes, noteActivity: { held_notes: display?.input[17] ?? null, note_off_serial: display?.input[18] ?? null },
-    ampEnvelope: display?.envelope ? Object.fromEntries(['attack', 'decay', 'sustain', 'release'].map((stage, i) => [stage, display.input[19 + i]])) : null,
-    rms: samples ? Math.sqrt(samples.reduce((sum, x) => sum + x * x, 0) / samples.length) : 0 }),
+    rms: !outputMute.muted && samples ? Math.sqrt(samples.reduce((sum, x) => sum + x * x, 0) / samples.length) : 0 }),
 });
 update();
 preview = loadPreview();

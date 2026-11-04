@@ -18,17 +18,21 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, screen, startup_label, stock_tables
-from .adapters import (catalog_entry, generate_display, generate_fx_object, generate_registration,
+from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
+from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
+                       generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
-                       generate_synth_controls, generate_project_companion_table, generate_voice)
+                       generate_synth_controls, generate_project_companion_table, generate_track_controls,
+                       generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
+                       control_callbacks)
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, tree
-from .pipeline import (PROFILE, ROOT, check_patch_boundaries, child, config, document, execute, fresh_output, host_pins, host_platform,
-                       read, require_release_host, resolve_toolchain, save_json, tool_paths)
+from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
+                       fresh_output, host_pins, host_platform,
+                       hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
 from .startup import generate as generate_startup
 
 LINKER = 'linker/opxy-1.2.1.ld'
@@ -37,7 +41,9 @@ TARGET = 'opxy-1.2.1'
 # development: the builder distributes it too. Firmware always comes from the device.
 STOCK_CONTENT = ROOT / 'profiles/opxy-1.2.1/content'
 DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, stock_sample_classify_tail=0x8d5b79c6,
-                   stock_sample_key_tail=0x8d589214)
+                   stock_sample_key_tail=0x8d589214, stock_drum_classify_tail=0x8d5b79f6, stock_player_factory_tail=0x8d57ee70,
+                   stock_player_load_tail=0x8d588d98, stock_player_load_kept=0x8d588da2,
+                   stock_player_name_tail=0x8d5bdddc, stock_player_id_tail=0x8d5bde64, stock_sample_slice_receive_tail=0x8d5b1264)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
 ALLOWED_SECTIONS = {'.text', '.rodata', '.data', '.bss'}
@@ -48,44 +54,69 @@ CXX_FLAGS = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-excep
              '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-asynchronous-unwind-tables',
              '-fno-unwind-tables', '-fno-common', '-fno-tree-loop-distribute-patterns',
              '-fomit-frame-pointer', '-nostdinc++', '-Wall', '-Werror', '-Wno-unused-variable']
-# Stock SVG parse (0x8d5f38ba) accepts at most four fractional digits and no exponents.
-SVG_ELEMENTS = {'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text'}
-SVG_NUMERIC = {'d', 'points', 'transform', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry',
-               'width', 'height', 'stroke-width', 'stroke-miterlimit', 'stroke-dasharray',
-               'stroke-dashoffset', 'font-size', 'opacity', 'fill-opacity', 'stroke-opacity'}
-NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)'
-SVG_INHERITED = {'fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 'style'}
+from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes, validate_xml
+
+
+
+class Collection(list):
+    """A build's machines, in firmware order, and the extensions it links, in
+    callback order (`extensions`). A subset of its machines keeps its extensions."""
+
+    def __init__(self, machines=(), extensions_=()):
+        super().__init__(machines)
+        self.extensions = tuple(extensions_)
+
+
+def extensions_of(machines):
+    """The extensions a machine list carries: none for a plain list."""
+    return getattr(machines, 'extensions', ())
+
+
+def subset(machines, chosen):
+    """Some of a collection's machines, with all of its extensions."""
+    return Collection(chosen, extensions_of(machines))
 
 
 def configuration(entries=None, layout=None):
-    """The profile, the collection's machines numbered by the layout, and their link-time
-    IDs. Entries are machines.read_collection's."""
+    """The profile, the collection's machines numbered by the layout (a Collection,
+    carrying its extensions), and their link-time IDs. Entries are
+    machines.read_collection's."""
     profile = config()
     stock_tables.check_profile(profile)
+    extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
-    machines = collection(entries, layout)
+    machines = Collection(collection(entries, layout), extensions.check_collection(
+        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
     definitions = dict(DEFINITIONS)
     for m in machines:
-        if m.kind == 'effect':
+        if m.kind == 'player':
+            definitions[m.prefix + '_player_id'] = m.identity['player']
+            definitions[m.prefix + '_page_id'] = m.identity['page']
+        elif m.kind == 'effect':
             definitions[m.prefix + '_fx_id'] = m.identity['effect']
             definitions[m.prefix + '_fx_page_id'] = m.identity['page']
         else:
             definitions[m.prefix + '_engine_id'] = m.identity['engine']
-            definitions[m.prefix + '_page_id'] = m.identity['page']
+            definitions[m.prefix + '_page_id'] = m.sample_page if m.kind == 'sample' else m.identity['page']
+            if m.kind == 'sample' and m.display != 'stock':   # a sample engine's own screen
+                definitions[m.prefix + '_screen_page_id'] = m.identity['page']
     return profile, machines, definitions
 
 
 def provenance(machines):
     """Every authored, SDK and compiler-profile input; private artifacts never enter.
     The collection is its machines, in order: their IDs and sources below."""
-    paths = {PROFILE, LINKER}
+    paths = {PROFILE, LINKER, extensions.PROFILE}
     for folder in ('sdk/include', 'sdk/platform', 'tooling'):
         paths |= {p.relative_to(ROOT).as_posix() for p in (ROOT / folder).rglob('*')
                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md'}
     hashes = {name: sha(read(child(ROOT, name))) for name in paths}
     for m in machines:
         hashes.update({name: sha(read(path)) for name, path in m.files().items()})
-    hashes['collection'] = sha(json.dumps([m.id for m in machines]).encode('utf-8'))
+    for e in extensions_of(machines):
+        hashes.update({f'extension:{e.id}/{name}': sha(read(path)) for name, path in e.sources().items()})
+    hashes['collection'] = sha(json.dumps([m.id for m in machines] +
+                                          ['extension:' + e.id for e in extensions_of(machines)]).encode('utf-8'))
     return dict(sorted(hashes.items()))
 
 
@@ -107,7 +138,7 @@ def compiler_paths(directory):
         require(path.is_file() and path.stat().st_size <= MAX_COMPILER_FILE, f'Missing/oversized compiler file: {path}')
         require(file_hash(path) == expected, f'Compiler file hash mismatch: {relative}')
         result[relative] = path
-    return dict(cxx=result['bin/bfin-elf-g++' + suffix])
+    return dict(cxx=result['bin/bfin-elf-g++' + suffix], runtime=result.get(runtime.ARCHIVE))
 
 
 def check_sources(machines):
@@ -130,14 +161,14 @@ def compile_cxx(cxx, assembler, source, obj, includes=()):
     flags = [*CXX_FLAGS, *('-I' + str((ROOT / path).resolve()) for path in includes), '-fstack-usage']
     subprocess.run([str(cxx), *flags, '-S', Path(source).name if generated else source, '-o', str(assembly)],
                    cwd=Path(source).parent if generated else ROOT, check=True, capture_output=True, text=True,
-                   timeout=300)
+                   timeout=300, **hidden_process())
     execute([assembler, '-mcpu=bf707', '-o', obj, assembly])
     return obj
 
 
 def includes(m=None):
     """Include path for firmware-compiler units: SDK headers, then the machine's own folders."""
-    paths = ['.', 'sdk/include', 'sdk/platform/opxy-1.2.1']
+    paths = ['.', 'sdk/include', 'sdk/platform', 'sdk/platform/opxy-1.2.1']
     if m is not None:
         paths.append(m.source())
     paths.append('sdk/platform/blackfin/freestanding')
@@ -155,16 +186,20 @@ def plan(machines, profile=None):
     """
     units = []
     for m in machines:
-        if m.kind == 'synth':
-            steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration')
+        if m.kind in ('synth', 'drum'):
+            steps = ('voice', *('source:' + s for s in m.sources), 'display', 'screen', 'registration',
+                     *(('control',) if track_control(m) else ()))
+        elif m.kind == 'player':
+            steps = ('player_object',)
         elif m.kind == 'effect':
-            steps = ('registration', 'fx_object')
+            steps = ('registration', 'fx_object', *(('display', 'screen') if m.display != 'stock' else ()))
         else:
-            steps = ('registration', 'sample_voice')
+            steps = ('registration', 'sample_voice', *(('display', 'screen') if m.display != 'stock' else ()))
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
-    services = active_services(profile or config(), (m.kind for m in machines))
+    services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
+    units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
@@ -172,17 +207,48 @@ def plan(machines, profile=None):
 
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
 # or .s, except the generated units and the Blackfin runtime.
-SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock',
+SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
              'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
-             'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'drum_display_stock', 'screen_order',
+             'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
-             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks')
+             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
+             'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
+             'track_control_table', 'track_control_hooks', 'track_control_project',
+             'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
+             'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
+             'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
+             'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
-                               'drum_controls_stock', 'drum_display_stock'), 'samples')
+                               'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'sample_overview', 'sample_overview_stock'), 'samples')
+UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
+UNIT_SERVICES['keyboard_octaves'] = 'octaves'
+UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
+UNIT_SERVICES['drum_hooks'] = 'drums'
+UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
+# Track control and hidden pages run from the GUI tick hook; startup stands in for
+# the saved data's entry points in builds that don't link it.
+UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
+                                    'track_control_project', 'synth_pages'), 'control'))
+# Machines that take over aux tracks: the chooser, presets, pages and the stock
+# roles' silencers; startup starts it, and control reaches it through sdk_aux.
+UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
+
+UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+
+
+def service_users(machines):
+    """What a native build's services are chosen by: its machines' kinds, the features
+    they declare ('trackControl', 'auxTrack', 'hidePages'), and 'extension' when it
+    links extensions (native builds link all of the collection's)."""
+    users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    return (users + ['trackControl' for m in machines if track_control(m)] +
+            ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
+            ['hidePages' for m in machines if 'hidePages' in m.definition] +
+            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
 
 
 def module_bytes(profile):
@@ -202,10 +268,10 @@ def object_memory(data):
     return initialized, state
 
 
-def memory_by_owner(directory, machines, profile=None):
+def memory_by_owner(directory, machines, profile=None, runtime_members=()):
     """Bytes each machine (and 'sdk' for shared code) places in the module, before alignment."""
     usage = {}
-    for name, owner in object_owners(machines, profile).items():
+    for name, owner in object_owners(machines, profile, runtime_members).items():
         initialized, state = object_memory(read(Path(directory) / name))
         share = usage.setdefault(owner or 'sdk', dict(initialized_bytes=0, state_bytes=0))
         share['initialized_bytes'] += initialized
@@ -222,9 +288,10 @@ def memory_summary(usage, total, limit):
         f'{owner} {size / 1024:.1f} KiB' for owner, size in shares)
 
 
-def object_owners(machines, profile=None):
+def object_owners(machines, profile=None, runtime_members=()):
     """Object name -> owning machine ID (None for the SDK's shared objects), in link order."""
-    return {name: (m.id if m else None) for name, m, _step in plan(machines, profile)}
+    return {**{name: (m.id if m else None) for name, m, _step in plan(machines, profile)},
+            **{runtime.object_name(name): None for name in runtime_members}}
 
 
 def object_services(machines, profile=None):
@@ -233,10 +300,121 @@ def object_services(machines, profile=None):
             if m is None and step in UNIT_SERVICES}
 
 
-def compile_collection(directory, toolchain, compiler, profile, machines, definitions, version, profiling=True):
-    """Compile and link every machine, labelled with the release version; return the
-    module bytes, report and patched profile."""
-    require(type(profiling) is bool, 'Profiling must be a boolean')
+def absent_symbols(m):
+    """The callbacks of an unselected machine, each resolving to kit_absent, which declines:
+    startup skips it and its menu name is left to stock."""
+    if m.kind == 'player':
+        return {m.prefix + suffix: 'kit_absent' for suffix in ('_player', '_screen_register')}
+    if m.kind == 'effect':
+        absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_fx_register', '_ready')}
+        if m.display != 'stock':
+            absent[m.prefix + '_screen_register'] = 'kit_absent'
+    else:
+        absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_register', '_name_matches', '_ready', '_record_ready')}
+        if m.kind == 'drum':
+            # The shared drum table names these.
+            absent.update({m.prefix + suffix: 'kit_absent' for suffix in
+                           ('_drum_defaults', '_drum_label', '_drum_model_name', '_drum_count')})
+        if m.kind == 'sample':
+            # The shared sample table names these; unselected, its ready check declines first.
+            absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
+        if m.display != 'stock':
+            absent[m.prefix + '_screen_register'] = 'kit_absent'
+        if m.kind == 'sample' and m.display != 'stock':
+            absent[m.prefix + '_screen_ready'] = 'kit_absent'
+        # The shared track control table names these; unselected, its ready check declines first.
+        absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
+    if m.kind in ('effect', 'sample', 'drum'):
+        absent[m.prefix + '_benchmark'] = 'kit_absent'
+    return absent
+
+
+def runtime_objects(directory, gcc, units, definitions):
+    """The authenticated arithmetic runtime members the compiled units need, written beside
+    them in `directory`. The archive path is returned only after compiler_paths
+    authenticates it; integer-only builds never parse it or gain runtime objects."""
+    inputs = [read(Path(directory) / name) for name, _m, _step in units]
+    if not runtime.needs_runtime(inputs, definitions):
+        return []
+    require(gcc['runtime'] is not None, 'This compiler profile has no authenticated arithmetic runtime')
+    archive = runtime.archive_members(read(gcc['runtime']))
+    candidates = {name: runtime.normalize_member(data) for name, data in archive.items()
+                  if name.endswith('.o') and name[:-2] in runtime.MEMBERS}
+    members = runtime.select(inputs, candidates, definitions)
+    for member in members:
+        obj = Path(directory) / runtime.object_name(member)
+        obj.parent.mkdir(exist_ok=True)
+        obj.write_bytes(candidates[member])
+    return members
+
+
+def number_suffixes(kind, own_screen=False):
+    """A machine's link-time number symbols, after its prefix (configuration). By kind, not
+    by name: an ID may extend another with "_fx" or "_screen"."""
+    return (('_player_id', '_page_id') if kind == 'player' else ('_fx_id', '_fx_page_id') if kind == 'effect' else
+            ('_engine_id', '_page_id', '_screen_page_id') if kind == 'sample' and own_screen else ('_engine_id', '_page_id'))
+
+
+def absent_numbers(absent):
+    """Unselected machines have no numbers (builder/core.mjs numberSymbols): each number
+    symbol they have, a sample engine's own screen page included, is 0."""
+    return {m.prefix + suffix: 0 for m in absent
+            for suffix in number_suffixes(m.kind, m.kind == 'sample' and m.display != 'stock')}
+
+
+def link(directory, tools, profile, definitions, machines, selected, name='module', runtime_members=()):
+    """Link the selected machines' objects, compiled in `directory` for the whole collection,
+    as the builder does; None, or how they overflow the shared module memory."""
+    absent = [m for m in machines if m not in selected]
+    aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
+    definitions = {**definitions, **absent_numbers(absent)}
+    # GNU ld synthesizes FILE symbols from object arguments; relative names keep
+    # independent rebuilds byte-identical.
+    command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',
+               *(f'--defsym={key}={value:#x}' for key, value in definitions.items()),
+               *(f'--defsym={key}={value}' for key, value in aliases.items()),
+               *(object_name for object_name, _m, _step in plan(subset(machines, selected), profile)),
+               *(runtime.object_name(member) for member in runtime_members)]
+    try:
+        subprocess.check_output([str(arg) for arg in command], cwd=directory, stderr=subprocess.STDOUT, text=True, timeout=120)
+    except subprocess.CalledProcessError as error:
+        overflow = re.search(r"region `MODULE' overflowed by (\d+) bytes", error.output or '')
+        if not overflow and 'Module overlaps the relocated tables' not in (error.output or ''):
+            raise
+        usage, limit = memory_by_owner(directory, subset(machines, selected), profile, runtime_members), module_bytes(profile)
+        total = limit + int(overflow.group(1)) if overflow else sum(sum(share.values()) for share in usage.values())
+        return memory_summary(usage, total, limit)
+    return None
+
+
+def linked_machines(directory, tools, profile, machines, definitions, runtime_members=()):
+    """The machines the module links: all of them when they fit. Otherwise, a collection
+    holding Open-XY's own machines links those, and each other machine must fit beside
+    them, as the builder offers each one; people choose which they install."""
+    from .catalog import OFFICIAL
+    overflow = link(directory, tools, profile, definitions, machines, machines, runtime_members=runtime_members)
+    if overflow is None:
+        return machines
+    core = [m for m in machines if m.id in OFFICIAL]
+    require(core and len(core) < len(machines), 'Machines exceed the shared module memory, ' + overflow)
+    for m in machines:
+        if m not in core:
+            beside = link(directory, tools, profile, definitions, machines,
+                          [x for x in machines if x in core or x is m], 'fit', runtime_members)
+            require(beside is None, f'{m.id} does not fit beside the official machines, ' + str(beside))
+    for leftover in ('fit.elf', 'fit.map'):
+        (directory / leftover).unlink(missing_ok=True)
+    overflow = link(directory, tools, profile, definitions, machines, core, runtime_members=runtime_members)
+    require(overflow is None, 'The official machines exceed the shared module memory, ' + str(overflow))
+    return subset(machines, core)
+
+
+def compile_collection(directory, toolchain, compiler, profile, machines, definitions, version, profiling=True,
+                       sweep=False):
+    """Compile every machine and link those that fit (linked_machines), labelled with the
+    release version; return the module bytes, report and patched profile."""
+    require(type(profiling) is bool and type(sweep) is bool, 'Profiling and sweep must be booleans')
+    require(profiling or not sweep, 'A control sweep needs a profiling build')
     directory = Path(directory)
     for m in machines:
         if m.display != 'stock':
@@ -262,16 +440,33 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
+            if step == 'drum_callbacks':
+                return cxx(str(generate_drum_callbacks(folder, machines)), obj)
             if step == 'benchmark':
-                return cxx(str(benchmark.generate(folder, machines)), obj)
+                return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
+            if step.startswith('extension:'):
+                chosen = step.removeprefix('extension:')
+                extension = next(e for e in extensions_of(machines) if e.id == chosen)
+                return compile_cxx(gcc['cxx'], tools['as'], str(extensions.generate_extension(folder, extension)),
+                                   obj, includes() + [str(extension.root)])
+            if step == 'master_filter_collection':
+                return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
+            if step == 'extension_runtime':
+                return cxx('sdk/platform/extension_runtime.cpp', obj)
+            if step == 'extension_collection':
+                return cxx(str(extensions.generate_collection(folder, extensions_of(machines))), obj)
             if step == 'screen_order':
                 return cxx(str(generate_screen_order(folder)), obj)
             if step == 'sample_callbacks':
                 return cxx(str(generate_sample_callbacks(folder, machines)), obj)
             if step == 'synth_control_table':
                 return cxx(str(generate_synth_controls(folder, machines)), obj)
+            if step == 'player_table':
+                return cxx(str(generate_player_table(folder, machines)), obj)
             if step == 'project_companion_table':
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
+            if step == 'track_control_table':
+                return cxx(str(generate_track_controls(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
@@ -281,53 +476,52 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'startup_label':
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
-                prefixes = [x.prefix for x in by_kind(machines, 'synth', 'sample')]
+                prefixes = [x.prefix for x in by_kind(machines, 'synth', 'drum', 'sample')]
+                services = active_services(profile, service_users(machines))
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines])), obj)
+                                                [x.prefix for x in sample_engines],
+                                                [x.prefix for x in sample_engines if x.display != 'stock'],
+                                                effect_screens=[x.prefix for x in effects if x.display != 'stock'],
+                                                player_pages=[x.prefix for x in by_kind(machines, 'player')],
+                                                control='control' in services, aux='aux' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
         if step.startswith('source:'):
             return cxx(m.source(step.removeprefix('source:')), obj, m)
-        source = {'voice': lambda: generate_voice(folder, m), 'display': lambda: display_unit(folder, m),
+        source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
-                  'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True)}[step]
+                  'control': lambda: generate_control(folder, m),
+                  'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
+                  'player_object': lambda: generate_player_object(folder, m)}[step]
         return cxx(str(source()), obj, m)
 
-    names = []
     for name, m, step in plan(machines, profile):
         obj = directory / name
         build_unit(obj, m, step)
         # Disable string pooling so the browser linker places sections exactly as GNU ld does.
         obj.write_bytes(normalize_object(read(obj)))
         require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
-        names.append(name)
     stack_usage(directory)
-    # GNU ld synthesizes FILE symbols from object arguments; relative names keep
-    # independent rebuilds byte-identical.
-    link = [tools['ld'], '-T', ROOT / LINKER, '-Map=module.map', '-o', 'module.elf',
-            *(f'--defsym={key}={value:#x}' for key, value in definitions.items()), *names]
-    try:
-        subprocess.check_output([str(arg) for arg in link], cwd=directory, stderr=subprocess.STDOUT, text=True, timeout=120)
-    except subprocess.CalledProcessError as error:
-        overflow = re.search(r"region `MODULE' overflowed by (\d+) bytes", error.output or '')
-        if not overflow and 'Module overlaps the relocated tables' not in (error.output or ''):
-            raise
-        usage, limit = memory_by_owner(directory, machines, profile), module_bytes(profile)
-        total = limit + int(overflow.group(1)) if overflow else sum(sum(share.values()) for share in usage.values())
-        raise ValueError('Machines exceed the shared module memory, ' + memory_summary(usage, total, limit)) from None
-    module, sizes, patch_profile, hooks, stack, usage = check_module(directory, tools, profile, machines, profiling)
+    runtime_members = runtime_objects(directory, gcc, plan(machines, profile), definitions)
+    linked = linked_machines(directory, tools, profile, machines, definitions, runtime_members)
+    module, sizes, patch_profile, hooks, stack, usage = check_module(directory, tools, profile, linked, profiling,
+                                                                   runtime_members)
     require(provenance(machines) == before, 'Sources changed during compilation')
     report = dict(schema=1, target=TARGET, status='experimental-unqualified', sources=before,
                   host=host_platform(), tools=host_pins('tools')[0], compiler=host_pins('compiler')[0],
-                  cxx_flags=CXX_FLAGS, profiling=profiling, benchmark_cases=benchmark.cases(machines),
+                  cxx_flags=CXX_FLAGS, profiling=profiling, benchmark_cases=benchmark.cases(linked, sweep),
+                  **({'benchmark_sweep': True} if sweep else {}),
                   sizes=sizes, memory=usage, module_bytes=module_bytes(profile), audio_stack_bytes=stack,
                   reserved_bytes=profile['reserved_bytes'],
                   module_sha256=sha(module), elf_sha256=sha(read(directory / 'module.elf')), hooks=hooks,
-                  objects=object_owners(machines, profile), patches=patch_profile['patches'],
-                  services=sorted(active_services(profile, (m.kind for m in machines))), device_operations=False,
+                  objects=object_owners(linked, profile, runtime_members), patches=patch_profile['patches'],
+                  linked=[m.id for m in linked],
+                  services=sorted(active_services(profile, service_users(linked))), device_operations=False,
                   hardware_tested=False, cpu_timing_measured=False)
+    if runtime_members:
+        report['runtime'] = runtime_members
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
 
@@ -442,14 +636,21 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
 
     bounds = {}
     for m in machines:
-        table, slot = (f'_{m.prefix}_fx_vtable', 0x10) if m.kind == 'effect' else (f'_{m.prefix}_vtable', 8)
-        entry = word(symbols[table]['value'] + slot)
-        require(entry in body, 'Audio entry of ' + m.id + ' is not a function start')
-        bounds[m.id] = depth(entry)
+        table, slot = {'effect': (f'_{m.prefix}_fx_vtable', 0x10),
+                       'player': (f'_{m.prefix}_player_vtable', 0x14),
+                       'drum': (f'_{m.prefix}_vtable', 12)}.get(m.kind, (f'_{m.prefix}_vtable', 8))
+        slots = (0x14, 0x18, 0x1c, 0x28, 0x34) if m.kind == 'player' else (slot,)
+        entries = [word(symbols[table]['value'] + offset) for offset in slots]
+        require(all(entry in body for entry in entries), 'Audio entry of ' + m.id + ' is not a function start')
+        bounds[m.id] = max(depth(entry) for entry in entries)
+    if 'sdk_master_process' in symbols:
+        entry = symbols['sdk_master_process']['value']
+        require(entry in body, 'Master audio entry is not a function start')
+        bounds['sdk:master_filter'] = depth(entry)
     return bounds
 
 
-def check_module(directory, tools, profile, machines, profiling=True):
+def check_module(directory, tools, profile, machines, profiling=True, runtime_members=()):
     require(type(profiling) is bool, 'Profiling must be a boolean')
     elf = directory / 'module.elf'
     sections, symbols = elf32(read(elf))
@@ -492,7 +693,7 @@ def check_module(directory, tools, profile, machines, profiling=True):
     limit = module_bytes(profile)
     require(all(sizes.values()), 'Empty module section')
     require(symbols['__extensions_reserved_end']['value'] - low == limit, 'Linker module region differs from the profile')
-    usage = memory_by_owner(directory, machines, profile)
+    usage = memory_by_owner(directory, machines, profile, runtime_members)
     # One pool for code, data and state of every machine; name each share when it overflows.
     if sizes['allocated_span_bytes'] > limit:
         raise ValueError('Machines exceed the shared module memory, ' +
@@ -504,7 +705,7 @@ def check_module(directory, tools, profile, machines, profiling=True):
     patch_profile = copy.deepcopy(profile)
     hooks = {}
     text = allocated['.text']
-    services = active_services(profile, (m.kind for m in machines))
+    services = active_services(profile, service_users(machines))
     for patch in patch_profile['patches']:
         if not patch_active(patch, services, profiling):
             patch['after'] = patch['before']  # inactive hooks retain stock code
@@ -523,6 +724,12 @@ def check_module(directory, tools, profile, machines, profiling=True):
     return module, sizes, patch_profile, hooks, stack, usage
 
 
+def player_page_ids(prefix):
+    """A player page's artwork IDs: input dots, the chord line, output keys and activity dots."""
+    return ([f'{prefix}_dot_{i}' for i in range(24)] + [f'{prefix}_text'] +
+            [f'{prefix}_key_{i}' for i in range(128)] + [f'{prefix}_played_{i}' for i in range(128)])
+
+
 def display_ids(prefix, display):
     """Artwork IDs of a display: its nodes (the first are the mutable paths), its
     text slots, then its palette entries."""
@@ -531,8 +738,14 @@ def display_ids(prefix, display):
             [f'{prefix}_palette_{i}' for i in range(display['palette'])])
 
 
+def header_ids(prefix):
+    """Optional authored header leaves, values then titles, for standalone hosts."""
+    return [f'{prefix}_header_{kind}_{i}' for kind in ('value', 'title') for i in range(4)]
+
+
 def panel_root(fragment, source):
     """An artwork fragment: one well-formed root element, such as <g id="<prefix>_panel">."""
+    validate_xml(fragment)
     try:
         return ET.fromstring(fragment)
     except ET.ParseError as error:
@@ -540,21 +753,27 @@ def panel_root(fragment, source):
 
 
 def check_outlines(by_id, prefix, display):
-    """Drawing paths are the first nodes: exactly M, (points - 1) L and Z, unfilled."""
+    """Drawing paths are the first nodes: exactly M, (points - 1) L and Z; filled paths must enclose area."""
     points = display['points']
     for name in display_ids(prefix, display)[:display['paths']]:
         node = by_id.get(name)
         commands = re.findall(r'[A-Za-z]', node.get('d', '')) if node is not None else []
         coordinates = re.findall(NUMBER, node.get('d', '')) if node is not None else []
         require(node is not None and node.tag == 'path' and commands == ['M'] + ['L'] * (points - 1) + ['Z'] and
-                len(coordinates) == 2 * points and node.get('fill') == 'none',
-                'Mutable outline must contain exactly M, %d L and Z, with no fill: %s' % (points - 1, name))
+                len(coordinates) == 2 * points,
+                'Mutable outline must contain exactly M, %d L and Z: %s' % (points - 1, name))
         # The stock parser merges repeated points, leaving fewer than the frame
         # binds, and the device then no longer reshapes the outline. Points are
         # compared as the Q10 coordinates the device holds.
         pairs = [(round(float(x) * 1024), round(float(y) * 1024)) for x, y in zip(coordinates[::2], coordinates[1::2])]
         require(len(set(pairs)) == points,
                 'Mutable outline repeats a point; the device merges repeated points, so keep each distinct: ' + name)
+        if node.get('fill') != 'none':
+            require(re.fullmatch(r'#[0-9A-Fa-f]{6}', node.get('fill', '')),
+                    'Filled mutable paths need an explicit #RRGGBB fill: ' + name)
+            area = sum(x * pairs[(i + 1) % points][1] - pairs[(i + 1) % points][0] * y
+                       for i, (x, y) in enumerate(pairs))
+            require(area != 0, 'Filled mutable paths must enclose area: ' + name)
 
 
 def check_bindings(by_id, prefix, display):
@@ -575,11 +794,28 @@ def check_bindings(by_id, prefix, display):
         node = by_id[name]
         require(not {'x', 'y'} & set(node.keys()) and len(node.text or '') < 24,
                 'Text slots are positioned by their transform and hold at most 23 characters: ' + name)
+    for name in header_ids(prefix):
+        node = by_id.get(name)
+        if node is not None:
+            require(node.tag == 'text', 'Header bindings must be text leaves: ' + name)
+            require(len(node.text or '') < 24, 'Header bindings hold at most 23 characters: ' + name)
     return palette
+
+
+def check_palette(by_id, palette):
+    """Renderers copy donor paint verbatim; every consumer uses this policy."""
+    for name in palette:
+        node = by_id.get(name)
+        require(node is not None and node.tag in ('path', 'circle') and node.get('fill') not in (None, 'none') and
+                node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
+                'Bound node needs visible explicit fill and stroke: ' + name)
+        require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', node.get(k)) for k in ('fill', 'stroke')),
+                'Palette donors need #RRGGBB fill and stroke: ' + name)
 
 
 def validate_panel(m, fragment=None):
     """The authored SVG subset plus the display contract's required node bindings."""
+    check_variant = fragment is None and getattr(m, 'grayscale', None)
     fragment = read(m.root / 'panel.svg.fragment') if fragment is None else fragment
     nodes = list(panel_root(fragment, m.source('panel.svg.fragment')).iter())
     ids = [node.get('id') for node in nodes if node.get('id')]
@@ -592,32 +828,27 @@ def validate_panel(m, fragment=None):
                 node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
                 'Bound node needs visible explicit fill and stroke: ' + name)
 
-    def donor(name):
-        # Renderers copy donor paint verbatim: explicit #RRGGBB fill and stroke.
-        visible(name)
-        require(all(re.fullmatch(r'#[0-9A-Fa-f]{6}', by_id[name].get(k)) for k in ('fill', 'stroke')),
-                'Palette donors need #RRGGBB fill and stroke: ' + name)
-
-    palette = check_bindings(by_id, m.prefix, m.definition['resources']['display'])
-    for name in palette:
-        donor(name)
-    for node in nodes:
-        for attribute in SVG_NUMERIC.intersection(node.attrib):
-            value = node.attrib[attribute]
-            require(not re.search(r'\d[eE][-+]?\d', value), 'Exponent notation is outside the authored SVG numeric subset')
-            require(not re.search(r'\.\d{5,}', value), 'Authored SVG numbers must have at most four decimal places')
-        require(node.tag in SVG_ELEMENTS, 'Unsupported authored SVG element')
-        require('style' not in node.attrib and not any(k.lower().startswith('on') or 'href' in k.lower()
-                for k in node.attrib), 'Unsupported SVG style, event or external reference')
-        if node.tag == 'g':
-            require(not SVG_INHERITED.intersection(node.attrib), 'Put SVG paint/font attributes on leaves')
-        else:
-            require('fill' in node.attrib, 'Missing explicit SVG fill')
-            if node.tag == 'text':
-                require({'font-family', 'font-size'} <= node.attrib.keys(), 'Missing explicit text font')
-            if node.get('fill') == 'none':
-                require(node.get('stroke') not in (None, 'none') and float(node.get('stroke-width', '0')) > 0,
-                        'Invisible authored SVG outline')
+    if m.display == 'player':
+        # A player page: dots that show or hide, and the line its text replaces.
+        names = player_page_ids(m.prefix)
+        output = names[25:]
+        has_output = any(name in by_id for name in output)
+        require(not has_output or all(name in by_id for name in output),
+                'Player output keyboard needs all 128 keys and activity dots, or none')
+        translate = r'matrix\(1 0 0 1 (%s) (%s)\)' % (NUMBER, NUMBER)
+        for name in names[:24] + (output if has_output else []):
+            visible(name)
+            require(re.fullmatch(translate, by_id[name].get('transform', '')),
+                    'Player page dots need transform="matrix(1 0 0 1 x y)": ' + name)
+        line = by_id.get(names[24])
+        require(line is not None and line.tag == 'text' and re.fullmatch(translate, line.get('transform', '')),
+                'Player page line must be a text node with transform="matrix(1 0 0 1 x y)"')
+    else:
+        check_palette(by_id, check_bindings(by_id, m.prefix, m.definition['resources']['display']))
+    validate_nodes(nodes)
+    if check_variant:
+        from .graphics import validate_grayscale
+        validate_grayscale(m, fragment, read(m.root / m.grayscale))
     return fragment
 
 
@@ -626,7 +857,9 @@ def extend_catalog(catalog, profile, machines):
 
     The insertion offsets are bound to the exact authenticated stock catalog.
     """
-    groups = dict(engine_types=by_kind(machines, 'synth', 'sample'), fx_types=by_kind(machines, 'effect'))
+    listed = [m for m in machines if catalog_entry(m)]  # aux machines are not in tracks 1-8's list
+    groups = dict(engine_types=by_kind(listed, 'synth', 'drum', 'sample'), fx_types=by_kind(listed, 'effect'),
+                  seq_types=by_kind(listed, 'player'))
     result, base = catalog, json.loads(catalog)
     for key, at in sorted(profile['stock_catalog_inserts'].items(), key=lambda item: -item[1]):
         result = result[:at] + ''.join(catalog_entry(m) for m in groups[key]).encode('utf-8') + result[at:]
@@ -643,7 +876,23 @@ def prepare_assets(catalog, profile, machines):
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
+        for path, preset in preset_files(m).items():
+            outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
+    check_aux_presets(machines)
+    for m in machines:
+        outputs.update(aux_preset_files(m))
+    for e in extensions_of(machines):
+        if e.master_processor is not None:
+            path = e.root / e.master_processor['artwork']
+            name = 'content/display/' + path.name
+            require(name not in outputs, 'Display asset collision: ' + name)
+            outputs[name] = extensions.validate_master_artwork(path)
     return outputs
+
+
+def linked_in(machines, report):
+    """The machines a compile report's module links, in collection order."""
+    return subset(machines, [m for m in machines if m.id in report['linked']])
 
 
 def package_collection(package):
@@ -679,16 +928,20 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
     require(manifest.get('schema') == 1 and manifest.get('target') == TARGET, 'Unexpected manifest')
     profiling = manifest.get('profiling')
     require(type(profiling) is bool, 'Manifest profiling must be a boolean')
+    sweep = manifest.get('benchmark_sweep', False)
+    require(sweep is True or 'benchmark_sweep' not in manifest, 'Manifest benchmark_sweep must be true when present')
     profile, machines, definitions = configuration(package_collection(package), package_layout(package))
     with tempfile.TemporaryDirectory(prefix='opxy-verify-') as temporary:
         temporary = Path(temporary)
         module, report, patch_profile = compile_collection(temporary, toolchain, compiler, profile, machines,
-                                                           definitions, package_version(package), profiling)
+                                                           definitions, package_version(package), profiling, sweep)
         require(report['profiling'] is profiling, 'Compile profiling differs from manifest')
-        expected_assets = prepare_assets(catalog, profile, machines)
+        expected_assets = prepare_assets(catalog, profile, linked_in(machines, report))
         expected_assets['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
                                                set(report['services']), profiling)
         expected = {'candidate/' + name: data for name, data in expected_assets.items()}
+        if report.get('runtime'):
+            expected['runtime.LICENSE'] = read(ROOT / 'sdk/platform/blackfin/runtime.LICENSE')
         expected['analysis/module.bin'] = module
         expected['analysis/module.elf'] = read(temporary / 'module.elf')
         require(document(package / 'analysis/compile-report.json') == report, 'Compile provenance differs from fresh build')
@@ -701,6 +954,7 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
         require(actual == {p for p in expected if p.startswith('candidate/')}, 'Unexpected deployment file')
     result = dict(target=TARGET, status='experimental-unqualified', os_sha256=sha(expected_assets['os.ldr']),
                   machines=[m.source() for m in machines],
+                  linked=report['linked'],
                   fresh_source_rebuild_matches=True, original_entry_preserved=True,
                   profiling=profiling,
                   exact_edits=sum(patch_active(p, set(report['services']), profiling) for p in profile['patches']),
@@ -712,9 +966,13 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
     return result
 
 
-def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True):
+def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True, sweep=False,
+          overwrite=False):
     """A firmware package. Its machines take their numbers from `layout` (by machine ID);
-    the package's layout.json is that layout after this build, for the next one."""
+    the package's layout.json is that layout after this build, for the next one. Only a
+    package for hardware profiling sweeps synth controls: `sdk.py build` turns it on with
+    profiling; release kits leave it off, so their sweep tables are empty and their voices
+    never check the sweep override."""
     require(type(profiling) is bool, 'Profiling must be a boolean')
     entries = [] if entries is None else entries
     profile, machines, definitions = configuration(entries, layout)
@@ -722,13 +980,14 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     stock = read(stock_os)
     require(sha(stock) == profile['stock_sha256'], 'Stock OS hash mismatch')
     catalog = read(Path(stock_content) / 'op1_factory.json')
-    prepared = prepare_assets(catalog, profile, machines)
-    output = fresh_output(out)
+    require(sha(catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
+    output = fresh_output(out, overwrite, [toolchain, compiler, stock_os, stock_content, *(m.root for m in machines)])
     analysis = output / 'analysis'
     analysis.mkdir()
     version = startup_label.release_version()
     module, report, patch_profile = compile_collection(analysis, toolchain, compiler, profile, machines,
-                                                       definitions, version, profiling)
+                                                       definitions, version, profiling, sweep)
+    prepared = prepare_assets(catalog, profile, linked_in(machines, report))
     prepared['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
                                   set(report['services']), profiling)
     for name, data in prepared.items():
@@ -736,7 +995,11 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
     tracked = ['candidate/' + name for name in prepared] + ['analysis/module.bin', 'analysis/module.elf'] + ANALYSIS
+    if report.get('runtime'):
+        (output / 'runtime.LICENSE').write_bytes(read(ROOT / 'sdk/platform/blackfin/runtime.LICENSE'))
+        tracked.append('runtime.LICENSE')
     save_json(output / 'manifest.json', dict(schema=1, target=TARGET, version=version, collection=entries, profiling=profiling,
+                                             **({'benchmark_sweep': True} if sweep else {}),
                                              **({'layout': layout} if layout else {}),
                                              files={name: sha(read(output / name)) for name in tracked}))
     save_json(output / 'layout.json', layout_document(numbers_after(layout, machines)))
@@ -747,14 +1010,16 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
 
 def add_collection_arguments(parser):
     parser.add_argument('--collection', type=Path,
-                        help='collection file of {"path": ...} machine folders, such as local/catalog/collection.json '
-                             'from python sdk.py catalog fetch')
+                        help='collection file of {"path": ...} machine and extension folders, such as '
+                             'local/catalog/collection.json from python sdk.py catalog fetch')
     parser.add_argument('--machine', type=Path, action='append', default=[],
                         help='a machine folder to add to the collection; repeatable')
+    parser.add_argument('--extension', type=Path, action='append', default=[],
+                        help='an extension folder to add to the collection; repeatable')
 
 
 def selected_collection(args):
-    return read_collection(args.collection, args.machine)
+    return read_collection(args.collection, args.machine, args.extension)
 
 
 COMMANDS = {
@@ -773,6 +1038,7 @@ def main(argv=None, command=None):
         parser.add_argument('--package', type=Path, required=True)
     else:
         parser.add_argument('--out', type=Path, required=True)
+        add_overwrite_argument(parser)
     if command != 'compile':
         parser.add_argument('--stock-os', type=Path, required=True)
         parser.add_argument('--stock-content', type=Path, default=STOCK_CONTENT,
@@ -780,6 +1046,9 @@ def main(argv=None, command=None):
     if command != 'verify':  # a package records its own collection
         parser.add_argument('--profiling', choices=('on', 'off'), default='on',
                             help='per-voice diagnostic timing (default: on for SDK development builds)')
+        parser.add_argument('--sweep', choices=('on', 'off'),
+                            help='time each synth control through its positions on the device '
+                                 '(docs/profiling.md; default: on with profiling)')
         add_collection_arguments(parser)
         parser.add_argument('--layout', type=Path,
                             help="the machine numbers your OP-XY's projects use: the layout.json of your last build")
@@ -787,6 +1056,9 @@ def main(argv=None, command=None):
     # A failed command removes only the --out folder it created itself.
     created = command != 'verify' and not args.out.exists()
     try:
+        if command != 'verify':
+            sweep = (args.sweep or args.profiling) == 'on'
+            require(args.profiling == 'on' or not sweep, 'A control sweep needs --profiling on')
         if command == 'verify':
             require_release_host()  # only its tools reproduce published package bytes
         if command != 'compile':
@@ -802,12 +1074,16 @@ def main(argv=None, command=None):
         compiler_paths(tools[1])
         if command == 'compile':
             require(not any(m.contains(args.out) for m in machines), 'Keep build output outside every machine folder')
-            output = fresh_output(args.out)
+            output = fresh_output(args.out, args.overwrite, [*tools, *(m.root for m in machines)])
             _module, report, _patches = compile_collection(output, *tools, profile, machines, definitions,
-                                                           startup_label.release_version(), args.profiling == 'on')
+                                                           startup_label.release_version(), args.profiling == 'on',
+                                                           sweep)
             print(json.dumps(report['sizes'], indent=2))
             print('Memory ' + memory_summary(report['memory'], report['sizes']['allocated_span_bytes'],
                                             report['module_bytes']))
+            if len(report['linked']) < len(machines):
+                print('Not every machine fits at once: linked the official machines; '
+                      'each other machine fits beside them.')
             print('Non-bootable development module; not an OS image.')
         elif command == 'verify':
             stock, catalog = read(args.stock_os), read(args.stock_content / 'op1_factory.json')
@@ -815,7 +1091,7 @@ def main(argv=None, command=None):
             print(json.dumps(verification(stock, catalog, args.package.resolve(), *tools), indent=2))
         else:
             output, result = build(args.out, *tools, args.stock_os, args.stock_content, entries, layout,
-                                   args.profiling == 'on')
+                                   args.profiling == 'on', sweep, args.overwrite)
             print(json.dumps(result, indent=2))
             print('Local experimental package: ' + str(output))
             candidate = output / 'candidate'
@@ -823,6 +1099,8 @@ def main(argv=None, command=None):
             for path in sorted(p for p in candidate.rglob('*') if p.is_file()):
                 print('  ' + path.relative_to(candidate).as_posix())
             print('Machine numbers: ' + str(output / 'layout.json') + ' (pass it as --layout to your next build)')
+            print('With the OP-XY in file-transfer mode, copy everything in one step: ' +
+                  f'python sdk.py device push {candidate}')
         return 0
     except (ValueError, OSError, KeyError, ET.ParseError, subprocess.SubprocessError) as error:
         print('ERROR: ' + str(error), file=sys.stderr)

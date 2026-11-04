@@ -8,7 +8,7 @@ machine reaches the firmware by joining the collection; read the
 [caveats](../README.md) before installing.
 
 Commands use `python`; on macOS it is usually `python3`. Building needs only
-Python 3.11+, no virtual environment or packages; the browser preview in
+Python 3.11+, no virtual environment or packages (copying to the device with `device push` also needs comtypes on Windows or the libusb library on macOS and Linux, see [install](#5-install)); the browser preview in
 [your first machine](first-machine.md) has its own prerequisites.
 
 ## 1. Install the tools
@@ -72,8 +72,9 @@ stock-1.2.1/
 
 4. Press track 2 for "2. exit".
 
-If the OP-XY freezes on "mtp mode active" as soon as a computer connects,
-reinstall the official OS 1.2.1 update (`.tfw`) and try again.
+If MTP fails to connect or freezes, follow the builder’s
+[MTP troubleshooting guide](builder.md#mtp-troubleshooting-on-macos). It offers a fresh OS 1.2.1 setup and separates missing-OS recovery from
+a drive format that erases user data.
 
 For example, keep the folder in `%LOCALAPPDATA%/OPXY-SDK/private/` on Windows,
 `~/Library/Application Support/OPXY-SDK/private/` on macOS or
@@ -89,11 +90,10 @@ your own copy.
 
 Start from [your first machine](first-machine.md); `sdk.py new` needs no
 preview tools. A machine is a folder that can live anywhere, such as its own
-repository. Its `machine.json` names the SDK version it targets (`"sdk": "1.0"`)
-and the engine (or effect) number and page it asks for, outside the core
-machines' fixed numbers ([identity](api.md#identity),
-[fields](api.md#registration-boundary)). Names are saved in presets and never
-change once published.
+repository. Its `machine.json` names the SDK version it targets (`"sdk": "1.5"`)
+and, for a sample engine, the stock sampler it forks; the build gives its
+numbers ([identity](api.md#identity), [fields](api.md#registration-boundary)).
+Names are saved in presets and never change once published.
 
 Projects save machine numbers, which a build takes from a layout: every package
 holds `layout.json`, the numbers its firmware has given out. Pass it to your next
@@ -109,7 +109,7 @@ Every build command takes the collection:
 
 A build needs at least one machine; the SDK holds none of its own.
 
-All selected machines share 2040 KiB ([memory and limits](api.md#memory-and-limits));
+All selected machines share 2032 KiB ([memory and limits](api.md#memory-and-limits));
 `compile` shows each machine's share. To make room, list fewer machines in your
 own collection file.
 
@@ -149,9 +149,22 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
 | `os.ldr` | `/os.ldr` |
 | `content/op1_factory.json` | `/content/op1_factory.json` |
 | `content/display/<machine>.svg`, one per synth | `/content/display/<machine>.svg` |
+| `content/presets/<machine>/`, one per instrument (not effect): an init preset and the machine's [own](api.md#presets) | `/content/presets/<machine>/` |
 
 1. Open file transfer as in step 2 and copy the files to the paths above,
    replacing existing files. Keep the device's other content.
+   `python sdk.py device push <out>/candidate` does this instead:
+   it backs up each file it replaces, reads
+   every copied file back and restores the backups if anything fails, keeping
+   them and a record under the private folder. It never writes the boot partition.
+   On Windows it needs `python -m pip install comtypes==1.4.17`. On macOS and Linux it
+   speaks MTP over libusb, which needs only the library (`brew install libusb`, or
+   `apt install libusb-1.0-0`), the device in "mtp file transfer (mac)" mode and no
+   other app holding it (Field Kit, OpenMTP, Android File Transfer, the browser
+   builder); on Linux, a udev rule may be needed for access to the USB device.
+   To copy without backups or device readback, pass `--no-backup --no-verify`
+   together. This replaces every supplied file and records each write, but
+   cannot restore earlier files if interrupted.
 2. Press track 2 for "2. exit".
 3. Press track 5 for "5. write os to boot partition", keeping the OP-XY on power.
    When "firmware written ok!" appears, switch it off and on.
@@ -159,7 +172,7 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
 The firmware writer reads `/os.ldr`, not the upgrade directory. The browser
 builder's packages also add each instrument's presets
 (`content/presets/<machine>/`: an init preset and the machine's
-[own](api.md#presets)); command-line packages do not.
+[own](api.md#presets)).
 `module.elf` and `module.bin` are development artifacts, not installable
 images. Build commands never write to a device; hardware profiling sends
 explicit diagnostic commands but does not install firmware. To select machines and

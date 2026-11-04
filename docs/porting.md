@@ -110,11 +110,12 @@ screen: its fault address, `RETX` and call stack point at the code.
 
 ## 6. Compare CPU
 
-Run the [benchmark](profiling.md) three times on each release and compare:
+Run the [benchmark](profiling.md) on each release (one run each is enough;
+more give a median) and compare:
 
 ```sh
-python tools/cpu_compare.py --a <private>/<old-build> <old-run-001> <old-run-002> <old-run-003> \
-                            --b <private>/<new-build> <new-run-001> <new-run-002> <new-run-003> --all
+python tools/cpu_compare.py --a <private>/<old-build> <old-run-001> \
+                            --b <private>/<new-build> <new-run-001> --all
 ```
 
 The stock engines run in every profiling build, so the stock stages compare

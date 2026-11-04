@@ -1,9 +1,16 @@
+import * as Graphics from '../sdk/browser/graphics.mjs';
+export const artworkForGraphics = Graphics.artworkForGraphics;
+export const selectArtwork = Graphics.selectArtwork;
+
 // Browser-only linker and container writer for a maintainer-curated kit.
 // No compiler, device access, network requests, or arbitrary address input.
 // Every firmware rule (edits, hooks, identity ranges, catalog offsets, table
 // bytes) comes from the reviewed profile, authenticated by this digest. The
 // Python SDK reads the same constant.
-export const PROFILE_SHA256 = '1054d2cbc5d79b1afa9d80684b1aa50e54a693e5a0e0cc60392e7fa83a8b9359';
+// The init preset's authored settings, shared with tooling.adapters.default_preset
+// (write_builder inlines this same file's content for the offline export).
+import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
+export const PROFILE_SHA256 = '387eba1070299f301c2295064facbcd3b43228982c3fca2e4ebe85e253b9593c';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -96,30 +103,54 @@ export function readObject(bytes) {
   return {sections, symbols, relocations};
 }
 
-// The selections the release checks link, as bit masks over kit.machines: every
-// combination of Open-XY's own machines, each other machine with all of those, and
-// everything together.
-export function checkedSelections(machines) {
-  const bit = i => 2 ** i, all = bit(machines.length) - 1;
-  const core = machines.reduce((mask, m, i) => m.origin === 'official' ? mask + bit(i) : mask, 0);
-  const masks = new Set([all]);
-  for (let mask = core; mask; mask = (mask - 1) & core) masks.add(mask);
-  machines.forEach((m, i) => { if (!(core & bit(i))) masks.add(core + bit(i)); });
-  return [...masks].sort((a, b) => a - b);
+// The selections the release checks link, as BigInt bit masks over kit.machines (a
+// kit holds more machines than a 32-bit mask): every combination of Open-XY's own
+// machines, each other machine with all of those, and the machines the native package
+// links (kit.linked; all of them when they fit).
+export const selectionBit = i => 1n << BigInt(i);
+export function checkedSelections(machines, linked = machines.map(m => m.id)) {
+  const core = machines.reduce((mask, m, i) => m.origin === 'official' ? mask | selectionBit(i) : mask, 0n);
+  const masks = new Set([machines.reduce((mask, m, i) => linked.includes(m.id) ? mask | selectionBit(i) : mask, 0n)]);
+  for (let mask = core; mask; mask = (mask - 1n) & core) masks.add(mask);
+  machines.forEach((m, i) => { if (!(core & selectionBit(i))) masks.add(core | selectionBit(i)); });
+  return [...masks].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 // The profile's identity rules, as tooling.machines.check_identity applies them.
 export function validIdentity(rules, kind, identity) {
-  const slot = kind === 'effect' ? 'effect' : 'engine';
+  const slot = kind === 'player' ? 'player' : kind === 'effect' ? 'effect' : 'engine';
   if (!identity || typeof identity !== 'object' || Object.keys(identity).sort().join() !== [slot, 'page'].sort().join()) return false;
   const n = identity[slot], page = identity.page;
   if (!Number.isInteger(n) || !Number.isInteger(page)) return false;
-  if (kind === 'effect') return rules.effects.includes(n) && page === rules.effect_page;
+  if (kind === 'player') return rules.players.includes(n) && page > rules.page_none && page < rules.pages;
+  // An effect is on the stock FX page, or on a relocated page when it draws its own (SDK 1.7).
+  if (kind === 'effect') return rules.effects.includes(n) && (page === rules.effect_page || page > rules.page_none && page < rules.pages);
   if (!(n > 0 && n < rules.engines && n !== rules.engine_none && !rules.stock_engines.includes(n))) return false;
-  return kind === 'sample' ? n > rules.engine_none && rules.sample_pages.includes(page)
-    : kind === 'synth' && page > rules.page_none && page < rules.pages;
+  // A sample engine is on a stock sample page, or on a relocated page when it draws its own screen (SDK 1.8).
+  return kind === 'sample' ? n > rules.engine_none && (rules.sample_pages.includes(page) || page > rules.page_none && page < rules.pages)
+    : ['synth', 'drum'].includes(kind) && page > rules.page_none && page < rules.pages;
 }
 
+// The numbers a kit machine asks for (tooling.machines.check_request): valid ones,
+// or from SDK 1.5 null for each the layout gives. A sample engine still names its stock
+// page (its base) and an effect the FX page.
+export function validRequest(rules, kind, identity) {
+  if (!identity || typeof identity !== 'object') return false;
+  const slot = kind === 'player' ? 'player' : kind === 'effect' ? 'effect' : 'engine';
+  if (Object.keys(identity).sort().join() !== [slot, 'page'].sort().join() || identity[slot] !== null)
+    return validIdentity(rules, kind, identity);
+  // An effect (SDK 1.7) or a sample engine (SDK 1.8) that draws its own page asks for a page as a synth does.
+  return kind === 'effect' ? identity.page === rules.effect_page || identity.page === null
+    : kind === 'sample' ? rules.sample_pages.includes(identity.page) || identity.page === null
+    : ['synth', 'drum', 'player'].includes(kind) && identity.page === null;
+}
+// Whether a machine that needn't draw (an effect or a sample engine) is on a page of its own:
+// tooling.machines.owns_page.
+const ownsPage = (rules, kind, page) => kind === 'effect' ? page !== rules.effect_page
+  : kind === 'sample' && !rules.sample_pages.includes(page);
+// Whether numbers are what a machine asks for: the same fields, equal where it names one.
+const fits = (requested, numbers) => Object.keys(requested).length === Object.keys(numbers).length &&
+  Object.keys(requested).every(k => requested[k] === null || requested[k] === numbers[k]);
 // A kit's numbers: each machine asks for valid ones, and fixed numbers (kit.fixed,
 // tooling.machines.FIXED_NUMBERS) belong to their own machines and are never shared.
 function checkNumbers(kit) {
@@ -127,8 +158,8 @@ function checkNumbers(kit) {
   check(kit.fixed && typeof kit.fixed === 'object', 'Missing fixed machine numbers');
   check(new Set(kit.machines.map(m => m.id)).size === kit.machines.length, 'Duplicate machine');
   for (const m of kit.machines) {
-    check(validIdentity(rules, m.kind, m.identity), 'Machine numbers overlap a stock slot or exceed capacity: ' + m.id);
-    check(!Object.hasOwn(kit.fixed, m.id) || sameNumbers(kit.fixed[m.id], m.identity),
+    check(validRequest(rules, m.kind, m.identity), 'Machine numbers overlap a stock slot or exceed capacity: ' + m.id);
+    check(!Object.hasOwn(kit.fixed, m.id) || fits(m.identity, kit.fixed[m.id]),
       'Fixed machine numbers differ: ' + m.id);
   }
   numberLayout(rules, Object.entries(kit.fixed).map(([id, identity]) => [id, null, identity]), null, []);
@@ -137,22 +168,37 @@ function checkNumbers(kit) {
 // holds both). Projects store a track's engine, effect and page numbers, so a machine
 // keeps its numbers in a firmware for good. Open-XY's first machines' are fixed (kit.fixed);
 // a layout keeps every number it has given out, including to machines since dropped,
-// and a machine new to it gets the numbers it asks for when free, else the lowest free.
+// and machines new to it get the numbers they ask for when free (only machines before
+// SDK 1.5 ask for any), then each number still missing from the machine's own place in
+// the pool (preferred), in ID order, so numbers never depend on the selection's order.
 export const LAYOUT_FORMAT = 'opxy-layout/1';
+// FNV-1a, 32-bit, of the text's UTF-8 bytes (tooling.machines.fnv1a).
+export function fnv1a(text) {
+  let value = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(text)) value = Math.imul(value ^ byte, 0x01000193) >>> 0;
+  return value;
+}
+// A pool's numbers in the order a machine new to a layout takes the first free one: from
+// FNV-1a of its ID modulo the pool's size, upward and wrapping around.
+export function preferred(pool, name) {
+  const start = fnv1a(name) % pool.length;
+  return [...pool.slice(start), ...pool.slice(0, start)];
+}
 export function numberPools(rules) {
   const range = (low, high) => Array.from({length: high - low}, (_, i) => low + i);
   return {engine: range(rules.engine_none + 1, rules.engines).filter(n => !rules.stock_engines.includes(n)),
-    page: range(rules.page_none + 1, rules.pages), effect: [...rules.effects]};
+    page: range(rules.page_none + 1, rules.pages), effect: [...rules.effects], player: [...(rules.players ?? [])]};
 }
 export function occupied(rules, identity) {
-  const keys = ['engine', 'effect'].filter(slot => Object.hasOwn(identity, slot)).map(slot => slot + ' ' + identity[slot]);
+  const keys = ['engine', 'effect', 'player'].filter(slot => Object.hasOwn(identity, slot)).map(slot => slot + ' ' + identity[slot]);
   // Stock reads a send track's effect number as its engine: no engine shares it.
   if (Object.hasOwn(identity, 'effect')) keys.push('engine ' + identity.effect);
-  if (!Object.hasOwn(identity, 'effect') && !rules.sample_pages.includes(identity.page)) keys.push('page ' + identity.page);
+  if (!rules.sample_pages.includes(identity.page) && identity.page !== rules.effect_page) keys.push('page ' + identity.page);
   return keys;
 }
 const sameNumbers = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => a[k] === b[k]);
-// fixed and machines are [id, kind, identity] (requested, for machines); returns the layout after.
+// fixed and machines are [id, kind, identity] (requested, null where a machine asks for
+// none, for machines); returns the layout after.
 export function numberLayout(rules, fixed, layout, machines) {
   const pools = numberPools(rules), numbers = {}, holders = new Map();
   const hold = (name, identity) => {
@@ -170,20 +216,51 @@ export function numberLayout(rules, fixed, layout, machines) {
     else if (Object.hasOwn(identity, 'effect') && !pools.effect.includes(identity.effect)) continue;
     else hold(name, identity);
   }
-  for (const [name, kind, requested] of machines) {
-    if (Object.hasOwn(numbers, name)) {
+  const fresh = [];
+  for (const [name, kind, requested] of [...machines].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+    const ownPage = ownsPage(rules, kind, requested.page);
+    if (Object.hasOwn(numbers, name) && ownPage !== ownsPage(rules, kind, numbers[name].page)) {
+      // An effect (SDK 1.7) or sample engine (SDK 1.8) that came to draw its own page, or
+      // stopped: it keeps its number and is given a page, or gives its page up. Only a
+      // sample engine forking the sampler draws.
+      check(kind !== 'sample' || (ownPage ? numbers[name].page : requested.page) === 2,
+        `${name} now forks another stock sampler; the layout holds its numbers for the old one`);
+      for (const [key, holder] of [...holders]) if (holder === name && key.startsWith('page ')) holders.delete(key);
+      if (ownPage) fresh.push([name, kind, {...numbers[name], page: null}, ['page']]);
+      else numbers[name] = {...numbers[name], page: requested.page};
+    } else if (Object.hasOwn(numbers, name)) {
       check(validIdentity(rules, kind, numbers[name]), `${name}: the layout gives it numbers it cannot use`);
-      check(kind !== 'sample' || numbers[name].page === requested.page,
-        `${name} now asks for stock page ${requested.page}; the layout holds another`);
-      continue;
+      check(kind !== 'sample' || ownPage || numbers[name].page === requested.page,
+        `${name} now forks another stock sampler; the layout holds its numbers for the old one`);
+    } else {
+      const slot = kind === 'player' ? 'player' : kind === 'effect' ? 'effect' : 'engine';
+      fresh.push([name, kind, {...requested}, ['synth', 'drum', 'player'].includes(kind) || ownPage ? [slot, 'page'] : [slot]]);
     }
-    const identity = {...requested};
-    for (const slot of kind === 'effect' ? ['effect'] : kind === 'synth' ? ['engine', 'page'] : ['engine']) {
-      const choices = [...(pools[slot].includes(requested[slot]) ? [requested[slot]] : []), ...pools[slot]];
-      // An effect number is also held as an engine number (occupied).
-      const keys = n => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
-      identity[slot] = choices.find(n => !keys(n).some(key => holders.has(key)));
-      check(identity[slot] !== undefined, `No free ${slot} number for ${name}: every one is held in this layout`);
+  }
+  // An effect number is also held as an engine number (occupied).
+  const keys = (slot, n) => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
+  // The last page is reserved for an SDK overlay screen: in the pool, so every other
+  // machine keeps its own place, never given out, and still valid in a layout that
+  // already gave it (validIdentity), as earlier SDKs did (tooling.machines.number_layout).
+  const free = (slot, n) => !(slot === 'page' && n === rules.pages - 1) && !keys(slot, n).some(key => holders.has(key));
+  const take = (name, identity, slot, n) => {
+    identity[slot] = n;
+    for (const key of keys(slot, n)) holders.set(key, name);
+  };
+  // Requested numbers first, so no machine's preferred place takes one another asks for.
+  for (const [name, , identity, slots] of fresh) {
+    for (const slot of slots) {
+      const n = identity[slot];
+      identity[slot] = null;
+      if (pools[slot].includes(n) && free(slot, n)) take(name, identity, slot, n);
+    }
+  }
+  for (const [name, kind, identity, slots] of fresh) {
+    for (const slot of slots) {
+      if (identity[slot] !== null) continue;
+      const n = preferred(pools[slot], name).find(n => free(slot, n));
+      check(n !== undefined, `No free ${slot} number for ${name}: every one is held in this layout`);
+      take(name, identity, slot, n);
     }
     check(validIdentity(rules, kind, identity), `${name}: no valid numbers`);
     hold(name, identity);
@@ -201,7 +278,7 @@ export function readLayout(kit, saved) {
   check(numbers && typeof numbers === 'object' && !Array.isArray(numbers), 'This file is not a machine layout.');
   for (const [name, identity] of Object.entries(numbers))
     check(/^[a-z][a-z0-9_]{0,14}$/.test(name) && identity && typeof identity === 'object' &&
-      [['engine', 'page'], ['effect', 'page']].some(keys => Object.keys(identity).sort().join() === keys.sort().join()) &&
+      [['engine', 'page'], ['effect', 'page'], ['player', 'page']].some(keys => Object.keys(identity).sort().join() === keys.sort().join()) &&
       Object.values(identity).every(Number.isInteger), 'Invalid numbers in this layout: ' + name);
   const selected = saved.selected ?? null;
   check(selected === null || Array.isArray(selected) && selected.every(id => kit.machines.some(m => m.id === id)),
@@ -219,13 +296,18 @@ function numberSymbols(kit, selection, numbers) {
   const symbols = {};
   for (const m of kit.machines) {
     const own = selection.includes(m.id) ? numbers[m.id] : null;
-    if (m.kind === 'effect') Object.assign(symbols, {[m.prefix + '_fx_id']: own?.effect ?? 0, [m.prefix + '_fx_page_id']: own?.page ?? 0});
+    if (m.kind === 'player') Object.assign(symbols, {[m.prefix + '_player_id']: own?.player ?? 0, [m.prefix + '_page_id']: own?.page ?? 0});
+    else if (m.kind === 'effect') Object.assign(symbols, {[m.prefix + '_fx_id']: own?.effect ?? 0, [m.prefix + '_fx_page_id']: own?.page ?? 0});
+    else if (m.kind === 'sample' && m.identity.page === null)
+      // A sample engine's own screen has the page; the engine stays on the sampler's (2).
+      Object.assign(symbols, {[m.prefix + '_engine_id']: own?.engine ?? 0, [m.prefix + '_page_id']: own ? 2 : 0, [m.prefix + '_screen_page_id']: own?.page ?? 0});
     else Object.assign(symbols, {[m.prefix + '_engine_id']: own?.engine ?? 0, [m.prefix + '_page_id']: own?.page ?? 0});
   }
   return symbols;
 }
 // A machine's stock menu entry; an effect's carries its effect number.
 function catalogEntry(m, numbers) {
+  if (m.kind === 'player') return m.catalog.replace(/"id":\s*\d+/, '"id": ' + (numbers[m.id].player + 4));
   return m.kind === 'effect' ? m.catalog.replace(/"id":\s*\d+/, '"id": ' + numbers[m.id].effect) : m.catalog;
 }
 
@@ -234,6 +316,8 @@ function catalogEntry(m, numbers) {
 // GitHub repository, release tag, commit and maintainer, matching tooling.catalog's patterns.
 // Official catalog machines are Open-XY's own (tooling.catalog.OFFICIAL); the rest are community.
 export const ORIGINS = ['official', 'catalog', 'personal'];
+// Extensions come from the same places as machines (tooling.browser_kit.extension_origins).
+export const EXTENSION_ORIGINS = ORIGINS;
 const RELEASE = {repository: /^https:\/\/github\.com\/[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/,
   tag: /^[A-Za-z0-9._/-]{1,64}$/, commit: /^[0-9a-f]{40}$/, maintainer: /^[A-Za-z0-9-]{1,39}$/};
 export function validSource(source) {
@@ -249,21 +333,188 @@ export const chosenByDefault = m => m.origin !== 'catalog';
 export const sourceUrl = source => source.repository + '/tree/' + source.commit;
 export const sourceName = source => source.repository.slice('https://github.com/'.length);
 
-// Memory every machine shares: the reservation below the relocated stock tables.
+// The catalog's words for browsing machines (tooling.catalog.KEYWORDS, which tests compare).
+export const MACHINE_KEYWORDS = ['additive', 'ambient', 'analog', 'bass', 'bell', 'chord', 'delay', 'drone', 'emulation',
+  'experimental', 'fm', 'granular', 'lofi', 'modulation', 'noise', 'pad', 'percussion', 'physical', 'pluck', 'reverb', 'vocal'];
+const MAX_KEYWORDS = 5;
+export const validKeywords = m => m.keywords === undefined || Array.isArray(m.keywords) && m.keywords.length > 0 &&
+  m.keywords.length <= MAX_KEYWORDS && new Set(m.keywords).size === m.keywords.length && m.keywords.every(keyword => MACHINE_KEYWORDS.includes(keyword));
+// Who maintains a machine: its catalog maintainer; a personal kit's own machines have none.
+export const machineAuthor = m => m.source?.maintainer ?? '';
+// The keywords the machines use, with how many use each, most used first, then by name: the
+// order in which the builder keeps keyword filters when only some fit (builder/app.mjs).
+export function keywordsByUse(machines) {
+  const counts = new Map();
+  for (const m of machines) for (const keyword of m.keywords ?? []) counts.set(keyword, (counts.get(keyword) ?? 0) + 1);
+  return [...counts].map(([keyword, count]) => ({keyword, count}))
+    .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword));
+}
+const KIND_ORDER = ['synth', 'drum', 'sample', 'effect', 'player'];
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true});
+const SORTS = {
+  // Open-XY's own machines first, then the rest, each group by name.
+  featured: (a, b) => (b.m.origin === 'official') - (a.m.origin === 'official') || byName(a.m, b.m) || a.index - b.index,
+  name: (a, b) => byName(a.m, b.m) || a.index - b.index,
+  author: (a, b) => machineAuthor(a.m).localeCompare(machineAuthor(b.m), undefined, {sensitivity: 'base'}) ||
+    byName(a.m, b.m) || a.index - b.index,
+  kind: (a, b) => KIND_ORDER.indexOf(a.m.kind) - KIND_ORDER.indexOf(b.m.kind) || byName(a.m, b.m) || a.index - b.index,
+};
+export const MACHINE_SORTS = Object.keys(SORTS);
+// The words people use for each kind, as the builder's filters and details name them.
+const KIND_WORDS = {synth: 'synth synths synthesizer', drum: 'drum drums drum kit', sample: 'sample sampler samplers sample engine',
+  effect: 'effect effects fx send effect', player: 'player players note player'};
+// The machines to list, each with its collection index (which keeps its memory-map
+// colour), in the chosen order. Every word of `query` must appear in the machine's name,
+// ID, description, maintainer, repository (owner/name, which names a collection), kind
+// or one of its keywords; every keyword in `keywords` must be its own.
+export function browseMachines(machines, {query = '', kind = 'all', keywords = [], favorites = null, sort = 'featured'} = {}) {
+  const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  return machines.map((m, index) => ({m, index}))
+    .filter(({m}) => kind === 'all' || m.kind === kind)
+    .filter(({m}) => !favorites || favorites.has(m.id))
+    .filter(({m}) => keywords.every(keyword => m.keywords?.includes(keyword)))
+    .filter(({m}) => {
+      if (!words.length) return true;
+      const text = [m.name, m.id, m.description, machineAuthor(m), m.source ? sourceName(m.source) : '',
+        KIND_WORDS[m.kind] ?? m.kind, ...(m.keywords ?? [])].join('\n').toLocaleLowerCase();
+      return words.every(word => text.includes(word));
+    })
+    .sort(SORTS[sort] ?? SORTS.featured);
+}
+
+function processorOf(e) { return e.master_processor ?? e.master_filter; }
+
+// Machine presets: named selections a person keeps in this browser (builder/app.mjs),
+// by machine ID, so one outlives a collection that drops or adds machines. Sorted by name.
+export const PRESET_NAME_LIMIT = 40;
+export const PRESET_LIMIT = 50;
+// A machine ID, as tooling.definitions.stock_name allows it.
+const MACHINE_ID = /^[a-z][a-z0-9_]{0,14}$/;
+const presetName = name => typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : '';
+const sameName = (a, b) => a.localeCompare(b, undefined, {sensitivity: 'base'}) === 0;
+const byPresetName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true});
+// What a browser stored, keeping only well-formed presets: a name, and machine IDs once each.
+export function readPresets(value) {
+  if (!Array.isArray(value)) return [];
+  const presets = [];
+  for (const p of value) {
+    const name = presetName(p?.name);
+    if (!name || name.length > PRESET_NAME_LIMIT || !Array.isArray(p.machines) || !p.machines.length ||
+        !p.machines.every(id => typeof id === 'string' && MACHINE_ID.test(id)) ||
+        new Set(p.machines).size !== p.machines.length || presets.some(q => sameName(q.name, name))) continue;
+    presets.push({name, machines: [...p.machines]});
+    if (presets.length === PRESET_LIMIT) break;
+  }
+  return presets.sort(byPresetName);
+}
+// The presets with `machines` saved as `name`, replacing a preset of that name (in any case).
+export function savePreset(presets, name, machines) {
+  const clean = presetName(name);
+  check(clean, 'Name the preset.');
+  check(clean.length <= PRESET_NAME_LIMIT, `Keep the preset name to ${PRESET_NAME_LIMIT} characters.`);
+  check(machines.length > 0, 'Select at least one machine to save a preset.');
+  const others = presets.filter(p => !sameName(p.name, clean));
+  check(others.length < PRESET_LIMIT, `Keep at most ${PRESET_LIMIT} presets; delete one first.`);
+  return [...others, {name: clean, machines: [...new Set(machines)]}].sort(byPresetName);
+}
+export const deletePreset = (presets, name) => presets.filter(p => !sameName(p.name, name));
+// Whether a preset already holds exactly these machines, in any order: updating it would change nothing.
+export const presetMatches = (preset, machines) =>
+  new Set(machines).size === preset.machines.length && preset.machines.every(id => machines.includes(id));
+// A preset's machines this kit offers, in collection order, and the IDs it does not offer.
+export function applyPreset(kit, preset) {
+  const offered = new Set(kit.machines.map(m => m.id));
+  return {selected: kit.machines.filter(m => preset.machines.includes(m.id)).map(m => m.id),
+    missing: preset.machines.filter(id => !offered.has(id))};
+}
+
+// Validate choices and retain the SDK's declared callback order.
+export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e => e.id)) {
+  const entries = kit.extensions ?? [];
+  check(Array.isArray(selection) && new Set(selection).size === selection.length &&
+    selection.every(id => entries.some(e => e.id === id)), 'Choose each available extension once.');
+  const selected = entries.filter(e => selection.includes(e.id));
+  const shared = sharedClaim(selected);
+  check(!shared, shared && `These extensions both use ${claimLabel(selected, shared)}. Choose only one.`);
+  return selected.map(e => e.id); // Collection order, never checkbox order.
+}
+
+// A claim (an exclusive control such as Record double-tap) two extensions share, if any.
+export function sharedClaim(extensions) {
+  const seen = new Set();
+  for (const e of extensions) for (const claim of e.claims ?? []) {
+    if (seen.has(claim)) return claim;
+    seen.add(claim);
+  }
+  return null;
+}
+
+// The registry's label for a claim, as the kit carries it with each extension.
+export const claimLabel = (extensions, claim) =>
+  extensions.map(e => e.claim_labels?.[claim]).find(Boolean) ?? claim.replaceAll('_', ' ');
+
+// Every extension choice a build can make, in collection order: each subset
+// in which no two extensions share a claim. Recovery and release checks try each.
+export function extensionChoices(kit) {
+  const entries = kit.extensions ?? [], choices = [];
+  for (let mask = 0; mask < 2 ** entries.length; mask++) {
+    const chosen = entries.filter((_, i) => mask & 2 ** i);
+    if (!sharedClaim(chosen)) choices.push(chosen.map(e => e.id));
+  }
+  return choices;
+}
+
+// Memory every machine and extension shares, below the relocated stock tables.
 export const moduleBytes = profile => profile.reserved_bytes - profile.table_bytes;
 const screenTemplateOk = async kit => typeof kit.screenTemplate === 'string' &&
   await sha256(utf8.encode(kit.screenTemplate)) === kit.profile.screen_template_sha256;
 export async function openKit(kit) {
-  check(kit.format === 'opxy-browser-kit/1' && kit.machines.length > 0 && kit.machines.length <= 32,
-    'Unsupported curated kit');
+  check(kit.format === 'opxy-browser-kit/1', 'Unsupported curated kit');
   // The release version, which every build's boot label shows (tooling.startup_label).
   check(typeof kit.version === 'string' && /^\d+\.\d+\.\d+$/.test(kit.version), 'Unsupported curated kit version');
   const profileBytes = decode64(kit.profileSource);
   check(await sha256(profileBytes) === PROFILE_SHA256 &&
     JSON.stringify(JSON.parse(decoder.decode(profileBytes))) === JSON.stringify(kit.profile),
     'Firmware edit profile is not the reviewed profile');
+  // No more machines than the relocated engine table holds (tooling/stock_tables.py).
+  check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
+  check(kit.machines.every(validKeywords), 'Invalid machine keywords');
+  for (const machine of kit.machines) if (Object.hasOwn(machine, 'grayscaleArtwork')) selectArtwork(machine, 'colorful');
+  const extensions = kit.extensions ?? [];
+  check(Array.isArray(extensions) && extensions.length <= 16, 'Invalid extension collection');
+  check(!kit.objects.some(o => o.name === 'sdk/extension_collection.o') || Array.isArray(kit.extensions),
+    'This kit predates extension selection. Export a new kit to choose extensions.');
+  const extensionIds = new Set(), processorIds = new Set(), processorAssets = new Set();
+  for (const e of extensions) {
+    check(e && /^[a-z][a-z0-9_]{0,31}$/.test(e.id) && !extensionIds.has(e.id) &&
+      Object.entries({name: 32, description: 140, note: 100}).every(([key, limit]) => key === 'note' && e[key] === undefined ||
+        typeof e[key] === 'string' && e[key].length > 0 && e[key].length <= limit) &&
+      EXTENSION_ORIGINS.includes(e.origin) &&
+      e.claim_labels && typeof e.claim_labels === 'object' &&
+      Object.keys(e.claim_labels).sort().join() === [...(e.claims ?? [])].sort().join() &&
+      Object.values(e.claim_labels).every(l => typeof l === 'string' && l.length > 0 && l.length <= 40) &&
+      ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
+        new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))),
+      'Invalid extension metadata');
+    if(processorOf(e)) {
+      check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
+      const f=processorOf(e), stateId=f.state_id ?? e.id;
+      check(typeof stateId==='string' && /^[a-z][a-z0-9_]{0,31}$/.test(stateId) && stateId!=='eq' && !processorIds.has(stateId),
+        'Invalid or duplicate master processor identity');
+      check(!processorAssets.has(f.asset), 'Duplicate master processor asset');
+      processorIds.add(stateId);processorAssets.add(f.asset);
+      check(['artwork,asset,sha256','artwork,asset,sha256,state_id'].includes(Object.keys(f).sort().join()) &&
+        /^[a-z][a-z0-9_]*\.svg$/.test(f.asset) && typeof f.artwork === 'string', 'Invalid master filter asset');
+      const data=decode64(f.artwork);
+      check(data.length>0 && data.length<=65536 && await sha256(data)===f.sha256, 'Master filter artwork differs');
+    }
+    extensionIds.add(e.id);
+  }
+  check(kit.linked === undefined || (Array.isArray(kit.linked) && kit.linked.length > 0 &&
+    new Set(kit.linked).size === kit.linked.length && kit.linked.every(id => kit.machines.some(m => m.id === id))),
+    'Invalid linked machines');
   // The bundled stock menu is authenticated where it is used (buildAssets).
   check(typeof kit.stockCatalog === 'string' && kit.stockCatalog.length <= 2 * 1024 ** 2, 'Missing bundled stock menu');
   check(await screenTemplateOk(kit), 'Platform screen template differs from the supported ABI');
@@ -273,29 +524,84 @@ export async function openKit(kit) {
     check(!names.has(o.name) && (o.owner === null || ids.has(o.owner)), 'Duplicate or unowned object');
     check(o.service === undefined || (o.owner === null && Object.hasOwn(kit.profile.services ?? {}, o.service)),
       'Undeclared service: ' + o.service);
+    check(o.runtime === undefined || (o.runtime === true && o.owner === null && o.service === undefined &&
+      /^sdk\/runtime\/_[A-Za-z0-9_]+\.o$/.test(o.name)), 'Invalid arithmetic runtime object');
+    check(o.extension === undefined || (o.owner === null && o.service === undefined && extensionIds.has(o.extension)),
+      'Undeclared extension object');
     names.add(o.name);
     const bytes = decode64(o.bytes);
     check(await sha256(bytes) === o.sha256, 'Curated object hash mismatch: ' + o.name);
     objects.push({...o, ...readObject(bytes)});
   }
+  for (const id of extensionIds) {
+    const owned = objects.filter(o => o.extension === id);
+    check(owned.length === 1 && owned[0].symbols.some(s => s.section && s.binding === 1 &&
+      s.name === 'sdk_extension_' + id + '_hooks'), 'Missing extension accessor: ' + id);
+    if(processorOf(extensions.find(e => e.id===id))) {
+      const has = suffix => owned[0].symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+id+'_'+suffix);
+      check((has('processor') && has('panel')) || has('filter'), 'Missing master processor accessors: '+id);
+    }
+  }
   return {...kit, objects};
 }
 
-// Profile services a selection needs: each names the machine kinds that use it.
-// tooling.firmware.active_services applies the same rule.
+// Profile services a selection needs: each names the machine kinds that use it,
+// and 'extension' for any selected extension. tooling.firmware.active_services
+// applies the same rule.
 export function activeServices(profile, machines) {
   return new Set(Object.entries(profile.services ?? {})
-    .filter(([, kinds]) => machines.some(m => kinds.includes(m.kind))).map(([name]) => name));
+    .filter(([, users]) => machines.some(m => users.includes(m.kind) || (m.features ?? []).some(f => users.includes(f))))
+    .map(([name]) => name));
 }
 
-export function linkKit(kit, selection, layout = null) {
+// Same lazy arithmetic-member closure as tooling.runtime.select. Keeping this
+// separate from ordinary SDK objects preserves integer-only selections exactly.
+export function selectRuntime(objects, candidates, definitions = {}) {
+  const defined = new Set(Object.keys(definitions)), undefinedNames = new Set();
+  const names = o => {
+    const exports = new Set(), imports = new Set();
+    for (const s of o.symbols) {
+      if (!s.binding || !s.name || s.type === 4) continue;
+      check(s.binding === 1, 'Weak object symbols are unsupported');
+      (s.section ? exports : imports).add(s.name);
+    }
+    return {exports, imports};
+  };
+  for (const o of objects) {
+    const s = names(o);
+    for (const n of s.exports) defined.add(n);
+    for (const n of s.imports) undefinedNames.add(n);
+  }
+  const entries = candidates.map(o => ({o, ...names(o)})).sort((a, b) => a.o.name < b.o.name ? -1 : 1);
+  const chosen = new Set();
+  while (true) {
+    const pending = new Set([...undefinedNames].filter(n => !defined.has(n)));
+    const additions = entries.filter(e => !chosen.has(e.o) && [...e.exports].some(n => pending.has(n)));
+    if (!additions.length) break;
+    for (const e of additions) {
+      check(![...e.exports].some(n => defined.has(n)), 'Runtime member replaces an existing definition: ' + e.o.name);
+      chosen.add(e.o);
+      for (const n of e.exports) defined.add(n);
+      for (const n of e.imports) undefinedNames.add(n);
+    }
+  }
+  return entries.filter(e => chosen.has(e.o)).map(e => e.o);
+}
+
+// Extensions are linked only when named: omitting them builds none.
+export function linkKit(kit, selection, layout = null, extensionIds = []) {
+  const extensions = new Set(extensionSelection(kit, extensionIds));
   check(Array.isArray(selection) && selection.length > 0 && new Set(selection).size === selection.length &&
     selection.every(id => kit.machines.some(m => m.id === id)), 'Choose each machine once.');
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
-  const services = activeServices(kit.profile, kit.machines.filter(m => selected.has(m.id)));
-  const objects = kit.objects.filter(o => o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner));
+  const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
+    ...(extensions.size ? [{kind: 'extension'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : [])]);
+  const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
+    (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
+  objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];
   let cursor = kit.profile.module_base, initializedEnd;
   for (const group of ['text', 'rodata', 'data', 'bss']) {
@@ -334,9 +640,25 @@ export function linkKit(kit, selection, layout = null) {
   // SDK objects may import the declared callbacks of unselected machines;
   // those resolve to the declared fallbacks. Machine objects never do.
   const aliases = new Map();
+  for (const e of kit.extensions ?? []) if (!extensions.has(e.id)) {
+    for(const suffix of ['hooks', ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
+      kit.objects.some(o => o.extension===e.id && o.symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+e.id+'_'+suffix))) : [])]) {
+      const symbol = 'sdk_extension_' + e.id + '_' + suffix;
+      check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
+      aliases.set(symbol, globals.get('kit_absent'));
+    }
+  }
   for (const m of kit.machines) if (!selected.has(m.id)) {
     for (const [symbol, fallback] of Object.entries(m.absent)) {
       check(!globals.has(symbol) && globals.has(fallback), 'Invalid absent-machine callback');
+      aliases.set(symbol, globals.get(fallback));
+    }
+  }
+  // Shared objects may import a service's entry points, which resolve to their
+  // fallbacks while the selection does not use the service.
+  for (const [service, fallbacks] of Object.entries(kit.serviceFallbacks ?? {})) if (!services.has(service)) {
+    for (const [symbol, fallback] of Object.entries(fallbacks)) {
+      check(!globals.has(symbol) && globals.has(fallback), 'Invalid service fallback');
       aliases.set(symbol, globals.get(fallback));
     }
   }
@@ -348,7 +670,7 @@ export function linkKit(kit, selection, layout = null) {
     for (const r of o.relocations) {
       const sym = o.symbols[r.symbol], address = placements.get(o.name + ':' + r.section) + r.offset;
       const S = sym.section ? definedValue(o, sym) : globals.get(sym.name) ??
-        (o.owner === null ? aliases.get(sym.name) : undefined);
+        (o.owner === null && o.extension === undefined ? aliases.get(sym.name) : undefined);
       check(S !== undefined, 'Unresolved import: ' + sym.name);
       const value = S + r.addend, offset = address - kit.profile.module_base;
       check(Number.isSafeInteger(value) && value >= 0 && value <= 0xffffffff, 'Symbol arithmetic overflow');
@@ -365,7 +687,7 @@ export function linkKit(kit, selection, layout = null) {
       }
     }
   }
-  return {module, globals, aliases, objects, segments, services, numbers, definitions,
+  return {module, globals, aliases, objects, segments, services, extensions: [...extensions], numbers, definitions,
     sizes: {initialized, bss: cursor - bssStart, allocated, available: limit - allocated}};
 }
 
@@ -404,9 +726,11 @@ export function redirect(edit, destination) {
     return words(0xdc00, destination >>> 16, destination & 0xffff, 0, 0);
   }
   check(edit.kind === 'hook' && typeof edit.call === 'boolean', 'Not a hook');
-  if (edit.length === 8) {
-    check(edit.call, 'Eight-byte hook must be a call');
-    return words(0xde00, destination >>> 16, destination & 0xffff, 0);
+  if (edit.length === 8 || edit.length === 12) {
+    check(edit.call || edit.length === 8, 'Invalid absolute hook policy');
+    const after = new Uint8Array(edit.length);
+    after.set(words(edit.call ? 0xde00 : 0xdc00, destination >>> 16, destination & 0xffff, 0));
+    return after;
   }
   const delta = destination - Number(edit.address);
   check([4, 6].includes(edit.length) && delta % 2 === 0 && delta >= -(2 ** 24) && delta < 2 ** 24, 'Hook branch out of range');
@@ -438,7 +762,8 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
       covering[0].offset + 16 + site - covering[0].target === offset &&
       equal(stock.subarray(offset, offset + before.length), before), 'Patch preimage/mapping mismatch');
     let after;
-    check(edit.service === undefined || (edit.kind === 'hook' && Object.hasOwn(p.services ?? {}, edit.service)),
+    // A service's hooks, and its text edits (the MTP allowlist), apply only with it.
+    check(edit.service === undefined || (['hook', 'text'].includes(edit.kind) && Object.hasOwn(p.services ?? {}, edit.service)),
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
@@ -476,31 +801,36 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
 // SHA-256; the uploaded module is never executed or reused for a build. An exact
 // output of this curated collection also restores its machine selection.
 const RECOVERABLE_MACHINES = 10;
+// Recovery tries every extension choice only for small collections; larger ones
+// try the extensions whose code the module holds.
+const RECOVERABLE_EXTENSIONS = 4;
 
-// The machines whose code an uploaded module appears to hold: each machine's
+// Whether an uploaded module appears to hold the given objects' code: their
 // largest code section, byte for byte outside its relocated fields. Only a
 // guess; recoverFirmware accepts it only by rebuilding it exactly.
-function presentMachines(kit, payload) {
-  return kit.machines.filter(m => {
-    let best = null;
-    for (const o of kit.objects) if (o.owner === m.id) for (const s of o.sections)
-      if (s.group === 'text' && (!best || s.size > best.s.size)) best = {o, s};
-    if (!best || best.s.size < 16) return false;
-    const {o, s} = best, fixed = new Uint8Array(s.size).fill(1);
-    for (const r of o.relocations) if (r.section === s.index) {
-      fixed.fill(0, [10, 13].includes(r.type) ? r.offset - 2 : r.offset, r.offset + (r.type === 18 ? 4 : 2));
-    }
-    const anchor = fixed.indexOf(1);
-    if (anchor < 0) return false;
-    for (let at = 0; at + s.size <= payload.length; at += 2) {
-      if (payload[at + anchor] !== s.data[anchor]) continue;
-      let i = anchor;
-      while (i < s.size && (!fixed[i] || payload[at + i] === s.data[i])) i++;
-      if (i === s.size) return true;
-    }
-    return false;
-  }).map(m => m.id);
+function holdsCode(objects, payload) {
+  let best = null;
+  for (const o of objects) for (const s of o.sections)
+    if (s.group === 'text' && (!best || s.size > best.s.size)) best = {o, s};
+  if (!best || best.s.size < 16) return false;
+  const {o, s} = best, fixed = new Uint8Array(s.size).fill(1);
+  for (const r of o.relocations) if (r.section === s.index) {
+    fixed.fill(0, [10, 13].includes(r.type) ? r.offset - 2 : r.offset, r.offset + (r.type === 18 ? 4 : 2));
+  }
+  const anchor = fixed.indexOf(1);
+  if (anchor < 0) return false;
+  for (let at = 0; at + s.size <= payload.length; at += 2) {
+    if (payload[at + anchor] !== s.data[anchor]) continue;
+    let i = anchor;
+    while (i < s.size && (!fixed[i] || payload[at + i] === s.data[i])) i++;
+    if (i === s.size) return true;
+  }
+  return false;
 }
+const presentMachines = (kit, payload) =>
+  kit.machines.filter(m => holdsCode(kit.objects.filter(o => o.owner === m.id), payload)).map(m => m.id);
+const presentExtensions = (kit, payload) => (kit.extensions ?? [])
+  .filter(e => holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
 const UPDATE = 'Update your OP–XY to OS 1.2.1 with teenage engineering’s updater, then copy its OS file (os.ldr) again; a .tfw update file will not work.';
 const UNSUPPORTED = 'Only OP–XY OS 1.2.1 is supported. This file is not OS 1.2.1 or an open-xy OS made from it. ' + UPDATE;
 export async function recoverFirmware(kit, input, layout = null) {
@@ -527,38 +857,48 @@ export async function recoverFirmware(kit, input, layout = null) {
     // or infer ownership from its label. SDK builds retain timing; site builds
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
-    const rebuilds = async selected => {
-      const linked = linkKit(kit, selected, layout);
+    const rebuilds = async (selected, extensions) => {
+      const linked = linkKit(kit, selected, layout, extensions);
       if (!equal(linked.module, payload)) return false;
       for (const profiling of [true, false]) {
         if (equal(await patchFirmware(kit, linked, stock, {profiling}), input)) return true;
       }
       return false;
     };
-    // First the machines whose code the module holds, one link at any kit size.
-    const present = presentMachines(kit, payload);
-    try {
-      if (present.length && await rebuilds(present)) return {stock, selected: present};
-    } catch {}  // a guess that cannot link is not this kit's build
-    // Small kits also try every selection: at most 1,023 deterministic links,
-    // each under a millisecond. Yield between candidates so file changes and
-    // navigation remain responsive; the caller discards stale results.
+    // First the machines and extensions whose code the module holds, one link at
+    // any kit size. Then every extension choice for a small collection, or the
+    // present ones and none for a larger one, so links never grow exponentially.
+    const present = presentMachines(kit, payload), held = presentExtensions(kit, payload);
+    const guess = sharedClaim((kit.extensions ?? []).filter(e => held.includes(e.id))) ? [] : held;
+    const choices = (kit.extensions ?? []).length <= RECOVERABLE_EXTENSIONS ? extensionChoices(kit)
+      : guess.length ? [guess, []] : [[]];
+    for (const extensions of present.length ? [guess, ...choices] : []) {
+      try {
+        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions};
+      } catch {}  // a guess that cannot link is not this kit's build
+    }
+    // Small kits also try every selection: at most 1,023 deterministic links per
+    // extension choice, each under a millisecond. Yield between candidates so file
+    // changes and navigation remain responsive; the caller discards stale results.
     if (kit.machines.length <= RECOVERABLE_MACHINES) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
-        if (await rebuilds(selected)) return {stock, selected};
+        for (const extensions of choices) {
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions};
+        }
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
   }
   // Another open-xy OS: an earlier release, other machines or another build.
-  // Its stock OS is verified above; its machines are chosen again.
+  // Its stock OS is verified above; its machines and extensions are chosen again.
   return {stock, selected: null, earlier: true};
 }
 
 export function presetPath(machine) {
-  if (machine.kind === 'effect') return null;
-  check(['synth', 'sample'].includes(machine.kind) && /^[a-z][a-z0-9_]{0,14}$/.test(machine.id),
+  // An aux machine (no catalog entry) is never an instrument, so it has no instrument presets.
+  if (machine.kind === 'effect' || machine.kind === 'player' || machine.catalog === '') return null;
+  check(['synth', 'drum', 'sample'].includes(machine.kind) && /^[a-z][a-z0-9_]{0,14}$/.test(machine.id),
     'Invalid preset instrument');
   return `content/presets/${machine.id}/default.json`;
 }
@@ -567,6 +907,18 @@ export function presetPath(machine) {
 // each a version 4 preset of this machine, pointing at no samples. Its own
 // default replaces the generated init preset.
 export function presetFiles(machine) {
+  // An aux machine's presets: the files the kit generated (tooling.adapters.aux_preset_files).
+  if (machine.catalog === '') {
+    const files = {};
+    for (const [path, text] of Object.entries(machine.auxPresets ?? {})) {
+      // The machine's own presets, and the init of a stock role it can replace (tooling.adapters.AUX_ROLES).
+      const type = JSON.parse(text).type, folder = type === machine.id ? machine.id : ['cv'].includes(type) ? type : null;
+      check(folder !== null && new RegExp(`^content/aux_presets/${folder}/[a-z0-9][a-z0-9 _-]{0,14}\\.json$`).test(path),
+        'Invalid aux preset: ' + path);
+      files[path] = JSON.parse(text);
+    }
+    return files;
+  }
   const path = presetPath(machine);
   if (!path) return {};
   const presets = machine.presets ?? {};
@@ -596,35 +948,38 @@ function defaultPreset(machine) {
   check(amp && typeof amp === 'object' && !Array.isArray(amp) &&
     Object.entries(amp).every(([key, value]) => ['attack', 'decay', 'release', 'sustain'].includes(key) &&
       Number.isInteger(value) && value >= 0 && value <= 32767), 'Invalid preset amp defaults');
-  // Authored init settings in the device's version-4 preset structure. Engine
-  // controls come from its catalog, never from a copied factory sound. Volume
-  // 16384 is half scale: the device's gain readout shows 50.
+  const template = structuredClone(DEFAULT_PRESET_TEMPLATE);
   return {
-    engine: {
-      bendrange: 8191, highpass: 0,
-      modulation: Object.fromEntries(['aftertouch', 'modwheel', 'pitchbend', 'velocity']
-        .map(source => [source, {amount: 16384, target: 0}])),
-      params: [...entry.default_params], playmode: 'poly',
-      'portamento.amount': 0, 'portamento.type': 0, transpose: 0,
-      'tuning.root': 0, 'tuning.scale': 0, 'velocity.sensitivity': 0, volume: 16384, width: 0,
-    },
-    envelope: {
-      // Match a device-saved minimum amp release: the stored endpoint is 32767.
-      amp: {attack: 128, decay: 8192, release: 32767, sustain: 32767, ...amp},
-      filter: {attack: 0, decay: 0, release: 0, sustain: 32767},
-    },
-    fx: {active: false, params: [0, 0, 0, 0, 0, 32767, 0, 0], type: 'svf'},
-    lfo: {active: false, params: [0, 0, 0, 0, 0, 0, 0, 0], type: 'value'},
-    octave: 0, platform: 'OP-XY', regions: [], type: entry.type, version: 4,
+    ...template,
+    engine: {...template.engine, params: [...entry.default_params]},
+    envelope: {...template.envelope, amp: {...template.envelope.amp, ...amp}},
+    type: entry.type,
   };
 }
 
-export async function buildAssets(kit, selection, catalog, numbers) {
+export function graphicsForMachine(machine, {graphics = 'colorful', graphicsOverrides = {}} = {}) {
+  const mode = machine.artwork && Object.hasOwn(graphicsOverrides, machine.id) ? graphicsOverrides[machine.id] : graphics;
+  check(['colorful', 'grayscale'].includes(mode), 'Invalid machine graphics setting');
+  return machine.artwork ? mode : 'colorful';
+}
+
+export async function buildAssets(kit, selection, catalog, numbers, options = {}, extensionIds = []) {
+  // Older extension-aware callers pass their selection as the fifth argument.
+  if (Array.isArray(options)) { extensionIds = options; options = {}; }
+  const {graphics = 'colorful', graphicsOverrides = {}} = options;
+  check(['colorful', 'grayscale'].includes(graphics), 'Invalid machine graphics setting');
+  check(graphicsOverrides && typeof graphicsOverrides === 'object' && !Array.isArray(graphicsOverrides), 'Invalid machine graphics overrides');
+  for (const [id, mode] of Object.entries(graphicsOverrides))
+    check(kit.machines.some(machine => machine.id === id && machine.artwork) && ['colorful', 'grayscale'].includes(mode),
+      'Invalid graphics override: ' + id);
   check(await sha256(catalog) === kit.profile.stock_catalog_sha256, 'The site’s machine data is damaged. Reload this page.');
   const machines = kit.machines.filter(m => selection.includes(m.id));
   // Each machine's entry ends its stock list; the offsets are bound to the
   // authenticated stock catalog (tooling.native.extend_catalog).
-  const groups = {engine_types: machines.filter(m => m.kind !== 'effect'), fx_types: machines.filter(m => m.kind === 'effect')};
+  // Aux machines have no entry: they are chosen on their aux track, never in tracks 1-8's list.
+  const listed = machines.filter(m => m.catalog !== '');
+  const groups = {engine_types: listed.filter(m => ['synth', 'drum', 'sample'].includes(m.kind)),
+    fx_types: listed.filter(m => m.kind === 'effect'), seq_types: listed.filter(m => m.kind === 'player')};
   const inserts = Object.entries(kit.profile.stock_catalog_inserts).sort((a, b) => b[1] - a[1]);
   check(inserts.map(([key]) => key).sort().join() === Object.keys(groups).sort().join(), 'Unexpected catalog insertion points');
   let extended = catalog;
@@ -636,16 +991,36 @@ export async function buildAssets(kit, selection, catalog, numbers) {
     expected[key] = [...base[key], ...group.map(m => JSON.parse(catalogEntry(m, numbers).trim().replace(/^,/, '')))];
   check(JSON.stringify(JSON.parse(text)) === JSON.stringify(expected), 'Unexpected catalog modification');
   const files = {'content/op1_factory.json': extended};
+  for(const id of extensionSelection(kit,extensionIds)) {
+    const filter=processorOf(kit.extensions.find(e => e.id===id));
+    if(!filter)continue;
+    const data=decode64(filter.artwork);
+    check(data.length<=65536 && await sha256(data)===filter.sha256, 'Master filter artwork differs');
+    files['content/display/'+filter.asset]=data;
+  }
   for (const machine of machines)
     for (const [path, preset] of Object.entries(presetFiles(machine)))
       files[path] = utf8.encode(JSON.stringify(preset, null, 2) + '\n');
+  // The device lists at most 64 aux presets, every aux machine's and the roles' inits together
+  // (tooling.adapters.AUX_PRESETS).
+  const auxPaths = Object.keys(files).filter(path => path.startsWith('content/aux_presets/'));
+  check(auxPaths.length <= 64, `The chosen aux machines have ${auxPaths.length} presets together; the OP-XY lists 64. Choose fewer.`);
+  const auxFolders = new Set(auxPaths.map(path => path.split('/')[2])).size;
+  check(auxFolders <= 16, `The chosen aux machines have ${auxFolders} preset folders together; the OP-XY lists 16. Choose fewer.`);
   if (machines.some(m => m.artwork)) {
     check(await screenTemplateOk(kit), 'Platform screen template differs from the supported ABI');
     const baseSvg = kit.screenTemplate;
     check(baseSvg.split('</svg>').length === 2, 'Unexpected stock artwork boundary');
     for (const m of machines.filter(m => m.artwork)) {
       check(/^[a-z][a-z0-9_]*\.svg$/.test(m.asset), 'Invalid artwork filename');
-      files['content/display/' + m.asset] = utf8.encode(baseSvg.replace('</svg>', m.artwork + '</svg>'));
+      check(files['content/display/' + m.asset] === undefined, 'Display asset collision: ' + m.asset);
+      try {
+        const fragment = selectArtwork(m, graphicsForMachine(m, {graphics, graphicsOverrides}));
+        const artwork = baseSvg.replace('</svg>', fragment + '</svg>');
+        files['content/display/' + m.asset] = utf8.encode(artwork);
+      } catch (error) {
+        throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');
+      }
     }
   }
   return files;

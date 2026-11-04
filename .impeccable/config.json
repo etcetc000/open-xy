@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "arial",
+        "files": [
+          "harness/index.html"
+        ],
+        "createdAt": "2026-10-28T04:07:05.365Z",
+        "reason": "Agent: user requested matching the OS install website; its live styles and builder/style.css use Arial. Retaining that font preserves the requested visual consistency."
+      }
+    ]
+  }
+}

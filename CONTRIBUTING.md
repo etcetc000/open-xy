@@ -13,8 +13,9 @@ git switch -c my-change origin/staging
 When contributing from a fork, use `upstream/staging` after fetching the Open-XY
 repository as `upstream`. Target `etcetc000/open-xy:staging` in the pull request.
 Merged work is tested at beta.open-xy.com. Maintainers promote reviewed work
-with a `staging` → `main` release pull request; `main` is reserved for releases.
-CI rejects feature pull requests aimed directly at `main`.
+with a `staging` → `main` release pull request; `main` is reserved for releases
+and [catalog submissions](docs/catalog.md#submit-a-machine), which maintainers
+merge from `main` into `staging`. CI rejects other pull requests aimed directly at `main`.
 See [Cloudflare deployment](docs/builder.md#cloudflare-deployment).
 
 ## Where changes belong
@@ -28,6 +29,7 @@ in the layer that owns the behavior:
 | A new machine | Its own repository, created with `sdk.py new --repository`; learn from the core machines |
 | Oscillator, controls, artwork, presets or lookup tables | The machine's folder |
 | Sound tests | The machine's `tests/`, run by `sdk.py test` |
+| Controller behavior, capture history and extension gestures | The extension's own repository; see [extensions](docs/extensions.md) |
 | Callback contract, adapter, build, preview or packaging | SDK |
 | Firmware address map, shared memory reservation or compiler profile | Shared platform integration |
 
@@ -39,6 +41,14 @@ in their own repositories and reach the builder through the [catalog](docs/catal
 ([submitting a machine](docs/catalog.md#submit-a-machine)).
 This repository holds no machines; Open-XY's own are in the
 [core machines](https://github.com/etcetc000/open-xy-core-machines), published the same way.
+
+Firmware facts are declared once. Table sizes, sentinels and relocated
+addresses come from [`tooling/stock_tables.py`](tooling/stock_tables.py):
+Python imports them, native templates receive them as `@NAME@` values and the
+builder reads them from the profile, which `check_profile` holds to the same
+declarations. Where a value must stay literal (the hash-pinned linker script, an
+untemplated platform source), `tests/test_stock_tables.py` asserts it matches.
+A raised limit then changes one declaration, and a copy left behind fails a check.
 
 ## Checks
 
@@ -75,7 +85,7 @@ required checks and private fixtures cannot be skipped.
 Work is tracked as issues. Each release has a milestone and a matching
 [project board](https://github.com/etcetc000/open-xy/projects) named after its
 version; maintainers assign new issues to both. Pick an open issue or open one
-before larger work, and write `Closes #<issue>` in the pull request. A release merges `staging` into `main`,
+before larger work, and write `Closes #<issue>` in the pull request. A release merges `staging`, or a `release/<version>` branch cut from it when staging carries later work, into `main`,
 is tagged `v<milestone>` with generated release notes, and closes its milestone.
 
 In a PR, explain the behavior, how to try it, compatibility changes and checks

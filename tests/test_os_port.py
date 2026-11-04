@@ -123,7 +123,7 @@ class CpuCompare(unittest.TestCase):
                 run.mkdir()
                 (run / 'capture.json').write_text(json.dumps(c))
                 runs.append(run)
-            return cpu_compare.medians('package', runs)
+            return cpu_compare.medians('package', runs)[0]
 
     def test_runs_are_this_package_used_once_and_all_sounded(self):
         self.assertEqual(self.run_medians([capture('build', self.cases, v) for v in (1.0, 3.0, 2.0)]),
@@ -135,6 +135,29 @@ class CpuCompare(unittest.TestCase):
         # A run whose voice never sounded leaves the case out rather than skewing it.
         with self.assertRaisesRegex(ValueError, 'every run'):
             self.run_medians([capture('build', self.cases, 1.0), capture('build', self.cases, 2.0, voice=False)])
+
+    def test_a_sweep_build_keeps_each_synth_run_apart(self):
+        setting = dict(control=0, label='Tone', value=0x7fffffff)
+        cases = [dict(name='pluck', source='sdk', kind='synth'),
+                 dict(name='pluck', source='sdk', kind='synth', setting=setting),
+                 dict(name='pluck', source='sdk', kind='synth', combined=True)]
+
+        def decode(c, expected):
+            return [dict(machine=case, insufficient_voice_activity=False,
+                         metrics=[dict(index=5, encoded_average=1, average_budget_percent=c['value'] + i)])
+                    for i, case in enumerate(expected)]
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.object(cpu_compare, 'package_data', return_value=({}, dict(benchmark_cases=cases), 'build')), \
+                mock.patch.object(cpu_compare, 'decode', decode):
+            runs = []
+            for i, value in enumerate((1.0, 2.0, 3.0)):
+                run = Path(folder) / str(i)
+                run.mkdir()
+                (run / 'capture.json').write_text(json.dumps(capture('build', cases, value)))
+                runs.append(run)
+            self.assertEqual(cpu_compare.medians('package', runs)[0],
+                             {('pluck midpoint (stock)', 5): 2.0, ('pluck #0 Tone 100.0%', 5): 3.0,
+                              ('pluck combined', 5): 4.0})
 
 
 if __name__ == '__main__':

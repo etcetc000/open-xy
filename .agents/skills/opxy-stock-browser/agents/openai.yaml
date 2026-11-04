@@ -1,0 +1,4 @@
+interface:
+  display_name: "OP-XY Stock Browser"
+  short_description: "Reuse stock selectors in OP-XY native SDK GUI code"
+  default_prompt: "Use $opxy-stock-browser to add a native stock selector to an SDK GUI feature."

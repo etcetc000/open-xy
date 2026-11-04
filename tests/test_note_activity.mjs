@@ -21,7 +21,7 @@ function signed(value) {
 const vector = items => [...unsigned(items.length), ...items.flat()];
 const section = (id, bytes) => [id, ...unsigned(bytes.length), ...bytes];
 const name = value => [...unsigned(value.length), ...new TextEncoder().encode(value)];
-function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:92}[abi]) {
+function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:84, 4:88, 5:104}[abi]) {
   const constants = {opxy_display_abi:abi, opxy_display_state_bytes:16,
     opxy_display_input_bytes:inputBytes, opxy_display_frame_bytes:100,
     opxy_display_state:1024, opxy_display_input:2048, opxy_display_frame:4096, opxy_display_valid:1};
@@ -94,29 +94,29 @@ test('ABI 1 previews retain their original storage and unsupported layouts fail'
   const after = new Uint32Array(display.memory,2048+68,1); after[0] = 0xabcdef;
   display.tick(input(),17,2,0,false,{held_notes:2,note_off_serial:9});
   assert.equal(display.input.length, 17); assert.equal(after[0], 0xabcdef);
-  for (const [abi, bytes] of [[1,76],[2,68],[3,76],[2,92],[4,92]]) assert.throws(() => new PreviewDisplay(fixture(abi,bytes)), /ABI/);
+  for (const [abi, bytes] of [[1,76],[2,68],[3,76],[2,92],[4,92],[5,88]]) assert.throws(() => new PreviewDisplay(fixture(abi,bytes)), /ABI/);
 });
 
-test('ABI 3 publishes the amp envelope after note activity, and omission marks it unknown', () => {
-  const display = new PreviewDisplay(fixture(3)), notes = new NoteActivity();
+test('ABI 5 publishes the amp envelope after the drum model, and omission marks it unknown', () => {
+  const display = new PreviewDisplay(fixture(5)), notes = new NoteActivity();
   const amp = {attack:0x00800000, decay:0x20000000, sustain:0x7fffffff, release:0};
   notes.noteOn(60);
-  display.tick(input(),17,1,0,false,notes,amp);
-  assert.deepEqual([...display.input.slice(17)], [1,0,0x00800000,0x20000000,0x7fffffff,0]);
+  display.tick(input(),17,1,0,false,notes,0,0,[0,0,0,0],amp);
+  assert.deepEqual([...display.input.slice(17)], [1,0,0,0,0,0x00800000,0x20000000,0x7fffffff,0]);
   display.tick(input(),17,1,0,false,notes);
-  assert.deepEqual([...display.input.slice(19)], Array(4).fill(0xffffffff), 'Omission invalidates a stale envelope');
+  assert.deepEqual([...display.input.slice(22)], Array(4).fill(0xffffffff), 'Omission invalidates a stale envelope');
   const before = new Uint8Array(display.memory).slice();
   for (const bad of [{}, {...amp, attack:-1}, {...amp, sustain:0x80000000}, {...amp, release:0.5}, {...amp, decay:'1'}]) {
-    assert.throws(() => display.tick(input(),99,2,0,false,notes,bad), /amp/);
+    assert.throws(() => display.tick(input(),99,2,0,false,notes,0,0,[0,0,0,0],bad), /amp/);
     assert.deepEqual(new Uint8Array(display.memory), before);
   }
 });
 
-test('ABI 2 previews ignore a supplied envelope and keep their storage', () => {
-  const display = new PreviewDisplay(fixture(2));
-  const after = new Uint32Array(display.memory,2048+76,1); after[0] = 0xabcdef;
-  display.tick(input(),17,1,0,false,null,{attack:1,decay:2,sustain:3,release:4});
-  assert.equal(display.input.length, 19); assert.equal(after[0], 0xabcdef);
+test('ABI 4 previews ignore a supplied envelope and keep their storage', () => {
+  const display = new PreviewDisplay(fixture(4));
+  const after = new Uint32Array(display.memory,2048+88,1); after[0] = 0xabcdef;
+  display.tick(input(),17,1,0,false,null,0,0,[0,0,0,0],{attack:1,decay:2,sustain:3,release:4});
+  assert.equal(display.input.length, 22); assert.equal(after[0], 0xabcdef);
 });
 
 test('an edit shows its parameter at its position, or its whole page on a paged synth', () => {
@@ -139,4 +139,16 @@ test('partial second pages repeat the same saved controls without switching page
   assert.deepEqual(editedShown([0, 1, 2, 3], drone, 4, true), [0, 4, 5, 6]);
   assert.deepEqual(editedShown([0, 4, 5, 6], drone, 0, true), [0, 4, 5, 6]);
   assert.deepEqual(editedShown([0, 4, 5, 6], drone, 3, true), [0, 1, 2, 3]);
+});
+
+test('ABI 3 publishes Shift and its choices, and ABI 4 a drum kit\'s model after them', () => {
+  const shifted = new PreviewDisplay(fixture(3, 84));
+  shifted.tick(input(), 17, 3, 2, false, null, 0, 1, [2, 5, 1, 0]);
+  assert.deepEqual([...shifted.input.slice(19)], [1, 2 | 5 << 8 | 1 << 16]);
+  const kit = new PreviewDisplay(fixture(4, 88));
+  kit.tick(input(), 17, 3, 2, false, null, 30, 1, [3, 0, 2, 0]);
+  assert.deepEqual([...kit.input.slice(19)], [1, 3 | 2 << 16, 30]);
+  assert.throws(() => kit.tick(input(), 17, 3, 2, false, null, 0, 2), /Invalid shift/);
+  assert.throws(() => kit.tick(input(), 17, 3, 2, false, null, 0, 0, [256, 0, 0, 0]), /Invalid shift choice/);
+  assert.throws(() => new PreviewDisplay(fixture(4, 80)), /Unsupported drawing ABI/);
 });

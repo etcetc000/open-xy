@@ -69,8 +69,25 @@ static void reset() {
     resolves = adds = 0;
 }
 
+static StockString key(const char* name) {
+    StockString s = {};
+    std::memcpy(s.text, name, std::strlen(name));
+    s.length = static_cast<u32>(std::strlen(name));
+    s.capacity = 15;
+    return s;
+}
+
 int main() {
     const Record probe = record("probe");
+    // Known names resolve; unknown ones don't; before the name map exists every
+    // name counts as known, without asking stock.
+    reset();
+    names[5] = "prism";
+    const StockString prism = key("prism"), gone = key("gone");
+    require(known(engines, &prism) == 1 && known(engines, &gone) == 0 && resolves == 2);
+    map_state[1] = 0;
+    require(known(engines, &gone) == 1 && resolves == 2);
+
     // Registration fills an empty record once, then confirms it.
     reset();
     require(ready(engines, pages, probe, nullptr) == 0);
@@ -160,6 +177,7 @@ int main() {
     require(ready(engines, pages, probe, &screen) == 1);
     initialized = 0;
     require(ready(engines, pages, probe, &screen) == 0);
+    require(ready(engines, pages, probe, nullptr) == 1);  // audio record needs no GUI
     initialized = 1;
     reinterpret_cast<u32*>(state)[3] = 83;
     require(ready(engines, pages, probe, &screen) == 0);

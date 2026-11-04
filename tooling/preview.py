@@ -1,4 +1,4 @@
-"""Build a curated synth's browser audition module and authenticate served artifacts."""
+"""Build a synth or drum browser audition module and authenticate served artifacts."""
 import argparse
 import json
 from pathlib import Path
@@ -10,40 +10,42 @@ from xml.etree.ElementTree import ParseError
 from .formats import require, sha
 from .definitions import ROOT
 from .machines import machine_at
-from .pipeline import NO_WINDOW, fresh_output
+from .pipeline import NO_WINDOW, add_overwrite_argument, fresh_output
 
 
 VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment', 'opxy_parameter_count',
                  'opxy_block_frames', 'opxy_sample_rate', 'opxy_output_peak_q31', 'opxy_voice_capacity',
-                 'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_destroy', 'opxy_render', '__heap_base')
+                 'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_destroy', 'opxy_render', 'opxy_preview_model',
+                 '__heap_base')
 DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
-                                                            'input', 'frame', 'reset', 'render', 'valid'))
+                                                            'input', 'frame', 'reset', 'render', 'valid', 'sample'))
 MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
 SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
-               'tooling/contributors.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
+               'tooling/contributors.py', 'tooling/graphics.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
                'sdk/host/display_preview.cpp', 'sdk/platform/blackfin/memory.cpp')
 SDK_FOLDERS = ('sdk/include', 'sdk/browser', 'sdk/platform/blackfin/freestanding')
 FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-exceptions', '-fno-rtti',
          '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-c++-static-destructors', '-nostdlib',
          '-Wall', '-Werror', '-Wno-unused']
 # Fixed browser allowance for code/data/state; no memory growth during audio.
-# Native collections have a separate 2040 KiB linker limit.
+# Native collections have a separate linker limit (builder moduleBytes).
 MEMORY = 2 * 1024 * 1024
 
 
-def compile_preview(compiler, definition, out, root, sources=(), includes=()):
+def compile_preview(compiler, definition, out, root, sources=(), includes=(), *, kind='synth'):
     """One WebAssembly module: the SDK voice preview, the machine's sources and its display transport."""
     from .adapters import generate_display, generate_voice_preview
-    units = [generate_voice_preview(out, definition), *(root / s for s in sources),
+    units = [generate_voice_preview(out, definition, kind=kind), *(root / s for s in sources),
              ROOT / 'sdk/platform/blackfin/memory.cpp']
-    generate_display(out, definition=definition)
+    generate_display(out, definition=definition, kind=kind)
     units += [out / 'display_binding.cpp', ROOT / 'sdk/host/display_preview.cpp']
     paths = [ROOT, ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', root,
              *(root / extra for extra in includes), out]
+    memory = MEMORY
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
-               '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={MEMORY}',
-               f'-Wl,--max-memory={MEMORY}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS)]
+               '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={memory}',
+               f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS)]
     result = subprocess.run([str(x) for x in command], capture_output=True, text=True, timeout=120,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
@@ -75,7 +77,10 @@ def graphics_metadata(m):
     from .native import display_ids
     asset = sha((m.root / 'panel.svg.fragment').read_bytes())
     display = m.definition['resources']['display']
-    return dict(drawing_bindings(display_ids(m.prefix, display), display), asset_sha256=asset)
+    result = dict(drawing_bindings(display_ids(m.prefix, display), display), asset_sha256=asset)
+    if m.grayscale:
+        result['grayscale_sha256'] = sha((m.root / m.grayscale).read_bytes())
+    return result
 
 
 def drawing_bindings(ids, display):
@@ -85,10 +90,10 @@ def drawing_bindings(ids, display):
                 paths=display['paths'], points=display['points'])
 
 
-def build(compiler, m, out):
-    """The browser audition of a collection synth (a Machine)."""
+def build(compiler, m, out, overwrite=False):
+    """The browser audition of a collection synth or drum (a Machine)."""
     from .native import check_sources, validate_panel
-    require(m.kind == 'synth', 'Browser previews audition synths')
+    require(m.kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
     require(not m.contains(out), 'Keep preview output outside the machine folder')
     executable = shutil.which(str(compiler))
     require(executable is not None, 'Clang++ with wasm32/wasm-ld is required; run python sdk.py doctor --preview')
@@ -96,9 +101,11 @@ def build(compiler, m, out):
     check_sources([m])
     validate_panel(m)
     before = source_hashes(m)
-    out = fresh_output(out)
-    compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes)
+    out = fresh_output(out, overwrite, [m.root])
+    compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes, kind=m.kind)
     (out / 'panel.svg').write_bytes((m.root / 'panel.svg.fragment').read_bytes())
+    if m.grayscale:
+        (out / 'panel.grayscale.svg').write_bytes((m.root / m.grayscale).read_bytes())
     require(source_hashes(m) == before, 'Source changed during preview build')
     version = subprocess.check_output([str(compiler), '--version'], text=True, timeout=30).splitlines()[0]
     manifest = dict(schema=1, kind='cpp-browser-preview', engine=m.id, root=str(m.root),
@@ -113,7 +120,7 @@ def build(compiler, m, out):
 
 
 def preview_bundle(directory, *, require_reference=False):
-    """Authenticate exactly three artifacts; return an immutable serving snapshot."""
+    """Authenticate preview artifacts, including a declared grayscale variant."""
     directory = Path(directory).absolute()
     require(directory.resolve() == directory, 'Redirected preview directory')
     files = {}
@@ -123,6 +130,14 @@ def preview_bundle(directory, *, require_reference=False):
                 'Missing, oversized or redirected preview artifact')
         files[name] = path.read_bytes()
     manifest = json.loads(files['manifest.json'])
+    require(isinstance(manifest, dict) and isinstance(manifest.get('graphics'), dict), 'Invalid preview manifest')
+    if 'grayscale_sha256' in manifest.get('graphics', {}):
+        path = directory / 'panel.grayscale.svg'
+        require(path.resolve() == path and path.is_file() and 0 < path.stat().st_size <= 65536,
+                'Missing, oversized or redirected grayscale preview artifact')
+        files['panel.grayscale.svg'] = path.read_bytes()
+        require(sha(files['panel.grayscale.svg']) == manifest['graphics']['grayscale_sha256'],
+                'Grayscale preview artwork identity mismatch')
     require(isinstance(manifest, dict), 'Invalid preview manifest')
     if manifest.get('kind') == 'cpp-browser-custom-preview':
         require(not require_reference, 'Custom previews are local auditions, not qualified collection inputs')
@@ -137,26 +152,31 @@ def preview_bundle(directory, *, require_reference=False):
     root = manifest['root']
     require(isinstance(root, str) and Path(root).is_absolute(), 'Invalid machine folder in preview')
     m = machine_at(root)
-    require(m.id == manifest['engine'] and m.kind == 'synth', 'Browser previews audition synths')
+    require(m.id == manifest['engine'] and m.kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
     require(manifest['sources'] == source_hashes(m), 'Preview is stale; rebuild from current source')
     require(manifest['definition'] == m.definition and manifest['description'] == m.description,
             'Preview controls or description differ from the machine')
     require(manifest['graphics'] == graphics_metadata(m), 'Preview graphics identity mismatch')
     require(sha(files['panel.svg']) == manifest['graphics']['asset_sha256'], 'Preview artwork identity mismatch')
+    if m.grayscale:
+        require(files.get('panel.grayscale.svg') == (m.root / m.grayscale).read_bytes(),
+                'Grayscale preview differs from source')
     require(files['engine.wasm'][:8] == b'\0asm\x01\0\0\0' and
             sha(files['engine.wasm']) == manifest['wasm_sha256'], 'Preview module identity mismatch')
     return artifact_bundle(files)
 
 
 def artifact_bundle(files):
-    return {'/preview/' + name: (mime, files[name]) for name, mime in (
-        ('manifest.json', 'application/json'), ('engine.wasm', 'application/wasm'), ('panel.svg', 'image/svg+xml'))}
+    mime = {'manifest.json': 'application/json', 'engine.wasm': 'application/wasm',
+            'panel.svg': 'image/svg+xml', 'panel.grayscale.svg': 'image/svg+xml'}
+    return {'/preview/' + name: (mime[name], data) for name, data in files.items()}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cxx', default='clang++')
     parser.add_argument('--out', required=True, type=Path)
+    add_overwrite_argument(parser)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--machine', type=Path, help='Synth folder with machine.json, anywhere')
     source.add_argument('--source', type=Path, help='Local custom-machine directory')
@@ -164,9 +184,9 @@ def main(argv=None):
     try:
         if args.source:
             from .custom_preview import build as build_custom
-            build_custom(args.cxx, args.source, args.out)
+            build_custom(args.cxx, args.source, args.out, args.overwrite)
         else:
-            build(args.cxx, machine_at(args.machine), args.out)
+            build(args.cxx, machine_at(args.machine), args.out, args.overwrite)
         return 0
     except (ValueError, OSError, ParseError, subprocess.SubprocessError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

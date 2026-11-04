@@ -2,21 +2,30 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
+#include "drum_machines.hpp"
+// This fixture contains only a sample engine; synthesis-kit ownership is absent.
+const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
 // The probe's engine ID: on the device the linker supplies the symbol's value;
 // here it is the address of a definition, the same on every use.
 extern "C" { const char probe_engine_id[1] __asm__("probe_engine_id") = {}; }
 static const unsigned kProbe = static_cast<unsigned>(reinterpret_cast<opxy::platform::Address>(probe_engine_id));
+// A second machine, on page 2 (the sampler's page).
+extern "C" { const char sampler_engine_id[1] __asm__("sampler_engine_id") = {}; }
+static const unsigned kSampler = static_cast<unsigned>(reinterpret_cast<opxy::platform::Address>(sampler_engine_id));
+extern "C" unsigned sdk_sample_alias(unsigned) __asm__("sdk_sample_alias");
 static unsigned selected = kProbe, edits;
 extern "C" unsigned sdk_sample_note_route(unsigned) __asm__("sdk_sample_note_route");
 static bool owned = true;
 static opxy::DrumControl received;
 extern "C" unsigned sdk_sample_selected_engine() { return selected; }
 extern "C" int probe_ready() { return owned; }
+extern "C" int sampler_ready() { return owned; }
 // The probe also declares analysis; its callbacks are not exercised here.
 extern "C" unsigned probe_analysis_words(const opxy::SampleView*) { return 0; }
 extern "C" unsigned probe_prepare_begin(const opxy::SampleView*, unsigned*, unsigned) { return 0; }
 extern "C" unsigned probe_prepare_step(unsigned, unsigned*) { return 0; }
 extern "C" unsigned probe_prepared(opxy::SampleAnalysis*) { return 0; }
+extern "C" void probe_slice_clock(const opxy::SampleSlice*, opxy::SampleSliceRate*) {}
 static opxy::SampleAssignment assigned;
 extern "C" opxy::PadSettings probe_sample_defaults() { return 77; }
 extern "C" opxy::PadSettings probe_sample_assign(const opxy::SampleAssignment* input) {
@@ -46,6 +55,8 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     std::abort();
 }
 int main() {
+    check(sdk_sample_machine(kProbe)->slice_clock == &probe_slice_clock);
+    check(sdk_sample_machine(kSampler)->slice_clock == nullptr);
     // A GUI tempo edit must reach assignment even when the audio clock has
     // not caught up. Playback must continue reading the audio clock.
     check(opxy::platform::audio_bpm_x10() == 1200);
@@ -70,6 +81,9 @@ int main() {
     check(sdk_sample_machine(kProbe)->defaults() == 77);
     // The probe's drum page skips stock's nearest-region test; other engines stay stock's.
     check(sdk_sample_note_route(kProbe) == 2 && sdk_sample_note_route(18) == 0);
+    // The page-2 engine takes the sampler's payload and route; the drum page the multisampler's.
+    check(sdk_sample_note_route(kSampler) == 3 && sdk_sample_alias(kSampler) == 2);
+    check(sdk_sample_alias(kProbe) == 30 && sdk_sample_alias(18) == 18);
     unsigned raw[8] = {1000, 0, 1000, 0, 1000, 0, 60, 0};
     auto* bytes = reinterpret_cast<unsigned char*>(raw);
     // An unassigned, zero-initialized pad has neutral tuning. Painting must

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, chosenByDefault, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -67,7 +67,7 @@ test('profiling defaults on; disabling it changes only the reviewed diagnostic h
   }
   const restored = off.slice(); restored.set(on.subarray(32, 48), 32);
   assert.deepEqual(restored, on);
-  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a']});
+  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[]});
 });
 
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {
@@ -128,6 +128,21 @@ test('ELF parsing reads symbols and little-endian instructions', () => {
   const o = readObject(elf()); assert.equal(o.symbols[1].name,'entry'); assert.equal(o.symbols[1].size,4);
   assert.deepEqual([...o.sections[1].data],[0,96,16,0]);
 });
+test('runtime objects enter only selections that import their arithmetic helpers', () => {
+  const kit = fixture(), baseline = linkKit(kit, ['a']);
+  kit.machines.push(machine('b', 35, 85));
+  const consumer = {...readObject(elf()), name:'b.o', owner:'b'};
+  consumer.symbols[1].name = 'b_entry';
+  consumer.symbols.push({name:'___muldi3', binding:1, section:0, type:2, value:0, size:0});
+  const helper = {...readObject(elf()), name:'sdk/runtime/_muldi3.o', owner:null, runtime:true};
+  helper.symbols[1].name = '___muldi3';
+  kit.objects.push(consumer, helper);
+  const integers = linkKit(kit, ['a']), arithmetic = linkKit(kit, ['b']);
+  assert.deepEqual(integers.module, baseline.module);
+  assert.deepEqual(integers.objects.map(o => o.name), ['a.o']);
+  assert.deepEqual(arithmetic.objects.map(o => o.name), ['b.o', 'sdk/runtime/_muldi3.o']);
+  assert(arithmetic.globals.has('___muldi3'));
+});
 test('truncated sections, wrong architectures, merge flags, constructors and COMMON fail closed', () => {
   assert.throws(()=>readObject(elf().slice(0,200)),/section table/);
   for (const [offset, type, value] of [[18,16,3],[128+40+8,32,0x36],[128+40+16,32,9999],[86,16,0xfff2]]) {
@@ -141,6 +156,60 @@ test('exact deterministic section placement and immutable input capsules', () =>
   assert.equal(linked.globals.get('entry'),k.profile.module_base);
   assert.deepEqual(linked.sizes,{initialized:4,bss:0,allocated:4,available:moduleBytes(k.profile)-4});
   assert.deepEqual(linkKit(k,['a']).module,linked.module);
+});
+
+test('extensions omit code/state and resolve only shared registry imports to an absent accessor', () => {
+  const k = fixture();
+  k.extensions = [{id:'capture', claims:['record_double_tap'], actions:['edit_notes']}];
+  k.definitions.kit_absent = k.profile.module_base;
+  const extension = {...readObject(elf()), name:'extension.o', owner:null, extension:'capture'};
+  extension.symbols[1].name = 'sdk_extension_capture_hooks';
+  extension.sections.push({index:5, name:'.bss', group:'bss', type:8, size:128, alignment:4});
+  const registry = k.objects[0]; registry.owner = null;
+  registry.symbols.push({name:'sdk_extension_capture_hooks', section:0, value:0, size:0, binding:1, type:0});
+  registry.relocations.push({section:1, offset:0, type:18, symbol:2, addend:0});
+  k.objects.push(extension);
+  const on = linkKit(k, ['a'], null, ['capture']), off = linkKit(k, ['a'], null, []);
+  assert.deepEqual(linkKit(k, ['a']).module, off.module);  // omitted means none
+  assert.equal(on.sizes.bss, 128); assert.equal(off.sizes.bss, 0);
+  assert.equal(off.objects.length, 1); assert.equal(on.objects.length, 2);
+  assert.notDeepEqual(on.module, off.module);
+  assert.equal(off.aliases.get('sdk_extension_capture_hooks'), k.definitions.kit_absent);
+  assert.deepEqual(linkKit(k, ['a'], null, ['capture']).module, on.module);
+  registry.owner = 'a';
+  assert.throws(() => linkKit(k, ['a'], null, []), /Unresolved import/);
+});
+
+test('master processors are independently selectable and omitted accessors resolve safely', () => {
+  const k=fixture();k.definitions.kit_absent=k.profile.module_base;
+  k.extensions=['first','second'].map(id=>({id,claims:[],actions:[],master_processor:{state_id:id}}));
+  assert.deepEqual(extensionSelection(k,['second','first']),['first','second']);
+  const registry=k.objects[0];registry.owner=null;
+  for(const id of ['first','second']) {
+    const object={...readObject(elf()),name:id+'.o',owner:null,extension:id};
+    object.symbols[1].name='sdk_extension_'+id+'_hooks';
+    for(const suffix of ['processor','panel'])object.symbols.push({...object.symbols[1],name:'sdk_extension_'+id+'_'+suffix});
+    object.sections.push({index:5,name:'.bss',group:'bss',type:8,size:128,alignment:4});
+    k.objects.push(object);
+    for(const suffix of ['hooks','processor','panel'])registry.symbols.push({name:'sdk_extension_'+id+'_'+suffix,section:0,value:0,size:0,binding:1,type:0});
+  }
+  const both=linkKit(k,['a'],null,['second','first']),one=linkKit(k,['a'],null,['second']),none=linkKit(k,['a'],null,[]);
+  assert.equal(both.sizes.bss,256);assert.equal(one.sizes.bss,128);assert.equal(none.sizes.bss,0);
+  for(const suffix of ['hooks','processor','panel']) {
+    assert.equal(one.aliases.get('sdk_extension_first_'+suffix),k.definitions.kit_absent);
+    assert.equal(one.aliases.has('sdk_extension_second_'+suffix),false);
+  }
+});
+
+test('extension selections preserve collection order, empty choices and exclusive gestures', () => {
+  const k = {extensions:[{id:'observer', claims:[]}, {id:'capture', claims:['record_double_tap']}, {id:'replace', claims:['record_double_tap']}]};
+  assert.deepEqual(extensionSelection(k, []), []);
+  assert.deepEqual(extensionSelection(k, ['capture','observer']), ['observer','capture']);
+  assert.throws(() => extensionSelection(k, ['capture','replace']), /record double tap/);
+  assert.deepEqual(extensionChoices(k), [[], ['observer'], ['capture'], ['observer','capture'], ['replace'], ['observer','replace']]);
+  for (const selection of [['missing'], ['capture','capture'], null, 'capture'])
+    assert.throws(() => extensionSelection(k, selection), /available extension/);
+  assert.deepEqual(extensionSelection({}), []);
 });
 
 test('declared callbacks of unselected machines resolve to fallbacks only for SDK objects', () => {
@@ -160,13 +229,31 @@ test('declared callbacks of unselected machines resolve to fallbacks only for SD
 test('SDK objects of a profile service link only when a selected machine uses it', () => {
   const k=fixture();
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'effect'}])],[]);
-  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])],['samples']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])],['samples', 'octaves']);
   // The service object redefines `entry`, so linking it would be a duplicate global.
   k.objects.push({...k.objects[0],name:'service.o',owner:null,service:'samples'});
   const linked=linkKit(k,['a']);
   assert.deepEqual(linked.objects.map(o=>o.name),['a.o']); assert.equal(linked.services.size,0);
   k.machines.push({...machine('b',46,7),kind:'sample'});
   assert.throws(()=>linkKit(k,['a','b']),/Duplicate global symbol: entry/);
+});
+test('track control and hidden pages use the control service, whose entry points fall back while unused', () => {
+  const k=fixture(), o=k.objects[0];
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['hidePages']}])],['control']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'}])],[]);
+  // Shared startup calls the control service's saved data, which only a control build links.
+  k.definitions.fallback=k.profile.module_base;
+  o.owner=null;
+  o.symbols.push({name:'sdk_control_kept_write',section:0,value:0,size:0,binding:1,type:0});
+  o.relocations.push({section:1,offset:0,type:18,symbol:o.symbols.length-1,addend:0});
+  assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
+  k.serviceFallbacks={control:{sdk_control_kept_write:'fallback'}};
+  assert.doesNotThrow(()=>linkKit(k,['a']));
+  k.machines[0].features=['trackControl'];
+  assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
+  k.serviceFallbacks={control:{sdk_control_kept_write:'undefined_fallback'}}; delete k.machines[0].features;
+  assert.throws(()=>linkKit(k,['a']),/Invalid service fallback/);
 });
 test('empty, unknown, repeated selections, duplicate globals and memory exhaustion are rejected', () => {
   const k=fixture(); for(const s of [[],['missing'],['a','a']]) assert.throws(()=>linkKit(k,s),/Choose each machine once/);
@@ -193,14 +280,25 @@ test('machine numbering cases shared with tooling.machines', () => {
 test('numbers follow the layout, not the selection order, and unselected machines link as 0', () => {
   const k=fixture(); k.machines.push(machine('b',34,82,'personal'),machine('c',34,82,'personal'));
   assert.deepEqual(assignNumbers(k,['c','b','a']),assignNumbers(k,['a','b','c']));
-  assert.deepEqual(assignNumbers(k,['a','c']).c,{engine:35,page:83});
-  // Once b has numbers, they stay held when b is dropped, and c takes the next free ones.
+  // c's own places in the pools (FNV-1a of its ID), as it asks for a's fixed numbers.
+  assert.deepEqual(assignNumbers(k,['a','c']).c,{engine:246,page:204});
+  // Once b has numbers, they stay held when b is dropped; c keeps its own, which b's do not collide with.
   const numbers=assignNumbers(k,['a','b']);
-  assert.deepEqual(assignNumbers(k,['a','c'],numbers),{...numbers,c:{engine:36,page:84}});
+  assert.deepEqual(numbers.b,{engine:215,page:221});
+  assert.deepEqual(assignNumbers(k,['a','c'],numbers),{...numbers,c:{engine:246,page:204}});
   const linked=linkKit(k,['a','c'],numbers);
   assert.deepEqual([linked.definitions.a_engine_id,linked.definitions.b_engine_id,linked.definitions.c_engine_id,
-    linked.definitions.c_page_id],[34,0,36,84]);
-  assert.deepEqual(linked.numbers.b,{engine:35,page:83});
+    linked.definitions.c_page_id],[34,0,246,204]);
+  assert.deepEqual(linked.numbers.b,{engine:215,page:221});
+});
+test("a sample engine drawing its own screen links its page apart from the sampler's", () => {
+  const k=fixture(); k.machines.push({id:'g',prefix:'g',kind:'sample',identity:{engine:null,page:null},absent:{},origin:'personal'});
+  const numbers=assignNumbers(k,['a','g']);
+  assert.ok(numbers.g.page>81 && numbers.g.page<256);
+  const linked=linkKit(k,['a','g'],numbers).definitions;
+  assert.deepEqual([linked.g_engine_id,linked.g_page_id,linked.g_screen_page_id],[numbers.g.engine,2,numbers.g.page]);
+  const absent=linkKit(k,['a'],numbers).definitions;
+  assert.deepEqual([absent.g_engine_id,absent.g_page_id,absent.g_screen_page_id],[0,0,0]);
 });
 test('saved layouts restore numbers and selections, including older saved selections', () => {
   const k=fixture(), id=k.profile.id;
@@ -257,6 +355,26 @@ test('curated profile and object authentication reject modified input', async ()
   k.objects[0].sha256='0'.repeat(64); await assert.rejects(openKit(k),/hash mismatch/);
   k.profile.patches[0].after='0000000000000000'; await assert.rejects(openKit(k),/reviewed profile/);
 });
+test('SDK 1.5 machines ask for no numbers and the selection gives them', async () => {
+  const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');
+  k.objects=[{name:'a.o',owner:'a',bytes:Buffer.from(elf()).toString('base64'),sha256:await sha256(elf())}];
+  k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
+  // a has fixed numbers yet asks for none; a sample engine names only its base's page.
+  k.machines=[{...machine('a',null,null)},{...machine('b',null,null)},
+    {id:'d',prefix:'d',kind:'sample',identity:{engine:null,page:7},absent:{},origin:'personal'},
+    {id:'e',prefix:'e',kind:'effect',identity:{effect:null,page:21},absent:{},origin:'personal'}];
+  await openKit(k);
+  assert.deepEqual(assignNumbers(k,['a','b','d','e']),
+    {a:{engine:34,page:82},b:{engine:215,page:221},d:{engine:179,page:7},e:{effect:47,page:21}});
+  assert.deepEqual(assignNumbers(k,['b'],{b:{engine:50,page:100}}).b,{engine:50,page:100});
+  for (const identity of [{engine:null,page:82},{engine:null,page:null,base:'sampler'}]) {
+    k.machines[1].identity=identity; await assert.rejects(openKit(k),/Machine numbers/);
+  }
+  k.machines[1].identity={engine:null,page:null}; k.machines[2].identity={engine:null,page:21};
+  await assert.rejects(openKit(k),/Machine numbers/);
+  k.machines[2].identity={engine:null,page:7}; k.machines[0].identity={engine:34,page:83};
+  await assert.rejects(openKit(k),/Fixed machine numbers differ/);
+});
 test('a machine says where it comes from: a catalog release or a personal folder', async () => {
   const source = {repository:'https://github.com/someone/opxy-probe', tag:'v1.0.0', commit:'a'.repeat(40), maintainer:'someone'};
   assert.ok(validSource(source));
@@ -284,6 +402,91 @@ test('a machine says where it comes from: a catalog release or a personal folder
   k.fixed={a:{engine:35,page:83}}; await assert.rejects(openKit(k), /Fixed machine numbers differ: a/); k.fixed={};
   k.machines[0].source = {...source, repository:'https://evil.example/a/b'};
   await assert.rejects(openKit(k), /Invalid machine origin/);
+  k.machines[0].source = source;
+  // Catalog keywords are words from one list, at most five, each once.
+  for (const keywords of [['fm', 'bell'], undefined]) { k.machines[0].keywords = keywords; await openKit(k); }
+  for (const keywords of [[], ['fm', 'fm'], ['FM'], ['<b>'], 'fm', ['fm', 'bell', 'pad', 'bass', 'lofi', 'noise']]) {
+    k.machines[0].keywords = keywords;
+    await assert.rejects(openKit(k), /Invalid machine keywords/, JSON.stringify(keywords));
+  }
+});
+test('machines are found by name, author, kind, description and keyword, in a chosen order', () => {
+  const by = (maintainer, name = 'x') => ({repository:'https://github.com/' + maintainer + '/' + name, tag:'v1', commit:'a'.repeat(40), maintainer});
+  const machines = [
+    {id:'zeta', name:'Zeta', kind:'synth', origin:'catalog', description:'Bright pads.', source:by('bob', 'OP-XY-Hexagon'), keywords:['pad', 'fm']},
+    {id:'alpha', name:'alpha', kind:'effect', origin:'catalog', description:'A tape delay.', source:by('Carol'), keywords:['delay']},
+    {id:'core', name:'Mid', kind:'synth', origin:'official', description:'Plucked strings.', source:by('etc'), keywords:['pluck']},
+    {id:'mine', name:'Beta 10', kind:'drum', origin:'personal', description:'Kicks.'},
+    {id:'beta2', name:'Beta 2', kind:'synth', origin:'catalog', description:'Granular clouds.', source:by('bob')},
+  ];
+  const ids = options => browseMachines(machines, options).map(({m}) => m.id);
+  // Open-XY's own first, then the rest, each by name; each row keeps its collection index (its colour).
+  assert.deepEqual(ids(), ['core', 'alpha', 'beta2', 'mine', 'zeta']);
+  assert.deepEqual(browseMachines(machines).map(({index}) => index), [2, 1, 4, 3, 0]);
+  assert.deepEqual(ids({sort:'name'}), ['alpha', 'beta2', 'mine', 'core', 'zeta']);
+  // By maintainer, ignoring case; a personal machine has none and comes first.
+  assert.deepEqual(ids({sort:'author'}), ['mine', 'beta2', 'zeta', 'alpha', 'core']);
+  assert.deepEqual(ids({sort:'kind'}), ['beta2', 'core', 'zeta', 'mine', 'alpha']);
+  assert.deepEqual(ids({sort:'unknown'}), ids());
+  assert.deepEqual(ids({query:'BOB'}), ['beta2', 'zeta']);
+  assert.deepEqual(ids({query:'  tape   delay '}), ['alpha']);
+  assert.deepEqual(ids({query:'pad bob'}), ['zeta']);
+  assert.deepEqual(ids({query:'drum'}), ['mine']);
+  // A collection by its repository's name, and kinds by the words the builder shows for them.
+  assert.deepEqual(ids({query:'hexagon'}), ['zeta']);
+  assert.deepEqual(ids({query:'drums'}), ['mine']);
+  assert.deepEqual(ids({query:'fx'}), ['alpha']);
+  assert.deepEqual(ids({query:'synthesizer'}), ['core', 'beta2', 'zeta']);
+  assert.deepEqual(ids({query:'nothing'}), []);
+  assert.deepEqual(ids({kind:'synth'}), ['core', 'beta2', 'zeta']);
+  assert.deepEqual(ids({keywords:['pad']}), ['zeta']);
+  assert.deepEqual(ids({keywords:['pad', 'delay']}), []);
+  assert.deepEqual(ids({favorites:new Set(['alpha', 'mine', 'gone'])}), ['alpha', 'mine']);
+  assert.deepEqual(ids({kind:'synth', query:'b', sort:'name'}), ['beta2', 'zeta']);
+  assert.equal(machineAuthor(machines[3]), '');
+  assert.equal(machineAuthor(machines[1]), 'Carol');
+  assert.ok(MACHINE_KEYWORDS.length && MACHINE_KEYWORDS.every(keyword => /^[a-z]+$/.test(keyword)));
+  // Most used first, then by name: the order keyword filters are kept when only some fit.
+  assert.deepEqual(keywordsByUse([...machines, {id:'pads', keywords:['pad', 'bass']}]),
+    [{keyword:'pad', count:2}, {keyword:'bass', count:1}, {keyword:'delay', count:1}, {keyword:'fm', count:1}, {keyword:'pluck', count:1}]);
+  assert.deepEqual(keywordsByUse([{id:'none'}]), []);
+});
+test('machine presets save, replace, delete and choose named selections by ID', () => {
+  let presets = savePreset([], '  Night   set ', ['moth', 'fm2op']);
+  assert.deepEqual(presets, [{name:'Night set', machines:['moth', 'fm2op']}]);
+  presets = savePreset(presets, 'ambient 2', ['bloom']);
+  presets = savePreset(presets, 'Ambient 10', ['wane']);
+  // By name, numbers by value; saving a name again in any case replaces it in place.
+  assert.deepEqual(presets.map(p => p.name), ['ambient 2', 'Ambient 10', 'Night set']);
+  presets = savePreset(presets, 'NIGHT SET', ['karplus', 'karplus']);
+  assert.deepEqual(presets.map(p => [p.name, p.machines]), [['ambient 2', ['bloom']], ['Ambient 10', ['wane']], ['NIGHT SET', ['karplus']]]);
+  for (const [name, machines, message] of [['', ['moth'], /Name the preset/], ['   ', ['moth'], /Name the preset/],
+    ['x'.repeat(PRESET_NAME_LIMIT + 1), ['moth'], /40 characters/], ['empty', [], /at least one machine/]])
+    assert.throws(() => savePreset(presets, name, machines), message, name);
+  let many = [];
+  for (let i = 0; i < 50; i++) many = savePreset(many, 'p' + i, ['moth']);
+  assert.throws(() => savePreset(many, 'one more', ['moth']), /at most 50/);
+  savePreset(many, 'P7', ['bloom']);  // replacing one is still allowed
+  assert.deepEqual(deletePreset(presets, 'night set').map(p => p.name), ['ambient 2', 'Ambient 10']);
+  // Update saves the selection under the preset's own name; a matching selection, in any order, changes nothing.
+  const night = {name:'Night', machines:['moth', 'fm2op']};
+  assert.ok(presetMatches(night, ['fm2op', 'moth']) && presetMatches(night, ['moth', 'fm2op', 'moth']));
+  for (const machines of [['moth'], ['moth', 'fm2op', 'bloom'], ['moth', 'bloom'], []])
+    assert.ok(!presetMatches(night, machines), machines.join());
+  assert.deepEqual(savePreset([night], night.name, ['bloom']), [{name:'Night', machines:['bloom']}]);
+  // Reading what a browser kept drops what is malformed, repeated or too long.
+  assert.deepEqual(readPresets(null), []);
+  assert.deepEqual(readPresets('[]'), []);
+  assert.deepEqual(readPresets([{name:'b', machines:['moth']}, {name:'B', machines:['bloom']}, {name:'a', machines:['moth']},
+    {name:'', machines:['moth']}, {name:'c', machines:[]}, {name:'d', machines:['Moth']}, {name:'e', machines:['moth', 'moth']},
+    {name:'f', machines:'moth'}, {name:'x'.repeat(41), machines:['moth']}, {name:3, machines:['moth']}, null, 'g',
+    {name:'h', machines:[['moth']]}, {name:'i', machines:['a'.repeat(16)]}]),
+    [{name:'a', machines:['moth']}, {name:'b', machines:['moth']}]);
+  assert.equal(readPresets(Array.from({length:60}, (_, i) => ({name:'p' + i, machines:['moth']}))).length, 50);
+  // Choosing one selects the machines this kit has, in collection order, and names the rest.
+  const kit = {machines:[{id:'fm2op'}, {id:'karplus'}, {id:'moth'}]};
+  assert.deepEqual(applyPreset(kit, {name:'n', machines:['moth', 'gone', 'fm2op']}), {selected:['fm2op', 'moth'], missing:['gone']});
+  assert.deepEqual(applyPreset(kit, {name:'n', machines:['gone']}), {selected:[], missing:['gone']});
 });
 test('malformed loader records and unsafe ZIP paths are rejected', () => {
   for(const bytes of [new Uint8Array(),new Uint8Array(16),elf()]) assert.throws(()=>readLdr(bytes));
@@ -302,4 +505,32 @@ test('firmware recovery rejects malformed and foreign loader layouts without pri
   await assert.rejects(recoverFirmware(kit, final), /Only OP–XY OS 1\.2\.1 is supported/);
   kit.machines = Array.from({length:11},(_,i) => machine('m'+i,34+i,82+i));
   await assert.rejects(recoverFirmware(kit, final), /Only OP–XY OS 1\.2\.1 is supported/);
+});
+
+test('the release checks the linked machines, each other machine beside the official ones, and their subsets', () => {
+  const machines = [machine('a',34,82,'official'), machine('b',35,82,'official'), machine('c',36,82), machine('d',37,82)];
+  // Everything fits: the native package links all four.
+  assert.deepEqual(checkedSelections(machines), [1n, 2n, 3n, 7n, 11n, 15n]);
+  // Not all at once: the native package links the official machines.
+  assert.deepEqual(checkedSelections(machines, ['a', 'b']), [1n, 2n, 3n, 7n, 11n]);
+  // More machines than a 32-bit mask holds, with official ones past bit 31.
+  const many = Array.from({length: 40}, (_, i) => machine('m' + i, 34, 82, i === 33 || i === 39 ? 'official' : undefined));
+  const core = (1n << 33n) | (1n << 39n);
+  const selections = checkedSelections(many, ['m33', 'm39']);
+  assert.deepEqual(selections.slice(0, 3), [1n << 33n, 1n << 39n, core]);
+  assert.equal(selections.length, 3 + 38);
+  assert.ok(selections.slice(3).every(mask => (mask & core) === core));
+});
+
+
+test('players have stable separate types and share the relocated page pool', () => {
+  const profile = JSON.parse(readFileSync(new URL('../profiles/opxy-1.2.1.json', import.meta.url), 'utf8'));
+  const rules = profile.identities;
+  const machines = [['probeplayer', 'player', {player: null, page: null}], ['second', 'player', {player: null, page: null}]];
+  const layout = numberLayout(rules, [], null, machines);
+  assert.notEqual(layout.probeplayer.player, layout.second.player);
+  assert.notEqual(layout.probeplayer.page, layout.second.page);
+  assert.deepEqual(numberLayout(rules, [], layout, machines.slice().reverse()), layout);
+  assert.deepEqual([...activeServices(profile, [{kind: 'player'}])].sort(), ['octaves', 'players']);
+  assert.throws(() => numberLayout(rules, [], {probeplayer: {player: 4, page: 84}}, machines), /cannot use/);
 });

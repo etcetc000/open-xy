@@ -12,9 +12,12 @@ import shutil
 import struct
 import tempfile
 import unittest
+
+from tooling.adapters import aux_preset_files, catalog_entry
 from unittest.mock import patch
 
 from tooling import native
+from tooling.adapters import preset_files
 from tooling.formats import elf32, elf_sections, sha
 from tooling.pipeline import document, read, save_json
 
@@ -50,6 +53,8 @@ class PackageVerification(unittest.TestCase):
         cls.report = document(cls.package / 'analysis/compile-report.json')
         cls.elf = read(cls.package / 'analysis/module.elf')
         cls.patch_profile, cls.machines, _definitions = native.configuration(native.package_collection(cls.package))
+        # A collection larger than the module links only what fits (native.linked_machines).
+        cls.linked = native.linked_in(cls.machines, cls.report)
         cls.patch_profile['patches'] = cls.report['patches']
 
     def setUp(self):
@@ -97,43 +102,58 @@ class PackageVerification(unittest.TestCase):
 
     def test_service_hooks_live_in_their_units_and_only_their_users_reach_them(self):
         services = native.object_services(self.machines)
-        kinds = {m.id: m.kind for m in self.machines}
+        uses = {m.id: set(native.service_users([m])) for m in self.machines}
         owner_of, needs = {}, {}
         for name, owner in self.report['objects'].items():
             defined, undefined = object_symbols(read(self.package / 'analysis' / name))
             owner_of.update(dict.fromkeys(defined, name))
             needs[name] = (owner, undefined)
         for patch in self.report['patches']:
-            if patch.get('service') and patch['after'] != patch['before']:
+            # Service hooks call into their service's units; service text edits call nothing.
+            if patch.get('service') and patch['kind'] == 'hook' and patch['after'] != patch['before']:
                 self.assertEqual(services.get(owner_of[patch['symbol']]), patch['service'], patch['symbol'])
-        # Only a service's own units and machines of the kinds it serves may use its symbols.
+        # Only a service's own units and machines of the kinds or features it serves may use its symbols.
         users = self.patch_profile['services']
         for name, (owner, undefined) in needs.items():
             for symbol in undefined:
                 service = services.get(owner_of.get(symbol))
                 if service and name not in services:
-                    self.assertIn(kinds.get(owner), users[service], (name, symbol))
+                    # The startup, generated per selection, starts a service it links.
+                    user = (set(native.service_users(self.machines)) if name == 'sdk/startup.o' else
+                            uses.get(owner, set()))
+                    self.assertTrue(user & set(users[service]), (name, symbol))
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
         _, symbols = elf32(self.elf)
-        for m in self.machines:
-            self.assertIn(m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory'), symbols)
+        for m in self.linked:
+            suffix = '_player' if m.kind == 'player' else '_fx_factory' if m.kind == 'effect' else '_factory'
+            self.assertIn(m.prefix + suffix, symbols)
         factories = {name for name in symbols if name.endswith('_factory')}
         self.assertEqual(factories, {m.prefix + ('_fx_factory' if m.kind == 'effect' else '_factory')
-                                     for m in self.machines})
+                                     for m in self.linked if m.kind != 'player'})
         original = json.loads(self.catalog)
         current = json.loads((self.package / 'candidate/content/op1_factory.json').read_bytes())
-        names = [m.native_name for m in self.machines if m.kind != 'effect']
-        self.assertEqual(current['engine_types'][:-len(names)], original['engine_types'])
-        self.assertEqual([e['type'] for e in current['engine_types'][-len(names):]], names)
-        displays = [m.native_name for m in self.machines if m.display != 'stock']
+        # Machines that take over aux tracks are chosen there, not in these lists.
+        for key, kinds in (('engine_types', ('synth', 'drum', 'sample')), ('fx_types', ('effect',)), ('seq_types', ('player',))):
+            names = [m.native_name for m in self.linked if m.kind in kinds and catalog_entry(m)]
+            cut = len(original[key])
+            self.assertEqual(current[key][:cut], original[key])
+            self.assertEqual([e['type'] for e in current[key][cut:]], names)
+        displays = [m.native_name for m in self.linked if m.display != 'stock']
+        displays += [Path(e.master_filter['artwork']).stem for e in native.extensions_of(self.linked) if e.master_filter]
+        presets = {path for m in self.linked for path in preset_files(m)}
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
-        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays})
+        presets |= {path for m in self.linked for path in aux_preset_files(m)}
+        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} |
+                         presets)
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',
-                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.machines if m.display != 'stock')]
+                 *(f'candidate/content/display/{m.native_name}.svg' for m in self.linked if m.display != 'stock')]
+        names += ['candidate/content/display/' + Path(e.master_filter['artwork']).name
+                  for e in native.extensions_of(self.linked) if e.master_filter]
+        names += [f'candidate/{path}' for m in self.linked for path in preset_files(m)]
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name

@@ -24,6 +24,8 @@ struct SampleMachine {
     u32 (*prepare_begin)(const SampleView*, u32*, u32);
     u32 (*prepare_step)(u32, u32*);
     u32 (*prepared)(SampleAnalysis*);
+    // sliceTiming: source-frame clock for a frozen machine audition.
+    void (*slice_clock)(const SampleSlice*, SampleSliceRate*);
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(engine_id)); }
 };
 }}
@@ -37,7 +39,7 @@ const opxy::platform::SampleMachine* sdk_sample_machine(opxy::u32 engine) __asm_
 // Each track's keyboard octave as last stored or looked up on the GUI
 // (drum_controls_stock.cpp); audio maps drum notes with it instead of calling
 // GUI project getters.
-extern volatile opxy::i32 sdk_sample_drum_octaves[8] __asm__("sdk_sample_drum_octaves");
+extern volatile opxy::i32 sdk_track_octaves[8] __asm__("sdk_track_octaves");
 }
 
 namespace opxy { namespace platform {
