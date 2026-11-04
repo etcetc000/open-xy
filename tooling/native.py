@@ -207,6 +207,8 @@ def plan(machines, profile=None):
         units += [('sdk/module_loader.o', None, 'module_loader'),
                   ('sdk/module_probe.o', None, 'module_probe'),
                   ('sdk/module_mtp.o', None, 'module_mtp'),
+                  ('sdk/module_synths.o', None, 'module_synths'),
+                  ('sdk/synth_pool.o', None, 'synth_pool'),
                   ('sdk/module_cache.o', None, 'module_cache')]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
@@ -450,8 +452,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         if m is None:
             if step == 'drum_callbacks':
                 return cxx(str(generate_drum_callbacks(folder, machines)), obj)
-            if step == 'module_loader':
-                return cxx('sdk/platform/module_loader.cpp', obj)
+            if step in ('module_loader', 'synth_pool'):
+                return cxx('sdk/platform/' + step + '.cpp', obj)
             if step == 'benchmark':
                 return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
             if step.startswith('extension:'):

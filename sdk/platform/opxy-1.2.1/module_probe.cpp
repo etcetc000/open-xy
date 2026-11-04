@@ -5,6 +5,7 @@
 // gui-module.oxc or audio-module.oxc beside the modules: one entry per module
 // with its status ("loaded" or "m-<code>"), base, notes and init result.
 #include "module_loader.hpp"
+#include "module_synths.hpp"
 #include "stock.hpp"
 #include <opxy/module.hpp>
 using namespace opxy;
@@ -68,6 +69,9 @@ unsigned char* allocate(void*, u32 bytes) {
     return unlocked && in_arena(result, bytes) ? result : nullptr;
 }
 void release(void*, unsigned char* p) { if (in_arena(p, 1)) stock<void(void*)>(0x8d4d2910)(p); }
+}
+unsigned char* sdk_module_allocate(u32 bytes) { return allocate(nullptr, bytes); }
+namespace {
 bool synchronize(void*, u32 address, u32 bytes) { return sdk_module_sync_code(address, bytes) != 0; }
 
 void* open(const char* path, const char* mode) { return stock<void*(const char*, const char*)>(0x8fed0348)(path, mode); }
@@ -171,7 +175,8 @@ void scan() {
 }
 
 void load(const char* name, bool gui) {
-    static const ModuleApi api_gui = {module_api_version, 1, note}, api_audio = {module_api_version, 0, note};
+    static const ModuleApi api_gui = {module_api_version, 1, note, sdk_module_synth_register, sdk_module_synth_voice},
+                           api_audio = {module_api_version, 0, note, sdk_module_synth_register, sdk_module_synth_voice};
     char path[sizeof folder + 1 + name_max + 5];
     u32 n = 0;
     for (const char* p = folder; *p; ++p) path[n++] = *p;
@@ -210,10 +215,12 @@ void sdk_module_probe() {
     put("\",\"modules\":[");
     start_report(gui);
     scan();
+    sdk_module_registration(true);
     for (u32 i = 0; i < count; ++i) {
         if (i) put(",");
         load(names[i], gui);
     }
+    sdk_module_registration(false);
     if (too_many) put(count ? ",{\"status\":\"m-109\"}" : "{\"status\":\"m-109\"}");
     finished_at = ticks();
     finished = 1;

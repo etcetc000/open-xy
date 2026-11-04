@@ -79,13 +79,24 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     owned += [f'    if (page == value({prefix}_fx_page_id)) return {prefix}_ready() == 1;' for prefix in effect_screens]
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
+    installed = [f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes]
+    if module_probe:
+        # Module synths (module_synths.cpp) join every place a built-in synth is in.
+        declarations += ['void sdk_module_screens() __asm__("sdk_module_screens");',
+                         'int sdk_module_catalog(void*, const void*, u32, u32*) __asm__("sdk_module_catalog");',
+                         'int sdk_module_screen_owned(u32) __asm__("sdk_module_screen_owned");',
+                         'int sdk_module_engine_installed(const void*) __asm__("sdk_module_engine_installed");']
+        screens.append('    sdk_module_screens();')
+        catalog.insert(0, '    { u32 result; if (sdk_module_catalog(catalog, name, id, &result)) return result; }')
+        owned.append('    if (sdk_module_screen_owned(page)) return 1;')
+        installed.append('    if (sdk_module_engine_installed(name)) return 1;')
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned), SAMPLE_SCREENS='\n'.join(sample),
                   EFFECTS='\n'.join((['    sdk_module_probe();'] if module_probe else []) +
                                     [f'    {prefix}_fx_register();' for prefix in effects]),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
                   SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
                   PROJECT_KEPT=kept,
-                  INSTALLED='\n'.join(f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes))
+                  INSTALLED='\n'.join(installed))
     source = (ROOT / TEMPLATE).read_text(encoding='utf-8')
     for key, text in values.items():
         require(source.count('@' + key + '@') == 1, 'Startup template placeholder missing')
