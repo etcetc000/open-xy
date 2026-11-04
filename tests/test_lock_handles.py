@@ -5,6 +5,7 @@ stock sites the design relies on, read from the profile's stock bytes."""
 import json
 import os
 from pathlib import Path
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -152,6 +153,49 @@ class LockHandles(unittest.TestCase):
         self.assertEqual(call(0x8d593d8a), (0x8d5adaf4, True))
         self.assertEqual(at(0x8d5adcf8, 4).hex(), '28e18807')
         self.assertEqual(at(0x8d5ae000, 4).hex(), '2be18831')
+
+    @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
+    def test_no_stock_writer_or_absolute_address_names_words_36_or_37(self):
+        # The device-check gate's traced half: word 37 (and 36) silent on every engine.
+        # Every call of stock's five word setters and readers by index (8d518d78 and
+        # 8d518d94 on the audio side; 8d5acf28, 8d5acea8, 8d5ad5bc on the GUI side) is
+        # found, relative CALL or CALL.A, and none loads 36 or 37 into R1 or R2 in the
+        # twelve halfwords before it, though such loads of 38..41 and smaller indices are
+        # there to find. And no imm32 names words 36 or 37 of track 0's audio record
+        # (0x84eab39c), its GUI live words (0x86bd42fc) or a pattern's stored words
+        # (+0x3864). Engines that read the record by a register index are not covered:
+        # listening is the first device check (docs/abi-1.2.1.md).
+        stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(stock), PROFILE['stock_sha256'])
+        targets = {0x8d518d78, 0x8d518d94, 0x8d5acf28, 0x8d5acea8, 0x8d5ad5bc}
+        constants = {0x84eab39c + 0x90, 0x84eab39c + 0x94, 0x86bd42fc + 0x90, 0x86bd42fc + 0x94,
+                     0x3864 + 0x90, 0x3864 + 0x94}
+        calls, indices, named = 0, set(), []
+        for block in ldr(stock):
+            if block['fill'] or not block['stored']:
+                continue
+            body = stock[block['offset'] + 16:block['offset'] + 16 + block['stored']]
+            halves = struct.unpack('<%dH' % (len(body) // 2), body[:len(body) // 2 * 2])
+            for i, half in enumerate(halves):
+                address = block['target'] + 2 * i
+                if half >> 8 == 0xda and half & 0xff <= 13 and i + 2 < len(halves):
+                    if (halves[i + 1] << 16 | halves[i + 2]) in constants:
+                        named.append(hex(address))
+                target = None
+                if half == 0xde00 and i + 3 < len(halves) and halves[i + 3] == 0:
+                    target = halves[i + 1] << 16 | halves[i + 2]
+                elif half >> 8 == 0xe3 and i + 1 < len(halves):
+                    target, _call = decode_branch(address, body[2 * i:2 * i + 4])
+                if target not in targets:
+                    continue
+                calls += 1
+                for before in halves[max(0, i - 12):i]:
+                    if before & 0xfc07 in (0x6001, 0x6002):  # R1 or R2 = imm7
+                        indices.add(before >> 3 & 0x7f)
+        self.assertEqual(calls, 99)
+        self.assertTrue({38, 39, 40, 41} <= indices, indices)
+        self.assertFalse({36, 37} & indices)
+        self.assertEqual(named, [])
 
 
 if __name__ == '__main__':

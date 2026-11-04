@@ -32,7 +32,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
 | Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padSend` kit |
-| Step locks of a kit's Shift fields | 2 | Adds a step's lock offsets to the played key's pan, level and pad controls when a note starts; linked only with a `padMix` kit |
+| Step locks of a kit's Shift fields | 3 | Adds a step's lock offsets to the played key's pan, level and pad controls when a note starts, and notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied; linked only with a `padMix` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
@@ -807,7 +807,9 @@ After those numbers, the same hook gives track control machines what they kept:
 in builds with the control service (through `startup.cpp`), it decodes each
 machine's `open-xy.control` entry from a companion whose binding matches and
 calls its `control_load`; with no matching entry, `control_load` gets 0 bytes.
-A failed load changes nothing.
+A failed load changes nothing. The same save and load hooks keep the
+[step-lock handles'](#step-lock-handles) `open-xy.locks` section, in builds that
+link them.
 
 A new project reads no file. Stock clears the project through `0x8d588114`, or
 clears it at random through `0x8d588988`, called for a new project only at
@@ -1200,6 +1202,96 @@ The engine controls' offsets (words 0..7) and M3's words are not latched: the
 drum renderer and the filter read them from the track's audio record every
 block, so a lock on one moves every voice the track is sounding during that
 step, as on a synth.
+
+### Step-lock handles
+
+A step can carry SDK locks that stock has no word for: per-key values, and more
+fields than the 42 slots a step has
+([`lock_handles.hpp`](../sdk/platform/opxy-1.2.1/lock_handles.hpp),
+[`lock_pool.hpp`](../sdk/platform/opxy-1.2.1/lock_pool.hpp)). The step keeps a
+16-bit **handle** as an ordinary stock lock on word 37; the values live in an SDK
+pool under that handle. It is the `drum_locks` service's, so a build links it only
+with a `padMix` kit, and asks its client one thing, `handle_client(track)`, which
+the kit glue answers for an owned `padMix` kit (stock Drumline can answer it too
+later).
+
+**Why a lock word.** Stock moves a step's lock row whole, its 42 halfwords
+(`0x54` bytes) and its 64-bit mask together, in every step operation traced: copy
+step (`8d5824e0`, into the step clipboard: values from `0x84ffd1ac`, the mask at
+`0x84ffd200`), paste step (`8d582218`), page duplication (`8d582680`, a row
+`memcpy` of `0x54`), nudge (`8d5930e8`, rows moved by `memcpy` of `0x54` with
+wrap), step clear (`8d593db0`, the whole mask zeroed after a snapshot through
+`8d5adaf4`), the take's restore (`8d5adde4`, from the recorder's snapshot at
+`0x860c6adc + 0x461c`: rows at `+0x788`, masks at `+0x3188`), and whole
+patterns in copy and paste (`8d581a2c`, `8d581a74`, the pattern clipboard at
+`0x84ffd208`), clear locks and clear steps (`8d593484`, `8d587a88`), add pattern
+(`8d587b3c`), save and load (three raw chunks: values, masks, union). A handle in
+a lock slot follows its step through all of them with no hook. Word 37 has a slot
+(index < 42) but no page, preset key or known engine use: preset load zeroes it
+(`8d4e4130`), and none of the 99 calls of stock's word setters and readers by
+index (`8d518d78`, `8d518d94`, `8d5acf28`, `8d5acea8`, `8d5ad5bc`) loads 36 or
+37 as its index, while the lock pass, which applies it, publishes it to the
+track's audio record (tested from the stock bytes). That it is silent on every
+engine is inferred: engines that read the record by a computed index are not
+covered, and listening on a synth, an SDK kit and stock Drumline is the first
+device check.
+
+**The pool.** Handles 1..4095; each holds up to 25 entries (one step-wide, which
+every key the step plays takes, and up to 24 per key, which win field by field)
+of up to 16 fields, each a 16-bit value. Blocks of 16-bit words (handle, entry
+count, then each entry's field mask, key and values) fill a 24 KiB arena; a block
+that grows is rebuilt at its end and the arena compacts when full. A step with
+one field for one key takes 10 bytes, so about 2,450 such steps fit; one with
+four fields, 16 bytes. The active pool and a staged one take 66 KiB of module
+memory.
+
+**Editing.** At the held step (`8d5b7e4c() + 16 * 8d585fb4(track)` of the
+current pattern `8d586014(track)`, as stock's editor `8d5ad42c` finds it) a new
+value allocates a handle that no pool entry, step, clipboard or the snapshot
+holds, and writes it with stock's lock writer `8d586f40(track, step, 37,
+handle)`, which sets the step's mask bit and the union; then the editor's own
+redraw request (`8d54b438`, `8d54b3b6`). A handle that any other step, either
+clipboard or the snapshot also holds is copied to a fresh one first
+(copy-on-write), so a paste is a snapshot of the values copied. When a step's
+last field goes, its handle word is cleared (mask bit, value, union through
+`8d5843ec`). When the pool is full, the edit collects garbage once (below) and,
+still full, changes nothing.
+
+**Playback.** The sequencer starts each step note through `8d593980`: stock's
+stored words into the live words (`8d5accf8`), the lock pass `8d5936c0(gui
+project, track, position)` (called at `8d5939aa`, `ffe38bfe`), then note start
+(`8d595738`). The call at `8d5939aa` is hooked (`sdk_lock_step`): after the pass,
+for a client track, it notes the handle on the step the pass used, `(position +
+240) / 480` of the current pattern, when the pass applied it: without slide the
+live word 37 then holds the handle in its top half; the pass's gate (`8d58393c`)
+can hold a step's locks back, and then the live word is still the stored one.
+That note's start takes the handle once; a note played live takes none. With the
+pattern's slide byte (`+0x3060`) set the pass blends word 37 between steps; the
+step's own handle is taken whenever the live word differs from the stored one, so
+handle values do not slide.
+
+**Saving.** Before the companion is written, garbage collection marks every
+handle the saved project (all 16 tracks, each pattern below its count, all 128
+steps), the pattern and step clipboards and the snapshot hold, and frees the
+rest of the pool. The companion then gets `open-xy.locks`
+([format](projects.md#open-xylocks)), sized first so that `open-xy.control`,
+written before it, leaves it room (`sdk_companion_reserved`), and within 64 KiB
+less 2 KiB and 128 bytes for each machine listed. Blocks that do not fit, in
+handle order, are left out; a save of a buffer other than the active one writes
+no section.
+
+**Loading.** The section's pool decodes into the staged pool while the
+companion streams. After the load, unless the companion is valid, matches the
+project and holds a valid version 1 pool, the staged pool is empty; either way
+every step of the loaded buffer whose handle the staged pool lacks has its word
+37 cleared and its pattern's union recomputed, so no handle dangles: a project
+saved or opened by firmware without the handles keeps them only while its
+companion still matches. The staged pool becomes the active one the first time
+the SDK finds stock's active buffer (`[0x840a0524]`) is the loaded one; then each
+handle in the clipboards and the snapshot is copied from the old pool under a
+handle the new project does not use, and the copy written in its place, or
+cleared when the old pool had no values for it. A load that never becomes active
+leaves the active pool as it was.
 
 ## Note players
 
