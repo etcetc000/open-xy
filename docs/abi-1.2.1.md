@@ -714,8 +714,11 @@ region over the full loaded sample and restores the replaced pad's pitch,
 reverse and volume before stock publishes it. A completed recording takes the
 same path when the recorder initializes its region, with `recorded` set, the
 recorder's frame count and 44.1 kHz rate, and no file metadata; it never
-consumes the file worker's pending metadata. The stock loader's 882,000
-decoded-frame cap still applies. Assignment looks up the raw note once and
+consumes the file worker's pending metadata. The loader caps a file at
+882,000 decoded frames (20 s at 44.1 kHz). With the `long_samples` capability
+([settings extensions](extensions.md#settings-extensions)) the
+profile's `limit` edits raise that to 1,048,575 (2^20 - 1) in the loader, the
+region setter and the project region parser; the recorder keeps 882,000. Assignment looks up the raw note once and
 stores the canonical key through the owned initializer hook, avoiding a
 second octave conversion.
 

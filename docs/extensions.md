@@ -140,7 +140,8 @@ An extension is a folder in a repository of its own, beside this SDK checkout:
 1. `extension.json`: its `id`, the site's row and details panel (a `name`, a
    one-line `description` saying what it does and how to use it, 140 characters
    at most, and optionally a `note` for its one limit, 100), and the `claims`
-   and `actions` it uses from the registry. People scan this; put the full
+   and `actions` it uses from the registry, and optionally its `capabilities`
+   ([settings extensions](#settings-extensions)). People scan this; put the full
    behavior in your repository's README.
 2. `extension.cpp`, exporting `opxy::extensions::<id>::hooks`, naming only the
    events it takes:
@@ -162,6 +163,24 @@ Machines, starts with none selected, saves choices with the layout and omits
 unselected extensions entirely. The SDK's extension hooks form the profile's
 `extensions` service: a build with no extension selected links none of the
 runtime and leaves every one of its stock call sites unchanged.
+
+## Settings extensions
+
+Some firmware behavior is a setting, not something an extension does: the SDK
+implements it, and a build either includes it or not. A **capability** in
+[`profiles/extensions.json`](../profiles/extensions.json) names such a setting;
+it is the firmware profile's service of the same name. An extension turns
+capabilities on with `"capabilities": [...]` in `extension.json`.
+
+A settings extension holds only `extension.json` (and optionally README.md and
+LICENSE): capabilities, no claims or actions, no `extension.cpp` and no tests.
+It appears in the builder's Extensions step and the catalog like any extension,
+but links no code: selecting only settings extensions leaves the extension
+runtime out. An extension with code may declare capabilities too.
+
+| Capability | Effect |
+| --- | --- |
+| `long_samples` | A file loads up to 1,048,575 frames (2^20 - 1, 23.78 s at 44.1 kHz), the most a stock sample object holds, instead of stock's 882,000 (20 s). Recording still stops at 20 s. |
 
 ## Master processor
 
@@ -206,6 +225,12 @@ or widening one updates every extension in the same pull request.
 `label` and `key`. Nothing else changes; the runtime reads claims from the
 generated registry. Never add a per-claim field to the collection or a
 per-claim branch to the runtime.
+
+**Add a capability** for a build-time setting the SDK owns: a registry entry
+(`{}`), a profile service of the same name used only by it, and that service's
+reviewed edits. Its edits are fixed bytes, never hooks, so the builder can tell
+from an image whether it is on; the build and builder add nothing per
+capability.
 
 **Add an action** with a registry entry (and its `requires`, if one claim must
 grant it), a bit in

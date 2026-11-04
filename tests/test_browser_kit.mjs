@@ -70,6 +70,25 @@ test('profiling defaults on; disabling it changes only the reviewed diagnostic h
   for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[]});
 });
 
+test('a settings extension links no code, applies only its capability edits and is recovered from them', async () => {
+  const {kit, stock} = await profilingFixture();
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
+  kit.profile.services = {...kit.profile.services, long_samples:['long_samples']};
+  kit.profile.patches.push({kind:'limit', service:'long_samples', address:0x1018, file_offset:56, length:8,
+    before, after:'01da0f00ffff0000'});
+  kit.extensions = [{id:'longer', claims:[], actions:[], capabilities:['long_samples'], linked:false}];
+  const on = linkKit(kit, ['a'], null, ['longer']), off = linkKit(kit, ['a'], null, []);
+  assert.deepEqual([...on.services], ['long_samples']);  // no extension runtime
+  assert.deepEqual(on.module, off.module);
+  const longer = await patchFirmware(kit, on, stock), plain = await patchFirmware(kit, off, stock);
+  assert.equal(Buffer.from(longer.subarray(56, 64)).toString('hex'), '01da0f00ffff0000');
+  assert.equal(Buffer.from(plain.subarray(56, 64)).toString('hex'), before);
+  longer.subarray(56, 64).forEach((v, i) => { if (v !== plain[56 + i]) plain[56 + i] = v; });
+  assert.deepEqual(plain, longer);  // the capability's edit is the only difference
+  assert.deepEqual(await recoverFirmware(kit, longer), {stock, selected:['a'], extensions:['longer']});
+  assert.deepEqual(await recoverFirmware(kit, await patchFirmware(kit, off, stock)), {stock, selected:['a'], extensions:[]});
+});
+
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {
   const {kit, linked, stock} = await profilingFixture();
   const on = await patchFirmware(kit, linked, stock), off = await patchFirmware(kit, linked, stock, {profiling:false});

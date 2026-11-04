@@ -147,6 +147,9 @@
       "sample",
       "player",
       "drum"
+    ],
+    "long_samples": [
+      "long_samples"
     ]
   },
   "patches": [
@@ -167,6 +170,46 @@
       "length": 8,
       "before": "01da400100000000",
       "after": "01da200100000000"
+    },
+    {
+      "kind": "limit",
+      "name": "Sample length 882000 -> 1048575 frames (2^20 - 1): project/preset region parser",
+      "service": "long_samples",
+      "address": "0x8d4fc00e",
+      "file_offset": "0x13326a",
+      "length": 8,
+      "before": "01da0d0050750000",
+      "after": "01da0f00ffff0000"
+    },
+    {
+      "kind": "limit",
+      "name": "Sample length 882000 -> 1048575 frames (2^20 - 1): region setter",
+      "service": "long_samples",
+      "address": "0x8d50711a",
+      "file_offset": "0x13e376",
+      "length": 8,
+      "before": "00da0d0050750000",
+      "after": "00da0f00ffff0000"
+    },
+    {
+      "kind": "limit",
+      "name": "Sample length 882000 -> 1048575 frames (2^20 - 1): sample loader clamp",
+      "service": "long_samples",
+      "address": "0x8d508418",
+      "file_offset": "0x13f674",
+      "length": 8,
+      "before": "05da0d0050750000",
+      "after": "05da0f00ffff0000"
+    },
+    {
+      "kind": "limit",
+      "name": "Sample length 882000 -> 1048575 frames (2^20 - 1): sample loader warning max",
+      "service": "long_samples",
+      "address": "0x8d5084dc",
+      "file_offset": "0x13f738",
+      "length": 8,
+      "before": "09da0d0050750000",
+      "after": "09da0f00ffff0000"
     },
     {
       "kind": "hook",

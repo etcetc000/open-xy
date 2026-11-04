@@ -111,8 +111,11 @@ def main():
                      }.get(machine['kind'], (('_engine_id', 'engine'), ('_page_id', 'page')))
             require(all(value(suffix) == own[key] for suffix, key in pairs),
                     'Selection numbers differ: ' + machine['id'])
+        chosen = [e for e in kit.get('extensions', []) if e['id'] in result['extensions']]
+        # Settings extensions link no runtime; every chosen extension adds its capabilities.
         services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
-                                   (['extension'] if result['extensions'] else []) +
+                                   (['extension'] if any(e.get('linked', True) for e in chosen) else []) +
+                                   [c for e in chosen for c in e.get('capabilities', [])] +
                                    (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
                                                             for e in kit.get('extensions', [])) else []))
         modes = {}
