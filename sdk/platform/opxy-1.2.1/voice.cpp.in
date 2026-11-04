@@ -180,7 +180,7 @@ extern "C" {
 extern const void* const @PREFIX@_vtable[];
 // A note keeps its handle's voice or takes one (see acquire).
 int @PREFIX@_start(void* self) {
-    Handle* handle = static_cast<Handle*>(self);
+@BANK_START_GUARD@    Handle* handle = static_cast<Handle*>(self);
     const opxy::u32 now = sdk_voice_ticks();
     // Once the machine has stopped rendering, no block counts and sweep has not
     // run: release every ended voice before the new note takes one.
@@ -224,7 +224,7 @@ void* @PREFIX@_factory(opxy::u32 index) {
     return handle;
 }
 int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* parameters) {
-    Handle* handle = static_cast<Handle*>(self);
+@BANK_RENDER_GUARD@    Handle* handle = static_cast<Handle*>(self);
     if (handle->seen == blocks) {
         ++blocks;
         counted = sdk_voice_ticks();

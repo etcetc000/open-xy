@@ -98,9 +98,13 @@ class Services(unittest.TestCase):
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
-        # The fixtures declare no track control, hidden pages, aux tracks or players: those services stay off.
+        # The fixtures declare no track control, hidden pages, aux tracks, players or file banks: those services stay off.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS
-                                          if native.UNIT_SERVICES.get(u) not in ('control', 'aux', 'players', 'master_filter')])
+                                          if native.UNIT_SERVICES.get(u) not in ('control', 'aux', 'players', 'master_filter',
+                                                                                  'file_banks')])
+        banked = native.Collection([replace(fixture('probesynth'), file_banks=(('words_view', 'words'),))])
+        self.assertIn('file_banks', native.collection_services(profile, banked))
+        self.assertIn('file_bank_table', steps(banked))
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])

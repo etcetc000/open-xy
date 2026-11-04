@@ -67,7 +67,13 @@ def generate_voice(directory, m, sweep=False):
         declarations, controls = '', '        const opxy::i32* controls = parameters;\n'
     values = dict(voice_values(m.definition), SWEEP_DECLARATIONS=declarations, SWEEP_CONTROLS=controls,
                   PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
-                  CAPACITY=m.definition['resources']['voiceCapacity'])
+                  CAPACITY=m.definition['resources']['voiceCapacity'], BANK_START_GUARD='', BANK_RENDER_GUARD='')
+    if getattr(m, 'file_banks', ()):
+        # A bank that did not load leaves its view inactive: the machine stays silent.
+        inactive = ' || '.join(f'!{values["NAMESPACE"]}::{view}.active' for view, _array in m.file_banks)
+        values['BANK_START_GUARD'] = f'    if ({inactive}) return 0;\n'
+        values['BANK_RENDER_GUARD'] = (f'    if ({inactive}) {{\n        for (unsigned i = 0; i < opxy::block_frames; ++i) '
+                                       'output[i] = 0;\n        return 0;\n    }\n')
     values.pop('PEAK')
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
@@ -249,9 +255,15 @@ def generate_registration(directory, m):
         entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
         entries[p + '_ready()'] = f'sdk_engine_ready(&record, {screen})'
+    if getattr(m, 'file_banks', ()):
+        # Each role loads the build's file banks before its first registration,
+        # at startup and outside every audio callback (file_banks.cpp).
+        for signature in (p + '_register()', p + '_screen_register()'):
+            if signature in entries:
+                entries[signature] = f'sdk_file_banks_prepare() ? {entries[signature]} : 0'
     declarations += [f'int {signature} __asm__("{signature.split("(")[0]}");' for signature in entries]
     lines = [f"// Generated: {m.id}'s stock identity for the SDK's checked registration.",
-             '#include "registration.hpp"', 'extern "C" {', *declarations, '}', 'namespace {', *objects, '}',
+             '#include "registration.hpp"', *(['#include "file_banks.hpp"'] if getattr(m, 'file_banks', ()) else []), 'extern "C" {', *declarations, '}', 'namespace {', *objects, '}',
              *(f'int {signature} {{ return {call}; }}' for signature, call in entries.items())]
     destination = Path(directory) / 'registration.cpp'
     destination.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')

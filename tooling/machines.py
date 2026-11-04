@@ -21,7 +21,7 @@ from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources', 'includes', 'icon', 'presetDefaults',
-          'presets', 'dryParameter', 'dryLevel', 'graphics'}
+          'presets', 'dryParameter', 'dryLevel', 'graphics', 'fileBanks'}
 # The public machine contract: headers, definition schema, artwork rules and
 # callbacks. A machine names the version it was written for; the SDK builds a
 # machine of the same major version and an equal or older minor version.
@@ -39,7 +39,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
-SDK_VERSION = (1, 9)
+# 1.10 adds file banks (fileBanks): large immutable tables a synth's sound engine reads
+# from the audio heap, loaded from files at startup instead of occupying the module.
+SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -83,6 +85,7 @@ class Machine:
     dry_level: int | None = None  # a fixed source dry, Q31 (SDK 1.7)
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
     grayscale: str | None = None
+    file_banks: tuple = ()  # (view, array) pairs: tables loaded from files at startup (SDK 1.10)
 
     @property
     def sample_page(self):
@@ -291,6 +294,24 @@ def reads_sample_overview(root):
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 
+FILE_BANK_NAME = re.compile(r'[a-z][a-z0-9_]{0,30}')
+
+
+def file_bank_pairs(value, kind):
+    """machine.json `fileBanks`: each view (OPXY_FILE_BANK_VIEW) and the array
+    (OPXY_FILE_BANK_WORDS) it reads, in the synth's sound engine."""
+    require(kind == 'synth', 'File banks belong to synths')
+    require(isinstance(value, dict) and 0 < len(value) <= 8, 'fileBanks maps up to 8 views to their arrays')
+    pairs = []
+    for view, array in value.items():
+        require(isinstance(view, str) and isinstance(array, str) and
+                FILE_BANK_NAME.fullmatch(view) and FILE_BANK_NAME.fullmatch(array) and view != array,
+                'fileBanks maps a view identifier to a different array identifier')
+        pairs.append((view, array))
+    require(len({a for _v, a in pairs}) == len(pairs), 'Each file bank array has one view')
+    return tuple(pairs)
+
+
 def machine_at(root, identity=None):
     """The machine in a folder; its definition names it."""
     root = Path(os.path.abspath(root))
@@ -386,6 +407,10 @@ def machine_at(root, identity=None):
     if 'trackControl' in definition['resources']:
         require_sdk(version, (1, 9), 'Track control (trackControl)')
         require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
+    file_banks = ()
+    if 'fileBanks' in value:
+        require_sdk(version, (1, 10), 'File banks (fileBanks)')
+        file_banks = file_bank_pairs(value['fileBanks'], kind)
     defaults = value.get('presetDefaults', {})
     require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
     amp = defaults.get('amp', {})
@@ -404,7 +429,8 @@ def machine_at(root, identity=None):
                    display=display, sources=sources, includes=includes,
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
-                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, grayscale=grayscale)
+                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, grayscale=grayscale,
+                   file_banks=file_banks)
     if grayscale:
         from .native import validate_panel
         validate_panel(result)

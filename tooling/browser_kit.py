@@ -57,6 +57,8 @@ def extension_origins(extensions_, personal):
 
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
     profile, machines, definitions = native.configuration(native.package_collection(package))
+    require(not any(m.file_banks for m in machines),
+            'File banks need sdk.py build; the browser builder does not package them yet')
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])
