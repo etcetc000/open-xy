@@ -487,7 +487,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'memory':
                 return cxx(RUNTIME_CXX, obj)
             if step == 'startup_label':
-                return assemble_unit(startup_label.generate(folder, version), obj)
+                return assemble_unit(startup_label.generate(folder, version, getattr(machines, 'modules', False)), obj)
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'drum', 'sample')]
                 services = active_services(profile, service_users(machines))
@@ -697,8 +697,11 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
                  if 'ILLEGAL' in line and re.match(r'\s*[0-9a-f]+:', line)]
     require(all(label['value'] <= at < label['value'] + label['size'] for at in undecoded) and
             'R_BFIN_' not in disassembly, 'Invalid or unresolved instructions')
+    safe_label = getattr(machines, 'modules', False)
     require(startup_label.thunk_ok(read(directory / 'module.bin'), label['value'] - profile['module_base'],
-                                   label['size'], symbols['kit_startup_label_text']['value']),
+                                   label['size'], symbols['kit_startup_label_text']['value'], safe_label,
+                                   symbols['sdk_startup_label_text']['value'] - profile['module_base']
+                                   if safe_label else None),
             'Unexpected startup label thunk')
     (directory / 'disassembly.txt').write_text(disassembly, encoding='utf-8')
     stack = audio_stack_bounds(disassembly, module, low, symbols, machines)

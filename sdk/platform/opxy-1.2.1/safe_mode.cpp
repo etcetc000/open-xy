@@ -24,6 +24,12 @@ bool shift_held_at_power_on() {
 }
 }
 
+// The boot label (startup_label.s.in calls this in builds that load modules):
+// stock draws it before the module loader runs, so this call decides.
+extern "C" const char kit_startup_label_text[] __asm__("kit_startup_label_text");
+extern "C" const char* sdk_startup_label_text() __asm__("sdk_startup_label_text");
+const char* sdk_startup_label_text() { return sdk_safe_mode() ? "SAFE-1.2.1" : kit_startup_label_text; }
+
 bool sdk_safe_mode() {
     if (!decided) {
         decided = true;
