@@ -259,7 +259,7 @@ class OutsideMachines(unittest.TestCase):
         for version in ('1.1', '1.2', '1.3', '1.4'):
             self.rename('fmcopy', self.free, version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-        for version in ('1.5', '1.6', '1.7', '1.8', '1.9'):
+        for version in ('1.5', '1.6', '1.7', '1.8', '1.9', '1.10'):
             self.numberless(self.folder, sdk=version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
         future = '%d.%d' % (machines.SDK_VERSION[0], machines.SDK_VERSION[1] + 1)
@@ -285,6 +285,25 @@ class OutsideMachines(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Track control'):
             machines.machine_at(self.folder)
         self.numberless(self.folder, sdk='1.9')
+        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+
+    def test_a_drum_kits_pad_mix_needs_the_sdk_that_adds_it(self):
+        path = self.folder / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['presets'] = {}
+        for control, parameter in enumerate(json.loads(json.dumps(definition['parameters']))):
+            parameter.update(id=parameter['id'] + '_alt', label='Alt ' + str(control), control=control)
+            definition['parameters'].append(parameter)
+        definition['resources'].update(modelCount=12, padMix=1)
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(self.folder, kind='drum', sdk='1.9')
+        with self.assertRaisesRegex(ValueError, 'pad pan and level'):
+            machines.machine_at(self.folder)
+        self.numberless(self.folder, kind='drum', sdk='1.10')
+        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+        definition['resources']['padMix'] = 0
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(self.folder, kind='drum', sdk='1.9')
         self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
 
     def test_hidden_pages_need_the_sdk_that_adds_them(self):

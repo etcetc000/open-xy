@@ -63,6 +63,7 @@ volatile opxy::i32 sdk_track_octaves[8];
 extern "C" const char probe_engine_id[] = "probe";
 const char* sdk_drum_title(opxy::u32, opxy::u32) { return "parameter"; }
 extern "C" opxy::u32 sdk_benchmark_cycles() { return 0; }
+extern "C" bool probe_drum_pad_text(opxy::u32, opxy::i32, char*);
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
 namespace {
 void* objects[256];
@@ -162,6 +163,14 @@ int main() {
         CHECK(rendered(1, nullptr) == 2 && model() == m);
         for (unsigned i = 0; i < 8; ++i) CHECK(raw(i) == controls[i]);
     }
+    // Without padMix the pad's level (word 7) never reaches the voice, nor
+    // without padControls its pad word (word 6).
+    payload[7] = 1 << 26;
+    payload[6] = 0x7a5a1234;
+    CHECK(rendered(1) == 2);
+    payload[7] = payload[6] = 0;
+    char caption[16] = {};
+    CHECK(!probe_drum_pad_text(0, 3, caption));
     for (unsigned i = 0; i < 8; ++i) controls[i] = 64;
     CHECK(opxy::platform::drum_pack(10, controls, payload + 1));
     // The eight offsets act on the eight decoded controls; the model has none.
@@ -260,6 +269,86 @@ int main() {
     note(4, 60);      // takes the voice handle three freed, not a sounding one
     CHECK(initialized[5] == 1 && rendered(4) == 5);
     CHECK(rendered(2) == 3 && rendered(25) == 26 && rendered(9) == 10 && is_active(2));
+    return 0;
+}
+"""
+
+
+# A padMix kit: the payload's word 7, Q27 with 0 dB unity, cuts each voice;
+# a boost, a missing word and no payload play at unity.
+MIX_DRIVER = DRIVER[:DRIVER.index('int main() {')] + r"""
+opxy::i32 frame(unsigned id, const opxy::i32* region) {
+    opxy::i32 output[opxy::block_frames];
+    reinterpret_cast<Render>(const_cast<void*>(table(id)[3]))(objects[id], output, region, offsets);
+    for (auto sample : output) if (sample != output[0]) return -2;
+    return output[0];
+}
+int main() {
+    (void)kMarked;
+    for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
+    for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
+    for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
+    note(1, 53);
+    const opxy::i32 unity = opxy::q31::multiply(2 << 16, 0x7fffffff);
+    CHECK(frame(1, nullptr) == unity);
+    opxy::i32 payload[8] = {};
+    CHECK(frame(1, payload) == unity);                      // no level word
+    payload[7] = 1 << 27;                                   // 0 dB
+    CHECK(frame(1, payload) == unity);
+    payload[7] = 10 << 27;                                  // +20 dB, stock's top: held at 0 dB
+    CHECK(frame(1, payload) == unity);
+    payload[7] = -1;
+    CHECK(frame(1, payload) == unity);
+    payload[7] = 1 << 26;                                   // -6.02 dB: half
+    CHECK(frame(1, payload) == opxy::q31::multiply(unity, 1 << 30));
+    payload[7] = 4244337;                                   // -30 dB, stock's floor: 10^-1.5 / 16 * 2^31
+    const opxy::i32 quiet = frame(1, payload);
+    CHECK(quiet == opxy::q31::multiply(unity, 4244337 << 4) && quiet > 0 && quiet < unity / 30);
+    return 0;
+}
+"""
+
+
+# A kit with pad controls and a drum_pad hook: a marked pad's fields from the
+# payload's word 6, neutral for an unmarked pad or no payload.
+PAD_ENGINE = ENGINE.replace('#include "core.h"', '#include "core.h"\nextern opxy::i32 pad_values[2];\nextern unsigned pad_calls;', 1).replace(
+    'inline const char* parameter_name', """inline void drum_pad(Voice&, Shared&, opxy::u32, const opxy::i32* values) {
+    ++pad_calls;
+    for (unsigned i = 0; i < 2; ++i) pad_values[i] = values[i];
+}
+inline bool pad_control_text(opxy::u32 field, opxy::i32 value, char* text) {
+    text[0] = char('A' + field); text[1] = char('0' + value); text[2] = 0; return true;
+}
+inline const char* parameter_name""", 1)
+PAD_DRIVER = DRIVER[:DRIVER.index('int main() {')].replace(
+    'unsigned destroyed[257]', 'opxy::i32 pad_values[2];\nunsigned pad_calls;\nunsigned destroyed[257]') + r"""
+extern "C" bool probe_drum_pad_text(opxy::u32, opxy::i32, char*);
+int main() {
+    for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
+    for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
+    for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
+    note(1, 53);
+    opxy::i32 payload[8] = {};
+    fixture_region = payload;
+    // FILTER 5 bits signed at 16..20, SRR 4 at 21..24; the sends above are not the engine's.
+    payload[0] = kMarked;
+    payload[6] = static_cast<opxy::i32>(((32u - 3u) << 16) | (9u << 21) | (5u << 25) | (6u << 28) | 0x1234u);
+    CHECK(rendered(1) == 2 && pad_calls == 1);
+    CHECK(pad_values[0] == -3 && pad_values[1] == 9);
+    payload[6] = static_cast<opxy::i32>((15u << 16) | (15u << 21));
+    CHECK(rendered(1) == 2 && pad_values[0] == 15 && pad_values[1] == 15);
+    payload[6] = static_cast<opxy::i32>(16u << 16);
+    CHECK(rendered(1) == 2 && pad_values[0] == -16 && !pad_values[1]);
+    // A pad the kit has not marked: whatever stock left in the word is neutral.
+    payload[0] = opxy::i32(2u * 32537631u + 16268815u);
+    payload[6] = 0x7a5a1234;
+    CHECK(rendered(1) == 2 && !pad_values[0] && !pad_values[1]);
+    fixture_region = nullptr;
+    pad_values[0] = 9;
+    CHECK(rendered(1) == 2 && !pad_values[0] && pad_calls == 5);
+    // The stock header's caption comes from the engine.
+    char text[16] = {};
+    CHECK(probe_drum_pad_text(1, 5, text) && text[0] == 'B' && text[1] == '5');
     return 0;
 }
 """
@@ -392,6 +481,20 @@ class DrumVoices(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_the_profiling_workload_drives_every_model_through_the_adapter(self):
         self.run_adapter(BENCH_ENGINE, BENCH_DRIVER, 4, chokeSameKey=1)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_pad_mix_cuts_each_voice_by_its_pads_level(self):
+        self.run_adapter(ENGINE, MIX_DRIVER, 2, padMix=1)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_pad_controls_reach_the_engine_for_a_marked_pad_only(self):
+        self.run_adapter(PAD_ENGINE, PAD_DRIVER, 2, padMix=1, padControls=[
+            dict(label='FILTER', bits=5, signed=True), dict(label='SRR', bits=4)])
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_the_profiling_workload_runs_a_pad_mix_kit_at_its_heaviest_pad_settings(self):
+        self.run_adapter(BENCH_ENGINE, BENCH_DRIVER, 4, chokeSameKey=1, padMix=1, padControls=[
+            dict(label='FILTER', bits=5, signed=True), dict(label='SRR', bits=4)])
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_same_key_choke_fades_the_old_voice_and_finished_frees_it(self):

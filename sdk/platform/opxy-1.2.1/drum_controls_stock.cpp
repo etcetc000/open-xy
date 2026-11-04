@@ -376,6 +376,12 @@ u32 sdk_sample_live_pitch_kind(u32 id) {
 u32 sdk_sample_press_engine_owned(u32 track, u32 button) {
     if (track >= kTracks) return kNoEngine;
     const u32 id = track_engine(track);
+    // A Shift press on a kit with a second Shift row switches the row
+    // (synth_controls.cpp); stock's own action does nothing for the kit.
+    if (sdk_drum_machine(id)) {
+        if (button >= 4 && button < 8 && shift_held()) sdk_drum_shift_press(track, button - 4);
+        return id;
+    }
     // An own screen's press switches its controls' page (synth_controls.cpp), never stock's mode.
     if (own_controls(id)) return id;
     if (!pad_settings(id)) return sdk_sample_alias(id);

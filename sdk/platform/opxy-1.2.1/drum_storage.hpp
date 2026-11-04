@@ -47,6 +47,62 @@ inline u32 drum_choke(u8 byte) {
 inline u8 drum_mark_choke(u32 choice) {
     return static_cast<u8>((kDrumChokeGroups[choice < kDrumChokeChoices ? choice : 0] << 4) | kDrumModelMark);
 }
+// A pad's own pan and level, stock Drumline's (per-key editor 8d4d5f60, its
+// table at 84039070): pan the signed byte at +0x1e, -100..100 with 0 centred,
+// moved (event[2] + 1) * event[1] a turn (8d4d60b0); level the signed byte at
+// +0x1d in whole dB, -30..+20, one a detent (8d4d60d8). Stock's payload
+// builder (8d5ad660) turns pan into the note payload's word 5, which stock's
+// drum renderer applies to every voice, and level into word 7, Q27 with 0 dB
+// unity: 10^(dB / 20) / 16 * 2^31 (8d5ad604). A padMix kit edits level as a
+// cut, -30..0 dB, and plays any stored boost at 0 dB.
+const u32 kDrumPan = 0x1e, kDrumLevel = 0x1d;
+const i32 kDrumPanLimit = 100, kDrumLevelFloor = -30, kDrumLevelCeiling = 0;
+const u32 kDrumGainWord = 7;
+const i32 kDrumUnityGain = 1 << 27;
+inline i32 drum_pan(const void* record) {
+    return record ? static_cast<signed char>(static_cast<const unsigned char*>(record)[kDrumPan]) : 0;
+}
+inline i32 drum_level(const void* record) {
+    const i32 db = record ? static_cast<signed char>(static_cast<const unsigned char*>(record)[kDrumLevel]) : 0;
+    return db < kDrumLevelFloor ? kDrumLevelFloor : db > kDrumLevelCeiling ? kDrumLevelCeiling : db;
+}
+
+// A key's pad fields (SDK 1.10), in bits 16..30 of stock's pad word +0x14:
+// the kit's pad controls (resources.padControls), up to two small fields
+// packed from bit 16 in declaration order, at most 9 bits; then two 3-bit
+// sends, FX I at bits 25..27 and FX II at 28..30, for every padMix kit (0
+// follows the track's send). Stock edits that word only on its own Drumline
+// (Shift's second encoder, 8d4d6098), saves it in projects and delivers it as
+// the note payload's word 6 (8d5ad73e), which an owned kit's adapter otherwise
+// ignores. 0 in every field is neutral. A field may be signed, two's
+// complement in its bits. A pad the kit has not marked reads neutral, and the
+// SDK clears the fields when it first marks a pad, so a value stock left
+// there plays nothing.
+const u32 kDrumPadWord = 0x14, kDrumPadPayload = 6;
+const u32 kDrumPadFields = 4;              // the second Shift row's positions
+const u32 kDrumKitPadFields = 2, kDrumKitPadBits = 9, kDrumPadShift = 16;
+const u32 kDrumSendLow = 25, kDrumSendBits = 3;   // FX I at 25, FX II at 28
+const u32 kDrumPadMask = 0x7fffu << kDrumPadShift;   // bits 16..30
+inline u32 drum_pad_low(u32 field, const u8* bits) {
+    u32 low = kDrumPadShift;
+    for (u32 i = 0; i < field; ++i) low += bits[i];
+    return low;
+}
+inline i32 drum_field_min(u32 bits, bool sign) { return sign ? -(1 << (bits - 1)) : 0; }
+inline i32 drum_field_max(u32 bits, bool sign) { return sign ? (1 << (bits - 1)) - 1 : (1 << bits) - 1; }
+inline i32 drum_field_get(i32 word, u32 low, u32 bits, bool sign) {
+    const u32 raw = (static_cast<u32>(word) >> low) & ((1u << bits) - 1u);
+    return sign && (raw >> (bits - 1)) ? static_cast<i32>(raw) - (1 << bits) : static_cast<i32>(raw);
+}
+inline i32 drum_field_set(i32 word, u32 low, u32 bits, i32 value) {
+    const u32 mask = ((1u << bits) - 1u) << low;
+    return static_cast<i32>((static_cast<u32>(word) & ~mask) | ((static_cast<u32>(value) << low) & mask));
+}
+// A kit pad control by its index, as the adapter decodes it.
+inline i32 drum_pad_get(i32 word, u32 field, const u8* bits, u32 signs) {
+    return drum_field_get(word, drum_pad_low(field, bits), bits[field], (signs >> field & 1u) != 0);
+}
+
 // The note payload's first word: stock's Q31 of the model byte, 6 type + group
 // over 66 bins (8d5ad6ec). Type 7 is bins 42..47.
 inline bool drum_marked_q31(i32 word) {

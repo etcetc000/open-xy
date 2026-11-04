@@ -53,3 +53,25 @@ const char* sdk_drum_title(opxy::u32 engine, opxy::u32 slot) {
         !sdk_drum_values(track, &model, controls)) return "";
     return machine->label(model, slot);
 }
+
+// The selected key's stock pan, and its level as a padMix kit plays it.
+static const unsigned char* selected_record(opxy::u32 track) {
+    using namespace opxy::platform;
+    if (track >= kTracks || !sdk_drum_machine(track_engine(track))) return nullptr;
+    const opxy::u32 key = stock<opxy::u32(opxy::u32)>(0x8d4d6c98)(track);
+    return static_cast<const unsigned char*>(pad_region(track, key));
+}
+opxy::i32 sdk_drum_pan(opxy::u32 track) { return opxy::platform::drum_pan(selected_record(track)); }
+opxy::i32 sdk_drum_level(opxy::u32 track) { return opxy::platform::drum_level(selected_record(track)); }
+void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) {
+    using namespace opxy::platform;
+    const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
+    const unsigned char* record = machine ? selected_record(track) : nullptr;
+    const bool marked = record && drum_marked(record[24]);
+    for (opxy::u32 i = 0; i < kDrumPadFields; ++i) {
+        opxy::u32 low, bits;
+        bool sign;
+        values[i] = marked && machine->pad_field(i, low, bits, sign)
+            ? drum_field_get(reinterpret_cast<const opxy::i32*>(record)[kDrumPadWord / 4], low, bits, sign) : 0;
+    }
+}

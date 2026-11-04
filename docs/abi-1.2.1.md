@@ -946,6 +946,51 @@ and the others nothing. Track modulation is
 applied after decoding. GUI edits repack and use the stock dirty/publication
 calls; no audio callback writes preset state or performs file I/O.
 
+A `padMix` kit's Shift pan and level edit the pad's own bytes as stock's
+editor does: pan (`8d4d60b0`) adds `(event[2] + 1) * event[1]` to the signed
+byte at `+0x1e` within -100..100; level (`8d4d60d8`) adds `event[1]` to the
+signed dB byte at `+0x1d`, which stock bounds to -30..+20 and the kit to
+-30..0. Neither repacks the four words or the mark. Stock's payload builder
+(`8d5ad660`, the Drumline branch) writes pan as payload word 5,
+`byte * 10737418 + 0x40000000` (`8d5ad71a`), and level as word 7 through
+`8d5ad604`: `10^(dB / 20) / 16 * 2^31`, Q27 with 0 dB unity (`8d5ad740`). The
+drum voice constructor reads word 5 (`8d51af1e`), combines it with the track's
+pan modulation (`8d51a688`) and keeps it at voice `+0x88`; the drum renderer
+recomputes it each block (`8d51b6a4`) and, for a mono voice (vtable `+32`
+zero), mixes the output at left `2 (1 - p)` and right `2 p`, each saturated and
+ramped over the block (`8d51ba50`, `8d51bad0`). So an owned kit is panned by
+stock without SDK code. Stock Drumline applies word 7 in its own DSP
+(`11a073f8`, its payload at `[FP - 0x10]`), which an owned kit replaces; a
+`padMix` kit's adapter multiplies the output by word 7 shifted to Q31 when it
+is below unity, and otherwise leaves it, so a stored boost plays at 0 dB. The
+drum profiling workload supplies stock's eight payload words: for the kit's
+own keys word 6 neutral and word 7 at unity, and for every other run each pad
+control at its top and, with `padMix`, a 6 dB cut, the heaviest path.
+
+Stock's key layer sends an encoder click released while Shift is held not to
+the key dispatcher `8c0b5b10` (whose press call `sdk_synth_press` hooks) but to
+the top controller's shifted key handler (`8c0b5c90` -> `8c0b5b80`, vtable
+`+16`; the instrument controller's is `8c0b28a8`), which for codes 10..13 runs
+stock's Shift-press action `8c0b270e`. That action acts only for the samplers
+(2, 3, 30) and Drumline (4: on encoder 1, `8d4d6180`). Its engine query at
+`8c0b2730` is already the drum page's hook (`sdk_sample_press_engine`, button
+4..7 in `R5`); for an owned kit with a second Shift row it now switches the
+encoders' row as an unshifted press does (`sdk_drum_shift_press`), and stock
+still sees the kit's own engine, for which it does nothing.
+
+A `padMix` kit's pad fields live in bits 16..30 of the pad word at `+0x14`:
+its `padControls` packed from bit 16 in declaration order (at most 9 bits),
+then FX I at bits 25..27 and FX II at 28..30; bit 31 and the low half stay
+stock's. Stock edits that word only on its own Drumline (Shift's second
+encoder, `8d4d6098`, a Q31 value in 100 steps through `8d4d6cc8`), so a pad
+stock wrote can hold any bits there: the kit reads them only on a marked pad,
+and its first edit of an unmarked pad clears bits 16..30. Stock's payload
+builder delivers the word as payload word 6, `max(word, flag)` with a 0 or 1
+flag (`8d5ad738`), which the adapter decodes for a marked pad. Pad copy and
+paste copy the whole record. Whether stock's preset writer exports this word,
+and how, is not yet traced; the fields stay above bit 15 so a `>> 16` export
+would keep them.
+
 ## Note players
 
 The `players` service adds seven hooks only when a collection includes a player:

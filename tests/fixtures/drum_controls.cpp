@@ -6,6 +6,7 @@ static void host_barrier() {}
 #include <keyboard_octaves.cpp>
 // This fixture has no synthesis drum kits.
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
+bool sdk_drum_shift_press(opxy::u32, opxy::u32) { return false; }
 
 using namespace opxy::platform;
 static void check(bool value) { if (!value) std::abort(); }

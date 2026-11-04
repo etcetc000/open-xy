@@ -72,6 +72,11 @@ def generate_voice(directory, m, sweep=False):
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
         values['CHOKE'] = 'true' if m.definition['resources'].get('chokeSameKey', 0) else 'false'
+        values['PAD_MIX'] = 'true' if m.definition['resources'].get('padMix', 0) else 'false'
+        pads = m.definition['resources'].get('padControls', [])
+        values['PAD_COUNT'] = len(pads)
+        values['PAD_BITS'] = ', '.join(str(f['bits']) for f in pads) or '1'
+        values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
 
@@ -89,13 +94,21 @@ def generate_drum_callbacks(directory, machines):
                          f'const char* {p}_drum_model_name(opxy::u32) __asm__("{p}_drum_model_name");',
                          f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");']
         groups = m.definition['resources'].get('modelGroups', [])
+        pads = m.definition['resources'].get('padControls', [])
+        if pads:
+            declarations += [f'bool {p}_drum_pad_text(opxy::u32, opxy::i32, char*) __asm__("{p}_drum_pad_text");',
+                             f'static const opxy::u8 {p}_pad_bits[] = {{{", ".join(str(f["bits"]) for f in pads)}}};',
+                             f'static const char* const {p}_pad_labels[] = {{{", ".join(json.dumps(f["label"]) for f in pads)}}};']
         if groups:
             declarations += [f'static const opxy::u8 {p}_group_sizes[] = {{{", ".join(str(g["count"]) for g in groups)}}};',
                              f'static const char* const {p}_group_names[] = {{{", ".join(json.dumps(g["label"]) for g in groups)}}};']
         # Audio classification must not require a screen constructed on the GUI role.
         rows.append(f'    {{{p}_engine_id, {p}_record_ready, {m.definition["resources"]["modelCount"]}, '
                     f'{p}_drum_defaults, {p}_drum_label, {p}_drum_model_name, {p}_drum_count, {len(groups)}, '
-                    f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}}},')
+                    f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}, '
+                    f'{1 if m.definition["resources"].get("padMix", 0) else 0}, {len(pads)}, '
+                    f'{p + "_pad_bits" if pads else "nullptr"}, {sum(1 << i for i, f in enumerate(pads) if f.get("signed"))}, '
+                    f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}}},')
     source = '#include "drum_machines.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
     source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'
