@@ -22,6 +22,14 @@ class Startup(unittest.TestCase):
             self.assertIn(f'__asm__("{prefix}_engine_id")', text)
         self.assertNotIn('probesample_screen_register', text)
 
+    def test_symbol_values_follow_the_checks_that_read_them(self):
+        # Players, and effects on their stock page, compare no engine or page
+        # IDs, so the helper stays out: the firmware build rejects an unused one.
+        for text in (render([], player_pages=['probeplayer']), render([], ['probefx'])):
+            self.assertNotIn('u32 value(', text)
+        for text in (render(['probesynth']), render([], ['probefx'], effect_screens=['probefx'])):
+            self.assertEqual(text.count('u32 value('), 1)
+
     def test_rejects_invalid_machine_lists(self):
         for prefixes in ([], ['probesynth', 'probesynth'], ['Bad'], ['x%d' % i for i in range(ENGINE_COUNT + 1)]):
             with self.subTest(prefixes=prefixes[:3]), self.assertRaises(ValueError):

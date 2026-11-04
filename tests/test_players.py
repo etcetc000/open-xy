@@ -14,7 +14,8 @@ from tooling import adapters, native
 from tooling.formats import ldr, mapped_offset
 from tooling.machines import machine_at, assign_numbers, number_layout
 from tooling.pipeline import config
-from test_sample_services import HOST_CXX
+from tooling.startup import generate as generate_startup
+from test_sample_services import HOST_CXX, host_stock_header
 
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
@@ -109,6 +110,21 @@ class PlayerContracts(unittest.TestCase):
         self.assertEqual(native.absent_symbols(m), {'probeplayer_player': 'kit_absent',
                                                    'probeplayer_screen_register': 'kit_absent'})
         self.assertEqual([step for _, machine, step in native.plan([m]) if machine], ['player_object'])
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_startup_builds_for_players_alone(self):
+        # Players compare no engine or page IDs; the generated unit still has to
+        # pass the firmware's -Wall -Werror without the helper that reads them.
+        unit = generate_startup(self.root, [], player_pages=[self.machine.prefix])
+        text = unit.read_text(encoding='utf-8')
+        self.assertIn('probeplayer_screen_register();', text)
+        self.assertNotIn('u32 value(', text)
+        host_stock_header(self.root)
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-c', '-I'+str(ROOT/'sdk/include'),
+                                 '-I'+str(PLATFORM), str(unit), '-o', str(self.root / 'startup.o')],
+                                capture_output=True, text=True, timeout=120, **flags)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_adapter_controls_do_not_enable_stock_playback_mode(self):

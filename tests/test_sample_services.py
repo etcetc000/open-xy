@@ -30,6 +30,18 @@ def host_compiler():
 HOST_CXX = host_compiler()
 
 
+def host_stock_header(folder):
+    """Write stock.hpp into folder with host addresses standing in for stock
+    functions and globals, through host_stock_address."""
+    stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
+    stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
+                          'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+    for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
+        stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                              'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
+    (Path(folder) / 'stock.hpp').write_text(stock)
+
+
 @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
 class SampleServices(unittest.TestCase):
     def run_fixture(self, name, extra=()):
@@ -59,13 +71,7 @@ class SampleServices(unittest.TestCase):
             if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves', 'sample_slice_clock', 'startup', 'sample_overview'):
                 # Exercise the real tempo readers and assignment bridge with
                 # host addresses standing in for stock functions and globals.
-                stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
-                stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
-                                      'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
-                for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
-                    stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
-                                          'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
-                (Path(folder) / 'stock.hpp').write_text(stock)
+                host_stock_header(folder)
                 if name == 'sample_overview':   # beside the host stock.hpp, which its quoted include then finds
                     (Path(folder) / 'sample_overview.cpp').write_text(
                         (ROOT / 'sdk/platform/opxy-1.2.1/sample_overview.cpp').read_text())

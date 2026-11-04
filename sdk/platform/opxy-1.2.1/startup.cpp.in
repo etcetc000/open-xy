@@ -27,7 +27,9 @@ int sdk_stock_engine_known(const void*) __asm__("sdk_stock_engine_known");
 
 namespace {
 typedef __UINTPTR_TYPE__ Address;
-u32 value(const char* symbol) { return static_cast<u32>(reinterpret_cast<Address>(symbol)); }
+// value(symbol): a linked symbol's address as the ID a check below compares,
+// present while this collection has one to check.
+@SYMBOL_VALUE@
 }
 
 int kit_absent() { return 0; }

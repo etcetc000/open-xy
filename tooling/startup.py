@@ -77,7 +77,12 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     owned += [f'    if (page == value({prefix}_fx_page_id)) return {prefix}_ready() == 1;' for prefix in effect_screens]
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
-    values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned), SAMPLE_SCREENS='\n'.join(sample),
+    # Those checks compare linked symbols' addresses, which value() reads. Players
+    # alone compare none, and the firmware build rejects an unused helper.
+    symbol_value = ('u32 value(const char* symbol) { return static_cast<u32>(reinterpret_cast<Address>(symbol)); }'
+                    if catalog or owned or sample else '')
+    values = dict(DECLARATIONS='\n'.join(declarations), SYMBOL_VALUE=symbol_value,
+                  OWNED_SCREENS='\n'.join(owned), SAMPLE_SCREENS='\n'.join(sample),
                   EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
                   SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
