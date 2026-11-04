@@ -65,6 +65,45 @@ beyond whole words and module memory. Browser previews run 8 voices in
 does not change the native collection's module limit or measure its footprint.
 A drum preview auditions one parameter set across its voices; the device provides per-key drum settings.
 
+### File banks
+
+A synth whose sound engine reads large constant tables (wavetables, sample
+words) can keep them out of module memory (SDK 1.10). Declare each table with
+`OPXY_FILE_BANK_WORDS` and read it only through a view from
+`OPXY_FILE_BANK_VIEW` (`<opxy/file_bank.hpp>`), then list each view and its
+table in `machine.json`:
+
+```cpp
+OPXY_FILE_BANK_WORDS(wave_words, 4096) = { /* ... */ };
+OPXY_FILE_BANK_VIEW(wave_bank, wave_words, 4096);
+// in render: wave_bank[index]
+```
+
+```json
+"sdk": "1.10",
+"fileBanks": { "wave_bank": "wave_words" }
+```
+
+`sdk.py build` exports each table as `content/banks/shared/<sha256>-bank.hb`
+and loads it at startup, before the engine registers, into the audio role's
+stock application heap. Tables with identical contents, in one machine or
+several, share one file and one allocation. A table holds at most 1 MiB less
+64 bytes; a build's banks and heap state (below) together at most 12 MiB. Only the sound engine may
+read a view: the display role has no copy, except in profiling builds, where
+the CPU benchmark renders there. If a bank is missing or does not match its
+hash, the machine stays registered and silent. Host builds read the
+table directly through the same view. Code must not take the table's address
+outside its view; the build refuses one that does. The browser builder does
+not package file banks yet.
+
+A synth's voice pool and `Shared` state can leave module memory too, with
+`"heapState": true` in `machine.json` (SDK 1.10). Each role then takes one
+zeroed block of its application heap for them at startup, before the engine
+registers, and keeps it for the session; nothing in the machine's code changes.
+`Voice` and `Shared` must be trivially constructible (no constructors or member
+initializers), as a zeroed block is what static storage gave them. If the heap
+has no room, the machine stays registered and silent.
+
 ## CPU
 
 The OP-XY renders every voice and effect in 64-sample blocks, 1.45 ms each, on

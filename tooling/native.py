@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
+from . import benchmark, extensions, file_banks, runtime, screen, startup_label, stock_tables
 from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -196,7 +196,7 @@ def plan(machines, profile=None):
         else:
             steps = ('registration', 'sample_voice', *(('display', 'screen') if m.display != 'stock' else ()))
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
-    services = active_services(profile or config(), service_users(machines))
+    services = collection_services(profile or config(), machines)
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
@@ -207,7 +207,7 @@ def plan(machines, profile=None):
 
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
 # or .s, except the generated units and the Blackfin runtime.
-SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
+SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'file_banks', 'file_bank_table', 'benchmark', 'benchmark_clock', 'voice_clock',
              'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
@@ -238,6 +238,24 @@ UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'tra
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+# Synths with file banks (machine.json fileBanks): the loader and the build's bank table.
+UNIT_SERVICES.update(dict.fromkeys(('file_banks', 'file_bank_table'), 'file_banks'))
+
+
+# Services the SDK provides without a stock patch, by the users that select them,
+# as the profile's `services` map its own.
+CODE_SERVICES = {'file_banks': ['fileBanks', 'heapState']}
+
+
+def collection_services(profile, machines):
+    """The profile services a build's machines use, and the SDK's own (CODE_SERVICES)."""
+    users = set(service_users(machines))
+    return set(active_services(profile, users)) | {name for name, wanted in CODE_SERVICES.items() if users & set(wanted)}
+
+
+def bank_assets(directory, machines):
+    """Deployment files for a build's file banks, from its linked module."""
+    return {f['path']: f['data'] for f in file_banks.linked(read(Path(directory) / 'module.elf'), machines)}
 
 
 def service_users(machines):
@@ -248,7 +266,9 @@ def service_users(machines):
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
-            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
+            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
+            ['fileBanks' for m in machines if getattr(m, 'file_banks', ())] +
+            ['heapState' for m in machines if getattr(m, 'heap_state', False)])
 
 
 def module_bytes(profile):
@@ -444,6 +464,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_drum_callbacks(folder, machines)), obj)
             if step == 'benchmark':
                 return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
+            if step == 'file_bank_table':
+                return cxx(str(file_banks.generate(folder, file_banks.compiled(directory, machines), gui=profiling)), obj)
             if step.startswith('extension:'):
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
@@ -477,7 +499,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'drum', 'sample')]
-                services = active_services(profile, service_users(machines))
+                services = collection_services(profile, machines)
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
                                                 [x.prefix for x in sample_engines],
                                                 [x.prefix for x in sample_engines if x.display != 'stock'],
@@ -501,7 +523,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         obj = directory / name
         build_unit(obj, m, step)
         # Disable string pooling so the browser linker places sections exactly as GNU ld does.
-        obj.write_bytes(normalize_object(read(obj)))
+        # File bank arrays leave the module: their sections stop occupying memory.
+        obj.write_bytes(file_banks.detach(normalize_object(read(obj))))
         require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
     stack_usage(directory)
     runtime_members = runtime_objects(directory, gcc, plan(machines, profile), definitions)
@@ -518,10 +541,20 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   module_sha256=sha(module), elf_sha256=sha(read(directory / 'module.elf')), hooks=hooks,
                   objects=object_owners(linked, profile, runtime_members), patches=patch_profile['patches'],
                   linked=[m.id for m in linked],
-                  services=sorted(active_services(profile, service_users(linked))), device_operations=False,
+                  services=sorted(collection_services(profile, linked)), device_operations=False,
                   hardware_tested=False, cpu_timing_measured=False)
     if runtime_members:
         report['runtime'] = runtime_members
+    if any(getattr(m, 'file_banks', ()) or getattr(m, 'heap_state', False) for m in machines):
+        # The bank table names every declaring machine's views, so all of them must link.
+        require(all(m in linked for m in machines if getattr(m, 'file_banks', ()) or getattr(m, 'heap_state', False)), 'A synth with file banks did not fit in the module')
+        banks = file_banks.linked(read(directory / 'module.elf'), linked)
+        # The loader table was generated from the objects: the module must carry the same tables.
+        require([f['digest'] for f in banks] == [f['digest'] for f in file_banks.compiled(directory, linked)],
+                'Linked file banks differ from the compiled ones')
+        report['file_banks'] = file_banks.placed(read(directory / 'module.elf'), banks)
+        report['heap_state'] = file_banks.state_bytes(read(directory / 'module.elf'), linked)
+        report['boot_heap_bytes'] = file_banks.boot_heap(banks, report['heap_state'])
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
 
@@ -705,7 +738,7 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
     patch_profile = copy.deepcopy(profile)
     hooks = {}
     text = allocated['.text']
-    services = active_services(profile, service_users(machines))
+    services = collection_services(profile, machines)
     for patch in patch_profile['patches']:
         if not patch_active(patch, services, profiling):
             patch['after'] = patch['before']  # inactive hooks retain stock code
@@ -937,6 +970,7 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
                                                            definitions, package_version(package), profiling, sweep)
         require(report['profiling'] is profiling, 'Compile profiling differs from manifest')
         expected_assets = prepare_assets(catalog, profile, linked_in(machines, report))
+        expected_assets.update(bank_assets(temporary, linked_in(machines, report)))
         expected_assets['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
                                                set(report['services']), profiling)
         expected = {'candidate/' + name: data for name, data in expected_assets.items()}
@@ -988,6 +1022,7 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     module, report, patch_profile = compile_collection(analysis, toolchain, compiler, profile, machines,
                                                        definitions, version, profiling, sweep)
     prepared = prepare_assets(catalog, profile, linked_in(machines, report))
+    prepared.update(bank_assets(analysis, linked_in(machines, report)))
     prepared['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
                                   set(report['services']), profiling)
     for name, data in prepared.items():

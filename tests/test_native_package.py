@@ -113,7 +113,7 @@ class PackageVerification(unittest.TestCase):
             if patch.get('service') and patch['kind'] == 'hook' and patch['after'] != patch['before']:
                 self.assertEqual(services.get(owner_of[patch['symbol']]), patch['service'], patch['symbol'])
         # Only a service's own units and machines of the kinds or features it serves may use its symbols.
-        users = self.patch_profile['services']
+        users = {**self.patch_profile['services'], **native.CODE_SERVICES}
         for name, (owner, undefined) in needs.items():
             for symbol in undefined:
                 service = services.get(owner_of.get(symbol))
@@ -145,8 +145,9 @@ class PackageVerification(unittest.TestCase):
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
         presets |= {path for m in self.linked for path in aux_preset_files(m)}
+        banks = {f['path'] for f in self.report.get('file_banks', [])}
         self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} |
-                         presets)
+                         presets | banks)
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',

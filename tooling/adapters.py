@@ -51,6 +51,30 @@ def voice_values(definition):
                 PEAK=resources['outputPeakQ31'])
 
 
+# heapState (SDK 1.10): the voice pool and the machine's Shared state live in one
+# zeroed block of the stock application heap, taken once at startup before the
+# engine registers and kept for the session, instead of in the module. The names
+# the adapter uses for them stay the same. Only types a zeroed block initializes
+# (as static storage would) qualify.
+HEAP_STATE = '''static_assert(__is_trivially_constructible(Shared) && __is_trivially_constructible(Voice),
+              "heapState needs Voice and Shared without constructors or member initializers");
+struct State { Slot voices[kVoices]; Shared shared; };
+static State* state;  // null until @PREFIX@_state_prepare, and if the heap had no room
+#define voices (state->voices)
+#define shared (state->shared)
+extern "C" {
+void* sdk_boot_allocate(opxy::u32) __asm__("sdk_boot_allocate");
+int @PREFIX@_state_prepare() __asm__("@PREFIX@_state_prepare");
+extern const opxy::u32 @PREFIX@_state_bytes __asm__("@PREFIX@_state_bytes");
+}
+const opxy::u32 @PREFIX@_state_bytes = sizeof(State);
+int @PREFIX@_state_prepare() {
+    if (!state) state = static_cast<State*>(sdk_boot_allocate(sizeof(State)));
+    return 1;
+}
+'''
+
+
 def generate_voice(directory, m, sweep=False):
     """The native machine object, method table and voice pool for a synth. In a sweep
     build (benchmark.cpp.in) its voices render with the swept controls while a sweep run
@@ -67,7 +91,19 @@ def generate_voice(directory, m, sweep=False):
         declarations, controls = '', '        const opxy::i32* controls = parameters;\n'
     values = dict(voice_values(m.definition), SWEEP_DECLARATIONS=declarations, SWEEP_CONTROLS=controls,
                   PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
-                  CAPACITY=m.definition['resources']['voiceCapacity'])
+                  CAPACITY=m.definition['resources']['voiceCapacity'], BANK_START_GUARD='', BANK_RENDER_GUARD='',
+                  STATE_STORAGE='static Slot voices[kVoices];\nstatic Shared shared;\n')
+    if getattr(m, 'heap_state', False):
+        values['STATE_STORAGE'] = HEAP_STATE.replace('@PREFIX@', m.prefix)
+    # A bank that did not load leaves its view inactive, and heap state that was not
+    # allocated leaves no state: either way the machine stays silent.
+    missing = ([f'!{values["NAMESPACE"]}::{view}.active' for view, _array in getattr(m, 'file_banks', ())] +
+               (['!state'] if getattr(m, 'heap_state', False) else []))
+    if missing:
+        inactive = ' || '.join(missing)
+        values['BANK_START_GUARD'] = f'    if ({inactive}) return 0;\n'
+        values['BANK_RENDER_GUARD'] = (f'    if ({inactive}) {{\n        for (unsigned i = 0; i < opxy::block_frames; ++i) '
+                                       'output[i] = 0;\n        return 0;\n    }\n')
     values.pop('PEAK')
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
@@ -249,9 +285,18 @@ def generate_registration(directory, m):
         entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
         entries[p + '_ready()'] = f'sdk_engine_ready(&record, {screen})'
+    if getattr(m, 'file_banks', ()) or getattr(m, 'heap_state', False):
+        # Each role loads the build's file banks and takes the machine's heap state
+        # before its first registration, at startup and outside every audio callback.
+        ready = 'sdk_file_banks_prepare()' + (f' && {p}_state_prepare()' if getattr(m, 'heap_state', False) else '')
+        if getattr(m, 'heap_state', False):
+            declarations.append(f'int {p}_state_prepare() __asm__("{p}_state_prepare");')
+        for signature in (p + '_register()', p + '_screen_register()'):
+            if signature in entries:
+                entries[signature] = f'{ready} ? {entries[signature]} : 0'
     declarations += [f'int {signature} __asm__("{signature.split("(")[0]}");' for signature in entries]
     lines = [f"// Generated: {m.id}'s stock identity for the SDK's checked registration.",
-             '#include "registration.hpp"', 'extern "C" {', *declarations, '}', 'namespace {', *objects, '}',
+             '#include "registration.hpp"', *(['#include "file_banks.hpp"'] if getattr(m, 'file_banks', ()) or getattr(m, 'heap_state', False) else []), 'extern "C" {', *declarations, '}', 'namespace {', *objects, '}',
              *(f'int {signature} {{ return {call}; }}' for signature, call in entries.items())]
     destination = Path(directory) / 'registration.cpp'
     destination.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
