@@ -32,6 +32,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
 | Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padSend` kit |
+| Step locks of a kit's Shift fields | 2 | Adds a step's lock offsets to the played key's pan, level and pad controls when a note starts; linked only with a `padMix` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
@@ -56,7 +57,9 @@ form the profile's `samples` service (apart from octave publication,
 which is shared with players and drum kits): a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine or synthesis drum
 kit. Synthesis drum transport is the `drums` service, used only by drum kits, and
-per-key sends the `drum_sends` service, used only by a kit declaring `padSend`.
+per-key sends the `drum_sends` service, used only by a kit declaring `padSend`
+(or `padMix`). The step locks of a kit's Shift fields are the `drum_locks` service,
+used only by a `padMix` kit, which also uses hidden pages.
 Otherwise their sites stay stock. The track control rows (and the project read of the
 project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
@@ -448,7 +451,8 @@ GUI tick from track control's tick. The instrument controller's page word
 which M1..M4, track changes and menus all reach. When the selected track's synth
 hides the page shown, the SDK calls `8c0b19c4` with the page shown before, or
 the engine page. Only the envelope (M2) and filter (M3) pages can be hidden;
-the LFO page (M4) always stays.
+the LFO page (M4) always stays. A drum kit's page is in the same table: a
+`padMix` kit hides M3, whose words hold its [step locks](#step-locks-of-a-kits-shift-fields).
 
 ### Track control
 
@@ -1040,6 +1044,87 @@ sum. A send every voice follows, every stock track and every block of a kit
 whose keys all follow are mixed bit for bit as stock mixes them. The source
 dry reduction (`1 - s(1 - d)`) stays the track's and takes no account of
 own amounts.
+
+### Step locks of a kit's Shift fields
+
+Stock's step locks live in each pattern's track data (`[0x840a0524] + 0xd7c +
+track * 0x53f44 + pattern * 0x53f4`): at `+0x258` one 16-bit slot per step for
+each of the words 0..41 (the top half of the Q31 word), at `+0x2c58` a 64-bit
+mask per step, and the stored words at `+0x3864`. Words 42..57 have no slot, and
+the lock writer `8d586f40` never checks the index. The sequencer's lock pass
+`8d5936c0` writes a step's locked words (indices 0..41) into the GUI's live
+words (`0x86bd027c + 0x4080 + track * 0xe8`), after `8d5accf8` has copied the
+stored words there, and only then does note start (`8d595738`) run. M3's filter
+words 16..19 lock like any other, but nothing reads them for a kit voice: the
+renderer chooser `8d51bbaa` sends it to the drum renderer `8d51b274`, which
+never calls the per-voice filter object (`[voice + 0x44]`) that the other
+renderer `11a09308` runs with the track record.
+
+A `padMix` kit uses them as per-hit offsets to the played key's pan (16),
+level (17) and pad controls (18, 19), neutral at `0x40000000`
+([`drum_locks.hpp`](../sdk/platform/opxy-1.2.1/drum_locks.hpp)):
+
+- **Editing.** With a step held (`8d5b7e34`: the step word at `0x86bda0c8` is
+  not -1) the instrument controller's turn handler `8c0b12e4` skips the per-key
+  editor call at `8c0b147a` and makes its generic call at `8c0b15aa`
+  (`sdk_synth_turn`) with Shift's index 4..7. For such a kit the SDK maps the
+  position through `DrumMachine::shift` and the encoders' row: PAN, LEVEL and the
+  kit's pad controls call stock's editor `8d5ad5bc` with words 16..19, which with
+  a step held writes that step's lock (`8d5ad564` -> `8d5ad42c` -> `8d586f40`);
+  MACHINE, CHOKE, FX I and FX II return without calling it, where a held step
+  used to take a fine lock of the engine control shown. Stock's step `8d5ad2e8`
+  asks `sdk_param_steps` (`8d5ad306`) for each word's bucket count, answered with
+  scale 1: 201 for pan (+-100), 61 for level (+-30 dB) and twice a pad control's
+  span plus one (at most 255). It moves the bucket `value * count >> 31` by the
+  detents (three or six a detent for 100 or more buckets on a fast turn) and stores
+  its centre, `0x7fffffff / count * k` plus half that, so bucket `(count - 1) / 2`,
+  which holds `0x40000000`, is offset 0, and no bucket stores 0: a stored 0
+  decodes as no offset.
+- **Latching.** Note start's Drumline branch calls the pad payload builder
+  `8d5ad660` at `8d595b50` (`00e388bd`) with the project, track, key, the track's
+  engine and three of its own pointers. The builder fills the eight words at
+  `0x86bd025c` from the played pad's record (word 0 the model byte's bin, 1..4
+  the record's words, 5 the pan, `byte * 10737418 + 0x40000000`, 6 the pad word,
+  7 the level through `8d5ad604`) and publishes them with `8d5ad194(project, track,
+  kind, payload)` at `8d5ad776` (`ffe30ffd`). Both calls are hooked
+  (`sdk_drum_lock_note`, `sdk_drum_lock_publish`, the `drum_locks` service): the
+  first notes the note's track and key and calls the builder; the second, for that
+  note only, reads the live words 16..19 and adds their offsets to the key's own
+  pan (word 5, within -100..100), level (word 7 through `8d5ad604`, within
+  -30..0 dB from the level the kit plays) and pad controls (word 6, each within
+  its field), then publishes. The builder's other callers (`8d4d5f56`,
+  `8d4dcdce`, `8d582128`: the per-key editor and its previews) publish the key's
+  own values. A pad-control offset on a pad the kit has not marked first gives the
+  payload a marked pad's form, as the kit's first edit of a pad would: word 0
+  the mark with the pad's choke group, words 1..4 the key's defaults packed,
+  word 6's bits 16..30 cleared. The record itself is not changed. Pan is copied
+  into the voice when it is built (voice `+0x88`, `8d51af1e`); the adapter keeps
+  a note's level and pad controls from its first block's payload. Words 6 and 7
+  live in the pad's region, which the next note on the pad replaces, so each hit
+  plays its own offsets and voices still sounding keep theirs. Everything runs
+  on the GUI in the sequencer's own order. A live note gets the live words too:
+  the stored words while the sequencer is stopped, the current step's locks
+  while it plays.
+- **Showing.** With a step held the selected key's pan, level and pad controls
+  (`sdk_drum_pan`, `sdk_drum_level`, `sdk_drum_pad_values`, which the Shift row
+  and the display's input read) add the offsets of the held step's words as stock's
+  editor reads them (`8d5ac93c`: the step's lock, else the stored word).
+- **Neutral stored words.** Project load's track check (`8d588ec8`, the
+  `drums` service's alias hook) also stores `0x40000000` in words 16..19 of each
+  pattern's track object (`+0x3864`), as stock stores it in a Drumline track's
+  words 0..7 just after (`8d588dfe`). The track menu's scramble (`8c0b52fc`)
+  randomizes words 0..3, 8..11, 32..35, 16..19 (`8c0b53ac`..`8c0b53ce`) and
+  24..31 through `8d5acf28`, then 13 at `8c0b541c` (`sdk_synth_scramble`), after
+  which the SDK sets 16..19 back. Once a frame (`sdk_send_refresh`), outside a
+  project load (the word at `840a0528`), the selected kit's stored words 16..19
+  are set back if they differ: the stored word directly and the live one through
+  `8d5acea8`, which publishes it, rather than `8d5acf28`, which while recording
+  would also record a lock. A kit's init preset writes `fx.params` 0..3, which
+  preset load stores in words 16..19 (`8d4e4448`), as 16384.
+
+The engine controls' offsets (words 0..7) are not latched: the drum renderer
+reads them from the track's audio record every block, so a lock on one moves
+every voice the track is sounding during that step, as before.
 
 ## Note players
 

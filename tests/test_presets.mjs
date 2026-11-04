@@ -77,6 +77,18 @@ test("a machine's own presets install beside its init preset, unchanged", async 
   assert.deepEqual(authored, {'content/presets/probesynth/default.json': own({octave: 1})});
 });
 
+test("a padMix kit's init preset keeps its lock words neutral", () => {
+  // fx.params 0..3 are words 16..19, a padMix kit's step offsets (drum_locks.hpp): 0 would be the
+  // largest cut, 16384 is none. Everything else is the shared template's.
+  const kit = {...machines[0], id: 'probekit', kind: 'drum', catalog: entry('probekit', [0, 0, 0, 0, 0, 0, 0, 0]),
+    features: ['drum_sends', 'hidePages', 'padMix', 'padSend']};
+  const preset = presetFiles(kit)['content/presets/probekit/default.json'];
+  const template = JSON.parse(read('tooling/default_preset.json'));
+  assert.deepEqual(preset.fx, {...template.fx, params: [16384, 16384, 16384, 16384, ...template.fx.params.slice(4)]});
+  const plain = presetFiles({...kit, features: ['padSend']})['content/presets/probekit/default.json'];
+  assert.deepEqual(plain.fx, template.fx);
+});
+
 // Placeholder pending #234, which defines trackControl's real shape.
 test('an aux track-control machine keeps no instrument preset folder', () => {
   // An aux machine has no catalog entry (tooling.browser_kit); its presets are aux presets.

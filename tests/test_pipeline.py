@@ -98,11 +98,13 @@ class Services(unittest.TestCase):
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
-        # The fixtures declare no track control, hidden pages, aux tracks, players or per-key
-        # sends: those services stay off.
+        # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
+        # sends or a padMix kit's step locks: those services stay off.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
-                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends')])
+                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks')])
         self.assertEqual(active_services(profile, ['drum', 'padSend']), {'samples', 'octaves', 'drums', 'drum_sends'})
+        self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padSend', 'padMix']),
+                         {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])

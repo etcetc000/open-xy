@@ -144,8 +144,14 @@ HIDDEN_PAGES = {'envelope': 1, 'filter': 2}
 
 
 def hidden_pages(definition):
-    """The stock instrument pages a synth hides, as a bitmask of page indices (SDK 1.4)."""
-    return sum(1 << HIDDEN_PAGES[p] for p in definition.get('hidePages', ()))
+    """The stock instrument pages a synth or drum kit hides, as a bitmask of page indices
+    (SDK 1.4). A padMix kit always hides M3 (filter): its lock words hold the Shift
+    fields' step locks (drum_locks.hpp), and stock's filter does nothing for a kit."""
+    pages = set(definition.get('hidePages', ()))
+    resources = definition.get('resources')
+    if isinstance(resources, dict) and resources.get('padMix', 0):
+        pages.add('filter')
+    return sum(1 << HIDDEN_PAGES[p] for p in pages)
 
 
 def paged(definition):
@@ -259,11 +265,11 @@ def validate_definition(value, kind):
                 "a drum kit's press always pages its row")
     if 'shift' in value:
         validate_shift(value['shift'], kind, set(names))
-    # Stock instrument pages a synth hides: M2 (envelope), M3 (filter) and M4 (LFO).
+    # Stock instrument pages a synth or drum kit hides: M2 (envelope) and M3 (filter).
     if 'hidePages' in value:
         pages = value['hidePages']
-        require(kind == 'synth' and isinstance(pages, list) and pages and len(set(pages)) == len(pages) and
-                all(p in HIDDEN_PAGES for p in pages), '"hidePages" lists "envelope" and/or "filter" for a synth')
+        require(kind in ('synth', 'drum') and isinstance(pages, list) and pages and len(set(pages)) == len(pages) and
+                all(p in HIDDEN_PAGES for p in pages), '"hidePages" lists "envelope" and/or "filter" for a synth or drum kit')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     present = {p['id'] for p in parameters if not p.get('absent')}
     for name, preset in value['presets'].items():

@@ -101,6 +101,9 @@ extern const opxy::platform::DrumMachine sdk_drum_machines[] __asm__("sdk_drum_m
 extern const opxy::u32 sdk_drum_machine_count __asm__("sdk_drum_machine_count");
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32 engine) __asm__("sdk_drum_machine");
 opxy::u32 sdk_drum_alias(opxy::u32 engine) __asm__("sdk_drum_alias");
+// Project load's check of a pattern's track object: the alias, after a padMix
+// kit's lock words get their neutral base there.
+opxy::u32 sdk_drum_load_engine(opxy::u32 engine, opxy::u32 object) __asm__("sdk_drum_load_engine");
 // GUI projection: the selected key's model and stored controls; track offsets
 // (step locks, modulation) remain separate.
 bool sdk_drum_values(opxy::u32 track, opxy::u8* model, opxy::u8* controls) __asm__("sdk_drum_values");

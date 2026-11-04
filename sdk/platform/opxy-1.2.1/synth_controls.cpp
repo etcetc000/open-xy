@@ -9,6 +9,7 @@
 #include "stock.hpp"
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
+#include "drum_locks.hpp"
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
@@ -34,7 +35,6 @@ const u32 kInstrumentPage = 0x080238bc;
 // The auxiliary-track controller, which shows a send track's FX page: its
 // vtable, laid out as the instrument controller's (its turn handler at entry 6).
 const u32 kAuxController = 0x0803fb6c;
-const u32 kAuxTab = 0x0801eae4;  // the aux page shown: M1..M4 as 0..3
 const u32 kSendTracks = 14;  // send tracks 14 and 15
 const u32 kAllTracks = 16;
 u32 aux_engine(u32 track) { return sdk_aux_engine ? sdk_aux_engine(track) : 0; }
@@ -98,6 +98,26 @@ const SynthControls* machine(u32 track, Track*& t) {
 
 // The owned synth on instrument track 0..7, or null.
 const SynthControls* synth(u32 track) { return track < kTracks ? owned(track_engine(track)) : nullptr; }
+
+// A padMix kit on instrument track 0..7 (its Shift fields lock, drum_locks.hpp), or null.
+const DrumMachine* pad_kit(u32 track) {
+    const DrumMachine* kit = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
+    return kit && kit->pad_mix ? kit : nullptr;
+}
+// Whether a step is held for parameter locks (8d5b7e34: its step word is not -1).
+bool step_held() { return stock<u32()>(0x8d5b7e34)() != 0; }
+// A padMix kit's lock words back to their neutral base: the stored word, then
+// the live one through 8d5acea8, which sends it to the audio side. Not stock's
+// set, which would also record the value as a lock while recording.
+void neutral_locks(u32 project, u32 track) {
+    for (u32 i = 0; i < kDrumLocks; ++i) {
+        const u32 index = kDrumLockWord + i;
+        opxy::i32* base = at<opxy::i32>(stock<u32(u32)>(0x8d587708)(track) + 0x3864 + index * 4);
+        if (*base == kDrumLockNeutral) continue;
+        *base = kDrumLockNeutral;
+        stock<void(u32, u32, u32, opxy::i32)>(0x8d5acea8)(project, track, index, kDrumLockNeutral);
+    }
+}
 }  // namespace
 
 // Whether Shift on a track's own screen gives an encoder to the stock sampler
@@ -143,6 +163,7 @@ opxy::i32 current_value(u32 track, u32 slot) {
 // The GUI's project, as the send page's controller passes it to stock's editor
 // (8c08fad6), and a track's stored word in it: what a project saves.
 const u32 kProject = 0x86bd027c;
+const u32 kProjectLoading = 0x840a0528;  // nonzero while stock loads a project
 opxy::i32 stored_value(u32 track, u32 slot) {
     return *reinterpret_cast<const volatile opxy::i32*>(kProject + 0x4080 + track * 0xe8 + slot * 4);
 }
@@ -239,6 +260,13 @@ bool sdk_drum_shift_press(u32 track, u32 encoder) {
 // when turned fast), and stores the bucket's centre. An owned machine's enum
 // slot answers its choice count with scale 1: one choice per detent.
 u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
+    // A padMix kit's lock words: one unit of the field a detent (drum_locks.hpp).
+    if (index >= kDrumLockWord && index < kDrumLockWord + kDrumLocks)
+        if (const DrumMachine* kit = pad_kit(track))
+            if (const u32 buckets = drum_lock_buckets(drum_lock_reach(*kit, index - kDrumLockWord))) {
+                *scale = 1;
+                return buckets;
+            }
     const SynthControls* m = index < opxy::parameter_slots ? editor(track) : nullptr;
     if (m && m->steps[index]) {
         *scale = 1;
@@ -262,6 +290,18 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     // Reinterpret it as fine editing of the same visible position, including
     // an alternate selected by a click. Other pages keep stock routing.
     const bool fine_turn = index >= 4 && index < 8 && word(kInstrumentPage) == 0 && shift_held();
+    // A padMix kit shows its Shift row there (DrumMachine::shift). With a step
+    // held (only then does stock route a kit's Shift turn here), PAN, LEVEL and
+    // the kit's pad controls lock the step's offset (drum_locks.hpp) through
+    // stock's editor; the model, the choke group and the sends lock nothing,
+    // so their turns do nothing.
+    if (fine_turn && step_held())
+        if (const DrumMachine* kit = pad_kit(track))
+            if (machine(track, t)) {
+                const u32 lock = drum_lock(*kit, kit->shift(index - 4, t->slots[0] >= opxy::page_controls));
+                if (lock == kDrumNoLock) return 0;
+                return stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(project, track, kDrumLockWord + lock, event);
+            }
     const u32 original_index = index;
     if (fine_turn) index -= 4;
     const SynthControls* m = index < opxy::page_controls ? machine(track, t) : nullptr;
@@ -446,6 +486,9 @@ bool sdk_send_view(u32 track, SendView* view) {
 // stock's own generator (8c0b5230), as stock does for slots 0..3.
 u32 sdk_synth_scramble(u32 project, u32 track, u32 index, opxy::i32 value) {
     const u32 result = set_parameter(project, track, index, value);
+    // Scramble (8c0b52fc) also randomizes 16..19 (8c0b53ac..8c0b53ce), a
+    // padMix kit's lock words: their base stays neutral.
+    if (pad_kit(track)) neutral_locks(project, track);
     const SynthControls* m = synth(track);
     if (!m) return result;
     for (u32 s = opxy::page_controls; s < opxy::parameter_slots; ++s)
@@ -465,6 +508,10 @@ bool sdk_synth_value(u32 track, u32 slot, opxy::i32 value, char* text) {
 // lock may later move a current value away
 // from the stored one on purpose.
 void sdk_send_refresh() {
+    // The selected padMix kit's lock words keep a neutral base, whatever put
+    // another there (a track newly the kit, a preset); never while a project loads.
+    const u32 selected = byte(kSelectedTrack);
+    if (!word(kProjectLoading) && pad_kit(selected)) neutral_locks(kProject, selected);
     for (u32 s = 0; s < 2; ++s) {
         Track* t;
         const u32 track = kSendTracks + s;

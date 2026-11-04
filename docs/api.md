@@ -180,9 +180,10 @@ editing a shared control keeps the current page. Use the SDK's
 emphasis and motion. `sdk.py new` supplies it by default. Macro Osc is the
 [worked reference](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json).
 
-A synth for which a stock instrument page means nothing (one that makes no
+A synth or drum kit for which a stock instrument page means nothing (one that makes no
 sound of its own, say) may declare `"hidePages"` at the top of
-`definition.json` (SDK 1.9), listing `"envelope"` (M2), `"filter"` (M3) or both. On its
+`definition.json` (SDK 1.9), listing `"envelope"` (M2), `"filter"` (M3) or both. A
+[`padMix`](#synthesis-drum-kits) kit always hides M3. On its
 track, those keys then leave the page shown as it was, and selecting the track
 while another track shows a hidden page shows the engine page. The SDK
 corrects the page once per GUI tick, so the hidden page may flash for a frame.
@@ -516,6 +517,33 @@ header (without it, or when it returns false, the number shows). The display's
 itself. FX I and FX II are stored and shown; the mixer that plays them is a
 separate change.
 
+A `padMix` kit's steps lock its keys' PAN, LEVEL and pad controls, as stock's
+steps lock a track's parameters. Hold a step and Shift and turn one of them:
+the step gets an offset to that field, PAN -100..100, LEVEL -30..30 dB and a
+pad control as far as its whole span (at most 127), one unit a detent (PAN
+moves faster on a fast turn, as stock's step does). Each note the step plays
+gets its key's own value plus the offset, clamped to the field (LEVEL stays a
+cut, -30..0), from the moment it starts: it keeps them for as long as it
+sounds, and voices still sounding from earlier hits keep theirs. While a step
+is held, the Shift row (and the display's `pan`, `level` and `pad`) shows what
+that step plays for the selected key; released, the key's own values. The
+offsets have no key: they apply to every key the step plays, so put keys on
+different steps to lock them apart. MACHINE, CHOKE, FX I and FX II turn
+nothing while a step is held: the model and the choke group belong to the key,
+and the sends are not locked per step. Without a held step Shift edits the
+key's own values as above. A note played live while the sequencer plays a
+locked step gets that step's offsets, as it gets the step's other locks.
+
+The locks are stock's own: saved with the project, copied with the pattern,
+cleared and slid like any other. They are the track's M3 filter words
+(16..19), which do nothing for a kit since stock's drum renderer has no filter,
+so a `padMix` kit hides M3 as `"hidePages": ["filter"]` does, its second row
+included (FX I and FX II stay on the mixer). The stored words stay neutral
+(16384): the SDK sets them so when a project loads, after scramble and whenever
+the selected kit's are not, and writes them in the kit's init preset; a word of
+0 offsets nothing. The engine's eight controls lock as before
+([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
+
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
 
@@ -699,7 +727,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
 | `padControls` | Up to two `{label, bits, signed}` fields, 9 bits in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
-| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad fields ([drum kits](#synthesis-drum-kits)) | |
+| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad fields; a held step locks pan, level and pad controls; hides M3 ([drum kits](#synthesis-drum-kits)) | |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |

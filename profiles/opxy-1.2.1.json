@@ -150,6 +150,9 @@
     ],
     "drum_sends": [
       "padSend"
+    ],
+    "drum_locks": [
+      "padMix"
     ]
   },
   "patches": [
@@ -2121,6 +2124,28 @@
       "symbol": "sdk_drum_send_own",
       "call": true,
       "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
+      "name": "Note start: the pad payload builder's call, noting the note's track and key for its step locks",
+      "address": "0x8d595b50",
+      "file_offset": "0x1ccdac",
+      "length": 4,
+      "before": "00e388bd",
+      "symbol": "sdk_drum_lock_note",
+      "call": true,
+      "service": "drum_locks"
+    },
+    {
+      "kind": "hook",
+      "name": "Pad payload builder: a note's step-lock offsets into its pan, pad and level words before publication",
+      "address": "0x8d5ad776",
+      "file_offset": "0x1e49ce",
+      "length": 4,
+      "before": "ffe30ffd",
+      "symbol": "sdk_drum_lock_publish",
+      "call": true,
+      "service": "drum_locks"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

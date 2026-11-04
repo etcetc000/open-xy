@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'dcb1a4ccb5c23fbdfa8ad020f58809a5f84664681fb7d148799d0dfbae95a9ae';
+export const PROFILE_SHA256 = '2d91432a44dfb59b9167652f9d1a90c297ed7d01a795694be3a2ffd1078377ca';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -949,10 +949,14 @@ function defaultPreset(machine) {
     Object.entries(amp).every(([key, value]) => ['attack', 'decay', 'release', 'sustain'].includes(key) &&
       Number.isInteger(value) && value >= 0 && value <= 32767), 'Invalid preset amp defaults');
   const template = structuredClone(DEFAULT_PRESET_TEMPLATE);
+  // A padMix kit's lock words (fx.params 0..3) are neutral at 16384 (tooling.adapters.default_preset).
+  const fx = (machine.features ?? []).includes('padMix')
+    ? {...template.fx, params: [16384, 16384, 16384, 16384, ...template.fx.params.slice(4)]} : template.fx;
   return {
     ...template,
     engine: {...template.engine, params: [...entry.default_params]},
     envelope: {...template.envelope, amp: {...template.envelope.amp, ...amp}},
+    fx,
     type: entry.type,
   };
 }
