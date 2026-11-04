@@ -19,6 +19,7 @@
 .extern _sdk_extension_system_values
 .extern _sdk_extension_system_installed
 .extern _sdk_extension_system_destination
+.extern _sdk_extension_system_saved_p3
 .extern _sdk_extension_hooks_static
 .extern _sdk_extension_hooks_static_count
 
@@ -28,6 +29,13 @@ sdk_extensions_system_entries_hook:
     R3 = 6;
     CC = R2 == R3;
     IF !CC JUMP .Lsystem_stock;
+
+    /* P3 is preserved by the replaced stock call.  Keep it outside the
+     * constrained stock frame while this adapter uses it as a scratch
+     * pointer.  P0-P2 and R0-R3 are caller-clobbered at this call site. */
+    P0.H = _sdk_extension_system_saved_p3;
+    P0.L = _sdk_extension_system_saved_p3;
+    [P0] = P3;
 
     /* Preserve the destination in module RAM while P0-P3 walk the sources. */
     P3.H = _sdk_extension_system_destination;
@@ -102,6 +110,9 @@ sdk_extensions_system_entries_hook:
     P0.H = 0x8c09;
     P0.L = 0x7f0c;
     CALL (P0);
+    P0.H = _sdk_extension_system_saved_p3;
+    P0.L = _sdk_extension_system_saved_p3;
+    P3 = [P0];
     P1.H = 0x8400;
     P1.L = 0xc0ec;
     RTS;

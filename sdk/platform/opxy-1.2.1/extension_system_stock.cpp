@@ -60,6 +60,7 @@ opxy::platform::SystemRow sdk_extension_system_rows[9] = {
 };
 opxy::u32 sdk_extension_system_installed;
 opxy::u32 sdk_extension_system_destination;
+opxy::u32 sdk_extension_system_saved_p3;
 }
 
 extern "C" void sdk_extensions_system_changed(opxy::platform::SystemValue* value) {
