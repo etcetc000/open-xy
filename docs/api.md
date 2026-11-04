@@ -630,7 +630,8 @@ to use as it chooses; stock's own loop does not apply to it. Stock's loop crossf
 (Shift + encoder 3) and loop mode (Shift + encoder 3 press) aren't offered:
 `SampleBlock` doesn't carry them. `stockShift` needs an own screen and SDK 1.10.
 While Shift is held, the screen's input `shift` is 1, so it can show what Shift
-edits; the [overview](display.md#sample-overview) gives the start and the end. The
+edits; the [overview](display.md#sample-overview) gives the start, the end and the
+gain. The
 stock sample browser and recorder are unaffected.
 
 ### Services

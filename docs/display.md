@@ -279,6 +279,7 @@ engine plays it.
 | `frames`, `rate`, `channels` | The whole sample's length, rate and channels |
 | `begin`, `end`, `reverse` | The outer markers, in frames, as the engine plays them, and 1 if it plays backwards. These follow edits in any frame |
 | `low`, `high` | 96 bins of equal length across the whole sample: the smallest and largest 16-bit value of any channel in each |
+| `gain` | SDK 1.10: the sample's gain, the one Shift + encoder 4 edits on the stock sampler's page (or a [`stockShift`](api.md#own-screen) `gain` encoder), in stock's whole steps: -30 at the bottom of its travel, +20 at the top, 0 as a sample is assigned. It follows edits in any frame. The level the engine receives (`SampleBlock.region.level`) follows it along stock's own curve. `gain_unavailable` while the track holds no sample |
 
 The file worker reads the sample in the background; the screen only copies the
 result, so a long sample never stalls a frame, and the overview follows the sample
