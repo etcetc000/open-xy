@@ -918,6 +918,9 @@ The drum renderer writes the pitch buffer at `11902c00` with each phase
 increment shifted right by 16 (`8d51b440`–`8d51b444`). The SDK expands those
 64 values back to the public `Pitch` units before the contributor callback;
 the lower 16 bits are zero because stock has already quantized them.
+For a kit declaring SDK 1.10 or later, the `+12` adapter also reads the audio
+clock's tempo, ticks and play state, as a sample engine's renderer does, and
+passes them to the kit's `drum_transport` before its `render`.
 
 Each key's four parameter words store 60 bits that stock exports as positive
 Q15 integers and restores with a left shift of 16. The SDK packs the key's
