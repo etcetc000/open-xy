@@ -59,6 +59,21 @@ file_banks::Loader<Backend> loader;
 bool prepared;
 }
 
+// heapState (tooling/adapters.py): one zeroed block for a machine's voice pool
+// and shared state, taken at startup and never released; null if the heap has
+// no room or hands back an unexpected block, and the machine stays silent.
+void* sdk_boot_allocate(u32 bytes) {
+    Backend io;
+    if (!bytes) return nullptr;
+    void* const block = io.allocate(bytes);
+    if (!block) return nullptr;
+    if (!io.valid(block, bytes)) return nullptr;  // never touched, never freed
+    unsigned char* const data = static_cast<unsigned char*>(block);
+    for (u32 i = 0; i < bytes; ++i) data[i] = 0;
+    io.publish_barrier();
+    return block;
+}
+
 int sdk_file_banks_prepare() {
     if (prepared) return 1;
     prepared = true;

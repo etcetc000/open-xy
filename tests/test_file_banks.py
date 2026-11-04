@@ -125,11 +125,12 @@ class CompiledBanks(unittest.TestCase):
                     file_banks.compiled(directory, [wrong])
 
     def test_banks_beyond_the_session_cap_are_refused(self):
-        m = banked(banks=tuple((f'view{i}', f'bank{i}') for i in range(5)))
+        count = file_banks.SESSION_CAP // file_banks.MAX_PAYLOAD + 1
+        m = banked(banks=tuple((f'view{i}', f'bank{i}') for i in range(count)))
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory) / m.id
             folder.mkdir()
-            for i in range(5):
+            for i in range(count):
                 payload = struct.pack('<I', i) * (file_banks.MAX_PAYLOAD // 4)
                 (folder / f'unit{i}.o').write_bytes(file_banks.detach(object_data(f'bank{i}', payload)))
             with self.assertRaises(ValueError):
@@ -160,6 +161,38 @@ class MachineContract(unittest.TestCase):
                         dict(sdk='1.10', fileBanks={'View': 'words'})):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.machine_with(**changes)
+
+
+class HeapState(unittest.TestCase):
+    def test_heap_state_needs_sdk_1_10_on_a_synth_and_registers_after_its_block(self):
+        contract = MachineContract()
+        contract.addCleanup = self.addCleanup
+        self.assertTrue(contract.machine_with(sdk='1.10', heapState=True).heap_state)
+        for changes in (dict(sdk='1.9', heapState=True), dict(sdk='1.10', heapState=False), dict(sdk='1.10', heapState=1)):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                contract.machine_with(**changes)
+        m = replace(fixture('probesynth'), heap_state=True)
+        with tempfile.TemporaryDirectory() as directory:
+            registration = adapters.generate_registration(directory, m).read_text()
+            voice = adapters.generate_voice(directory, m).read_text()
+        self.assertIn('sdk_file_banks_prepare() && probesynth_state_prepare() ? sdk_register_engine(&record) : 0', registration)
+        self.assertIn('struct State { Slot voices[kVoices]; Shared shared; };', voice)
+        self.assertNotIn('static Shared shared;', voice)
+        self.assertIn('    if (!state) return 0;', voice)
+        self.assertIn('    if (!state) {', voice)
+        self.assertIn('file_banks', native.collection_services(native.config(), native.Collection([m])))
+
+    def test_banks_and_state_share_one_startup_heap_cap(self):
+        files = [dict(bytes=1000)]
+        self.assertEqual(file_banks.boot_heap(files, {'a': 2000}), 1000 + 2000 + 2 * file_banks.ALLOWANCE)
+        with self.assertRaises(ValueError):
+            file_banks.boot_heap(files, {'a': file_banks.SESSION_CAP})
+
+    def test_a_table_without_banks_still_compiles_to_valid_arrays(self):
+        with tempfile.TemporaryDirectory() as directory:
+            table = file_banks.generate(directory, [], gui=False).read_text()
+        self.assertIn('native_file_banks[1] = {', table)
+        self.assertIn('native_file_bank_count = 0;', table)
 
 
 class Adapters(unittest.TestCase):

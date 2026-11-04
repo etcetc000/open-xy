@@ -50,9 +50,7 @@ static Handle handles[kVoiceIndices];
 // serves a note that ended just before another starts.
 const opxy::u32 kStockVoices = 27;
 const opxy::u32 kVoices = (@CAPACITY@ < kStockVoices ? @CAPACITY@ : kStockVoices) + 1;
-static Slot voices[kVoices];
-static Shared shared;
-static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
+@STATE_STORAGE@static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
 static_assert(alignof(Voice) == @VOICE_ALIGNMENT@, "Declared voice alignment differs from the compiled type");
 static_assert(@SHARED_BYTES@ == 0 ? __is_empty(Shared) : sizeof(Shared) == @SHARED_BYTES@,
               "Declared shared size differs from the compiled type");

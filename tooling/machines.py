@@ -21,7 +21,7 @@ from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources', 'includes', 'icon', 'presetDefaults',
-          'presets', 'dryParameter', 'dryLevel', 'graphics', 'fileBanks'}
+          'presets', 'dryParameter', 'dryLevel', 'graphics', 'fileBanks', 'heapState'}
 # The public machine contract: headers, definition schema, artwork rules and
 # callbacks. A machine names the version it was written for; the SDK builds a
 # machine of the same major version and an equal or older minor version.
@@ -40,7 +40,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
 # 1.10 adds file banks (fileBanks): large immutable tables a synth's sound engine reads
-# from the audio heap, loaded from files at startup instead of occupying the module.
+# from the audio heap, loaded from files at startup instead of occupying the module, and
+# heap state (heapState): a synth's voice pool and Shared state in the heap from startup.
 SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -86,6 +87,7 @@ class Machine:
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
     grayscale: str | None = None
     file_banks: tuple = ()  # (view, array) pairs: tables loaded from files at startup (SDK 1.10)
+    heap_state: bool = False  # voice pool and Shared state in the heap from startup (SDK 1.10)
 
     @property
     def sample_page(self):
@@ -411,6 +413,10 @@ def machine_at(root, identity=None):
     if 'fileBanks' in value:
         require_sdk(version, (1, 10), 'File banks (fileBanks)')
         file_banks = file_bank_pairs(value['fileBanks'], kind)
+    heap_state = value.get('heapState', False)
+    if 'heapState' in value:
+        require_sdk(version, (1, 10), 'Heap state (heapState)')
+        require(kind == 'synth' and heap_state is True, 'heapState is true on a synth, or absent')
     defaults = value.get('presetDefaults', {})
     require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
     amp = defaults.get('amp', {})
@@ -430,7 +436,7 @@ def machine_at(root, identity=None):
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
                    root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, grayscale=grayscale,
-                   file_banks=file_banks)
+                   file_banks=file_banks, heap_state=heap_state)
     if grayscale:
         from .native import validate_panel
         validate_panel(result)

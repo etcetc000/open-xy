@@ -244,7 +244,7 @@ UNIT_SERVICES.update(dict.fromkeys(('file_banks', 'file_bank_table'), 'file_bank
 
 # Services the SDK provides without a stock patch, by the users that select them,
 # as the profile's `services` map its own.
-CODE_SERVICES = {'file_banks': ['fileBanks']}
+CODE_SERVICES = {'file_banks': ['fileBanks', 'heapState']}
 
 
 def collection_services(profile, machines):
@@ -267,7 +267,8 @@ def service_users(machines):
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
-            ['fileBanks' for m in machines if getattr(m, 'file_banks', ())])
+            ['fileBanks' for m in machines if getattr(m, 'file_banks', ())] +
+            ['heapState' for m in machines if getattr(m, 'heap_state', False)])
 
 
 def module_bytes(profile):
@@ -544,14 +545,16 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   hardware_tested=False, cpu_timing_measured=False)
     if runtime_members:
         report['runtime'] = runtime_members
-    if any(getattr(m, 'file_banks', ()) for m in machines):
+    if any(getattr(m, 'file_banks', ()) or getattr(m, 'heap_state', False) for m in machines):
         # The bank table names every declaring machine's views, so all of them must link.
-        require(all(m in linked for m in machines if getattr(m, 'file_banks', ())), 'A synth with file banks did not fit in the module')
+        require(all(m in linked for m in machines if getattr(m, 'file_banks', ()) or getattr(m, 'heap_state', False)), 'A synth with file banks did not fit in the module')
         banks = file_banks.linked(read(directory / 'module.elf'), linked)
         # The loader table was generated from the objects: the module must carry the same tables.
         require([f['digest'] for f in banks] == [f['digest'] for f in file_banks.compiled(directory, linked)],
                 'Linked file banks differ from the compiled ones')
         report['file_banks'] = file_banks.placed(read(directory / 'module.elf'), banks)
+        report['heap_state'] = file_banks.state_bytes(read(directory / 'module.elf'), linked)
+        report['boot_heap_bytes'] = file_banks.boot_heap(banks, report['heap_state'])
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
 

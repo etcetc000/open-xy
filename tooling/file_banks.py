@@ -14,10 +14,11 @@ HEADER_BYTES = 128
 ALLOCATION_LIMIT = 1024 * 1024
 ALLOWANCE = 64  # per allocation, a conservative allowance for the stock allocator's own bytes
 MAX_PAYLOAD = ALLOCATION_LIMIT - ALLOWANCE
-# The most a build's unique banks may take from one role's 18 MiB application
-# heap, payload and allowance. Measured headroom on the audio role is about
-# 18 MiB in the projects tested; this keeps most of it for stock.
-SESSION_CAP = 4 * 1024 * 1024
+# The most a build may take at startup from one role's 18 MiB application heap:
+# its unique banks and every heapState machine's state, each with the allocator
+# allowance. Measured free space on the audio role was about 18.8 MB in every
+# project tested (OS 1.2.1); this leaves stock at least 6 MiB of it.
+SESSION_CAP = 12 * 1024 * 1024
 # Stock stdio resolves absolute names only under its /yaffs2 and /fat32 mounts,
 # and MTP shows /yaffs2 as the device root: content/... is /yaffs2/content/...
 DEVICE_ROOT = '/yaffs2/'
@@ -132,7 +133,7 @@ def unique(machines, payload_of):
                                                   data=container(payload), uses=[]))
             entry['uses'].append((m.definition['id'], view, array, m.id))
     result = sorted(files.values(), key=lambda f: f['digest'])
-    require(budget(result) <= SESSION_CAP, 'File banks exceed the %d KiB session cap' % (SESSION_CAP // 1024))
+    require(budget(result) <= SESSION_CAP, 'File banks exceed the %d KiB startup heap cap' % (SESSION_CAP // 1024))
     return result
 
 
@@ -184,6 +185,31 @@ def budget(files):
     return sum(f['bytes'] + ALLOWANCE for f in files)
 
 
+def state_bytes(elf, machines):
+    """Each heapState machine's state block size, from its <prefix>_state_bytes constant."""
+    sections, symbols = elf32(elf)
+    result = {}
+    for m in machines:
+        if not getattr(m, 'heap_state', False):
+            continue
+        name = m.prefix + '_state_bytes'
+        found = symbols.get(name) or symbols.get('_' + name)
+        require(found and found['size'] == 4, 'Missing heap state size: ' + m.id)
+        section = next((s for s in sections.values() if s['flags'] & 2 and s['data'] and
+                        s['address'] <= found['value'] < s['address'] + s['size']), None)
+        require(section is not None, 'Heap state size is not initialized data: ' + m.id)
+        at = found['value'] - section['address']
+        result[m.id] = struct.unpack_from('<I', section['data'], at)[0]
+    return result
+
+
+def boot_heap(files, states):
+    """Startup heap a build takes on one role, checked against SESSION_CAP."""
+    total = budget(files) + sum(bytes_ + ALLOWANCE for bytes_ in states.values())
+    require(total <= SESSION_CAP, 'File banks and heap state exceed the %d KiB startup heap cap' % (SESSION_CAP // 1024))
+    return total
+
+
 def generate(directory, files, *, gui):
     """The native table (file_banks.hpp) for a build's banks."""
     require(type(gui) is bool, 'The GUI copy flag is a boolean')
@@ -196,9 +222,9 @@ def generate(directory, files, *, gui):
             uses.append(f'    {{&{namespace}::{view}, {index}}},')
     lines = ['// Generated: the build\'s file banks (tooling/file_banks.py).', '#include "file_banks.hpp"',
              *sorted(set(declarations)), 'namespace opxy { namespace platform {',
-             'const file_banks::Spec native_file_banks[] = {', *specs, '};',
+             f'const file_banks::Spec native_file_banks[{max(len(files), 1)}] = {{', *specs, '};',
              f'const u32 native_file_bank_count = {len(files)};',
-             'const FileBankUse native_file_bank_uses[] = {', *uses, '};',
+             f'const FileBankUse native_file_bank_uses[{max(len(uses), 1)}] = {{', *uses, '};',
              f'const u32 native_file_bank_use_count = {len(uses)};',
              f'const u32 native_file_bank_budget = {budget(files)};',
              f'const bool native_file_banks_gui = {"true" if gui else "false"};', '}}', '']

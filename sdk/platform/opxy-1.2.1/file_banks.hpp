@@ -18,3 +18,6 @@ extern const bool native_file_banks_gui;   // profiling builds also load the GUI
 // Loads every bank on first use; always returns 1. A bank that fails leaves its
 // views inactive, and the voice adapter keeps those machines silent.
 extern "C" int sdk_file_banks_prepare() __asm__("sdk_file_banks_prepare");
+// A zeroed block of the role's application heap for a heapState machine, kept
+// for the session; null when there is no room.
+extern "C" void* sdk_boot_allocate(opxy::u32) __asm__("sdk_boot_allocate");

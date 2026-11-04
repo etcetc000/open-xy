@@ -88,13 +88,21 @@ OPXY_FILE_BANK_VIEW(wave_bank, wave_words, 4096);
 and loads it at startup, before the engine registers, into the audio role's
 stock application heap. Tables with identical contents, in one machine or
 several, share one file and one allocation. A table holds at most 1 MiB less
-64 bytes; a build's banks together at most 4 MiB. Only the sound engine may
+64 bytes; a build's banks and heap state (below) together at most 12 MiB. Only the sound engine may
 read a view: the display role has no copy, except in profiling builds, where
 the CPU benchmark renders there. If a bank is missing or does not match its
 hash, the machine stays registered and silent. Host builds read the
 table directly through the same view. Code must not take the table's address
 outside its view; the build refuses one that does. The browser builder does
 not package file banks yet.
+
+A synth's voice pool and `Shared` state can leave module memory too, with
+`"heapState": true` in `machine.json` (SDK 1.10). Each role then takes one
+zeroed block of its application heap for them at startup, before the engine
+registers, and keeps it for the session; nothing in the machine's code changes.
+`Voice` and `Shared` must be trivially constructible (no constructors or member
+initializers), as a zeroed block is what static storage gave them. If the heap
+has no room, the machine stays registered and silent.
 
 ## CPU
 

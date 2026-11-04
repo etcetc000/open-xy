@@ -43,7 +43,7 @@ class SynthVoices(unittest.TestCase):
             with self.subTest(capacity=capacity), self.assertRaisesRegex(ValueError, '256'):
                 validate_definition(definition, 'sample')
 
-    def run_fixture(self, capacity, source):
+    def run_fixture(self, capacity, source, heap_state=False):
         definition = copy.deepcopy(fixture('probesynth').definition)
         definition['id'] = 'probe'
         for i in range(4):
@@ -54,7 +54,8 @@ class SynthVoices(unittest.TestCase):
                 preset[parameter['id']] = parameter['default']
         definition['resources'].update(voiceBytes=12, voiceAlignment=4, voiceCapacity=capacity, sharedBytes=0)
         validate_definition(definition, 'synth')
-        m = SimpleNamespace(kind='synth', definition=definition, prefix='probe', native_name='probe', identity=dict(engine=5, page=85))
+        m = SimpleNamespace(kind='synth', definition=definition, prefix='probe', native_name='probe', identity=dict(engine=5, page=85),
+                            heap_state=heap_state)
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             generate_voice(folder, m)
@@ -91,6 +92,43 @@ opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
 opxy::u32 sdk_voice_ticks() { return 0; }
 int main() { return sizeof(voices) / sizeof(voices[0]) == 2 ? 0 : 1; }
 ''')
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_heap_state_keeps_every_voice_behaviour(self):
+        # heapState: the same stock-driven lifecycle with the pool and Shared state in a
+        # zeroed block taken before any note, as registration takes it on the device.
+        heap = '''
+#include <cstdlib>
+void* sdk_boot_allocate(opxy::u32 bytes) { return std::calloc(1, bytes); }
+static const int taken = probe_state_prepare();
+'''
+        source = (ROOT / 'tests/fixtures/synth_voice.cpp').read_text(encoding='utf-8')
+        self.run_fixture(2, source.replace('#include "voice.cpp"\n', '#include "voice.cpp"\n' + heap, 1), heap_state=True)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_heap_state_without_room_is_silent(self):
+        # No block: every index still has an object; starts take no voice and renders are silent.
+        self.run_fixture(2, '''#include "voice.cpp"
+void* sdk_boot_allocate(opxy::u32) { return nullptr; }
+int destroyed[257];
+opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
+opxy::u32 sdk_voice_ticks() { return 0; }
+int main() {
+    if (probe_state_prepare() != 1 || state || probe_state_bytes != sizeof(State)) return 1;
+    for (unsigned index = 0; index < 256; ++index) {
+        void* object = probe_factory(index);
+        if (!object) return 2;
+        const void* const* table = *static_cast<const void* const* const*>(object);
+        reinterpret_cast<int (*)(void*)>(const_cast<void*>(table[4]))(object);
+        opxy::i32 output[64], parameters[8] = {};
+        for (opxy::i32& sample : output) sample = 1;
+        reinterpret_cast<int (*)(void*, opxy::i32*, const opxy::i32*)>(const_cast<void*>(table[2]))(object, output, parameters);
+        for (opxy::i32 sample : output) if (sample) return 3;
+    }
+    return 0;
+}
+''', heap_state=True)
+
 
 if __name__ == '__main__':
     unittest.main()
