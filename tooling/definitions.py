@@ -145,13 +145,9 @@ HIDDEN_PAGES = {'envelope': 1, 'filter': 2}
 
 def hidden_pages(definition):
     """The stock instrument pages a synth or drum kit hides, as a bitmask of page indices
-    (SDK 1.4). A padMix kit always hides M3 (filter): its lock words hold the Shift
-    fields' step locks (drum_locks.hpp), and stock's filter does nothing for a kit."""
-    pages = set(definition.get('hidePages', ()))
-    resources = definition.get('resources')
-    if isinstance(resources, dict) and resources.get('padMix', 0):
-        pages.add('filter')
-    return sum(1 << HIDDEN_PAGES[p] for p in pages)
+    (SDK 1.4). A drum kit's M3 is stock's track filter, which runs on its voices
+    (drum_filter.hpp), so no kit hides it unless it says so."""
+    return sum(1 << HIDDEN_PAGES[p] for p in set(definition.get('hidePages', ())))
 
 
 def paged(definition):

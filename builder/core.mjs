@@ -949,14 +949,10 @@ function defaultPreset(machine) {
     Object.entries(amp).every(([key, value]) => ['attack', 'decay', 'release', 'sustain'].includes(key) &&
       Number.isInteger(value) && value >= 0 && value <= 32767), 'Invalid preset amp defaults');
   const template = structuredClone(DEFAULT_PRESET_TEMPLATE);
-  // A padMix kit's lock words (fx.params 0..3) are neutral at 16384 (tooling.adapters.default_preset).
-  const fx = (machine.features ?? []).includes('padMix')
-    ? {...template.fx, params: [16384, 16384, 16384, 16384, ...template.fx.params.slice(4)]} : template.fx;
   return {
     ...template,
     engine: {...template.engine, params: [...entry.default_params]},
     envelope: {...template.envelope, amp: {...template.envelope.amp, ...amp}},
-    fx,
     type: entry.type,
   };
 }

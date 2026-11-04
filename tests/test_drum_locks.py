@@ -1,6 +1,7 @@
-"""Step locks of a padMix kit's Shift fields: the note-start hooks, the stock sites they and
-the neutral-base fixes rely on, and the build wiring. Routing, stepping, the Shift row's
-display and the neutral base run in the drum GUI fixture (test_drum_services)."""
+"""Per-hit locks of a padMix kit's Shift fields: the note-start hooks, the stock sites they,
+the lock store (words 36..38) and the neutral-base fixes rely on, and the build wiring.
+Routing, the store's writes, the codec, the Shift row's display and the neutral base run in
+the drum GUI fixture (test_drum_services)."""
 import json
 import os
 from pathlib import Path
@@ -58,7 +59,8 @@ class DrumLocks(unittest.TestCase):
                 stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                       'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
             (folder / 'stock.hpp').write_text(stock)
-            (folder / 'drum_values.hpp').write_text((PLATFORM / 'drum_values.hpp').read_text())
+            for header in ('drum_values.hpp', 'drum_lock_store.hpp'):
+                (folder / header).write_text((PLATFORM / header).read_text())
             sources = []
             for name in ('drum_locks.cpp', 'drum_machines.cpp'):
                 (folder / name).write_text((PLATFORM / name).read_text())
@@ -91,14 +93,13 @@ class DrumLocks(unittest.TestCase):
         for other in (plain, sending):
             self.assertNotIn('drum_locks', active_services(PROFILE, native.service_users([other])))
 
-    def test_a_padmix_kit_hides_m3_and_may_hide_pages_itself(self):
-        # M3's filter does nothing for a kit; on a padMix kit its words are the locks.
-        self.assertEqual(hidden_pages(kit().definition), 4)
+    def test_a_padmix_kit_shows_m3_and_may_hide_pages_itself(self):
+        # M3 is every kit's track filter (drum_filter.hpp): no kit hides it unless it says so.
+        self.assertEqual(hidden_pages(kit().definition), 0)
         self.assertEqual(hidden_pages(kit(0).definition), 0)
-        self.assertEqual(hidden_pages(dict(kit().definition, hidePages=['envelope'])), 6)
-        self.assertIn('hidePages', native.service_users([kit()]))
-        self.assertIn('control', active_services(PROFILE, native.service_users([kit()])))
-        self.assertNotIn('hidePages', native.service_users([kit(0)]))
+        self.assertEqual(hidden_pages(dict(kit().definition, hidePages=['envelope'])), 2)
+        self.assertNotIn('hidePages', native.service_users([kit()]))
+        self.assertNotIn('control', active_services(PROFILE, native.service_users([kit()])))
         drum = kit(0).definition
         validate_definition(dict(drum, hidePages=['filter']), 'drum')
         self.assertEqual(hidden_pages(dict(drum, hidePages=['filter'])), 4)
@@ -107,17 +108,17 @@ class DrumLocks(unittest.TestCase):
         machine = kit()
         with tempfile.TemporaryDirectory() as folder:
             table = generate_synth_controls(folder, [machine]).read_text()
-        self.assertRegex(table, r'probe_format, false, true, 4[,}]')
+        self.assertRegex(table, r'probe_format, false, true, 0[,}]')
 
-    def test_a_padmix_kits_init_preset_keeps_its_lock_words_neutral(self):
+    def test_a_padmix_kits_init_preset_has_stocks_filter(self):
+        # M3 off (fx.active false) and stock's filter values; the lock words have no preset key.
         synth = fixture('probesynth')
-        self.assertEqual(default_preset(synth)['fx']['params'][:4], [0, 0, 0, 0])
         entry = lambda m: json.dumps({'type': m.id, 'default_params': [0] * 8})
         with patch('tooling.adapters.catalog_entry', entry):
             mixed, plain = default_preset(kit()), default_preset(kit(0))
-        self.assertEqual(mixed['fx']['params'], [16384] * 4 + plain['fx']['params'][4:])
-        self.assertEqual(plain['fx']['params'][:4], [0, 0, 0, 0])
-        self.assertEqual({k: v for k, v in mixed.items() if k != 'fx'}, {k: v for k, v in plain.items() if k != 'fx'})
+        self.assertEqual(mixed, plain)
+        self.assertEqual(mixed['fx'], default_preset(synth)['fx'])
+        self.assertIs(mixed['fx']['active'], False)
 
     def test_the_load_hook_replays_what_it_replaces(self):
         # 8d588ec8: R0 = [P1 + 0x18]; CC = R0 == R1 (88a1 0808), with the alias between.
@@ -196,6 +197,40 @@ class DrumLocks(unittest.TestCase):
         self.assertEqual(load(0x8d5ad366), (0, 0x7fffffff))
         self.assertEqual(at(0x8d5ad35a, 2).hex(), 'b84d')       # R0 >>>= 0x17: the bucket
         self.assertEqual(at(0x8d5ad384, 4).hex(), '82c6f805')   # R2 = R0 >>> 1: half a bucket
+
+        # The lock store (drum_lock_store.hpp). Stock's editor writes a held step's lock
+        # (8d5ad42c): the step is 8d5b7e4c() + 16 x 8d585fb4(track) (8d5ad438..8d5ad44a), the
+        # value its stepped word's top half (8d5ad4be), through 8d586f40(track, step, index,
+        # value) (8d5ad4ce), then asks for a redraw: 8d54b3b6(8d54b438()) (8d5ad4d2, 8d5ad4d6).
+        self.assertEqual(decode_branch(0x8d5ad438, at(0x8d5ad438, 4)), (0x8d5b7e4c, True))
+        self.assertEqual(decode_branch(0x8d5ad440, at(0x8d5ad440, 4)), (0x8d585fb4, True))
+        self.assertEqual(at(0x8d5ad444, 4).hex(), '82c62086')   # R3 = R0 << 4
+        self.assertEqual(at(0x8d5ad4be, 4).hex(), '80c60092')   # R1.L = R0.H
+        self.assertEqual(decode_branch(0x8d5ad4ce, at(0x8d5ad4ce, 4)), (0x8d586f40, True))
+        self.assertEqual(decode_branch(0x8d5ad4d2, at(0x8d5ad4d2, 4)), (0x8d54b438, True))
+        self.assertEqual(decode_branch(0x8d5ad4d6, at(0x8d5ad4d6, 4)), (0x8d54b3b6, True))
+        # The writer stores the halfword at +0x258 + step x 0x54 + index x 2 (8d586fd0..8d586fda).
+        self.assertEqual(at(0x8d586fd0, 4).hex(), '2ae15802')   # P2 = 0x258
+        self.assertEqual(at(0x8d586fda, 2).hex(), '928b')       # W[P2] = R6.L
+        # Stock's note-start pan (8d51a688), which drum_pan_push recomputes for the screen:
+        # above 0x40000000 the term pushes right by 2 (term - 1/2) x (1 - pan), else scales by 2 x term.
+        self.assertEqual(load(0x8d51a688), (2, 0x40000000))
+        self.assertEqual(load(0x8d51a698), (2, 0xc0000000))
+        self.assertEqual(load(0x8d51a6a8), (2, 0x7fffffff))
+        self.assertEqual(at(0x8d51a6b4, 4).hex(), '82c60942')   # R1 = R1 << 1 (S)
+        self.assertEqual(at(0x8d51a6b8, 4).hex(), '31c24a20')   # R1 = R1 * R2 (T)
+        self.assertEqual(at(0x8d51a6cc, 4).hex(), '31c20120')   # R0 = R0 * R1 (T)
+        # The kit voice's constructor reads the term, word 38, once (8d51af24: [P5 + 0x98]),
+        # with the pad's pan word (8d51af28), into the voice's pan (8d51af2e).
+        self.assertEqual(at(0x8d51af24, 4).hex(), '29e42600')
+        self.assertEqual(at(0x8d51af28, 2).hex(), '40a1')
+        self.assertEqual(decode_branch(0x8d51af2a, at(0x8d51af2a, 4)), (0x8d51a688, True))
+        # The publish hook's flush: the tick's own publication of a track's changed words,
+        # 8d5acb9c(project, track) (8d595242..8d59524e).
+        self.assertEqual(decode_branch(0x8d59524e, at(0x8d59524e, 4)), (0x8d5acb9c, True))
+        self.assertEqual(at(0x8d595242, 2).hex(), '0d30')       # R1 = R5, the track
+        source = (PLATFORM / 'drum_locks.cpp').read_text(encoding='utf-8')
+        self.assertIn('stock<void(u32, u32)>(0x8d5acb9c)(project, track);', source)
 
 
 if __name__ == '__main__':

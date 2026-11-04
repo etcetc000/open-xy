@@ -85,7 +85,7 @@ def generate_voice(directory, m, sweep=False):
 
 def pad_mix(m):
     """Whether a drum kit's Shift row is each key's mixer channel (resources.padMix), whose
-    pan, level and pad controls also lock per step (drum_locks.hpp)."""
+    pan, level, pad controls and sends also lock per hit (drum_locks.hpp)."""
     return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
 
 
@@ -791,9 +791,6 @@ def default_preset(m):
     # Match a device-saved minimum amp release: the stored endpoint is 32767.
     preset['envelope']['amp'].update(amp)
     preset['type'] = entry['type']
-    if pad_mix(m):
-        # A padMix kit's lock words (fx.params 0..3, words 16..19) are neutral at 16384.
-        preset['fx']['params'][:4] = [16384] * 4
     return preset
 
 

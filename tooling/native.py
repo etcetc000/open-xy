@@ -248,12 +248,11 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padSend', 'padMix'), and
-    'extension' when it links extensions (native builds link all of the collection's).
-    A padMix kit hides M3, so it also uses 'hidePages'."""
+    'extension' when it links extensions (native builds link all of the collection's)."""
     users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
-            ['hidePages' for m in machines if 'hidePages' in m.definition or pad_mix(m)] +
+            ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padSend' for m in machines if sends_per_key(m)] +
             ['padMix' for m in machines if pad_mix(m)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
