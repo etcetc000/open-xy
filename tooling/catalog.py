@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -31,12 +32,19 @@ from .pipeline import NO_WINDOW, ROOT
 CATALOG = ROOT / 'catalog/machines.json'
 EXTENSION_CATALOG = ROOT / 'catalog/extensions.json'
 # Each catalog file's list and the kinds its entries may have.
-KINDS = {'machines': ('synth', 'sample', 'effect'), 'extensions': ('extension',)}
+KINDS = {'machines': ('synth', 'drum', 'sample', 'effect', 'player'), 'extensions': ('extension',)}
 # Fetched machine sources: third-party code, never firmware, so it may live in local/.
 CACHE = ROOT / 'local/catalog'
 STATUSES = ('reserved', 'draft', 'published', 'retired')
 COMMON = {'id', 'kind', 'maintainer', 'status'}
 RELEASE = {'repository', 'tag', 'commit', 'path'}
+# Words the builder lets people browse machines by. An entry may list up to
+# MAX_KEYWORDS of them; builder/core.mjs MACHINE_KEYWORDS holds the same list
+# (tests/test_catalog.py compares them). Keywords describe; they never change a release.
+KEYWORDS = ('additive', 'ambient', 'analog', 'bass', 'bell', 'chord', 'delay', 'drone', 'emulation',
+        'experimental', 'fm', 'granular', 'lofi', 'modulation', 'noise', 'pad', 'percussion',
+        'physical', 'pluck', 'reverb', 'vocal')
+MAX_KEYWORDS = 5
 # A release's fields; builder/core.mjs validSource checks kits with the same patterns
 # (tests/test_catalog.py compares them).
 REPOSITORY = r'https://github\.com/[A-Za-z0-9-]+/(?!\.\.?$)[A-Za-z0-9._-]+'
@@ -46,7 +54,7 @@ MAINTAINER = r'[A-Za-z0-9-]{1,39}'
 # Catalog machines that are Open-XY's own rather than community ones, by
 # ID. Maintainers keep this list; a catalog entry has no field to claim it, and
 # who hosts the repository does not decide it.
-OFFICIAL = ('fm2op', 'macroosc', 'karplus', 'timestretch', 'ringmod', 'pingpong')
+OFFICIAL = ('fm2op', 'macroosc', 'karplus', 'timestretch', 'ringmod', 'pingpong', 'chords')
 OFFICIAL_EXTENSIONS = ('capture',)
 
 
@@ -71,10 +79,19 @@ def validate(value, listed='machines'):
         if status == 'retired' and RELEASE & set(entry):
             required = COMMON | RELEASE
         if 'cpu' in entry:
-            require(listed == 'machines', f'{name}: extensions carry no cpu measurement')
+            require(listed == 'machines' and entry.get('kind') != 'player', f'{name}: extensions and players carry no audio cpu measurement')
             require('commit' in entry and status != 'reserved', f'{name}: cpu needs a pinned release')
             cpu_measurement.validate(entry['cpu'], entry.get('kind'))
             required = required | {'cpu'}
+        if 'keywords' in entry:
+            keywords = entry['keywords']
+            require(listed == 'machines', f'{name}: only machines carry keywords')
+            # Words first, so a list or object among them fails cleanly rather than as unhashable.
+            require(isinstance(keywords, list) and all(isinstance(keyword, str) for keyword in keywords)
+                    and 0 < len(keywords) <= MAX_KEYWORDS and len(set(keywords)) == len(keywords)
+                    and all(keyword in KEYWORDS for keyword in keywords),
+                    f'{name}: keywords are 1 to {MAX_KEYWORDS} different words from: ' + ', '.join(KEYWORDS))
+            required = required | {'keywords'}
         require(set(entry) == required, f'{name}: catalog fields for a {status} machine: '
                 + ', '.join(sorted(required)))
         if listed == 'machines':
@@ -106,24 +123,48 @@ MOVES = {'reserved': {'reserved', 'draft', 'published', 'retired'},
          'retired': {'retired'}}
 
 
+def release_fields(entry):
+    """An entry without its keywords: what decides whether its release changed."""
+    return None if entry is None else {k: v for k, v in entry.items() if k != 'keywords'}
+
+
+def audio_changes(entry, previous, allow_carried_cpu=False):
+    """A new or updated synth, drum, sample or effect release carries a hardware cpu
+    measurement of its pinned commit, unless a catalog maintainer lets it keep its previous one.
+    Changing only keywords is not an update: it needs no new measurement."""
+    if entry['status'] not in ('draft', 'published') or release_fields(entry) == release_fields(previous):
+        return
+    require('cpu' in entry, f"{entry['id']}: new or updated submissions require hardware cpu measurements (docs/profiling.md)")
+    earlier = (previous or {}).get('cpu')
+    # With a maintainer's approval, an update may carry its previous measurement over
+    # unchanged, still naming the commit it measured; otherwise it measures the pinned commit.
+    measured = lambda cpu: {k: v for k, v in cpu.items() if k != 'report'} if isinstance(cpu, dict) else cpu
+    unchanged = measured(entry['cpu']) == measured(earlier)
+    # Carrying a record over takes the record exactly as it was, evidence link included.
+    carried = allow_carried_cpu and entry['cpu'] == earlier
+    # A fresh synth measurement is a control sweep; an unchanged one may predate it.
+    cpu_measurement.validate(entry['cpu'], entry['kind'], legacy=unchanged)
+    require(carried or entry['cpu']['commit'] == entry['commit'],
+            f"{entry['id']}: cpu must measure the pinned commit; remeasure when updating "
+            "(a catalog maintainer can approve keeping the previous measurement)")
+
+
 def changes(before, after, allow_carried_cpu=False):
     """An updated catalog keeps every machine it held, with its kind, and only moves a
-    status forward. A catalog maintainer may let an update keep its previous cpu record."""
+    status forward. A catalog maintainer may let an update keep its previous cpu record.
+    A new or updated machine lists at least one keyword."""
     current = {e['id']: e for e in after}
     previous = {e['id']: e for e in before}
     for entry in after:
-        # Extensions run on the controller path, not in audio: they carry no cpu record.
-        if entry['kind'] == 'extension':
-            continue
-        if entry['status'] in ('draft', 'published') and entry != previous.get(entry['id']):
-            require('cpu' in entry, f"{entry['id']}: new or updated submissions require hardware cpu measurements (docs/profiling.md)")
-            cpu_measurement.validate(entry['cpu'], entry['kind'])
-            # With a maintainer's approval, an update may carry its previous measurement over
-            # unchanged, still naming the commit it measured; otherwise it measures the pinned commit.
-            carried = allow_carried_cpu and entry['cpu'] == previous.get(entry['id'], {}).get('cpu')
-            require(carried or entry['cpu']['commit'] == entry['commit'],
-                    f"{entry['id']}: cpu must measure the pinned commit; remeasure when updating "
-                    "(a catalog maintainer can approve keeping the previous measurement)")
+        # Extensions and players run on the controller path, not in audio: they carry no cpu record.
+        if entry['kind'] not in ('extension', 'player'):
+            audio_changes(entry, previous.get(entry['id']), allow_carried_cpu)
+        # A machine submitted for the builder is listed there under at least one keyword; entries
+        # from before keywords can stay as they are until they change.
+        submitted = entry['status'] in ('draft', 'published') and entry != previous.get(entry['id'])
+        require(not submitted or entry['kind'] == 'extension' or 'keywords' in entry,
+                f"{entry['id']}: new or updated machines list at least one keyword (docs/catalog.md#entries): "
+                + ', '.join(KEYWORDS))
     for entry in before:
         name = entry['id']
         require(name in current, f'{name}: catalog entries are never removed; retire the machine instead')
@@ -244,6 +285,24 @@ def fetch(entry, cache=CACHE):
     return m
 
 
+def remove_tree(folder):
+    """Deletes a fetched folder, including the files git keeps read-only on Windows."""
+    def writable(function, path, _info):
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+    shutil.rmtree(folder, onerror=writable)
+
+
+def prune(cache, kept):
+    """Deletes the cache's fetched folders that hold none of `kept`; their names."""
+    cache = Path(cache).resolve()
+    keep = {Path(folder).resolve().relative_to(cache).parts[0] for folder in kept}
+    removed = [folder for folder in sorted(cache.iterdir()) if folder.is_dir() and folder.name not in keep]
+    for folder in removed:
+        remove_tree(folder)
+    return [folder.name for folder in removed]
+
+
 def head(folder):
     """The commit a git folder has checked out, or None."""
     try:
@@ -275,6 +334,20 @@ def pinned(m, entries):
         return False
 
 
+def base_entries(base, listed, path):
+    """A catalog file's entries at a git revision; a revision without the file held none."""
+    name = path.relative_to(ROOT).as_posix()
+    present = git('ls-tree', '--name-only', base, name, cwd=ROOT).strip()
+    before = json.loads(git('show', f'{base}:{name}', cwd=ROOT)) if present else None
+    if not before:
+        return []
+    # Entries before layouts gave machine numbers also listed an identity.
+    for entry in before.get(listed, []):
+        if isinstance(entry, dict):
+            entry.pop('identity', None)
+    return validate(before, listed)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='sdk.py catalog', description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -291,41 +364,52 @@ def main(argv=None):
     for sub in (fetching, testing):
         sub.add_argument('--cache', type=Path, default=CACHE, help='fetched machines (default: local/catalog)')
         sub.add_argument('--tags', action='store_true', help='also confirm each release tag still names its commit')
+        sub.add_argument('--prune', action='store_true',
+                         help='then delete fetched folders the catalog no longer pins, such as earlier releases')
     testing.add_argument('--cxx', default='clang++', help='Clang++ with wasm32/wasm-ld, for synth previews')
     testing.add_argument('--host-cxx', default='c++', help="host C++11 compiler for each machine's tests")
+    testing.add_argument('--changed-from', metavar='REVISION',
+                         help='test only the entries that differ from the catalog at this git revision '
+                              '(every entry is still fetched and in the collection)')
+    testing.add_argument('--jobs', type=int, default=1, help='folders checked at once (default: 1)')
+    testing.add_argument('--no-cpu', action='store_true', help='skip the CPU estimates')
     args = parser.parse_args(argv)
     try:
         catalogs = (('machines', CATALOG, load()), ('extensions', EXTENSION_CATALOG, load_extensions()))
         if args.command == 'check':
             for listed, path, entries in catalogs:
                 if args.base:
-                    # A base without a catalog held nothing yet.
-                    name = path.relative_to(ROOT).as_posix()
-                    present = git('ls-tree', '--name-only', args.base, name, cwd=ROOT).strip()
-                    before = json.loads(git('show', f'{args.base}:{name}', cwd=ROOT)) if present else None
-                    if before:
-                        # Entries before layouts gave machine numbers also listed an identity.
-                        for entry in before.get(listed, []):
-                            if isinstance(entry, dict):
-                                entry.pop('identity', None)
-                    before = validate(before, listed) if before else []
+                    before = base_entries(args.base, listed, path)
                     changes(before, entries, args.allow_carried_cpu)
                     # A moved release is fetched at both commits to compare its controls.
                     if listed == 'machines':
                         for line in release_controls(before, entries, args.cache, args.allow_control_changes):
                             print(line)
+                # Against a base, only the entries this change touches; alone, every entry.
+                earlier = {e['id']: e for e in before} if args.base else {}
+                for entry in entries:
+                    if args.base and release_fields(earlier.get(entry['id'])) == release_fields(entry):
+                        continue
+                    warning = 'cpu' in entry and cpu_measurement.above_recommended(entry['cpu'])
+                    if warning:
+                        print(f"WARNING: {entry['id']}: {warning}")
                 print(f'PASS: {len(entries)} {listed[:-1]} entr{"y" if len(entries) == 1 else "ies"}; '
                       'IDs are unique.')
             return 0
-        found = {}
-        for listed, _path, entries in catalogs:
-            found[listed] = []
+        found, tested = {}, {}
+        for listed, path, entries in catalogs:
+            found[listed], tested[listed] = [], []
+            earlier = ({e['id']: e for e in base_entries(args.changed_from, listed, path)}
+                       if getattr(args, 'changed_from', None) else {})
             for entry in (e for e in entries if e['status'] == 'published'):
                 if args.tags:
                     require(tag_commit(entry['repository'], entry['tag']) == entry['commit'],
                             f"{entry['id']}: tag {entry['tag']} no longer names the catalog's commit")
                 fetched = fetch(entry, args.cache)
                 found[listed].append(fetched.root)
+                # An entry whose keywords alone changed builds as before, so it needs no test of its own.
+                if not earlier or release_fields(earlier.get(entry['id'])) != release_fields(entry):
+                    tested[listed].append(fetched.root)
                 print(f"Fetched {fetched.id} {entry['tag']} ({entry['commit'][:12]}): {fetched.root}")
         # Every published machine and extension, in catalog order: a collection for any build command.
         collection = Path(args.cache) / 'collection.json'
@@ -335,11 +419,21 @@ def main(argv=None):
                                           'extensions': relative(found['extensions'])}, indent=2) + '\n',
                               encoding='utf-8')
         print(f'Collection: {collection} (pass it to build, compile or kit with --collection)')
-        if args.command == 'test' and (found['machines'] or found['extensions']):
+        if args.prune:
+            for name in prune(args.cache, [f for folders in found.values() for f in folders]):
+                print(f'Removed {name}: the catalog no longer pins it')
+        if args.command != 'test':
+            return 0
+        if args.changed_from:
+            # For a change to the catalog alone: the other entries passed against this same SDK.
+            print(f"Testing {len(tested['machines'])} machine and {len(tested['extensions'])} extension "
+                  f'entries that differ from {args.changed_from}')
+        if tested['machines'] or tested['extensions']:
             from .machine_test import main as test
-            return test([*(f'--machine={folder}' for folder in found['machines']),
-                         *(f'--extension={folder}' for folder in found['extensions']),
-                         '--cxx', args.cxx, '--host-cxx', args.host_cxx])
+            return test([*(f'--machine={folder}' for folder in tested['machines']),
+                         *(f'--extension={folder}' for folder in tested['extensions']),
+                         '--cxx', args.cxx, '--host-cxx', args.host_cxx, '--jobs', str(args.jobs),
+                         *(['--no-cpu'] if args.no_cpu else [])])
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)

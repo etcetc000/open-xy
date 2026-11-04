@@ -46,6 +46,13 @@ sdk_fx_value:
     [SP + 12] = R3;
     R2 = R7;
     CALL sdk_fx_value_text;
+    /* A nonzero result is a stand-in vector of the shown words: the rest of
+     * this draw (later value texts and the bars, from [P5 + 4]) uses it.
+     * Stock restores P5 when the page returns. */
+    CC = R0 == 0;
+    IF CC JUMP .Lfx_value_done;
+    P5 = R0;
+.Lfx_value_done:
     SP += 16;
     UNLINK;
     RTS;

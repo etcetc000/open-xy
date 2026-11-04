@@ -6,8 +6,10 @@ import {openKit} from './builder/core.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const browserRoot = resolve(root, 'builder');
-const renderers = ['controls.mjs', 'display.mjs', 'engine.mjs', 'processor.mjs'].map(name => resolve(root, 'sdk/browser', name));
-const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs'];
+const renderers = ['controls.mjs', 'display.mjs', 'engine.mjs', 'processor.mjs', 'graphics.mjs'].map(name => resolve(root, 'sdk/browser', name));
+// Data core.mjs shares with the tooling: the init preset template (tooling.adapters.default_preset).
+const sharedData = [resolve(root, 'tooling/default_preset.json')];
+const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'graphics-configuration.mjs', 'machine-snapshots.mjs', 'graphics-dialog.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs'];
 // Vite's /@fs/ URLs: C:/x becomes /@fs/C:/x and /x becomes /@fs/x.
 const fsUrl = path => posix.join('/@fs/', normalizePath(path));
 const fsFile = url => { const path = url.slice(5); return /^[A-Za-z]:\//.test(path) ? path : '/' + path; };
@@ -58,7 +60,7 @@ export default defineConfig(async ({command, mode}) => {
   let kit = kitPath ? await readCollection(kitPath) : null;
   let releaseOutput;
   const clientDir = resolve(root, 'node_modules/vite/dist/client');
-  const allowedFs = [...renderers, resolve(clientDir, 'env.mjs')];
+  const allowedFs = [...renderers, ...sharedData, resolve(clientDir, 'env.mjs')];
   const paths = new Set(['/', '/index.html', '/kit.json', '/@vite/client', '/@vite/env',
     ...browserFiles.map(name => '/' + name),
     ...allowedFs.map(fsUrl)]);
@@ -69,7 +71,7 @@ export default defineConfig(async ({command, mode}) => {
     server: {
       host:'127.0.0.1', port:8918, strictPort:true,
       allowedHosts:['localhost'], cors:false,
-      fs:{strict:true, allow:[browserRoot, ...renderers, clientDir]},
+      fs:{strict:true, allow:[browserRoot, ...renderers, ...sharedData, clientDir]},
     },
     preview: {host:'127.0.0.1', port:8919, strictPort:true},
     build: {outDir:resolve(root, output || 'dist/open-xy'), emptyOutDir:!kit, target:'es2022', sourcemap:false},

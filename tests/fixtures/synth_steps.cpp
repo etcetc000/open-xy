@@ -6,6 +6,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <synth_controls.cpp>
+// This fixture has no synthesis drum kits.
+const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
+bool sdk_drum_values(opxy::u32, opxy::u8*, opxy::u8*) { return false; }
 
 namespace {
 using opxy::i32;
@@ -48,14 +51,15 @@ extern "C" {
 // Engine 40: a synth whose slot 0 is a three-choice enum,
 // slot 2 a 17-choice enum and slot 3 a 256-choice one stock steps itself;
 // slot 1 is continuous. Effect 8 has a four-choice enum in slot 1. Engine 41
-// cycles position 0 through slot 4; slots 5..7 are unused. Engine 42 is paged:
-// every position cycles to its second-page slot 4..7.
+// cycles position 0 through slot 4 and position 1 through slot 5, an empty
+// placeholder; slots 6 and 7 are unused. Engine 42 is paged: every position
+// cycles to its second-page slot 4..7, of which slot 6 is a placeholder.
 // Engine 43 has engine 41's alternates but is not ready (unselected in a kit).
 const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(40), ready, {0, 1, 2, 3, 4, 5, 6, 7}, 0x2, {3, 0, 17, 0, 0, 0, 0, 0}, format, false, false},
     {reinterpret_cast<const char*>(8), ready, {0, 1, 2, 3, 4, 5, 6, 7}, 0xd, {0, 4, 0, 0, 0, 0, 0, 0}, format, true, false},
-    {reinterpret_cast<const char*>(41), ready, {4, 1, 2, 3, 0, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, format, false, false},
-    {reinterpret_cast<const char*>(42), ready, {4, 5, 6, 7, 0, 1, 2, 3}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, format, false, true},
+    {reinterpret_cast<const char*>(41), ready, {4, 5, 2, 3, 0, 1, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, format, false, false, 0, 0x20},
+    {reinterpret_cast<const char*>(42), ready, {4, 5, 6, 7, 0, 1, 2, 3}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, format, false, true, 0, 0x40},
     {reinterpret_cast<const char*>(43), unready, {4, 5, 2, 3, 0, 1, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, format, false, false},
     {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false}};
 const opxy::u32 sdk_synth_control_count = 5;
@@ -103,7 +107,7 @@ int main() {
         for (u32 index = 0; index < count; ++index)
             require(opxy::platform::control_choice(centre(index, count), count) == index, "Choice not the stored bucket");
     // Scramble: stock's last write passes through with its result; an owned
-    // synth's reached alternates, but not its unused slots, then
+    // synth's reached alternates, but not its placeholder or unused slots, then
     // get an unshaped value from stock's generator. Other engines get nothing more.
     engines[3] = 41;
     require(sdk_synth_scramble(0x86bd027c, 3, 13, 77) == 0x100 && write_count == 2, "Scramble writes");
@@ -113,10 +117,10 @@ int main() {
             "Alternate not scrambled");
     engines[4] = 42;
     write_count = 0;
-    require(sdk_synth_scramble(0x86bd027c, 4, 13, 77) == 0x100 && write_count == 5, "Paged scramble writes");
+    require(sdk_synth_scramble(0x86bd027c, 4, 13, 77) == 0x100 && write_count == 4, "Paged scramble writes");
     require(writes[0].index == 13 && writes[0].value == 77, "Paged stock write not passed through");
-    const u32 second[] = {4, 5, 6, 7};
-    for (u32 i = 0; i < 4; ++i)
+    const u32 second[] = {4, 5, 7};
+    for (u32 i = 0; i < 3; ++i)
         require(writes[i + 1].track == 4 && writes[i + 1].index == second[i] &&
                     writes[i + 1].value == static_cast<i32>(0x1000 + second[i]), "Second page not scrambled");
     engines[5] = 43;

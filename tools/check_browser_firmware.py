@@ -9,10 +9,11 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tooling.formats import elf32, ldr, mapped_offset, require, sha
-from tooling import screen, startup_label
+from tooling import extensions, screen, startup_label
 from tooling.adapters import catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
-from tooling.native import configuration, package_collection
+from tooling.machines import number_layout
+from tooling.native import configuration, number_suffixes, package_collection
 
 
 def check_startup_label(module, symbols, base, expected):
@@ -42,7 +43,9 @@ def main():
     subprocess.run(['node', str(ROOT / 'tools/check_browser_firmware.mjs'), str(directory), str(stock_file), str(content)], check=True)
     kit = json.loads((directory / 'kit.json').read_text(encoding='utf-8'))
     # Definitions of the machines the kit was built from, wherever they live.
-    definitions = {m.id: m.definition for m in configuration(package_collection(directory / 'source'))[1]}
+    collection = configuration(package_collection(directory / 'source'))[1]
+    definitions = {m.id: m.definition for m in collection}
+    extension_sources = {e.id: e for e in collection.extensions}
     stock = stock_file.read_bytes()
     require(sha(stock) == kit['profile']['stock_sha256'], 'Unexpected stock input')
     # 0x8c0c7d04 measures the text using this stock width table, adding
@@ -60,9 +63,12 @@ def main():
     # reproduces it exactly.
     selections = json.loads((directory / 'reference/selections.json').read_text())
     linked = kit.get('linked', [m['id'] for m in kit['machines']])
-    full = [r for r in selections if set(r['selected']) == set(linked) and
+    full = [r for r in selections if set(r['selected']) == set(linked) and r['layout'] is not None and
             r['extensions'] == [e['id'] for e in kit.get('extensions', [])]]
-    require(len(full) == 1, 'The checked selections must include the linked machines with every extension')
+    require(len(full) == 1, 'The checked selections must include the linked machines with every extension, '
+                            "numbered with the native package's layout")
+    require(full[0]['layout'] == json.loads((directory / 'source/layout.json').read_bytes())['machines'],
+            "The linked machines' selection must use the native package's layout")
     everything = directory / 'reference' / full[0]['name']
     source_profiling = json.loads((directory / 'source/manifest.json').read_bytes()).get('profiling')
     require(type(source_profiling) is bool, 'Source package profiling must be a boolean')
@@ -82,8 +88,33 @@ def main():
                 sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs')
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
+        # The selection's numbers, worked out again by the Python numbering the native build
+        # uses: each selected machine's number symbols and menu entry must carry them.
+        numbers = number_layout(kit['profile']['identities'], [(i, None, n) for i, n in kit['fixed'].items()],
+                                result['layout'], [(m['id'], m['kind'], m['identity']) for m in kit['machines']
+                                                   if m['id'] in result['selected']])
+        for machine in kit['machines']:
+            # A sample engine asking for no page draws its own screen (builder/core.mjs numberSymbols).
+            own_screen = machine['kind'] == 'sample' and machine['identity']['page'] is None
+            value = lambda suffix: symbols.get(machine['prefix'] + suffix, {}).get('value')
+            if machine['id'] not in result['selected']:
+                # An unselected machine has no numbers: no startup, catalog or control lookup matches it.
+                require(all(value(s) == 0 for s in number_suffixes(machine['kind'], own_screen)),
+                        'Unselected machine has numbers: ' + machine['id'])
+                continue
+            own = numbers[machine['id']]
+            # A sample engine drawing its own screen numbers that screen's page; its page
+            # symbol stays its stock page.
+            pairs = {'player': (('_player_id', 'player'), ('_page_id', 'page')),
+                     'effect': (('_fx_id', 'effect'), ('_fx_page_id', 'page')),
+                     'sample': (('_engine_id', 'engine'), ('_screen_page_id' if own_screen else '_page_id', 'page'))
+                     }.get(machine['kind'], (('_engine_id', 'engine'), ('_page_id', 'page')))
+            require(all(value(suffix) == own[key] for suffix, key in pairs),
+                    'Selection numbers differ: ' + machine['id'])
         services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
-                                   (['extension'] if result['extensions'] else []))
+                                   (['extension'] if result['extensions'] else []) +
+                                   (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
+                                                            for e in kit.get('extensions', [])) else []))
         modes = {}
         for profiling in (True, False):
             profile = copy.deepcopy(kit['profile'])
@@ -111,13 +142,20 @@ def main():
         selected = [m for m in kit['machines'] if m['id'] in result['selected']]
         catalog = json.loads((content / 'op1_factory.json').read_bytes())
         for machine in selected:
-            key = 'fx_types' if machine['kind'] == 'effect' else 'engine_types'
-            catalog[key].append(json.loads(machine['catalog'].strip().lstrip(',')))
+            key = {'effect': 'fx_types', 'player': 'seq_types'}.get(machine['kind'], 'engine_types')
+            entry = json.loads(machine['catalog'].strip().lstrip(','))
+            # An effect's or player's menu entry carries this selection's number, which
+            # need not be the native package's.
+            if machine['kind'] == 'effect':
+                entry['id'] = numbers[machine['id']]['effect']
+            elif machine['kind'] == 'player':
+                entry['id'] = numbers[machine['id']]['player'] + 4
+            catalog[key].append(entry)
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
         for machine in selected:
-            if machine['kind'] != 'effect':
+            if machine['kind'] in ('synth', 'drum', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'
                 data = (prefix / name).read_bytes()
                 preset = json.loads(data)
@@ -126,7 +164,7 @@ def main():
                     require(preset == own['default'], 'Machine preset differs: default')
                 else:
                     definition = definitions[machine['id']]
-                    defaults = catalog_defaults(definition)
+                    defaults = [16384] * 8 if machine['kind'] == 'drum' else catalog_defaults(definition)
                     entry = json.loads(machine['catalog'].strip().lstrip(','))
                     require(preset['type'] == entry['type'] and preset['platform'] == 'OP-XY' and
                             preset['version'] == 4 and preset['engine']['params'] == defaults and
@@ -142,6 +180,14 @@ def main():
                 name = 'content/display/' + machine['asset']
                 art = screen.compose(machine['artwork'].encode())
                 require((prefix / name).read_bytes() == art, 'Browser artwork differs')
+                expected_files[name] = art
+        for identity in result['extensions']:
+            extension = extension_sources[identity]
+            if extension.master_filter is not None:
+                path = extension.root / extension.master_filter['artwork']
+                name = 'content/display/' + path.name
+                art = extensions.validate_master_artwork(path)
+                require((prefix / name).read_bytes() == art, 'Extension artwork differs')
                 expected_files[name] = art
         with zipfile.ZipFile(prefix.with_suffix('.zip')) as archive:
             require(set(archive.namelist()) == set(expected_files) and archive.testzip() is None, 'Invalid ZIP file')

@@ -58,8 +58,11 @@ jobs:
         # The first-machine walkthrough end to end: scaffold, C++/Wasm preview,
         # stale-source rejection and the documented audible edit. No firmware.
         run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y clang lld
+          # The runner image may already carry Clang and wasm-ld.
+          if ! command -v clang++ >/dev/null || ! command -v wasm-ld >/dev/null; then
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y clang lld
+          fi
           python tools/check_first_machine.py --cxx clang++
       - name: Web
         run: |

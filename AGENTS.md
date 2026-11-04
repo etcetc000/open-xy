@@ -32,13 +32,18 @@
 
 This repository holds no machines. Examples to read before writing one are Open-XY's
 [core machines](https://github.com/etcetc000/open-xy-core-machines): synths 2op FM, Macro Osc and Karplus, the Timestretch
-sample engine, and the Ring Mod and Ping Pong send effects, each published
+sample engine, the Ring Mod and Ping Pong send effects, and the Chords note player, each published
 through the catalog like any other machine.
 
 For machine work, follow the complete [authoring journey](docs/first-machine.md)
 and the [UX conventions](docs/ux.md): implement and test, offer audition where supported, then prepare a development
-build and propose an authorized hardware test. Follow [hardware profiling](docs/profiling.md)
-to collect the revision-bound CPU readout required for catalog submission.
+build and propose an authorized hardware test, with the machine's device
+checklist (QA.md, written by `new --repository`) to run. When the user is getting ready to publish,
+recommend a full QA.md pass on the commit the catalog entry will pin. Follow [hardware profiling](docs/profiling.md)
+to collect the revision-bound CPU readout required for catalog submission. A
+synth's readout is a control sweep (the default for profiling builds); when it
+reports a result above the recommended 3.5%, tell the user which setting is
+heaviest and suggest making that path lighter before submitting.
 If hardware is unavailable, say that validation remains pending; a maintainer
 can measure it. Never treat a successful host check as a measured CPU result or
 hardware acceptance. A sample engine uses the public sample API and Timestretch
@@ -69,6 +74,10 @@ Read README.md and CONTRIBUTING.md. For native changes also read
   [hardware profiling](docs/profiling.md); host estimates cannot fill the catalog field.
 - Build and verification commands are local. Device operations require a separate
   user instruction. Do not infer measured cycles or recovery from host checks.
+- Copy files to a connected OP-XY with `python sdk.py device push <folder>`
+  (`list` and `pull` read it), never with a new transfer script. It mirrors the
+  folder onto the device root with backups, readback and rollback; see
+  [install](docs/build.md#5-install). If it fails, fix `tooling/device.py`.
 - Keep public docs about current interfaces and behavior. Remove obsolete text
   instead of adding another status page or repeating caveats across every guide.
 

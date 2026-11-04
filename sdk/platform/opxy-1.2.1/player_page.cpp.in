@@ -1,0 +1,36 @@
+
+// The player's own page (screen_player.hpp), drawn by its display(). It
+// registers in a free page slot at startup and paints in place of the stock
+// Maestro page while the selected track plays this player (players.cpp).
+#include "registration.hpp"
+#include "screen_player.hpp"
+namespace {
+struct Page {
+    static const char* const ids[opxy::player::display_dots + 257];
+    static const char* const titles[4];
+    static bool display(opxy::u32 track, opxy::player::Display& shown) {
+        void* object = opxy::platform::player_object(track, @PREFIX@_player_vtable);
+        if (!object) return false;
+        @NAMESPACE@::display(state(object), opxy::platform::player_controls(object), shown);
+        opxy::platform::player_output(object, shown);
+        return true;
+    }
+};
+const char* const Page::ids[opxy::player::display_dots + 257] = {
+@IDS@
+};
+const char* const Page::titles[4] = {@TITLES@};
+typedef opxy::screen::PlayerPage<Page> Renderer;
+}
+OPXY_SCREEN(Renderer, "@PREFIX@", "@NAME@.svg", @PAGE_LIMIT@, sizeof(Renderer::Object))
+namespace {
+const opxy::platform::Record page_record = {nullptr, nullptr, nullptr, nullptr, @PREFIX@_page_id, 0};
+const opxy::platform::Screen page_screen = {
+    reinterpret_cast<char*>(&opxy_screen_state), sizeof(Renderer::Object),
+    reinterpret_cast<const char*>(&opxy_screen_vtable), opxy_screen_asset,
+    reinterpret_cast<char* (*)(char*, opxy::u32)>(&opxy_screen_ctor)};
+}
+// GUI startup: construct the page in its slot; once it is in place the
+// compositor may paint it for the Maestro page.
+int @PREFIX@_screen_register() { return opxy::platform::register_player_page(&page_record, &page_screen); }
+int @PREFIX@_screen_ready() { return sdk_screen_ready(&page_record, &page_screen); }

@@ -118,7 +118,7 @@ class CustomPreviewTests(unittest.TestCase):
                         self.assertEqual(path.read_bytes(), (repo / path.relative_to(plain)).read_bytes())
                 self.assertFalse((plain / 'AGENTS.md').exists())
                 self.assertFalse((repo / '.git').exists())
-                for name in ('README.md', 'AGENTS.md', 'LICENSE', '.gitignore', '.github/workflows/machine.yml'):
+                for name in ('README.md', 'AGENTS.md', 'QA.md', 'LICENSE', '.gitignore', '.github/workflows/machine.yml'):
                     self.assertTrue((repo / name).is_file(), name)
                 for name in ('README.md', 'AGENTS.md'):
                     text = (repo / name).read_text()
@@ -128,6 +128,17 @@ class CustomPreviewTests(unittest.TestCase):
                     self.assertNotIn('machine-template', text)
                     self.assertNotIn('@ID@', text)
                     self.assertNotIn('@AUDITION@', text)
+                # The device checklist: this kind's parts in place, none left as a placeholder.
+                qa = (repo / 'QA.md').read_text()
+                self.assertNotIn('@', qa)
+                self.assertNotIn('\n\n\n', qa)
+                self.assertIn('# Testing Own Machine on an OP-XY', qa)
+                self.assertIn('every %s needs' % kind, qa)
+                self.assertIn('engine list' if kind == 'synth' else 'effect list', qa)
+                self.assertEqual('## Presets' in qa and '## LFOs' in qa, kind == 'synth')
+                self.assertIn('docs/profiling.md', qa)
+                self.assertIn('QA.md', (repo / 'README.md').read_text())
+                self.assertIn('QA.md', (repo / 'AGENTS.md').read_text())
                 workflow = (repo / '.github/workflows/machine.yml').read_text()
                 self.assertIn('OPEN_XY_REF: staging', workflow)
                 self.assertIn('sdk.py test --machine machine', workflow)

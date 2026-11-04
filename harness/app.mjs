@@ -22,6 +22,8 @@ import { bindKnob } from './knobs.mjs';
 import { createAudioActivation } from './audio-activation.mjs';
 import { createOutputMute } from './audio-output.mjs';
 import { PreviewDisplay, SvgDisplay, NoteActivity } from '../sdk/browser/display.mjs';
+import { selectArtwork } from '../sdk/browser/graphics.mjs';
+import { createGraphicsSelector } from './graphics.mjs';
 const noteActivity = new NoteActivity();
 const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header);
 const $ = id => document.getElementById(id);
@@ -37,6 +39,7 @@ if (customPreview) {
 }
 // The parameter each control position shows: the one last edited there.
 let values = defaults(), view = VIEWS[0], octave = 3, shown = [0, 1, 2, 3];
+let artworkChoice = null, graphicsMode = 'colorful';
 let visualNotes = 0, display = null, scene = null, displayBackend = null;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let context, processor, gain, muteGain, analyser, samples, starting;
@@ -80,6 +83,16 @@ for (const [i, param] of parameters.entries()) {
   });
   bindKnob($(`knob-${id}`), $(id));
 }
+// A drum kit's model, chosen on the device with Shift and the first encoder.
+let model = 0;
+const models = previewManifest.definition?.resources?.modelCount ?? 0;
+if (models) {
+  const item = document.createElement('div');
+  item.className = 'control';
+  item.innerHTML = `<label for="drum-model">Shift + 1 / Model</label><output id="value-drum-model">1</output><input id="drum-model" type="range" min="0" max="${models - 1}" step="1" value="0" aria-label="Model">`;
+  $('controls').append(item);
+  $('drum-model').addEventListener('input', event => { model = Number(event.target.value); update(); });
+}
 for (const [name, preset] of Object.entries(presets)) {
   const button = document.createElement('button');
   button.textContent = name;
@@ -90,7 +103,7 @@ function draw(elapsed = 0) {
   if (display) {
     const input = shownControls(parameterWords(), shown);
     try {
-      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity));
+      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity, model));
     }
     catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
   }
@@ -98,22 +111,38 @@ function draw(elapsed = 0) {
 }
 async function loadPreview() {
   const manifest = previewManifest;
-  const responses = await Promise.all([fetch('/preview/engine.wasm'), fetch('/preview/panel.svg')]);
+  const paths = ['/preview/engine.wasm', '/preview/panel.svg'];
+  if (manifest.graphics.grayscale_sha256) paths.push('/preview/panel.grayscale.svg');
+  const responses = await Promise.all(paths.map(path => fetch(path)));
   if (responses.some(response => !response.ok)) throw new Error('Compiled preview or artwork is unavailable.');
-  const [bytes, artwork] = await Promise.all(responses.map(response => response.arrayBuffer()));
+  const [bytes, artwork, grayscale] = await Promise.all(responses.map(response => response.arrayBuffer()));
   const digestOf = async buffer => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)),
     byte => byte.toString(16).padStart(2, '0')).join('');
   const [digest, artDigest] = await Promise.all([digestOf(bytes), digestOf(artwork)]);
   if (digest !== manifest.wasm_sha256 || artDigest !== manifest.graphics.asset_sha256) throw new Error('Preview identity mismatch.');
+  if (grayscale && await digestOf(grayscale) !== manifest.graphics.grayscale_sha256) throw new Error('Grayscale preview identity mismatch.');
+  const choice = {artwork:new TextDecoder().decode(artwork), preview:{graphics:manifest.graphics}};
+  if (grayscale) choice.grayscaleArtwork = new TextDecoder().decode(grayscale);
   const module = await WebAssembly.compile(bytes);
   const readyDisplay = new PreviewDisplay(module);
-  const readyScene = new SvgDisplay(new TextDecoder().decode(artwork), manifest.graphics);
+  const readyScene = new SvgDisplay(selectArtwork(choice, graphicsMode), manifest.graphics);
+  artworkChoice = choice;
+  $('graphics').disabled = false;
   display = readyDisplay;
   scene = readyScene;
   displayBackend = { backend: 'cpp-wasm', stateBytes: display.stateBytes, frameBytes: readyDisplay.frame.byteLength, wasmSha256: digest };
   draw();
   return { manifest, digest, module };
 }
+const graphicsSelect = createGraphicsSelector(next => {
+  if (!artworkChoice || !display) return;
+  try {
+    const replacement = new SvgDisplay(selectArtwork(artworkChoice, next), previewManifest.graphics);
+    scene = replacement; graphicsMode = next; draw();
+    status(next === 'colorful' ? 'Original artwork' : artworkChoice.grayscaleArtwork ? 'Grayscale · developer artwork' : 'Grayscale · automatic conversion');
+  } catch (error) { graphicsSelect.value = graphicsMode; status('Graphics unchanged: ' + error.message); }
+});
+
 let preview;
 function update() {
   for (const p of parameters) {
@@ -130,6 +159,7 @@ function update() {
   }
   for (const mode of VIEWS) $(mode).setAttribute('aria-pressed', String(mode === view));
   send({ type: 'parameters', value: parameterWords() });
+  if (models) { $('value-drum-model').textContent = String(model + 1); send({ type: 'model', value: model }); }
   draw();
 }
 async function enableAudio() {
@@ -170,6 +200,7 @@ async function enableAudio() {
           if (context.state !== 'running') panic();
         };
         send({ type: 'parameters', value: parameterWords() });
+        if (models) send({ type: 'model', value: model });
         await Promise.all([context.resume(), ready]);
       }
       await context.resume();

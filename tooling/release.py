@@ -18,7 +18,7 @@ import sys
 
 from .formats import require
 from .native import STOCK_CONTENT
-from .pipeline import NO_WINDOW, ROOT, fresh_output
+from .pipeline import NO_WINDOW, ROOT, add_overwrite_argument, fresh_output
 
 # The site each deployment publishes, and the branch it comes from (docs/builder.md).
 TARGETS = {'beta': ('staging', ['--env', 'beta']), 'production': ('main', [])}
@@ -58,6 +58,7 @@ def main(argv=None):
     parser.add_argument('--stock-content', type=Path, default=STOCK_CONTENT,
                         help="the folder holding op1_factory.json (default: this repository's copy)")
     parser.add_argument('--out', type=Path, required=True, help='new folder outside every checkout: kit and site')
+    add_overwrite_argument(parser)
     parser.add_argument('--deploy', choices=sorted(TARGETS), help='publish the site to this Cloudflare environment')
     parser.add_argument('--dry-run', action='store_true', help='build and check the deployment without publishing')
     parser.add_argument('--preview-cxx', default='clang++', help='Clang++ with wasm32/wasm-ld')
@@ -72,7 +73,8 @@ def main(argv=None):
             source, _options = TARGETS[args.deploy]
             require(branch() == source, f'Deploy {args.deploy} from {source}; this checkout is on {branch()}')
             require(published(source), f'Deploy exactly origin/{source}: commit, push or pull first')
-        out = fresh_output(args.out)
+        out = fresh_output(args.out, args.overwrite,
+                           [args.stock_os, args.stock_content, *filter(None, (args.toolchain, args.compiler))])
         python = sys.executable
         run([python, 'sdk.py', 'catalog', 'fetch', '--tags'])
         kit = out / 'kit'
