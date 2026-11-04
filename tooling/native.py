@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
+from . import benchmark, extensions, runtime, screen, startup_label, stock_limits, stock_tables
 from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -72,6 +72,11 @@ def extensions_of(machines):
     return getattr(machines, 'extensions', ())
 
 
+def linked_extensions(machines):
+    """The extensions whose code a build links; settings extensions link none."""
+    return tuple(e for e in extensions_of(machines) if e.linked)
+
+
 def subset(machines, chosen):
     """Some of a collection's machines, with all of its extensions."""
     return Collection(chosen, extensions_of(machines))
@@ -83,6 +88,7 @@ def configuration(entries=None, layout=None):
     machines.read_collection's."""
     profile = config()
     stock_tables.check_profile(profile)
+    stock_limits.check_profile(profile)
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
@@ -199,7 +205,7 @@ def plan(machines, profile=None):
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
-    units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
+    units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked_extensions(machines)]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
@@ -242,13 +248,15 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
-    they declare ('trackControl', 'auxTrack', 'hidePages'), and 'extension' when it
-    links extensions (native builds link all of the collection's)."""
-    users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    they declare ('trackControl', 'auxTrack', 'hidePages'), 'extension' when it links
+    extension code (native builds link all of the collection's), 'master_filter' for a
+    master processor, and the registry capabilities its extensions declare."""
+    users = [m.kind for m in machines] + (['extension'] if linked_extensions(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
-            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
+            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
+            [c for e in extensions_of(machines) for c in e.capabilities])
 
 
 def module_bytes(profile):
@@ -454,7 +462,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
             if step == 'extension_collection':
-                return cxx(str(extensions.generate_collection(folder, extensions_of(machines))), obj)
+                return cxx(str(extensions.generate_collection(folder, linked_extensions(machines))), obj)
             if step == 'screen_order':
                 return cxx(str(generate_screen_order(folder)), obj)
             if step == 'sample_callbacks':

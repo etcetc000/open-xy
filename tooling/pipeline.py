@@ -37,7 +37,7 @@ PROTECTED = (
 )
 
 
-PATCH_KINDS = ('heap', 'table', 'text', 'hook', 'startup')
+PATCH_KINDS = ('heap', 'table', 'limit', 'text', 'hook', 'startup')
 
 
 def check_patch_boundaries(profile, count):
@@ -57,13 +57,13 @@ def check_patch_boundaries(profile, count):
                 'Invalid profiling hook')
         if 'after' in patch:
             after = bytes.fromhex(patch['after'])
-            # Optional hooks, and a service's text edits, stay stock in builds that leave them out.
+            # Optional hooks, and a service's text and limit edits, stay stock in builds that leave them out.
             require(len(after) == len(before) and (after != before or
                     (kind == 'hook' and ('service' in patch or 'profiling' in patch)) or
-                    (kind == 'text' and 'service' in patch)),
+                    (kind in ('text', 'limit') and 'service' in patch)),
                     'Invalid instruction edit')
         else:
-            require(kind in ('hook', 'startup'), 'Heap, table and text edits carry their reviewed bytes')
+            require(kind in ('hook', 'startup'), 'Heap, table, limit and text edits carry their reviewed bytes')
         if kind == 'text':
             # A stock string rewritten in place: printable text, then at least one NUL.
             for data in (before, bytes.fromhex(patch['after'])):

@@ -1,9 +1,11 @@
 """Firmware extensions: folders of their own, like machines, against the SDK's contracts.
 
-An extension folder holds extension.json (its ID, the site's text, and the claims
-and actions it uses), extension.cpp and tests/. The SDK holds the registry of
-claims and actions (PROFILE) and the runtime; a build's collection lists the
-extensions it links, in callback order. No dynamic loading or arbitrary hooks.
+An extension folder holds extension.json (its ID, the site's text, and the claims,
+actions and capabilities it uses), extension.cpp and tests/. A settings extension
+holds only extension.json: it declares capabilities and links no code. The SDK
+holds the registry of claims, actions and capabilities (PROFILE) and the runtime;
+a build's collection lists the extensions it links, in callback order. No dynamic
+loading or arbitrary hooks.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,7 +14,7 @@ import base64
 import hashlib
 from .contributors import validate_source_boundary
 from .formats import require
-from .pipeline import ROOT, document
+from .pipeline import PROFILE as FIRMWARE_PROFILE, ROOT, document
 
 PROFILE = 'profiles/extensions.json'
 
@@ -38,7 +40,7 @@ def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
     data (a label and the key it governs); actions are one bit each in RUNTIME."""
     data = document(ROOT / PROFILE)
-    require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
+    require(set(data) == {'schema', 'claims', 'actions', 'capabilities'} and data['schema'] == 4, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
@@ -52,6 +54,19 @@ def registry():
     return claims, actions
 
 
+
+def capabilities():
+    """The registry's capabilities: each is the firmware profile service of the same name,
+    which only extensions that declare it use. A capability carries no fields."""
+    data, firmware = document(ROOT / PROFILE)['capabilities'], document(ROOT / FIRMWARE_PROFILE)
+    require(isinstance(data, dict) and len(data) <= 32, 'Capabilities are a registry')
+    for name, capability in data.items():
+        edits = [p for p in firmware['patches'] if p.get('service') == name]
+        # Fixed bytes only, so the builder can tell from an image that a capability is on.
+        require(NAME.fullmatch(name) and capability == {} and firmware['services'].get(name) == [name] and edits and
+                all(p['kind'] not in ('hook', 'startup') for p in edits), 'Invalid capability: ' + name)
+    return tuple(data)
+
 @dataclass(frozen=True)
 class Extension:
     id: str
@@ -61,6 +76,8 @@ class Extension:
     text: dict  # name, description and optional note: the site's row and details
 
     master_processor: dict = None
+    capabilities: tuple = ()  # firmware services it turns on (capabilities())
+    linked: bool = True  # False for a settings extension: no code, no runtime
 
     @property
     def master_filter(self):
@@ -75,12 +92,12 @@ class Extension:
 def extension_at(folder):
     """The extension in `folder`, checked against the SDK's registry and source rules."""
     root = Path(folder).resolve()
-    require((root / 'extension.json').is_file() and (root / 'extension.cpp').is_file(),
-            f'{root}: an extension folder holds extension.json and extension.cpp')
+    require((root / 'extension.json').is_file(), f'{root}: an extension folder holds extension.json')
     data = document(root / 'extension.json')
+    linked = (root / 'extension.cpp').is_file()
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and optional note and master_processor')
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'capabilities'}, f'{root}: extension.json fields are '
+            'id, name, description, claims, actions and optional note, master_processor and capabilities')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -113,11 +130,24 @@ def extension_at(folder):
         needed = actions[action].get('requires')
         require(needed is None or needed in data['claims'], f'{name}: {action} requires the {needed} claim')
     require(not data['actions'] or data['claims'], f'{name}: actions are granted through a claim it holds')
+    declared = data.get('capabilities', [])
+    known = capabilities()
+    require(isinstance(declared, list) and len(set(declared)) == len(declared) and
+            all(isinstance(c, str) and c in known for c in declared) and ('capabilities' not in data or declared),
+            f'{name}: unknown or repeated capability; the SDK declares them in {PROFILE}')
+    if not linked:
+        # A settings extension only turns on SDK capabilities: nothing of its own runs.
+        sources = [p for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts and
+                   p.relative_to(root).as_posix() not in ('extension.json', 'README.md', 'LICENSE')]
+        require(declared and not data['claims'] and not data['actions'] and master_filter is None and not sources,
+                f'{name}: an extension without extension.cpp is a settings extension: capabilities only, '
+                'and no other files than README.md and LICENSE')
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter)
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter,
+                     tuple(declared), linked)
 
 
 def check_collection(extensions):
@@ -225,6 +255,10 @@ def metadata(extensions, origins):
     rows = [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
     for e, row in zip(extensions, rows):
+        if e.capabilities:
+            row['capabilities'] = list(e.capabilities)
+        if not e.linked:
+            row['linked'] = False
         if e.master_processor is not None:
             data = validate_master_artwork(e.root / e.master_processor['artwork'])
             row['master_processor'] = dict(state_id=e.master_processor.get('state_id',e.id), asset=Path(e.master_processor['artwork']).name,

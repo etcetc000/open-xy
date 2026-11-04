@@ -21,9 +21,10 @@ inline SampleView stock_sample_view(const void* opaque) {
     return SampleView{data, frames, rate, object[sample_object::kStereo] ? 2u : 1u};
 }
 
-// Stock decodes at most this many frames of a file (20 s at 44.1 kHz); a longer
-// file loads truncated.
-const u32 kLoaderFrames = 882000;
+// The most frames a file can load: the sample object's ceiling, which the
+// long_samples service raises stock's 882,000 to (tooling/stock_limits.py).
+// The bridge receives the count stock loaded, so it holds either way.
+const u32 kLoaderFrames = (1u << 20) - 1;
 
 // The 32-byte pad record the GUI edits (from stock 8d58926c): words, then bytes.
 namespace pad_record {

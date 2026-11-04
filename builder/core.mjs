@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '387eba1070299f301c2295064facbcd3b43228982c3fca2e4ebe85e253b9593c';
+export const PROFILE_SHA256 = '313f465c19f0fad8da49328dfe91f807c744e3fea0741decab22608cacd6c277';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -498,6 +498,13 @@ export async function openKit(kit) {
       ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
         new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))),
       'Invalid extension metadata');
+    // A settings extension (linked: false) links no code: it only turns on its
+    // capabilities, each the profile service of the same name (tooling.extensions).
+    check((e.capabilities === undefined || Array.isArray(e.capabilities) && e.capabilities.length > 0 &&
+      new Set(e.capabilities).size === e.capabilities.length &&
+      e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c)) &&
+      (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
+        !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
       const f=processorOf(e), stateId=f.state_id ?? e.id;
@@ -535,6 +542,10 @@ export async function openKit(kit) {
   }
   for (const id of extensionIds) {
     const owned = objects.filter(o => o.extension === id);
+    if (extensions.find(e => e.id === id).linked === false) {
+      check(owned.length === 0, 'A settings extension links no code: ' + id);
+      continue;
+    }
     check(owned.length === 1 && owned[0].symbols.some(s => s.section && s.binding === 1 &&
       s.name === 'sdk_extension_' + id + '_hooks'), 'Missing extension accessor: ' + id);
     if(processorOf(extensions.find(e => e.id===id))) {
@@ -597,8 +608,9 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
-    ...(extensions.size ? [{kind: 'extension'}] : []),
-    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : [])]);
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.linked !== false) ? [{kind: 'extension'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
+    ...(kit.extensions ?? []).filter(e => extensions.has(e.id)).flatMap(e => (e.capabilities ?? []).map(kind => ({kind})))]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
@@ -640,7 +652,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   // SDK objects may import the declared callbacks of unselected machines;
   // those resolve to the declared fallbacks. Machine objects never do.
   const aliases = new Map();
-  for (const e of kit.extensions ?? []) if (!extensions.has(e.id)) {
+  for (const e of kit.extensions ?? []) if (!extensions.has(e.id) && e.linked !== false) {
     for(const suffix of ['hooks', ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
       kit.objects.some(o => o.extension===e.id && o.symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+e.id+'_'+suffix))) : [])]) {
       const symbol = 'sdk_extension_' + e.id + '_' + suffix;
@@ -762,8 +774,8 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
       covering[0].offset + 16 + site - covering[0].target === offset &&
       equal(stock.subarray(offset, offset + before.length), before), 'Patch preimage/mapping mismatch');
     let after;
-    // A service's hooks, and its text edits (the MTP allowlist), apply only with it.
-    check(edit.service === undefined || (['hook', 'text'].includes(edit.kind) && Object.hasOwn(p.services ?? {}, edit.service)),
+    // A service's hooks, text edits (the MTP allowlist) and limit edits (long samples) apply only with it.
+    check(edit.service === undefined || (['hook', 'text', 'limit'].includes(edit.kind) && Object.hasOwn(p.services ?? {}, edit.service)),
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
@@ -774,7 +786,7 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
       check(destination >= low && destination < low + linked.module.length, 'Hook destination outside module');
       after = redirect(edit, destination);
     } else {
-      check(['heap', 'table', 'text'].includes(edit.kind), 'Unknown edit kind');
+      check(['heap', 'table', 'limit', 'text'].includes(edit.kind), 'Unknown edit kind');
       after = unhex(edit.after);
     }
     check(before.length === edit.length && after.length === edit.length, 'Patch length mismatch');
@@ -829,8 +841,13 @@ function holdsCode(objects, payload) {
 }
 const presentMachines = (kit, payload) =>
   kit.machines.filter(m => holdsCode(kit.objects.filter(o => o.owner === m.id), payload)).map(m => m.id);
-const presentExtensions = (kit, payload) => (kit.extensions ?? [])
-  .filter(e => holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
+const presentExtensions = (kit, payload, input) => (kit.extensions ?? [])
+  .filter(e => e.linked === false ? e.capabilities.every(c => capabilityApplied(kit.profile, c, input))
+    : holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
+// A capability's edits are fixed bytes (tooling.extensions.capabilities): applied
+// in an image exactly when every one holds its reviewed bytes.
+const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
+  equal(input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length), unhex(edit.after)));
 const UPDATE = 'Update your OP–XY to OS 1.2.1 with teenage engineering’s updater, then copy its OS file (os.ldr) again; a .tfw update file will not work.';
 const UNSUPPORTED = 'Only OP–XY OS 1.2.1 is supported. This file is not OS 1.2.1 or an open-xy OS made from it. ' + UPDATE;
 export async function recoverFirmware(kit, input, layout = null) {
@@ -868,7 +885,7 @@ export async function recoverFirmware(kit, input, layout = null) {
     // First the machines and extensions whose code the module holds, one link at
     // any kit size. Then every extension choice for a small collection, or the
     // present ones and none for a larger one, so links never grow exponentially.
-    const present = presentMachines(kit, payload), held = presentExtensions(kit, payload);
+    const present = presentMachines(kit, payload), held = presentExtensions(kit, payload, input);
     const guess = sharedClaim((kit.extensions ?? []).filter(e => held.includes(e.id))) ? [] : held;
     const choices = (kit.extensions ?? []).length <= RECOVERABLE_EXTENSIONS ? extensionChoices(kit)
       : guess.length ? [guess, []] : [[]];
