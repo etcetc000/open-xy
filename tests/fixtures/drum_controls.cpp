@@ -40,9 +40,11 @@ const SampleMachine sdk_sample_machines[] = {
     {reinterpret_cast<const char*>(38), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr}
 };
 const opxy::u32 sdk_sample_machine_count = 4;
-// Only engine 38 draws its own screen.
+// Only engine 38 draws its own screen. Its stockShift map gives Shift + encoder
+// 1 to the stock end, 2 to the loop window, 4 to gain; 3 keeps its fine turn.
 const SynthControls sdk_synth_controls[] = {
-    {reinterpret_cast<const char*>(38), nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false}};
+    {reinterpret_cast<const char*>(38), nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0x7, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false,
+     0, 0, 0, {1, 1, 1, 1}, nullptr, {stock_shift::kShifted - 1, stock_shift::kLoopWindow, stock_shift::kNone, stock_shift::kShifted + 3}}};
 const opxy::u32 sdk_synth_control_count = 1;
 void sdk_synth_shown(opxy::u32, opxy::u8* shown) { for (opxy::u32 i = 0; i < 4; ++i) shown[i] = opxy::u8(i); }
 void sdk_sample_slice_config(SamplePreviewRange* range, unsigned id, unsigned track, const void*) {
@@ -160,6 +162,30 @@ static unsigned paste_pad(unsigned track, unsigned key) {
     ++publishes;
     return 1;
 }
+// The sampler page: stock's handler for its own encoder (low two bits) and
+// the Shift its row test answers, moving the GUI region's markers as stock
+// would (start 1, loop start 3, loop end 4, end 2), each within 0..frames.
+// Gain and the other Shift functions are only recorded.
+static unsigned page_word, page_flags, page_calls, page_encoder, page_shift, editor_index;
+static unsigned stock_page_flag() { ++page_flags; return 0; }
+static unsigned stock_page_turn(unsigned, unsigned encoder, const unsigned* event) {
+    ++page_calls; page_encoder = encoder & 3; page_shift = sdk_sample_page_shift();
+    check(sdk_sample_page_turn(0, encoder, event) == 0);  // a replay asks stock's flag, never the machine
+    if (page_shift) return 1;
+    int* region = reinterpret_cast<int*>(pads[sample_drum_key(0, octave) - 53]);
+    static const unsigned words[4] = {1, 3, 4, 2};
+    int& marker = region[words[page_encoder]];
+    const int moved = marker + int(event[0]);
+    marker = moved < 0 ? 0 : moved > region[0] ? region[0] : moved;
+    return 1;
+}
+// Stock's parameter editor: the event arrives as a 32-bit word, a truncated
+// pointer on a 64-bit host, so only the edited control is recorded.
+static unsigned machine_edit(unsigned project, unsigned track, unsigned index, unsigned) {
+    check(project == kProject && track == selected_track_value);
+    editor_index = index;
+    return 1;
+}
 // Stock's sample predicate after its entry hook: an owned engine through its alias.
 static unsigned sample_predicate(unsigned id) { unsigned alias = sdk_sample_alias(id); return alias == 2 || alias == 3 || alias == 30; }
 Address opxy::platform::host_stock_address(Address address) {
@@ -186,6 +212,10 @@ Address opxy::platform::host_stock_address(Address address) {
     if (address == 0x8d581f90) return reinterpret_cast<Address>(&paste_pad);
     if (address == 0x8409fa2c) return reinterpret_cast<Address>(&clipboard_type);
     if (address == 0x8409fb1c) return reinterpret_cast<Address>(clipboard);
+    if (address == 0x080238bc) return reinterpret_cast<Address>(&page_word);
+    if (address == 0x8d5b7c28) return reinterpret_cast<Address>(&stock_page_flag);
+    if (address == 0x8c0b12e4) return reinterpret_cast<Address>(&stock_page_turn);
+    if (address == 0x8d5ad5bc) return reinterpret_cast<Address>(&machine_edit);
     std::abort();
 }
 int main() {
@@ -447,4 +477,45 @@ int main() {
     check(sdk_sample_neutral_engine(2) == 1 && sdk_sample_neutral_engine(35) == 1 && sdk_sample_neutral_engine(36) == 1);
     check(sdk_sample_neutral_engine(38) == 0 && sdk_sample_neutral_engine(50) == 0);
     check(plain_packets > 0 && extended_packets > 0);
+
+    // A page-2 engine's own screen: what its sampler page's turns edit.
+    engine = 38; selected_track_value = 0; octave = 0; shifted = false; page_word = 0;
+    int* region = reinterpret_cast<int*>(pads[sample_drum_key(0, octave) - 53]);
+    region[0] = 1000; region[1] = 100; region[2] = 900; region[3] = 400; region[4] = 600;
+    const unsigned up[3] = {10, 0, 0}, down[3] = {static_cast<unsigned>(-10), 0, 0}, far[3] = {500, 0, 0};
+    // The page edits nothing more after a machine's or a replayed turn (1);
+    // elsewhere stock's own mode flag answers (0 here).
+    auto turn = [](unsigned encoder, const unsigned* event) {
+        page_calls = 0; page_flags = 0; editor_index = 99;
+        return sdk_sample_page_turn(0, encoder, event);
+    };
+    // Unshifted, every encoder edits the machine's own control.
+    for (unsigned e = 0; e < 4; ++e) {
+        check(turn(e, up) == 1 && !page_calls && editor_index == e);
+    }
+    shifted = true;
+    // Shift + encoder 1: the stock end, unshifted stock encoder 4.
+    check(turn(0, up) == 1 && page_calls == 1 && page_encoder == 3 && !page_shift && region[2] == 910 && editor_index == 99);
+    // Shift + encoder 4: stock's Shift + encoder 4, gain, with its row's Shift answered.
+    check(turn(3, up) == 1 && page_calls == 1 && page_encoder == 3 && page_shift == 1 && region[2] == 910);
+    // Shift + encoder 3 is not in the map: the machine's own control (in tenths).
+    check(turn(2, up) == 1 && !page_calls && editor_index == 2);
+    // Shift + encoder 2: the loop window, leading marker first, keeping its length.
+    check(turn(1, up) == 1 && page_calls == 2 && region[3] == 410 && region[4] == 610);
+    check(turn(1, down) == 1 && page_calls == 2 && region[3] == 400 && region[4] == 600);
+    // At the sample's end the leading marker cannot move, so neither does the other.
+    check(turn(1, far) == 1 && page_calls == 2 && region[4] == 1000 && region[3] == 900);
+    check(turn(1, far) == 1 && page_calls == 1 && region[4] == 1000 && region[3] == 900);
+    // The track's envelope, filter and LFO pages stay stock's, Shift or not.
+    for (unsigned page = 1; page < 4; ++page) {
+        page_word = page;
+        for (unsigned e = 0; e < 4; ++e) {
+            check(turn(e, up) == 0 && !page_calls && page_flags == 1 && editor_index == 99);
+        }
+    }
+    page_word = 0;
+    // Outside a replay the page's Shift test asks stock.
+    check(sdk_sample_page_shift() == 1);
+    shifted = false;
+    check(sdk_sample_page_shift() == 0);
 }

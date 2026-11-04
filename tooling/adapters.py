@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .benchmark import append_callback
 from .definitions import (ROOT, SYNTH_POSITIONS, control_positions, hidden_pages, paged, shift_parameters,
-                          validate_definition)
+                          stock_shift_codes, validate_definition)
 
 # An effect's shift-row controls follow its eight parameter words (slots 8..11).
 SHIFT_SLOT = 8
@@ -446,6 +446,10 @@ def generate_synth_controls(directory, machines):
             declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
             choices = [len(p['mapping']['labels']) for p in shift] + [1] * (SYNTH_POSITIONS - len(shift))
             extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
+        elif own_screen and 'stockShift' in m.definition['resources']:
+            # Shift gives these encoders to the stock sampler page (drum_controls_stock.cpp).
+            codes = ', '.join(map(str, stock_shift_codes(m.definition)))
+            extra = f', 0, {{1, 1, 1, 1}}, nullptr, {{{codes}}}'
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
                     f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {hidden_pages(m.definition)}, {absent}{extra}}},")

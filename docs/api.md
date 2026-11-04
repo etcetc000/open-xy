@@ -584,12 +584,54 @@ Display code can draw the sample from its
 [overview](display.md#sample-overview).
 
 **What this gives up.** The own screen takes over the sampler page's encoders, so
-stock's trim controls are gone on it: a player can't set the sample's start and end,
-its loop markers, or the other things that page's encoders edit, from there.
-`SampleBlock.region` still reports the markers already in the region: the whole
-sample when one is newly assigned, or whatever a preset or the same track on the
-stock sampler left. If your instrument needs trimming, give it your own controls for
-it and read them in `render_sample`. The stock sample browser and recorder are unaffected.
+the stock sampler's own controls are gone from it: a player can't set the sample's
+start and end, its loop, its gain or the other things that page's encoders edit, from
+there. `SampleBlock.region` still reports what the region holds: the whole sample when
+one is newly assigned, or whatever a preset or the same track on the stock sampler
+left. An instrument can give itself its own controls for these and read them in
+`render_sample`, or hand some of them back to the stock page with `stockShift`.
+
+**Stock controls on Shift (`stockShift`, SDK 1.10).** `resources.stockShift` lists, for
+encoders 1 to 4 in order, which of the stock sampler page's controls Shift and that
+encoder edit. Stock then edits, steps and saves the setting with the track, as on its
+own page, and the engine reads it from `SampleBlock.region`:
+
+| Name | Edits | On the stock page | Read from |
+| --- | --- | --- | --- |
+| `start` | Sample start | Encoder 1 | `region.begin` |
+| `loopStart` | Loop start | Encoder 2 | `region.loop_begin` |
+| `loopEnd` | Loop end | Encoder 3 | `region.loop_end` |
+| `end` | Sample end | Encoder 4 | `region.end` |
+| `direction` | Forwards or backwards | Shift + encoder 1 | `region.reverse` |
+| `tune` | Tuning | Shift + encoder 2 | `region.pitch_cents` |
+| `gain` | Sample gain | Shift + encoder 4 | `region.level` |
+| `window` | The start and end together | Encoders 1 and 4 | `region.begin`, `region.end` |
+| `loopWindow` | The loop start and end together | Encoders 2 and 3 | `region.loop_begin`, `region.loop_end` |
+| `""` | The machine's own control, in fine steps, as without `stockShift` | | |
+
+A window moves its two markers by the same turn, keeping its length, and stops at
+the sample's ends. Each name may appear once; a list shorter than four leaves the
+remaining encoders on fine steps. For example, a granular engine might choose:
+
+```json
+"stockShift": ["start", "end", "window", "gain"]
+```
+
+and a looping one `["loopStart", "loopEnd", "loopWindow", "tune"]`. Only Shift turns
+on the engine's own page change; everything else stays as it was:
+
+- Turns without Shift edit the machine's own controls, and a press still switches
+  between its first four and second four.
+- An encoder the list leaves empty keeps Shift's fine turn of the machine's control.
+- The track's envelope, filter and LFO pages are stock's, with or without Shift.
+
+The engine plays begin..end as before. The loop markers are reported for the engine
+to use as it chooses; stock's own loop does not apply to it. Stock's loop crossfade
+(Shift + encoder 3) and loop mode (Shift + encoder 3 press) aren't offered:
+`SampleBlock` doesn't carry them. `stockShift` needs an own screen and SDK 1.10.
+While Shift is held, the screen's input `shift` is 1, so it can show what Shift
+edits; the [overview](display.md#sample-overview) gives the start and the end. The
+stock sample browser and recorder are unaffected.
 
 ### Services
 
@@ -603,6 +645,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
+| `stockShift` | Up to four names, one per encoder; needs an [own screen](#own-screen) and SDK 1.10 | Shift and those encoders edit the stock sampler page's controls ([own screen](#own-screen)) | |
 | `sampleAnalysis` | Budget in bytes, 4096..2 MiB, whole words | Prepared per-sample data | `analysis_words`, `prepare_begin`, `prepare_step`, `prepared` |
 
 ### Audio block
@@ -617,6 +660,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `region.level` | Unsigned Q27 gain; `opxy::sample_unity_level` is unity |
 | `region.reverse` | The pad's saved direction |
 | `region.pitch_cents` | The pad's saved tuning, in cents |
+| `region.loop_begin`, `region.loop_end` | SDK 1.10: the pad's loop markers, within the sample. No loop when `loop_begin` is at or past `end`; both are `end` where nothing sets a loop, as in a lazy-chop audition |
 | `analysis` | This machine's completed analysis of the sample, or null while pending, declined or over budget |
 | `settings` | The pad's saved settings, or `sample_defaults()` when it has none; 0 without `padSettings` |
 | `output_channels` | 1, or 2 with `stereoOutput` |

@@ -572,6 +572,16 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c0b13e6",
+      "file_offset": "0xe8622",
+      "length": 8,
+      "before": "00de518d84f10000",
+      "symbol": "sdk_sample_page_shift",
+      "service": "samples",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8d5acf3e",
       "file_offset": "0x1e4196",
       "length": 4,
