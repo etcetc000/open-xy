@@ -30,7 +30,7 @@ function screenMarkup(name, selected, devMenu = true, highlight = null) {
   let markup = '<rect class="lcd-background" width="480" height="222"/>';
   markup += `<text class="lcd-text lcd-title" x="12" y="22">${model.title}</text>`;
   model.rows.forEach((line, index) => {
-    if (name === 'boot' && line.startsWith('3.') && !devMenu) return;
+    if (name === 'boot' && (line.startsWith('3.') || line.startsWith('5.')) && !devMenu) return;
     const y = 50 + index * 17;
     const active = (selected && line.startsWith(selected + '.')) || (highlight && line === highlight);
     if (active) markup += `<rect class="lcd-highlight instruction-pulse" x="7" y="${y - 13}" width="466" height="17" rx="2"/>`;
@@ -129,7 +129,7 @@ export function fileMap(install, files, direct = false) {
 export function bundle(files) {
   return tree('Your build', files);
 }
-export function guide(stage, {install, computer, files, disabling = false}) {
+export function guide(stage, {install, computer, files, disabling = false, recovering = false}) {
   if (stage === 'boot') {
     const figure = element('figure', '', 'device-guide-figure');
     const caption = element('figcaption');
@@ -144,6 +144,13 @@ export function guide(stage, {install, computer, files, disabling = false}) {
   const press = (screen, track, options) => bootGuide(screen, track, `Press track ${track}.`, options);
   if (stage === 'refresh-open') return press('boot', 8, {devMenu: disabling});
   if (stage === 'refresh-return') return press('system', 8);
+  if (stage === 'missing-os') return press('mtp', 2);
+  if (stage === 'mtp-help') return bootGuide('boot', null, 'Formatting is in te-boot. Back up your files first.');
+  if (stage === 'format-upload') return press('boot', 1);
+  if (stage === 'enable') return bootGuide('boot', null, 'Switch off, then hold COM while switching on. Connect USB-C at te-boot.', {devMenu: false});
+  if (stage === 'disabled') return bootGuide('boot', recovering ? 1 : null,
+    recovering ? 'After restarting, check the dev menu is gone. Press track 1 to upload firmware.' : 'After restarting, check the dev menu is gone.', {devMenu: false});
+  if (stage === 'format-drive') return press('boot', 5);
   if (stage === 'open-dev-menu') return press('boot', 3);
   if (stage === 'start-transfer') {
     const key = computer === 'mac' ? 2 : 3;
