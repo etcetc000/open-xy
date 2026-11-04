@@ -59,6 +59,9 @@ class Runtime(unittest.TestCase):
     def test_extension_observers_order_and_write_ownership(self):
         self.run_fixture('extension_runtime')
 
+    def test_palette_composes_loaded_svg_colours_and_reapplies_from_source(self):
+        self.run_fixture('extension_palette')
+
     def test_generated_registry_omits_disabled_extensions_and_preserves_order(self):
         from tooling.extensions import Extension, generate_collection
         def prepare(folder):
@@ -78,9 +81,25 @@ class Runtime(unittest.TestCase):
                 stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                       'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
             (folder / 'stock.hpp').write_text(stock)
+            for name in ('stock_browser.hpp', 'stock_browser.cpp'):
+                (folder / name).write_text((PLATFORM / name).read_text())
             (folder / 'extension_stock.cpp').write_text((PLATFORM / 'extension_stock.cpp').read_text().replace(
                 '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
             probe = extension_at(PROBE)
             generate_collection(folder, [probe])
             generate_extension(folder, probe)
         self.run_fixture('extension_stock', prepare)
+
+    def test_stock_adapter_appends_bounded_com_system_rows(self):
+        def prepare(folder):
+            stock = (PLATFORM / 'stock.hpp').read_text()
+            stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
+                                  'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+            for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
+                stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                                      'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
+            (folder / 'stock.hpp').write_text(stock)
+            source = (PLATFORM / 'extension_system_stock.cpp').read_text().replace(
+                '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>')
+            (folder / 'extension_system_stock.cpp').write_text(source)
+        self.run_fixture('extension_system', prepare)

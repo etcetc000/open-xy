@@ -1,4 +1,5 @@
 #include "extension_runtime.hpp"
+#include "extension_palette.hpp"
 
 namespace opxy { namespace platform {
 namespace {
@@ -6,12 +7,14 @@ extensions::Context current;
 const ExtensionEntry* entries;
 const ExtensionRegistry* registry;
 u32 entry_count;
-bool initialized, dispatching;
+const extensions::SystemEntry* system_entries[3];
+u32 system_entry_count;
+bool initialized, dispatching, system_dispatching;
 char notification[32];
 
 // The actions one callback may take, and what it has done with them: one stock
 // undo transaction and at most one notification per callback.
-struct Transaction { u32 granted; bool attempted, notified; };
+struct Transaction { u32 granted; bool attempted, notified, selected; };
 Transaction transaction;
 
 bool same_text(const char* a, const char* b) {
@@ -20,12 +23,22 @@ bool same_text(const char* a, const char* b) {
     return *a == *b;
 }
 u32 bits(u32 count) { return count >= 32 ? ~0u : (1u << count) - 1; }
+bool system_label(const char* text) {
+    if (!text) return false;
+    u32 length = 0;
+    for (; length < 16 && text[length]; ++length) {
+        const unsigned char c = static_cast<unsigned char>(text[length]);
+        if (c < 32 || c > 126) return false;
+    }
+    return length && length < 16;
+}
 
 // The collection must agree with the registry, whatever the build checked:
 // claims exclusive and known, every action backed by a claim its holder owns.
 bool ready() {
     if (initialized) return entries != nullptr;
     initialized = true;
+    system_entry_count = 0;
     u32 count = 0;
     const ExtensionEntry* list = extension_collection(count);
     const ExtensionRegistry& known = extension_registry();
@@ -44,6 +57,11 @@ bool ready() {
         claimed |= entry.claims;
         for (u32 j = 0; j < i; ++j)
             if (same_text(entry.id, list[j].id)) return false;
+        const extensions::SystemEntry* const system = entry.hooks->system;
+        if (system) {
+            if (!system->open || !system_label(system->label) || system_entry_count >= 3) return false;
+            system_entries[system_entry_count++] = system;
+        }
     }
     entries = list;
     registry = &known;
@@ -93,22 +111,41 @@ void notify(const char* text) {
     transaction.notified = true;
     extension_notify(notification);
 }
+bool select_choice(const extensions::Choice& choice) {
+    if (!(transaction.granted & action_select_choice) || transaction.selected) return false;
+    transaction.selected = true;
+    return extension_select_choice(choice);
+}
+bool select_system_choice(const extensions::Choice& choice) {
+    if (!system_dispatching || transaction.selected) return false;
+    transaction.selected = true;
+    return extension_select_choice(choice);
+}
 u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, false);
 }
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes};
+const extensions::Actions actions = {insert_notes, notify, replace_notes, select_choice};
+const extensions::SystemActions system_actions = {select_system_choice};
+
+void sample_context() {
+    current.recording = extension_context(current.playing);
+    current.time = extension_monotonic_time();
+}
 }
 
 void extensions_sync() {
     if (dispatching || !ready()) return;
-    current.recording = extension_context(current.playing);
+    sample_context();
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
         if (entries[i].hooks->context) entries[i].hooks->context(current);
     dispatching = false;
+    // The controller update follows stock's GUI tick. This sees documents that
+    // loaded during that tick without adding a parser hook or touching SVG files.
+    extension_palette_sync(entries, entry_count);
 }
 void extensions_input_activity() {
     if (dispatching || !ready()) return;
@@ -160,10 +197,33 @@ void extensions_queued_control(const extensions::Control& control) {
     if (!entries) return;
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i) {
-        transaction = {granted(entries[i], control), false, false};
+        transaction = {granted(entries[i], control), false, false, false};
         if (entries[i].hooks->queued_control) entries[i].hooks->queued_control(current, control, actions);
-        transaction = {0, false, false};
+        transaction = {0, false, false, false};
     }
     dispatching = false;
+}
+
+const extensions::SystemEntry* const* extension_system_entries(u32& count) {
+    count = 0;
+    if (!ready()) return nullptr;
+    count = system_entry_count;
+    return system_entries;
+}
+
+void extension_system_entry_open(u32 index) {
+    if (dispatching || !ready() || index >= system_entry_count) return;
+    const extensions::SystemEntry* entry = system_entries[index];
+    if (!entry || !entry->open) return;
+    sample_context();
+    // This is a user-selected stock System row, not a claimed key. It can
+    // open one selector, but has no access to note edits or notifications.
+    transaction = {0, false, false, false};
+    dispatching = true;
+    system_dispatching = true;
+    entry->open(current, system_actions);
+    system_dispatching = false;
+    dispatching = false;
+    transaction = {0, false, false, false};
 }
 }}

@@ -72,7 +72,7 @@ filters to that track for it.
 | --- | --- | --- |
 | Events | Something happened | The `Hooks` callbacks |
 | Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify` |
-| Surfaces | Add to the screen | None for extensions yet: menu rows, pages, overlays |
+| Surfaces | Add to the screen | `Palette`: composable colours of loaded SVG documents; `SystemEntry`: a bounded COM -> System row |
 | Saved state | Data kept with a project | None for extensions yet |
 
 An event says something happened; an action asks stock to do something. Sending
@@ -80,6 +80,58 @@ a note to a track, clearing a pattern or changing a parameter is an action, not
 an event. A feature that needs a kind with nothing here yet (a setting the user
 chooses, saved state, note input for effect machines) starts with an SDK pull
 request for that interface, which the feature then uses.
+
+### Palette surface, System entries and live choices
+
+An extension can attach `Hooks().palette(&palette)`, where `Palette::map`
+changes a `Color` in place. The SDK preserves each loaded SVG fill and stroke
+colour in RAM, composes selected palettes in collection order, and writes a
+cell only when its palette revision changes. `Palette::revision` must change
+whenever the extension changes its mapping; reapplying never compounds the
+previous skin. SVG files are never changed and a screen loaded later receives
+the current palette.
+
+Each `context` includes its sampled controller microsecond `time`. It is
+suitable for per-boot variation, but is not an audio clock or a scheduling
+API.
+
+An extension can attach one `SystemEntry` with
+`Hooks().system_entry(&entry)`. It becomes a real row under **COM -> System**
+after the six stock rows. The stock SVG has nine rows, so a build accepts at
+most three extension entries total; invalid labels or a fourth entry reject the
+extension collection rather than overwrite stock state. Labels are 1–15
+printable ASCII characters and entry data stays alive for the firmware's life.
+Opening its one-step row calls `SystemEntry::open` on the controller path with
+fresh `Context` and `SystemActions`. It may open one stock selector without a
+key claim, because the user chose it from the System page:
+
+```cpp
+static void set_theme(opxy::u32 index) { theme = index; ++palette_revision; }
+static const char* const themes[] = {"warm", "cool"};
+static const opxy::extensions::Choice choice = {"theme", themes, 2, 0, set_theme};
+static void open_theme(const opxy::extensions::Context&,
+                       const opxy::extensions::SystemActions& actions) {
+    actions.select_choice(choice);
+}
+static const opxy::extensions::SystemEntry entry = {"theme", open_theme};
+extern constexpr opxy::extensions::Hooks hooks =
+    opxy::extensions::Hooks().system_entry(&entry).palette(&palette);
+```
+
+The SDK copies the six stock System descriptors and appends its rows in RAM at
+the authenticated stock vector-copy site. It never edits stock preference
+files or SVGs. System rows are UI surfaces, not claims, events or project-saved
+state; an extension owns persistence for its own selection if it needs it.
+
+`Actions::select_choice` opens the authenticated stock flat selector from an
+accepted claimed `queued_control` callback. A choice callback updates the
+extension's own static state and its palette revision, so the next GUI update
+recolours loaded screens without a restart. It needs the `select_choice`
+action and a claim, and permits one selector attempt in that callback. Labels
+and headings use the stock selector's 1–15 printable-ASCII limit; there are at
+most 16 choices. `SystemActions::select_choice` follows the same selector
+limits, but is scoped to the user-selected System row rather than a claimed
+queued control.
 
 ## Events
 
@@ -89,7 +141,7 @@ only for the callback. The SDK does not sandbox native code.
 
 | Event | Delivers | Sites |
 | --- | --- | --- |
-| `context` | Project, pattern, selected track, length, scale, quantization and play state, and whether its pattern is `editable` and its live notes `recordable` (not while the recorder is in a step or sample workflow); before every other event | Controller update, Stop |
+| `context` | Project, pattern, selected track, length, scale, quantization, play state and sampled microsecond time, and whether its pattern is `editable` and its live notes `recordable` (not while the recorder is in a step or sample workflow); before every other event | Controller update, Stop |
 | `recordable_note_on` | A live onset stock accepted for recording, on the selected recordable instrument track, while playing; with stock's pickup position and collision radius | Live onset, accepted-note bookkeeping |
 | `selected_note_off` | A live release on the selected track, playing or not; may have no preceding onset | Live release |
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
@@ -127,6 +179,9 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
+  - `select_choice` unlocks `Actions::select_choice`: one stock selector from
+    the callback for a claim it owns. The SDK copies row text before opening;
+    the extension retains only its confirmation callback.
 
   Calls outside the callback, with a stale context, or a second write or
   popup in one callback are refused.

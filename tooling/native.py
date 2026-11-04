@@ -19,8 +19,9 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
-from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
-                       generate_player_object, generate_player_table, generate_registration,
+from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display,
+                       generate_extension_palette_stock, generate_fx_object, generate_player_object,
+                       generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_track_controls,
@@ -213,7 +214,8 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
+             'extension_runtime', 'extension_palette', 'extension_palette_stock', 'extension_system_stock',
+             'extension_system_hook', 'extension_collection', 'extension_stock', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
@@ -226,7 +228,8 @@ UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callba
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'sample_overview', 'sample_overview_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
 UNIT_SERVICES['keyboard_octaves'] = 'octaves'
-UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
+UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_palette', 'extension_palette_stock',
+                                   'extension_system_stock', 'extension_system_hook', 'extension_collection', 'extension_stock'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
@@ -453,6 +456,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
+            if step == 'extension_palette':
+                return cxx('sdk/platform/extension_palette.cpp', obj)
+            if step == 'extension_palette_stock':
+                return cxx(str(generate_extension_palette_stock(folder)), obj)
             if step == 'extension_collection':
                 return cxx(str(extensions.generate_collection(folder, extensions_of(machines))), obj)
             if step == 'screen_order':
