@@ -7,7 +7,7 @@ import {presetFiles, sha256} from './core.mjs';
 // Enable / Disable actions access MIDI. On a Mac with WebUSB, explicit
 // read/send actions copy files over USB and release the device afterwards.
 // Otherwise copying is manual. Flashing remains manual.
-export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirmware = async () => false, onPreviewExit = () => {}}) {
+export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirmware = async () => false, onPreviewExit = () => {}, onQuickExit = () => {}}) {
   const $ = id => document.getElementById(id);
   let purpose = null, stage = null, history = [], revision = 0;
   // Set when the OS-copy guide ends in file transfer mode, so the install guide
@@ -16,7 +16,7 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
   let computer = null, busy = false, versionChecked = false;  // versionChecked: the user confirmed OS 1.2.1
   let hostPage = 1;
   let formatting = false, recoveryReturn = 'source';
-  let previewMode = false, previousComputer = null;
+  let previewMode = false, previousComputer = null, quickMode = false;
   const previewStages = new Set(['boot', 'menu', 'open-dev-menu', 'start-transfer', 'close-field-kit',
     'transfer', 'exit-transfer', 'write-os', 'write-result', 'write-help', 'restart', 'mtp-help']);
   const sourcePreviewStages = new Set(['boot', 'menu', 'open-dev-menu', 'start-transfer', 'close-field-kit', 'transfer', 'missing-os', 'mtp-help']);
@@ -54,6 +54,12 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
   window.addEventListener('pagehide', () => { session.close(); release(); clearSourceBackup(); });
   const action = (label, next, id) => ({label, next, id});
   function content() {
+    if (quickMode && stage === 'transfer') return [
+      delivered ? 'Files verified on your OP–XY.' : busy ? 'Building and copying…' : 'Build and copy',
+      delivered ? 'Exit MTP (track 2), write OS (track 5), wait for “firmware written ok!”, then power-cycle.'
+        : 'Keep the XY in dev-menu MTP mode. Do not flash until every file is verified.',
+      busy || delivered ? [] : [action('Try copy again', null, 'mtp-send')],
+    ];
     const install = purpose === 'install', disabling = isDisabling(), recovering = purpose === 'recover', kit = getKit();
     const transfer = formatting ? 'format-drive' : computer ? 'open-dev-menu' : 'computer';
     const stillInTransfer = 'Your OP–XY should still be in file transfer mode from copying the OS file. If it isn’t, start from the beginning.';
@@ -148,6 +154,7 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
     if (!stage) return;
     const [title, detail, actions, instructions = []] = content();
     $('device-flow').dataset.stage = stage;
+    $('device-flow').dataset.quick = String(quickMode);
     $('device-flow').setAttribute('aria-busy', String(busy));
     const flowName = purpose === 'recover' ? (formatting ? 'Restore MTP connection' : 'Restore missing OS') : purpose === 'disable' ? 'Disable dev menu' : purpose === 'source' ? 'Copy OS' : 'Install on your OP–XY';
     $('flow-progress').textContent = previewMode ? flowName + ' preview' : flowName + ' · Step ' + (history.length + 1);
@@ -210,7 +217,7 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
     $('dev-cancel').textContent = purpose === 'source' && direct() ? 'Stop reading' : sending ? 'Stop sending' : 'Cancel connection';
     $('flow-back').hidden = !history.length || ['write-os', 'write-result', 'write-help', 'disabled', 'format-drive', 'format-upload'].includes(stage);
     $('flow-back').disabled = $('flow-exit').disabled = busy;
-    $('flow-exit').textContent = previewMode ? 'Back to builder' : hostPage === 1 ? 'Back to file choice' : 'Back to install choice';
+    $('flow-exit').textContent = quickMode ? 'Back to expert mode' : previewMode ? 'Back to builder' : hostPage === 1 ? 'Back to file choice' : 'Back to install choice';
     $('flow-download').hidden = previewMode || hostPage !== 4 || !hasDownload() || sendsDirectly();
     $('connection-help').hidden = !['enable', 'menu-help', 'missing-os', 'restart', 'disabled'].includes(stage);
     if (['enable', 'menu-help', 'missing-os', 'restart', 'disabled'].includes(stage) && !supported()) status('MIDI access is unavailable in this browser. Use Connection help below.', true);
@@ -227,7 +234,7 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
     stage = next; status(); render(true);
   }
   function begin(nextPurpose, page = nextPurpose === 'install' ? 4 : 1, preview = null) {
-    exit(false); purpose = nextPurpose; hostPage = page; manual = false; formatting = false; recoveryReturn = 'source';
+    exit(false); quickMode = false; purpose = nextPurpose; hostPage = page; manual = false; formatting = false; recoveryReturn = 'source';
     previousComputer = computer;
     previewMode = !!preview;
     if (preview) { computer = preview.computer; manual = downloaded = false; }
@@ -241,7 +248,8 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
     advance(preview?.stage ?? (!resumed ? 'boot' : sendsDirectly() && !sourceReadDirectly ? 'close-field-kit' : 'transfer'));
   }
   function exit(focus = true) {
-    const previous = purpose, wasPreview = previewMode;
+    const previous = purpose, wasPreview = previewMode, wasQuick = quickMode;
+    quickMode = false;
     previewMode = false;
     if (wasPreview) computer = previousComputer;
     revision++; stage = purpose = null; history = [];
@@ -252,6 +260,7 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
       $('source-start').hidden = !computer; $('computer-choice').hidden = !!computer || !versionChecked;
       $('os-version').hidden = !!computer || versionChecked;
     }
+    if (focus && wasQuick) { onQuickExit(); return; }
     if (focus && wasPreview) { onPreviewExit(); return; }
     if (focus && previous) {
       $(hostPage === 1 ? 'source-title' : 'download-title').focus();
@@ -334,17 +343,19 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
   const order = path => path === 'os.ldr' ? 2 : path.startsWith('content/') ? 0 : 1;
   // The chooser needs the click's user activation, so request before any await.
   // The device is open only while sending, so other apps can use it in between.
-  async function sendBuild() {
+  async function sendBuild(prepare) {
     if (previewMode || busy || !direct()) return;
-    const files = Object.entries(getFiles() ?? {}).sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b));
-    const total = files.reduce((n, [, bytes]) => n + bytes.length, 0);
-    if (!files.length) return status('This build is no longer available. Build it again, then send it.', true);
     const ticket = revision, request = mtp ? Promise.resolve(mtp) : Mtp.Device.request();
     busy = true; log = []; render(); status(mtp ? '' : 'Choose your OP–XY when your browser asks…');
     let device;
     try {
       device = mtp = await request;
       if (ticket !== revision) return;
+      if (prepare && !await prepare()) throw new Error('Build failed. Return to expert mode and check your configuration.');
+      if (ticket !== revision) return;
+      const files = Object.entries(getFiles() ?? {}).sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b));
+      const total = files.reduce((n, [, bytes]) => n + bytes.length, 0);
+      if (!files.length) throw new Error('This build is no longer available. Build it again, then send it.');
       status(); note('Connecting to your OP–XY…');
       await closing;
       await device.open();
@@ -365,8 +376,13 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
           },
         });
         if (ticket !== revision) return;
+        note('Verifying ' + path + '…');
+        const readback = await device.read(path, {maxBytes: Math.max(1, bytes.length)});
+        if (ticket !== revision) return;
+        if (await sha256(readback) !== await sha256(bytes)) throw new Error('Readback mismatch: ' + path + '. Do not flash this copy.');
+        if (ticket !== revision) return;
         before += bytes.length;
-        note(`${replaced ? 'Replaced' : 'Added'} ${path} · ${size(bytes.length)}`, 'done');
+        note(`${replaced ? 'Replaced' : 'Added'} ${path} · ${size(bytes.length)} · verified`, 'done');
       }
       delivered = true;
       note(`Done · ${files.length} files, ${size(total)} in ${((performance.now() - started) / 1000).toFixed(1)} s`, 'done');
@@ -520,6 +536,12 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
   return {
     clearSourceBackup,
     setFirmwareState,
+    supportsQuickInstall: () => Mtp.supported(),
+    quickInstall(prepare) {
+      if (busy || previewMode || !Mtp.supported()) return;
+      computer = 'mac'; begin('install'); quickMode = true; history = []; advance('transfer');
+      return sendBuild(prepare);
+    },
     previewLink(hash) {
       const match = /^#preview\/(source\/)?(mac|windows)\/([a-z-]+)$/.exec(hash);
       if (busy || !match || !(match[1] ? sourcePreviewStages : previewStages).has(match[3])) return false;
