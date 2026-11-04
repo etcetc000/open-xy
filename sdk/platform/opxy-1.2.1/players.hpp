@@ -44,6 +44,8 @@ void player_release(void* object, u32 note);
 void player_step(void* object);
 // Stock reset or all-notes-off: no key is held any more.
 void player_reset(void* object);
+// Whether a key the player took is still down.
+bool player_holds(void* object);
 // GUI snapshot of notes stock has emitted and still holds.
 void player_output(void* object, opxy::player::Display& display);
 // Stock Maestro methods a player keeps.
@@ -51,6 +53,7 @@ const u32 kMaestroVtable = 0x8409f6d0;
 const u32 kMaestroRelease = 0x8d57d744;  // +0x18 (object, note)
 const u32 kMaestroReset = 0x8d57d9a2;    // +0x1c (object)
 const u32 kMaestroAllOff = 0x8d57d414;   // +0x28 (object)
+const u32 kMaestroActive = 0x8d57d464;   // +0x2c (object): holds chord records
 const u32 kMaestroStep = 0x8d57d8cc;     // +0x34 (object), sequencer role
 }}
 

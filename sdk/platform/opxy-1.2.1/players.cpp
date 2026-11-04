@@ -144,6 +144,11 @@ void player_reset(void* object) {
     for (u32 i = 0; i < 4; ++i) runtime(object).held[i] = 0;
 }
 
+bool player_holds(void* object) {
+    const volatile Runtime& r = runtime(object);
+    return (r.held[0] | r.held[1] | r.held[2] | r.held[3]) != 0;
+}
+
 void player_output(void* object, opxy::player::Display& display) {
     const u32 held = *reinterpret_cast<const volatile u32*>(bytes(object) + kHeld);
     player_activity(reinterpret_cast<const volatile PlayerChord*>(bytes(object) + kRecords), held, display.played);

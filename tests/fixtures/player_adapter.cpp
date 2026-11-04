@@ -16,7 +16,8 @@ void stock_reset(void*) {}
 const void* stock_address(opxy::u32 address) {
     using namespace opxy::platform;
     if (address == kMaestroRelease) return reinterpret_cast<const void*>(&stock_release);
-    require(address == kMaestroReset || address == kMaestroAllOff || address == kMaestroStep);
+    require(address == kMaestroReset || address == kMaestroAllOff || address == kMaestroStep ||
+            address == kMaestroActive);
     return reinterpret_cast<const void*>(&stock_reset);
 }
 namespace opxy { namespace platform {
@@ -27,6 +28,7 @@ void update_plan(void*, const player::Update&) { require(false); }
 void player_release(void*, u32 note) { up = note; ++ups; }
 void player_step(void*) {}
 void player_reset(void*) {}
+bool player_holds(void*) { return false; }
 }}
 extern "C" const char probeplayer_player_id[] = "";
 

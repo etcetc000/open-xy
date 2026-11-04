@@ -1036,7 +1036,8 @@ saw. `Controls.transport` holds the sequencer's tempo (`bpm_x10`, 0 when
 unknown) and song position (`ticks96`, 96 per quarter note, moving only while
 `playing`). A generator:
 
-- takes the key in `press`, with the first note or an empty plan;
+- takes the key in `press`, with the first note or an empty plan (stock steps
+  the player for as long as a key it took is down, sounding or not);
 - in `update`, when `steps` differs from the count it kept, keeps the new
   count and works out which held roots change on this step; then, call by
   call within the same drain, returns one `Replace` per changing root, a

@@ -67,6 +67,15 @@ static void all_off(void* object) {
     opxy::platform::player_reset(object);
     clear_state(state(object), 0);
 }
+// +0x2c: stock's player clock steps an object only while this answers nonzero,
+// and Maestro answers whether it holds chord records. A key the player took
+// keeps the steps coming too, so a generator that took a key silently, or is
+// resting after an empty Replace, still reaches its next step. Stock's step
+// returns at once when there are no records.
+static u32 active(void* object) {
+    return opxy::platform::stock<u32(void*)>(opxy::platform::kMaestroActive)(object) ||
+           opxy::platform::player_holds(object);
+}
 // Run control-driven edits on the same role as note input and stock stepping,
 // before sounding the next tones. The GUI never edits chord records or State.
 // The step count moves first, so this step's updates see it.
@@ -75,14 +84,15 @@ static void step_player(void* object) {
     apply_updates(object);
     opxy::platform::stock<void(void*)>(opxy::platform::kMaestroStep)(object);
 }
-// Stock Maestro's method table with type, mode, note-on and note-off replaced.
+// Stock Maestro's method table with type, mode, note-on, note-off, reset,
+// all-notes-off, the activity query and step replaced.
 const void* const @PREFIX@_player_vtable[16] = {
     reinterpret_cast<const void*>(0x8d57d7b4), reinterpret_cast<const void*>(0x8d57d834),
     reinterpret_cast<const void*>(&type), reinterpret_cast<const void*>(&routing_mode),
     reinterpret_cast<const void*>(0x8d57d3d8), reinterpret_cast<const void*>(&press),
     reinterpret_cast<const void*>(&release), reinterpret_cast<const void*>(&reset_player),
     reinterpret_cast<const void*>(0x8d57d408), reinterpret_cast<const void*>(0x8d57d3e4),
-    reinterpret_cast<const void*>(&all_off), reinterpret_cast<const void*>(0x8d57d464),
+    reinterpret_cast<const void*>(&all_off), reinterpret_cast<const void*>(&active),
     reinterpret_cast<const void*>(0x8d57d3fc), reinterpret_cast<const void*>(&step_player),
     reinterpret_cast<const void*>(0x8d57d3cc), reinterpret_cast<const void*>(0x8d57d3c0)
 };

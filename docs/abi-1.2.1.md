@@ -944,8 +944,13 @@ factory construction, the project-load type guard, two controller lookups,
 enum editing, and type/name conversion. The authenticated preimages and destinations are
 in the profile. The factory delegates stock types unchanged. An owned type
 uses a stock Maestro object with its type, routing mode, note-on, note-off,
-reset, all-notes-off and step methods replaced; the other nine method pointers are checked against authenticated
+reset, all-notes-off, activity and step methods replaced; the other eight method pointers are checked against authenticated
 stock OS 1.2.1 during release verification.
+Stock's player clock (`8d57e9fc`) asks the activity query (`+0x2c`) first and
+steps (`+0x34`) only while it answers nonzero. Maestro's query (`8d57d464`)
+answers whether it holds chord records; the SDK's also answers nonzero while a
+key the player took is down, so a player that took a key silently or rests
+still steps. Maestro's step returns at once when it holds no records.
 Reset and all-notes-off call their authenticated stock methods before clearing
 machine-held state through its optional reset callback.
 The routing-mode query returns zero, so machine controls cannot enable

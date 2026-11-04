@@ -62,6 +62,7 @@ int main() {
     player::Controls c=platform::player_controls(object);
     require(c.steps==0 && c.value[0]==1 && c.value[3]==4 && c.lowest_key==platform::kLowestKey);
     require(c.transport.bpm_x10==1200 && c.transport.ticks96==960 && c.transport.playing);
+    require(!platform::player_holds(object));
     for (u32 n=0;n<128;++n) platform::update_plan(object,change(n,player::Add,1,60));
     require(held()==0);
 
@@ -75,7 +76,7 @@ int main() {
 
     // A press taken silently holds its key: a later update may sound it.
     platform::play_plan(object,48,change(48,player::Replace,0,0).plan);
-    require(held()==0 && offs==0);
+    require(held()==0 && offs==0 && platform::player_holds(object));
     platform::update_plan(object,change(48,player::Add,1,55));
     require(sounding(48)==1 && offs==0);
     // An empty Replace silences the root and keeps its key; a rest, not an end.
@@ -88,6 +89,7 @@ int main() {
 
     // Once the key is up nothing starts it again, as before.
     release(object,48); platform::player_release(object,48);
+    require(!platform::player_holds(object));
     const u32 after=offs;
     platform::update_plan(object,change(48,player::Replace,1,60));
     platform::update_plan(object,change(48,player::Add,1,60));
@@ -97,7 +99,9 @@ int main() {
     platform::play_plan(object,50,change(50,player::Replace,0,0).plan);
     platform::play_plan(object,52,change(52,player::Replace,1,52).plan);
     require(sounding(52)==1);
+    require(platform::player_holds(object));
     platform::player_reset(object);
+    require(!platform::player_holds(object));
     platform::update_plan(object,change(50,player::Add,1,62));
     require(sounding(50)==0);
     // A sounding record still takes changes until stock releases it.
@@ -118,5 +122,8 @@ int main() {
     // Keys outside MIDI are never held.
     platform::play_plan(object,200,change(200,player::Replace,0,0).plan);
     platform::player_release(object,200);
+    require(platform::player_holds(object));  // 70..79 are still down
+    for (u32 n=70;n<80;++n) platform::player_release(object,n);
+    require(!platform::player_holds(object));
     std::puts("player steps, transport and held silent roots follow the bridge contract");
 }
