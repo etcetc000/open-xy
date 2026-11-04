@@ -1422,7 +1422,24 @@
       "id": "stratus",
       "kind": "effect",
       "maintainer": "carlosedp",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/carlosedp/open-xy-eurorack",
+      "tag": "v1.3.0",
+      "commit": "7304120dd1315bbde377dc8d8c80294f1d25886d",
+      "path": "machines/stratus",
+      "keywords": [
+        "granular",
+        "reverb",
+        "emulation"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "7304120dd1315bbde377dc8d8c80294f1d25886d",
+        "firmware_sha256": "ba25b31fd976d174f5b2067488e8e1fa261b406358ef51666c93843ec04ce517",
+        "runs": 1,
+        "block_percent": 5.654994,
+        "peak_percent": 8.755627
+      }
     },
     {
       "id": "halcyon",
