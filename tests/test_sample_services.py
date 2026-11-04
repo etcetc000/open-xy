@@ -36,20 +36,27 @@ class SampleServices(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves', 'sample_slice_clock'):
                 probe = replace(fixture('probesample'), id='probe', identity=dict(engine=46, page=7))
                 if name == 'sample_callbacks':
+                    probe = replace(probe, definition=dict(probe.definition,
+                        resources=dict(probe.definition['resources'], sliceTiming=1)))
                     # A page-2 engine with no services beside it: it plays like the sampler.
                     plain = fixture('probesample')
                     sampler = replace(plain, id='sampler', identity=dict(engine=47, page=2),
                                       definition=dict(plain.definition, resources=dict(voiceCapacity=256)))
                     generate_sample_callbacks(folder, [probe, sampler])
-                elif name == 'drum_controls':
-                    source = ROOT / 'sdk/platform/opxy-1.2.1/drum_controls_stock.cpp'
+                elif name in ('drum_controls', 'sample_slice_clock'):
+                    source = ROOT / 'sdk/platform/opxy-1.2.1' / (
+                        'drum_controls_stock.cpp' if name == 'drum_controls' else 'sample_slice_clock.cpp')
                     (Path(folder) / source.name).write_text(source.read_text())
+                    shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
+                elif name == 'keyboard_octaves':
+                    shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
                 elif name == 'benchmark':
                     from tooling.benchmark import generate
                     generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves', 'sample_slice_clock', 'startup', 'sample_overview'):
                 # Exercise the real tempo readers and assignment bridge with
                 # host addresses standing in for stock functions and globals.
                 stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
@@ -59,6 +66,9 @@ class SampleServices(unittest.TestCase):
                     stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                           'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
                 (Path(folder) / 'stock.hpp').write_text(stock)
+                if name == 'sample_overview':   # beside the host stock.hpp, which its quoted include then finds
+                    (Path(folder) / 'sample_overview.cpp').write_text(
+                        (ROOT / 'sdk/platform/opxy-1.2.1/sample_overview.cpp').read_text())
                 if name == 'presets':  # beside the host stock.hpp, so their includes reach it
                     for unit in ('presets.cpp', 'registration.hpp'):
                         shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1' / unit, Path(folder) / unit)
@@ -69,10 +79,15 @@ class SampleServices(unittest.TestCase):
                 # can resolve to a host boundary double instead of a 32-bit ABI.
                 (Path(folder) / 'screen_drawing.hpp').write_bytes(
                     (ROOT / 'sdk/platform/opxy-1.2.1/screen_drawing.hpp').read_bytes())
+                (Path(folder) / 'retained_drawing.hpp').write_bytes(
+                    (ROOT / 'sdk/platform/opxy-1.2.1/retained_drawing.hpp').read_bytes())
                 (Path(folder) / 'screen.hpp').write_bytes(
                     (ROOT / 'tests/fixtures/screen_drawing_host.hpp').read_bytes())
+                (Path(folder) / 'amp_envelope.hpp').write_bytes(
+                    (ROOT / 'tests/fixtures/amp_envelope_host.hpp').read_bytes())
             if name == 'startup':
-                generate_startup(folder, ['first', 'second', 'sampled'], ['effect'], ['sampled'])
+                generate_startup(folder, ['first', 'second', 'sampled', 'drawn'], ['effect'], ['sampled', 'drawn'], ['drawn'],
+                                 effect_screens=['effect'], player_pages=['player'], control=True)
             # A fixture that includes barrier.hpp supplies host_barrier for the Blackfin SSYNC.
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-D__builtin_bfin_ssync()=host_barrier()',
                        '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'),
@@ -86,11 +101,23 @@ class SampleServices(unittest.TestCase):
     def test_cache_lifetime_capacity_and_browser_deferral(self):
         self.run_fixture('sample_cache')
 
+    def test_keyboard_effective_octave_and_gui_refresh(self):
+        self.run_fixture('keyboard_octaves')
+
     def test_progress_never_takes_over_another_notification(self):
         self.run_fixture('sample_progress')
 
     def test_saved_settings_tuning_and_trim_bounds(self):
         self.run_fixture("stock_sample")
+
+    def test_drum_registration_preserves_stock_and_rejects_conflicts(self):
+        self.run_fixture('drum_machines', ('sdk/platform/opxy-1.2.1/drum_machines.cpp',))
+
+    def test_drum_controls_survive_stock_preset_integer_roundtrip(self):
+        self.run_fixture('drum_storage')
+
+    def test_overview_is_read_by_the_worker_and_follows_the_sample(self):
+        self.run_fixture('sample_overview')
 
     def test_preset_scan_hides_factory_presets_of_engines_not_installed(self):
         self.run_fixture('presets')
@@ -100,6 +127,12 @@ class SampleServices(unittest.TestCase):
 
     def test_pad_shortcuts_clipboard_and_multi_edit(self):
         self.run_fixture('drum_controls', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
+
+    def test_slicer_source_preview_matches_timestamp_rate_and_frozen_bounds(self):
+        self.run_fixture('sample_preview')
+
+    def test_slicer_clock_uses_frozen_gui_controls_and_machine_rate(self):
+        self.run_fixture('sample_slice_clock', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
 
     def test_owned_primary_screen_precedes_stock_overlays(self):
         self.run_fixture('screen_order')

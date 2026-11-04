@@ -6,11 +6,11 @@ on:
   pull_request:
     # Adding or removing the controls-changed or cpu-carried label runs the check again.
     types: [opened, synchronize, reopened, labeled, unlabeled]
-    paths: ['catalog/**', 'sdk/**', 'tooling/**', 'linker/**', 'profiles/**', 'sdk.py',
+    paths: ['catalog/**', 'sdk/**', 'tooling/**', 'linker/**', 'profiles/**', 'builder/**', 'sdk.py',
             '.github/workflows/catalog.yml']
   push:
     branches: [main, staging]
-    paths: ['catalog/**', 'sdk/**', 'tooling/**', 'linker/**', 'profiles/**', 'sdk.py']
+    paths: ['catalog/**', 'sdk/**', 'tooling/**', 'linker/**', 'profiles/**', 'builder/**', 'sdk.py']
   workflow_dispatch:
 permissions:
   contents: read
@@ -34,9 +34,21 @@ jobs:
       - name: Preview and host test tools
         timeout-minutes: 5
         run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y clang lld
+          # The runner image may already carry Clang and wasm-ld.
+          if ! command -v clang++ >/dev/null || ! command -v wasm-ld >/dev/null; then
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y clang lld
+          fi
+          clang++ --version | head -1
           python -m pip install numpy==2.3.5
+      - name: Restore fetched machines
+        # Each machine is kept by ID and commit; fetching reuses a folder only at its pinned
+        # commit with nothing changed, and fetches it again otherwise.
+        uses: actions/cache/restore@v4
+        with:
+          path: local/catalog
+          key: catalog-${{ runner.os }}-${{ hashFiles('catalog/*.json') }}
+          restore-keys: catalog-${{ runner.os }}-
       - name: A machine or extension submission changes only the catalog
         # Machines and extensions live in their own repositories: a pull request from a
         # fork that touches the catalog may change nothing else. SDK changes are their own PR.
@@ -54,18 +66,39 @@ jobs:
           fi
       - name: Catalog entries
         env:
-          # A release (staging -> main, ci.yml) repeats no review: every entry was checked
-          # against staging when it merged there, so it compares with staging itself.
-          BASE: ${{ (github.base_ref == 'main' && github.head_ref == 'staging' && github.event.pull_request.head.repo.full_name == github.repository) && 'staging' || github.base_ref }}
+          # A pull request runs on its merge commit, whose first parent is the target branch as
+          # merged: a re-run compares with that, not with a target that has moved on since.
+          # A release (staging or release/<version> -> main, ci.yml) repeats no review: every
+          # entry was checked against staging when it merged there, so it compares with the
+          # release's own branch.
+          BASE: ${{ (github.base_ref == 'main' && (github.head_ref == 'staging' || startsWith(github.head_ref, 'release/')) && github.event.pull_request.head.repo.full_name == github.repository) && format('origin/{0}', github.head_ref) || (github.event_name == 'pull_request' && 'HEAD^1' || '') }}
           CONTROLS: ${{ contains(github.event.pull_request.labels.*.name, 'controls-changed') && '--allow-control-changes' || '' }}
           CPU: ${{ contains(github.event.pull_request.labels.*.name, 'cpu-carried') && '--allow-carried-cpu' || '' }}
         shell: bash
         # A pull request keeps every machine's ID and kind from its target branch, and a moved
         # release keeps its controls unless a catalog maintainer labels it controls-changed, and
         # is remeasured unless one labels it cpu-carried.
-        run: python sdk.py catalog check ${BASE:+--base origin/$BASE} $CONTROLS $CPU
-      - name: Fetch the pinned machines, confirming their tags, and check them
-        run: python sdk.py catalog test --tags --cxx clang++ --host-cxx g++
+        run: python sdk.py catalog check ${BASE:+--base $BASE} $CONTROLS $CPU
+      - name: Fetch the pinned machines, confirming their tags
+        run: python sdk.py catalog fetch --tags --prune
+      - name: Save fetched machines
+        uses: actions/cache/save@v4
+        with:
+          path: local/catalog
+          key: catalog-${{ runner.os }}-${{ hashFiles('catalog/*.json') }}
+        continue-on-error: true  # the same catalog already saved by another run
+      - name: Check the machines
+        env:
+          PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        # A pull request that changes only the catalog tests only the entries it changes: the
+        # others passed against this same SDK. Any other change tests every entry.
+        run: |
+          changed=()
+          if [ "$PULL_REQUEST" = true ] && ! git diff --name-only HEAD^1 HEAD | grep -vqxE 'catalog/(machines|extensions)\.json'; then
+            changed=(--changed-from HEAD^1)
+          fi
+          python sdk.py catalog test --cxx clang++ --host-cxx g++ --jobs 4 --no-cpu "${changed[@]}"
   firmware:
     # The pinned Blackfin tools run on Windows x86_64 and macOS arm64.
     runs-on: windows-latest
@@ -75,9 +108,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Restore the pinned Blackfin tools
+        # Fetching checks an installed toolchain against its pins and refuses a mismatch.
+        uses: actions/cache@v4
+        with:
+          path: local/toolchain
+          key: toolchain-${{ runner.os }}-${{ hashFiles('profiles/toolchains.json') }}
       - name: Pinned Blackfin tools
         run: python sdk.py toolchain fetch
+      - name: Restore fetched machines
+        uses: actions/cache/restore@v4
+        with:
+          path: local/catalog
+          key: catalog-${{ runner.os }}-${{ hashFiles('catalog/*.json') }}
+          restore-keys: catalog-${{ runner.os }}-
       - name: Fetch the pinned machines
-        run: python sdk.py catalog fetch
+        run: python sdk.py catalog fetch --prune
+      - name: Save fetched machines
+        uses: actions/cache/save@v4
+        with:
+          path: local/catalog
+          key: catalog-${{ runner.os }}-${{ hashFiles('catalog/*.json') }}
+        continue-on-error: true  # the same catalog already saved by another run
       - name: Firmware compile with every bundled and published machine
         run: python sdk.py compile --collection local/catalog/collection.json --out ${{ runner.temp }}/module

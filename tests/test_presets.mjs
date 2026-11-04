@@ -19,9 +19,9 @@ const numbers = {probefx: {effect: 6, page: 21}};
 
 async function fixture(selectedMachines = machines) {
   // Authored menu fixture with its own insertion points; no captured firmware or factory content.
-  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ]}';
+  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ],"seq_types":[{"type":"maestro"}\n    ]}';
   const catalog = new TextEncoder().encode(text);
-  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.lastIndexOf('\n    ]')};
+  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.indexOf('\n    ]', text.indexOf('fx_types')), seq_types: text.lastIndexOf('\n    ]')};
   return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts}}, catalog};
 }
 
@@ -77,6 +77,14 @@ test("a machine's own presets install beside its init preset, unchanged", async 
   assert.deepEqual(authored, {'content/presets/probesynth/default.json': own({octave: 1})});
 });
 
+// Placeholder pending #234, which defines trackControl's real shape.
+test('an aux track-control machine keeps no instrument preset folder', () => {
+  // An aux machine has no catalog entry (tooling.browser_kit); its presets are aux presets.
+  const aux = {...machines[0], catalog: ''};
+  assert.equal(presetPath(aux), null);
+  assert.deepEqual(presetFiles(aux), {});
+});
+
 test("a machine's own presets are checked again before they reach a device", async () => {
   for (const presets of [{default: own({type: 'x'})}, {'../x': own()}, {'Warm Pad': own()}, {a: own({type: 'fm2op'})},
     {a: own({version: 3})}, {a: own({platform: 'OP-1'})}, {a: own({regions: [{sample: 'kick.wav'}]})},
@@ -97,4 +105,26 @@ test('preset generation rejects unsafe paths, foreign kinds and invalid engine p
   }
   const {kit,catalog}=await fixture([{id:'example',kind:'synth',catalog:',{"type":"../bad","default_params":[0,0,0,0,0,0,0,0]}'}]);
   await assert.rejects(buildAssets(kit,['example'],catalog,numbers),/preset engine or defaults/);
+});
+
+test("an aux machine's presets install as files, with the init of the role it replaces", () => {
+  const preset = type => JSON.stringify({params: Array(8).fill(0), platform: 'OP-XY', type, version: 1});
+  const auxPresets = {'content/aux_presets/cv/init.json': JSON.stringify({platform: 'OP-XY', type: 'cv', version: 1}),
+    'content/aux_presets/morph/soft.json': preset('morph')};
+  assert.deepEqual(Object.keys(presetFiles({id: 'morph', catalog: '', auxPresets})).sort(), Object.keys(auxPresets).sort());
+  for (const [path, type] of [['content/aux_presets/cv/init.json', 'morph'], ['content/aux_presets/morph/a.json', 'cv'],
+    ['content/aux_presets/brain/init.json', 'brain'], ['content/aux_presets/other/a.json', 'other'],
+    ['content/aux_presets/morph/../a.json', 'morph']])
+    assert.throws(() => presetFiles({id: 'morph', catalog: '', auxPresets: {[path]: preset(type)}}), /Invalid aux preset/);
+});
+
+test('a build refuses more aux presets than the OP-XY lists', async () => {
+  const preset = type => JSON.stringify({params: Array(8).fill(0), platform: 'OP-XY', type, version: 1});
+  const auxPresets = n => Object.fromEntries([['content/aux_presets/cv/init.json',
+    JSON.stringify({platform: 'OP-XY', type: 'cv', version: 1})],
+    ...Array.from({length: n}, (_, i) => [`content/aux_presets/probesynth/p${i}.json`, preset('probesynth')])]);
+  const ok = await fixture([{...machines[0], catalog: '', auxPresets: auxPresets(63)}]);
+  await buildAssets(ok.kit, ['probesynth'], ok.catalog, numbers);
+  const over = await fixture([{...machines[0], catalog: '', auxPresets: auxPresets(64)}]);
+  await assert.rejects(buildAssets(over.kit, ['probesynth'], over.catalog, numbers), /OP-XY lists 64/);
 });

@@ -56,7 +56,9 @@ is the reference for each of them.
   what is played most, page 2 the rest. A press of any encoder switches all
   four, so a press means the same thing everywhere. If a position has no
   alternate, repeat its first-page control in the second row; both edit the
-  same saved parameter. Do not add filler parameters to reach eight.
+  same saved parameter. Do not add filler parameters to reach eight. A drum
+  kit's eight controls page the same way, always: a press switches the row
+  between the key's first four controls and its last four.
 - **Use the shared header.** New synths with five to eight controls use
   [`opxy/page_header.hpp`](display.md#two-page-header), already wired up by
   `sdk.py new` when `--controls` is 5, 6, 7 or 8. Choose the actual parameter
@@ -85,6 +87,25 @@ is the reference for each of them.
   and values at 35.4 px. Keep the rest of the artwork below about 38 px.
 - **Author text at its resting size.** Scaling a text slot is decoration for
   a moment of motion: a layout must read correctly at unit scale.
+
+## Aux tracks
+
+A machine that [takes over an aux track](api.md#aux-tracks) is chosen and
+played there as an engine is on tracks 1-8, so the same keys mean the same
+things everywhere.
+
+- **Shift + M1 chooses what runs on the track**, as it chooses the engine on
+  tracks 1-8; on the send tracks it opens their effect list.
+- **Shift + track key opens presets**, in two columns as on tracks 1-8:
+  folders, then presets. Ship a preset named `init` with the machine's
+  defaults; the builders add one for the stock role, so it stays listed.
+- **The replacement owns its interface.** M1 returns to its page; M2/M3
+  are its actions, without inherited stock pages to hide. Leave an unused
+  action inactive. Enable `trackControl.sharedLfo` explicitly to use the
+  shared M4 LFO page; otherwise M4 is another machine action.
+- **Mute is the bypass.** Muting the machine's track (aux + track key, or the
+  mixer) switches its effect off, as it does stock's brain; show it on the
+  page (`Input.muted`) rather than adding a bypass of your own.
 
 ## Motion
 
@@ -147,6 +168,65 @@ Before a [catalog submission](catalog.md#submit-a-machine), check:
   settings.
 - CPU from the [hardware readout](profiling.md), for the tagged commit.
 - Presets checked by ear, and [clean defaults](#controls).
+
+## Color design guidance
+
+These are optional suggestions for authors who want colorful machines. Adapt
+the palette and visual identity to the user's intent. Palette size, visual
+metaphors and contrast targets here are design advice, with no new validation
+or catalog acceptance criteria. The control conventions above and the
+[SVG contract](display.md#artwork) still apply.
+
+The [OP-1 reference](https://teenage.engineering/guides/op-1/original/reference)
+offers examples of distinctive engine visuals with recurring control colors.
+Its [layout guide](https://teenage.engineering/guides/op-1/original/layout)
+connects colored graphics to the corresponding encoders. For OP-XY, consider
+that relationship between controls and artwork while retaining its grayscale
+encoders, established header and positional conventions.
+
+- **Give color a role.** A starting palette of two to four accent hues often
+  works well for oscillators, parameter groups or signal paths. More colors
+  can be useful when they convey additional information. Consider sketching a
+  small role table: role, color, intended gray tone and another identifying cue.
+- **Keep roles consistent.** The same oscillator or parameter group can keep
+  its hue across pages, presets and animation states. Names and placement help
+  connect the graphic to its encoder. Brightness, outlines or markers can show
+  activity and selection while preserving the role's identity; follow the
+  existing [motion conventions](#motion).
+- **Keep the frame quiet.** Consider pure black backgrounds, neutral readable
+  labels and subdued guides, with accents concentrated on meaningful graphics.
+  This also keeps decorative tints from consuming the automatic converter's
+  hue-separation budget. Preserve existing black backgrounds when designing a
+  grayscale counterpart.
+- **Choose a useful visual metaphor.** Connected nodes can explain routing,
+  curves can explain waveform shaping, and boundaries can explain sample
+  regions. Original artwork can give each machine its own character while
+  helping the musician understand what changes when a control moves.
+- **Plan grayscale alongside color.** Aim to preserve distinctions carried by
+  hue before matching the source's brightness. Different hues with similar
+  luminance may need deliberately different gray tones. Labels, shapes,
+  spatial groups and outlines can reinforce those distinctions. A black gap
+  around a selection outline can keep it visible beside bright fills.
+- **Budget tones for the complete palette.** Count distinct hues and meaningful
+  shades throughout the SVG and every animation palette, including off-screen
+  donors; repeated colors and aliases do not need extra tones. With few roles,
+  consider widely separated grays across the usable range. Reserve within-role
+  shading for information it actually conveys. Dense palettes may benefit from
+  fewer redundant shades or additional labels and shapes.
+- **Review the rendered result.** Compare color and grayscale at the native
+  480 × 220 size, including control extremes, notes and releases, page changes,
+  selection and reduced motion. Check the closest tones against one another
+  and their actual neighboring backgrounds. Useful review targets are at least
+  [4.5:1 for small text](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)
+  and [3:1 for essential graphical marks](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html).
+  These are practical targets borrowed from web accessibility guidance; visual
+  review on the device remains useful, especially for thin strokes and small
+  labels.
+- **Review again when the palette changes.** Adding a color or animation donor
+  can change the automatic tonal allocation. Consider offering a
+  [developer-authored grayscale SVG](display.md#grayscale-artwork) when more
+  control is useful. Review that version when supplied, or the automatic
+  fallback otherwise, while keeping the same sound and controls in both modes.
 
 ## Saved sounds
 

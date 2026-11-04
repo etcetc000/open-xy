@@ -9,7 +9,7 @@ machines; it holds no machines itself. Every machine lives in a repository of
 its own. Open-XY's own machines are in
 [open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines): synths 2op FM, Macro Osc (a port of Mutable
 Instruments Braids) and Karplus, the Timestretch sample engine, and the Ring
-Mod and Ping Pong send effects. Read them as examples.
+Mod and Ping Pong send effects, and the Chords note player. Read them as examples.
 
 [Open-XY](docs/builder.md), the browser builder at open-xy.com, lets OP-XY
 owners pick from the catalog's machines and download firmware made from their
@@ -17,7 +17,7 @@ own stock `os.ldr`, without installing anything.
 
 **Contributing? Start feature branches from `staging` and open pull requests
 against `staging`.** It is the development branch; `main` receives reviewed
-releases from `staging`, and machine submissions (catalog-only PRs) go to `main`. See the [contributor workflow](CONTRIBUTING.md#branch-workflow).
+releases from `staging` or a `release/<version>` branch cut from it, and machine submissions (catalog-only PRs) go to `main`. See the [contributor workflow](CONTRIBUTING.md#branch-workflow).
 
 With Retrospective capture enabled, firmware keeps a live-note ghost pattern for
 the selected instrument track. Double-tap Record to insert the performance at

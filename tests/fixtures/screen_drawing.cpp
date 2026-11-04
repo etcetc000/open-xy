@@ -7,7 +7,9 @@
 static opxy::u32 token = 1;
 opxy::u32 sdk_screen_activation(opxy::u32 page, opxy::u32) { return page == 84 ? token : 0; }
 void sdk_display_note_activity(opxy::u32, opxy::draw::Input*) {}
-struct Machine { static const char* const ids[2]; };
+void sdk_note_pitches(opxy::u32, opxy::u8*, opxy::u8*) {}
+void sdk_sample_overview_update(opxy::u32) {}
+struct Machine { static const bool sample = false; static const char* const ids[2]; };
 const char* const Machine::ids[2] = {"node", "palette"};
 
 int main() {
@@ -20,6 +22,8 @@ int main() {
     Renderer::animate(&object, controls);
     require(binding::resets == 1 && binding::renders == 1 && object.keys[0] == 0);
     require(screen::display_state.ticks == 1);
+    // The selected track's amp envelope reaches the drawing input.
+    require(screen::display_input.amp.attack == 1 && screen::display_input.amp.release == 4);
     // Same page/track must preserve state and the applied geometry key.
     object.keys[0] = 77;
     Renderer::animate(&object, controls);

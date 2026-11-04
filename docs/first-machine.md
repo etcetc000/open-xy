@@ -51,8 +51,8 @@ must differ from every [catalog](catalog.md) machine's.
 the shared two-page header. Unused second-page columns repeat first-page
 controls with one saved value. `--kind effect` starts a four-control send effect instead
 (effects have no browser preview). Every starter has a sound check in
-`tests/sound.cpp`. `--repository` also writes README.md, AGENTS.md, LICENSE,
-.gitignore and a GitHub Actions workflow beside the machine. It creates files without running
+`tests/sound.cpp`. `--repository` also writes README.md, AGENTS.md, a device
+checklist (QA.md), LICENSE, .gitignore and a GitHub Actions workflow beside the machine. It creates files without running
 `git init`, committing or contacting GitHub. Initialize Git in that folder when
 ready. Omit the flag to create just a machine folder in an existing repository.
 The workflow checks the root-level machine against SDK `staging`; pin a compatible
@@ -122,6 +122,7 @@ does not change your machine.
 | `core.h`, `engine.cpp` | `Voice` and `Shared` state, lifecycle callbacks and the 64-sample render |
 | `display.h`, `display.cpp` | Display state and drawing callback |
 | `panel.svg.fragment` | Artwork; IDs carry the machine's ID (`<id>_panel`, `<id>_node_N`, `<id>_palette_N`) |
+| `panel.grayscale.svg.fragment` | Optional developer-authored grayscale artwork, declared in machine.json; see [the contract](display.md#grayscale-artwork) |
 | `machine.json` | Kind and SDK version, used by a [firmware build](build.md#3-add-your-machine) of the folder, which gives the machine its numbers |
 | `tests/sound.cpp` | The machine's own host checks; extend them as the sound grows |
 
@@ -154,6 +155,15 @@ content outside every checkout and use a fresh output folder. Preserve machine
 numbers with the previous build's `--layout`. A
 [personal kit](builder.md#export-a-kit) supplies the browser installation guide.
 
+Host tests can't hear the sound or see the screen. Check the machine's behavior
+on the device with a checklist run as one pass, top to bottom, in one project:
+`--repository` writes one, QA.md, with the checks every synth or effect needs
+(its page and controls, parameter locks, LFOs, patterns, scenes and songs,
+presets, mute, saving and loading). Name the machine's controls in it, add its
+own sections, and run it before each release; note the SDK commit and firmware
+each pass used. A repository made before QA.md existed can copy one from a new
+`sdk.py new --repository` folder.
+
 Follow [hardware profiling](profiling.md) before claiming measured CPU cost or
 preparing a catalog submission. Commit the machine, build with profiling enabled,
 install when authorized, confirm the device has rebooted, then collect a run
@@ -172,7 +182,7 @@ revision. Published community machines link to their pinned source in the builde
 | Message or symptom | Next action |
 | --- | --- |
 | Compiler cannot build WebAssembly | Run `doctor --preview` with the exact `--cxx` path used for the build |
-| Output already exists | Choose a fresh output suffix; existing source and builds are never overwritten |
+| Output already exists | Choose a fresh output suffix, or pass `--overwrite` to delete that output folder first; existing source and builds are otherwise never overwritten |
 | Preview is stale | Rebuild after source edits, restart the server with the new output and reload |
 | Declared size differs from C++ type | Update the corresponding size/alignment in `definition.json` after changing state |
 | Peak or drawing check fails | Correct the callback or its declared contract; the build prints the failing check |

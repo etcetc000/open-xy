@@ -9,16 +9,17 @@ const stock = new Uint8Array(readFileSync(stockFile));
 const catalog = new Uint8Array(readFileSync(resolve(content, 'op1_factory.json')));
 assert.deepEqual(await recoverFirmware(kit, stock), {stock, selected:null});
 const selections = JSON.parse(readFileSync(resolve(directory, 'reference/selections.json')));
-for (const {name, selected, extensions} of selections) {
-  const linked = linkKit(kit, selected, null, extensions), target = resolve(directory, 'reference', name);
+// A selection numbered with a layout (the native package's own) is recovered with it.
+for (const {name, selected, extensions, layout} of selections) {
+  const linked = linkKit(kit, selected, layout, extensions), target = resolve(directory, 'reference', name);
   const firmware = await patchFirmware(kit, linked, stock);
-  const recovered = await recoverFirmware(kit, firmware);
+  const recovered = await recoverFirmware(kit, firmware, layout);
   assert.deepEqual(recovered, {stock, selected, extensions});
-  assert.deepEqual(await patchFirmware(kit, linkKit(kit, recovered.selected, null, recovered.extensions), recovered.stock), firmware);
+  assert.deepEqual(await patchFirmware(kit, linkKit(kit, recovered.selected, layout, recovered.extensions), recovered.stock), firmware);
   const profilingOff = await patchFirmware(kit, linked, stock, {profiling: false});
   assert.notDeepEqual(profilingOff, firmware);
-  assert.deepEqual(await recoverFirmware(kit, profilingOff), {stock, selected, extensions});
-  assert.deepEqual(await patchFirmware(kit, linkKit(kit, selected, null, extensions), stock, {profiling: false}), profilingOff);
+  assert.deepEqual(await recoverFirmware(kit, profilingOff, layout), {stock, selected, extensions});
+  assert.deepEqual(await patchFirmware(kit, linkKit(kit, selected, layout, extensions), stock, {profiling: false}), profilingOff);
   writeFileSync(target + '.profiling-off.ldr', profilingOff);
   const timingHooks = kit.profile.patches.filter(edit => edit.profiling === false);
   assert.ok(timingHooks.length > 1);
@@ -27,12 +28,12 @@ for (const {name, selected, extensions} of selections) {
   mixed.set(firmware.subarray(offset, offset + firstHook.length), offset);
   // Not an exact build: stock is still recovered and verified, but no selection.
   const earlier = {stock, selected:null, earlier:true};
-  assert.deepEqual(await recoverFirmware(kit, mixed), earlier);
+  assert.deepEqual(await recoverFirmware(kit, mixed, layout), earlier);
   const damagedLabel = firmware.slice();
   damagedLabel[Number(kit.profile.patches.at(-1).file_offset)] ^= 1;
-  assert.deepEqual(await recoverFirmware(kit, damagedLabel), earlier);
+  assert.deepEqual(await recoverFirmware(kit, damagedLabel, layout), earlier);
   writeFileSync(target + '.ldr', firmware);
-  const files = await buildAssets(kit, selected, catalog, linked.numbers);
+  const files = await buildAssets(kit, selected, catalog, linked.numbers, linked.extensions);
   for (const [path, bytes] of Object.entries(files)) {
     const name = resolve(target, path); mkdirSync(resolve(name, '..'), {recursive: true}); writeFileSync(name, bytes);
   }
@@ -43,10 +44,10 @@ for (const {name, selected, extensions} of selections) {
   // Corruption outside the reviewed edits is not OS 1.2.1. Inside a hook or the
   // module, reversing the edits still recovers verified stock, without a selection.
   const outside = firmware.slice(); outside[50] ^= 1;
-  await assert.rejects(recoverFirmware(kit, outside), /not made from OS 1.2.1/);
+  await assert.rejects(recoverFirmware(kit, outside, layout), /not made from OS 1.2.1/);
   for (const offset of [Number(kit.profile.patches[2].file_offset), readLdr(firmware).at(-2).offset + 16]) {
     const damaged = firmware.slice(); damaged[offset] ^= 1;
-    assert.deepEqual(await recoverFirmware(kit, damaged), earlier);
+    assert.deepEqual(await recoverFirmware(kit, damaged, layout), earlier);
   }
 }
 // Relinking does not depend on checkbox order or mutate the object capsules.
