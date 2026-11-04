@@ -78,6 +78,18 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
   const NUMBERS_KEY = 'open-xy-machine-numbers';
+  const SELECTION_KEY = 'open-xy-selection';
+  let selectionError = '', selectionRemembered = false;
+  function rememberSelection() {
+    selectionRemembered = true;
+    try {
+      localStorage.setItem(SELECTION_KEY, JSON.stringify({format:'opxy-selection/1', profile:kit.profile.id,
+        selected, extensions:selectedExtensions}));
+      $('selection-memory').textContent = 'Selections are saved automatically in this browser.';
+    } catch {
+      $('selection-memory').textContent = 'Browser storage is unavailable. Selections will not survive a refresh.';
+    }
+  }
   let numbers = null;
   function rememberNumbers(value) {
     numbers = value;
@@ -146,7 +158,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     document.querySelector('.steps [data-step="2"]').disabled = !(kit && (stock || builderPreview));
     $('choose-extensions').disabled = !(kit && selected.length && (stock || builderPreview));
     document.querySelector('.steps [data-step="3"]').disabled = $('choose-extensions').disabled;
-    $('build').disabled = builderPreview || !(stock && linked);
+    const reason = builderPreview ? 'You are in audition preview. Open the builder and load your OS to build firmware.'
+      : !stock ? 'Load your OS in Step 1 before building. Your selections will be kept.'
+      : !selected.length ? 'Choose at least one machine.'
+      : !linked ? 'This selection cannot be built. ' + (selectionError || 'Review the memory usage and choose fewer machines.') : '';
+    $('build').disabled = !!reason;
+    $('build-reason').textContent = reason;
+    $('build-setup').hidden = !(builderPreview || !stock);
     $('preview-selected').disabled = !(kit && selected.length);
   }
 
@@ -278,11 +296,14 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const memoryChange = recovered.memory ? setExpandedMemory(recovered.memory === 'expanded') : '';
       const memoryNote = memoryChange && ' · ' + memoryChange;
       if (recovered.selected) {
-        osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
-        selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
-        renderMachines(); renderExtensions();
-        $('firmware-result').textContent = '✓ open-xy OS with ' +
-          selectionNames().join(' + ') + memoryNote;
+        if (!selectionRemembered) {
+          osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
+          selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
+          renderMachines(); renderExtensions();
+        }
+        $('firmware-result').textContent = (selectionRemembered
+          ? '✓ open-xy OS verified · your saved choices are kept'
+          : '✓ open-xy OS with ' + selectionNames().join(' + ')) + memoryNote;
       } else {
         $('firmware-result').textContent = (recovered.earlier
           ? '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again'
@@ -614,6 +635,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       button.onclick = () => inspect(m.id);
       input.onchange = () => {
         selected = input.checked ? [...selected, m.id] : selected.filter(id => id !== m.id);
+        rememberSelection();
         row.classList.toggle('selected', input.checked); invalidate(); recalculate();
       };
       const glyph = node('span', undefined, 'machine-icon');
@@ -667,8 +689,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         message.id = 'conflict-' + extension.id; input.setAttribute('aria-describedby', message.id); button.append(message);
       }
       input.onchange = () => {
-        selectedExtensions = core.extensionSelection(kit, input.checked ? [...selectedExtensions, extension.id]
-          : selectedExtensions.filter(id => id !== extension.id));
+        const next = input.checked ? [...selectedExtensions, extension.id] : selectedExtensions.filter(id => id !== extension.id);
+        selectedExtensions = input.checked ? core.extensionSelection(kit, next) : next;
+        rememberSelection();
         invalidate(); renderExtensions(); recalculate();
         document.querySelector('#extensions input[aria-label="Include ' + CSS.escape(extension.name) + '"]')?.focus();
       };
@@ -689,6 +712,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     document.querySelectorAll('#extensions button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
   }
   function recalculate() {
+    selectionError = '';
     updateOverrideCount();
     linked = null; $('selection-count').textContent = selected.length + ' selected';
     $('extension-memory').textContent = '';
@@ -718,6 +742,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       // A selection that does not fit standard memory points to the larger option this site offers.
       if (error.capacity === true && !expandedMemory())
         error.message = roomHint(error.message, 'to make room', selected, numbers, selectedExtensions);
+      selectionError = error.message;
       $('room-value').textContent = 'Selection cannot be built'; $('extension-memory').textContent = error.message; fail(error);
     }
     ready();
@@ -756,6 +781,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   }
   document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => navigate(Number(b.dataset.step)));
   $('choose').onclick = () => { navigate(2); recalculate(); };
+  $('build-setup').onclick = () => navigate(1);
   const graphicsInput = $('grayscale-graphics');
   graphicsInput.checked = false;
   graphicsInput.onchange = () => {
@@ -839,6 +865,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   function choosePreset(preset) {
     const {selected: chosen, missing} = core.applyPreset(kit, preset);
     selected = chosen;
+    rememberSelection();
     invalidate(); renderMachines(); recalculate();
     $('machine-presets').open = false;
     status('Preset “' + preset.name + '”: ' + chosen.length + (chosen.length === 1 ? ' machine' : ' machines') + ' selected.' +
@@ -903,7 +930,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const memoryChange = setExpandedMemory(wanted);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
-      if (loaded.selected) selected = [...loaded.selected];
+      if (loaded.selected) { selected = [...loaded.selected]; rememberSelection(); }
       invalidate(); renderMachines(); renderExtensions(); recalculate();
       // A selection that cannot be built (a numbers-only layout is not linked first) says
       // why after the layout's own message.
@@ -931,6 +958,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const next = await core.openKit(data);
     const hadOs = stock != null || checkingOs;
     invalidate(); stock = null; kit = next;
+    selectionRemembered = false; selectedExtensions = [];
+    $('selection-memory').textContent = '';
     // A loaded or still-checking OS was for the previous collection: it is loaded again.
     if (hadOs) {
       ticket++; endOsCheck();
@@ -949,6 +978,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');
       if (remembered) numbers = core.readLayout(kit, {format: 'opxy-layout/1', ...remembered}).machines;
     } catch { numbers = null; }
+    try {
+      const saved = JSON.parse(localStorage.getItem(SELECTION_KEY) ?? 'null');
+      if (saved) {
+        const restored = core.readSelection(kit, saved);
+        selected = restored.selected; selectedExtensions = restored.extensions; selectionRemembered = true;
+      }
+    } catch { /* Malformed convenience saves leave the collection defaults. */ }
     catalog = core.decode64(kit.stockCatalog);
     $('notices').textContent = kit.notices;
     $('notices').closest('details').hidden = false;

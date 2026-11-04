@@ -294,6 +294,19 @@ export function readLayout(kit, saved) {
   const memory = saved.memory === undefined ? {} : offered ? {expanded: true} : {memoryUnavailable: saved.reserved_bytes};
   return {machines: numbers, selected, ...memory};
 }
+// Browser convenience state is separate from a build's durable machine layout.
+// A refreshed catalog can remove entries; never silently select newly added ones.
+export function readSelection(kit, saved) {
+  check(saved?.format === 'opxy-selection/1' && saved.profile === kit.profile.id &&
+    Array.isArray(saved.selected) && Array.isArray(saved.extensions) &&
+    [...saved.selected, ...saved.extensions].every(id => typeof id === 'string'),
+    'Invalid saved selection.');
+  return {
+    selected: kit.machines.filter(m => saved.selected.includes(m.id)).map(m => m.id),
+    // Keep conflicting choices visible so they can be corrected without losing machines.
+    extensions: (kit.extensions ?? []).filter(e => saved.extensions.includes(e.id)).map(e => e.id),
+  };
+}
 // The kit's machines numbered for this selection, in kit order, and the layout after.
 export function assignNumbers(kit, selection, layout = null) {
   return numberLayout(kit.profile.identities, Object.entries(kit.fixed).map(([id, identity]) => [id, null, identity]),
