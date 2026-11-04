@@ -246,6 +246,9 @@ inline bool refresh_controls(Base* o, Controls& controls) {
         // The encoders after those turn nothing, so their cells are blank.
         const bool choosing = drum && platform::shift_held();
         controls.choosing = choosing;
+        // A sample engine's own screen whose Shift gives encoders to the stock
+        // sampler page sees Shift as a shift row's page does, to show what Shift edits.
+        if (!drum && sdk_sample_stock_shift(controls.track) && platform::shift_held()) controls.shift = 1;
         const bool grouped = drum && drum->group_count;
         const char* const plain[page_controls] = {"MACHINE", "CHOKE", "", ""};
         const char* const kits[page_controls] = {"KIT", "MACHINE", "CHOKE", ""};

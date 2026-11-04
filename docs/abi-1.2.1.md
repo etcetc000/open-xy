@@ -36,7 +36,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 2 | Paints a selected owned synth page before stock overlays, and a page-2 sample engine's own screen right after the sampler's page it covers |
-| Sample screen controls | 4 | Routes the sampler page's encoder turns to a page-2 sample engine's own controls through stock's parameter editor, saves those edits as a synth's, and keeps them where stock sets a sampler's eight words to neutral: at project load and when a stored track is copied back |
+| Sample screen controls | 5 | Routes the sampler page's encoder turns on its engine page (the instrument page word 0) to a page-2 sample engine's own controls through stock's parameter editor, or, for each encoder its `stockShift` names, the Shift turn to one of stock's own eight turns (or a window of two) by replaying it through the page's handler (`8c0b12e4`) as stock's encoder, with the handler's Shift test (`8c0b13e6`) answered for that row, leaving its envelope, filter and LFO pages' turns to stock, saves those edits as a synth's, and keeps them where stock sets a sampler's eight words to neutral: at project load and when a stored track is copied back |
 | Synth and effect controls | 8 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page; extends the track menu's scramble to an owned synth's alternates |
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
@@ -400,6 +400,15 @@ the closure. The screen reads the held count and release serial on the GUI
 side; no audio callback or cross-role publication is added. The two calls are
 authenticated profile edits. Other stock instructions and note routing remain
 unchanged. This reports stock note activity, not audio-envelope state.
+
+The amp envelope comes from stock's GUI getter `8d4d7680(track)`, which
+returns a vector of the track's parameter words 8..15, read like words 0..7 by
+the parameter getter at `8d4d72a8`
+([`amp_envelope.hpp`](../sdk/platform/opxy-1.2.1/amp_envelope.hpp)). Stock's
+envelope page (frame `8d5292bc`, layout `8d527fdc`) draws words 8..11 as the
+amp attack, decay, sustain and release, reading them through `8d4d7458(track, 8)`
+as floats; the filter envelope starts at word 32. The screen reads the first
+four words of a bounds-checked vector on instrument tracks only, and adds no hook.
 
 Stock paints the screen slots in ascending page order each frame, so page
 numbers are layers. The compositor's loop advance is hooked: when the selected

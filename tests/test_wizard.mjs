@@ -227,10 +227,10 @@ test('missing OS recovery disables the menu before reinstalling, then restarts t
     assert.equal($('recovery-downloads').hidden, true);
     await click('recovery-disable');
     assert.equal(connects, 1); assert.equal(disables, 1);
-    assert.equal($('flow-title').textContent, 'Power cycle and reinstall OS 1.2.1.');
+    assert.equal($('flow-title').textContent, 'Reinstall official OS 1.2.1.');
     assert.equal($('recovery-downloads').hidden, false);
     assert.equal($('flow-back').hidden, true);
-    assert.ok($('flow-instructions').children.some(li => li.children[0].textContent.includes('hold COM')));
+    assert.ok($('flow-instructions').children.some(li => li.children[0].textContent.toLowerCase().includes('hold com')));
     $('recovery-disable-again').onclick();
     assert.equal($('device-flow').dataset.stage, 'missing-os');
     assert.equal($('recovery-downloads').hidden, true);
@@ -308,6 +308,9 @@ test('stopping a Mac read discards it and releases USB before a retry', async t 
   const f = sourceFlow(t, {fake, bytes, hash: await sha256(bytes)});
   f.reachTransfer('mac'); f.click('field-kit-closed'); const reading = f.click('mtp-read');
   while (!fake.state.abort) await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.$('mtp-help-button').disabled, true);
+  f.$('mtp-help-button').onclick();
+  assert.equal(f.$('device-flow').dataset.stage, 'transfer');
   assert.equal(f.$('missing-os-help').disabled, true);
   f.$('missing-os-help').onclick();
   assert.equal(f.$('device-flow').dataset.stage, 'transfer');
@@ -406,6 +409,16 @@ test('installation links preview the edited steps without a build or device acce
     assert.equal(wizard.previewLink(hash), false);
     assert.equal($('device-flow').dataset.stage, 'enable');
   }
+  wizard.previewLink('#preview/mac/mtp-help');
+  action('format-start').onclick(); action('Connected and at te-boot').onclick();
+  action('menu-yes').onclick();
+  assert.equal($('device-flow').dataset.stage, 'format-drive');
+  action('Format finished · Reinstall OS 1.2.1').onclick();
+  assert.equal($('recovery-disable-again').hidden, true);
+  action('recovery-retry').onclick();
+  assert.equal(action('dev-enable').disabled, true);
+  await action('dev-enable').onclick();
+  assert.equal(deviceRequests, 0);
   wizard.previewLink('#preview/mac/restart');
   assert.equal(action('dev-disable').disabled, true);
   await action('dev-disable').onclick();
@@ -461,4 +474,64 @@ test('installation links preview the edited steps without a build or device acce
   assert.equal($('risk-gate').hidden, true);
   assert.equal(action('mtp-read').disabled, true);
   assert.equal(pages[0].hidden, false);
+});
+
+
+test('MTP format guidance requires acknowledgement and resumes the original copy or install route', async t => {
+  for (const purpose of ['source', 'install']) await t.test(purpose, async t => {
+    let enables = 0, disables = 0;
+    for (const [name, replacement] of Object.entries({connect: async () => {},
+      enable: async () => enables++, disable: async () => disables++})) {
+      const original = Session.prototype[name]; Session.prototype[name] = replacement;
+      t.after(() => { Session.prototype[name] = original; });
+    }
+    const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
+    const {$, click} = f;
+    f.reachTransfer('mac'); click('field-kit-closed');
+    if (purpose === 'install') {
+      click('mtp-manual'); click('Files copied · Choose files');
+      f.wizard.navigate(4);
+      $('route-mac').onclick({preventDefault() {}, currentTarget: $('route-mac')});
+      click('field-kit-closed');
+    }
+    assert.equal($('mtp-help-button').hidden, false);
+    $('mtp-help-button').onclick();
+    assert.equal($('device-flow').dataset.stage, 'mtp-help');
+    assert.equal($('mtp-faq').hidden, false);
+    assert.equal($('recovery-downloads').hidden, false);
+    assert.equal($('recovery-disable-again').hidden, true);
+    assert.equal(enables + disables + f.requests(), 0);
+    click('format-start'); click('Connected and at te-boot'); click('menu-no');
+    await click('dev-enable');
+    click('System menu is open'); click('I’m back at te-boot'); click('dev-confirm');
+    assert.equal($('device-flow').dataset.stage, 'format-drive');
+    assert.equal($('flow-back').hidden, true);
+    assert.equal(enables, 1); assert.equal(f.requests(), 0);
+    click('Format finished · Reinstall OS 1.2.1');
+    assert.equal($('device-flow').dataset.stage, 'format-upload');
+    assert.equal($('recovery-downloads').hidden, false);
+    assert.equal($('recovery-disable-again').hidden, true);
+    assert.equal(disables, 0);
+    assert.ok(!$('flow-actions').children.some(b => b.id === 'recovery-disable'));
+    click('recovery-retry');
+    await click('dev-enable');
+    click('System menu is open'); click('I’m back at te-boot'); click('dev-confirm');
+    assert.equal($('device-flow').dataset.stage, 'open-dev-menu');
+    click('Dev menu is open'); click('I see "mtp mode active"'); click('field-kit-closed');
+    assert.equal($('flow-title').textContent, purpose === 'source'
+      ? 'Read the original OS from your OP–XY.' : 'Send the files to your OP–XY.');
+    assert.equal(f.requests(), 0);
+  });
+});
+
+
+test('leaving format preparation resets the next installation route', async t => {
+  const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
+  const {$, click} = f;
+  f.reachTransfer('mac');
+  $('mtp-help-button').onclick(); click('format-start');
+  $('flow-exit').onclick(); $('source-device').onclick();
+  click('Connected and at te-boot'); click('menu-yes');
+  assert.equal($('device-flow').dataset.stage, 'open-dev-menu');
+  assert.equal(f.requests(), 0);
 });

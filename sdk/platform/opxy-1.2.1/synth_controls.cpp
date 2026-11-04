@@ -97,6 +97,17 @@ const SynthControls* machine(u32 track, Track*& t) {
 
 // The owned synth on instrument track 0..7, or null.
 const SynthControls* synth(u32 track) { return track < kTracks ? owned(track_engine(track)) : nullptr; }
+}  // namespace
+
+// Whether Shift on a track's own screen gives an encoder to the stock sampler
+// page (stockShift). Here rather than with the sample page's objects, because
+// every screen asks it (screen.hpp), an effect's and a synth's included.
+bool sdk_sample_stock_shift(u32 track) {
+    const SynthControls* m = synth(track);
+    return m && (m->stock_shift[0] | m->stock_shift[1] | m->stock_shift[2] | m->stock_shift[3]);
+}
+
+namespace {
 
 // The owned synth on instrument track 0..7 or holding an aux track, or the
 // owned effect on send track 14 or 15: the machines whose parameters stock
@@ -364,7 +375,17 @@ bool sdk_send_view(u32 track, SendView* view) {
     Track* t;
     const SynthControls* m = send_effect(track, t);
     if (!m) return false;
-    for (u32 slot = 0; slot < opxy::parameter_slots; ++slot) view->slots[slot] = current_value(track, slot);
+    // Stock's send page (8d53b594) draws a send's four controls from
+    // 8d4d72a8(track), as a synth's page does: each word from
+    // 8d5ac9dc(project, track, i, 0), as an LFO modulates it (tracks up to 7
+    // read 8d4d7a38 instead). The page follows them too; the alternates, which
+    // no LFO reaches, and a missing vector read stock's editor's current values.
+    struct Vector { u32 owner, begin, end; };
+    const Vector* live = stock<const Vector*(u32)>(0x8d4d72a8)(track);
+    const bool whole = live && live->begin && !(live->begin & 3) && live->end >= live->begin + 4 * opxy::page_controls;
+    for (u32 slot = 0; slot < opxy::parameter_slots; ++slot)
+        view->slots[slot] = whole && slot < opxy::page_controls ? reinterpret_cast<const opxy::i32*>(live->begin)[slot]
+                                                                 : current_value(track, slot);
     u32 fields[shift_row::kControls] = {};
     if (m->shift) shift_row::decode(current_value(track, shift_row::kWord), m->shift_choices, m->shift, fields);
     for (u32 i = 0; i < shift_row::kControls; ++i) view->choices[i] = static_cast<u8>(fields[i]);
