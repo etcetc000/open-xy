@@ -86,7 +86,7 @@ note-on/off map, which stock also uses to illuminate its keyboard; it is not a
 physical-key sensor or a measurement of audible sound. Sequenced and live notes
 follow the same stock note routing. Sustain/latch behavior follows that routing;
 note activity does not promise that sound ends at a note-off (see the
-[amp envelope](#amp-envelope-sdk-15)). Non-instrument tracks report zero.
+[amp envelope](#amp-envelope-sdk-110)). Non-instrument tracks report zero.
 
 Store a zero-initialized `opxy::draw::NoteTracker` in `DisplayState` and call
 `update(input)` once per frame. Call the tracker's `reset()` in
