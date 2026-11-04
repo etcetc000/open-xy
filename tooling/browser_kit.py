@@ -64,6 +64,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     runtime_names = {native.runtime.object_name(member) for member in runtime_members}
     kit_machines = []
     for m in machines:
+        # The browser builder doesn't install a machine's own samples yet (SDK 1.10): sdk.py build does.
+        require(not m.samples, f'{m.id} ships its own samples, which only sdk.py build installs for now')
         # The numbers it asks for, null where it leaves them to the layout; the builder
         # numbers each selection (core.mjs assignNumbers).
         requested = check_request(profile['identities'], m.kind, m.requested or m.identity)

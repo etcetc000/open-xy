@@ -915,6 +915,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
+| `samples` | Optional folder inside the machine folder holding a sample engine's own [samples](#own-samples), which its presets may load; `sdk` 1.10, sample engines only |
 | `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
 
 An effect's optional `dryParameter` field names the control used by the stock
@@ -936,8 +937,41 @@ firmware that holds it.
 - At most 16 presets, each at most 16 KiB.
 - Each is a version 4 OP-XY preset whose `type` is the machine's ID, with
   eight engine `params` from 0 to 32767 and no sample `regions`, since a
-  preset never points into a user's sample library. Other fields stay as the
-  device saved them.
+  preset never points into a user's sample library. A sample engine shipping
+  its [own samples](#own-samples) may point at those instead. Other fields stay
+  as the device saved them.
+
+#### Own samples
+
+From SDK 1.10 a sample engine can ship samples of its own, so its init preset
+and its other presets open with a sound loaded instead of an empty track.
+`machine.json` `samples` names a folder of `<name>.wav` files, and the build
+installs each as `content/samples/<id>/<name>.wav`. They live in the OP-XY's
+content storage, not in the module memory: stock loads one into its sample
+memory when a preset pointing at it is loaded, as it loads any other sample, and
+the player can still load another sample over it.
+
+- A name is lowercase letters, digits, `-` and `_`, at most 24. Other files in
+  the folder, except `.md` and hidden files, are refused.
+- At most 4 samples, each a 16-bit PCM WAV at 44.1 kHz, mono or stereo, of at
+  most 2 MiB.
+- A preset points at one in its `regions`, as stock saves a sample engine's
+  preset: one region for the sampler base, up to 24 for the drum sampler. Its
+  `sample` is the installed path, `content/samples/<id>/<name>.wav`; its
+  `framecount` is the sample's frame count, and `sample.start` (0 if absent) and
+  `sample.end` lie inside it. Other region fields (`pitch.keycenter`, `hikey`,
+  loop markers, `gain`, `tune`, `reverse`) stay as the device saves them.
+- Presets name the file, so it is installed once however many presets use it.
+  A machine without `samples` keeps empty `regions`.
+- The browser builder doesn't install samples yet: build such a machine with
+  `sdk.py build`.
+
+```json
+"regions": [{"sample": "content/samples/mysampler/pad.wav", "framecount": 264600,
+  "sample.start": 0, "sample.end": 264600, "pitch.keycenter": 48, "hikey": 127,
+  "gain": 0, "tune": 0, "reverse": false, "loop.start": 0, "loop.end": 264600,
+  "loop.crossfade": 0, "loop.onrelease": false}]
+```
 
 ### Identity
 

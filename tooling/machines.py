@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import wave
 
 from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, paged, shift_parameters, stock_name, validate_definition
 from .formats import require
@@ -21,7 +22,7 @@ from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources', 'includes', 'icon', 'presetDefaults',
-          'presets', 'dryParameter', 'dryLevel', 'graphics'}
+          'presets', 'samples', 'dryParameter', 'dryLevel', 'graphics'}
 # The public machine contract: headers, definition schema, artwork rules and
 # callbacks. A machine names the version it was written for; the SDK builds a
 # machine of the same major version and an equal or older minor version.
@@ -39,9 +40,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
-# 1.10 gives display code the track's amp envelope (draw::Input amp), and lets Shift on a
+# 1.10 gives display code the track's amp envelope (draw::Input amp), lets Shift on a
 # sample engine's own screen give any encoder to one of the stock sampler page's own
-# controls (resources.stockShift).
+# controls (resources.stockShift), and lets a sample engine ship its own samples
+# (machine.json `samples`), installed in the content folder, and its presets point at them.
 SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -54,6 +56,20 @@ ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
 PRESET_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,23}')
 PRESET_COUNT = 16
 PRESET_BYTES = 16 * 1024
+# A sample engine's own samples (machine.json `samples`): <name>.wav files, 16-bit PCM at
+# 44.1 kHz, mono or stereo, the builder installs as content/samples/<id>/<name>.wav.
+# They live on the OP-XY's storage, outside the module memory; stock loads one into its
+# sample memory when a preset pointing at it is loaded, as it loads any sample.
+SAMPLE_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,23}')
+SAMPLE_COUNT = 4
+SAMPLE_BYTES = 2 * 1024 * 1024
+SAMPLE_RATE = 44100
+# The keys a sample region holds, as stock saves a sample engine's preset; the first
+# three are required.
+REGION_REQUIRED = {'sample', 'framecount', 'sample.end'}
+REGION_INTEGERS = {'framecount', 'sample.start', 'sample.end', 'loop.start', 'loop.end', 'loop.crossfade',
+                   'hikey', 'pitch.keycenter', 'gain', 'tune', 'pan', 'fade.in', 'fade.out'}
+REGION_FLAGS = {'loop.onrelease', 'loop.enabled', 'reverse'}
 # Folders inside a machine that are never its source: version control, caches, tools.
 IGNORED = {'.git', '__pycache__', 'node_modules', '.venv'}
 
@@ -81,6 +97,7 @@ class Machine:
     preset_defaults: dict
     root: Path = None
     presets: dict = None  # name -> preset document, from machine.json `presets`
+    samples: dict = None  # name -> Sample, from machine.json `samples` (SDK 1.10)
     icon: str = ''
     dry_parameter: int | None = None
     dry_level: int | None = None  # a fixed source dry, Q31 (SDK 1.7)
@@ -143,14 +160,80 @@ def graphics_path(record):
     return path
 
 
-def check_preset(value, identity):
-    """A preset as the device saves it (version 4), for this machine and pointing at no samples."""
+@dataclass(frozen=True)
+class Sample:
+    path: Path
+    frames: int
+    channels: int
+
+
+def sample_path(identity, name):
+    """Where a machine's own sample is installed, and how its presets name it."""
+    return f'content/samples/{identity}/{name}.wav'
+
+
+def read_samples(root, folder):
+    """Each <name>.wav in the machine's samples folder, by name: 16-bit PCM at 44.1 kHz,
+    mono or stereo, at most SAMPLE_BYTES each."""
+    path = root / _relative(root, folder)
+    require(path.is_dir(), 'samples names a folder: ' + folder)
+    files = sorted(p for p in path.iterdir() if p.suffix != '.md' and not p.name.startswith('.'))
+    require(0 < len(files) <= SAMPLE_COUNT, f'A samples folder holds 1 to {SAMPLE_COUNT} samples')
+    samples = {}
+    for file in files:
+        require(file.is_file() and file.resolve() == file and file.suffix == '.wav' and SAMPLE_NAME.fullmatch(file.stem),
+                f'Invalid sample file {file.name}: <name>.wav, the name lowercase letters, digits, - and _, at most 24')
+        require(file.stat().st_size <= SAMPLE_BYTES, f'{file.name}: a sample is at most {SAMPLE_BYTES} bytes')
+        try:
+            with wave.open(str(file), 'rb') as w:
+                channels, width, rate, frames = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
+                data = w.readframes(frames)
+        except (wave.Error, EOFError) as error:
+            raise ValueError(f'{file.name}: not a PCM WAV file: {error}') from error
+        require(width == 2 and rate == SAMPLE_RATE and channels in (1, 2) and 0 < frames and
+                len(data) == frames * channels * 2,
+                f'{file.name}: a sample is 16-bit PCM at {SAMPLE_RATE} Hz, mono or stereo')
+        samples[file.stem] = Sample(file, frames, channels)
+    return samples
+
+
+def check_region(region, identity, samples):
+    """A sample region of a machine's own preset, as stock saves it, pointing at one of the
+    machine's own samples by its installed path."""
+    require(isinstance(region, dict) and REGION_REQUIRED <= set(region) <=
+            REGION_REQUIRED | REGION_INTEGERS | REGION_FLAGS, 'A sample region holds stock region fields only')
+    require(all(type(region[k]) is int for k in REGION_INTEGERS & set(region)) and
+            all(type(region[k]) is bool for k in REGION_FLAGS & set(region)), 'Invalid sample region values')
+    named = {sample_path(identity, name): sample for name, sample in samples.items()}
+    require(region['sample'] in named, f'A region names one of the machine\'s own samples, as '
+            f'{sample_path(identity, "<name>")}')
+    frames = named[region['sample']].frames
+    start, end = region.get('sample.start', 0), region['sample.end']
+    require(region['framecount'] == frames and 0 <= start < end <= frames,
+            f'A region\'s framecount is its sample\'s ({frames}) and its range lies inside it')
+    if 'loop.start' in region or 'loop.end' in region:
+        require(0 <= region.get('loop.start', 0) <= region.get('loop.end', end) <= frames, 'A region\'s loop lies inside its sample')
+    require(all(0 <= region[k] <= 127 for k in ('hikey', 'pitch.keycenter') if k in region), 'Region keys are 0..127')
+    return region
+
+
+def check_preset(value, identity, samples=None, regions=1):
+    """A preset as the device saves it (version 4), for this machine, pointing at no samples
+    or, for a sample engine shipping its own (SDK 1.10), at up to `regions` of them."""
     engine = value.get('engine') if isinstance(value, dict) else None
     params = engine.get('params') if isinstance(engine, dict) else None
+    found = value.get('regions') if isinstance(value, dict) else None
     require(isinstance(value, dict) and value.get('version') == 4 and value.get('platform') == 'OP-XY' and
-            value.get('type') == identity and value.get('regions') == [] and isinstance(params, list) and
+            value.get('type') == identity and isinstance(found, list) and isinstance(params, list) and
             len(params) == 8 and all(type(n) is int and 0 <= n <= 32767 for n in params),
-            f'A preset is a version 4 OP-XY preset of {identity}, with eight engine params and no sample regions')
+            f'A preset is a version 4 OP-XY preset of {identity}, with eight engine params')
+    if samples:
+        require(len(found) <= regions, f'A preset of {identity} has at most {regions} sample region(s)')
+        for region in found:
+            check_region(region, identity, samples)
+    else:
+        require(found == [], f'A preset of {identity} has no sample regions: only a sample engine '
+                'shipping its own samples ("samples") points at them')
     return value
 
 
@@ -158,7 +241,7 @@ def reject_constant(name):
     raise ValueError(f'{name} is not JSON')
 
 
-def read_presets(root, folder, identity):
+def read_presets(root, folder, identity, samples=None, regions=1):
     """Each <name>.json in the machine's presets folder, by name."""
     path = root / _relative(root, folder)
     require(path.is_dir(), 'presets names a folder: ' + folder)
@@ -176,7 +259,7 @@ def read_presets(root, folder, identity):
             value = json.loads(data.decode('utf-8'), parse_constant=reject_constant)
         except ValueError as error:
             raise ValueError(f'{file.name}: invalid JSON: {error}') from error
-        presets[file.stem] = check_preset(value, identity)
+        presets[file.stem] = check_preset(value, identity, samples, regions)
     return presets
 
 
@@ -396,11 +479,17 @@ def machine_at(root, identity=None):
     amp = defaults.get('amp', {})
     require(isinstance(amp, dict) and set(amp) <= {'attack', 'decay', 'release', 'sustain'} and
             all(type(v) is int and 0 <= v <= 32767 for v in amp.values()), 'Invalid preset amp defaults')
+    samples = None
+    if 'samples' in value:
+        require_sdk(version, (1, 10), "A sample engine's own samples (samples)")
+        require(kind == 'sample' and isinstance(value['samples'], str), 'samples names a sample engine\'s sample folder')
+        samples = read_samples(root, value['samples'])
     presets = None
     if 'presets' in value:
         require_sdk(version, (1, 3), "A machine's own presets")
         require(kind in ('synth', 'drum', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
-        presets = read_presets(root, value['presets'], identity)
+        # The sampler plays one sample on every key; the drum sampler one on each of its 24 pads.
+        presets = read_presets(root, value['presets'], identity, samples, 24 if value.get('base') == 'drumSampler' else 1)
     if grayscale:
         path = root / grayscale
         require(path.resolve() == path and path.is_file() and 0 < path.stat().st_size <= 65536,
@@ -409,7 +498,8 @@ def machine_at(root, identity=None):
                    display=display, sources=sources, includes=includes,
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
-                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, grayscale=grayscale)
+                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, samples=samples,
+                   grayscale=grayscale)
     if grayscale:
         from .native import validate_panel
         validate_panel(result)

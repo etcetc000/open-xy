@@ -29,7 +29,7 @@ from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, gener
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
-from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, tree
+from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
 from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
                        fresh_output, host_pins, host_platform,
                        hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
@@ -878,6 +878,9 @@ def prepare_assets(catalog, profile, machines):
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
+        # A sample engine's own samples (SDK 1.10), installed as they are.
+        for name, sample in (m.samples or {}).items():
+            outputs[sample_path(m.id, name)] = sample.path.read_bytes()
     check_aux_presets(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))
