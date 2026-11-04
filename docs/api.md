@@ -535,36 +535,43 @@ figure includes it ([firmware](abi-1.2.1.md#the-track-filter-on-kit-voices)).
 A resonant peak more than 6 dB above a kit's half-scale ceiling clips.
 
 A `padMix` kit's steps lock its keys' PAN, LEVEL, pad controls, FX I and FX II
-per hit, as stock's steps lock a track's parameters. Hold a step and Shift and
-turn one of them: the step gets a lock of that field, one unit a detent (PAN
-moves faster on a fast turn, as stock's step does). LEVEL (-30..30 dB) and a pad
-control (as far as its whole span, at most 127) lock an offset to the key's own
-value, clamped to the field (LEVEL stays a cut, -30..0); FX I and FX II lock the
-send itself, TRK or 0..100, starting from what the key sends. PAN locks stock's
-own note-start pan term: centred, the key's pan; turned right it pushes the key's
-pan towards hard right, and left towards hard left, all the way at either end.
-Each note the step plays gets the step's locks from the moment it starts: it
-keeps them for as long as it sounds, and voices still sounding from earlier hits
-keep theirs. While a step is held, the Shift row (and the display's `pan`,
-`level` and `pad`) shows what that step plays for the selected key; released,
-the key's own values. The locks have no key: they apply to every key the step
-plays, so put keys on different steps to lock them apart. MACHINE and CHOKE turn
-nothing while a step is held: the model and the choke group belong to the key.
-Without a held step Shift edits the key's own values as above. A note played
-live while the sequencer plays a locked step gets that step's locks, as it gets
-the step's other locks.
+per hit and **per key**, as stock's steps lock a track's parameters. Hold a step
+and Shift and turn one of them: the step gets a lock of that field for the key
+the Shift row shows (the selected key), one unit a detent. PAN (-100..100),
+LEVEL (-30..30 dB) and a pad control (as far as its whole span, at most 127)
+lock an offset to the key's own value, clamped to the field (LEVEL stays a cut,
+-30..0); FX I and FX II lock the send itself, TRK or 0..100, starting from what
+the key sends. A field turned back to 0 is unlocked. Each note the step plays
+gets its own key's locks from the moment it starts: it keeps them for as long as
+it sounds, and voices still sounding from earlier hits keep theirs. Other keys
+on the same step play their own locks, or none: select each key to lock it.
+While a step is held, the Shift row (and the display's `pan`, `level` and `pad`)
+shows what that step plays for the selected key; released, the key's own values.
+MACHINE and CHOKE turn nothing while a step is held: the model and the choke
+group belong to the key. Without a held step Shift edits the key's own values as
+above. A note played live gets no step's locks, only the key's own values.
 
-The locks are stock's own: saved with the project, copied with the pattern and
-cleared like any other. They are kept in three of the track's words that no
-page shows and stock does not otherwise use for a kit (38, stock's note-start
-pan term, and 36 and 37, which hold the other five packed), behind a storage
-interface (`drum_lock_store.hpp`) so the place can change. Their stored base
-stays at "no lock": the SDK sets it when a project loads, after scramble and
-whenever the selected kit's is not, and preset load already does. With slide
-on, a packed lock reads as none between two locked steps, where stock would
-blend them. Projects saved with SDK 1.10 builds before the filter kept PAN,
-LEVEL and pad-control locks on M3's words: those steps now lock the filter
-instead, so clear them. The engine's eight controls lock as before
+The locks behave as stock's: copying and pasting a step or a pattern, page
+duplication, nudge, clearing a step or its locks and the take's undo all carry
+them, and they are saved with the project. A step keeps a handle to them in a
+lock word of its own (37); the values live in an SDK pool kept in the project's
+companion, `open-xy.locks` ([projects](projects.md#open-xylocks)), behind a
+storage interface (`drum_lock_store.hpp`). A pasted copy is a copy: editing it
+leaves the original. Limits and what is not kept:
+
+- A project holds about 2,400 locked steps with one field for one key (24 KiB
+  of values; a step with four fields takes 16 bytes). Once the pool is full a
+  turn locks nothing more; unlocking makes room again.
+- Opened or saved on firmware without these locks (stock, or an older build),
+  a project keeps its steps' handles only while its companion still matches it;
+  otherwise its per-hit locks are cleared when it is next opened here.
+- Turning these fields while recording records nothing; lock them by hand.
+- With slide on, these locks don't slide: each hit plays its step's own.
+- Synths have no such locks.
+
+Projects saved with SDK 1.10 builds before the filter kept PAN, LEVEL and
+pad-control locks on M3's words: those steps now lock the filter instead, so
+clear them. The engine's eight controls lock as before
 ([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
 
 In the machine namespace, declare these callbacks in `core.h` and implement

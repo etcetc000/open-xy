@@ -3,8 +3,9 @@
 // 8d5ad660 (hooked at 8d595b50), which fills the eight payload words from the
 // played pad's record as stock does for Drumline (8d5ad6ec..8d5ad74a) and
 // publishes them through 8d5ad194 (hooked at 8d5ad776), after the track's
-// changed live words (8d5acb9c). The GUI's live words 36..38 hold the step's
-// locks (drum_lock_store.hpp), as the sequencer's lock pass leaves them.
+// changed live words (8d5acb9c). The step's locks are the handles' (the real
+// pool, lock_pool.hpp, behind a double of lock_handles.cpp's calls): the step hook
+// notes a step's handle for its note, which note start takes once.
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -12,6 +13,7 @@
 #include "stock.hpp"
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
+#include "lock_pool.hpp"
 
 extern "C" {
 opxy::u32 sdk_drum_lock_note(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32)
@@ -75,23 +77,28 @@ u32 builder(u32 project, u32 track, u32 key, u32 engine, u32, u32, u32) {
     ++built;
     return sdk_drum_lock_publish(project, track, 0, payload);   // its call at 8d5ad776
 }
-// One note on `key`, as note start makes it.
-void note(u32 engine, u32 key) { sdk_drum_lock_note(kProject, kTrack, key, engine, 0, 0, 0); }
-i32* words(u32 track = kTrack) { return live + track * 58; }
-// A step's locks as the interim backend keeps them: LEVEL, FX I and FX II in
-// 36, the pad controls in 37 (each 0 for none), stock's pan term in 38.
-void lock(i32 level, i32 filter, i32 srr, i32 fx1 = 0, i32 fx2 = 0, i32 pan_term = kDrumPanTermNeutral) {
-    u32 mix = drum_hit_put(0, kHitLevel, level);
-    mix = drum_hit_put(mix, kHitSend1, fx1);
-    mix = drum_hit_put(mix, kHitSend2, fx2);
-    words()[kDrumHitMixWord] = static_cast<i32>(mix << 16);
-    words()[kDrumHitPadWord] = static_cast<i32>(drum_hit_put(drum_hit_put(0, kHitPad1, filter), kHitPad2, srr) << 16);
-    words()[kDrumHitPanWord] = pan_term;
+// The handles' double: one pool, and the handle the step hook noted by track.
+step_locks::Pool pool;
+u32 noted[8];
+bool fresh[8];
+u32 takes;
+const u32 kHandle = 7;
+// The sequencer's step note: its step's handle noted for its note start, which
+// then runs; a live note runs with none noted.
+void note(u32 engine, u32 key, bool sequenced = true) {
+    if (sequenced) noted[kTrack] = kHandle, fresh[kTrack] = true;
+    sdk_drum_lock_note(kProject, kTrack, key, engine, 0, 0, 0);
 }
-void unlock(u32 track = kTrack) {
-    words(track)[kDrumHitMixWord] = words(track)[kDrumHitPadWord] = 0;
-    words(track)[kDrumHitPanWord] = kDrumPanTermNeutral;
+// A step's locks for `key` (or every key the step plays): PAN, LEVEL, the pad
+// controls, FX I and FX II, each 0 for none.
+void lock(i32 level, i32 filter, i32 srr, i32 fx1 = 0, i32 fx2 = 0, i32 pan = 0, u32 key = step_locks::kStepWide) {
+    const i32 values[kHitFields] = {pan, level, filter, srr, fx1, fx2};
+    for (u32 f = 0; f < kHitFields; ++f) {
+        if (values[f]) CHECK(pool.set(kHandle, key, f, values[f]));
+        else pool.erase(kHandle, key, f);
+    }
 }
+void unlock() { pool.free(kHandle); }
 unsigned char* bytes(u32 key) { return reinterpret_cast<unsigned char*>(records[key - 53]); }
 }
 
@@ -109,6 +116,14 @@ const DrumMachine sdk_drum_machines[] = {
 const u32 sdk_drum_machine_count = 3;
 }
 
+u32 opxy::platform::step_locks::take_step(u32 track) {
+    ++takes;
+    if (track >= 8 || !fresh[track]) return 0;
+    fresh[track] = false;
+    return noted[track];
+}
+u32 opxy::platform::step_locks::handle_fields(u32 handle, u32 key, i32* values) { return pool.fields(handle, key, values); }
+
 Address opxy::platform::host_stock_address(Address address) {
     switch (address) {
     case 0x8d5ad660: return reinterpret_cast<Address>(&builder);
@@ -124,7 +139,7 @@ Address opxy::platform::host_stock_address(Address address) {
 }
 
 int main() {
-    for (u32 t = 0; t < 8; ++t) unlock(t);
+    pool.clear();
     // Key 53: marked (type 7, choke group mute1), pan 70, level -6 dB, FILTER
     // -3, SRR 9, FX I code 5, FX II 6 and stock's low half.
     const u8 stored[8] = {1, 2, 3, 4, 5, 6, 7, 8};
@@ -148,28 +163,24 @@ int main() {
     CHECK(publications == 1 && built == 1 && published_track == kTrack && drum_marked_q31(base[0]));
     CHECK(base[5] == drum_pan_word(70) && base[7] == gain(-6));
     CHECK(flushes == 1 && flushed_at == 0);
-    // PAN's lock is stock's own pan term, applied by stock at the voice's
-    // start (8d51a688): nothing goes into the payload for it.
-    lock(0, 0, 0, 0, 0, 0x60000000);
-    note(41, 53);
-    CHECK(!std::memcmp(published, base, sizeof(base)) && flushes == 2 && flushed_at == 1);
 
-    // A step's locks: each into its word, clamped to the field.
-    lock(-10, 31, -15);
+    // A step's locks: each into its word, clamped to the field. PAN is an
+    // offset in the pool like the rest, folded into word 5.
+    lock(-10, 31, -15, 0, 0, 50);
     note(41, 53);
-    CHECK(published[5] == base[5]);                                    // the pad's own pan
+    CHECK(published[5] == drum_pan_word(100));                         // 70 + 50, at the right end
     CHECK(published[7] == gain(-16));                                  // -6 - 10
     CHECK(drum_field_get(published[6], 16, 5, true) == 15);            // -3 + 31, at the top
     CHECK(drum_field_get(published[6], 21, 4, false) == 0);            // 9 - 15, at the bottom
     CHECK((published[6] & ~static_cast<i32>(0x1ffu << 16)) == (base[6] & ~static_cast<i32>(0x1ffu << 16)));  // sends, low half
     CHECK(!std::memcmp(published, base, 5 * sizeof(i32)));            // the model and its controls
-    lock(10, -5, 3);
+    lock(10, -5, 3, 0, 0, -50);
     note(41, 53);
-    CHECK(published[7] == gain(0));                                    // a cut never becomes a boost
+    CHECK(published[5] == drum_pan_word(20) && published[7] == gain(0));   // a cut never becomes a boost
     CHECK(drum_field_get(published[6], 16, 5, true) == -8 && drum_field_get(published[6], 21, 4, false) == 12);
     lock(-30, 0, 0);
     note(41, 53);
-    CHECK(published[7] == gain(-30) && published[6] == base[6]);
+    CHECK(published[7] == gain(-30) && published[6] == base[6] && published[5] == base[5]);
     // A stored boost plays at 0 dB: an offset cuts from there.
     bytes(53)[0x1d] = 12;
     lock(-3, 0, 0);
@@ -187,19 +198,28 @@ int main() {
     CHECK(drum_send_code(drum_send_codes(published), 0) == 7 && drum_send_code(drum_send_codes(published), 1) == 1);
     CHECK(published[7] == base[7]);
 
-    // Two keys on one step: each note gets the step's locks on its own pad.
+    // A step-wide lock: every key the step plays gets it on its own pad.
     lock(-2, 0, 0);
     note(41, 53);
     CHECK(published[7] == gain(-8));
     note(41, 54);
     CHECK(published[7] == gain(-2));
+    // Per key: key 53's own locks win field by field; key 54 keeps the step's.
+    lock(-12, 0, 0, 0, 0, 10, 53);
+    note(41, 53);
+    CHECK(published[7] == gain(-18) && published[5] == drum_pan_word(80));
+    note(41, 54);
+    CHECK(published[7] == gain(-2) && published[5] == drum_pan_word(-20));
+    unlock();
 
     // An unmarked pad: level needs nothing else; its words stay stock's.
+    lock(-2, 0, 0);
     note(41, 54);
     CHECK(!drum_marked_q31(published[0]) && published[1] == records[1][1] && published[6] == 0x7a5a1234);
     // A pad-control or send lock gives the payload a marked pad's form: the
     // key's defaults packed, stock's choke group kept, the pad fields and sends
     // cleared before the lock. It plays as before, plus the lock.
+    unlock();
     lock(0, -4, 2, 0, 3);
     note(41, 54);
     CHECK(drum_marked_q31(published[0]) && published[0] == drum_marked_word(0x43));
@@ -210,28 +230,35 @@ int main() {
     CHECK(drum_send_codes(published) == (0u | 2u << 3) && (published[6] & 0xffff) == 0x1234);
     CHECK(records[1][1] == 0x0abc0000 && bytes(54)[24] == 0x43);       // the record itself is untouched
 
-    // A packed word with low bits set is slide's blend of two steps' locks,
-    // not a lock: it decodes as none rather than as nonsense.
-    lock(-10, 5, 5);
-    words()[kDrumHitMixWord] |= 0x1234;
+    // A note played live takes no step: the key's own values.
+    unlock();
+    lock(-10, 5, 5, 0, 0, 30);
+    note(41, 53, false);
+    CHECK(!std::memcmp(published, base, sizeof(base)));
+    // The step's handle is taken once: a second note start without a step
+    // note before it plays none.
     note(41, 53);
-    CHECK(published[7] == base[7] && drum_field_get(published[6], 16, 5, true) == 2);
+    CHECK(published[7] == gain(-16));
+    sdk_drum_lock_note(kProject, kTrack, 53, 41, 0, 0, 0);
+    CHECK(!std::memcmp(published, base, sizeof(base)));
+    // Values outside what the kit locks count as none (a pool from elsewhere).
+    unlock();
+    CHECK(pool.set(kHandle, step_locks::kStepWide, kHitLevel, -31) && pool.set(kHandle, step_locks::kStepWide, kHitSend1, 9));
+    note(41, 53);
+    CHECK(!std::memcmp(published, base, sizeof(base)));
+    unlock();
     // A padMix kit without pad controls: their locks offset nothing.
     lock(0, 31, 15);
     note(40, 53);
     CHECK(!std::memcmp(published, base, sizeof(base)));
-    // A kit without padMix: stock's payload, and no flush of ours.
-    const u32 flushed = flushes;
+    // A kit without padMix: stock's payload, no flush of ours, nothing taken.
+    const u32 flushed = flushes, taken = takes;
     lock(-10, 3, 3, 5, 5);
     note(34, 53);
-    CHECK(!std::memcmp(published, base, sizeof(base)) && flushes == flushed);
-    // Another track's locks are not this note's.
-    for (u32 i = 36; i < 39; ++i) { words(3)[i] = words()[i]; }
-    unlock();
-    note(41, 53);
-    CHECK(!std::memcmp(published, base, sizeof(base)));
+    CHECK(!std::memcmp(published, base, sizeof(base)) && flushes == flushed && takes == taken);
     // Every other caller of the builder (the per-key editor, its previews)
     // publishes the key's own values.
+    unlock();
     lock(-5, 3, 3, 4);
     std::memcpy(payload, base, sizeof(payload));
     sdk_drum_lock_publish(kProject, kTrack, 0, payload);

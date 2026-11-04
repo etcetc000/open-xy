@@ -165,50 +165,8 @@ inline bool drum_lock_mark(i32* payload, u8 byte, u32 model, const u8* controls,
     return true;
 }
 
-// The interim backend's codec (drum_lock_store.hpp). PAN is stock's own word
-// 38; the other five are packed into two lockable words stock never reads
-// (36 and 37, traced dead), 16 bits each as a lock slot keeps them, each
-// field's 0 meaning "not locked", so a word of 0 (load, presets, old projects)
-// locks nothing:
-// - word 36: LEVEL in bits 0..5 (offset + 31), FX I in 6..9 and FX II in
-//   10..13 (1 + the send code);
-// - word 37: pad control 1 in bits 0..7 and pad control 2 in 8..15 (offset + 128).
+// The words around the per-hit locks: 37 carries the step's handle (the
+// backend, drum_lock_store.hpp); 36 carries nothing; 38 is stock's note-start pan
+// term, kept centred. Each one's stored base stays at no lock.
 const u32 kDrumHitPanWord = 38, kDrumHitMixWord = 36, kDrumHitPadWord = 37;
-struct DrumHitSlot { u8 word, low, bits, bias; };
-inline DrumHitSlot drum_hit_slot(u32 field) {
-    switch (field) {
-    case kHitLevel: return {kDrumHitMixWord, 0, 6, 31};
-    case kHitSend1: return {kDrumHitMixWord, 6, 4, 0};
-    case kHitSend2: return {kDrumHitMixWord, 10, 4, 0};
-    case kHitPad1: return {kDrumHitPadWord, 0, 8, 128};
-    case kHitPad2: return {kDrumHitPadWord, 8, 8, 128};
-    default: return {0, 0, 0, 0};
-    }
-}
-// A field from its word's 16-bit slot, and back.
-inline i32 drum_hit_get(u32 half, u32 field) {
-    const DrumHitSlot slot = drum_hit_slot(field);
-    const u32 value = slot.bits ? (half >> slot.low) & ((1u << slot.bits) - 1) : 0;
-    return value ? static_cast<i32>(value) - slot.bias : 0;
-}
-inline u32 drum_hit_put(u32 half, u32 field, i32 lock) {
-    const DrumHitSlot slot = drum_hit_slot(field);
-    if (!slot.bits) return half;
-    const u32 mask = ((1u << slot.bits) - 1) << slot.low;
-    const u32 value = lock ? static_cast<u32>(lock + slot.bias) & ((1u << slot.bits) - 1) : 0;
-    return ((half & ~mask) | (value << slot.low)) & 0xffffu;
-}
-// A step's locks from words 36, 37 and 38 as Q31 words (a lock slot's 16 bits
-// on top). A packed word with any low bit set is no lock of ours: stock's
-// slots and the SDK's neutral never have one, but slide's blend between two
-// steps' locks (8d5937bc) does, and would decode as nonsense.
-inline void drum_hit_decode(i32 mix, i32 pads, i32 pan_term, DrumHitLocks& locks) {
-    drum_hit_clear(locks);
-    locks.pan_term = pan_term;
-    const u32 words[2] = {static_cast<u32>(mix), static_cast<u32>(pads)};
-    for (u32 field = kHitLevel; field < kHitFields; ++field) {
-        const u32 word = words[drum_hit_slot(field).word - kDrumHitMixWord];
-        if (!(word & 0xffffu)) locks.offset[field] = drum_hit_get(word >> 16, field);
-    }
-}
 }}

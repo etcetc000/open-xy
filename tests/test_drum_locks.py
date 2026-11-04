@@ -1,7 +1,7 @@
-"""Per-hit locks of a padMix kit's Shift fields: the note-start hooks, the stock sites they,
-the lock store (words 36..38) and the neutral-base fixes rely on, and the build wiring.
-Routing, the store's writes, the codec, the Shift row's display and the neutral base run in
-the drum GUI fixture (test_drum_services)."""
+"""Per-hit locks of a padMix kit's Shift fields: the note-start hooks, the stock sites they
+and the neutral-base fixes (words 36..38) rely on, and the build wiring. Routing, per-key
+writes to the step-lock handles, the Shift row's display and the neutral base run in the
+drum GUI fixture (test_drum_services); the handles themselves in test_lock_handles."""
 import json
 import os
 from pathlib import Path
@@ -200,7 +200,7 @@ class DrumLocks(unittest.TestCase):
         self.assertEqual(at(0x8d5ad35a, 2).hex(), 'b84d')       # R0 >>>= 0x17: the bucket
         self.assertEqual(at(0x8d5ad384, 4).hex(), '82c6f805')   # R2 = R0 >>> 1: half a bucket
 
-        # The lock store (drum_lock_store.hpp). Stock's editor writes a held step's lock
+        # Stock's editor writes a held step's lock, as the handles do (lock_handles.cpp)
         # (8d5ad42c): the step is 8d5b7e4c() + 16 x 8d585fb4(track) (8d5ad438..8d5ad44a), the
         # value its stepped word's top half (8d5ad4be), through 8d586f40(track, step, index,
         # value) (8d5ad4ce), then asks for a redraw: 8d54b3b6(8d54b438()) (8d5ad4d2, 8d5ad4d6).

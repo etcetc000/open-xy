@@ -5,8 +5,10 @@
 // pad payload builder 8d5ad660 (its call at 8d595b50) to fill the eight words
 // at 0x86bd025c from the played pad's record and publish them to the audio
 // side through 8d5ad194 (its call at 8d5ad776). Both calls are hooked: the
-// first notes the note's track, engine and key, the second folds the step's
-// locks (drum_lock_store_note) into the payload on the way, after publishing
+// first notes the note's track, engine and key, and takes the step the
+// sequencer's step hook noted for it (drum_lock_store_take); the second folds
+// that step's locks for the key (drum_lock_store_note) into the payload on the
+// way, after publishing
 // the track's live words that changed (8d5acb9c), so a word the sequencer
 // restored without publishing, PAN's 38 among them, reaches the audio side
 // before the note. Every other caller of the builder (the per-key editor and
@@ -14,7 +16,6 @@
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
 #include "drum_values.hpp"
-#include "lock_handles.hpp"
 #include "stock.hpp"
 
 extern "C" {
@@ -31,14 +32,14 @@ using namespace opxy::platform;
 
 // The note the builder is filling, while it is.
 const u32 kNoTrack = 0xffffffffu;
-u32 note_track = kNoTrack, note_key;
+u32 note_track = kNoTrack, note_key, note_handle;
 const DrumMachine* note_kit;
 
 i32 stock_gain(i32 db) { return stock<i32(i32)>(0x8d5ad604)(db); }
 
 void fold(const DrumMachine& kit, u32 track, u32 key, i32* payload) {
     DrumHitLocks locks;
-    drum_lock_store_note(kit, track, locks);
+    drum_lock_store_note(kit, note_handle, key, locks);
     if (!locks.any()) return;
     const unsigned char* record = static_cast<const unsigned char*>(pad_region(track, key));
     if (!record) return;
@@ -61,6 +62,7 @@ u32 sdk_drum_lock_note(u32 project, u32 track, u32 key, u32 engine, u32 a, u32 b
     note_kit = kit && kit->pad_mix ? kit : nullptr;
     note_track = note_kit ? track : kNoTrack;
     note_key = key;
+    note_handle = note_kit ? drum_lock_store_take(track) : 0;
     const u32 result = stock<u32(u32, u32, u32, u32, u32, u32, u32)>(0x8d5ad660)(project, track, key, engine, a, b, c);
     note_track = kNoTrack;
     return result;

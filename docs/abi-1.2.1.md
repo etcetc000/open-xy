@@ -32,7 +32,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
 | Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padSend` kit |
-| Step locks of a kit's Shift fields | 3 | Adds a step's lock offsets to the played key's pan, level and pad controls when a note starts, and notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied; linked only with a `padMix` kit |
+| Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts; linked only with a `padMix` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
@@ -1113,40 +1113,34 @@ A `padMix` kit's per-hit locks (PAN, LEVEL, two pad controls, FX I, FX II;
 storage interface
 ([`drum_lock_store.hpp`](../sdk/platform/opxy-1.2.1/drum_lock_store.hpp)): write a
 field for the held step, read the playing step's fields at note start, read the
-held step's for the screen, and keep the stored base at "no lock". The current
-backend keeps them in three words no page shows:
+held step's for the screen, and keep the stored base at "no lock". The backend
+is the [step-lock handles](#step-lock-handles): every field, PAN included, is a
+16-bit value in the SDK pool under the handle the step keeps in word 37, in an
+entry for one key (the client writes only those) or for every key the step
+plays. Words 36 and 38 carry nothing.
 
-- **38, PAN.** Stock's note-start pan term: the kit constructor sets a voice's
-  pan once, `8d51a688(pad pan word, w38)` (`8d51af24`..`8d51af2e`), which above
-  `0x40000000` pushes the pan right by `2 (w38 - 1/2) (1 - pan)` and at or below
-  scales it by `2 w38`. Preset load stores `0x40000000` there.
-- **36, LEVEL + FX I + FX II, and 37, the pad controls.** Traced dead: no
-  accessor call passes index 36 or 37, no load reads `+0x90`/`+0x94` of a track
-  record, a GUI block or a pattern's stored words, no modulation or LFO target
-  reaches them, and no preset key maps to them (preset load leaves them 0).
-  The one reader, `8d4d7458` reading words 32..39 for a screen, uses only 32..35.
-  Each 16-bit slot holds fields whose 0 means "no lock": in 36, LEVEL in bits
-  0..5 (dB offset + 31), FX I in 6..9 and FX II in 10..13 (1 + the send code:
-  1 TRK, 2..8 the amounts 0..100); in 37, pad control 1 in bits 0..7 and 2 in
-  8..15 (offset + 128).
+- **36, 37.** Traced dead: no accessor call passes index 36 or 37, no load reads
+  `+0x90`/`+0x94` of a track record, a GUI block or a pattern's stored words, no
+  modulation or LFO target reaches them, and no preset key maps to them (preset
+  load leaves them 0). The one reader, `8d4d7458` reading words 32..39 for a
+  screen, uses only 32..35.
+- **38.** Stock's note-start pan term: the kit constructor sets a voice's pan
+  once, `8d51a688(pad pan word, w38)` (`8d51af24`..`8d51af2e`). It stays at its
+  centre, `0x40000000`, which preset load stores; PAN is an offset in the pool,
+  folded into the payload, so it can be per key.
 
 - **Editing.** With a step held (`8d5b7e34`: the step word at `0x86bda0c8` is
   not -1) the instrument controller's turn handler `8c0b12e4` skips the per-key
   editor call at `8c0b147a` and makes its generic call at `8c0b15aa`
   (`sdk_synth_turn`) with Shift's index 4..7. For such a kit the SDK maps the
-  position through `DrumMachine::shift` and the encoders' row. PAN calls stock's
-  editor `8d5ad5bc` with word 38, which with a step held writes that step's lock
-  (`8d5ad564` -> `8d5ad42c` -> `8d586f40`); stock's step `8d5ad2e8` asks
-  `sdk_param_steps` (`8d5ad306`) for its bucket count, 201 with scale 1, so a
-  detent is one of -100..100 (three or six on a fast turn), bucket 100 holding
-  `0x40000000`. LEVEL, the pad controls, FX I and FX II read the held step's
-  word as stock's editor does (`8d5ac93c`), change their field by the turn's
-  detents (a send from what the key plays), and write the slot at the held
-  step, `8d5b7e4c() + 16 * 8d585fb4(track)`, through `8d586f40(track, step,
-  index, value)`, which sets the step's mask bits; then the redraw request
-  stock's editor makes after its own write, `8d54b3b6(8d54b438())`
-  (`8d5ad4d2`..`8d5ad4d6`). MACHINE and CHOKE return without a call, where a held
-  step used to take a fine lock of the engine control shown.
+  position through `DrumMachine::shift` and the encoders' row. Each of the six
+  fields reads what the held step plays for the selected key (`8d4d6c98`),
+  changes it by the turn's detents within its range (a send from what the key
+  plays), and writes it for that key through the handles (`held_set`), which
+  allocate or copy the step's handle and write it with stock's lock writer; a
+  field turned back to 0 is unlocked. `sdk_param_steps` answers no lock word.
+  MACHINE and CHOKE return without a call, where a held step used to take a fine
+  lock of the engine control shown.
 - **Latching.** Note start's Drumline branch calls the pad payload builder
   `8d5ad660` at `8d595b50` (`00e388bd`) with the project, track, key, the track's
   engine and three of its own pointers. The builder fills the eight words at
@@ -1155,38 +1149,31 @@ backend keeps them in three words no page shows:
   7 the level through `8d5ad604`) and publishes them with `8d5ad194(project, track,
   kind, payload)` at `8d5ad776` (`ffe30ffd`). Both calls are hooked
   (`sdk_drum_lock_note`, `sdk_drum_lock_publish`, the `drum_locks` service): the
-  first notes the note's track and key and calls the builder; the second, for that
-  note only, first publishes the track's live words that changed with
-  `8d5acb9c(project, track)`, the tick's own flush (`8d595242`..`8d59524e`), so a
-  word `8d5accf8` restored without publishing (38 after a locked step, among
-  others) reaches the audio side ahead of the note's payload; then it folds the
-  step's locks from the live words into the payload: LEVEL into word 7 (through
-  `8d5ad604`, within -30..0 dB from the level the kit plays), the pad controls
-  into word 6 (each within its field) and the send overrides into word 6's
-  bits 25..30; then publishes. PAN needs no fold: stock reads word 38 when it
-  builds the voice. The builder's other callers (`8d4d5f56`, `8d4dcdce`,
-  `8d582128`: the per-key editor and its previews) publish the key's own values.
-  A pad-control or send lock on a pad the kit has not marked first gives the
-  payload a marked pad's form, as the kit's first edit of a pad would: word 0
-  the mark with the pad's choke group, words 1..4 the key's defaults packed,
-  word 6's bits 16..30 cleared. The record itself is not changed. Pan is copied
-  into the voice when it is built (voice `+0x88`, `8d51af1e`); the adapter keeps a
-  note's level, pad controls and send codes from its first block's payload.
-  Words 6 and 7 live in the pad's region, which the next note on the pad
-  replaces, so each hit plays its own locks and voices still sounding keep
-  theirs. A live note gets the live words too: the stored words while the
-  sequencer is stopped, the current step's locks while it plays.
-- **Slide.** With a track's slide on (`+0x3060`), the lock pass interpolates
-  between neighbouring steps' locks (`8d5937bc`), which would blend packed
-  fields. Stock's slots and the stored base keep the word's low 16 bits 0, and a
-  blend almost never does, so a packed word with any of them set is read as no
-  lock. PAN (38) slides as stock's own word.
+  first notes the note's track and key, takes the handle the step hook noted for
+  this note's step (none for a note played live) and calls the builder; the
+  second, for that note only, first publishes the track's live words that
+  changed with `8d5acb9c(project, track)`, the tick's own flush
+  (`8d595242`..`8d59524e`), then folds the step's locks for the note's key into
+  the payload: PAN into word 5 (within -100..100 from the key's pan), LEVEL into
+  word 7 (through `8d5ad604`, within -30..0 dB from the level the kit plays), the
+  pad controls into word 6 (each within its field) and the send overrides into
+  word 6's bits 25..30; then publishes. A value outside its field's range counts
+  as none. The builder's other callers (`8d4d5f56`, `8d4dcdce`, `8d582128`: the
+  per-key editor and its previews) publish the key's own values. A pad-control or
+  send lock on a pad the kit has not marked first gives the payload a marked
+  pad's form, as the kit's first edit of a pad would: word 0 the mark with the
+  pad's choke group, words 1..4 the key's defaults packed, word 6's bits 16..30
+  cleared. The record itself is not changed. Pan is copied into the voice when it
+  is built (voice `+0x88`, `8d51af1e`); the adapter keeps a note's level, pad
+  controls and send codes from its first block's payload. Words 6 and 7 live in
+  the pad's region, which the next note on the pad replaces, so each hit plays
+  its own locks and voices still sounding keep theirs.
+- **Slide.** The step hook takes each step's own handle whatever the slide byte,
+  so these locks hold their step's values and do not blend.
 - **Showing.** With a step held the selected key's pan, level and pad fields
   (`sdk_drum_pan`, `sdk_drum_level`, `sdk_drum_pad_values`, which the Shift row
-  and the display's input read) show the held step's locks as stock's editor
-  reads them (`8d5ac93c`: the step's lock, else the stored word): pan through
-  stock's push of word 38, level and the pad controls with their offsets, a
-  send with its override.
+  and the display's input read) show the held step's locks for that key: pan,
+  level and the pad controls with their offsets, a send with its override.
 - **Stored base.** Project load's track check (`8d588ec8`, the `drums`
   service's alias hook) also stores 0 in words 36 and 37 and `0x40000000` in 38
   of each pattern's track object (`+0x3864`), as stock stores a Drumline track's
@@ -1197,6 +1184,7 @@ backend keeps them in three words no page shows:
   load (the word at `840a0528`), the selected kit's are set back if they differ:
   the stored word directly and the live one through `8d5acea8`, which publishes
   it, rather than `8d5acf28`, which while recording would also record a lock.
+  Word 37's stored 0 is what the step hook compares the live word against.
 
 The engine controls' offsets (words 0..7) and M3's words are not latched: the
 drum renderer and the filter read them from the track's audio record every

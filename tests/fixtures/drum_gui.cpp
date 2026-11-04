@@ -5,6 +5,7 @@
 #include "synth_controls.hpp"
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
+#include "lock_pool.hpp"
 #include <cstdlib>
 #include <cstring>
 
@@ -36,36 +37,21 @@ u32 count(u32 model) { return model ? 3 : 8; }
 bool format(u32, i32, char*) { return false; }
 // The send tracks (14, 15) hold no owned effect.
 u32 get_engine(u32 selected) { if (selected >= 8) return 0; require(selected == track); return engine; }
-// Per-hit locks (drum_lock_store.hpp): whether a step is held, the held
-// step's words 36..38 as stock's editor shows them, stock's lock writer, the
-// selected track's stored words (its track object at a stand-in address) and
-// its live words as 8d5acea8 sets them.
+// Per-hit locks (drum_lock_store.hpp): whether a step is held, the step-lock
+// handles' held-step calls (a double over the real pool: a handle for each step
+// it locks), the selected track's stored words (its track object at a
+// stand-in address) and its live words as 8d5acea8 sets them.
 bool held;
-i32 held_words[3];
-u32 held_step = 5, held_page = 2, written_step, written_index, written_value, writes, redraws;
+u32 held_step = 5, held_page = 2, written_step, written_index, written_value, writes;
 i32 turn_event[3];
 const u32 kObject = 0x10000000;
 i32 object[0x3864 / 4 + 58];
 i32 live_set[58];
 u32 live_sets, sets, loading, steps_asked;
 u32 step_held() { return held; }
-i32 held_word(u32 project, u32 selected, u32 index) {
-    require(project == 0x86bd027c && selected == track && index >= 36 && index < 39);
-    return held_words[index - 36];
-}
-u32 step_of_page() { return held_step; }
-u32 page_of(u32 selected) { require(selected == track); return held_page; }
-// 8d586f40: stores the halfword in the step's slot; the held step's value then shows it.
-void write_lock(u32 selected, u32 step, u32 index, u32 value) {
-    require(selected == track && index >= 36 && index < 38 && value < 0x10000);
-    written_step = step; written_index = index; written_value = value; ++writes;
-    held_words[index - 36] = static_cast<i32>(value << 16);
-}
-// Stock's stepped value of bucket k of 201 (8d5ad2e8 stores a bucket's centre).
-i32 drum_lock_word_pan_test(i32 offset) { const i32 width = 0x7fffffff / 201; return width * (offset + 100) + width / 2; }
-const u32 kRedraw = 0x10100000;
-u32 redraw_target() { return kRedraw; }
-void redraw(u32 target) { require(target == kRedraw); ++redraws; }
+opxy::platform::step_locks::Pool lock_pool;
+u32 step_handle[128], next_handle = 1;
+u32 held_at() { return held_step + 16 * held_page; }
 u32 track_object(u32 selected) { require(selected == track); return kObject; }
 void live(u32 project, u32 selected, u32 index, i32 value) {
     require(project == 0x86bd027c && selected == track && index < 58);
@@ -75,6 +61,21 @@ u32 set(u32, u32 selected, u32 index, i32 value) { require(selected == track && 
 i32 scrambled(u32, u32) { return 0x1234; }
 u32 stock_steps(u32, u32, u32* scale) { ++steps_asked; *scale = 2; return 0xffffffffu; }
 u32 get_key(u32 selected) { require(selected == track); return key; }
+}
+bool opxy::platform::step_locks::held_value(u32 selected, u32 note, u32 field, i32& value) {
+    require(selected == track);
+    return held && lock_pool.get(step_handle[held_at()], note, field, value);
+}
+bool opxy::platform::step_locks::held_set(u32 selected, u32 note, u32 field, bool present, i32 value) {
+    require(selected == track && held);
+    u32& h = step_handle[held_at()];
+    if (!h) h = next_handle++;
+    if (present) require(lock_pool.set(h, note, field, value));
+    else lock_pool.erase(h, note, field);
+    written_step = held_at(); written_index = field; written_value = static_cast<u32>(value); ++writes;
+    return true;
+}
+namespace {
 u32 get_track() { return track; }
 u32 get_shift() { return shifted; }
 u32 canonical(u32 selected, u32 note) { require(selected == track); return shifted_octave && note == 53 ? 65 : note; }
@@ -150,18 +151,12 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case 0x8d506c4c: return reinterpret_cast<Address>(&title);
     case 0x8d6011f0: return reinterpret_cast<Address>(&text);
     case 0x8d5b7e34: return reinterpret_cast<Address>(&step_held);
-    case 0x8d5ac93c: return reinterpret_cast<Address>(&held_word);
     case 0x8d587708: return reinterpret_cast<Address>(&track_object);
     case 0x8d5acea8: return reinterpret_cast<Address>(&live);
     case 0x8d5acf28: return reinterpret_cast<Address>(&set);
     case 0x8c0b5230: return reinterpret_cast<Address>(&scrambled);
     case 0x8c0b2468: return reinterpret_cast<Address>(&stock_steps);
     case 0x840a0528: return reinterpret_cast<Address>(&loading);
-    case 0x8d5b7e4c: return reinterpret_cast<Address>(&step_of_page);
-    case 0x8d585fb4: return reinterpret_cast<Address>(&page_of);
-    case 0x8d586f40: return reinterpret_cast<Address>(&write_lock);
-    case 0x8d54b438: return reinterpret_cast<Address>(&redraw_target);
-    case 0x8d54b3b6: return reinterpret_cast<Address>(&redraw);
     case 0x1000: return reinterpret_cast<Address>(turn_event);
     default:
         if (address >= kObject && address < kObject + sizeof(object))
@@ -520,9 +515,8 @@ int main() {
     {
         // Per-hit locks of a padMix kit's Shift fields (drum_locks.hpp). Stock
         // routes Shift's turns to sdk_drum_edit unless a step is held; then
-        // here, where they lock the held step's hits: PAN through stock's
-        // editor on word 38 (its note-start pan term), the rest packed into 36
-        // and 37 through stock's lock writer at the held step.
+        // here, where they lock the held step's hits for the selected key in
+        // the step-lock handles' pool (drum_lock_store.hpp), PAN included.
         engine = 41; key = 57; shifted = true;
         u32 project = 0x86bd027c;
         const u32 event = 0x1000;
@@ -533,37 +527,38 @@ int main() {
         sdk_synth_turn(project, 0, 6, event);
         require(turned_slot == 2);
         held = true;
-        // First row: MACHINE and CHOKE lock nothing; PAN goes to stock's editor
-        // on 38; LEVEL is written into 36 at the held step (5 + 16 x page 2).
+        // First row: MACHINE and CHOKE lock nothing; PAN and LEVEL lock the held
+        // step (5 + 16 x page 2) for key 57, none through stock's editor.
         for (u32 position = 0; position < 2; ++position) {
             turned_slot = 99;
             require(sdk_synth_turn(project, 0, 4 + position, event) == 0 && turned_slot == 99 && !writes);
         }
-        sdk_synth_turn(project, 0, 6, event);
-        require(turned_slot == 38 && !writes);
-        turned_slot = 99;
+        turn_event[0] = 15;
+        require(sdk_synth_turn(project, 0, 6, event) == 1 && turned_slot == 99 && writes == 1);
+        require(written_step == 37 && written_index == kHitPan && written_value == 15);
         turn_event[0] = -3;
         sdk_synth_turn(project, 0, 7, event);
-        require(turned_slot == 99 && writes == 1 && redraws == 1 && written_step == 37 && written_index == 36);
+        require(turned_slot == 99 && writes == 2 && written_index == kHitLevel);
         DrumHitLocks shown;
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
-        require(shown.offset[kHitLevel] == -3 && !shown.offset[kHitSend1] && sdk_drum_level(0) == -3);
+        require(shown.offset[kHitPan] == 15 && shown.offset[kHitLevel] == -3 && !shown.offset[kHitSend1]);
+        require(shown.pan_term == kDrumPanTermNeutral && sdk_drum_level(0) == -3);
         turn_event[0] = -40;   // clamped at -30
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
-        require(shown.offset[kHitLevel] == -30 && writes == 2);
+        require(shown.offset[kHitLevel] == -30 && writes == 3);
         sdk_synth_turn(project, 0, 7, event);
-        require(writes == 2);   // no change, no write
-        // Second row: FILTER and SRR into 37; FX I and FX II into 36 beside LEVEL.
+        require(writes == 3);   // no change, no write
+        // Second row: FILTER and SRR, then FX I and FX II.
         shifted = false;
         sdk_synth_press(0); ++presses; shown(4,5,6,7);
         shifted = true;
         turn_event[0] = 2;
         sdk_synth_turn(project, 0, 4, event);
-        require(writes == 3 && written_index == 37);
+        require(writes == 4 && written_index == kHitPad1);
         turn_event[0] = -1;
         sdk_synth_turn(project, 0, 5, event);
-        require(writes == 4 && written_index == 37);
+        require(writes == 5 && written_index == kHitPad2);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitPad1] == 2 && shown.offset[kHitPad2] == -1 && shown.offset[kHitLevel] == -30);
         // A send lock starts from what the key plays: key 57 plays FX I at code 3
@@ -573,7 +568,7 @@ int main() {
         regions[4][5] = static_cast<i32>((3u << 25) | 0x1234u);
         turn_event[0] = 1;
         sdk_synth_turn(project, 0, 6, event);
-        require(writes == 5 && written_index == 36);
+        require(writes == 6 && written_index == kHitSend1);
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitSend1] == 5 && shown.offset[kHitSend2] == 2 && shown.offset[kHitLevel] == -30);
@@ -586,6 +581,29 @@ int main() {
         i32 values[4];
         sdk_drum_pad_values(0, values);
         require(values[0] == 2 && values[1] == 0 && values[2] == 4 && values[3] == 7);   // SRR clamps at its 0
+        // Turned back to 0, a field is unlocked: FILTER from 2 by -2.
+        turn_event[0] = -2;
+        sdk_synth_turn(project, 0, 4, event);
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(writes == 9 && !shown.offset[kHitPad1] && shown.offset[kHitPad2] == -1);
+        i32 stored_value;
+        require(!lock_pool.own(step_handle[37], 57, kHitPad1, stored_value));
+        // Per key: another selected key shows and locks its own.
+        key = 58;
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(!shown.any());
+        turn_event[0] = 4;
+        sdk_synth_turn(project, 0, 4, event);
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(shown.offset[kHitPad1] == 4 && !shown.offset[kHitLevel]);
+        key = 57;
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(!shown.offset[kHitPad1] && shown.offset[kHitLevel] == -30);
+        // Another held step has locks of its own.
+        held_step = 6;
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(!shown.any());
+        held_step = 5;
         // Unshifted, a held step locks the engine control shown, as before.
         shifted = false;
         sdk_synth_turn(project, 0, 1, event);
@@ -596,6 +614,7 @@ int main() {
         sdk_synth_press(0); ++presses; shown(4,5,6,7);
         shifted = true;
         const u32 before = writes;
+        turn_event[0] = 1;
         for (u32 position = 0; position < 2; ++position) {
             turned_slot = 99;
             require(sdk_synth_turn(project, 0, 4 + position, event) == 0 && turned_slot == 99);
@@ -610,34 +629,17 @@ int main() {
         sdk_synth_turn(project, 0, 6, event);
         require(turned_slot == 2);
 
-        // Stock's step asks PAN's word (38) for its bucket count: one a unit,
-        // scale 1. M3's words (16..19) are stock's own again.
+        // No word is left to stock's editor: every lock word gets stock's own
+        // step answer, M3's (16..19) included.
         engine = 41;
-        u32 scale = 9;
-        require(sdk_param_steps(0, 38, &scale) == 201 && scale == 1);
-        u32 asked = steps_asked;
-        for (u32 index = 16; index < 20; ++index) {
+        u32 scale = 9, asked = steps_asked;
+        const u32 words[] = {16, 17, 18, 19, 36, 37, 38};
+        for (u32 index : words) {
             scale = 9;
             require(sdk_param_steps(0, index, &scale) == 0xffffffffu && steps_asked == ++asked);
         }
-        require(sdk_param_steps(0, 36, &scale) == 0xffffffffu);
-        engine = 34;
-        require(sdk_param_steps(0, 38, &scale) == 0xffffffffu && scale == 2);
 
-        // The codec: each field round-trips through its 16-bit slot, 0 is no lock.
         const DrumMachine& kit = *sdk_drum_machine(41);
-        for (u32 field = kHitLevel; field < kHitFields; ++field) {
-            i32 low, high;
-            drum_lock_range(kit, field, low, high);
-            require(low < high && drum_hit_get(0, field) == 0);
-            for (i32 lock = low; lock <= high; ++lock) {
-                const u32 half = drum_hit_put(0xffffu, field, lock);
-                require(drum_hit_get(half, field) == lock);
-                for (u32 other = kHitLevel; other < kHitFields; ++other)
-                    if (other != field && drum_hit_slot(other).word == drum_hit_slot(field).word)
-                        require(drum_hit_get(half, other) == drum_hit_get(0xffffu, other));
-            }
-        }
         i32 low, high;
         drum_lock_range(kit, kHitPad1, low, high);
         require(low == -31 && high == 31);
@@ -645,24 +647,19 @@ int main() {
         require(low == -15 && high == 15);
         drum_lock_range(*sdk_drum_machine(39), kHitPad1, low, high);
         require(low == 0 && high == 0);
+        // A stored value outside the field's range (a pool from elsewhere) shows as none.
+        require(lock_pool.set(step_handle[37], 57, kHitPad2, 40));
+        drum_lock_store_held(kit, 0, shown);
+        require(!shown.offset[kHitPad2]);
 
-        // PAN with a step held: stock's push (8d51a688) of the key's pan by the
-        // step's term; centred, the key's own.
+        // PAN with a step held: the key's pan plus the step's offset, clamped.
         engine = 41; key = 57;
         pad[0x1e] = 90; pad[0x1d] = static_cast<u8>(-12);
-        held_words[2] = kDrumPanTermNeutral;
-        require(sdk_drum_pan(0) == 90);
-        held_words[2] = 0x7fffffff;                       // the whole way right
-        require(sdk_drum_pan(0) == 100);
-        held_words[2] = 0x60000000;                       // half way from 90 to the right: 95
-        require(sdk_drum_pan(0) == 95);
-        held_words[2] = 0x20000000;                       // half of 90's distance from hard left
+        require(sdk_drum_pan(0) == 100 && sdk_drum_level(0) == -30);
+        pad[0x1e] = static_cast<u8>(-20);
         require(sdk_drum_pan(0) == -5);
-        held_words[2] = drum_lock_word_pan_test(0);
-        require(sdk_drum_pan(0) == 90);                   // stock's middle bucket: centre
-        require(sdk_drum_level(0) == -30);
         held = false;
-        require(sdk_drum_pan(0) == 90 && sdk_drum_level(0) == -12);
+        require(sdk_drum_pan(0) == -20 && sdk_drum_level(0) == -12);
         sdk_drum_pad_values(0, values);
         require(values[0] == 0 && values[2] == 3 && values[3] == 0);
         pad[0x1e] = pad[0x1d] = 0;
