@@ -94,10 +94,11 @@ STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
 EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose;
-# chokeSameKey 1 for a note to cut the voices still sounding its track's same key; and
-# padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level; and padControls
+# chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
+# padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level and its sends
+# (which padMix implies); padSend 1 (SDK 1.10) for the sends alone; and padControls
 # (SDK 1.10, with padMix), up to two small fields of each key's own on Shift's second row.
-DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls')
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'padSend')
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
 PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
 EFFECT_BUFFER_LIMIT = 524288
@@ -204,6 +205,7 @@ def validate_definition(value, kind):
     if kind == 'drum':
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
         require(resources.get('chokeSameKey', 0) in (0, 1), 'chokeSameKey must be 0 or 1')
+        require(resources.get('padSend', 0) in (0, 1), 'padSend must be 0 or 1')
         require(resources.get('padMix', 0) in (0, 1), 'padMix must be 0 or 1')
         if 'padControls' in resources:
             fields = resources['padControls']

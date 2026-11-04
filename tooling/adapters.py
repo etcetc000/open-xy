@@ -77,12 +77,21 @@ def generate_voice(directory, m, sweep=False):
         values['PAD_COUNT'] = len(pads)
         values['PAD_BITS'] = ', '.join(str(f['bits']) for f in pads) or '1'
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
+        # padMix implies the per-key sends: its Shift row edits FX I and FX II.
+        values['PAD_SEND'] = 'true' if sends_per_key(m) else 'false'
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
 
 
+def sends_per_key(m):
+    """Whether a drum kit's keys keep their own share of the track's sends: padSend, or
+    padMix, whose Shift row edits FX I and FX II."""
+    resources = m.definition['resources']
+    return m.kind == 'drum' and bool(resources.get('padSend', 0) or resources.get('padMix', 0))
+
+
 def generate_drum_callbacks(directory, machines):
-    declarations, rows = [], []
+    declarations, rows, sends = [], [], []
     for m in machines:
         if m.kind != 'drum':
             continue
@@ -109,9 +118,16 @@ def generate_drum_callbacks(directory, machines):
                     f'{1 if m.definition["resources"].get("padMix", 0) else 0}, {len(pads)}, '
                     f'{p + "_pad_bits" if pads else "nullptr"}, {sum(1 << i for i, f in enumerate(pads) if f.get("signed"))}, '
                     f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}}},')
-    source = '#include "drum_machines.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
+        if sends_per_key(m):
+            # The mixer's send hooks (drum_send.cpp) know a kit's voices by its method table.
+            declarations += [f'extern const void* const {p}_vtable[];',
+                             f'opxy::u32 {p}_drum_send(const void*) __asm__("{p}_drum_send");']
+            sends.append(f'    {{{p}_vtable, {p}_drum_send}},')
+    source = '#include "drum_machines.hpp"\n#include "drum_send.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
     source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'
+    source += 'const opxy::platform::DrumSendKit sdk_drum_send_kits[] = {\n' + ('\n'.join(sends) or '    {},') + '\n};\n'
+    source += f'const opxy::u32 sdk_drum_send_kit_count = {len(sends)};\n'
     destination = Path(directory) / 'drum_callbacks.cpp'
     destination.write_text(source, encoding='utf-8', newline='\n')
     return destination

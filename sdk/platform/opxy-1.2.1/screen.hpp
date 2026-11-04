@@ -9,6 +9,7 @@
 #include "synth_controls.hpp"
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
+#include "drum_send.hpp"
 
 namespace opxy { namespace screen { namespace {
 
@@ -310,7 +311,9 @@ inline bool refresh_controls(Base* o, Controls& controls) {
                 titles[i] = drum->pad_label(field);
                 const i32 value = controls.pads[field];
                 if (field >= platform::kDrumKitPadFields) {
-                    if (value) drum_number(values[i], value, "");
+                    // A send's code as the key's own amount (drum_send.hpp):
+                    // 1..7 are 0..100 percent of a full send.
+                    if (value) drum_number(values[i], platform::drum_send_percent(static_cast<u32>(value)), "");
                     else copy_text(values[i], "TRK");
                 } else if (!drum->pad_text || !drum->pad_text(field, value, values[i])) {
                     drum_number(values[i], value, "");

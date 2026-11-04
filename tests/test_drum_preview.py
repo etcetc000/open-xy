@@ -89,8 +89,12 @@ class DrumPreviewTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as folder:
                 self.assertIn('const bool kPadMix = %s;' % ('true' if value else 'false'),
                               adapters.generate_voice(folder, machine).read_text())
-                self.assertIn('kit_drum_count, 0, nullptr, nullptr, %d, 0, nullptr, 0, nullptr, nullptr},' % value,
-                              adapters.generate_drum_callbacks(folder, [machine]).read_text())
+                table = adapters.generate_drum_callbacks(folder, [machine]).read_text()
+                self.assertIn('kit_drum_count, 0, nullptr, nullptr, %d, 0, nullptr, 0, nullptr, nullptr},' % value, table)
+                # padMix implies the per-key sends: its Shift row edits FX I and FX II.
+                self.assertEqual('{kit_vtable, kit_drum_send},' in table, bool(value))
+                self.assertIn('const bool kPadSend = %s;' % ('true' if value else 'false'),
+                              adapters.generate_voice(folder, machine).read_text())
         for value in (2, -1, True, '1'):
             definition = self.definition('drum')
             definition['resources']['padMix'] = value

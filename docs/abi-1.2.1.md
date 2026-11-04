@@ -31,6 +31,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
+| Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padSend` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
@@ -54,7 +55,8 @@ The sample rows (sample dispatch, analysis, drum-page services and recorder)
 form the profile's `samples` service (apart from octave publication,
 which is shared with players and drum kits): a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine or synthesis drum
-kit. Synthesis drum transport is the `drums` service, used only by drum kits.
+kit. Synthesis drum transport is the `drums` service, used only by drum kits, and
+per-key sends the `drum_sends` service, used only by a kit declaring `padSend`.
 Otherwise their sites stay stock. The track control rows (and the project read of the
 project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
@@ -990,6 +992,54 @@ flag (`8d5ad738`), which the adapter decodes for a marked pad. Pad copy and
 paste copy the whole record. Whether stock's preset writer exports this word,
 and how, is not yet traced; the fields stay above bit 15 so a `>> 16` export
 would keep them.
+
+### Per-key sends
+
+Stock mixes a track in the engine block `8d510760`, one instrument track at a
+time. Its voice loop `8d51c708`, called only at `8d510bea`, renders each voice
+into `0x11b01548` (64 interleaved stereo frames, after stock's per-voice pan
+and gain) and adds it with a saturating add into the track's stereo sum at
+`0x11903600` (`8d51c7b0`..`8d51c7d8`). The engine then scales that sum into
+the main mix at a constant gain (`8d511038`), into FX I's bus `0x84caa140` at a
+gain stepped every word (`8d511088`..`8d5110c8`) and into FX II's bus
+`0x84caa340` at a constant gain (`8d5110ca`..`8d51110e`); `8d50f594` then runs
+send slots 14 and 15 on those buses. The gains come from the track's mixer
+record (`0x84eab39c + 0xe8 * track`) and the sends' dry queries. A track stock
+finds silent (`8d51237a`) skips every bus.
+
+A kit with `padSend` keeps each key's two send codes in bits 25..30 of its pad
+word `+0x14` (payload word 6), and the adapter keeps the codes of the block a
+voice last rendered. Code 0 (`TRK`) follows the track's send; codes 1..7 send
+the key's own amount, 0..100 percent of a full send, whatever the track's send
+knob. Five hooks, each replacing one whole instruction outside every hardware
+loop body and replaying it:
+
+- `8d510bea`, the call of the voice loop: resets the per-key state, then jumps
+  to the loop with the engine's arguments and return address.
+- `8d51c7b2`, `P2 = 0x11b01548` before a voice is added: for each send, while
+  every voice so far follows the track nothing is kept. The first voice of the
+  track with an amount of its own copies stock's sum so far into a followers'
+  sum and starts an own-amount sum; from then on a follower (a `TRK` key or a
+  stock voice) goes into the followers' sum, and an own-amount voice into the
+  other, scaled by its amount. The voice record's machine object (`+0x94`,
+  `8d51b53e`) identifies a kit's voice by its method table.
+- `8d511088` and `8d5110ca`, `P1 = 0x11903600` before FX I's and FX II's
+  loops: the track's followers' sum for that send when it kept one (the track
+  index is the engine's `[FP + 8]`), otherwise stock's address. Only P1 changes.
+- `8d511116`, `P0 = [SP + 0x48]` after FX II's loop: adds each own-amount sum
+  into its bus at the engine's level for the track (`[FP - 0x68]`, written at
+  `8d510d38`), which both send gains are built from (FX I's as
+  level × (0.8x² + 0.2x) of its knob x, FX II's as level × x). A key's amount N
+  goes through the same curve as its send's knob at N (`drum_send_curve`), so it
+  sends what the track's knob at N sends, and the track's mute and level still
+  apply. The level ramps over the block from the
+  previous block's, as stock steps FX I's gain.
+
+Stock's loops do the followers' mixing, and the main mix always reads stock's
+sum. A send every voice follows, every stock track and every block of a kit
+whose keys all follow are mixed bit for bit as stock mixes them. The source
+dry reduction (`1 - s(1 - d)`) stays the track's and takes no account of
+own amounts.
 
 ## Note players
 

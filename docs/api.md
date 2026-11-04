@@ -564,6 +564,22 @@ choke groups Shift chooses, which stock applies to keys sharing a group. A
 synth or an effect cannot declare it; sample engines have their own
 `chokeSameKey` (see [Services](#services)).
 
+With `"padSend": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), each
+key has its own FX I and FX II sends, as a Machinedrum track has its own delay
+and reverb sends: a kick can stay dry while the snare is wet, even with the
+track's send knobs at 0. Each send has a 3-bit code in stock's pad word
+`+0x14`, FX I's in bits 25..27 and FX II's in 28..30 (`drum_send.hpp`), saved
+with the project and copied with the pad. Code 0 (`TRK`) follows the track's
+send exactly, so a pad saved before, or one the kit has not marked, plays as it
+did; codes 1..7 send the key's own amount, shown as 0, 17, 33, 50, 67, 83 or
+100, whatever the track's send knob says: a key at N sends what the track's
+knob at N would, through the same curve stock gives that send's knob. An
+amount scales the voice after stock's pan, level and envelope, and the track's
+level and mute still apply to it.
+The track's own mix is unchanged, and so is the source dry reduction of a send
+effect with a Dry control. The kit's DSP never sees the codes
+([firmware](abi-1.2.1.md#per-key-sends)).
+
 A kit's engine may also report that a voice's sound has ended, so stock
 retires its note and the voice is free for the next one before stock's
 amplitude envelope ends:

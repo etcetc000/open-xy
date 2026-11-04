@@ -297,7 +297,7 @@ class OutsideMachines(unittest.TestCase):
         definition['resources'].update(modelCount=12, padMix=1)
         path.write_text(json.dumps(definition), encoding='utf-8')
         self.numberless(self.folder, kind='drum', sdk='1.9')
-        with self.assertRaisesRegex(ValueError, 'pad pan and level'):
+        with self.assertRaisesRegex(ValueError, 'per-key mixer'):
             machines.machine_at(self.folder)
         self.numberless(self.folder, kind='drum', sdk='1.10')
         self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
