@@ -109,7 +109,7 @@ def configuration(entries=None, layout=None, module_probe=False):
 def provenance(machines):
     """Every authored, SDK and compiler-profile input; private artifacts never enter.
     The collection is its machines, in order: their IDs and sources below."""
-    paths = {PROFILE, LINKER, extensions.PROFILE}
+    paths = {PROFILE, LINKER, extensions.PROFILE, module_runtime.OVERLAY}
     for folder in ('sdk/include', 'sdk/platform', 'tooling'):
         paths |= {p.relative_to(ROOT).as_posix() for p in (ROOT / folder).rglob('*')
                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md'}

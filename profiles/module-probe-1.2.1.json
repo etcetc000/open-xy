@@ -11,6 +11,26 @@
       "before": "ffe309ff",
       "symbol": "sdk_module_mtp_match",
       "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module synth artwork from its module file, every other asset from stock",
+      "address": "0x8d56d6b6",
+      "file_offset": "0x1a4912",
+      "length": 4,
+      "before": "04e3a526",
+      "symbol": "sdk_module_asset_load",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module synth entries appended to the factory catalog as stock reads it",
+      "address": "0x8d4e06e4",
+      "file_offset": "0x117940",
+      "length": 8,
+      "before": "00de048c90240000",
+      "symbol": "sdk_module_catalog_load",
+      "call": true
     }
   ]
 }

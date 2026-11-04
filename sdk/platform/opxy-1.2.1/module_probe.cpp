@@ -71,6 +71,7 @@ unsigned char* allocate(void*, u32 bytes) {
 void release(void*, unsigned char* p) { if (in_arena(p, 1)) stock<void(void*)>(0x8d4d2910)(p); }
 }
 unsigned char* sdk_module_allocate(u32 bytes) { return allocate(nullptr, bytes); }
+void sdk_module_release(unsigned char* p) { release(nullptr, p); }
 namespace {
 bool synchronize(void*, u32 address, u32 bytes) { return sdk_module_sync_code(address, bytes) != 0; }
 
@@ -119,6 +120,10 @@ unsigned char* read_file(const char* path, u32& bytes) {
     close(file);
     return data;
 }
+
+}
+unsigned char* sdk_module_read_file(const char* path, u32& bytes) { return read_file(path, bytes); }
+namespace {
 
 // The report is written by a task of its own, after startup: writing and
 // flushing from inside startup blocked the boot (probe 002). fclose's FAT sync
@@ -225,3 +230,4 @@ void sdk_module_probe() {
     finished_at = ticks();
     finished = 1;
 }
+void sdk_module_load_now() { sdk_module_probe(); }

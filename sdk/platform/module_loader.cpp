@@ -30,6 +30,34 @@ u32 crc32(u32 crc, const unsigned char* data, u32 bytes) {
     return ~crc;
 }
 
+u32 array_end(const unsigned char* text, u32 bytes, const char* key) {
+    u32 key_bytes = 0;
+    while (key && key[key_bytes]) ++key_bytes;
+    if (!text || !key_bytes) return 0;
+    for (u32 at = 0; at + key_bytes < bytes; ++at) {
+        u32 k = 0;
+        while (k < key_bytes && text[at + k] == static_cast<unsigned char>(key[k])) ++k;
+        if (k < key_bytes) continue;
+        u32 i = at + key_bytes;
+        while (i < bytes && (text[i] == ' ' || text[i] == '\n' || text[i] == '\r' || text[i] == '\t' || text[i] == ':')) ++i;
+        if (i >= bytes || text[i] != '[') return 0;
+        u32 depth = 0;
+        bool quoted = false, escaped = false;
+        for (; i < bytes; ++i) {
+            const unsigned char c = text[i];
+            if (quoted) {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') quoted = false;
+            } else if (c == '"') quoted = true;
+            else if (c == '[') ++depth;
+            else if (c == ']' && --depth == 0) return i;
+        }
+        return 0;
+    }
+    return 0;
+}
+
 Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory, Module& out) {
     out = Module{nullptr, nullptr, 0, 0, 0};
     if (!data || bytes < trailer_bytes) return short_file;

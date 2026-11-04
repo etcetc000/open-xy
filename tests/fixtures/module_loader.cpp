@@ -80,8 +80,27 @@ int stage_file(const char* path) {
     return 0;
 }
 
+int array_end_of(const char* path) {
+    // Prints where a module entry goes in a catalog file: the engine_types array's ']'.
+    std::FILE* file = std::fopen(path, "rb");
+    require(file != nullptr, "cannot open catalog");
+    std::vector<unsigned char> data;
+    for (int c; (c = std::fgetc(file)) != EOF;) data.push_back(static_cast<unsigned char>(c));
+    std::fclose(file);
+    std::printf("%u\n", m::array_end(data.data(), u32(data.size()), "\"engine_types\""));
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 2 && !std::strcmp(argv[1], "array_end")) return array_end_of(argv[2]);
     if (argc > 1) return stage_file(argv[1]);
+    {
+        const char* json = "{\"a\":[1],\"engine_types\" : [ {\"t\":\"]\",\"p\":[1,[2]]}, {\"q\":\"\\\"]\"} ], \"z\":[]}";
+        const u32 at = m::array_end(reinterpret_cast<const unsigned char*>(json), u32(std::strlen(json)), "\"engine_types\"");
+        require(at && json[at] == ']' && json[at + 1] == ',' && json[at + 3] == '"', "array end with nested arrays and quoted brackets");
+        require(!m::array_end(reinterpret_cast<const unsigned char*>("{\"x\":[]}"), 8, "\"engine_types\""), "missing key found");
+        require(!m::array_end(reinterpret_cast<const unsigned char*>("{\"engine_types\":[["), 18, "\"engine_types\""), "unclosed array found");
+    }
     {
         Spec s; Context c = {}; m::Module out;
         require(run(s, c, out) == m::loaded, "valid module refused");

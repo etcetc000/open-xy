@@ -208,6 +208,8 @@ void display_render(void* s, const opxy::draw::Input* in, void* f) {{
     {prefix}_display_render(static_cast<DisplayState*>(s), in, static_cast<Frame*>(f));
 }}
 unsigned display_validate(const void* f) {{ return {prefix}_display_validate(static_cast<const Frame*>(f)); }}
+// The page's artwork, exactly as a build would install it as content/display/{asset}.
+const char svg[] = {{{svg}}};
 const opxy::ModuleSynth synth = {{
     sizeof(opxy::ModuleSynth), "{name}", {engine_id}, {page_id}, factory, parameter_name,
     sizeof(Voice), alignof(Voice), {shared_bytes}, {capacity}, initialize, start, destroy, render,
@@ -215,6 +217,7 @@ const opxy::ModuleSynth synth = {{
     Frame::path_count, Frame::point_count, Frame::node_count, Frame::text_count, Frame::palette_count,
     __builtin_offsetof(Frame, nodes), __builtin_offsetof(Frame, texts), __builtin_offsetof(Frame, header),
     ids, "{asset}", display_reset, display_render, display_validate,
+    svg, sizeof(svg), {catalog},
 }};
 static_assert(sizeof(ids) / sizeof(ids[0]) == Frame::node_count + Frame::text_count + Frame::palette_count,
               "Artwork IDs");
@@ -244,13 +247,19 @@ def build_machine(folder, out, layout, toolchain=None, compiler=None):
     m = machines[0]
     require(m.kind == 'synth', f'Only synths can be modules so far, not {m.kind}')
     require(m.display != 'stock', 'A synth module needs its own display')
+    from .adapters import catalog_entry
     ids = native.display_ids(m.prefix, m.definition['resources']['display'])
+    artwork = native.screen.compose(native.validate_panel(m))
+    entry = catalog_entry(m).strip().lstrip(',').strip()
+    require(_json.loads(entry)['type'] == m.native_name and entry.isascii(), 'Unexpected catalog entry')
     values = dict(name=m.native_name, namespace=m.definition['id'], prefix=m.prefix,
                   engine_id=definitions[m.prefix + '_engine_id'], page_id=definitions[m.prefix + '_page_id'],
                   shared_bytes='sizeof(Shared)' if m.definition['resources']['sharedBytes'] else '0',
                   capacity=m.definition['resources']['voiceCapacity'],
                   labels=', '.join(_json.dumps(p['label'].lower()) for p in m.definition['parameters']),
-                  ids=', '.join(_json.dumps(i) for i in ids), asset=m.native_name + '.svg')
+                  # Its own name: never one a build installs, so module artwork shadows no file.
+                  ids=', '.join(_json.dumps(i) for i in ids), asset='module-' + m.native_name + '.svg',
+                  svg=', '.join(str(b) for b in artwork), catalog=_json.dumps(' '.join(entry.split())))
     with tempfile.TemporaryDirectory(prefix='opxy-machine-module-') as temp:
         work = Path(temp)
         generate_display(work, machine=m)

@@ -52,6 +52,12 @@ struct Module {
 
 u32 crc32(u32 crc, const unsigned char* data, u32 bytes);
 
+// The offset of the ']' closing the array under key (a quoted JSON key such as
+// "\"engine_types\""), or 0: the key, its '[', then brackets counted with
+// strings skipped, since entries hold arrays of their own. For splicing module
+// entries into stock's catalog text.
+u32 array_end(const unsigned char* text, u32 bytes, const char* key);
+
 // Checks the whole file in data, copies and relocates it into fresh memory,
 // zeroes bss and synchronizes caches. On success the module is ready for its
 // init call; on failure nothing stays allocated.

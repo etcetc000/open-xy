@@ -37,6 +37,12 @@ struct ModuleSynth {
     void (*display_reset)(void* state, void* frame);
     void (*display_render)(void* state, const draw::Input* input, void* frame);
     unsigned (*display_validate)(const void* frame);
+    // Content the module carries, so nothing has to be installed beside it:
+    // the page's artwork (stock loads it as content/display/<asset>) and the
+    // factory catalog entry, one JSON object for "engine_types".
+    const char* svg;
+    u32 svg_bytes;
+    const char* catalog_entry;
 };
 
 struct ModuleApi {

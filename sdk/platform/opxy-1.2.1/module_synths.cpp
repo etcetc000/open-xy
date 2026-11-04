@@ -5,6 +5,7 @@
 // renderer of screen_drawing.hpp with the frame's shape read from the
 // description instead of compiled in. Startup calls the hooks at the end.
 #include "module_synths.hpp"
+#include "module_loader.hpp"
 #include "registration.hpp"
 #include "synth_pool.hpp"
 #include "screen.hpp"
@@ -352,6 +353,88 @@ int sdk_module_screen_owned(u32 page) {
     for (u32 i = 0; i < count; ++i)
         if (entries[i].object && entries[i].d->page_id == page) return sdk_engine_ready(&entries[i].record, &entries[i].screen) == 1;
     return 0;
+}
+
+// ---- content: artwork and catalog entries from the modules
+namespace {
+bool equal(const char* a, const char* b) {
+    while (*a && *a == *b) { ++a; ++b; }
+    return *a == *b;
+}
+// path is "content/display/<asset>" for a registered module synth's asset.
+const ModuleSynth* asset_owner(const char* path) {
+    const char* prefix = "content/display/";
+    if (!path) return nullptr;
+    const char* p = path;
+    while (*prefix) if (*p++ != *prefix++) return nullptr;
+    for (u32 i = 0; i < count; ++i)
+        if (entries[i].d->svg && entries[i].d->svg_bytes && equal(p, entries[i].d->asset)) return entries[i].d;
+    return nullptr;
+}
+u32 length(const char* s) { u32 n = 0; while (s && s[n]) ++n; return n; }
+}
+namespace {
+u32 engine_types_end(const unsigned char* text, u32 bytes) { return modules::array_end(text, bytes, "\"engine_types\""); }
+}
+
+// Stock's asset load (0x8d5f2400) at its call site 8d56d6b6. A module's
+// artwork is parsed from its text with stock's own parser (0x8d5f2160), from a
+// heap copy since the parser writes into its input; every other path is stock's.
+void* sdk_module_asset_load(const char* path) {
+    const ModuleSynth* d = asset_owner(path);
+    if (!d) return stock<void*(const char*)>(0x8d5f2400)(path);
+    unsigned char* text = sdk_module_allocate(d->svg_bytes + 1);
+    if (!text) return stock<void*(const char*)>(0x8d5f2400)(path);
+    for (u32 i = 0; i < d->svg_bytes; ++i) text[i] = static_cast<unsigned char>(d->svg[i]);
+    text[d->svg_bytes] = 0;
+    void* document = stock<void*(char*)>(0x8d5f2160)(reinterpret_cast<char*>(text));
+    sdk_module_release(text);
+    return document;
+}
+
+// Stock's factory catalog read (0x8c042490(path, json)) at 8d4e06e4. With
+// module synths, the file's text gets their entries at the end of
+// "engine_types" (as the build appends built-in machines'), and stock's JSON
+// parser reads the result into the caller's value, as collection_resource_stock
+// does for a whole collection. Anything unexpected: stock reads the file alone.
+bool sdk_module_catalog_load(const char* path, void* out) {
+    sdk_module_load_now();  // the catalog may be read before startup reaches the loader
+    const auto original = stock<bool(const char*, void*)>(0x8c042490);
+    u32 extra = 0;
+    for (u32 i = 0; i < count; ++i) if (entries[i].d->catalog_entry) extra += length(entries[i].d->catalog_entry) + 1;
+    if (!extra || !equal(path, "content/op1_factory.json")) return original(path, out);
+    u32 bytes = 0;
+    unsigned char* file = sdk_module_read_file(path, bytes);
+    if (!file) return original(path, out);
+    const u32 at = engine_types_end(file, bytes);
+    unsigned char* text = at ? sdk_module_allocate(bytes + extra + 1) : nullptr;
+    if (!text) { sdk_module_release(file); return original(path, out); }
+    u32 n = 0;
+    for (u32 i = 0; i < at; ++i) text[n++] = file[i];
+    for (u32 i = 0; i < count; ++i)
+        if (const char* entry = entries[i].d->catalog_entry) {
+            text[n++] = ',';
+            for (const char* c = entry; *c; ++c) text[n++] = static_cast<unsigned char>(*c);
+        }
+    for (u32 i = at; i < bytes; ++i) text[n++] = file[i];
+    text[n] = 0;
+    sdk_module_release(file);
+    // collection_resource_stock.cpp's parse: a Json value, a reader, the parse, then copy-assign into out.
+    unsigned char* value = sdk_module_allocate(12);
+    bool parsed = false;
+    if (value) {
+        alignas(4) unsigned char reader[120];
+        stock<void(void*, u32)>(0x8c0555c0)(value, 0);
+        stock<void(void*)>(0x8c050de8)(reader);
+        parsed = stock<bool(void*, const char*, const char*, void*, bool)>(0x8c052230)(
+            reader, reinterpret_cast<const char*>(text), reinterpret_cast<const char*>(text + n), value, false);
+        stock<void(void*)>(0x8c042420)(reader);
+        if (parsed) stock<void*(void*, const void*)>(0x8c054098)(out, value);
+        stock<void(void*)>(0x8c053fc0)(value);
+        sdk_module_release(value);
+    }
+    sdk_module_release(text);
+    return parsed ? true : original(path, out);
 }
 
 int sdk_module_engine_installed(const void* name) {

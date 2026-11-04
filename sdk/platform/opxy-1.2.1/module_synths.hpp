@@ -5,8 +5,14 @@
 #include <opxy/module.hpp>
 
 extern "C" {
-// Heap for module machines (module_probe.cpp): zeroing is the caller's.
+// Heap and files for module machines (module_probe.cpp): zeroing is the caller's.
 unsigned char* sdk_module_allocate(opxy::u32 bytes) __asm__("sdk_module_allocate");
+void sdk_module_release(unsigned char*) __asm__("sdk_module_release");
+unsigned char* sdk_module_read_file(const char* path, opxy::u32& bytes) __asm__("sdk_module_read_file");
+// Loads the modules now if startup has not yet (idempotent).
+void sdk_module_load_now() __asm__("sdk_module_load_now");
+void* sdk_module_asset_load(const char* path) __asm__("sdk_module_asset_load");
+bool sdk_module_catalog_load(const char* path, void* out) __asm__("sdk_module_catalog_load");
 opxy::u32 stock_gui_role() __asm__("stock_gui_role");
 opxy::u32 stock_catalog_insert(void*, const void*, opxy::u32) __asm__("stock_catalog_insert");
 
