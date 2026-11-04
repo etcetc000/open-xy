@@ -1,8 +1,8 @@
 // Module files, diagnostic build. Once per processor role, at startup, every
-// <name>.opx in /projects/openxy is loaded into stock heap memory, in name
+// <name>.opx in /open-xy/modules is loaded into stock heap memory, in name
 // order, and its init is called (module_loader.hpp has the format). A module
 // that fails any check is left out and startup goes on. Each role then writes
-// gui-module.oxc or audio-module.oxc beside the modules: one entry per module
+// gui-module.oxc or audio-module.oxc into /open-xy: one entry per module
 // with its status ("loaded" or "m-<code>"), base, notes and init result.
 #include "module_loader.hpp"
 #include "module_synths.hpp"
@@ -16,7 +16,9 @@ namespace {
 // reservation (profile module_base) begins; 8 MiB stay free for stock.
 const u32 arena_base = 0x8c0d0380, protected_base = 0x8d2d0380, reserve_bytes = 0x800000;
 const u32 file_limit = 0x40000;
-const char folder[] = "/fat32/projects/openxy";
+// The custom firmware's own folder on the user drive, and its modules inside.
+const char root[] = "/fat32/open-xy";
+const char folder[] = "/fat32/open-xy/modules";
 const u32 modules_max = 16, name_max = 15;  // name without ".opx"
 
 bool attempted;
@@ -130,6 +132,10 @@ namespace {
 // discards the card-flush result (#339's collection_io.hpp), so the role-aware stock
 // flush runs explicitly, as #339's helper task does. If either blocks, only
 // this task waits. Without "done" the report stops where startup stopped.
+// The GUI role first creates /open-xy and /open-xy/modules, so they show over
+// MTP before the first module is copied; stock's mkdir (8c0bd5bc, as its MTP
+// folder creation calls it) fails harmlessly when a folder exists. Done here
+// rather than in startup for the same reason as the report.
 bool report_gui;
 volatile u32 finished;
 u32 started_at, finished_at;
@@ -140,7 +146,11 @@ void delay(u32 ticks) { stock<void(u32)>(0x8c040188)(ticks); }
 void write_report(void*) {
     for (u32 waited = 0; !finished && waited < 60000; waited += 100) delay(100);
     delay(5000);  // startup I/O first
-    const char* path = report_gui ? "/fat32/projects/openxy/gui-module.oxc" : "/fat32/projects/openxy/audio-module.oxc";
+    if (report_gui) {
+        stock<i32(const char*, u32)>(0x8c0bd5bc)(root, 0x1ff);
+        stock<i32(const char*, u32)>(0x8c0bd5bc)(folder, 0x1ff);
+    }
+    const char* path = report_gui ? "/fat32/open-xy/gui-module.oxc" : "/fat32/open-xy/audio-module.oxc";
     put(finished ? "],\"done\":true" : "],\"done\":false");
     put(",\"probe_ticks\":"); put_dec(finished ? finished_at - started_at : 0);
     put(",\"report_ticks\":"); put_dec(ticks() - started_at);

@@ -28,7 +28,8 @@ class ModuleProbe(unittest.TestCase):
         base = config()
         added = module_runtime.profile(base)['patches'][len(base['patches']):]
         self.assertEqual([p['symbol'] for p in added],
-                         ['sdk_module_mtp_match', 'sdk_module_asset_load', 'sdk_module_catalog_load'])
+                         ['sdk_module_mtp_folder_match', 'sdk_module_mtp_match', 'sdk_module_asset_load',
+                          'sdk_module_catalog_load'])
 
     def test_native_mtp_matcher_admits_module_files_only_in_the_module_folder(self):
         compiler = os.environ.get('OPXY_TEST_HOST_CXX') or shutil.which('g++') or shutil.which('clang++')
@@ -55,16 +56,22 @@ template<class Function> Function* stock(u32 address) {
                             str(source), '-o', str(runner)],
                            check=True, capture_output=True, text=True)
 
-            def match(path, other_rule=False):
-                return subprocess.check_output([str(runner), path, str(int(other_rule))], text=True).strip() == '1'
-            for path in ('/projects/openxy/test.opx', '/projects/openxy/my-synth_2.opx',
-                         '/projects/openxy/gui-module.oxc', '/projects/folder/song.xy'):
+            def match(path, kind='file', other_rule=False):
+                return subprocess.check_output([str(runner), path, kind, str(int(other_rule))], text=True).strip() == '1'
+            for path in ('/open-xy/modules/test.opx', '/open-xy/modules/my-synth_2.opx',
+                         '/open-xy/gui-module.oxc', '/projects/folder/song.xy'):
                 self.assertTrue(match(path), path)
-            for path in ('/projects/other/test.opx', '/projects/openxy/.opx', '/projects/openxy/a b.opx',
-                         '/projects/openxy/a.opx/extra', '/projects/openxy/a.opxx', '/projects/openxy/../a.opx',
-                         '/test.opx'):
+            for path in ('/open-xy/test.opx', '/projects/openxy/test.opx', '/open-xy/modules/.opx',
+                         '/open-xy/modules/a b.opx', '/open-xy/modules/a.opx/extra', '/open-xy/modules/a.opxx',
+                         '/open-xy/modules/../a.opx', '/open-xy/modules/x.oxc', '/test.opx'):
                 self.assertFalse(match(path), path)
-            self.assertFalse(match('/projects/openxy/test.opx', True))
+            self.assertFalse(match('/open-xy/modules/test.opx', other_rule=True))
+            # Folders: only the two of ours beside stock's, and only on the rule they ride on.
+            for path in ('/open-xy', '/open-xy/modules', '/projects'):
+                self.assertTrue(match(path, 'folder'), path)
+            for path in ('/open-xy/other', '/open-xy/modules/sub', '/openxy', '/open-xy/', '/samples'):
+                self.assertFalse(match(path, 'folder'), path)
+            self.assertFalse(match('/open-xy', 'folder', other_rule=True))
 
 
 if __name__ == '__main__': unittest.main()

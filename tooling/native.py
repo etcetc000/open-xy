@@ -1061,7 +1061,7 @@ def main(argv=None, command=None):
                             help="the folder holding op1_factory.json (default: this repository's copy)")
     if command != 'verify':  # a package records its own collection
         parser.add_argument('--module-probe', action='store_true',
-                            help='diagnostic: load /projects/openxy/test.opx on each processor role at startup, '
+                            help='diagnostic: load every /open-xy/modules/<name>.opx on each processor role at startup, '
                                  'call its init and report')
         parser.add_argument('--profiling', choices=('on', 'off'), default='on',
                             help='per-voice diagnostic timing (default: on for SDK development builds)')

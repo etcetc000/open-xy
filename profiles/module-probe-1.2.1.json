@@ -4,6 +4,16 @@
   "hooks": [
     {
       "kind": "hook",
+      "name": "MTP /open-xy and /open-xy/modules folders alongside unchanged stock folder rules",
+      "address": "0x8d5c1d02",
+      "file_offset": "0x1f8f5a",
+      "length": 4,
+      "before": "ffe357ff",
+      "symbol": "sdk_module_mtp_folder_match",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "MTP module files alongside unchanged stock project rules",
       "address": "0x8d5c1d9e",
       "file_offset": "0x1f8ff6",

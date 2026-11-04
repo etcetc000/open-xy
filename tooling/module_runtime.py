@@ -1,6 +1,6 @@
-"""The firmware edits module files need: MTP admits module files in
-/projects/openxy beside stock's project rules, and module synth artwork and
-catalog entries reach stock through its own load calls."""
+"""The firmware edits module files need: MTP admits the /open-xy and
+/open-xy/modules folders and module files beside stock's rules, and module
+synth artwork and catalog entries reach stock through its own load calls."""
 import copy
 import json
 
@@ -8,9 +8,9 @@ from .formats import require, sha
 from .pipeline import ROOT, check_patch_boundaries, read
 
 OVERLAY = 'profiles/module-probe-1.2.1.json'
-OVERLAY_SHA256 = '359062315ac6d57ea98319b0c3c44b4dc156c30d21044f07e489772b6fd09760'
-TARGETS = {'sdk_module_mtp_match': 0x8d5c1bb0, 'sdk_module_asset_load': 0x8d5f2400,
-           'sdk_module_catalog_load': 0x8c042490}
+OVERLAY_SHA256 = '119675f487ff8c33b95dacf2d44a6c5786aacade1d26d750cf73539b1348beeb'
+TARGETS = {'sdk_module_mtp_folder_match': 0x8d5c1bb0, 'sdk_module_mtp_match': 0x8d5c1bb0,
+           'sdk_module_asset_load': 0x8d5f2400, 'sdk_module_catalog_load': 0x8c042490}
 
 
 def profile(base):

@@ -15,6 +15,10 @@ u32 match(const char* pattern, const void* path) {
         pattern = R"(^/projects/[\w\!\+\-\@\[\] #-)]+/[\w\d\!\+\-\@\[\] #-)]+\.o?xy$)";
     else if (pattern == reinterpret_cast<const char*>(0x840ae494))
         pattern = R"(^/projects/workspace\.o?xy$)";
+    else if (pattern == reinterpret_cast<const char*>(0x840ae0c4))
+        pattern = R"(^/projects$)";
+    else if (pattern == reinterpret_cast<const char*>(0x840ae0d0))
+        pattern = R"(^/samples$)";
     bool character_class = false, escaped = false;
     for (const char* p = pattern; *p; ++p) {
         if (escaped) { escaped = false; continue; }
@@ -34,9 +38,13 @@ opxy::platform::Address opxy::platform::host_stock_address(u32 address) {
 }
 
 extern "C" u32 sdk_module_mtp_match(const char*, const void*) __asm__("sdk_module_mtp_match");
+extern "C" u32 sdk_module_mtp_folder_match(const char*, const void*) __asm__("sdk_module_mtp_folder_match");
+// matcher <path> <file|folder> <0: the stock rule our rules ride on | 1: another stock rule>
 int main(int argc, char** argv) {
-    if (argc != 3) return 2;
-    const char* pattern = reinterpret_cast<const char*>(std::atoi(argv[2]) ? 0x840ae494 : 0x840ae4b0);
-    std::printf("%u\n", sdk_module_mtp_match(pattern, argv[1]));
+    if (argc != 4) return 2;
+    const bool folder = !std::strcmp(argv[2], "folder"), other = std::atoi(argv[3]) != 0;
+    const char* pattern = reinterpret_cast<const char*>(
+        folder ? (other ? 0x840ae0d0 : 0x840ae0c4) : (other ? 0x840ae494 : 0x840ae4b0));
+    std::printf("%u\n", (folder ? sdk_module_mtp_folder_match : sdk_module_mtp_match)(pattern, argv[1]));
     return 0;
 }
