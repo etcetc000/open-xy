@@ -57,7 +57,29 @@ u32 array_end(const unsigned char* text, u32 bytes, const char* key) {
     return 0;
 }
 
-Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory, Module& out) {
+namespace {
+// The exported address for the 0-terminated name at names + at, or 0: also
+// when the name runs past the names.
+u32 resolve(const unsigned char* names, u32 names_bytes, u32 at, const Exports& exports) {
+    u32 end = at;
+    while (end < names_bytes && names[end]) ++end;
+    if (end >= names_bytes || end == at) return 0;
+    for (u32 e = 0; e < exports.count; ++e) {
+        const char* name = exports.table[e].name;
+        u32 i = 0;
+        while (at + i < end && name[i] && static_cast<unsigned char>(name[i]) == names[at + i]) ++i;
+        if (at + i == end && !name[i]) return exports.table[e].address;
+    }
+    return 0;
+}
+
+bool terminated(const unsigned char* names, u32 names_bytes, u32 at) {
+    for (u32 i = at; i < names_bytes; ++i) if (!names[i]) return i > at;
+    return false;
+}
+}
+
+Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory, const Exports& exports, Module& out) {
     out = Module{nullptr, nullptr, 0, 0, 0};
     if (!data || bytes < trailer_bytes) return short_file;
     const unsigned char* tail = data + bytes - trailer_bytes;
@@ -74,7 +96,9 @@ Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory,
     const unsigned char* image = data + t.image_offset;
     const unsigned char* relocs = data + t.reloc_offset;
     const u32 reloc_bytes = t.reloc_count * u32(sizeof(Reloc));
-    if (crc32(crc32(0, image, t.image_bytes), relocs, reloc_bytes) != t.crc) return bad_crc;
+    const unsigned char* names = relocs + reloc_bytes;
+    const u32 names_bytes = end - (t.reloc_offset + reloc_bytes);
+    if (crc32(crc32(crc32(0, image, t.image_bytes), relocs, reloc_bytes), names, names_bytes) != t.crc) return bad_crc;
 
     const u32 need = t.image_bytes + t.bss_bytes;
     const u32 rounded = (need + line_bytes - 1) & ~(line_bytes - 1);
@@ -90,11 +114,21 @@ Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory,
     for (u32 i = 0; i < t.reloc_count; ++i) {
         const u32 where = get32(relocs + i * 8), value = get32(relocs + i * 8 + 4);
         const u32 offset = where & 0x0fffffffu, type = where >> 28;
-        const u32 width = type == abs32 ? 4 : 2;
-        if (offset > t.image_bytes - width || value > need ||
-            (type != abs32 && type != hi16 && type != lo16)) {
+        const u32 width = type == abs32 || type == import ? 4 : 2;
+        if (offset > t.image_bytes - width ||
+            (type == import ? (offset & 3) || !terminated(names, names_bytes, value) : value > need) ||
+            (type != abs32 && type != hi16 && type != lo16 && type != import)) {
             memory.release(memory.context, block);
             return bad_reloc;
+        }
+        if (type == import) {
+            const u32 address = resolve(names, names_bytes, value, exports);
+            if (!address) {
+                memory.release(memory.context, block);
+                return missing_import;
+            }
+            put32(target + offset, address);
+            continue;
         }
         const u32 address = base + value;
         if (type == abs32) put32(target + offset, address);

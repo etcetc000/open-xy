@@ -146,6 +146,8 @@ void scan() {
     dir_close(dir);
 }
 
+template<class Function> u32 address(Function* f) { return static_cast<u32>(reinterpret_cast<Address>(f)); }
+
 void load(const char* name, bool gui) {
     static const ModuleApi api_gui = {module_api_version, 1, note, sdk_module_synth_register, sdk_module_synth_voice},
                            api_audio = {module_api_version, 0, note, sdk_module_synth_register, sdk_module_synth_voice};
@@ -157,11 +159,18 @@ void load(const char* name, bool gui) {
     for (const char* p = ".opx"; *p; ++p) path[n++] = *p;
     path[n] = 0;
 
+    // What a module may import by name (module.hpp, opxy::core). Order is free.
+    const modules::Export exports[] = {
+        {"note", address(note)},
+        {"synth_register", address(sdk_module_synth_register)},
+        {"synth_voice", address(sdk_module_synth_voice)},
+    };
     u32 bytes;
     unsigned char* data = read_file(path, bytes);
     modules::Module module = {};
     const modules::Status status = !data ? modules::io_error :
-        modules::stage(data, bytes, modules::os_1_2_1, modules::Memory{nullptr, allocate, release, synchronize}, module);
+        modules::stage(data, bytes, modules::os_1_2_1, modules::Memory{nullptr, allocate, release, synchronize},
+                       modules::Exports{exports, sizeof exports / sizeof exports[0]}, module);
     if (data) release(nullptr, data);
     if (status != modules::loaded) return;
     // A module whose init refuses stays in memory but is never called again.

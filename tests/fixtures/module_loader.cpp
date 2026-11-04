@@ -34,19 +34,27 @@ struct Spec {
     std::vector<m::Reloc> relocs = {{m::abs32 << 28 | 0, 20}, {m::hi16 << 28 | 4, 8}, {m::lo16 << 28 | 6, 8}};
     const char* manifest = "";
     u32 extra_manifest_bytes = 0;  // claimed beyond the text, into the image
+    // Names after the relocs, for imports (their target is an offset in here).
+    std::vector<unsigned char> names;
     bool corrupt_crc = false, corrupt_magic = false;
 };
+
+const m::Export host_exports[] = {{"alpha", 0x11223344u}, {"beta", 0x55667788u}};
+const m::Exports exports = {host_exports, 2};
 
 // Manifest text from offset 0, then the image (4-aligned): word 0 relocated in
 // full, word 1 as a hi/lo pair, words 2-3 plain.
 std::vector<unsigned char> build(const Spec& s) {
     const u32 manifest_bytes = u32(std::strlen(s.manifest));
     const u32 image_offset = (manifest_bytes + 3) & ~3u, reloc_offset = image_offset + s.image_bytes;
-    std::vector<unsigned char> f(reloc_offset + 8 * s.relocs.size() + m::trailer_bytes, 0);
+    const u32 names_offset = reloc_offset + 8 * u32(s.relocs.size());
+    std::vector<unsigned char> f(names_offset + s.names.size() + m::trailer_bytes, 0);
     std::memcpy(f.data(), s.manifest, manifest_bytes);
     for (u32 i = 8; i < s.image_bytes; ++i) f[image_offset + i] = static_cast<unsigned char>(i);
     for (u32 i = 0; i < s.relocs.size(); ++i) { put32(f, reloc_offset + 8 * i, s.relocs[i].where); put32(f, reloc_offset + 8 * i + 4, s.relocs[i].target); }
-    const u32 crc = m::crc32(m::crc32(0, f.data() + image_offset, s.image_bytes), f.data() + reloc_offset, 8 * u32(s.relocs.size()));
+    if (!s.names.empty()) std::memcpy(&f[names_offset], s.names.data(), s.names.size());
+    const u32 crc = m::crc32(m::crc32(m::crc32(0, f.data() + image_offset, s.image_bytes), f.data() + reloc_offset, 8 * u32(s.relocs.size())),
+                             f.data() + names_offset, u32(s.names.size()));
     const u32 t = u32(f.size()) - m::trailer_bytes;
     put32(f, t, manifest_bytes + s.extra_manifest_bytes);
     put32(f, t + 4, image_offset); put32(f, t + 8, s.image_bytes); put32(f, t + 12, s.bss_bytes);
@@ -60,8 +68,10 @@ std::vector<unsigned char> build(const Spec& s) {
 
 m::Status run(const Spec& s, Context& c, m::Module& out) {
     const std::vector<unsigned char> f = build(s);
-    return m::stage(f.data(), u32(f.size()), m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, out);
+    return m::stage(f.data(), u32(f.size()), m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, exports, out);
 }
+
+std::vector<unsigned char> text(const char* s, u32 bytes) { return std::vector<unsigned char>(s, s + bytes); }
 
 void expect(const Spec& s, m::Status status, const char* message) {
     Context c = {}; m::Module out;
@@ -79,7 +89,10 @@ int stage_file(const char* path) {
     for (int c; (c = std::fgetc(file)) != EOF;) data.push_back(static_cast<unsigned char>(c));
     std::fclose(file);
     Context c = {}; m::Module out;
-    require(m::stage(data.data(), u32(data.size()), m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, out) == m::loaded,
+    // Every name the SDK lets a module import (module.hpp, opxy::core).
+    const m::Export sdk[] = {{"note", 0x1000}, {"synth_register", 0x2000}, {"synth_voice", 0x3000}};
+    require(m::stage(data.data(), u32(data.size()), m::os_1_2_1, m::Memory{&c, allocate, release, synchronize},
+                     m::Exports{sdk, 3}, out) == m::loaded,
             "built module refused");
     require(c.syncs == 1 && out.init >= out.base && out.init < out.base + out.bytes, "built module staged wrongly");
     release(&c, out.block);
@@ -133,6 +146,36 @@ int main(int argc, char** argv) {
     }
     { Spec s; s.manifest = "{\"manifest\": 1}\n"; s.extra_manifest_bytes = 4;
       expect(s, m::bad_layout, "manifest reaching into the image admitted"); }
+    {
+        // Imports by name: the export's address lands in the slot, wherever the
+        // name sits in the firmware's table.
+        Spec s; s.names = text("beta\0alpha\0\0\0", 13);
+        s.relocs.push_back({m::import << 28 | 8, 5});    // alpha
+        s.relocs.push_back({m::import << 28 | 12, 0});   // beta
+        Context c = {}; m::Module out;
+        require(run(s, c, out) == m::loaded, "module with imports refused");
+        require(get32(out.start + 8) == 0x11223344u && get32(out.start + 12) == 0x55667788u, "import resolved wrongly");
+        require(get32(out.start) == out.base + 20, "imports disturbed the other relocations");
+        release(&c, out.block);
+    }
+    { Spec s; s.names = text("gamma\0", 6); s.relocs.push_back({m::import << 28 | 8, 0});
+      expect(s, m::missing_import, "unknown import admitted"); }
+    { Spec s; s.names = text("alph\0", 5); s.relocs.push_back({m::import << 28 | 8, 0});
+      expect(s, m::missing_import, "prefix of an export admitted"); }
+    { Spec s; s.names = text("alphabet\0", 9); s.relocs.push_back({m::import << 28 | 8, 0});
+      expect(s, m::missing_import, "longer name than an export admitted"); }
+    { Spec s; s.names = text("alpha", 5); s.relocs.push_back({m::import << 28 | 8, 0});
+      expect(s, m::bad_reloc, "unterminated import name admitted"); }
+    { Spec s; s.names = text("alpha\0", 6); s.relocs.push_back({m::import << 28 | 8, 6});
+      expect(s, m::bad_reloc, "import name past the names admitted"); }
+    { Spec s; s.names = text("\0", 1); s.relocs.push_back({m::import << 28 | 8, 0});
+      expect(s, m::bad_reloc, "empty import name admitted"); }
+    { Spec s; s.names = text("alpha\0", 6); s.relocs.push_back({m::import << 28 | 10, 0});
+      expect(s, m::bad_reloc, "unaligned import slot admitted"); }
+    { Spec s; s.names = text("alpha\0", 6); s.relocs.push_back({m::import << 28 | 16, 0});
+      expect(s, m::bad_reloc, "import slot past the image admitted"); }
+    { Spec s; s.names = text("alpha\0", 6); s.relocs.push_back({m::import << 28 | 8, 0}); s.corrupt_crc = true;
+      expect(s, m::bad_crc, "names outside the CRC"); }
 
     { Spec s; s.corrupt_magic = true; expect(s, m::bad_trailer, "bad magic admitted"); }
     { Spec s; s.format = 1; expect(s, m::bad_trailer, "unknown format admitted"); }
@@ -152,9 +195,9 @@ int main(int argc, char** argv) {
       require(run(s, c, out) == m::io_error && c.allocated == c.released, "cache failure admitted"); }
     {
         Context c = {}; m::Module out; const unsigned char small[8] = {};
-        require(m::stage(small, sizeof small, m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, out) == m::short_file,
+        require(m::stage(small, sizeof small, m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, exports, out) == m::short_file,
                 "short file admitted");
-        require(m::stage(nullptr, 0, m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, out) == m::short_file,
+        require(m::stage(nullptr, 0, m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, exports, out) == m::short_file,
                 "missing data admitted");
     }
     {
@@ -162,7 +205,7 @@ int main(int argc, char** argv) {
         Spec s; const std::vector<unsigned char> f = build(s);
         for (u32 cut = 1; cut < f.size(); ++cut) {
             Context c = {}; m::Module out;
-            require(m::stage(f.data(), u32(f.size()) - cut, m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, out) != m::loaded,
+            require(m::stage(f.data(), u32(f.size()) - cut, m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, exports, out) != m::loaded,
                     "truncated module admitted");
             require(c.allocated == c.released, "memory leaked on truncation");
         }

@@ -1,5 +1,5 @@
-// Probe module: exercises every relocation type and bss, then reports
-// through the API. It registers nothing.
+// Probe module: exercises every relocation type, an import by name and bss,
+// then reports through the API. It registers nothing.
 #include <opxy/module.hpp>
 using namespace opxy;
 namespace {
@@ -15,5 +15,6 @@ extern "C" int opxy_module_init(const ModuleApi* api) {
     counter = 3;
     for (u32 i = 0; i < counter; ++i) api->note(words[i]);   // HI16/LO16 for &words
     api->note(lookup(api->gui));
+    core::note("by name");   // IMPORT
     return 0;
 }

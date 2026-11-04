@@ -35,6 +35,22 @@ class Packing(unittest.TestCase):
         self.assertEqual(fields[8:11], (build_module.OS_1_2_1, 0, 48))
         self.assertEqual(build_module.inspect(data)['manifest'], description)
 
+    def test_imports_name_their_slot_and_travel_inside_the_checksum(self):
+        description = build_module.manifest('test', '1.0.0', 'module')
+        names = b'synth_voice\0note\0'
+        relocs = [(build_module.IMPORT << 28 | 4, 12), (build_module.IMPORT << 28 | 8, 0)]
+        data = build_module.pack(description, bytes(12), 0, 0, relocs, names)
+        self.assertEqual(build_module.inspect(data)['imports'], ['note', 'synth_voice'])
+        self.assertEqual(data[-48 - len(names):-48], names)
+        broken = bytearray(data)
+        broken[-48 - 2] ^= 1
+        with self.assertRaises(ValueError):
+            build_module.inspect(bytes(broken))
+        for where, target in ((build_module.IMPORT << 28 | 6, 0), (build_module.IMPORT << 28 | 12, 0),
+                              (build_module.IMPORT << 28 | 4, 11), (build_module.IMPORT << 28 | 4, 40)):
+            with self.assertRaises(ValueError, msg=(where, target)):
+                build_module.inspect(build_module.pack(description, bytes(12), 0, 0, [(where, target)], names))
+
     def test_the_manifest_says_what_the_module_is(self):
         self.assertEqual(build_module.manifest('karplus', '1.2.10', 'synth'),
                          dict(manifest=1, name='karplus', version='1.2.10', kind='synth', os='1.2.1',
@@ -80,10 +96,11 @@ class Probe(unittest.TestCase):
             self.assertGreater(result['relocs'], 0)
             self.assertEqual((result['manifest']['name'], result['manifest']['version'], result['manifest']['kind']),
                              ('probe', '0.1.0', 'module'))
+            self.assertEqual(result['imports'], ['note'])
             data = out.read_bytes()
             relocs = result['image_offset'] + result['image']
             kinds = {struct.unpack_from('<I', data, relocs + 8 * i)[0] >> 28 for i in range(result['relocs'])}
-            self.assertEqual(kinds, {build_module.ABS32, build_module.HI16, build_module.LO16})
+            self.assertEqual(kinds, {build_module.ABS32, build_module.HI16, build_module.LO16, build_module.IMPORT})
             runner = Path(temp) / ('loader.exe' if os.name == 'nt' else 'loader')
             subprocess.run([host, '-std=c++11', '-Wall', '-Wextra', '-Werror',
                             '-I' + str(ROOT / 'sdk/include'), '-I' + str(ROOT / 'sdk/platform'),
