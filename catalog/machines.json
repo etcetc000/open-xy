@@ -1169,8 +1169,8 @@
       "maintainer": "colorsinspace1",
       "status": "published",
       "repository": "https://github.com/colorsinspace1/grainfield",
-      "tag": "1.2",
-      "commit": "9f5c8fbefd6452ea685b3665a5d37e8e26058329",
+      "tag": "1.3",
+      "commit": "db707a9b1f0283627d74fa6b98f2d25da3068df7",
       "path": ".",
       "keywords": [
         "granular",
@@ -1179,10 +1179,10 @@
       ],
       "cpu": {
         "benchmark": "opxy-effect-callback-v1",
-        "commit": "9f5c8fbefd6452ea685b3665a5d37e8e26058329",
-        "firmware_sha256": "1768956831002dd837f5a55be1f047fff0544d8aad3243f5a141f552f5e4413e",
+        "commit": "db707a9b1f0283627d74fa6b98f2d25da3068df7",
+        "firmware_sha256": "1c7f233771512dc133e6bac48f92d5ca50bcf0b8f950a0266509e7d19454ae58",
         "runs": 3,
-        "block_percent": 9.3019
+        "block_percent": 9.291218
       }
     },
     {
