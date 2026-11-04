@@ -66,8 +66,9 @@ lifecycle callback does not change `draw::Input` or its browser ABI.
 Input holds the Q31 value each of the four control positions shows, Q10 elapsed
 seconds, track identity, a uint32 note-start serial, the reduced-motion
 preference, `shown`, the declared parameter index each position shows (its own,
-or an [alternate](api.md#alternate-controls)), and `slots`, the Q31 value of
-every declared parameter by index (0 beyond the declared ones). A serial is a
+or an [alternate](api.md#alternate-controls)), `slots`, the Q31 value of
+every declared parameter by index (0 beyond the declared ones), note activity
+and the track's amp envelope. A serial is a
 snapshot, not a queue: several note starts between frames can coalesce.
 Initializing or changing track must not fabricate a note.
 
@@ -84,8 +85,8 @@ and amplitude release tails. On the device it follows stock's per-track
 note-on/off map, which stock also uses to illuminate its keyboard; it is not a
 physical-key sensor or a measurement of audible sound. Sequenced and live notes
 follow the same stock note routing. Sustain/latch behavior follows that routing;
-this API does not read the amplitude envelope or promise that sound ends at a
-note-off. Non-instrument tracks report zero.
+note activity does not promise that sound ends at a note-off (see the
+[amp envelope](#amp-envelope-sdk-110)). Non-instrument tracks report zero.
 
 Store a zero-initialized `opxy::draw::NoteTracker` in `DisplayState` and call
 `update(input)` once per frame. Call the tracker's `reset()` in
@@ -123,10 +124,38 @@ workbench and builder both supply activity, including releases with reduced
 motion enabled.
 
 Machines using these additions declare `"sdk": "1.1"` in `machine.json`.
-Existing SDK 1.0 source remains supported. New previews use drawing ABI 2 with
-a 76-byte input; the browser host also accepts existing ABI 1 previews, which
-retain their 68-byte input and do not receive activity. Rebuild old preview
-modules to use the new fields.
+Existing SDK 1.0 source remains supported. The browser host also accepts ABI 1
+previews, which retain their 68-byte input and do not receive activity.
+Rebuild old preview modules to use the new fields.
+
+### Amp envelope (SDK 1.10)
+
+`amp` holds the track's stock amplitude envelope, the one its envelope page
+edits, on a synth's page or a sample engine's own screen: `attack`, `decay`, `sustain` and `release`, each a Q31 word from 0 to
+`0x7fffffff` on the same scale as `slots`. A larger attack, decay or release
+is a longer stage, as stock's envelope page draws it; these are control
+positions, not times, and stock maps them to times along its own curves. The
+values are the ones stock's envelope page draws, read once per frame on the
+GUI side: a snapshot for drawing, not a measurement of a voice's envelope.
+
+When the envelope cannot be read, every word is `envelope_unavailable` (-1);
+`envelope_known(input.amp)` tests for it. Treat an unknown envelope as the
+default the machine would otherwise show.
+
+```cpp
+// Slow a strike animation for slow attacks; short attacks keep their speed.
+const opxy::i32 attack = opxy::draw::envelope_known(input.amp) ? input.amp.attack : 0;
+```
+
+Browser hosts pass `{attack, decay, sustain, release}` Q31 words as the
+optional tenth argument to `PreviewDisplay.tick`, after the drum model, Shift
+and its choices; omission reports the envelope as unknown, as the builder's
+preview and the SDK workbench do.
+
+Machines reading `amp` declare `"sdk": "1.10"`. New previews use drawing ABI 5,
+a 104-byte input with `amp` after a drum kit's `model`; the browser host also
+accepts the earlier ABIs, which keep their inputs and do not receive the
+envelope.
 
 ### Effect pages (SDK 1.7)
 
@@ -147,7 +176,7 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls in its edited row while `shift` is 1, as the stock header does. The
-previews use drawing ABI 4, an 88-byte input; ABI 3 (84 bytes) ends after
+previews used drawing ABI 4, an 88-byte input, until ABI 5 added the amp envelope; ABI 3 (84 bytes) ends after
 `choices`.
 
 ## Frame

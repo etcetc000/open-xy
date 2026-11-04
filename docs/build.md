@@ -72,8 +72,9 @@ stock-1.2.1/
 
 4. Press track 2 for "2. exit".
 
-If the OP-XY freezes on "mtp mode active" as soon as a computer connects,
-reinstall the official OS 1.2.1 update (`.tfw`) and try again.
+If MTP fails to connect or freezes, follow the builder’s
+[MTP troubleshooting guide](builder.md#mtp-troubleshooting-on-macos). It offers a fresh OS 1.2.1 setup and separates missing-OS recovery from
+a drive format that erases user data.
 
 For example, keep the folder in `%LOCALAPPDATA%/OPXY-SDK/private/` on Windows,
 `~/Library/Application Support/OPXY-SDK/private/` on macOS or
