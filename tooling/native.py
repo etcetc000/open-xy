@@ -242,18 +242,20 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 UNIT_SERVICES.update(dict.fromkeys(('file_banks', 'file_bank_table'), 'file_banks'))
 
 
+# Services the SDK provides without a stock patch, by the users that select them,
+# as the profile's `services` map its own.
+CODE_SERVICES = {'file_banks': ['fileBanks']}
+
+
 def collection_services(profile, machines):
-    """The profile services a build's machines use, and 'file_banks' when a synth
-    declares file banks; that service needs no stock patch."""
-    services = active_services(profile, service_users(machines))
-    if any(getattr(m, 'file_banks', ()) for m in machines):
-        services = set(services) | {'file_banks'}
-    return services
+    """The profile services a build's machines use, and the SDK's own (CODE_SERVICES)."""
+    users = set(service_users(machines))
+    return set(active_services(profile, users)) | {name for name, wanted in CODE_SERVICES.items() if users & set(wanted)}
 
 
 def bank_assets(directory, machines):
-    """Deployment files for a build's file banks, from its compiled objects."""
-    return {f['path']: f['data'] for f in file_banks.compiled(directory, machines)}
+    """Deployment files for a build's file banks, from its linked module."""
+    return {f['path']: f['data'] for f in file_banks.linked(read(Path(directory) / 'module.elf'), machines)}
 
 
 def service_users(machines):
@@ -264,7 +266,8 @@ def service_users(machines):
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
-            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
+            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
+            ['fileBanks' for m in machines if getattr(m, 'file_banks', ())])
 
 
 def module_bytes(profile):
@@ -544,7 +547,11 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     if any(getattr(m, 'file_banks', ()) for m in machines):
         # The bank table names every declaring machine's views, so all of them must link.
         require(all(m in linked for m in machines if getattr(m, 'file_banks', ())), 'A synth with file banks did not fit in the module')
-        report['file_banks'] = file_banks.placed(read(directory / 'module.elf'), file_banks.compiled(directory, linked))
+        banks = file_banks.linked(read(directory / 'module.elf'), linked)
+        # The loader table was generated from the objects: the module must carry the same tables.
+        require([f['digest'] for f in banks] == [f['digest'] for f in file_banks.compiled(directory, linked)],
+                'Linked file banks differ from the compiled ones')
+        report['file_banks'] = file_banks.placed(read(directory / 'module.elf'), banks)
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
 

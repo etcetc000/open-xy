@@ -120,23 +120,13 @@ def detach(data):
     return output
 
 
-def compiled(directory, machines):
-    """The build's unique bank files, from each machine's compiled objects:
-    [{path, digest, bytes, data, uses: [(namespace, view, array, machine id)]}]."""
+def unique(machines, payload_of):
+    """[{path, digest, bytes, data, uses: [(namespace, view, array, machine id)]}],
+    one per distinct table, for the file-bank machines among machines."""
     files = {}
     for m in machines:
-        if not m.file_banks:
-            continue
-        found = {}
-        for path in sorted((Path(directory) / m.id).glob('*.o')):
-            for name, asset in inspect(path.read_bytes(), allocated=False).items():
-                require(name not in found, 'File bank defined in more than one unit: ' + name)
-                found[name] = asset['payload']
-        arrays = {array for _view, array in m.file_banks}
-        require(set(found) == arrays, f'{m.id}: declared and compiled file banks differ: '
-                f'{sorted(arrays)} vs {sorted(found)}')
-        for view, array in m.file_banks:
-            payload = found[array]
+        for view, array in getattr(m, 'file_banks', ()):
+            payload = payload_of(m, array)
             digest = hashlib.sha256(payload).hexdigest()
             entry = files.setdefault(digest, dict(path=package_path(digest), digest=digest, bytes=len(payload),
                                                   data=container(payload), uses=[]))
@@ -144,6 +134,50 @@ def compiled(directory, machines):
     result = sorted(files.values(), key=lambda f: f['digest'])
     require(budget(result) <= SESSION_CAP, 'File banks exceed the %d KiB session cap' % (SESSION_CAP // 1024))
     return result
+
+
+def compiled(directory, machines):
+    """The build's bank files from each machine's compiled objects, before linking."""
+    found = {}
+    for m in machines:
+        if not getattr(m, 'file_banks', ()):
+            continue
+        own = found.setdefault(m.id, {})
+        for path in sorted((Path(directory) / m.id).glob('*.o')):
+            for name, asset in inspect(path.read_bytes(), allocated=False).items():
+                require(name not in own, 'File bank defined in more than one unit: ' + name)
+                own[name] = asset['payload']
+        arrays = {array for _view, array in m.file_banks}
+        require(set(own) == arrays, f'{m.id}: declared and compiled file banks differ: {sorted(arrays)} vs {sorted(own)}')
+    return unique(machines, lambda m, array: found[m.id][array])
+
+
+def linked(elf, machines):
+    """The build's bank files from the linked module, where each table stays as
+    unallocated section data under its machine's namespaced symbol."""
+    sections = elf_sections(elf)
+    headers = [h for _at, h in sections]
+    symbols = {}
+    for h in headers:
+        if h[1] != 2:
+            continue
+        strings = headers[h[6]]
+        for at in range(h[4], h[4] + h[5], 16):
+            index, value, size, _info, _other, section = struct.unpack_from('<IIIBBH', elf, at)
+            end = elf.index(b'\0', strings[4] + index)
+            symbols[elf[strings[4] + index:end].decode('ascii')] = (value, size, section)
+
+    def payload_of(m, array):
+        namespace = m.definition['id']
+        mangled = f'_ZN{len(namespace)}{namespace}{len(array)}{array}E'
+        found = symbols.get('_' + mangled) or symbols.get(mangled)
+        require(found and 0 < found[2] < len(headers), f'Missing file bank in the module: {namespace}::{array}')
+        value, size, section = found
+        h = headers[section]
+        require(h[1] == 1 and not h[2] & 2 and 0 < size <= MAX_PAYLOAD and size % 4 == 0 and value + size <= h[5],
+                f'File bank {namespace}::{array} is not unallocated table data')
+        return elf[h[4] + value:h[4] + value + size]
+    return unique(machines, payload_of)
 
 
 def budget(files):
