@@ -33,8 +33,9 @@ struct Handle { const void* const* vtable; opxy::u32 slot, key, track; };  // sl
 // owner: a voice ID, or 0 when free. pad: the note's track and key plus one, or
 // 0 for a note without them. fade: frames left of a same-key choke, or 0.
 // send: with padSend, the playing key's FX I and FX II codes (drum_send.hpp), from the
-// payload of the block it last rendered.
-struct Slot { Voice voice; opxy::u32 owner, started, pad, fade, send; };
+// payload of the block it last rendered. latched: with padMix, whether the note has
+// kept its pad's level (gain) and pad controls (pads) from its first block's payload.
+struct Slot { Voice voice; opxy::u32 owner, started, pad, fade, send, latched; opxy::i32 gain, pads[2]; };
 static Handle handles[kVoiceIndices];
 static Slot voices[@CAPACITY@];
 static opxy::u32 notes;  // counts note starts, to find the oldest
@@ -46,6 +47,9 @@ static Shared shared;
 const bool kChoke = @CHOKE@;
 // padMix: the pad's stock level, the payload's word 7 (Q27, 0 dB unity), as a
 // cut. Stock's drum renderer already applies its pan (word 5) to every voice.
+// A note keeps the level and pad controls of its first block's payload: the
+// payload is the pad's, which a later note on the pad (with a step's locks,
+// drum_locks.hpp, or none) replaces, as stock keeps each voice's pan.
 const bool kPadMix = @PAD_MIX@;
 // padControls: the kit's fields in the pad word (payload word 6), decoded for
 // a marked pad and passed to the engine's drum_pad before every render. The
@@ -141,6 +145,7 @@ int @PREFIX@_start(void* self, opxy::u32 key) {
     slot->pad = keyed ? (handle->track << 8 | (handle->key + 1)) : 0;
     slot->fade = 0;
     slot->send = 0;
+    slot->latched = 0;
     // A note on a pad cuts every other voice still sounding it on the track.
     if (kChoke && slot->pad)
         for (opxy::u32 i = 0; i < @CAPACITY@; ++i)
@@ -201,15 +206,18 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
         opxy::u32 pitch[opxy::block_frames];
         for (unsigned i = 0; i < opxy::block_frames; ++i) pitch[i] = increments[i] << 16;
         @NAMESPACE@::drum_select(slot->voice, shared, slot->owner, model);
-        if (kPadCount) {
+        if (kPadMix && !slot->latched) {
             // An unmarked pad (stock's defaults) is neutral, whatever stock left in the word.
-            opxy::i32 pads[opxy::platform::kDrumKitPadFields];
             const bool marked = region && opxy::platform::drum_marked_q31(region[0]);
             for (opxy::u32 i = 0; i < opxy::platform::kDrumKitPadFields; ++i)
-                pads[i] = marked && i < kPadCount
+                slot->pads[i] = marked && i < kPadCount
                     ? opxy::platform::drum_pad_get(region[opxy::platform::kDrumPadPayload], i, pad_bits, kPadSigns) : 0;
+            slot->gain = region ? region[opxy::platform::kDrumGainWord] : 0;
+            slot->latched = 1;
+        }
+        if (kPadCount) {
             using namespace sdk_drum_pads;
-            drum_pad(slot->voice, shared, slot->owner, static_cast<const opxy::i32*>(pads));
+            drum_pad(slot->voice, shared, slot->owner, static_cast<const opxy::i32*>(slot->pads));
         }
         @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
         for (unsigned i = 0; i < opxy::block_frames; ++i)
@@ -217,7 +225,7 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
         // A stored boost plays at 0 dB, so a voice keeps its declared peak; a
         // payload without the word (0) plays at unity. Stock's levels reach
         // -30 dB, far above zero.
-        const opxy::i32 gain = kPadMix && region ? region[opxy::platform::kDrumGainWord] : 0;
+        const opxy::i32 gain = kPadMix ? slot->gain : 0;
         if (gain > 0 && gain < opxy::platform::kDrumUnityGain) {
             const opxy::i32 scale = gain << 4;   // Q27 below unity, as Q31
             for (unsigned i = 0; i < opxy::block_frames; ++i) output[i] = opxy::q31::multiply(output[i], scale);

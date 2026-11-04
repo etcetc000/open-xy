@@ -288,22 +288,38 @@ int main() {
     for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
     for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
     for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
+    // Each note plays the level of its first block's payload (a new note per value).
     note(1, 53);
     const opxy::i32 unity = opxy::q31::multiply(2 << 16, 0x7fffffff);
     CHECK(frame(1, nullptr) == unity);
     opxy::i32 payload[8] = {};
+    note(1, 53);
     CHECK(frame(1, payload) == unity);                      // no level word
     payload[7] = 1 << 27;                                   // 0 dB
+    note(1, 53);
     CHECK(frame(1, payload) == unity);
     payload[7] = 10 << 27;                                  // +20 dB, stock's top: held at 0 dB
+    note(1, 53);
     CHECK(frame(1, payload) == unity);
     payload[7] = -1;
+    note(1, 53);
     CHECK(frame(1, payload) == unity);
     payload[7] = 1 << 26;                                   // -6.02 dB: half
+    note(1, 53);
     CHECK(frame(1, payload) == opxy::q31::multiply(unity, 1 << 30));
     payload[7] = 4244337;                                   // -30 dB, stock's floor: 10^-1.5 / 16 * 2^31
+    note(1, 53);
     const opxy::i32 quiet = frame(1, payload);
     CHECK(quiet == opxy::q31::multiply(unity, 4244337 << 4) && quiet > 0 && quiet < unity / 30);
+    // The pad's payload changes under a sounding note (a later note on the pad, a
+    // step's lock or none): the note keeps its own level until it starts again.
+    payload[7] = 1 << 27;
+    CHECK(frame(1, payload) == quiet);
+    note(2, 53);
+    CHECK(frame(2, payload) == opxy::q31::multiply(3 << 16, 0x7fffffff));   // its owner is 3
+    CHECK(frame(1, payload) == quiet);
+    note(1, 53);
+    CHECK(frame(1, payload) == unity);
     return 0;
 }
 """
@@ -331,21 +347,28 @@ int main() {
     opxy::i32 payload[8] = {};
     fixture_region = payload;
     // FILTER 5 bits signed at 16..20, SRR 4 at 21..24; the sends above are not the engine's.
+    // Each note plays the pad controls of its first block's payload (a new note per value).
     payload[0] = kMarked;
     payload[6] = static_cast<opxy::i32>(((32u - 3u) << 16) | (9u << 21) | (5u << 25) | (6u << 28) | 0x1234u);
     CHECK(rendered(1) == 2 && pad_calls == 1);
     CHECK(pad_values[0] == -3 && pad_values[1] == 9);
     payload[6] = static_cast<opxy::i32>((15u << 16) | (15u << 21));
+    // A sounding note keeps its own: the payload is the pad's, which a later note replaces.
+    CHECK(rendered(1) == 2 && pad_values[0] == -3 && pad_values[1] == 9);
+    note(1, 53);
     CHECK(rendered(1) == 2 && pad_values[0] == 15 && pad_values[1] == 15);
     payload[6] = static_cast<opxy::i32>(16u << 16);
+    note(1, 53);
     CHECK(rendered(1) == 2 && pad_values[0] == -16 && !pad_values[1]);
     // A pad the kit has not marked: whatever stock left in the word is neutral.
     payload[0] = opxy::i32(2u * 32537631u + 16268815u);
     payload[6] = 0x7a5a1234;
+    note(1, 53);
     CHECK(rendered(1) == 2 && !pad_values[0] && !pad_values[1]);
     fixture_region = nullptr;
     pad_values[0] = 9;
-    CHECK(rendered(1) == 2 && !pad_values[0] && pad_calls == 5);
+    note(1, 53);
+    CHECK(rendered(1) == 2 && !pad_values[0] && pad_calls == 6);
     // The stock header's caption comes from the engine.
     char text[16] = {};
     CHECK(probe_drum_pad_text(1, 5, text) && text[0] == 'B' && text[1] == '5');
