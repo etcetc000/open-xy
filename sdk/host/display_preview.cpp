@@ -6,7 +6,8 @@ opxy::binding::DisplayState state;
 opxy::draw::Input input;
 opxy::binding::Frame frame;
 // The overview a sample engine's screen reads; the host writes it (empty until then).
-opxy::draw::SampleOverview sample;
+// Its gain starts unavailable, as on the device while a track holds no sample.
+opxy::draw::SampleOverview sample = {0, 0, 0, 0, 0, 0, 0, 0, 0, {}, {}, opxy::draw::gain_unavailable};
 }
 const opxy::draw::SampleOverview* opxy_sample_overview() { return &sample; }
 extern "C" {
