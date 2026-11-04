@@ -10,7 +10,6 @@
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
 #include "drum_locks.hpp"
-#include "drumline.hpp"
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
@@ -261,12 +260,6 @@ bool sdk_drum_shift_press(u32 track, u32 encoder) {
 // when turned fast), and stores the bucket's centre. An owned machine's enum
 // slot answers its choice count with scale 1: one choice per detent.
 u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
-    // A stock Drumline track's lock words, with the build option drumlineRow2 (drumline.hpp).
-    if (drumline_track(track))
-        if (const u32 buckets = sdk_drumline->steps(index)) {
-            *scale = 1;
-            return buckets;
-        }
     // A padMix kit's lock words: one unit of the field a detent (drum_locks.hpp).
     if (index >= kDrumLockWord && index < kDrumLockWord + kDrumLocks)
         if (const DrumMachine* kit = pad_kit(track))
@@ -302,11 +295,6 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     // the kit's pad controls lock the step's offset (drum_locks.hpp) through
     // stock's editor; the model, the choke group and the sends lock nothing,
     // so their turns do nothing.
-    // With the build option drumlineRow2 a stock Drumline track does the same
-    // with its Shift rows' PAN, VOLUME, RANDOM, SRR, FX I and FX II (drumline.hpp),
-    // where stock locked the engine's words 4..7.
-    if (fine_turn && step_held() && drumline_track(track))
-        return sdk_drumline->lock(project, track, index - 4, event);
     if (fine_turn && step_held())
         if (const DrumMachine* kit = pad_kit(track))
             if (machine(track, t)) {
@@ -501,7 +489,6 @@ u32 sdk_synth_scramble(u32 project, u32 track, u32 index, opxy::i32 value) {
     // Scramble (8c0b52fc) also randomizes 16..19 (8c0b53ac..8c0b53ce), a
     // padMix kit's lock words: their base stays neutral.
     if (pad_kit(track)) neutral_locks(project, track);
-    if (drumline_track(track)) sdk_drumline->neutral(project, track);
     const SynthControls* m = synth(track);
     if (!m) return result;
     for (u32 s = opxy::page_controls; s < opxy::parameter_slots; ++s)
@@ -525,7 +512,6 @@ void sdk_send_refresh() {
     // another there (a track newly the kit, a preset); never while a project loads.
     const u32 selected = byte(kSelectedTrack);
     if (!word(kProjectLoading) && pad_kit(selected)) neutral_locks(kProject, selected);
-    if (!word(kProjectLoading) && drumline_track(selected)) sdk_drumline->neutral(kProject, selected);
     for (u32 s = 0; s < 2; ++s) {
         Track* t;
         const u32 track = kSendTracks + s;

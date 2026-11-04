@@ -1,8 +1,5 @@
 #include <cstdlib>
 #include "drum_machines.hpp"
-#include "drumline.hpp"
-// Built without the build option drumlineRow2: the generated startup defines it null.
-const opxy::platform::Drumline* const sdk_drumline = nullptr;
 
 namespace {
 int state = 1;

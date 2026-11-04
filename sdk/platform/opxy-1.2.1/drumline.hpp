@@ -1,23 +1,25 @@
-// Stock Drumline's second Shift row and per-hit Shift locks: the build option
-// drumlineRow2 (tooling/machines.py BUILD_OPTIONS), off by default, because it
-// changes stock's own engine 4 ("dbox") on every Drumline track.
-// - Row 2 of Shift: SRR, a blank position, FX I and FX II of the selected key.
-//   Shift and a press of encoder 2, 3 or 4 switches the rows; Shift and a press
-//   of encoder 1 keeps stock's play-mode cycle.
+// Stock Drumline's second Shift row: the build option drumlineRow2
+// (tooling/machines.py BUILD_OPTIONS), off by default, because it changes
+// stock's own engine 4 ("dbox") on every Drumline track.
+// - Row 2 of Shift: FILTER, SRR, FX I and FX II of the selected key, as MD
+//   KIT's row 2. Shift and a press of encoder 2, 3 or 4 switch the rows; Shift
+//   and a press of encoder 1 keep stock's play-mode cycle.
 // - Storage: the pad record's word +0x00, which stock's Drumline never reads or
 //   writes (stock's samplers keep a frame count there): bits 0..3 SRR, 4..6 FX
-//   I's code, 7..9 FX II's. 0 is neutral in each, so a pad from before plays
-//   as it did.
+//   I's code, 7..9 FX II's, 10..14 FILTER (signed). 0 is neutral in each, so a
+//   pad from before plays as it did.
 // - Audio: at every publication of a Drumline pad (8d5ad776) the GUI carries
 //   the fields in payload bits the dbox DSP ignores (drumline_carry); a wrapper
 //   of the dbox render (drumline.cpp) keeps each voice's payload from its first
-//   block, applies SRR to the voice's mono block after stock's level and
-//   envelope, and hands the send codes to the per-key send hooks
+//   block, applies SRR and then FILTER to the voice's mono block after stock's
+//   level and envelope, and hands the send codes to the per-key send hooks
 //   (drum_send.hpp), which mix them as a padSend kit's.
-// - Locks: with a step held, Shift and a turn lock PAN (word 16), VOLUME (17),
-//   SRR (18), FX I (19), FX II (32) and RANDOM (33) as per-hit offsets, words
-//   no Drumline voice reads; TYPE and the blank turn nothing. Their stored base
-//   stays neutral, as a padMix kit's lock words do (drum_locks.hpp).
+// - Locks: none yet. Stock Drumline reads every lockable word an SDK kit can
+//   spare (M3's filter 16..19 and its envelope 32..35 act on it), so per-hit
+//   locks of the Shift settings wait for the SDK's handle-based lock storage
+//   (one handle a step in word 37, its values in an SDK pool). drumline_fold
+//   already takes a step's offsets; drumline.cpp's step_offsets is where that
+//   storage plugs in. Until then a held step's Shift turn is stock's.
 #pragma once
 #include "drum_locks.hpp"
 #include "drum_storage.hpp"
@@ -26,41 +28,53 @@ namespace opxy { namespace platform {
 const u32 kDrumlineEngine = 4;
 const u32 kDrumlinePads = 24, kDrumlineRecords = 0x394c, kDrumlineRecordBytes = 0x80;
 const u32 kDrumlineSrrMax = 15, kDrumlineSendMax = 7;
+const i32 kDrumlineFilterMin = -16, kDrumlineFilterMax = 15;
 // Bits of the pad record's word +0x00 the option uses; the rest stay as found.
-const u32 kDrumlineFieldMask = 0x3ffu;
+const u32 kDrumlineFieldMask = 0x7fffu;
 
-// A pad's three fields.
+// A pad's four fields.
 struct DrumlineFields {
-    u32 srr;        // 0 off, 1..15 a hold of srr_hold[srr] samples
+    u32 srr;        // 0 off, 1..15 a hold of drumline_srr_hold(srr) samples
     u32 send[2];    // FX I's and FX II's codes, as drum_send.hpp: 0 TRK, 1..7 0..100 percent
+    i32 filter;     // -16..15: low-pass below 0, high-pass above, 0 open (MD KIT's FILTER)
 };
+inline i32 drumline_signed5(u32 bits) { return (bits & 16u) ? static_cast<i32>(bits & 31u) - 32 : static_cast<i32>(bits & 31u); }
 inline DrumlineFields drumline_fields(u32 word) {
     DrumlineFields f;
     f.srr = word & 15u;
     f.send[0] = (word >> 4) & 7u;
     f.send[1] = (word >> 7) & 7u;
+    f.filter = drumline_signed5(word >> 10);
     return f;
 }
 inline u32 drumline_store(u32 word, const DrumlineFields& f) {
-    return (word & ~kDrumlineFieldMask) | (f.srr & 15u) | (f.send[0] & 7u) << 4 | (f.send[1] & 7u) << 7;
+    return (word & ~kDrumlineFieldMask) | (f.srr & 15u) | (f.send[0] & 7u) << 4 | (f.send[1] & 7u) << 7 |
+           (static_cast<u32>(f.filter) & 31u) << 10;
 }
 
 // The payload carrier. The dbox DSP decodes word 0 as ((w >>> 8) * 66) >>> 23
 // (11a06d62..11a06d80), so its bits 0..7 never matter: FX I's code in bits
-// 0..2, FX II's in 3..5, and bit 6 set when SRR is on. Then word 6 (random,
-// which the DSP squares, 11a06db8) carries SRR in bits 0..3, a change below
-// 2^-27 of full scale; at SRR off word 6 is stock's.
-const u32 kDrumlineSrrOn = 1u << 6;
+// 0..2, FX II's in 3..5, and bit 6 set when SRR or FILTER is on. Then word 6
+// (random, which the DSP squares, 11a06db8) carries SRR in bits 0..3 and
+// FILTER in 4..8, a change below 2^-22 of full scale; with both off word 6 is
+// stock's.
+const u32 kDrumlineCarried = 1u << 6;
 inline void drumline_carry(i32* payload, const DrumlineFields& f) {
+    const bool on = f.srr || f.filter;
     payload[0] = static_cast<i32>((static_cast<u32>(payload[0]) & ~0xffu) | (f.send[0] & 7u) | (f.send[1] & 7u) << 3 |
-                                  (f.srr ? kDrumlineSrrOn : 0u));
-    if (f.srr) payload[6] = static_cast<i32>((static_cast<u32>(payload[6]) & ~15u) | (f.srr & 15u));
+                                  (on ? kDrumlineCarried : 0u));
+    if (on)
+        payload[6] = static_cast<i32>((static_cast<u32>(payload[6]) & ~0x1ffu) | (f.srr & 15u) |
+                                      (static_cast<u32>(f.filter) & 31u) << 4);
 }
 // What a carried payload holds: both send codes as drum_send_codes gives a
-// kit's (FX I in bits 0..2, FX II in 3..5), and SRR.
+// kit's (FX I in bits 0..2, FX II in 3..5), SRR and FILTER.
 inline u32 drumline_codes(const i32* payload) { return static_cast<u32>(payload[0]) & 63u; }
 inline u32 drumline_srr(const i32* payload) {
-    return static_cast<u32>(payload[0]) & kDrumlineSrrOn ? static_cast<u32>(payload[6]) & 15u : 0;
+    return static_cast<u32>(payload[0]) & kDrumlineCarried ? static_cast<u32>(payload[6]) & 15u : 0;
+}
+inline i32 drumline_filter(const i32* payload) {
+    return static_cast<u32>(payload[0]) & kDrumlineCarried ? drumline_signed5(static_cast<u32>(payload[6]) >> 4) : 0;
 }
 
 // SRR: each held sample stands for this many, as a lower sample rate would;
@@ -110,32 +124,23 @@ inline u32 dbox_index(u32 object) {
     return index * kDboxObjectBytes == offset ? index : kDboxVoices;
 }
 
-// The step locks: per-hit offsets in words no Drumline voice reads.
-enum DrumlineLock { kLinePan, kLineVolume, kLineSrr, kLineFx1, kLineFx2, kLineRandom, kDrumlineLocks };
-const u32 kDrumlineNoLock = kDrumlineLocks;
-inline u32 drumline_lock_word(u32 lock) { return lock < 4 ? 16 + lock : 32 + (lock - 4); }   // 16..19, 32, 33
-inline u32 drumline_word_lock(u32 index) {
-    return index >= 16 && index < 20 ? index - 16 : index == 32 || index == 33 ? index - 28 : kDrumlineNoLock;
-}
-// A lock's reach either side of neutral, in the field's own steps: pan +-100,
+// Per-hit offsets of the Shift settings, for the lock storage to come. Each
+// lock's reach either side of neutral, in the field's own steps: pan +-100,
 // volume +-50 dB (its whole span), SRR +-15, a send +-7 codes, random +-99 as
-// the page shows it (two of stock's 200 buckets each).
+// the page shows it (two of stock's 200 buckets each), FILTER +-31.
+enum DrumlineLock { kLinePan, kLineVolume, kLineSrr, kLineFx1, kLineFx2, kLineRandom, kLineFilter, kDrumlineLocks };
+const u32 kDrumlineNoLock = kDrumlineLocks;
 inline i32 drumline_lock_reach(u32 lock) {
     switch (lock) {
     case kLinePan: return 100; case kLineVolume: return 50; case kLineSrr: return 15;
-    case kLineFx1: case kLineFx2: return 7; case kLineRandom: return 99; default: return 0;
+    case kLineFx1: case kLineFx2: return 7; case kLineRandom: return 99; case kLineFilter: return 31; default: return 0;
     }
 }
-// What Shift and the encoder at a position (0..3) lock on the shown row:
-// row 1 TYPE (nothing), RANDOM, PAN, VOLUME; row 2 SRR, the blank (nothing),
-// FX I, FX II.
+// What Shift and the encoder at a position (0..3) would lock on the shown row:
+// row 1 TYPE (nothing), RANDOM, PAN, VOLUME; row 2 FILTER, SRR, FX I, FX II.
 inline u32 drumline_shift_lock(u32 position, bool second) {
-    if (second) return position == 0 ? kLineSrr : position == 2 ? kLineFx1 : position == 3 ? kLineFx2 : kDrumlineNoLock;
+    if (second) return position == 0 ? kLineFilter : position == 1 ? kLineSrr : position == 2 ? kLineFx1 : kLineFx2;
     return position == 1 ? kLineRandom : position == 2 ? kLinePan : position == 3 ? kLineVolume : kDrumlineNoLock;
-}
-inline void drumline_offsets(const i32* words, i32* offsets) {
-    for (u32 i = 0; i < kDrumlineLocks; ++i)
-        offsets[i] = words ? drum_lock_offset(words[i], drumline_lock_reach(i)) : 0;
 }
 
 // Stock's own Drumline pad fields: pan the signed byte at +0x1e (-100..100),
@@ -153,20 +158,11 @@ inline i32 drumline_random_word(i32 bucket) {
     const i32 width = static_cast<i32>(0x7fffffffu / kDrumlineRandomBuckets);
     return width * bucket + (width >> 1);
 }
-// The page's 00..99 of each, as stock's dbox page draws them (8d531096..8d5310a6,
-// 8d5310dc..8d531106): random (w >>> 8) * 100 >>> 23, pan (p + 100) * 99 / 200,
-// volume (v + 30) * 99 / 50, each within 0..99.
-inline i32 drumline_shown(i32 value) { return value < 0 ? 0 : value > 99 ? 99 : value; }
-inline i32 drumline_random_shown(i32 word) {
-    return drumline_shown(static_cast<i32>(((static_cast<u32>(word) >> 8) * 100u) >> 23));
-}
-inline i32 drumline_pan_shown(i32 pan) { return drumline_shown((pan + 100) * 99 / 200); }
-inline i32 drumline_volume_shown(i32 db) { return drumline_shown((db + 30) * 99 / 50); }
 
-// A note's payload with its pad's fields and, at note start, the step's offsets:
-// pan into word 5, volume into word 7 through stock's dB-to-gain (`gain`),
-// random into word 6, SRR and the sends into the carrier, each clamped to its
-// field. Null offsets: the pad's own values.
+// A note's payload with its pad's fields and, given a step's offsets (indexed
+// by DrumlineLock), those added: pan into word 5, volume into word 7 through
+// stock's dB-to-gain (`gain`), random into word 6, the rest into the carrier,
+// each clamped to its field. Null offsets: the pad's own values.
 inline void drumline_fold(const unsigned char* record, const i32* offsets, i32* payload, i32 (*gain)(i32)) {
     DrumlineFields f = drumline_fields(*reinterpret_cast<const u32*>(record));
     if (offsets) {
@@ -181,6 +177,7 @@ inline void drumline_fold(const unsigned char* record, const i32* offsets, i32* 
         f.srr = static_cast<u32>(drum_lock_clamp(static_cast<i32>(f.srr) + offsets[kLineSrr], 0, kDrumlineSrrMax));
         for (u32 s = 0; s < 2; ++s)
             f.send[s] = static_cast<u32>(drum_lock_clamp(static_cast<i32>(f.send[s]) + offsets[kLineFx1 + s], 0, kDrumlineSendMax));
+        f.filter = drum_lock_clamp(f.filter + offsets[kLineFilter], kDrumlineFilterMin, kDrumlineFilterMax);
     }
     drumline_carry(payload, f);
 }
@@ -195,18 +192,9 @@ struct Drumline {
     bool (*edit)(u32 track, u32 key, u32 control, const u32* event);
     // Shift and a press of encoder 2..4 (button 5..7): switches the rows.
     void (*press)(u32 track, u32 button);
-    // Shift and a turn with a step held (8c0b15aa), at position 0..3: the lock
-    // or nothing, as stock's editor answers.
-    u32 (*lock)(u32 project, u32 track, u32 position, u32 event);
-    // A lock word's bucket count, or 0 (8d5ad306).
-    u32 (*steps)(u32 index);
-    // The payload of a pad slot the builder publishes (8d5ad776); at note start
-    // with the step's offsets.
+    // The payload of a pad slot the builder publishes (8d5ad776); `note` at a
+    // note's start, when a step's locks would apply.
     void (*publish)(u32 track, u32 slot, i32* payload, bool note);
-    // The lock words' neutral base: in a track object's stored words (project
-    // load, 8d588ec8), and on a track (after scramble, once a frame).
-    void (*load)(u32 object);
-    void (*neutral)(u32 project, u32 track);
 };
 }}
 

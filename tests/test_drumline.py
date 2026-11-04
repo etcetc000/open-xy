@@ -1,6 +1,7 @@
-"""Stock Drumline's second Shift row and per-hit locks (the build option drumlineRow2,
-drumline.hpp): the shared hooks and this option's own against host doubles, with the
-option and without; the build option's wiring; and the stock sites it relies on."""
+"""Stock Drumline's second Shift row (the build option drumlineRow2, drumline.hpp): the
+shared hooks and this option's own against host doubles, with the option and without
+(M3's filter and filter envelope words stay stock's in both); the build option's wiring;
+and the stock sites it relies on."""
 import json
 import os
 from pathlib import Path

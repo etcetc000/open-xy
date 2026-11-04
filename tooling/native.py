@@ -243,8 +243,8 @@ UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
 UNIT_SERVICES['drum_locks'] = 'drum_locks'
-# The build option drumlineRow2: stock Drumline's second Shift row and per-hit locks
-# (drumline.hpp). It also uses the drums, samples, drum_sends and drum_locks services' hooks.
+# The build option drumlineRow2: stock Drumline's second Shift row (drumline.hpp). It also
+# uses the drums, samples, drum_sends and drum_locks services' hooks.
 UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.

@@ -1,4 +1,4 @@
-/* Stock Drumline's second Shift row and per-hit locks (drumline.hpp): the two
+/* Stock Drumline's second Shift row (drumline.hpp): the two
  * hooks of the build option drumlineRow2. Each replaces one whole instruction
  * pair outside every hardware loop body and replays it.
  */

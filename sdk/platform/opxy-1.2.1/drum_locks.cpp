@@ -11,7 +11,7 @@
 //
 // With the build option drumlineRow2 the same two hooks serve stock Drumline
 // (drumline.hpp): every publication of a Drumline pad carries its row-2
-// fields, and a note's also its step's Shift offsets.
+// fields, and a note's is marked for the step locks still to come.
 #include "drum_locks.hpp"
 #include "drumline.hpp"
 #include "drum_values.hpp"
