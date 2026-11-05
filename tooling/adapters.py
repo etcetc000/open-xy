@@ -776,8 +776,9 @@ def default_preset(m):
 
 def preset_files(m):
     """The machine's init preset, then its own presets (tooling.machines.read_presets):
-    each a version 4 preset of this machine, pointing at no samples. Its own
-    default replaces the generated init preset (builder/core.mjs presetFiles)."""
+    each a version 4 preset of this machine, pointing at no samples or, for a sample
+    engine shipping its own (SDK 1.10), at one of those. Its own default replaces the
+    generated init preset (builder/core.mjs presetFiles)."""
     path = preset_path(m)
     if not path:
         return {}
