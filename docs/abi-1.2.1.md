@@ -30,7 +30,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sampler page | 9 | Shows an owned page-2 engine's track as the stock sampler's page, with its one sample in region 0 for every key |
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
-| Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
+| Synthesis drum transport | 14 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
 | Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit |
 | Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts; linked only with a `padMix` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
@@ -885,9 +885,10 @@ inside the effect. See the [effect API](api.md#effects).
 
 An owned `drum` registration uses flag 1, its own engine ID and drawing page.
 The SDK aliases only the local Drumline classification branches to engine 4;
-stock and occupied registrations retain their behavior. Twelve exact hooks cover
-the drum predicate, region lookup, note start, project load, editor dispatch and
-preset import/export. Project load's track check at `8d588ec8` resets a
+stock and occupied registrations retain their behavior. Fourteen exact hooks cover
+the drum predicate, region lookup, note start, project load, editor dispatch, the
+editor's key ([below](#step-locks-of-a-kits-shift-fields)) and preset
+import/export. Project load's track check at `8d588ec8` resets a
 Drumline track's eight parameters to neutral offsets (`0x40000000`); without
 the alias a loaded kit kept zero offsets and every note decoded 64 below its
 stored values. Note start tests for Drumline at `8d595a4c`; only that branch
@@ -1140,11 +1141,12 @@ is the [step-lock handles](#step-lock-handles): every field, PAN included, is a
 entry for one key (the client writes only those) or for every key the step
 plays. Words 36 and 38 carry nothing.
 
-- **36, 37.** Traced dead: no accessor call passes index 36 or 37, no load reads
+- **36, 37.** No accessor call passes index 36 or 37, no load reads
   `+0x90`/`+0x94` of a track record, a GUI block or a pattern's stored words, no
   modulation or LFO target reaches them, and no preset key maps to them (preset
   load leaves them 0). The one reader, `8d4d7458` reading words 32..39 for a
-  screen, uses only 32..35.
+  screen, uses only 32..35. The [step-lock handles](#step-lock-handles) give the
+  audio side's loads at those offsets.
 - **38.** Stock's note-start pan term: the kit constructor sets a voice's pan
   once, `8d51a688(pad pan word, w38)` (`8d51af24`..`8d51af2e`). It stays at its
   centre, `0x40000000`, which preset load stores; PAN is an offset in the pool,
@@ -1155,24 +1157,27 @@ plays. Words 36 and 38 carry nothing.
   editor call at `8c0b147a` and makes its generic call at `8c0b15aa`
   (`sdk_synth_turn`) with Shift's index 4..7. For such a kit the SDK maps the
   position through `DrumMachine::shift` and the encoders' row. Each of the six
-  fields reads what the held step plays for the kit's key (`drum_edit_key`: the
-  key stock's controller holds for its per-key editing at `0x8400dfc8`, a held or
-  Shift-selected pad, else the track's selected key `8d4d6c98`). When that word
-  is -1 (each page or track change sets it so, `8c0b1a04`, `8c091d92`) stock's
-  first turn latches the track's last played key there (`8d4d6cb0`, which every
-  note start sets, sequenced ones too, `8d595838`; `8c0b1678`), so during playback
-  a turn edited whichever key the sequencer played last while the screen showed
-  the selected one. Once a frame (`sdk_send_refresh`) the SDK now holds a kit
-  track's selected key in that word while it holds -1 or the key the SDK put
-  there, and leaves a held or Shift-selected pad alone; it changes it by by the turn's detents within its range (a send
-  from what the key plays): the event's word 1, PAN's times its speed (word 2)
-  plus 1, as the per-key editor steps them (`8d4d60b0`), never word 0, the
-  continuous motion stock adds to a Q31 word (`8d5ad254`), which as a step sent
-  every turn to an end of the range. It writes it for that key through the handles (`held_set`), which
-  allocate or copy the step's handle and write it with stock's lock writer; a
-  field turned back to 0 is unlocked. `sdk_param_steps` answers no lock word.
-  MACHINE and CHOKE return without a call, where a held step used to take a fine
-  lock of the engine control shown.
+  fields reads what the held step plays for the kit's key, and a turn changes it
+  by the turn's detents within its range (a send from what the key plays): the
+  event's word 1, PAN's times its speed (word 2) plus 1, as the per-key editor
+  steps them (`8d4d60b0`). Word 0, the continuous motion stock adds to a Q31
+  word (`8d5ad254`), is not a step. The SDK writes the value for that key
+  through the handles (`held_set`), which allocate or copy the step's handle
+  and write it with stock's lock writer; a field turned back to 0 is unlocked.
+  MACHINE and CHOKE turn nothing.
+- **The key.** The kit's key (`drum_edit_key`) is the key stock's controller
+  holds for its per-key editing at `0x8400dfc8` (a held or Shift-selected pad,
+  `8c0b29ce`), else the track's selected key `8d4d6c98`. Each page or track
+  change sets that word to -1 (`8c0b1a04`, `8c091d92`). The turn handler then
+  asks for the track's last played key (`8d4d6cb0`, which every note start
+  sets, sequenced ones too, `8d595838`) twice: at `8c0b1678` to latch it in the
+  word, and at `8c0b14b2` for the per-key editor's key. Both calls are hooked
+  for an owned kit's track (`sdk_drum_latch_key` at `8c0b167a`,
+  `sdk_drum_unheld_key` at `8c0b14b4`, the `drums` service): the latch keeps -1
+  and the editor gets the selected key. So a turn edits the key the screen
+  shows, the selected one as it moves, never one the sequencer just played,
+  and the SDK never writes the word: a pad held or Shift-selected is stock's,
+  whatever its key. Other tracks keep stock's answers.
 - **Latching.** Note start's Drumline branch calls the pad payload builder
   `8d5ad660` at `8d595b50` (`00e388bd`) with the project, track, key, the track's
   engine and three of its own pointers. The builder fills the eight words at
@@ -1234,9 +1239,12 @@ fields than the 42 slots a step has
 [`lock_pool.hpp`](../sdk/platform/opxy-1.2.1/lock_pool.hpp)). The step keeps a
 16-bit **handle** as an ordinary stock lock on word 37; the values live in an SDK
 pool under that handle. It is the `drum_locks` service's, so a build links it only
-with a `padMix` kit, and asks its client one thing, `handle_client(track)`, which
-the kit glue answers for an owned `padMix` kit (stock Drumline can answer it too
-later).
+with a `padMix` kit, and asks its client two things, `handle_client(track)` and
+`pattern_client(engine)`, which the kit glue answers for an owned `padMix` kit
+(stock Drumline can answer them too later). Units every build links reach it only
+through startup's calls (`sdk_project_locks_*`), which forward to it or, in a build
+without it, answer 0; a browser selection without it resolves them to
+`kit_absent`, which answers the same.
 
 **Why a lock word.** Stock moves a step's lock row whole, its 42 halfwords
 (`0x54` bytes) and its 64-bit mask together, in every step operation traced: copy
@@ -1254,26 +1262,35 @@ a lock slot follows its step through all of them with no hook. Word 37 has a slo
 (`8d4e4130`), and none of the 99 calls of stock's word setters and readers by
 index (`8d518d78`, `8d518d94`, `8d5acf28`, `8d5acea8`, `8d5ad5bc`) loads 36 or
 37 as its index, while the lock pass, which applies it, publishes it to the
-track's audio record (tested from the stock bytes). No word load at `+0x90` or `+0x94`
-(36, 37) in the audio code reads a track record either: those found are a voice's
-own fields (`+0x94` its machine), an object's own state (`8d516554`) and one
-engine's `this` (`8d501cc8`); the audio side's note-on and note-off for drum
-tracks (`8d50e81c`, `8d50e964`, where `8d5b79f0` is tested) read only the play
-mode (word 12) and, through `8d5047fe`, the LFO's words. That it is silent on
-every engine is still inferred: a read by a computed index is not covered, and
-where stock Drumline's M3 filter acts on the kit is not traced, so listening on
-a synth, an SDK kit and stock Drumline is the first device check. Should word
-37 prove live, word 36 has the same standing; without either, the handle has
-no home in stock's slots (the spare mask bits 58..63 are too few).
+track's audio record (tested from the stock bytes). No 32-bit load at `+0x90`
+or `+0x94` (words 36, 37) in the audio code (`8d4e0000`..`8d520000` and stock's
+L1 code at `0x11a00000`) reads a track record either. There are 25, each of
+another record: a voice's machine object at its `+0x94`, called through its
+method table next (`8d51a93e`..`8d51b8a8` in the voice code, `11a0964e`,
+`11a0977c` and `11a099ae` in the normal renderer); a voice's `+0x90` in the
+voice loop (`8d51b1fc`, `8d51c78c`); and objects' own fields, which the same
+code writes (`8d4f4a0c`, `8d4f5fb8`, `8d4f6064`, `8d4ffb8c`, `8d4ffbaa`,
+`8d5165c8`, `8d516732`, `8d5167a8`), one engine's `this` past a track record's
+end (`8d5020f4` in `8d501cc8`) and a count beside its array (`8d4fd62c`). A
+test lists them from the stock bytes. Stock reads a track record's words from
+the record itself, as the kit constructor reads word 38 (`8d51af24`, `[P5 +
+0x98]`). The audio side's note-on and note-off for drum tracks (`8d50e81c`,
+`8d50e964`, where `8d5b79f0` is tested) read only the play mode (word 12) and,
+through `8d5047fe`, the LFO's words. A read by a computed index is not covered.
+On hardware, patterns with these locks copied onto a stock synth track and a
+stock Drumline track played exactly as the same patterns without them. Word 36
+is no spare: the effect shift row keeps its choices there on the send tracks
+([shift rows](#effect-pages-and-shift-rows)). Without word 37 the handle has no
+home in stock's slots (the spare mask bits 58..63 are too few).
 
-**The pool.** Handles 1..4095; each holds up to 25 entries (one step-wide, which
+**The pool.** Handles 1..2457; each holds up to 25 entries (one step-wide, which
 every key the step plays takes, and up to 24 per key, which win field by field)
 of up to 16 fields, each a 16-bit value. Blocks of 16-bit words (handle, entry
 count, then each entry's field mask, key and values) fill a 24 KiB arena; a block
 that grows is rebuilt at its end and the arena compacts when full. A step with
-one field for one key takes 10 bytes, so about 2,450 such steps fit; one with
-four fields, 16 bytes. The active pool and a staged one take 66 KiB of module
-memory.
+one field for one key takes 10 bytes, so 2,457 such steps fit (12,288 words of 5),
+as many as there are handles; one with four fields, 16 bytes. The active pool and
+a staged one take 59 KiB of module memory.
 
 **Editing.** At the held step (`8d5b7e4c() + 16 * 8d585fb4(track)` of the
 current pattern `8d586014(track)`, as stock's editor `8d5ad42c` finds it) a new
@@ -1295,33 +1312,51 @@ for a client track, it notes the handle on the step the pass used, `(position +
 240) / 480` of the current pattern, when the pass applied it: without slide the
 live word 37 then holds the handle in its top half; the pass's gate (`8d58393c`)
 can hold a step's locks back, and then the live word is still the stored one.
-That note's start takes the handle once; a note played live takes none. With the
-pattern's slide byte (`+0x3060`) set the pass blends word 37 between steps; the
-step's own handle is taken whenever the live word differs from the stored one, so
-handle values do not slide.
+That note's start takes the handle once; a note played live takes none. Note
+start can return before the payload builder (`8d59576a`, `8d59582e`,
+`8d595a02`), and then nothing takes it: once a GUI frame (`sdk_send_refresh`)
+an untaken handle expires, so a note played by hand later can't take the
+step's locks. With the pattern's slide byte (`+0x3060`) set the pass blends
+word 37 between steps; the step's own handle is taken whenever the live word
+differs from the stored one, so handle values do not slide.
+
+**Which patterns.** The handles live only in a client's patterns: on instrument
+tracks 0..7, a pattern whose machine (`+0x18`, as `8d58781c` reads it) is a
+`padMix` kit (`pattern_client`). Garbage collection, the load's sweep and the
+carry below search those, and the pattern clipboard only when its machine is one;
+word 37 on every other track and pattern stays stock's. The step clipboard and
+the recorder's snapshot don't record their track, so they are searched whatever
+they hold: a step copied from another track, with a value in word 37 that equals
+a live handle, is renumbered with it when another project is opened. That word
+37 is unused on aux and send tracks is not verified.
 
 **Saving.** Before the companion is written, garbage collection marks every
-handle the saved project (all 16 tracks, each pattern below its count, all 128
-steps), the pattern and step clipboards and the snapshot hold, and frees the
+handle the saved project's client patterns (each pattern below its count, all
+128 steps), the pattern and step clipboards and the snapshot hold, and frees the
 rest of the pool. The companion then gets `open-xy.locks`
-([format](projects.md#open-xylocks)), sized first so that `open-xy.control`,
-written before it, leaves it room (`sdk_companion_reserved`), and within 64 KiB
-less 2 KiB and 128 bytes for each machine listed. Blocks that do not fit, in
-handle order, are left out; a save of a buffer other than the active one writes
-no section.
+([format](projects.md#open-xylocks)). Its size comes first: the writer gives it
+up to 64 KiB less 2 KiB and 128 bytes for each machine listed, and
+`open-xy.control`, written before it, takes what is left
+(`sdk_companion_reserved`), so the locks take room before track control's state.
+Blocks that do not fit, in handle order, are left out; a save of a buffer other
+than the active one writes no section. A build without a `padMix` kit writes no
+section: a project saved there keeps its steps' handles but loses their values.
 
 **Loading.** The section's pool decodes into the staged pool while the
-companion streams. After the load, unless the companion is valid, matches the
-project and holds a valid version 1 pool, the staged pool is empty; either way
-every step of the loaded buffer whose handle the staged pool lacks has its word
-37 cleared and its pattern's union recomputed, so no handle dangles: a project
-saved or opened by firmware without the handles keeps them only while its
-companion still matches. The staged pool becomes the active one the first time
-the SDK finds stock's active buffer (`[0x840a0524]`) is the loaded one; then each
-handle in the clipboards and the snapshot is copied from the old pool under a
-handle the new project does not use, and the copy written in its place, or
-cleared when the old pool had no values for it. A load that never becomes active
-leaves the active pool as it was.
+companion streams. When the companion is valid, matches the project and holds a
+whole version 1 pool, every step of the loaded buffer whose handle the pool
+lacks (a block left out at save) has its word 37 cleared, and each pattern's
+union is recomputed once. Otherwise (no companion, one stock or another build
+rewrote, a newer version, a section cut short or malformed) the staged pool is
+empty and the handles stay as saved: they play nothing here, no new lock takes
+their numbers (an edit's fresh handle is one no step holds), and firmware that
+reads their values still finds them. The staged pool becomes the active one the
+first time the SDK finds stock's active buffer (`[0x840a0524]`) is the loaded
+one; then each handle in the clipboards and the snapshot is copied from the old
+pool under a handle the new project does not use, and the copy written in its
+place. A handle the old pool has no values for is left as it is, and one whose
+copy does not fit is cleared. A load that never becomes active leaves the
+active pool as it was.
 
 ## Note players
 
@@ -1390,8 +1425,9 @@ on all 16 tracks in every project examined, no stock page edits it (the aux
 controller edits words 0..3, 8..15, 16..19 and 24..27; the instrument
 controller's Shift + M2 row is 32..35), and no stock code reads it: no GUI
 reference to its pattern offset (`+0x38f4`) and no audio-side load near the
-per-track table at `84eab39c`. Words 29..33 hold stock defaults on aux tracks,
-37 has audio-side readers and 46 GUI ones. That is a static reading, which can't
+per-track table at `84eab39c`. Words 29..33 hold stock defaults on aux tracks
+and 46 has GUI readers. The audio side's loads at word 37's offset are of other
+records, not a track's ([step-lock handles](#step-lock-handles)). That is a static reading, which can't
 see an access computed at run time. Stock's reload and its copy of a send track
 have not been checked on the device for this word.
 

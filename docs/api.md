@@ -579,19 +579,19 @@ companion, `open-xy.locks` ([projects](projects.md#open-xylocks)), behind a
 storage interface (`drum_lock_store.hpp`). A pasted copy is a copy: editing it
 leaves the original. Limits and what is not kept:
 
-- A project holds about 2,400 locked steps with one field for one key (24 KiB
-  of values; a step with four fields takes 16 bytes). Once the pool is full a
-  turn locks nothing more; unlocking makes room again.
-- Opened or saved on firmware without these locks (stock, or an older build),
-  a project keeps its steps' handles only while its companion still matches it;
-  otherwise its per-hit locks are cleared when it is next opened here.
+- A project holds 2,457 locked steps with one field for one key (24 KiB of
+  values; a step with four fields takes 16 bytes). Once the pool is full a turn
+  locks nothing more; unlocking makes room again.
+- The values are saved in the companion, before track control's state, which
+  gets the room the locks leave.
+- Saved on firmware without these locks (stock, or a build without a `padMix`
+  kit), a project keeps its steps' handles but not their values, which play
+  nothing from then on. Opened there and not saved, it keeps both.
 - Turning these fields while recording records nothing; lock them by hand.
 - With slide on, these locks don't slide: each hit plays its step's own.
 - Synths have no such locks.
 
-Projects saved with SDK 1.10 builds before the filter kept PAN, LEVEL and
-pad-control locks on M3's words: those steps now lock the filter instead, so
-clear them. The engine's eight controls lock as before
+The engine's eight controls lock as before
 ([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
 
 In the machine namespace, declare these callbacks in `core.h` and implement
