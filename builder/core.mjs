@@ -441,8 +441,10 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
 
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
 export function sharedClaim(extensions) {
+  // A capability is held like a claim: two extensions turning on the same edits would
+  // build identical images, so an image could not say which was chosen.
   const seen = new Set();
-  for (const e of extensions) for (const claim of e.claims ?? []) {
+  for (const e of extensions) for (const claim of [...(e.claims ?? []), ...(e.capabilities ?? [])]) {
     if (seen.has(claim)) return claim;
     seen.add(claim);
   }
@@ -870,15 +872,15 @@ export async function recoverFirmware(kit, input, layout = null) {
   const site = edit => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
   const reviewed = edit => equal(site(edit), unhex(edit.before)) ||
     (edit.kind === 'limit' && equal(site(edit), unhex(edit.after)));
-  const whole = service => [true, false].some(on => p.patches.filter(edit => edit.service === service && edit.kind === 'limit')
-    .every(edit => equal(site(edit), unhex(on ? edit.after : edit.before))));
+  const whole = service => capabilityApplied(p, service, input) ||
+    p.patches.filter(edit => edit.service === service).every(edit => equal(site(edit), unhex(edit.before)));
   if (input.length === p.stock_bytes && p.patches.every(reviewed) &&
       [...new Set(p.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))].every(whole)) {
     const restored = input.slice();
     for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
     if (await sha256(restored) === p.stock_sha256) {
       readLdr(input);
-      const held = presentExtensions(kit, new Uint8Array(0), input).filter(id => kit.extensions.find(e => e.id === id).linked === false);
+      const held = presentExtensions(kit, new Uint8Array(0), input);  // no module: settings extensions only
       return {stock: restored, selected: null, earlier: true, ...(held.length ? {extensions: held} : {})};
     }
   }
@@ -913,8 +915,16 @@ export async function recoverFirmware(kit, input, layout = null) {
     // present ones and none for a larger one, so links never grow exponentially.
     const present = presentMachines(kit, payload), held = presentExtensions(kit, payload, input);
     const guess = sharedClaim((kit.extensions ?? []).filter(e => held.includes(e.id))) ? [] : held;
-    const choices = (kit.extensions ?? []).length <= RECOVERABLE_EXTENSIONS ? extensionChoices(kit)
-      : guess.length ? [guess, []] : [[]];
+    // Settings extensions are read exactly from the image's bytes, so only code
+    // extensions are enumerated, each choice joined by the settings ones the image holds.
+    const entries = kit.extensions ?? [], coded = entries.filter(e => e.linked !== false);
+    const settingsHeld = entries.filter(e => e.linked === false && held.includes(e.id));
+    const subsets = [];
+    for (let mask = 0; mask < 2 ** coded.length; mask++) subsets.push(coded.filter((_, i) => mask & 2 ** i));
+    const choices = coded.length <= RECOVERABLE_EXTENSIONS
+      ? subsets.map(chosen => entries.filter(e => chosen.includes(e) || settingsHeld.includes(e)))
+          .filter(chosen => !sharedClaim(chosen)).map(chosen => chosen.map(e => e.id))
+      : guess.length ? [guess, settingsHeld.map(e => e.id)] : [settingsHeld.map(e => e.id)];
     for (const extensions of present.length ? [guess, ...choices] : []) {
       try {
         if (await rebuilds(present, extensions)) return {stock, selected: present, extensions};
@@ -934,8 +944,10 @@ export async function recoverFirmware(kit, input, layout = null) {
     }
   }
   // Another open-xy OS: an earlier release, other machines or another build.
-  // Its stock OS is verified above; its machines and extensions are chosen again.
-  return {stock, selected: null, earlier: true};
+  // Its stock OS is verified above; its machines and code extensions are chosen again,
+  // and the settings extensions whose edits it holds are reported.
+  const settingsHeld = presentExtensions(kit, new Uint8Array(0), input);
+  return {stock, selected: null, earlier: true, ...(settingsHeld.length ? {extensions: settingsHeld} : {})};
 }
 
 export function presetPath(machine) {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, sharedClaim, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -103,6 +103,8 @@ test('stock with only fixed capability edits, as sdk.py settings apply writes, r
   // A settings extension whose capability the image holds is reported, so it stays selected.
   kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false}];
   assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true, extensions:['idle']});
+  // Two extensions turning on one capability are chosen like a shared claim: only one.
+  assert.equal(sharedClaim([{claims:[], capabilities:['release_floor']}, {claims:[], capabilities:['release_floor']}]), 'release_floor');
   // A capability partly applied is no image any tool writes.
   const partial = stock.slice(); partial.set(Buffer.from('01da470114ae0000', 'hex'), 56);
   await assert.rejects(recoverFirmware(kit, partial), /Only OP–XY OS 1\.2\.1 is supported/);

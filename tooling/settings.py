@@ -98,9 +98,16 @@ def compare_with_stock(image, blocks, profile, stock):
     require(len(blocks) > len(reference) and blocks[0]['code'] & 0xffff == 0x5004 and
             [key(b) for b in blocks[1:len(reference) - 1]] == [key(b) for b in reference[1:-1]] and
             image[-16:] == stock[-16:], UNSUPPORTED + ': its stock loader records moved or changed')
+    names, window = set(capabilities()), 32
+    # Its own records must not load over what the capabilities rely on in memory either.
+    guarded = [(int(p['address'], 16) - window, int(p['address'], 16) + p['length'] + window)
+               for p in profile['patches'] if p.get('service') in names]
+    guarded += [(address, address + size) for name in names for address, size in DEPENDS.get(name, ())]
+    for b in blocks[len(reference) - 1:-1]:
+        require(not any(b['target'] < hi and lo < b['target'] + b['count'] for lo, hi in guarded),
+                'Another record loads over stock code a capability relies on (0x%x)' % b['target'])
     # Around each capability site (the instructions its edit relies on, such as the compare
     # between the floor and stage edits) the image must be stock, apart from the sites.
-    names, window = set(capabilities()), 32
     spans = [(int(p['file_offset'], 16), int(p['file_offset'], 16) + p['length'])
              for p in profile['patches'] if p.get('service') in names]
     for lo, hi in spans:
@@ -188,9 +195,10 @@ def main(argv=None):
         inputs = [args.image, *args.extension, *([args.stock_os] if args.stock_os else [])]
         out = fresh_output(args.out, args.overwrite, keep=inputs)  # --overwrite never deletes an input
         (out / 'os.ldr').write_bytes(result)
+        on = [name for name, applied in state(result, stock=stock).items() if applied]
         report = dict(format='opxy-settings/1', source=str(Path(args.image).resolve()),
                       source_sha256=sha(image), sha256=sha(result),
-                      extensions=[e.id for e in extensions], capabilities=declared,
+                      extensions=[e.id for e in extensions], capabilities=on,
                       changed_bytes=sum(a != b for a, b in zip(image, result)))
         (out / 'settings.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(report, indent=2))

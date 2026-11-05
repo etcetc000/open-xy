@@ -65,8 +65,9 @@ def capabilities():
     for name, capability in data.items():
         edits = [p for p in firmware['patches'] if p.get('service') == name]
         # Fixed bytes only, so the builder can tell from an image that a capability is on.
+        # Limit edits only: images without a module record (settings apply on stock) may hold them.
         require(NAME.fullmatch(name) and capability == {} and firmware['services'].get(name) == [name] and edits and
-                all(p['kind'] not in ('hook', 'startup') for p in edits), 'Invalid capability: ' + name)
+                all(p['kind'] == 'limit' for p in edits), 'Invalid capability: ' + name)
     return tuple(data)
 
 @dataclass(frozen=True)
@@ -165,6 +166,12 @@ def check_collection(extensions):
         for claim in e.claims:
             require(claim not in owners, f'{claims[claim]["label"]} has multiple owners: {owners.get(claim)}, {e.id}')
             owners[claim] = e.id
+        # A capability is held like a claim: two extensions turning it on build identical
+        # images, which could not say which was chosen.
+        for capability in e.capabilities:
+            require('capability:' + capability not in owners,
+                    f'The {capability} capability has multiple owners: {owners.get("capability:" + capability)}, {e.id}')
+            owners['capability:' + capability] = e.id
     processors = [e for e in extensions if e.master_processor is not None]
     ids = [e.master_processor.get('state_id', e.id) for e in processors]
     require(len(ids) == len(set(ids)), 'Master processor state IDs must be unique')

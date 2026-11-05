@@ -27,7 +27,9 @@ for (const {name, selected, extensions, layout} of selections) {
   const offset = Number(firstHook.file_offset);
   mixed.set(firmware.subarray(offset, offset + firstHook.length), offset);
   // Not an exact build: stock is still recovered and verified, but no selection.
-  const earlier = {stock, selected:null, earlier:true};
+  // Without a selection, recovery still reports the settings extensions the image holds.
+  const held = extensions.filter(id => kit.extensions.find(e => e.id === id).linked === false);
+  const earlier = {stock, selected:null, earlier:true, ...(held.length ? {extensions: held} : {})};
   assert.deepEqual(await recoverFirmware(kit, mixed, layout), earlier);
   const damagedLabel = firmware.slice();
   damagedLabel[Number(kit.profile.patches.at(-1).file_offset)] ^= 1;

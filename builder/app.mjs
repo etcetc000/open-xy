@@ -571,7 +571,6 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       input.setAttribute('aria-label', 'Include ' + extension.name); label.append(input);
       const button = node('button'); button.dataset.id = extension.id;
       button.setAttribute('aria-pressed', String(inspectedExtension === extension.id));
-      // The first selected extension also links the shared extension runtime.
       // The first selected extension with code also links the shared runtime; a settings
       // extension links nothing.
       const linked = e => e.linked !== false;

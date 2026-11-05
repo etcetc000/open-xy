@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 from tooling import native, release_floor as floor, settings as image_settings
-from tooling.extensions import extension_at
+from tooling.extensions import check_collection, extension_at
 from tooling.firmware import absolute_call, active_services, patch_active
 from tooling.formats import header
 from tooling.pipeline import check_patch_boundaries, config
@@ -85,6 +85,9 @@ class Extension(unittest.TestCase):
         (tidy / '.github').mkdir()
         (tidy / '.github' / 'ci.yml').write_text('on: push', encoding='utf-8')
         self.assertFalse(extension_at(tidy).linked)  # housekeeping files are not sources
+        other = extension_at(folder(self, id='idle2'))
+        with self.assertRaisesRegex(ValueError, 'multiple owners'):
+            check_collection([extension_at(folder(self)), other])  # one capability, two owners
 
 
 class Image(unittest.TestCase):
@@ -202,6 +205,11 @@ class Image(unittest.TestCase):
         near[site - 1] ^= 0xff
         with self.assertRaises(ValueError):
             image_settings.state(bytes(near), profile, data)
+        over = bytearray(data[:-16] + header(4, 0x80000000, 4, 0) + bytes(4) + data[-16:])
+        over[:16] = header(0x5004, 0, 0, len(over) - 16)
+        over[code + 64] ^= 0x5a  # another SDK's edit, so only --stock-os can admit it
+        with self.assertRaisesRegex(ValueError, 'loads over'):
+            image_settings.state(bytes(over), profile, data)  # its record overwrites relied-on code
         relied = bytearray(other)
         relied[code + 48] ^= 0x01  # inside the stock code the capability relies on, past the window
         with self.assertRaisesRegex(ValueError, 'relies on'):
