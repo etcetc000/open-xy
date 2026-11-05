@@ -8,6 +8,7 @@
 #include "module_loader.hpp"
 #include "registration.hpp"
 #include "project_companion.hpp"
+#include "synth_controls.hpp"
 #include "synth_pool.hpp"
 #include "screen.hpp"
 #include "note_activity.hpp"
@@ -42,6 +43,8 @@ struct Entry {
     const ModuleSynth* d;
     char id[16];                   // the module's machine ID, as companions list it
     u32 engine, page;              // given at registration
+    SynthControls controls;        // its synth control table row, when it carries one
+    bool has_controls;
     Record record;
     Screen screen;
     synth::Pool* pool;             // audio role
@@ -279,7 +282,7 @@ const u32 synth_v2_bytes = __builtin_offsetof(ModuleSynth, preset_count);
 const u32 presets_max = 16, preset_name_max = 24;  // tooling/machines.py PRESET_COUNT, PRESET_NAME
 
 bool presets_ok(const ModuleSynth& d) {
-    if (d.size < sizeof(ModuleSynth) || !d.preset_count) return true;
+    if (d.size < __builtin_offsetof(ModuleSynth, control_next) || !d.preset_count) return true;
     if (d.preset_count > presets_max || !d.preset_names || !d.preset_texts) return false;
     for (u32 i = 0; i < d.preset_count; ++i) {
         const char* name = d.preset_names[i];
@@ -290,9 +293,36 @@ bool presets_ok(const ModuleSynth& d) {
     return true;
 }
 
+// Controls came after presets: a module built in between has presets but no controls.
+const u32 synth_v3_bytes = __builtin_offsetof(ModuleSynth, control_next);
+bool presets_present(const ModuleSynth& d) { return d.size >= synth_v3_bytes; }
+bool controls_present(const ModuleSynth& d) { return d.size >= sizeof(ModuleSynth); }
+
+bool controls_ok(const ModuleSynth& d) {
+    if (!controls_present(d)) return true;
+    for (u32 i = 0; i < parameter_slots; ++i) if (d.control_next[i] >= parameter_slots) return false;
+    return d.control_format && d.control_page <= 1 && d.control_hidden_pages <= 0xff && d.control_absent <= 0xff;
+}
+
 bool description_ok(const ModuleSynth* d) {
     return d && d->size >= synth_v2_bytes && name_ok(d->name) && d->factory && d->parameter_name && shape_ok(*d) &&
-        presets_ok(*d);
+        presets_ok(*d) && controls_ok(*d);
+}
+
+// The row a build's synth control table holds for a built-in synth
+// (synth_control_table.cpp.in), from the module's description.
+int controls_ready() { return 1; }  // sdk_module_synth_controls checks the record itself
+SynthControls controls_of(const ModuleSynth& d, u32 engine) {
+    SynthControls c = {};
+    c.id = as_symbol(engine);
+    c.ready = controls_ready;
+    for (u32 i = 0; i < parameter_slots; ++i) { c.next[i] = d.control_next[i]; c.steps[i] = d.control_steps[i]; }
+    c.continuous = d.control_continuous;
+    c.format = d.control_format;
+    c.page = d.control_page != 0;
+    c.hidden_pages = static_cast<u8>(d.control_hidden_pages);
+    c.absent = static_cast<u8>(d.control_absent);
+    return c;
 }
 
 // ---- numbers
@@ -372,6 +402,8 @@ int sdk_module_synth_register(const ModuleSynth* d) {
     e.page = page;
     e.record = Record{reinterpret_cast<const char*>(d->factory), reinterpret_cast<const char*>(d->parameter_name),
                       d->name, as_symbol(engine), as_symbol(page), 0};
+    e.has_controls = controls_present(*d);
+    if (e.has_controls) e.controls = controls_of(*d, engine);
     current_id[0] = 0;  // one synth per module
     if (stock_gui_role()) {
         // Registered with the screen at the end of startup, like a built-in synth.
@@ -456,6 +488,16 @@ int sdk_module_catalog(void* catalog, const void* name, u32 id, u32* result) {
     return 0;
 }
 
+const SynthControls* sdk_module_synth_controls(u32 engine) {
+    for (u32 i = 0; i < count; ++i) {
+        Entry& e = entries[i];
+        if (e.engine != engine) continue;
+        if (!e.has_controls || sdk_engine_ready(&e.record, e.object ? &e.screen : nullptr) != 1) return nullptr;
+        return &e.controls;
+    }
+    return nullptr;
+}
+
 int sdk_module_screen_owned(u32 page) {
     for (u32 i = 0; i < count; ++i)
         if (entries[i].object && entries[i].page == page) return sdk_engine_ready(&entries[i].record, &entries[i].screen) == 1;
@@ -522,7 +564,7 @@ bool parse_json(const unsigned char* text, u32 bytes, void* out) {
 // ---- presets: content/presets/<machine ID>/<name>.json, from the module, while it is loaded
 const char presets_root[] = "content/presets";
 
-u32 preset_count(const Entry& e) { return e.d->size >= sizeof(ModuleSynth) ? e.d->preset_count : 0; }
+u32 preset_count(const Entry& e) { return presets_present(*e.d) ? e.d->preset_count : 0; }
 bool any_presets() {
     for (u32 i = 0; i < count; ++i) if (preset_count(entries[i])) return true;
     return false;

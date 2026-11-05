@@ -46,6 +46,7 @@ const SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(38), nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0x7, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false,
      0, 0, 0, {1, 1, 1, 1}, nullptr, {stock_shift::kShifted - 1, stock_shift::kLoopWindow, stock_shift::kNone, stock_shift::kShifted + 3}}};
 const opxy::u32 sdk_synth_control_count = 1;
+const opxy::platform::SynthControls* sdk_module_synth_controls(opxy::u32) { return nullptr; }  // no modules
 void sdk_synth_shown(opxy::u32, opxy::u8* shown) { for (opxy::u32 i = 0; i < 4; ++i) shown[i] = opxy::u8(i); }
 void sdk_sample_slice_config(SamplePreviewRange* range, unsigned id, unsigned track, const void*) {
     check((id == 35 || id == 37) && track == 0);

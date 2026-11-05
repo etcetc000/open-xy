@@ -70,6 +70,9 @@ void control_division(char* text, i32 value);
 extern "C" {
 extern const opxy::platform::SynthControls sdk_synth_controls[] __asm__("sdk_synth_controls");
 extern const opxy::u32 sdk_synth_control_count __asm__("sdk_synth_control_count");
+// A module synth's row, built when it registered (module_synths.cpp), while its
+// engine is ours; null for any other engine and in a build without modules.
+const opxy::platform::SynthControls* sdk_module_synth_controls(opxy::u32 engine) __asm__("sdk_module_synth_controls");
 // The parameter slot each of a track's four page positions edits and shows:
 // 0..3 unless an owned synth's encoder press selected an alternate. GUI only.
 void sdk_synth_shown(opxy::u32 track, opxy::u8* shown) __asm__("sdk_synth_shown");

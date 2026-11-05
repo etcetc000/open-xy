@@ -306,6 +306,12 @@ unsigned display_validate(const void* f) {{ return {prefix}_display_validate(sta
 const char svg[] = {{{svg}}};
 // The presets a build would install as content/presets/{id}/<name>.json.
 {presets}
+// Captions, as a build's synth control table formats them.
+using opxy::core::control_tenths;
+using opxy::core::control_ratio;
+using opxy::core::control_label;
+using opxy::core::control_division;
+{formatter}
 const opxy::ModuleSynth synth = {{
     sizeof(opxy::ModuleSynth), "{name}", 0, 0, factory, parameter_name,
     sizeof(Voice), alignof(Voice), {shared_bytes}, {capacity}, initialize, start, destroy, render,
@@ -315,6 +321,8 @@ const opxy::ModuleSynth synth = {{
     ids, "{asset}", display_reset, display_render, display_validate,
     svg, sizeof(svg), {catalog},
     {preset_fields},
+    {{{control_next}}}, {control_continuous}, {{{control_steps}}}, {control_page}, {control_hidden}, {control_absent},
+    format,
 }};
 static_assert(sizeof(ids) / sizeof(ids[0]) == Frame::node_count + Frame::text_count + Frame::palette_count,
               "Artwork IDs");
@@ -358,6 +366,11 @@ def build_machine(folder, out, version, toolchain=None, compiler=None):
         preset_fields = 'sizeof(preset_names) / sizeof(preset_names[0]), preset_names, preset_texts'
     else:
         preset_source, preset_fields = '// none', '0, nullptr, nullptr'
+    from .adapters import control_formatter, control_row, hidden_pages
+    following, continuous, absent, steps, page = control_row(m)
+    controls = dict(formatter=control_formatter(m, 'bool format'), control_next=', '.join(map(str, following)),
+                    control_continuous=continuous, control_steps=', '.join(map(str, steps)),
+                    control_page=int(page), control_hidden=hidden_pages(m.definition), control_absent=absent)
     values = dict(name=m.native_name, namespace=m.definition['id'], prefix=m.prefix,
                   shared_bytes='sizeof(Shared)' if m.definition['resources']['sharedBytes'] else '0',
                   capacity=m.definition['resources']['voiceCapacity'],
@@ -365,7 +378,7 @@ def build_machine(folder, out, version, toolchain=None, compiler=None):
                   # Its own name: never one a build installs, so module artwork shadows no file.
                   ids=', '.join(_json.dumps(i) for i in ids), asset='module-' + m.native_name + '.svg',
                   svg=', '.join(str(b) for b in artwork), catalog=_json.dumps(' '.join(entry.split())),
-                  id=m.id, presets=preset_source, preset_fields=preset_fields)
+                  id=m.id, presets=preset_source, preset_fields=preset_fields, **controls)
     with tempfile.TemporaryDirectory(prefix='opxy-machine-module-') as temp:
         work = Path(temp)
         generate_display(work, machine=m)

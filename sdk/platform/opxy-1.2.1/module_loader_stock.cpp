@@ -6,6 +6,7 @@
 #include "module_synths.hpp"
 #include "safe_mode.hpp"
 #include "stock.hpp"
+#include "synth_controls.hpp"
 #include <opxy/module.hpp>
 using namespace opxy;
 using namespace opxy::platform;
@@ -180,6 +181,10 @@ void load(const char* name, bool gui) {
         {"note", address(note)},
         {"synth_register", address(sdk_module_synth_register)},
         {"synth_voice", address(sdk_module_synth_voice)},
+        {"control_tenths", address(control_tenths)},
+        {"control_ratio", address(control_ratio)},
+        {"control_label", address(control_label)},
+        {"control_division", address(control_division)},
     };
     u32 bytes;
     unsigned char* data = read_file(path, bytes);

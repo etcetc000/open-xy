@@ -74,13 +74,15 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
                 'void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }')
     declarations += ['bool sdk_companion_module(u32, const char**, u32*, u32*) __asm__("sdk_companion_module");',
                      'u32 sdk_companion_module_number(const char*, u32) __asm__("sdk_companion_module_number");',
-                     'int sdk_module_preset_type(void*, const void*) __asm__("sdk_module_preset_type");']
+                     'int sdk_module_preset_type(void*, const void*) __asm__("sdk_module_preset_type");',
+                     'const void* sdk_module_synth_controls(u32) __asm__("sdk_module_synth_controls");']
     if not modules:
         # Companions list module synths and presets.cpp asks for module presets'
         # types (module_synths.cpp); without modules there are none.
         kept += ('\nbool sdk_companion_module(u32, const char**, u32*, u32*) { return false; }'
                  '\nu32 sdk_companion_module_number(const char*, u32) { return 0; }'
-                 '\nint sdk_module_preset_type(void*, const void*) { return 0; }')
+                 '\nint sdk_module_preset_type(void*, const void*) { return 0; }'
+                 '\nconst void* sdk_module_synth_controls(u32) { return nullptr; }')
     if aux:
         require(control, 'The aux service needs the control service')
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
