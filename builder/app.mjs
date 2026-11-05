@@ -591,10 +591,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       input.onchange = () => {
         selectedExtensions = core.extensionSelection(kit, input.checked ? [...selectedExtensions, extension.id]
           : selectedExtensions.filter(id => id !== extension.id));
-        // A chosen value lasts only while a selected extension declares its capability.
-        const declared = new Set((kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id))
-          .flatMap(e => Object.keys(e.settings ?? {})));
-        for (const c of Object.keys(extensionSettings)) if (!declared.has(c)) delete extensionSettings[c];
+        // Deselecting an extension drops the chosen values only it declared; values recovered
+        // from an image stay until an extension declaring them is chosen and deselected.
+        if (!input.checked) {
+          const declared = new Set((kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id))
+            .flatMap(e => Object.keys(e.settings ?? {})));
+          for (const c of Object.keys(extension.settings ?? {})) if (!declared.has(c)) delete extensionSettings[c];
+        }
         invalidate(); renderExtensions(); recalculate();
         document.querySelector('#extensions input[aria-label="Include ' + CSS.escape(extension.name) + '"]')?.focus();
       };
@@ -665,9 +668,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const result = core.linkKit(kit, selection, numbers, extensions);
-      const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
-      // Every setting this OS holds: the chosen value, else the first selected extension's own.
+      // Every setting this OS holds, fixed when the build starts: the chosen value, else the
+      // first selected extension's own. A slider moved meanwhile invalidates this build.
       const capabilitySettings = core.chosenSettings(kit, result, extensionSettings);
+      const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
       files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false, settings: capabilitySettings});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);

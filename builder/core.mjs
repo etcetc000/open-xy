@@ -891,13 +891,8 @@ export function imageSettings(kit, input) {
   const found = {};
   for (const edit of kit.profile.patches.filter(e => e.choices)) {
     const value = Object.entries(edit.choices).find(([, b]) => equal(siteBytes(input, edit), unhex(b)))?.[0];
-    // As tooling/settings.state: a capability with fixed edits is on only with all of them
-    // applied (a partly applied image holds no setting); one of setting edits only, when
-    // its bytes differ from stock.
-    const fixed = kit.profile.patches.filter(other => other.service === edit.service && !other.choices);
-    const on = fixed.length > 0 ? fixed.every(other => equal(siteBytes(input, other), unhex(other.after)))
-      : !equal(siteBytes(input, edit), unhex(edit.before));
-    if (value !== undefined && on) found[edit.setting] = Number(value);
+    // One rule for "on", shared with recovery's extension guess (and tooling/settings.state).
+    if (value !== undefined && capabilityApplied(kit.profile, edit.service, input)) found[edit.setting] = Number(value);
   }
   return found;
 }
@@ -911,7 +906,9 @@ export async function recoverFirmware(kit, input, layout = null) {
   }
   // Stock with only reviewed edits applied, as `sdk.py settings apply` writes: stock is
   // rebuilt by undoing every edit and verified by hash; its machines are chosen again.
-  if (input.length === p.stock_bytes) {
+  // Without a module record no hook or startup label may branch anywhere: those sites stay stock.
+  if (input.length === p.stock_bytes && p.patches.every(edit => !['hook', 'startup'].includes(edit.kind) ||
+      equal(siteBytes(input, edit), unhex(edit.before)))) {
     const restored = input.slice();
     for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
     if (await sha256(restored) === p.stock_sha256) {

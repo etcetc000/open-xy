@@ -76,6 +76,9 @@ def capabilities():
                     all(type(spec[k]) is int for k in ('minimum', 'maximum', 'default')) and
                     spec['minimum'] <= spec['default'] <= spec['maximum'], 'Invalid capability setting: ' + name)
             values = {str(v) for v in range(spec['minimum'], spec['maximum'] + 1)}
+            # An image must show whether the capability is on: a fixed edit, or no choice that is stock.
+            require(len(chosen) < len(edits) or all(p['before'] not in p['choices'].values() for p in chosen),
+                    'A capability setting needs a fixed edit when a choice equals stock: ' + name)
             require(chosen and all(p.get('setting') == name and isinstance(p.get('choices'), dict) and
                                    set(p['choices']) == values and p['after'] == p['choices'][str(spec['default'])] and
                                    all(len(bytes.fromhex(b)) == p['length'] for b in p['choices'].values())
@@ -98,7 +101,8 @@ def chosen_settings(extensions, overrides=None):
         for name in getattr(e, 'capabilities', ()):
             if name in specs:
                 chosen.setdefault(name, e.settings.get(name, specs[name]['default']))
-    return {**chosen, **(overrides or {})}
+    # An override applies only to a capability an extension declares, as the builder's.
+    return {**chosen, **{n: v for n, v in (overrides or {}).items() if n in chosen}}
 
 
 def setting_edits(profile, settings):

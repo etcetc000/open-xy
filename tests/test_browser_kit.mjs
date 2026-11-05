@@ -72,6 +72,7 @@ test('profiling defaults on; disabling it changes only the reviewed diagnostic h
 
 test('a settings extension links no code, applies only its capability edits and is recovered from them', async () => {
   const {kit, stock} = await profilingFixture();
+  kit.profile.patches = kit.profile.patches.filter(edit => edit.file_offset !== 48);  // bytes 48..55: no edit
   const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
   kit.profile.services = {...kit.profile.services, long_samples:['long_samples']};
   kit.profile.patches.push({kind:'limit', service:'long_samples', address:0x1018, file_offset:56, length:8,
@@ -166,9 +167,17 @@ test('only an exact build restores its selection; others recover verified stock 
 
 test('stock with only reviewed edits applied, as sdk.py settings apply writes, recovers stock', async () => {
   const {kit, stock} = await profilingFixture();
-  const applied = stock.slice(); applied[32] ^= 1;  // a reviewed edit site
+  kit.profile.patches = kit.profile.patches.filter(edit => edit.file_offset !== 48);  // bytes 48..55: no edit
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
+  kit.profile.services = {...kit.profile.services, long_samples:['long_samples']};
+  kit.profile.patches.push({kind:'limit', service:'long_samples', address:0x1018, file_offset:56, length:8,
+    before, after:'01da0f00ffff0000'});
+  const applied = stock.slice(); applied.set(Buffer.from('01da0f00ffff0000', 'hex'), 56);  // a fixed reviewed edit
   assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true});
-  const foreign = stock.slice(); foreign[60] ^= 1;
+  // A hook needs a module record to branch into: without one its site must stay stock.
+  const hooked = stock.slice(); hooked[32] ^= 1;
+  await assert.rejects(recoverFirmware(kit, hooked), /Only OP–XY OS 1\.2\.1 is supported/);
+  const foreign = stock.slice(); foreign[50] ^= 1;
   await assert.rejects(recoverFirmware(kit, foreign), /Only OP–XY OS 1\.2\.1 is supported/);
 });
 

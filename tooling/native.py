@@ -97,7 +97,8 @@ def configuration(entries=None, layout=None):
     stock_limits.check_profile(profile)
     release_floor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
     # Every limit edit belongs to a registry capability (each audited above).
-    require(all(p.get('service') in extensions.capabilities() for p in profile['patches'] if p['kind'] == 'limit'),
+    names = set(extensions.capabilities())
+    require(all(p.get('service') in names for p in profile['patches'] if p['kind'] == 'limit'),
             'A limit edit belongs to a registry capability')
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
