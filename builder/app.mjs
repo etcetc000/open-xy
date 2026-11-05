@@ -225,8 +225,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
       } else if (recovered.earlier) {
-        // Settings extensions an image holds stay selected; machines are chosen again.
-        if (recovered.extensions) { selectedExtensions = core.extensionSelection(kit, recovered.extensions); renderExtensions(); recalculate(); }
+        // The settings extensions selected are exactly those this image holds; machines and
+        // code extensions are chosen again.
+        selectedExtensions = core.extensionSelection(kit, recovered.extensions ?? []); renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again';
       } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
       wizard.setFirmwareState('loaded');

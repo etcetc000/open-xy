@@ -172,8 +172,8 @@ implements it, and a build either includes it or not. A **capability** in
 it is the firmware profile's service of the same name. An extension turns
 capabilities on with `"capabilities": [...]` in `extension.json`.
 
-A settings extension holds only `extension.json` (and optionally README.md and
-LICENSE): capabilities, no claims or actions, no `extension.cpp` and no tests.
+A settings extension holds only `extension.json` (and optionally a README,
+LICENSE or NOTICE, plain or .md/.txt, and dotfiles): capabilities, no claims or actions, no `extension.cpp` and no tests.
 It appears in the builder's Extensions step and the catalog like any extension,
 but links no code: selecting only settings extensions leaves the extension
 runtime out. An extension with code may declare capabilities too.

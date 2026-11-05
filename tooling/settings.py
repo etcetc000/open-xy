@@ -21,11 +21,11 @@ from .extensions import capabilities, extension_at
 from .firmware import hook_target
 from .formats import header, ldr, mapped_offset, require, sha
 from . import release_floor, startup_label
+from .pipeline import add_overwrite_argument, config, fresh_output, read
+from .release import outside_checkouts
 
 # Stock ranges each capability's edits rely on beyond their sites: (address, bytes).
 DEPENDS = {release_floor.SERVICE: release_floor.DEPENDS}
-from .pipeline import add_overwrite_argument, config, fresh_output, read
-from .release import outside_checkouts
 
 UNSUPPORTED = 'Not OP-XY OS 1.2.1 or an open-xy OS made from it'
 
@@ -56,10 +56,15 @@ def authenticate(image, blocks, profile):
     other edit site must also hold stock, or its reviewed bytes, or for a hook or startup
     label a branch into the image's own module record; without one, only capability edits."""
     stock, low, high = bytearray(image), None, None
+    first, final = blocks[0], blocks[-1]
+    # The loader frame builder/core.mjs recoverFirmware checks: FIRST holds the size, FINAL ends.
+    require(first['count'] == 0 and first['code'] & 0xffff == 0x5004 and first['argument'] == len(image) - 16 and
+            final['count'] == 0 and final['code'] & 0xffff == 0x8004, UNSUPPORTED)
     if len(blocks) == profile['stock_records'] + 1:
-        first, module, final = blocks[0], blocks[-2], blocks[-1]
+        module = blocks[-2]
         require(module['offset'] == profile['stock_bytes'] - 16 and module['code'] & 0xffff == 4 and
-                first['code'] & 0xffff == 0x5004, UNSUPPORTED)
+                module['argument'] == 0 and module['count'] > 0 and
+                len(image) == profile['stock_bytes'] + 16 + module['count'], UNSUPPORTED)
         stock = bytearray(image[:module['offset']] + image[final['offset']:])
         stock[:16] = header(0x5004, first['target'], 0, len(stock) - 16)
         low, high = module['target'], module['target'] + module['count']

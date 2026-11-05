@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, sharedClaim, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, sharedClaim, claimLabel, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -104,7 +104,11 @@ test('stock with only fixed capability edits, as sdk.py settings apply writes, r
   kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false}];
   assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true, extensions:['idle']});
   // Two extensions turning on one capability are chosen like a shared claim: only one.
-  assert.equal(sharedClaim([{claims:[], capabilities:['release_floor']}, {claims:[], capabilities:['release_floor']}]), 'release_floor');
+  const both = [{claims:[], capabilities:['release_floor']}, {claims:[], capabilities:['release_floor']}];
+  assert.equal(sharedClaim(both), 'capability:release_floor');
+  assert.equal(claimLabel(both, 'capability:release_floor'), 'the release floor capability');
+  // A claim and a capability of the same name do not conflict, as in tooling.extensions.check_collection.
+  assert.equal(sharedClaim([{claims:['release_floor'], capabilities:[]}, {claims:[], capabilities:['release_floor']}]), null);
   // A capability partly applied is no image any tool writes.
   const partial = stock.slice(); partial.set(Buffer.from('01da470114ae0000', 'hex'), 56);
   await assert.rejects(recoverFirmware(kit, partial), /Only OP–XY OS 1\.2\.1 is supported/);

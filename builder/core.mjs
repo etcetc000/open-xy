@@ -444,7 +444,7 @@ export function sharedClaim(extensions) {
   // A capability is held like a claim: two extensions turning on the same edits would
   // build identical images, so an image could not say which was chosen.
   const seen = new Set();
-  for (const e of extensions) for (const claim of [...(e.claims ?? []), ...(e.capabilities ?? [])]) {
+  for (const e of extensions) for (const claim of [...(e.claims ?? []), ...(e.capabilities ?? []).map(c => 'capability:' + c)]) {
     if (seen.has(claim)) return claim;
     seen.add(claim);
   }
@@ -452,13 +452,14 @@ export function sharedClaim(extensions) {
 }
 
 // The registry's label for a claim, as the kit carries it with each extension.
-export const claimLabel = (extensions, claim) =>
-  extensions.map(e => e.claim_labels?.[claim]).find(Boolean) ?? claim.replaceAll('_', ' ');
+export const claimLabel = (extensions, claim) => claim.startsWith('capability:')
+  ? 'the ' + claim.slice(11).replaceAll('_', ' ') + ' capability'
+  : extensions.map(e => e.claim_labels?.[claim]).find(Boolean) ?? claim.replaceAll('_', ' ');
 
 // Every extension choice a build can make, in collection order: each subset
 // in which no two extensions share a claim. Recovery and release checks try each.
-export function extensionChoices(kit) {
-  const entries = kit.extensions ?? [], choices = [];
+export function extensionChoices(kit, entries = kit.extensions ?? []) {
+  const choices = [];
   for (let mask = 0; mask < 2 ** entries.length; mask++) {
     const chosen = entries.filter((_, i) => mask & 2 ** i);
     if (!sharedClaim(chosen)) choices.push(chosen.map(e => e.id));
@@ -855,8 +856,11 @@ const presentExtensions = (kit, payload, input) => {
 };
 // A capability's edits are fixed bytes (tooling.extensions.capabilities): applied
 // in an image exactly when every one holds its reviewed bytes.
-const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
-  equal(input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length), unhex(edit.after)));
+const capabilityApplied = (p, service, input) => {
+  const edits = p.patches.filter(edit => edit.service === service);
+  return edits.length > 0 && edits.every(edit =>  // a capability without edits is never on
+    equal(input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length), unhex(edit.after)));
+};
 const UPDATE = 'Update your OP–XY to OS 1.2.1 with teenage engineering’s updater, then copy its OS file (os.ldr) again; a .tfw update file will not work.';
 const UNSUPPORTED = 'Only OP–XY OS 1.2.1 is supported. This file is not OS 1.2.1 or an open-xy OS made from it. ' + UPDATE;
 export async function recoverFirmware(kit, input, layout = null) {
@@ -918,13 +922,11 @@ export async function recoverFirmware(kit, input, layout = null) {
     // Settings extensions are read exactly from the image's bytes, so only code
     // extensions are enumerated, each choice joined by the settings ones the image holds.
     const entries = kit.extensions ?? [], coded = entries.filter(e => e.linked !== false);
-    const settingsHeld = entries.filter(e => e.linked === false && held.includes(e.id));
-    const subsets = [];
-    for (let mask = 0; mask < 2 ** coded.length; mask++) subsets.push(coded.filter((_, i) => mask & 2 ** i));
+    const settingsHeld = entries.filter(e => e.linked === false && held.includes(e.id)).map(e => e.id);
+    const joined = ids => entries.filter(e => ids.includes(e.id) || settingsHeld.includes(e.id));
     const choices = coded.length <= RECOVERABLE_EXTENSIONS
-      ? subsets.map(chosen => entries.filter(e => chosen.includes(e) || settingsHeld.includes(e)))
-          .filter(chosen => !sharedClaim(chosen)).map(chosen => chosen.map(e => e.id))
-      : guess.length ? [guess, settingsHeld.map(e => e.id)] : [settingsHeld.map(e => e.id)];
+      ? extensionChoices(kit, coded).map(joined).filter(chosen => !sharedClaim(chosen)).map(chosen => chosen.map(e => e.id))
+      : guess.length ? [guess, settingsHeld] : [settingsHeld];
     for (const extensions of present.length ? [guess, ...choices] : []) {
       try {
         if (await rebuilds(present, extensions)) return {stock, selected: present, extensions};
