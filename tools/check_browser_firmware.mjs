@@ -14,11 +14,11 @@ for (const {name, selected, extensions, layout} of selections) {
   const linked = linkKit(kit, selected, layout, extensions), target = resolve(directory, 'reference', name);
   const firmware = await patchFirmware(kit, linked, stock);
   const recovered = await recoverFirmware(kit, firmware, layout);
-  assert.deepEqual(recovered, {stock, selected, extensions});
+  assert.deepEqual(recovered, {stock, selected, extensions, memory: 'standard'});
   assert.deepEqual(await patchFirmware(kit, linkKit(kit, recovered.selected, layout, recovered.extensions), recovered.stock), firmware);
   const profilingOff = await patchFirmware(kit, linked, stock, {profiling: false});
   assert.notDeepEqual(profilingOff, firmware);
-  assert.deepEqual(await recoverFirmware(kit, profilingOff, layout), {stock, selected, extensions});
+  assert.deepEqual(await recoverFirmware(kit, profilingOff, layout), {stock, selected, extensions, memory: 'standard'});
   assert.deepEqual(await patchFirmware(kit, linkKit(kit, selected, layout, extensions), stock, {profiling: false}), profilingOff);
   writeFileSync(target + '.profiling-off.ldr', profilingOff);
   const timingHooks = kit.profile.patches.filter(edit => edit.profiling === false);
@@ -27,7 +27,7 @@ for (const {name, selected, extensions, layout} of selections) {
   const offset = Number(firstHook.file_offset);
   mixed.set(firmware.subarray(offset, offset + firstHook.length), offset);
   // Not an exact build: stock is still recovered and verified, but no selection.
-  const earlier = {stock, selected:null, earlier:true};
+  const earlier = {stock, selected:null, earlier:true, memory: 'standard'};
   assert.deepEqual(await recoverFirmware(kit, mixed, layout), earlier);
   const damagedLabel = firmware.slice();
   damagedLabel[Number(kit.profile.patches.at(-1).file_offset)] ^= 1;
@@ -64,7 +64,7 @@ if (offersExpandedMemory(kit.profile)) {
       assert.equal(readLdr(firmware).at(-2).target, expanded.profile.module_base);
       for (const edit of expanded.profile.patches.filter(e => e.kind === 'heap'))
         assert.equal(Buffer.from(firmware.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length)).toString('hex'), edit.after);
-      assert.deepEqual(await recoverFirmware(kit, firmware, layout), {stock, selected, extensions, expanded: true});
+      assert.deepEqual(await recoverFirmware(kit, firmware, layout), {stock, selected, extensions, memory: 'expanded'});
       await assert.rejects(patchFirmware(kit, linked, stock, {profiling}), /outside module|exceeds its profile/);
       writeFileSync(resolve(directory, 'reference', name) + (profiling ? '.ldr' : '.profiling-off.ldr'), firmware);
     }

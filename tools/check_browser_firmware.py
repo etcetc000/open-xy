@@ -43,10 +43,15 @@ def expanded_profile(profile):
     x = profile['experimental_memory']
     # Checked here too, with the stock instruction decoder, rather than trusted.
     opcode, heap = stock_tables.decode('imm32', bytes.fromhex(x['heap_after']))
-    require(x['module_base'] + x['reserved_bytes'] == profile['module_base'] + profile['reserved_bytes'] and
-            heap == x['module_base'] - profile['heap_fill_base'] and all(
-                stock_tables.decode('imm32', bytes.fromhex(p['before']))[0] == opcode
-                for p in profile['patches'] if p['kind'] == 'heap'), 'Experimental memory layout is inconsistent')
+    heaps = [p for p in profile['patches'] if p['kind'] == 'heap']
+    end = profile['module_base'] + profile['reserved_bytes']
+    mib = 1024 * 1024
+    require(set(x) == {'module_base', 'reserved_bytes', 'heap_after'} and len(heaps) == 2 and
+            x['reserved_bytes'] > profile['reserved_bytes'] and x['reserved_bytes'] % mib == 0 and
+            x['module_base'] + x['reserved_bytes'] == end == profile['heap_fill_base'] + profile['heap_fill_bytes'] and
+            profile['heap_fill_base'] < x['module_base'] and heap == x['module_base'] - profile['heap_fill_base'] and
+            heap % mib == 0 and all(stock_tables.decode('imm32', bytes.fromhex(p['before'])) == (opcode, profile['heap_fill_bytes'])
+                                    for p in heaps), 'Experimental memory layout is inconsistent')
     expanded = copy.deepcopy(profile)
     expanded.update(module_base=x['module_base'], reserved_bytes=x['reserved_bytes'])
     for patch in expanded['patches']:

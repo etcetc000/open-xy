@@ -226,7 +226,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     stock = null; ready();
     try {
       // The OS sets the memory choice, so neither it nor a layout can change it while it is checked.
-      memoryInput.disabled = true; checkingOs = true;
+      memoryInput.disabled = $('restore').disabled = true; checkingOs = true;
       wizard.setFirmwareState('checking');
       $('firmware-result').textContent = 'Verifying ' + file.name + '…';
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
@@ -235,7 +235,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       // An OS whose memory is known sets the choice: a recognized 6 MiB build turns it
       // on, an exactly rebuilt standard build off. Stock OS, or an open-xy OS of an
       // unknown layout, keeps the current one. A change is said, never silent.
-      const memoryChange = recovered.selected || recovered.expanded ? setExpandedMemory(recovered.expanded === true) : '';
+      const memoryChange = recovered.memory ? setExpandedMemory(recovered.memory === 'expanded') : '';
       const memoryNote = memoryChange && ' · ' + memoryChange;
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
@@ -260,7 +260,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       fail(error); ready();
       return false;
     } finally {
-      if (current === ticket) { memoryInput.disabled = !expandedKit; checkingOs = false; }
+      if (current === ticket) { memoryInput.disabled = !expandedKit; $('restore').disabled = checkingOs = false; }
       if (current === ticket && !stock) {
         wizard.setFirmwareState('empty');
         $('firmware-result').textContent = 'OS not loaded';
@@ -805,10 +805,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   $('restore').onchange = async e => {
     try {
-      const wait = 'Wait until your OS file has been checked, then load the layout.';
-      core.requireThat(!checkingOs, wait);
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
-      core.requireThat(!checkingOs, wait);  // an OS check may have started during the read
+      // The input is disabled while an OS is checked; one may have started during the read.
+      core.requireThat(!checkingOs, 'Wait until your OS file has been checked, then load the layout.');
       const loaded = core.readLayout(kit, saved);
       // A layout keeps its machine numbers even when an extension it names is no
       // longer offered; that extension is left out and named.
@@ -849,7 +848,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     invalidate(); stock = null; kit = next;
     // An OS check against the previous collection no longer applies.
     if (checkingOs) {
-      ticket++; checkingOs = false;
+      ticket++; $('restore').disabled = checkingOs = false;
       wizard.setFirmwareState('empty'); $('firmware-result').textContent = 'OS not loaded';
     }
     // A tap opens the memory breakdown on screens without hover.

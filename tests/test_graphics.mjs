@@ -542,11 +542,11 @@ test('Extensions graphics defaults to original designs without firmware extensio
   recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true};  // an open-xy OS of unknown layout
   assert.equal(await loadOs(), true);
   assert.equal(memoryInput.checked, true);
-  recoverResult = {stock:Uint8Array.of(1), selected:['probe'], extensions:[]};  // an exactly rebuilt standard build
+  recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true, memory:'standard'};  // a standard build of other machines
   assert.equal(await loadOs(), true);
   assert.equal(memoryInput.checked, false);
   assert.match($('firmware-result').textContent, / · it uses standard memory, so 6 MiB is turned off$/);
-  recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true, expanded:true};
+  recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true, memory:'expanded'};
   assert.equal(await loadOs(), true);
   assert.equal(memoryInput.checked, true);
   assert.match($('firmware-result').textContent, / · it uses 6 MiB experimental memory, now turned on$/);

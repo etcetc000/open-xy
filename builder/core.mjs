@@ -907,7 +907,8 @@ export async function recoverFirmware(kit, input, layout = null) {
   const built = [kit, ...(offersExpandedMemory(p) ? [memoryKit(kit, true)] : [])]
     .find(k => k.profile.module_base === module.target && k.profile.patches.every(e => e.kind !== 'heap' ||
       equal(input.subarray(Number(e.file_offset), Number(e.file_offset) + e.length), unhex(e.after))));
-  const found = built && built !== kit ? {expanded: true} : {};
+  // The memory layout this OS used, when its module base and heap edits match one.
+  const found = built ? {memory: built === kit ? 'standard' : 'expanded'} : {};
   if (built && module.count <= moduleBytes(built.profile)) {
     // Reconstruct a selection's entire image; never trust the uploaded module
     // or infer ownership from its label. SDK builds retain timing; site builds
@@ -940,7 +941,9 @@ export async function recoverFirmware(kit, input, layout = null) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
         for (const extensions of choices) {
-          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
+          try {
+            if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
+          } catch (error) { if (!error.capacity) throw error; }  // a selection that cannot fit was not built
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }

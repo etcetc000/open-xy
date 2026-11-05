@@ -68,13 +68,13 @@ test('profiling defaults on; disabling it changes only the reviewed diagnostic h
   }
   const restored = off.slice(); restored.set(on.subarray(32, 48), 32);
   assert.deepEqual(restored, on);
-  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[]});
+  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[], memory:'standard'});
 });
 
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {
   const {kit, linked, stock} = await profilingFixture();
   const on = await patchFirmware(kit, linked, stock), off = await patchFirmware(kit, linked, stock, {profiling:false});
-  const earlier = {stock, selected:null, earlier:true};
+  const earlier = {stock, selected:null, earlier:true, memory:'standard'};
   // Mixed modes, altered edits or altered linked code: stock is rebuilt from the
   // reviewed edits and verified by hash; the uploaded module is never used.
   const mixed = off.slice(); mixed.set(on.subarray(32, 40), 32);
@@ -101,7 +101,7 @@ test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', 
   // A kit too large to search every selection still recovers stock.
   kit.machines = [...kit.machines, ...Array.from({length:10}, (_, i) => machine('m' + i, 35 + i, 83 + i))];
   const exact = await patchFirmware(kit, linked, stock, {profiling:false});
-  assert.deepEqual(await recoverFirmware(kit, exact), {stock, selected:null, earlier:true});
+  assert.deepEqual(await recoverFirmware(kit, exact), {stock, selected:null, earlier:true, memory:'standard'});
 });
 
 test('the experimental 6 MiB layout moves only the module base and the heap immediates', () => {
@@ -172,7 +172,7 @@ async function heapFixture() {
 test('a 6 MiB build loads its module lower, shrinks the heap and restores its selection', async () => {
   const {kit, stock, load} = await heapFixture();
   const standard = await patchFirmware(kit, linkKit(kit, ['a']), stock, {profiling:false});
-  assert.deepEqual(await recoverFirmware(kit, standard), {stock, selected:['a'], extensions:[]});
+  assert.deepEqual(await recoverFirmware(kit, standard), {stock, selected:['a'], extensions:[], memory:'standard'});
   const expanded = memoryKit(kit, true), linked = linkKit(expanded, ['a']);
   assert.equal(linked.sizes.available, SIX_MIB - linked.sizes.allocated);
   const image = await patchFirmware(expanded, linked, stock, {profiling:false});
@@ -181,7 +181,7 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   const heap = module.target - kit.profile.heap_fill_base;
   for (const at of [48, 64]) assert.deepEqual(Buffer.from(image.subarray(at, at + 8)), load(heap));
   assert.notDeepEqual(image, standard);
-  assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[], expanded:true});
+  assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[], memory:'expanded'});
   // A module linked for one layout never passes as the other.
   const moved = image.slice(), at = module.offset, view = new DataView(moved.buffer);
   view.setUint32(at + 4, kit.profile.module_base, true);
@@ -189,7 +189,7 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   assert.deepEqual(await recoverFirmware(kit, moved), {stock, selected:null, earlier:true});
   // A 6 MiB build this kit cannot rebuild still reports its memory choice.
   const other = image.slice(); other[module.offset + 16] ^= 1;
-  assert.deepEqual(await recoverFirmware(kit, other), {stock, selected:null, earlier:true, expanded:true});
+  assert.deepEqual(await recoverFirmware(kit, other), {stock, selected:null, earlier:true, memory:'expanded'});
   // A module at the 6 MiB base whose heap edits still write the standard size is no 6 MiB build.
   const standardHeap = other.slice();
   for (const at of [48, 64]) standardHeap.set(load(kit.profile.module_base - kit.profile.heap_fill_base), at);
@@ -204,6 +204,11 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   assert.ok(big.sizes.allocated > kit.profile.reserved_bytes);
   await assert.rejects(patchFirmware(kit, big, stock), /Module exceeds its profile/);
   assert.equal(readLdr(await patchFirmware(memoryKit(large, true), big, stock)).at(-2).target, module.target);
+  // Recovery's search skips selections that cannot fit, here 'b' tried before 'a'.
+  const order = {...large, machines:[machine('b', 35, 83), ...kit.machines],
+    objects:large.objects.map(o => o.name === 'b.o' ? {...o, owner:'b'} : o)};
+  const small = await patchFirmware(order, linkKit(order, ['a']), stock, {profiling:false});
+  assert.deepEqual(await recoverFirmware(order, small), {stock, selected:['a'], extensions:[], memory:'standard'});
   // Layouts record the choice; readLayout reports whether this site offers it.
   assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'expanded'}),
     {machines:{}, selected:null, expanded:true});
