@@ -210,6 +210,7 @@ void sdk_module_load() {
     // Safe mode loads nothing; the folders still appear, so a module can be removed.
     if (safe_mode()) { finished = 1; return; }
     scan();
+    for (u32 i = 0; i < count; ++i) sdk_module_plan(names[i]);
     sdk_module_registration(true);
     for (u32 i = 0; i < count; ++i) load(names[i], gui);
     sdk_module_registration(false);

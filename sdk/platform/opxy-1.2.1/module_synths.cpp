@@ -337,10 +337,20 @@ bool built_in(const char* id) {
         if (symbol_value(m->number) && equal_id(m->id, id)) return true;
     return false;
 }
+// The numbers, planned from the folder's module names before any init runs
+// (sdk_module_plan), so both roles give the same: a module that fails on one
+// role only leaves its numbers unused there and moves no other module's.
+struct Planned {
+    char id[16];
+    u32 engine, page;
+};
+Planned plan[entries_max];
+u32 planned;
+
 bool engine_held(void*, u32 n) {
     for (const Fixed& f : fixed) if (f.engine == n) return true;
     for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m) if (symbol_value(m->number) == n) return true;
-    for (u32 i = 0; i < count; ++i) if (entries[i].engine == n) return true;
+    for (u32 i = 0; i < planned; ++i) if (plan[i].engine == n) return true;
     return false;
 }
 bool page_held(void*, u32 n) {
@@ -348,7 +358,7 @@ bool page_held(void*, u32 n) {
     for (const Fixed& f : fixed) if (f.page == n) return true;
     for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m)
         if (symbol_value(m->number) && symbol_value(m->page) == n) return true;
-    for (u32 i = 0; i < count; ++i) if (entries[i].page == n) return true;
+    for (u32 i = 0; i < planned; ++i) if (plan[i].page == n) return true;
     return false;
 }
 // A fixed machine as a module keeps its fixed numbers; any other gets its preferred free ones.
@@ -356,12 +366,22 @@ bool number(const char* id, u32& engine, u32& page) {
     for (const Fixed& f : fixed)
         if (equal_id(f.id, id)) {
             engine = f.engine; page = f.page;
-            for (u32 i = 0; i < count; ++i) if (entries[i].engine == engine || entries[i].page == page) return false;
+            for (u32 i = 0; i < planned; ++i) if (plan[i].engine == engine || plan[i].page == page) return false;
             return true;
         }
     engine = modules::preferred_number(id, engine_first, engine_end, engine_held, nullptr);
     page = modules::preferred_number(id, page_first, page_end, page_held, nullptr);
     return engine && page;
+}
+// A module name as its machine ID: lowercase (FAT32 ignores case); empty when too long.
+void as_id(const char* name, char* id) {
+    u32 n = 0;
+    for (; name && name[n] && n + 1 < 16; ++n) id[n] = name[n] >= 'A' && name[n] <= 'Z' ? static_cast<char>(name[n] + 32) : name[n];
+    id[name && name[n] ? 0 : n] = 0;
+}
+const Planned* planned_for(const char* id) {
+    for (u32 i = 0; i < planned; ++i) if (equal_id(plan[i].id, id)) return &plan[i];
+    return nullptr;
 }
 
 // Sized and laid out like Drawing<Machine>::Object after the stock Base.
@@ -393,8 +413,9 @@ int sdk_module_synth_register(const ModuleSynth* d) {
     // One synth per module, known by the module's machine ID; never one this firmware holds itself.
     if (!current_id[0] || built_in(current_id)) return module_taken;
     for (u32 i = 0; i < count; ++i) if (entries[i].d == d) return module_taken;
-    u32 engine = 0, page = 0;
-    if (!number(current_id, engine, page)) return module_full;
+    const Planned* numbers = planned_for(current_id);
+    if (!numbers) return module_full;
+    const u32 engine = numbers->engine, page = numbers->page;
     Entry& e = entries[count];
     e = Entry{};
     e.d = d;
@@ -462,11 +483,16 @@ u32 sdk_companion_module_number(const char* id, u32 length) {
     return 0;
 }
 
-void sdk_module_current(const char* id) {
-    u32 n = 0;
-    for (; id && id[n] && n + 1 < sizeof current_id; ++n)
-        current_id[n] = id[n] >= 'A' && id[n] <= 'Z' ? static_cast<char>(id[n] + 32) : id[n];
-    current_id[id && id[n] ? 0 : n] = 0;  // too long: no ID at all
+void sdk_module_current(const char* id) { as_id(id, current_id); }
+
+void sdk_module_plan(const char* name) {
+    if (planned == entries_max) return;
+    Planned& p = plan[planned];
+    as_id(name, p.id);
+    // No numbers for a name this firmware holds itself or one planned already:
+    // registration refuses those.
+    if (!p.id[0] || built_in(p.id) || planned_for(p.id)) return;
+    if (number(p.id, p.engine, p.page)) ++planned;
 }
 
 void sdk_module_screens() {
