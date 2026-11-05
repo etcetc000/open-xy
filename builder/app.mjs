@@ -805,9 +805,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   $('restore').onchange = async e => {
     try {
+      // The input is disabled while an OS is checked. An OS check that started, or even
+      // finished, during the read set the memory and selection, so this layout waits.
+      const osCheck = ticket;
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
-      // The input is disabled while an OS is checked; one may have started during the read.
-      core.requireThat(!checkingOs, 'Wait until your OS file has been checked, then load the layout.');
+      core.requireThat(!checkingOs && ticket === osCheck, 'Your OS file was loaded meanwhile. Load the layout again if you still want it.');
       const loaded = core.readLayout(kit, saved);
       // A layout keeps its machine numbers even when an extension it names is no
       // longer offered; that extension is left out and named.

@@ -55,6 +55,7 @@ def expanded_profile(profile):
                 stock_tables.decode('imm32', bytes.fromhex(p['after'])) == (opcode, profile['module_base'] - profile['heap_fill_base'])
                 for p in heaps), 'Experimental memory layout is inconsistent')
     expanded = copy.deepcopy(profile)
+    del expanded['experimental_memory']  # the derived profile is the layout itself
     expanded.update(module_base=x['module_base'], reserved_bytes=x['reserved_bytes'])
     for patch in expanded['patches']:
         if patch['kind'] == 'heap':

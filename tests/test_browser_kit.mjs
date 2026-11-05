@@ -121,6 +121,8 @@ test('the experimental 6 MiB layout moves only the module base and the heap imme
     assert.equal(profile.heap_fill_base + 14 * 1024 ** 2, expanded.module_base);
   }
   assert.deepEqual(profile, JSON.parse(profileBytes));  // the reviewed profile is untouched
+  assert.equal(Object.hasOwn(expanded, 'experimental_memory'), false);  // the layout offers no further one
+  assert.equal(offersExpandedMemory(expanded), false);
   const kit = fixture();
   assert.equal(memoryKit(kit, false), kit);
   assert.equal(memoryKit(kit, true).profile.module_base, expanded.module_base);
@@ -132,6 +134,8 @@ test('the experimental 6 MiB layout moves only the module base and the heap imme
     p => { p.heap_fill_bytes += 4; }, p => { p.reserved_bytes = SIX_MIB; },
     p => { p.experimental_memory.module_base += 2; }, p => { p.experimental_memory.heap_after = '01dae00100000000'; },
     p => { p.experimental_memory.extra = 1; }, p => { delete p.experimental_memory; },
+    // The larger heap must be loaded into the same register as the stock edit.
+    p => { p.experimental_memory.heap_after = '02dae00000000000'; },
     // Sizes are whole MiB, as the builder names them.
     p => { p.experimental_memory.module_base += 0x4000; p.experimental_memory.reserved_bytes -= 0x4000;
       p.experimental_memory.heap_after = '01dae00000400000'; },  // 14 MiB + 16 KiB, consistent otherwise

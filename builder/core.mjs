@@ -477,15 +477,20 @@ export const moduleBytes = profile => profile.reserved_bytes - profile.table_byt
 // the two heap edits change; the relocated tables, hooks and every other edit stay
 // where the reviewed profile puts them (tests/test_experimental_memory.py).
 // Less heap for the stock OS is untested under heavy use, so this is opt-in.
-const HEAP_LOAD = /^01da[0-9a-f]{8}0000$/;  // Blackfin+ Dreg = imm32 (tooling.stock_tables.decode)
 // The application heap a layout leaves below its module.
 export const heapBytes = profile => profile.module_base - profile.heap_fill_base;
-// The size a heap edit loads, or NaN for any other instruction (never equal).
-const heapImmediate = hex => {
-  if (typeof hex !== 'string' || !HEAP_LOAD.test(hex)) return NaN;
-  const d = view(unhex(hex));
-  return d.getUint16(2, true) * 65536 + d.getUint16(4, true);
+// A Blackfin+ Dreg/Preg = imm32 load as tooling.stock_tables.decode reads it, or
+// null for any other bytes.
+const heapLoad = hex => {
+  if (typeof hex !== 'string' || !/^[0-9a-f]{16}$/i.test(hex)) return null;
+  const d = view(unhex(hex.toLowerCase())), opcode = d.getUint16(0, true);
+  return (opcode & 0xffc0) === 0xda00 && d.getUint16(6, true) === 0
+    ? {opcode, value: d.getUint16(2, true) * 65536 + d.getUint16(4, true)} : null;
 };
+// The size a heap edit loads, or NaN for any other instruction (never equal).
+const heapImmediate = hex => heapLoad(hex)?.value ?? NaN;
+// Whether an edit's replacement loads the same register as its stock instruction.
+const sameLoad = (a, b) => heapLoad(a) !== null && heapLoad(a).opcode === heapLoad(b)?.opcode;
 // Whether the profile carries a reviewed larger layout consistent with its heap
 // edits. Without one the builder simply does not offer the option.
 export function offersExpandedMemory(profile) {
@@ -498,14 +503,16 @@ export function offersExpandedMemory(profile) {
     x.reserved_bytes > profile.reserved_bytes && x.module_base + x.reserved_bytes === end &&
     x.module_base > profile.heap_fill_base && heapImmediate(x.heap_after) === x.module_base - profile.heap_fill_base &&
     profile.heap_fill_base + profile.heap_fill_bytes === end && heaps.length === 2 &&
-    heaps.every(p => heapImmediate(p.before) === profile.heap_fill_bytes &&
-      heapImmediate(p.after) === profile.module_base - profile.heap_fill_base));
+    heaps.every(p => heapImmediate(p.before) === profile.heap_fill_bytes && sameLoad(p.after, p.before) &&
+      sameLoad(x.heap_after, p.before) && heapImmediate(p.after) === profile.module_base - profile.heap_fill_base));
 }
 export function expandedProfile(profile) {
   check(offersExpandedMemory(profile), 'This firmware profile cannot offer more memory');
   const x = profile.experimental_memory, heap = heapBytes({...profile, module_base: x.module_base}), mib = x.reserved_bytes / 1024 ** 2;
   const name = `IN-MEMORY application heap 0x${profile.heap_fill_bytes.toString(16)} -> 0x${heap.toString(16)} (${mib} MiB module reservation, experimental)`;
-  return {...profile, module_base: x.module_base, reserved_bytes: x.reserved_bytes,
+  // The derived profile is the layout itself; it offers no further one.
+  const {experimental_memory: _, ...rest} = profile;
+  return {...rest, module_base: x.module_base, reserved_bytes: x.reserved_bytes,
     patches: profile.patches.map(p => p.kind === 'heap' ? {...p, name, after: x.heap_after} : p)};
 }
 // The kit linked and patched for the chosen memory; the reviewed kit is unchanged.
@@ -915,7 +922,10 @@ export async function recoverFirmware(kit, input, layout = null) {
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
     const rebuilds = async (selected, extensions) => {
-      const linked = linkKit(built, selected, layout, extensions);
+      // A selection that cannot link (e.g. does not fit) is not this build; any
+      // error patching an image that does link is real and reported.
+      let linked;
+      try { linked = linkKit(built, selected, layout, extensions); } catch { return false; }
       if (!equal(linked.module, payload)) return false;
       for (const profiling of [true, false]) {
         if (equal(await patchFirmware(built, linked, stock, {profiling}), input)) return true;
@@ -941,9 +951,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
         for (const extensions of choices) {
-          try {
-            if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
-          } catch {}  // a selection that cannot link (e.g. does not fit) is not this build
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }

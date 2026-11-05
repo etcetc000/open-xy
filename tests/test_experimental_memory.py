@@ -72,8 +72,10 @@ class ExperimentalMemory(unittest.TestCase):
                 self.assertEqual(edit['after'], self.layout['heap_after'])
                 self.assertEqual(edit['name'], 'IN-MEMORY application heap 0x1400000 -> 0xe00000 '
                                                '(6 MiB module reservation, experimental)')
-        self.assertEqual({k: v for k, v in expanded.items() if k not in ('module_base', 'reserved_bytes', 'patches')},
-                         {k: v for k, v in self.profile.items() if k not in ('module_base', 'reserved_bytes', 'patches')})
+        derived = ('module_base', 'reserved_bytes', 'patches', 'experimental_memory')
+        self.assertNotIn('experimental_memory', expanded)  # it offers no further layout
+        self.assertEqual({k: v for k, v in expanded.items() if k not in derived},
+                         {k: v for k, v in self.profile.items() if k not in derived})
 
     def test_release_check_applies_the_same_layout_as_the_browser(self):
         # tools/check_browser_firmware.py assembles 6 MiB LDRs from its own copy of the layout.
