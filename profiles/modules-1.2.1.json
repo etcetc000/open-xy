@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "base": "opxy-1.2.1",
+  "hooks": [
+    {
+      "kind": "hook",
+      "name": "MTP /open-xy and /open-xy/modules folders alongside unchanged stock folder rules",
+      "address": "0x8d5c1d02",
+      "file_offset": "0x1f8f5a",
+      "length": 4,
+      "before": "ffe357ff",
+      "symbol": "sdk_module_mtp_folder_match",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "MTP module files alongside unchanged stock project rules",
+      "address": "0x8d5c1d9e",
+      "file_offset": "0x1f8ff6",
+      "length": 4,
+      "before": "ffe309ff",
+      "symbol": "sdk_module_mtp_match",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module synth artwork from its module file, every other asset from stock",
+      "address": "0x8d56d6b6",
+      "file_offset": "0x1a4912",
+      "length": 4,
+      "before": "04e3a526",
+      "symbol": "sdk_module_asset_load",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module synth entries appended to the factory catalog as stock reads it",
+      "address": "0x8d4e06e4",
+      "file_offset": "0x117940",
+      "length": 8,
+      "before": "00de048c90240000",
+      "symbol": "sdk_module_catalog_load",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module presets: the preset walk opens content/presets and module folders through the module runtime",
+      "address": "0x8d4eb948",
+      "file_offset": "0x122ba4",
+      "length": 8,
+      "before": "00de0b8c4ae50000",
+      "symbol": "sdk_module_preset_dir_open",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module presets: the preset walk's next entry, module folders and presets after stock's",
+      "address": "0x8d4eb97c",
+      "file_offset": "0x122bd8",
+      "length": 8,
+      "before": "00de0b8ca4e60000",
+      "symbol": "sdk_module_preset_dir_next",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module presets: the preset walk closes its folders through the module runtime",
+      "address": "0x8d4ebbf4",
+      "file_offset": "0x122e50",
+      "length": 8,
+      "before": "00de0b8cb2e70000",
+      "symbol": "sdk_module_preset_dir_close",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module presets: a chosen module preset is read from its module file, every other file from stock",
+      "address": "0x8d4e5726",
+      "file_offset": "0x11c982",
+      "length": 8,
+      "before": "00de048c90240000",
+      "symbol": "sdk_module_preset_load",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Board messages of the module runtime before stock's handler for every other type",
+      "address": "0x8d5b18c4",
+      "file_offset": "0x1e8b1c",
+      "length": 4,
+      "before": "ffe34ae9",
+      "symbol": "sdk_module_board_receive",
+      "call": true
+    }
+  ]
+}

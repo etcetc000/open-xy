@@ -1,5 +1,6 @@
 import copy
 import json
+import struct
 import tempfile
 import unittest
 
@@ -19,6 +20,33 @@ class StartupLabelTests(unittest.TestCase):
         for bad in ('v0.0.2', '1.0', '', None):
             with self.subTest(version=bad), self.assertRaises(ValueError):
                 label.label(bad)
+
+    def test_a_build_with_modules_asks_safe_mode_for_the_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plain = label.generate(directory, '1.2.3').read_text(encoding='utf-8')
+            safe = label.generate(directory, '1.2.3', safe_mode=True).read_text(encoding='utf-8')
+        self.assertIn('R0.H = kit_startup_label_text;', plain)
+        self.assertNotIn('sdk_startup_label_text', plain)
+        self.assertIn('CALL sdk_startup_label_text;', safe)
+        self.assertNotIn('R0.H', safe)
+        self.assertIn('.asciz "OPEN 1.2.3-1.2.1"', safe)
+        self.assertNotIn('@TEXT@', safe)
+
+        def thunk(offset, target):
+            delta = (target - (offset + 2)) >> 1 & 0xffffff
+            tail = (struct.pack('<4H', 0xde00, label.DRAW >> 16, label.DRAW & 0xffff, 0) +
+                    struct.pack('<4H', 0xdc00, label.CONTINUATION >> 16, label.CONTINUATION & 0xffff, 0))
+            return (bytes.fromhex('a66f') + struct.pack('<HH', 0xe300 | delta >> 16, delta & 0xffff) +
+                    bytes.fromhex('666c32e41200') + tail)
+        for offset, target in ((0x100, 0x40), (0x40, 0x1000)):
+            module = bytes(offset) + thunk(offset, target)
+            self.assertTrue(label.thunk_ok(module, offset, 28, 0, True, target))
+            self.assertFalse(label.thunk_ok(module, offset, 28, 0, True, target + 2))
+            self.assertFalse(label.thunk_ok(module, offset, 28, 0, False))
+            for index in (0, 1, 3, 6, 8, 12, 20):
+                changed = bytearray(module)
+                changed[offset + index] ^= 1
+                self.assertFalse(label.thunk_ok(bytes(changed), offset, 28, 0, True, target), index)
 
     def test_label_edit_is_exactly_the_reviewed_one(self):
         profile = json.loads((ROOT / f'profiles/{label.PROFILE}.json').read_text())

@@ -15,6 +15,9 @@ extern "C" {
 void sdk_preset_type(StockString* type, const StockString* path, u32 flags) __asm__("sdk_preset_type");
 // This build's machines and stock's engines (startup.cpp.in).
 int sdk_engine_installed(const void* name) __asm__("sdk_engine_installed");
+// A module preset's type, which lives in its module file (module_synths.cpp; 0 in
+// a build without modules, startup.cpp.in).
+int sdk_module_preset_type(StockString* type, const StockString* path) __asm__("sdk_module_preset_type");
 }
 
 namespace {
@@ -25,6 +28,7 @@ const u32 kFactoryPass = 1;  // the scan's flags: content/presets rather than /p
 // flags are the scan's own, passed through in R2.
 void sdk_preset_type(StockString* type, const StockString* path, u32 flags) {
     stock<void(StockString*, const StockString*)>(0x8d4eead6)(type, path);
+    if ((flags & kFactoryPass) && !type->length && sdk_module_preset_type(type, path)) return;
     if (!(flags & kFactoryPass) || !type->length || sdk_engine_installed(type)) return;
     // Empty, keeping the capacity and any heap storage, which stock frees.
     char* text = type->capacity >= 16 ? *reinterpret_cast<char**>(type->text) : type->text;

@@ -14,7 +14,7 @@ def _declare(name, signature='()'):
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False):
+           control=False, aux=False, modules=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -35,6 +35,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     for prefix in (*prefixes, *effects, *player_pages):
         require(re.fullmatch(r'[a-z][a-z0-9_]{0,31}', prefix) is not None, 'Invalid engine prefix')
     declarations = [_declare(prefix + '_fx_register') for prefix in effects]
+    if modules:
+        declarations.append('void sdk_module_load() __asm__("sdk_module_load");')
     declarations += [_declare(prefix + '_screen_register') for prefix in player_pages]
     require(set(effect_screens) <= set(effects), 'Effects with their own page must be listed effects')
     for prefix in effect_screens:
@@ -70,6 +72,17 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
                          'void sdk_control_kept_load(const char*) __asm__("sdk_control_kept_load");']
         kept = ('u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }\n'
                 'void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }')
+    declarations += ['bool sdk_companion_module(u32, const char**, u32*, u32*) __asm__("sdk_companion_module");',
+                     'u32 sdk_companion_module_number(const char*, u32) __asm__("sdk_companion_module_number");',
+                     'int sdk_module_preset_type(void*, const void*) __asm__("sdk_module_preset_type");',
+                     'const void* sdk_module_synth_controls(u32) __asm__("sdk_module_synth_controls");']
+    if not modules:
+        # Companions list module synths and presets.cpp asks for module presets'
+        # types (module_synths.cpp); without modules there are none.
+        kept += ('\nbool sdk_companion_module(u32, const char**, u32*, u32*) { return false; }'
+                 '\nu32 sdk_companion_module_number(const char*, u32) { return 0; }'
+                 '\nint sdk_module_preset_type(void*, const void*) { return 0; }'
+                 '\nconst void* sdk_module_synth_controls(u32) { return nullptr; }')
     if aux:
         require(control, 'The aux service needs the control service')
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
@@ -77,12 +90,24 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     owned += [f'    if (page == value({prefix}_fx_page_id)) return {prefix}_ready() == 1;' for prefix in effect_screens]
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
+    installed = [f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes]
+    if modules:
+        # Module synths (module_synths.cpp) join every place a built-in synth is in.
+        declarations += ['void sdk_module_screens() __asm__("sdk_module_screens");',
+                         'int sdk_module_catalog(void*, const void*, u32, u32*) __asm__("sdk_module_catalog");',
+                         'int sdk_module_screen_owned(u32) __asm__("sdk_module_screen_owned");',
+                         'int sdk_module_engine_installed(const void*) __asm__("sdk_module_engine_installed");']
+        screens.append('    sdk_module_screens();')
+        catalog.insert(0, '    { u32 result; if (sdk_module_catalog(catalog, name, id, &result)) return result; }')
+        owned.append('    if (sdk_module_screen_owned(page)) return 1;')
+        installed.append('    if (sdk_module_engine_installed(name)) return 1;')
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned), SAMPLE_SCREENS='\n'.join(sample),
-                  EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
+                  EFFECTS='\n'.join((['    sdk_module_load();'] if modules else []) +
+                                    [f'    {prefix}_fx_register();' for prefix in effects]),
                   ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
                   SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
                   PROJECT_KEPT=kept,
-                  INSTALLED='\n'.join(f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes))
+                  INSTALLED='\n'.join(installed))
     source = (ROOT / TEMPLATE).read_text(encoding='utf-8')
     for key, text in values.items():
         require(source.count('@' + key + '@') == 1, 'Startup template placeholder missing')
@@ -92,8 +117,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False):
+             control=False, aux=False, modules=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux), encoding='utf-8', newline='\n')
+                                  control, aux, modules), encoding='utf-8', newline='\n')
     return destination

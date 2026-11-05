@@ -36,6 +36,7 @@ const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(42), ready, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false, 4},
     {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false, 0}};
 const u32 sdk_synth_control_count = 3;
+const opxy::platform::SynthControls* sdk_module_synth_controls(u32) { return nullptr; }  // no modules
 }
 
 u32 opxy::platform::control_engine(u32 track) {

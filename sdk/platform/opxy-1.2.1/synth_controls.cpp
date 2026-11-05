@@ -46,7 +46,7 @@ const SynthControls* owned(u32 engine, bool effect = false) {
         const SynthControls& m = sdk_synth_controls[i];
         if (m.engine() == engine && m.effect == effect) return m.ready() == 1 ? &m : nullptr;
     }
-    return nullptr;
+    return effect ? nullptr : sdk_module_synth_controls(engine);
 }
 
 // The slot each position shows, per track, while the track keeps an owned

@@ -12,6 +12,8 @@
 // What startup.cpp gives a build without the control service.
 extern "C" opxy::u32 sdk_project_kept(void*) { return 0; }
 extern "C" void sdk_project_loaded(const char*) {}
+extern "C" bool sdk_companion_module(opxy::u32, const char**, opxy::u32*, opxy::u32*) { return false; }
+extern "C" opxy::u32 sdk_companion_module_number(const char*, opxy::u32) { return 0; }
 
 using opxy::platform::Address;
 

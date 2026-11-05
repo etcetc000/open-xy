@@ -9,9 +9,7 @@
 .global kit_startup_label
 .type kit_startup_label, STT_FUNC
 kit_startup_label:
-    R2 = [SP + 0x48];
-    R0.H = kit_startup_label_text;
-    R0.L = kit_startup_label_text;
+@TEXT@
     /* BF70x CALL.a 0x8c0b7078: existing centered startup text renderer. */
     .short 0xde00, 0x8c0b, 0x7078, 0
     /* BF70x JUMP.a 0x8c0b85e6: next stock CALL overwrites RETS. */

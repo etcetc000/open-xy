@@ -28,6 +28,7 @@ import os
 from pathlib import Path, PurePosixPath
 import sys
 
+from . import cfw_files
 from .formats import require, sha
 from .pipeline import fresh_output
 from .release import outside_checkouts
@@ -35,7 +36,7 @@ from .release import outside_checkouts
 # Explorer and Finder leave these beside copied files; they never belong on the device.
 JUNK = {'thumbs.db', 'desktop.ini', '.ds_store'}
 # What a build or kit installs; anything else at the top is the wrong folder.
-TOP = {'os.ldr', 'content'}
+TOP = {'os.ldr', 'content', cfw_files.FOLDER}
 IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003  # A directory junction; cloud and dedup reparse points are ordinary files.
 
 
@@ -64,8 +65,8 @@ def source_files(folder):
     require(folder.is_dir(), f'Not a folder: {folder}')
     require(not (folder / 'candidate').is_dir(), f'{folder} holds a build; push its candidate folder: {folder / "candidate"}')
     unexpected = sorted(x.name for x in folder.iterdir() if x.name.lower() not in TOP and not junk(x.name))
-    require(not unexpected, f'{folder} is not laid out like the device (only os.ldr and content/ at the top): '
-            + ', '.join(unexpected))
+    require(not unexpected, f'{folder} is not laid out like the device (only os.ldr, content/ and '
+            f'{cfw_files.FOLDER}/ at the top): ' + ', '.join(unexpected))
     files, skipped = {}, []
     for directory, folders, names in os.walk(folder, onerror=unreadable):  # Never push part of a source.
         here = Path(directory)
@@ -80,6 +81,9 @@ def source_files(folder):
         folders[:] = sorted(x for x in folders if not junk(x))  # Junk folders are skipped with their contents.
     require(files, f'No files below {folder}')
     distinct_without_case(files)
+    for parts, data in files.items():
+        if parts[0].lower() == cfw_files.FOLDER:
+            cfw_files.check(parts, data)
     return dict(sorted(files.items())), sorted(skipped)
 
 
@@ -373,9 +377,10 @@ def main(argv=None, connect=open_device):
     p.add_argument('--no-verify', action='store_true', help='No device file readback; requires --no-backup')
     p = commands.add_parser('list', help='List a device folder')
     p.add_argument('path', nargs='?', default='/')
-    p = commands.add_parser('pull', help='Read one device file')
-    p.add_argument('path')
-    p.add_argument('--out', type=Path, required=True, help='New file outside every checkout')
+    p = commands.add_parser('pull', help='Read device files in one session: one file, or several files and folders')
+    p.add_argument('path', nargs='+', help='device files, or folders whose files (not subfolders) are read')
+    p.add_argument('--out', type=Path, required=True,
+                   help='New file outside every checkout; a new folder when several files are read')
     args = parser.parse_args(argv)
     try:
         if args.command == 'push':
@@ -408,12 +413,32 @@ def main(argv=None, connect=open_device):
             require(not args.out.exists(), f'{args.out} already exists')
             require(args.out.parent.is_dir(), f'No folder {args.out.parent} for {args.out.name}')
             require(outside_checkouts(args.out), f'Keep device files outside every checkout: they may be stock ({args.out})')
+            # Leaving a session drops the device out of file transfer, so
+            # everything asked for is read in one.
+            read = []
             with connect() as device:
-                _, entry = entry_at(device, args.path)
-                require(entry is not None and not entry.folder, f'{args.path} is not a file')
-                data = device.read(entry)
-            args.out.write_bytes(data)
-            print(f'{args.out}: {len(data)} bytes, sha256 {sha(data)}')
+                folders = 0
+                for path in args.path:
+                    folder, entry = entry_at(device, path)  # refuses a missing path
+                    if entry is not None and not entry.folder:
+                        read.append((entry.name, device.read(entry)))
+                    else:
+                        folders += 1
+                        read += [(x.name, device.read(x)) for x in sorted(device.list(folder), key=lambda x: x.name or '')
+                                 if not x.folder]
+            single = len(args.path) == 1 and not folders
+            if single:
+                args.out.write_bytes(read[0][1])
+                print(f'{args.out}: {len(read[0][1])} bytes, sha256 {sha(read[0][1])}')
+            else:
+                names = [name for name, _ in read]
+                require(len(names) == len(set(n.lower() for n in names)), 'Two files with the same name')
+                args.out.mkdir()
+                for name, data in read:
+                    require(name and '/' not in name and '\\' not in name and name not in ('.', '..'),
+                            f'Unsafe device file name: {name!r}')
+                    (args.out / name).write_bytes(data)
+                    print(f'{args.out / name}: {len(data)} bytes, sha256 {sha(data)}')
     except KeyboardInterrupt as error:
         # push marks an interrupt it restored from; a failed restore raises its own error instead.
         state = getattr(error, 'device_state', None)

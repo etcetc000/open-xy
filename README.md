@@ -90,6 +90,7 @@ previews, firmware builds and packaging.
 - [Port to a new OS release](docs/porting.md): move the profile and platform layer to a new stock OP-XY OS, test it and compare CPU.
 - [Catalog](docs/catalog.md): machines published from their own repositories, pinned by commit.
 - [Project companions](docs/projects.md): the `.oxy` file recording which machine each project number meant.
+- [Modules](docs/modules.md): a machine as a file the firmware loads at power-on, installed by copying it.
 - [Contributing](CONTRIBUTING.md): code ownership and checks.
 
 ## Repository layout

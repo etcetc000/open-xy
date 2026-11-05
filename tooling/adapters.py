@@ -374,6 +374,64 @@ def enum_steps(parameter):
     return len(labels) if len(labels) < 256 else 0
 
 
+def control_row(m, own_screen=False):
+    """A synth control table row's data (synth_controls.hpp SynthControls): each
+    slot's press target, the continuous and absent masks, enum step counts and
+    whether a press pages the whole row. A module synth carries the same."""
+    count = len(m.definition['parameters'])
+    if own_screen:
+        following = [(i + 4) % 8 if count > 4 and (i + 4) % 8 < count else i for i in range(8)]
+    else:
+        following = control_cycles(m.definition) or list(range(8))
+    continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum' and not p.get('absent'))
+    absent = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p.get('absent'))
+    steps = [enum_steps(p) for p in m.definition['parameters']]
+    steps += [0] * (8 - len(steps))
+    # A drum kit's press always pages its whole row.
+    page = m.kind == 'drum' or own_screen and count > 4 or paged(m.definition)
+    return following, continuous, absent, steps, page
+
+
+def control_formatter(m, signature):
+    """The machine's caption function, `signature`(slot, value, text), as the synth
+    control table calls it; a module synth compiles the same into its module."""
+    effect = m.kind == 'effect'
+    body = [f'{signature}(opxy::u32 slot, opxy::i32 value, char* text) {{', '    switch (slot) {']
+    # An effect's shift-row controls caption as slots 8..11.
+    captioned = list(enumerate(m.definition['parameters']))
+    captioned += [(SHIFT_SLOT + i, p) for i, p in enumerate(shift_parameters(m.definition))]
+    for i, p in captioned:
+        mapping = p['mapping']
+        if p.get('absent'):
+            continue
+        # The selected choice's label, on synth and send pages alike.
+        if mapping['kind'] == 'enum':
+            labels = ', '.join(json.dumps(label) for label in mapping['labels'])
+            body.extend([f'    case {i}: {{', f'        static const char* const labels[] = {{{labels}}};',
+                         f'        control_label(text, value, labels, {len(mapping["labels"])});',
+                         '        return true;', '    }'])
+            continue
+        # Stock delay's note-length names. Send pages keep stock captions
+        # for every other control.
+        if p['display'] == 'division':
+            body.extend([f'    case {i}:', '        control_division(text, value);', '        return true;'])
+            continue
+        if effect:
+            continue
+        # Compact native ratio captions; unusual/signed ranges retain the
+        # stock normalized display, with an extra decimal place.
+        if p['display'] == 'ratio' and mapping['kind'] == 'anchors' and 0 <= mapping['values'][0] < mapping['values'][-1] <= 1000:
+            anchors = ', '.join(str(math.floor(v * 10 + 0.5)) for v in mapping['values'])
+            body.extend([f'    case {i}: {{', f'        static const opxy::u32 anchors[] = {{{anchors}}};',
+                         f'        control_tenths(text, control_ratio(value, anchors, {len(mapping["values"])}), ":1");',
+                         '        return true;', '    }'])
+        else:
+            body.extend([f'    case {i}:', '        control_tenths(text, value < 0 ? 0 : ((static_cast<opxy::u32>(value) >> 10) * 1000 + (1u << 20)) >> 21, "");',
+                         '        return true;'])
+    body.extend(['    default: return false;', '    }', '}'])
+    return '\n'.join(body)
+
+
 def generate_synth_controls(directory, machines):
     """Synth ownership, alternate selection and continuous fine controls."""
     declarations, rows, formatters, lfo_rows = [], [], [], []
@@ -388,56 +446,13 @@ def generate_synth_controls(directory, machines):
         if m.kind not in ('synth', 'drum', 'effect') and not own_screen:
             continue
         effect = m.kind == 'effect'
-        count = len(m.definition['parameters'])
-        if own_screen:
-            following = [(i + 4) % 8 if count > 4 and (i + 4) % 8 < count else i for i in range(8)]
-        else:
-            following = control_cycles(m.definition) or list(range(8))
-        continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum' and not p.get('absent'))
-        absent = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p.get('absent'))
-        steps = [enum_steps(p) for p in m.definition['parameters']]
-        steps += [0] * (8 - len(steps))
+        following, continuous, absent, steps, page = control_row(m, own_screen)
         declarations.append(f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");')
         # The engine or effect ID is an absolute symbol the linker supplies.
         id_symbol = m.prefix + ('_fx_id' if effect else '_engine_id')
         if effect:
             declarations.append(f'extern const char {id_symbol}[] __asm__("{id_symbol}");')
-        body = [f'static bool {m.prefix}_format(opxy::u32 slot, opxy::i32 value, char* text) {{', '    switch (slot) {']
-        # An effect's shift-row controls caption as slots 8..11.
-        captioned = list(enumerate(m.definition['parameters']))
-        captioned += [(SHIFT_SLOT + i, p) for i, p in enumerate(shift_parameters(m.definition))]
-        for i, p in captioned:
-            mapping = p['mapping']
-            if p.get('absent'):
-                continue
-            # The selected choice's label, on synth and send pages alike.
-            if mapping['kind'] == 'enum':
-                labels = ', '.join(json.dumps(label) for label in mapping['labels'])
-                body.extend([f'    case {i}: {{', f'        static const char* const labels[] = {{{labels}}};',
-                             f'        control_label(text, value, labels, {len(mapping["labels"])});',
-                             '        return true;', '    }'])
-                continue
-            # Stock delay's note-length names. Send pages keep stock captions
-            # for every other control.
-            if p['display'] == 'division':
-                body.extend([f'    case {i}:', '        control_division(text, value);', '        return true;'])
-                continue
-            if effect:
-                continue
-            # Compact native ratio captions; unusual/signed ranges retain the
-            # stock normalized display, with an extra decimal place.
-            if p['display'] == 'ratio' and mapping['kind'] == 'anchors' and 0 <= mapping['values'][0] < mapping['values'][-1] <= 1000:
-                anchors = ', '.join(str(math.floor(v * 10 + 0.5)) for v in mapping['values'])
-                body.extend([f'    case {i}: {{', f'        static const opxy::u32 anchors[] = {{{anchors}}};',
-                             f'        control_tenths(text, control_ratio(value, anchors, {len(mapping["values"])}), ":1");',
-                             '        return true;', '    }'])
-            else:
-                body.extend([f'    case {i}:', '        control_tenths(text, value < 0 ? 0 : ((static_cast<opxy::u32>(value) >> 10) * 1000 + (1u << 20)) >> 21, "");',
-                             '        return true;'])
-        body.extend(['    default: return false;', '    }', '}'])
-        formatters.append('\n'.join(body))
-        # A drum kit's press always pages its whole row.
-        page = m.kind == 'drum' or own_screen and count > 4 or paged(m.definition)
+        formatters.append(control_formatter(m, f'static bool {m.prefix}_format'))
         # An effect's shift row: its choice counts and titles; other rows leave the fields zero.
         extra = ''
         shift = shift_parameters(m.definition)

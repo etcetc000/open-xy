@@ -37,12 +37,26 @@ def label(version):
     return f'OPEN {checked(version)}-1.2.1'.encode('ascii') + b'\0'
 
 
-def generate(directory, version):
-    """The label unit's assembly, showing this release."""
+# How the thunk gets the text into R0, after or around the stock R2 load.
+TEXT = '''    R2 = [SP + 0x48];
+    R0.H = kit_startup_label_text;
+    R0.L = kit_startup_label_text;'''
+# A build that loads modules asks safe_mode.cpp, which also decides safe mode:
+# the label is drawn before the module loader runs.
+SAFE_TEXT = '''    SP += -12;
+    /* safe_mode.cpp: kit_startup_label_text, or SAFE-1.2.1 in safe mode. */
+    CALL sdk_startup_label_text;
+    SP += 12;
+    R2 = [SP + 0x48];'''
+
+
+def generate(directory, version, safe_mode=False):
+    """The label unit's assembly, showing this release (or SAFE-1.2.1 in safe mode)."""
     source = (ROOT / TEMPLATE).read_text(encoding='utf-8')
-    require(source.count('@LABEL@') == 1, 'Startup label template placeholder missing')
+    require(source.count('@LABEL@') == 1 and source.count('@TEXT@') == 1, 'Startup label template placeholder missing')
     destination = Path(directory) / 'startup_label.s'
-    destination.write_text(source.replace('@LABEL@', label(version)[:-1].decode('ascii')), encoding='utf-8', newline='\n')
+    destination.write_text(source.replace('@TEXT@', SAFE_TEXT if safe_mode else TEXT)
+                           .replace('@LABEL@', label(version)[:-1].decode('ascii')), encoding='utf-8', newline='\n')
     return destination
 
 
@@ -64,10 +78,21 @@ def allowed(profile, patch):
             int(patch['file_offset'], 16) == 0xef818 and patch.get('symbol') == SYMBOL)
 
 
-def thunk_ok(module, offset, size, text):
-    """The linked thunk replays the stock R2 load, loads R0 = text, calls the stock draw and resumes."""
+def thunk_ok(module, offset, size, text, safe_mode=False, text_call=None):
+    """The linked thunk replays the stock R2 load, loads R0 = text, calls the stock draw and resumes.
+    With safe_mode, R0 comes from a call to text_call (the module offset of
+    sdk_startup_label_text) instead, made before the R2 load."""
     code = module[offset:offset + size]
-    return (size == 28 and code[:4] == bytes.fromhex('32e41200') and
-            code[4:12] == struct.pack('<4H', 0xe140, text >> 16, 0xe100, text & 0xffff) and
+    if safe_mode:
+        if size != 28 or code[:2] != bytes.fromhex('a66f') or code[6:12] != bytes.fromhex('666c32e41200'):
+            return False
+        high, low = struct.unpack_from('<HH', code, 2)
+        delta = ((high & 0xff) << 16 | low) << 1  # CALL pcrel24, in halfwords, from the CALL
+        delta -= (1 << 25) if delta & (1 << 24) else 0
+        head = text_call is not None and high >> 8 == 0xe3 and offset + 2 + delta == text_call
+    else:
+        head = (code[:4] == bytes.fromhex('32e41200') and
+                code[4:12] == struct.pack('<4H', 0xe140, text >> 16, 0xe100, text & 0xffff))
+    return (size == 28 and head and
             code[12:20] == struct.pack('<4H', 0xde00, DRAW >> 16, DRAW & 0xffff, 0) and
             code[20:28] == struct.pack('<4H', 0xdc00, CONTINUATION >> 16, CONTINUATION & 0xffff, 0))

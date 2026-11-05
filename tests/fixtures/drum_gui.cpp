@@ -75,6 +75,7 @@ const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(38), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
 };
 const opxy::u32 sdk_synth_control_count = 3;
+const opxy::platform::SynthControls* sdk_module_synth_controls(opxy::u32) { return nullptr; }  // no modules
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(Address address) {

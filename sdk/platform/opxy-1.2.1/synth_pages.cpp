@@ -28,7 +28,7 @@ const SynthControls* owned(u32 engine) {
         const SynthControls& m = sdk_synth_controls[i];
         if (m.engine() == engine && !m.effect) return m.ready() == 1 ? &m : nullptr;
     }
-    return nullptr;
+    return sdk_module_synth_controls(engine);
 }
 
 // The last stock page shown that the selected synth does not hide, and the

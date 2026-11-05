@@ -226,6 +226,32 @@ class FirmwareWriter(unittest.TestCase):
             # With what the fixture's track control machine keeps, written between them.
             self.assertEqual(written, companion(project.read_bytes(), layout, kept={'morph': b'stat\xff'}))
 
+    def test_module_synths_join_the_machines_in_id_order(self):
+        """Module synths (module_synths.cpp) are listed among the collection's machines,
+        all in ID order, whatever order they registered in."""
+        source = (ROOT / 'tests/fixtures/project_companion.cpp').read_text(encoding='utf-8')
+        stub = ('extern "C" bool sdk_companion_module(opxy::u32, const char**, opxy::u32*, opxy::u32*) '
+                '{ return false; }')
+        self.assertIn(stub, source)
+        modules = '''extern "C" bool sdk_companion_module(opxy::u32 index, const char** id, opxy::u32* number,
+                                     opxy::u32* page) {
+    static const char* const ids[] = {"zither", "aaa", "lute"};  // name order is not ID order
+    static const opxy::u32 numbers[] = {200, 201, 202}, pages[] = {90, 91, 92};
+    if (index >= 3) return false;
+    *id = ids[index]; *number = numbers[index]; *page = pages[index];
+    return true;
+}'''
+        with tempfile.TemporaryDirectory(prefix='companion-') as directory:
+            folder = Path(directory)
+            variant = folder / 'project_companion_modules.cpp'
+            variant.write_text(source.replace(stub, modules), encoding='utf-8')
+            writer, project = host_writer(folder, variant), folder / 'song.xy'
+            self.assertEqual(subprocess.run([str(writer), str(project), '1'], timeout=30).returncode, 0)
+            saved = dict(SAVED, zither={'engine': 200, 'page': 90}, aaa={'engine': 201, 'page': 91},
+                         lute={'engine': 202, 'page': 92})
+            self.assertEqual((folder / 'song.oxy').read_bytes(),
+                             companion(project.read_bytes(), saved, kept={'morph': b'stat\xff'}))
+
     def test_a_failed_save_or_other_name_writes_nothing(self):
         with tempfile.TemporaryDirectory(prefix='companion-') as directory:
             folder = Path(directory)
@@ -373,6 +399,31 @@ class FirmwareReader(unittest.TestCase):
                  'ringmod': {'effect': 40, 'page': 21}}    # 40 is pingpong's here
         self.check(companion(PROJECT, saved), {0: [PRISM, 36, PRISM, PRISM], 14: [36]},
                    tracks={0: [50, 37, 38, 39], 14: [40]})
+
+    def test_a_listed_module_synth_maps_to_its_number_here(self):
+        """A machine this firmware lacks but a module synth provides maps to the module's
+        number (module_synths.cpp); one no module provides still falls back."""
+        source = (ROOT / 'tests/fixtures/project_load.cpp').read_text(encoding='utf-8')
+        stub = 'extern "C" opxy::u32 sdk_companion_module_number(const char*, opxy::u32) { return 0; }'
+        self.assertIn(stub, source)
+        module = ('extern "C" opxy::u32 sdk_companion_module_number(const char* id, opxy::u32 length) {\n'
+                  '    return length == 4 && id[0] == \'l\' && id[1] == \'u\' && id[2] == \'t\' && id[3] == \'e\' ? 77 : 0;\n'
+                  '}')
+        saved = {'lute': {'engine': 50, 'page': 99}, 'gone': {'engine': 51, 'page': 98},
+                 'karplus': {'engine': 52, 'page': 84}}
+        with tempfile.TemporaryDirectory(prefix='companion-') as directory:
+            folder = Path(directory)
+            variant = folder / 'project_load_modules.cpp'
+            variant.write_text(source.replace(stub, module), encoding='utf-8')
+            reader = host_writer(folder, variant)
+            song = folder / 'song.xy'
+            song.write_bytes(PROJECT)
+            (folder / 'song.oxy').write_bytes(companion(PROJECT, saved))
+            run = subprocess.run([str(reader), str(song), '1', '0:50,51,52'], capture_output=True, text=True,
+                                 timeout=30)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        # lute is a module here (77), gone is nowhere (Prism), karplus a built-in machine (41).
+        self.assertEqual(run.stdout.split(), [f'0:77,{PRISM},41'])
 
     def test_two_machines_at_one_number_trust_neither(self):
         raw = companion(PROJECT, SAVED).replace(b'"engine": 35', b'"engine": 36')
