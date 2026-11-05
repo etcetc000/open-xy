@@ -14,11 +14,11 @@ namespace {
 // The SDK heap of the 1.2.1 profile: stock's arena ends where the module
 // reservation (profile module_base) begins; 8 MiB stay free for stock.
 const u32 arena_base = 0x8c0d0380, protected_base = 0x8d2d0380, reserve_bytes = 0x800000;
-const u32 file_limit = 0x40000;
+const u32 file_limit = 0x100000;  // 1 MiB: room for modules with large tables
 // The custom firmware's own folder on the user drive, and its modules inside.
 const char root[] = "/fat32/open-xy";
 const char folder[] = "/fat32/open-xy/modules";
-const u32 modules_max = 16, name_max = 15;  // name without ".opx"
+const u32 name_max = 15;  // name without ".opx"
 
 bool attempted;
 
@@ -127,24 +127,37 @@ void start_folders() {
         make_folders, "openxy-modules", 2048, nullptr, 1, folders_stack, folders_tcb);
 }
 
-char names[modules_max][name_max + 1];
+// The module names, in heap memory sized by the folder: no fixed count.
+typedef char Name[name_max + 1];
+Name* names;
 u32 count;
 
-void scan() {
+// One pass over the folder; with no list, it only counts the module files.
+u32 scan_folder(Name* list, u32 capacity) {
     void* dir = dir_open(folder);
-    if (!dir) return;
-    char name[name_max + 1];
+    if (!dir) return 0;
+    u32 found = 0;
+    Name name;
     while (const unsigned char* entry = dir_next(dir)) {
         if (entry[dirent_type] == dirent_folder) continue;
         if (!module_name(reinterpret_cast<const char*>(entry + dirent_name), name)) continue;
-        if (count == modules_max) continue;  // the rest are left out
+        if (!list) { ++found; continue; }
+        if (found == capacity) break;  // the folder grew between the passes
         // Insertion in name order: both roles load the same set in the same order.
-        u32 at = count++;
-        for (; at && before(name, names[at - 1]); --at)
-            for (u32 i = 0; i <= name_max; ++i) names[at][i] = names[at - 1][i];
-        for (u32 i = 0; i <= name_max; ++i) names[at][i] = name[i];
+        u32 at = found++;
+        for (; at && before(name, list[at - 1]); --at)
+            for (u32 i = 0; i <= name_max; ++i) list[at][i] = list[at - 1][i];
+        for (u32 i = 0; i <= name_max; ++i) list[at][i] = name[i];
     }
     dir_close(dir);
+    return found;
+}
+
+void scan() {
+    const u32 found = scan_folder(nullptr, 0);
+    if (!found) return;
+    names = reinterpret_cast<Name*>(allocate(nullptr, found * sizeof(Name)));
+    if (names) count = scan_folder(names, found);
 }
 
 template<class Function> u32 address(Function* f) { return static_cast<u32>(reinterpret_cast<Address>(f)); }
@@ -190,5 +203,8 @@ void sdk_module_load() {
     sdk_module_registration(true);
     for (u32 i = 0; i < count; ++i) load(names[i], gui);
     sdk_module_registration(false);
+    if (names) release(nullptr, reinterpret_cast<unsigned char*>(names));
+    names = nullptr;
+    count = 0;
     finished = 1;
 }
