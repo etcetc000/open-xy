@@ -45,7 +45,7 @@ for (const {name, selected, extensions, layout} of selections) {
   // module, reversing the edits still recovers verified stock, without a selection.
   const outside = firmware.slice(); outside[50] ^= 1;
   await assert.rejects(recoverFirmware(kit, outside, layout), /not made from OS 1.2.1/);
-  for (const offset of [Number(kit.profile.patches[2].file_offset), readLdr(firmware).at(-2).offset + 16]) {
+  for (const offset of [Number(kit.profile.patches.find(edit => edit.kind === 'hook').file_offset), readLdr(firmware).at(-2).offset + 16]) {
     const damaged = firmware.slice(); damaged[offset] ^= 1;
     assert.deepEqual(await recoverFirmware(kit, damaged, layout), earlier);
   }

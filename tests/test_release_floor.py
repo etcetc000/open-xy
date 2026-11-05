@@ -80,6 +80,11 @@ class Extension(unittest.TestCase):
         self.assertNotIn(floor.SERVICE, active_services(config(), native.service_users([])))
         with self.assertRaises(ValueError):
             extension_at(folder(self, settings={'release_floor': -40}))  # no settings field
+        tidy = folder(self)
+        (tidy / '.DS_Store').write_bytes(b'')
+        (tidy / '.github').mkdir()
+        (tidy / '.github' / 'ci.yml').write_text('on: push', encoding='utf-8')
+        self.assertFalse(extension_at(tidy).linked)  # housekeeping files are not sources
 
 
 class Image(unittest.TestCase):
@@ -157,6 +162,15 @@ class Image(unittest.TestCase):
         outside[code:code + 8] = absolute_call(0x30000100)
         with self.assertRaisesRegex(ValueError, 'leaves its module'):
             image_settings.state(bytes(outside), profile)
+        profile['patches'][-1].update(kind='table', after=absolute_call(0x30000000).hex())
+        table = bytearray(data)  # a relocated table with no module record to point into
+        table[code:code + 8] = absolute_call(0x30000000)
+        with self.assertRaisesRegex(ValueError, 'unexpected bytes'):
+            image_settings.state(bytes(table), profile)
+        self.assertEqual(image_settings.state(bytes(built[:code]) + absolute_call(0x30000000) + bytes(built[code + 8:]),
+                                              profile)['release_floor'], False)  # with a module record it may be on
+        profile['patches'][-1].update(kind='hook')
+        del profile['patches'][-1]['after']
         bare = bytearray(data)  # a hook with no module record to land in
         bare[code:code + 8] = absolute_call(0x30000000)
         with self.assertRaisesRegex(ValueError, 'unexpected bytes'):

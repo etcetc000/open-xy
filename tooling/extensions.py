@@ -8,6 +8,7 @@ a build's collection lists the extensions it links, in callback order. No dynami
 loading or arbitrary hooks.
 """
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 import re
 import base64
@@ -55,6 +56,7 @@ def registry():
 
 
 
+@lru_cache(maxsize=None)
 def capabilities():
     """The registry's capabilities: each is the firmware profile service of the same name,
     which only extensions that declare it use. A capability carries no fields."""
@@ -137,7 +139,9 @@ def extension_at(folder):
             f'{name}: unknown or repeated capability; the SDK declares them in {PROFILE}')
     if not linked:
         # A settings extension only turns on SDK capabilities: nothing of its own runs.
-        sources = [p for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts and
+        # Dotfiles (.DS_Store, .gitignore, .github/) are repository housekeeping, not sources.
+        sources = [p for p in root.rglob('*') if p.is_file() and
+                   not any(part.startswith('.') for part in p.relative_to(root).parts) and
                    p.relative_to(root).as_posix() not in ('extension.json', 'README.md', 'LICENSE')]
         require(declared and not data['claims'] and not data['actions'] and master_filter is None and not sources,
                 f'{name}: an extension without extension.cpp is a settings extension: capabilities only, '

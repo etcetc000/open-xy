@@ -190,7 +190,8 @@ open-xy OS made from it, without rebuilding its machines. The image is
 authenticated as the builder does, and every capability site must hold stock or
 reviewed bytes. An open-xy OS from another SDK (its module loads elsewhere) also
 needs `--stock-os <os.ldr>`: stock's loader records must be unchanged and in
-place, and the stock code around and behind each capability's edits untouched.
+place, the stock code within 32 bytes of each capability edit untouched, and for
+`release_floor` its whole envelope routine and stage table too.
 `apply` changes only capability sites; the rest of that image is its SDK's to
 verify.
 
@@ -241,8 +242,10 @@ per-claim branch to the runtime.
 **Add a capability** for a build-time setting the SDK owns: a registry entry
 (`{}`), a profile service of the same name used only by it, and that service's
 reviewed edits. Its edits are fixed bytes, never hooks, so the builder can tell
-from an image whether it is on; the build and builder add nothing per
-capability.
+from an image whether it is on; the builder adds nothing per capability. The
+SDK audits each capability's edits site by site (`tooling/stock_limits.py`,
+`tooling/release_floor.py`, checked in `native.configuration`), and lists in
+`tooling/settings.DEPENDS` any stock code its edits rely on beyond their sites.
 
 **Add an action** with a registry entry (and its `requires`, if one claim must
 grant it), a bit in

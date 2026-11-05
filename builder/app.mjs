@@ -225,6 +225,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
       } else if (recovered.earlier) {
+        // Settings extensions an image holds stay selected; machines are chosen again.
+        if (recovered.extensions) { selectedExtensions = core.extensionSelection(kit, recovered.extensions); renderExtensions(); recalculate(); }
         $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again';
       } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
       wizard.setFirmwareState('loaded');
@@ -570,8 +572,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const button = node('button'); button.dataset.id = extension.id;
       button.setAttribute('aria-pressed', String(inspectedExtension === extension.id));
       // The first selected extension also links the shared extension runtime.
-      const others = selectedExtensions.some(id => id !== extension.id);
-      const ownBytes = kit.objects.filter(o => o.extension === extension.id || (!others && o.service === 'extensions'))
+      // The first selected extension with code also links the shared runtime; a settings
+      // extension links nothing.
+      const linked = e => e.linked !== false;
+      const others = (kit.extensions ?? []).some(e => e.id !== extension.id && linked(e) && selectedExtensions.includes(e.id));
+      const ownBytes = !linked(extension) ? 0 : kit.objects.filter(o => o.extension === extension.id || (!others && o.service === 'extensions'))
         .flatMap(o => o.sections.filter(s => s.group)).reduce((total, s) => total + s.size, 0);
       const meta = node('span', undefined, 'machine-meta');
       meta.append(node('span', 'Extension'), node('span', kib(ownBytes), 'machine-memory'),

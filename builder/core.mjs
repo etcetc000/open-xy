@@ -841,9 +841,16 @@ function holdsCode(objects, payload) {
 }
 const presentMachines = (kit, payload) =>
   kit.machines.filter(m => holdsCode(kit.objects.filter(o => o.owner === m.id), payload)).map(m => m.id);
-const presentExtensions = (kit, payload, input) => (kit.extensions ?? [])
-  .filter(e => e.linked === false ? e.capabilities.every(c => capabilityApplied(kit.profile, c, input))
-    : holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
+// A settings extension counts only for capabilities no present code extension declares,
+// so recovery never adds one whose bytes another extension already writes.
+const presentExtensions = (kit, payload, input) => {
+  const coded = (kit.extensions ?? []).filter(e => e.linked !== false &&
+    holdsCode(kit.objects.filter(o => o.extension === e.id), payload));
+  const covered = new Set(coded.flatMap(e => e.capabilities ?? []));
+  const settings = (kit.extensions ?? []).filter(e => e.linked === false &&
+    e.capabilities.every(c => capabilityApplied(kit.profile, c, input)) && !e.capabilities.every(c => covered.has(c)));
+  return (kit.extensions ?? []).filter(e => coded.includes(e) || settings.includes(e)).map(e => e.id);
+};
 // A capability's edits are fixed bytes (tooling.extensions.capabilities): applied
 // in an image exactly when every one holds its reviewed bytes.
 const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
@@ -856,20 +863,24 @@ export async function recoverFirmware(kit, input, layout = null) {
     readLdr(input);
     return {stock: input.slice(), selected: null};
   }
-  // Stock with only fixed reviewed edits applied, as `sdk.py settings apply` writes: every
-  // site holds stock or its reviewed bytes (hooks and the startup label stay stock, having
-  // no module record to branch into), each capability is all on or all stock, and undoing
-  // every edit gives stock by hash. Its machines and extensions are chosen again.
+  // Stock with only capability edits applied, as `sdk.py settings apply` writes: every
+  // other edit stays stock (hooks, the startup label and relocated tables all need a module
+  // record), each capability is all on or all stock, and undoing every edit gives stock
+  // by hash. Its machines are chosen again; settings extensions it holds are reported.
   const site = edit => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
   const reviewed = edit => equal(site(edit), unhex(edit.before)) ||
-    (!['hook', 'startup'].includes(edit.kind) && equal(site(edit), unhex(edit.after)));
+    (edit.kind === 'limit' && equal(site(edit), unhex(edit.after)));
   const whole = service => [true, false].some(on => p.patches.filter(edit => edit.service === service && edit.kind === 'limit')
     .every(edit => equal(site(edit), unhex(on ? edit.after : edit.before))));
   if (input.length === p.stock_bytes && p.patches.every(reviewed) &&
       [...new Set(p.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))].every(whole)) {
     const restored = input.slice();
     for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
-    if (await sha256(restored) === p.stock_sha256) { readLdr(input); return {stock: restored, selected: null, earlier: true}; }
+    if (await sha256(restored) === p.stock_sha256) {
+      readLdr(input);
+      const held = presentExtensions(kit, new Uint8Array(0), input).filter(id => kit.extensions.find(e => e.id === id).linked === false);
+      return {stock: restored, selected: null, earlier: true, ...(held.length ? {extensions: held} : {})};
+    }
   }
   const blocks = readLdr(input), first = blocks[0], module = blocks.at(-2), final = blocks.at(-1);
   check(blocks.length === p.stock_records + 1 && first.count === 0 &&

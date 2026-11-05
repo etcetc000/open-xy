@@ -54,7 +54,7 @@ def authenticate(image, blocks, profile):
     (before FINAL) removed and every reviewed edit undone, it is stock by SHA-256, as
     builder/core.mjs recoverFirmware requires. Since apply writes the image back out, every
     other edit site must also hold stock, or its reviewed bytes, or for a hook or startup
-    label a branch into the image's own module record (none without one)."""
+    label a branch into the image's own module record; without one, only capability edits."""
     stock, low, high = bytearray(image), None, None
     if len(blocks) == profile['stock_records'] + 1:
         first, module, final = blocks[0], blocks[-2], blocks[-1]
@@ -68,7 +68,10 @@ def authenticate(image, blocks, profile):
     for patch in profile['patches']:
         offset = int(patch['file_offset'], 16)
         held = image[offset:offset + patch['length']]
-        if held.hex() in encodings(patch):
+        # Without a module record only capability (limit) edits may be applied: hooks, the
+        # startup label and relocated tables all lead into the module.
+        if held.hex() == patch['before'] or (held.hex() == patch.get('after') and
+                                              (low is not None or patch['kind'] == 'limit')):
             continue
         require(low is not None and patch['kind'] in ('hook', 'startup'),
                 UNSUPPORTED + ': unexpected bytes at a reviewed edit site ' + label(patch))

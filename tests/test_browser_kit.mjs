@@ -100,6 +100,9 @@ test('stock with only fixed capability edits, as sdk.py settings apply writes, r
   const applied = stock.slice();
   applied.set(Buffer.from('01da470114ae0000', 'hex'), 56); applied.set(Buffer.from('2860', 'hex'), 48);
   assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true});
+  // A settings extension whose capability the image holds is reported, so it stays selected.
+  kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false}];
+  assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true, extensions:['idle']});
   // A capability partly applied is no image any tool writes.
   const partial = stock.slice(); partial.set(Buffer.from('01da470114ae0000', 'hex'), 56);
   await assert.rejects(recoverFirmware(kit, partial), /Only OP–XY OS 1\.2\.1 is supported/);
