@@ -19,4 +19,3 @@ sdk_aux_shift_m1_hook:
     R0 = 1;
     RTS;
 .size sdk_aux_shift_m1_hook, .-sdk_aux_shift_m1_hook
-
