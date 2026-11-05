@@ -24,6 +24,13 @@ process.stdout.write(JSON.stringify(expandedProfile(JSON.parse(input))));
 
 
 class ExperimentalMemory(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # The browser's derived profile, computed once for every test that compares it.
+        script = BROWSER % json.dumps((ROOT / 'builder/core.mjs').as_uri())
+        cls.browser = subprocess.run(['node', '--input-type=module', '-e', script], input=json.dumps(config()),
+                                     capture_output=True, text=True, cwd=ROOT, timeout=60, check=True).stdout
+
     def setUp(self):
         self.profile = config()
         self.layout = self.profile['experimental_memory']
@@ -55,10 +62,7 @@ class ExperimentalMemory(unittest.TestCase):
                 self.assertTrue(-(1 << 24) <= low - site and high - site < 1 << 24, edit['address'])
 
     def test_browser_applies_exactly_the_reviewed_values(self):
-        script = BROWSER % json.dumps((ROOT / 'builder/core.mjs').as_uri())
-        result = subprocess.run(['node', '--input-type=module', '-e', script], input=json.dumps(self.profile),
-                                capture_output=True, text=True, cwd=ROOT, timeout=60, check=True)
-        expanded = json.loads(result.stdout)
+        expanded = json.loads(self.browser)
         self.assertEqual((expanded['module_base'], expanded['reserved_bytes']),
                          (self.layout['module_base'], self.layout['reserved_bytes']))
         for edit, reviewed in zip(expanded['patches'], self.profile['patches']):
@@ -76,9 +80,7 @@ class ExperimentalMemory(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('check_browser_firmware', ROOT / 'tools/check_browser_firmware.py')
         release = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(release)
-        script = BROWSER % json.dumps((ROOT / 'builder/core.mjs').as_uri())
-        browser = json.loads(subprocess.run(['node', '--input-type=module', '-e', script], input=json.dumps(self.profile),
-                                            capture_output=True, text=True, cwd=ROOT, timeout=60, check=True).stdout)
+        browser = json.loads(self.browser)
         python = release.expanded_profile(self.profile)
         for patches in (browser['patches'], python['patches']):
             for patch in patches:

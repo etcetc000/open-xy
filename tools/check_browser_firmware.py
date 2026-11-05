@@ -85,10 +85,11 @@ def assembled(stock, module, symbols, reviewed, services, profiling):
 def check_expanded(directory, kit, stock, boot_label):
     """GNU-linked 6 MiB modules: their symbols and sizes, and Python's LDR equal to the browser's."""
     results = directory / 'reference/selections-expanded.json'
-    require(results.is_file() == ('experimental_memory' in kit['profile']), 'Experimental memory checks missing or unexpected')
-    if not results.is_file():
+    # A profile with the layout must pass its checks here (named errors) before its results are required.
+    reviewed = expanded_profile(kit['profile']) if 'experimental_memory' in kit['profile'] else None
+    require(results.is_file() == (reviewed is not None), 'Experimental memory checks missing or unexpected')
+    if reviewed is None:
         return 0
-    reviewed = expanded_profile(kit['profile'])
     low = reviewed['module_base']
     selections = json.loads(results.read_text())
     for result in selections:
