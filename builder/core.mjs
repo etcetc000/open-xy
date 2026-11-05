@@ -283,9 +283,11 @@ export function readLayout(kit, saved) {
   const selected = saved.selected ?? null;
   check(selected === null || Array.isArray(selected) && selected.every(id => kit.machines.some(m => m.id === id)),
     'This layout lists a machine this site doesn’t have.');
-  check(saved.memory === undefined || (saved.memory === 'expanded' && offersExpandedMemory(kit.profile)),
-    'This layout asks for memory this site doesn’t offer.');
-  return {machines: numbers, selected, ...(saved.memory === 'expanded' ? {expanded: true} : {})};
+  // Like an extension no longer offered, a memory choice this site lacks is left
+  // out and reported; the layout's numbers are kept.
+  check(saved.memory === undefined || saved.memory === 'expanded', 'Invalid memory in this layout.');
+  const memory = saved.memory === undefined ? {} : offersExpandedMemory(kit.profile) ? {expanded: true} : {memoryUnavailable: true};
+  return {machines: numbers, selected, ...memory};
 }
 // The kit's machines numbered for this selection, in kit order, and the layout after.
 export function assignNumbers(kit, selection, layout = null) {

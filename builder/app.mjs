@@ -32,7 +32,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   let expandedMemory = false, expandedKit = null;
   const memoryInput = $('expanded-memory');
   memoryInput.checked = false; memoryInput.disabled = true;
-  const chosenKit = () => expandedMemory ? expandedKit : kit;
+  const kitFor = expanded => expanded ? expandedKit : kit, chosenKit = () => kitFor(expandedMemory);
+  const expandedSize = () => expandedKit.profile.reserved_bytes / 1024 ** 2 + ' MiB';
   let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
@@ -200,7 +201,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     facts($('build-selection'), {
       Machines: selectedMachines().map(m => m.name).join(', ') || 'None',
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
-      Memory: expandedMemory ? '6 MiB (experimental)' : 'Standard',
+      Memory: expandedMemory ? expandedSize() + ' (experimental)' : 'Standard',
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
     });
   }
@@ -235,9 +236,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           selectionNames().join(' + ');
       } else if (recovered.earlier) {
         // A 6 MiB build whose selection this collection cannot rebuild keeps its memory choice.
-        if (recovered.expanded) { setExpandedMemory(true); invalidate(); updateOverrideCount(); recalculate(); }
+        if (recovered.expanded) { setExpandedMemory(true); recalculate(); }
         $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again' +
-          (recovered.expanded ? ' · it used 6 MiB experimental memory, which is turned on' : '');
+          (recovered.expanded ? ' · it used ' + expandedSize() + ' experimental memory, which is turned on' : '');
       } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
@@ -699,7 +700,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   }
   memoryInput.onchange = () => {
     setExpandedMemory(memoryInput.checked);
-    invalidate(); updateOverrideCount(); recalculate();
+    invalidate(); recalculate();
   };
   $('firmware').onchange = e => acceptFirmware(e.target.files[0]);
   const drop = $('firmware-drop');
@@ -797,14 +798,16 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       // A layout with a selection records its build's memory (readLayout checks it is
       // offered); a numbers-only layout leaves the current choice alone.
       const wanted = loaded.selected ? loaded.expanded === true : expandedMemory, changed = wanted !== expandedMemory;
-      if (loaded.selected) core.linkKit(wanted ? expandedKit : kit, loaded.selected, loaded.machines, extensions);
+      if (loaded.selected) core.linkKit(kitFor(wanted), loaded.selected, loaded.machines, extensions);
       setExpandedMemory(wanted);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
       status('Layout loaded: your machines keep their numbers.' +
-        (changed ? (wanted ? ' It uses 6 MiB experimental memory, now turned on.' : ' It uses standard memory; 6 MiB is turned off.') : '') +
+        (changed ? (wanted ? ' It uses ' + expandedSize() + ' experimental memory, now turned on.'
+          : ' It uses standard memory; ' + expandedSize() + ' is turned off.') : '') +
+        (loaded.memoryUnavailable ? ' Its experimental memory isn’t offered here; it builds with standard memory.' : '') +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
     } catch (error) { fail(error); }
   };
@@ -820,6 +823,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('builder-version').textContent = 'v' + kit.version;
     expandedKit = core.offersExpandedMemory(kit.profile) ? core.memoryKit(kit, true) : null;
     memoryInput.disabled = !expandedKit;
+    $('expanded-memory-option').hidden = !expandedKit;
     setExpandedMemory(false);
     selected = kit.machines.filter(core.chosenByDefault).map(machine => machine.id);
     try {

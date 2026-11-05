@@ -201,9 +201,11 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'expanded'}),
     {machines:{}, selected:null, expanded:true});
   assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}}), {machines:{}, selected:null});
-  assert.throws(() => readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'large'}), /doesn’t offer/);
+  assert.throws(() => readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'large'}), /Invalid memory/);
+  // A site without the option keeps the layout's numbers and reports the choice it left out.
   const plain = fixture(); delete plain.profile.experimental_memory;
-  assert.throws(() => readLayout(plain, {format:'opxy-layout/1', profile:plain.profile.id, machines:{}, memory:'expanded'}), /doesn’t offer/);
+  assert.deepEqual(readLayout(plain, {format:'opxy-layout/1', profile:plain.profile.id, machines:{a:{engine:34,page:82}}, memory:'expanded'}),
+    {machines:{a:{engine:34,page:82}}, selected:null, memoryUnavailable:true});
   assert.throws(() => memoryKit(plain, true), /cannot offer more memory/);
 });
 

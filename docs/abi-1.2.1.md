@@ -23,7 +23,7 @@ version is rejected. The output differs from stock in exactly these places:
 
 | Change | Edits | Purpose |
 | --- | --- | --- |
-| Reservation | 2 | Shrinks the application heap by 2 MiB (20 MiB to 18 MiB); the module lives in the freed tail |
+| Reservation | 2 | Shrinks the application heap by 2 MiB (20 MiB to 18 MiB); the module lives in the freed tail. The builder's experimental 6 MiB option writes 14 MiB instead (profile `experimental_memory`, [builder](builder.md#capacity-and-machine-numbers)) |
 | Hooks | 5 | Branches from the synth initializer, both screen factories and both catalog-insertion calls into SDK startup code |
 | Sample dispatch | 2 | Recognizes owned SDK sample registrations and selects the stock sampler's (page 2) or multisampler's (page 7) audio payload |
 | Preset serialization | 1 | Includes owned sample engines in sample-file and slice-region export while preserving the saved engine identity |

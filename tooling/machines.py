@@ -608,6 +608,10 @@ def read_layout(path):
     # Earlier profiles with the same identity rules number machines the same way.
     require(value.get('profile') in (profile['id'], *profile.get('layout_profiles', ())),
             f"{path} is a layout for {value.get('profile')}, not {profile['id']}")
+    # The builder's experimental 6 MiB memory (profile experimental_memory) is
+    # builder-only; an SDK build from its layout would quietly use 2 MiB.
+    require(value.get('memory') is None, f"{path} is from a build with the builder's experimental memory; "
+            'sdk.py builds use standard memory. Remove "memory" from a copy to build with standard memory.')
     return check_layout_numbers(value['machines'], 'the layout')
 
 

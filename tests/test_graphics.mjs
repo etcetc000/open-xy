@@ -441,7 +441,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
     chosenByDefault:machine => (currentFixture.selected ?? ['probe']).includes(machine.id),
     decode64:value => value ? Core.decode64(value) : currentFixture.catalog,
     moduleBytes:profile => profile.reserved_bytes ?? 2048,
-    memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:6144}} : kit,
+    memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:6 * 1024 ** 2}} : kit,
     recoverFirmware:async () => ({stock:Uint8Array.of(1)}),
     linkKit:kit => { linkedKits.push(kit); return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
     patchFirmware:async kit => { patchedKits.push(kit);
@@ -478,16 +478,17 @@ test('Extensions graphics defaults to original designs without firmware extensio
   const memoryInput = $('expanded-memory'), buildJson = () => JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['build.json']));
   assert.equal(memoryInput.checked, false);
   assert.equal(memoryInput.disabled, false);  // this collection's profile offers it
+  assert.equal($('expanded-memory-option').hidden, false);
   assert.equal(patchedKits.at(-1).profile.reserved_bytes, undefined);
   assert.equal(buildJson().reserved_bytes, undefined);
   memoryInput.checked = true; memoryInput.onchange();
-  assert.equal(linkedKits.at(-1).profile.reserved_bytes, 6144);
-  assert.match($('capacity-foot').textContent, /^6\.0 KiB for machines \(experimental\)/);
+  assert.equal(linkedKits.at(-1).profile.reserved_bytes, 6 * 1024 ** 2);
+  assert.match($('capacity-foot').textContent, /^6144\.0 KiB for machines \(experimental\)/);
   assert.deepEqual($('build-selection').children.slice(-4, -2).map(e => e.textContent), ['Memory', '6 MiB (experimental)']);
   assert.equal($('download').href, undefined);  // choosing it invalidates the previous build
   await $('build').onclick();
-  assert.equal(patchedKits.at(-1).profile.reserved_bytes, 6144);
-  assert.equal(buildJson().reserved_bytes, 6144);
+  assert.equal(patchedKits.at(-1).profile.reserved_bytes, 6 * 1024 ** 2);
+  assert.equal(buildJson().reserved_bytes, 6 * 1024 ** 2);
   const expandedLayout = JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['layout.json']));
   assert.equal(expandedLayout.memory, 'expanded');
   memoryInput.checked = false; memoryInput.onchange();
@@ -502,7 +503,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   const linksBefore = linkedKits.length;
   await restoreLayout(expandedLayout);
   assert.equal(memoryInput.checked, true);
-  assert.equal(linkedKits[linksBefore].profile.reserved_bytes, 6144);
+  assert.equal(linkedKits[linksBefore].profile.reserved_bytes, 6 * 1024 ** 2);
   await restoreLayout({...expandedLayout, memory:undefined});
   assert.equal(memoryInput.checked, false);
   assert.match($('status').textContent, /standard memory; 6 MiB is turned off/);

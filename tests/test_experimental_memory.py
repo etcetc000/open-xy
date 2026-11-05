@@ -5,10 +5,13 @@ two heap immediates (builder/core.mjs expandedProfile). These checks hold it to
 the same stock instruction forms and table placement as the standard layout.
 """
 import json
+from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
 from tooling import stock_tables
+from tooling.machines import layout_document, read_layout
 from tooling.pipeline import ROOT, config
 
 BROWSER = """
@@ -66,6 +69,15 @@ class ExperimentalMemory(unittest.TestCase):
                                                '(6 MiB module reservation, experimental)')
         self.assertEqual({k: v for k, v in expanded.items() if k not in ('module_base', 'reserved_bytes', 'patches')},
                          {k: v for k, v in self.profile.items() if k not in ('module_base', 'reserved_bytes', 'patches')})
+
+    def test_sdk_builds_refuse_a_layout_that_asks_for_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'layout.json'
+            path.write_text(json.dumps(dict(layout_document({}), memory='expanded')), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'experimental memory'):
+                read_layout(path)
+            path.write_text(json.dumps(layout_document({})), encoding='utf-8')
+            self.assertEqual(read_layout(path), {})
 
 
 if __name__ == '__main__':
