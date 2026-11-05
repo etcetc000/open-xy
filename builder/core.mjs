@@ -855,8 +855,8 @@ const presentExtensions = (kit, payload, input) => {
   const coded = (kit.extensions ?? []).filter(e => e.linked !== false &&
     holdsCode(kit.objects.filter(o => o.extension === e.id), payload));
   const covered = new Set(coded.flatMap(e => e.capabilities ?? []));
-  const settings = (kit.extensions ?? []).filter(e => e.linked === false &&
-    e.capabilities.every(c => capabilityApplied(kit.profile, c, input)) && !e.capabilities.every(c => covered.has(c)));
+  const settings = settingsPresent(kit, input).map(id => kit.extensions.find(e => e.id === id))
+    .filter(e => !e.capabilities.every(c => covered.has(c)));
   return (kit.extensions ?? []).filter(e => coded.includes(e) || settings.includes(e)).map(e => e.id);
 };
 // A capability's edits are fixed bytes (tooling.extensions.capabilities): applied

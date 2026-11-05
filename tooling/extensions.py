@@ -143,11 +143,11 @@ def extension_at(folder):
         # Dotfiles (.DS_Store, .gitignore, .github/) are repository housekeeping, not sources.
         sources = [p for p in root.rglob('*') if p.is_file() and
                    not any(part.startswith('.') for part in p.relative_to(root).parts) and
-                   not re.fullmatch(r'extension\.json|(README|LICENSE|LICENCE|NOTICE)(\.(md|txt))?',
-                                    p.relative_to(root).as_posix())]
+                   not re.fullmatch(r'extension\.json|(readme|licen[cs]e|copying|notice)([-.][\w.-]+)?',
+                                    p.relative_to(root).as_posix(), re.IGNORECASE)]
         require(declared and not data['claims'] and not data['actions'] and master_filter is None and not sources,
                 f'{name}: an extension without extension.cpp is a settings extension: capabilities only, '
-                'and no other files than README, LICENSE and NOTICE (.md or .txt)')
+                'and no other files than a README, LICENSE, COPYING or NOTICE')
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')

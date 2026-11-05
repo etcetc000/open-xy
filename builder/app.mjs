@@ -224,15 +224,15 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
       } else {
-        // Without a full selection: settings extensions follow what this OS holds; the code
-        // extensions already chosen stay. A conflicting choice leaves the selection alone.
-        const held = recovered.extensions ?? [];
-        const code = selectedExtensions.filter(id => kit.extensions?.find(e => e.id === id)?.linked !== false);
-        try { selectedExtensions = core.extensionSelection(kit, [...code, ...held]); }
-        catch { selectedExtensions = core.extensionSelection(kit, held); }
+        // Without a full selection, loading an OS only adds: the settings extensions it holds
+        // join the user's choice unless one conflicts with it; nothing chosen is removed.
+        const held = (recovered.extensions ?? []).filter(id => !selectedExtensions.includes(id));
+        try { selectedExtensions = core.extensionSelection(kit, [...selectedExtensions, ...held]); } catch {}
         stock = recovered.stock; renderExtensions(); recalculate();
-        $('firmware-result').textContent = recovered.earlier
-          ? '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again'
+        const names = (kit.extensions ?? []).filter(e => (recovered.extensions ?? []).includes(e.id)).map(e => e.name);
+        $('firmware-result').textContent = names.length
+          ? '✓ OP–XY OS 1.2.1 with ' + names.join(' + ') + ' · choose your machines'
+          : recovered.earlier ? '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again'
           : '✓ OP–XY OS 1.2.1 verified · ' + file.name;
       }
       wizard.setFirmwareState('loaded');

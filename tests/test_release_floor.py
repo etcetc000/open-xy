@@ -84,7 +84,13 @@ class Extension(unittest.TestCase):
         (tidy / '.DS_Store').write_bytes(b'')
         (tidy / '.github').mkdir()
         (tidy / '.github' / 'ci.yml').write_text('on: push', encoding='utf-8')
+        for name in ('readme.md', 'LICENSE-MIT', 'COPYING', 'NOTICE.txt'):
+            (tidy / name).write_text('x', encoding='utf-8')
         self.assertFalse(extension_at(tidy).linked)  # housekeeping files are not sources
+        (tidy / 'helper.py').write_text('x', encoding='utf-8')
+        with self.assertRaises(ValueError):
+            extension_at(tidy)  # anything else is a source a settings extension cannot have
+        (tidy / 'helper.py').unlink()
         other = extension_at(folder(self, id='idle2'))
         with self.assertRaisesRegex(ValueError, 'multiple owners'):
             check_collection([extension_at(folder(self)), other])  # one capability, two owners

@@ -154,14 +154,15 @@ def state(image, profile=None, stock=None):
             held[patch['address']] = data
         on = [held[p['address']] == p['after'] for p in edits]
         require(all(on) or not any(on), 'Capability only partly applied: ' + name)
-        result[name] = all(on)
+        result[name] = bool(on) and all(on)  # a capability without edits here is never on
     return result
 
 
 def apply(image, extensions, profile=None, stock=None):
-    """A copy of `image` with every capability the extensions declare turned on."""
+    """A copy of `image` with every capability the extensions declare turned on, and the
+    capabilities the copy has on."""
     profile = profile or config()
-    state(image, profile, stock)  # authenticated; every site holds stock or reviewed bytes
+    before = state(image, profile, stock)  # authenticated; every site holds stock or reviewed bytes
     require(all(not e.linked for e in extensions),
             'Only settings extensions apply to an image: an extension with code needs a build')
     declared = list(dict.fromkeys(c for e in extensions for c in e.capabilities))
@@ -173,7 +174,7 @@ def apply(image, extensions, profile=None, stock=None):
             patched[offset:offset + patch['length']] = bytes.fromhex(patch['after'])
     result = bytes(patched)
     require(len(ldr(result)) == len(blocks), 'Loader records changed')
-    return result, declared
+    return result, [name for name, on in before.items() if on or name in declared]
 
 
 def main(argv=None):
@@ -197,12 +198,10 @@ def main(argv=None):
             return 0
         require(outside_checkouts(args.out), f'Firmware stays outside every checkout: choose --out elsewhere ({args.out})')
         extensions = [extension_at(folder) for folder in args.extension]
-        before = state(image, stock=stock)
-        result, declared = apply(image, extensions, stock=stock)
+        result, on = apply(image, extensions, stock=stock)
         inputs = [args.image, *args.extension, *([args.stock_os] if args.stock_os else [])]
         out = fresh_output(args.out, args.overwrite, keep=inputs)  # --overwrite never deletes an input
         (out / 'os.ldr').write_bytes(result)
-        on = [name for name, applied in before.items() if applied or name in declared]
         report = dict(format='opxy-settings/1', source=str(Path(args.image).resolve()),
                       source_sha256=sha(image), sha256=sha(result),
                       extensions=[e.id for e in extensions], capabilities=on,
