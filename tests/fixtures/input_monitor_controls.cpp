@@ -39,7 +39,10 @@ void live_set(u32 base,u32 track,u32 index,i32 value) {
 namespace opxy { namespace platform {
 bool extensions_monitor_available() { return capable; }
 extensions::Motion extension_motion() { return {0,0,32767,now,true}; }
-void extension_notify(const char* text) { std::strncpy(notification,text,sizeof(notification)); }
+void extension_notify(const char* text) {
+    require(std::strlen(text) < sizeof(notification),"status popup must fit");
+    std::strcpy(notification,text);
+}
 Address host_stock_address(Address address) {
     switch(address) {
     case 0x840a0534:return reinterpret_cast<Address>(&selected_aux);
