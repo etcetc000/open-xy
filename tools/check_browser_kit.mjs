@@ -58,8 +58,11 @@ for (const mask of checkedSelections(kit.machines, kit.linked)) {
 if (layouts.length > 1) {
   const all = kit.machines.map(m => m.id);
   const every = extensionChoices(kit).reduce((a, b) => b.length > a.length ? b : a, []);
-  const fits = k => { try { linkKit(k, all, null, every); return true; } catch (error) { if (error.capacity) return false; throw error; } };
-  if (!fits(kit) && fits(layouts[1].kit)) {
+  // 'fits', 'needs more' or 'unlinkable' for another reason (then no such check applies).
+  const fit = k => { try { linkKit(k, all, null, every); return 'fits'; } catch (error) { return error.capacity ? 'needs more' : 'unlinkable'; } };
+  const standard = fit(kit), larger = fit(layouts[1].kit);
+  if (standard === 'unlinkable' || larger === 'unlinkable') console.log('Experimental memory: the whole collection does not link together; no beyond-standard check.');
+  if (standard === 'needs more' && larger === 'fits') {
     const mask = kit.machines.reduce((m, _, i) => m | selectionBit(i), 0n);
     await parity(layouts[1], mask, all, every, null, 'collection-expanded');
   }

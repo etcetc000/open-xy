@@ -218,7 +218,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   });
   window.addEventListener('pagehide', graphicsDialog.clear);
   $('preview-selected').onclick = () => graphicsDialog.open({machines:selectedMachines(), screenTemplate:kit?.screenTemplate});
-  let ticket = 0, checkingOs = false;
+  // osApplied counts OS loads that set the memory and selection (layout restores wait for them).
+  let ticket = 0, checkingOs = false, osApplied = 0;
   async function acceptFirmware(file, isCurrent = () => true) {
     if (!file || !kit || !isCurrent()) return false;
     wizard.clearSourceBackup();
@@ -231,7 +232,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('firmware-result').textContent = 'Verifying ' + file.name + '…';
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
-      stock = recovered.stock;
+      stock = recovered.stock; osApplied++;
       // An open-xy OS whose module base and heap edits match a layout sets the choice
       // to it, even when its machines cannot be rebuilt here. Stock OS, or an OS of
       // no known layout, keeps the current one. A change is said, never silent.
@@ -807,9 +808,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       // The input is disabled while an OS is checked. An OS check that started, or even
       // finished, during the read set the memory and selection, so this layout waits.
-      const osCheck = ticket;
+      const applied = osApplied;
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
-      core.requireThat(!checkingOs && ticket === osCheck, 'Your OS file was loaded meanwhile. Load the layout again if you still want it.');
+      core.requireThat(!checkingOs && osApplied === applied, 'Your OS file was loaded meanwhile. Load the layout again if you still want it.');
       const loaded = core.readLayout(kit, saved);
       // A layout keeps its machine numbers even when an extension it names is no
       // longer offered; that extension is left out and named.
@@ -847,9 +848,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   async function loadCollectionData(data) {
     const next = await core.openKit(data);
+    const hadOs = stock != null || checkingOs;
     invalidate(); stock = null; kit = next;
-    // An OS check against the previous collection no longer applies.
-    if (checkingOs) {
+    // A loaded or still-checking OS was for the previous collection: it is loaded again.
+    if (hadOs) {
       ticket++; $('restore').disabled = checkingOs = false;
       wizard.setFirmwareState('empty'); $('firmware-result').textContent = 'OS not loaded';
     }
