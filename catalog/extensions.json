@@ -2,6 +2,16 @@
   "schema": 1,
   "extensions": [
     {
+      "id": "bar_tools",
+      "kind": "extension",
+      "maintainer": "blen2r",
+      "status": "published",
+      "repository": "https://github.com/blen2r/open-xy-bar-tools",
+      "tag": "v1.0.0",
+      "commit": "c9bf0b13a36c51268fb7db4776751df24ab509d6",
+      "path": "extensions/bar_tools"
+    },
+    {
       "id": "capture",
       "kind": "extension",
       "maintainer": "etcetc000",
