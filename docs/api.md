@@ -662,7 +662,7 @@ still require independent state. Machine code and model data need no file loadin
 
 ### Stock Drumline's second page
 
-The build option `drumlineRow2` ([build options](build.md#3-add-your-machine))
+The build option `drumlinePage2` ([build options](build.md#3-add-your-machine))
 gives stock's own Drumline (engine 4) a second page of per-key settings, the
 ones a `padMix` kit like MD KIT keeps on its pad fields. It is off by default:
 it changes the stock engine on every Drumline track of the firmware, and no

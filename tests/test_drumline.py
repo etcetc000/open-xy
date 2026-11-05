@@ -1,4 +1,4 @@
-"""Stock Drumline's second page (the build option drumlineRow2, drumline.hpp): the
+"""Stock Drumline's second page (the build option drumlinePage2, drumline.hpp): the
 shared hooks and this option's own against host doubles, with the option and without
 (M3's filter and filter envelope words stay stock's in both); the build option's wiring;
 and the stock sites it relies on."""
@@ -24,7 +24,7 @@ PROFILE = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text(encoding='utf
 # and where both of the dbox page's branches end.
 SITES = {'0x8d51b554': ('sdk_dbox_render_select', '48914130', '0x1527b0'),
          '0x8d531192': ('sdk_drumline_page_hook', 'a0e4b400', '0x1683ee')}
-OPTION = 'drumlineRow2'
+OPTION = 'drumlinePage2'
 # The services the option turns on: its own and the drum hooks it extends.
 SERVICES = {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'drumline'}
 

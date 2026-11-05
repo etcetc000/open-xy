@@ -44,7 +44,7 @@ u32 codes_of(const unsigned char* voice) {
     if (!object) return 0;
     const void* table = *static_cast<const void* const*>(object);
     // A stock Drumline voice: the codes its render kept (drumline.cpp, the
-    // drumlineRow2 option; 0 without it). Only stock's dbox factory makes an
+    // drumlinePage2 option; 0 without it). Only stock's dbox factory makes an
     // object with this method table, so no kit's voice reads here.
     if (reinterpret_cast<__UINTPTR_TYPE__>(table) == kDboxMethods) {
         const u32 index = dbox_index(static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(object)));

@@ -344,7 +344,7 @@ void codes_and_amounts() {
 }
 }
 
-// Stock Drumline voices (the build option drumlineRow2): each sends the codes
+// Stock Drumline voices (the build option drumlinePage2): each sends the codes
 // its render kept (sdk_drum_send_dbox), mixed exactly as a padSend kit's key
 // with those codes; codes of 0, as every build without the option keeps them,
 // mix as stock does; an object outside stock's 27 follows the track.

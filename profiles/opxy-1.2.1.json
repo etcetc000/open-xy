@@ -123,7 +123,7 @@
     "samples": [
       "sample",
       "drum",
-      "drumlineRow2"
+      "drumlinePage2"
     ],
     "control": [
       "trackControl",
@@ -140,7 +140,7 @@
     ],
     "drums": [
       "drum",
-      "drumlineRow2"
+      "drumlinePage2"
     ],
     "players": [
       "player"
@@ -149,18 +149,18 @@
       "sample",
       "player",
       "drum",
-      "drumlineRow2"
+      "drumlinePage2"
     ],
     "drum_sends": [
       "padSend",
-      "drumlineRow2"
+      "drumlinePage2"
     ],
     "drum_locks": [
       "padMix",
-      "drumlineRow2"
+      "drumlinePage2"
     ],
     "drumline": [
-      "drumlineRow2"
+      "drumlinePage2"
     ]
   },
   "patches": [
@@ -2179,7 +2179,7 @@
     },
     {
       "kind": "hook",
-      "name": "Drumline page: the second Shift row's titles and values after stock sets its own",
+      "name": "Drumline page: page 2's titles and values after stock sets its own",
       "address": "0x8d531192",
       "file_offset": "0x1683ee",
       "length": 4,

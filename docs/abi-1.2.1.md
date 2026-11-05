@@ -33,7 +33,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
 | Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padSend` kit |
 | Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts; linked only with a `padMix` kit |
-| Drumline's second Shift row | 2 | Shows stock Drumline's second page and wraps its voices' render for FILTER, SRR and per-hit settings; linked only with the build option `drumlineRow2` |
+| Drumline's second page | 2 | Shows stock Drumline's second page and wraps its voices' render for FILTER, SRR and per-hit settings; linked only with the build option `drumlinePage2` |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
@@ -62,9 +62,9 @@ per-key sends the `drum_sends` service, used only by a kit declaring `padSend`
 (or `padMix`). The step locks of a kit's Shift fields are the `drum_locks` service,
 used only by a `padMix` kit. The [track filter](#the-track-filter-on-kit-voices) on
 kit voices needs no hook: it is in every kit's adapter.
-The [build option](build.md#3-add-your-machine) `drumlineRow2` uses the
+The [build option](build.md#3-add-your-machine) `drumlinePage2` uses the
 `drumline` service and also those of samples, octaves, drum transport, sends and
-the note-start hooks, whose hooks it extends ([Drumline's second Shift row](#drumlines-second-shift-row)).
+the note-start hooks, whose hooks it extends ([Drumline's second page](#drumlines-second-page)).
 Otherwise their sites stay stock. The track control rows (and the project read of the
 project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
@@ -1305,9 +1305,9 @@ handle the new project does not use, and the copy written in its place, or
 cleared when the old pool had no values for it. A load that never becomes active
 leaves the active pool as it was.
 
-### Drumline's second Shift row
+### Drumline's second page
 
-The build option `drumlineRow2` (the `drumline` service, which also turns on
+The build option `drumlinePage2` (the `drumline` service, which also turns on
 `samples`, `octaves`, `drums`, `drum_sends` and `drum_locks`) extends stock's
 own Drumline, engine 4 ("dbox": its page `dbox.svg`, its factory `8d513d1c`,
 its voices' method table `0x8404ce3c`), on every Drumline track

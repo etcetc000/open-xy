@@ -34,7 +34,7 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     aux: the build links the aux service (aux tracks), which starts after it.
     locks: the build links the step-lock handles (lock_handles.cpp, the drum_locks
     service). Without them, the companion's open-xy.locks calls do nothing.
-    drumline: the build links the drumline service (the build option drumlineRow2):
+    drumline: the build links the drumline service (the build option drumlinePage2):
     the shared hooks reach it through sdk_drumline, defined here at link time, so
     no ordering at startup decides whether a hook sees it."""
     require(prefixes or effects or player_pages, 'Startup needs at least one machine')

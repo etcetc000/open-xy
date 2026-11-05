@@ -176,7 +176,7 @@ class DrumSend(unittest.TestCase):
 
     def test_only_a_pad_send_kit_links_the_mixer_hooks(self):
         services = PROFILE['services']
-        self.assertEqual(services['drum_sends'], ['padSend', 'drumlineRow2'])
+        self.assertEqual(services['drum_sends'], ['padSend', 'drumlinePage2'])
         with_sends, without = kit(1), kit()
         self.assertIn('padSend', native.service_users([with_sends]))
         self.assertNotIn('padSend', native.service_users([without]))

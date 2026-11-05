@@ -9,7 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "drumline.hpp"
-// Built without the build option drumlineRow2: the generated startup defines it null.
+// Built without the build option drumlinePage2: the generated startup defines it null.
 const opxy::platform::Drumline* const sdk_drumline = nullptr;
 
 extern "C" {

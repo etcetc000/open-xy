@@ -1,5 +1,5 @@
-// Stock Drumline's second Shift row (drumline.hpp), built
-// twice: with the build option drumlineRow2 (DRUMLINE_ON: the generated
+// Stock Drumline's second page (drumline.hpp), built
+// twice: with the build option drumlinePage2 (DRUMLINE_ON: the generated
 // startup's sdk_drumline names the service) and without (null). The real
 // shared hooks run against host doubles of stock 1.2.1: the per-key editor
 // call (sdk_drum_edit), the generic turn (sdk_synth_turn) and its step count

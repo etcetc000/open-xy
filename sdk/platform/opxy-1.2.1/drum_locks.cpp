@@ -14,7 +14,7 @@
 // before the note. Every other caller of the builder (the per-key editor and
 // its previews) publishes the key's own values.
 //
-// With the build option drumlineRow2 the same two hooks serve stock Drumline
+// With the build option drumlinePage2 the same two hooks serve stock Drumline
 // (drumline.hpp): every publication of a Drumline pad carries its page-2
 // fields, and a note's adds its step's locks of them for its key.
 #include "drum_locks.hpp"
@@ -88,7 +88,7 @@ u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
 }
 
 // The step-lock handles' client check (lock_handles.hpp): an owned padMix kit,
-// or stock Drumline with the build option drumlineRow2 (its page 2's locks).
+// or stock Drumline with the build option drumlinePage2 (its page 2's locks).
 bool opxy::platform::step_locks::handle_client(u32 track) {
     const DrumMachine* kit = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
     return (kit && kit->pad_mix) || drumline_track(track);

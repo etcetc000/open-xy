@@ -1,5 +1,5 @@
 // Stock Drumline's second page (drumline.hpp), linked only with the build
-// option drumlineRow2. The GUI functions run from the shared hooks through
+// option drumlinePage2. The GUI functions run from the shared hooks through
 // sdk_drumline; the render wrapper and the page's texts from this unit's own
 // hooks (drumline_hooks.s).
 #include <opxy/q31.hpp>

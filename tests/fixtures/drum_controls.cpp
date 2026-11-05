@@ -5,7 +5,7 @@ static void host_barrier() {}
 #include <drum_controls_stock.cpp>
 #include <keyboard_octaves.cpp>
 #include "drumline.hpp"
-// Built with the build option drumlineRow2: a stand-in service that only
+// Built with the build option drumlinePage2: a stand-in service that only
 // records presses (drumline.cpp's switch the pages, from sdk_synth_press;
 // the sample page's press hook never does).
 static unsigned drumline_presses, drumline_track_pressed, drumline_button;
@@ -529,7 +529,7 @@ int main() {
     check(sdk_sample_page_shift() == 1);
     shifted = false;
     check(sdk_sample_page_shift() == 0);
-    // Stock Drumline with the build option drumlineRow2: the sample page's press
+    // Stock Drumline with the build option drumlinePage2: the sample page's press
     // hook (8c0b2730) leaves its pages alone (a plain press switches them, in
     // sdk_synth_press), with Shift or not; Shift and encoder 1 keep stock's
     // play-mode cycle, and every press returns what stock acts on, as before.

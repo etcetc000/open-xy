@@ -108,13 +108,13 @@ class Services(unittest.TestCase):
         self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padSend', 'padMix']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
-        # The build option drumlineRow2 uses the drum hooks it extends and its own.
-        self.assertEqual(active_services(profile, ['synth', 'drumlineRow2']),
+        # The build option drumlinePage2 uses the drum hooks it extends and its own.
+        self.assertEqual(active_services(profile, ['synth', 'drumlinePage2']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'drumline'})
-        optioned = native.Collection(machines, [probe], ['drumlineRow2'])
+        optioned = native.Collection(machines, [probe], ['drumlinePage2'])
         self.assertEqual(steps(optioned), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
                                            ('control', 'aux', 'players', 'master_filter')])
-        self.assertEqual(native.options_of(native.subset(optioned, optioned[:1])), ('drumlineRow2',))
+        self.assertEqual(native.options_of(native.subset(optioned, optioned[:1])), ('drumlinePage2',))
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
         self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'drums', 'extensions'})

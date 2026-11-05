@@ -1,4 +1,4 @@
-// Stock Drumline's second page: the build option drumlineRow2
+// Stock Drumline's second page: the build option drumlinePage2
 // (tooling/machines.py BUILD_OPTIONS), off by default, because it changes
 // stock's own engine 4 ("dbox") on every Drumline track.
 // - Page 2: FILTER, SRR, FX I and FX II of the key stock edits, as MD KIT's

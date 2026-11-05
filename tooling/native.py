@@ -245,7 +245,7 @@ UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends
 UNIT_SERVICES['drum_locks'] = 'drum_locks'
 # Their values by handle (lock_handles.cpp): the pool, the step hook and open-xy.locks.
 UNIT_SERVICES['lock_handles'] = 'drum_locks'
-# The build option drumlineRow2: stock Drumline's second Shift row (drumline.hpp). It also
+# The build option drumlinePage2: stock Drumline's second page (drumline.hpp). It also
 # uses the drums, samples, drum_sends and drum_locks services' hooks.
 UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
 # Track control and hidden pages run from the GUI tick hook; startup stands in for

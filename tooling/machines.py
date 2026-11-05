@@ -603,7 +603,7 @@ def assign_numbers(machines, layout=None, fixed=None):
 BUILD_OPTIONS = {
     # Stock Drumline (engine 4): a second page with each key's FILTER, SRR, FX I and
     # FX II (sdk/platform/opxy-1.2.1/drumline.hpp).
-    'drumlineRow2': "Drumline's second page: per-key FILTER, SRR, FX I and FX II, with step locks",
+    'drumlinePage2': "Drumline's second page: per-key FILTER, SRR, FX I and FX II, with step locks",
 }
 
 
