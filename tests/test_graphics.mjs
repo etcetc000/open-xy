@@ -494,6 +494,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   await $('build').onclick();
   assert.equal(patchedKits.at(-1).profile.reserved_bytes, 6 * 1024 ** 2);
   assert.equal(buildJson().reserved_bytes, 6 * 1024 ** 2);
+  assert.match($('download-summary').textContent, / \+ 6 MiB experimental memory \(may be unstable\)$/);
   const expandedLayout = JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['layout.json']));
   assert.equal(expandedLayout.memory, 'expanded');
   memoryInput.checked = false; memoryInput.onchange();
@@ -535,6 +536,15 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.match($('firmware-result').textContent, / · it uses standard memory, so 6 MiB is turned off$/);
   assert.equal(await wizardOptions.onFirmware({name:'stock', size:1, arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
   assert.doesNotMatch($('firmware-result').textContent, /turned/);
+  // A collection without the option loads cleanly while it was on, and hides it.
+  memoryInput.checked = true; memoryInput.onchange();
+  const without = await fixture(); delete without.kit.profile.experimental_memory;
+  await api.configure(without);
+  assert.equal(memoryInput.checked, false);
+  assert.equal(memoryInput.disabled, true);
+  assert.equal($('expanded-memory-option').hidden, true);
+  await api.configure(await fixture());
+  assert.equal(memoryInput.disabled, false);
   const originalKit = (await fixture()).kit;
   assert.equal(new TextDecoder().decode(defaultFiles['content/display/probe.svg']),
     originalKit.screenTemplate.replace('</svg>', originalKit.machines[0].artwork + '</svg>'));

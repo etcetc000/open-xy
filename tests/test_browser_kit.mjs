@@ -132,6 +132,9 @@ test('the experimental 6 MiB layout moves only the module base and the heap imme
     p => { p.heap_fill_bytes += 4; }, p => { p.reserved_bytes = SIX_MIB; },
     p => { p.experimental_memory.module_base += 2; }, p => { p.experimental_memory.heap_after = '01dae00100000000'; },
     p => { p.experimental_memory.extra = 1; }, p => { delete p.experimental_memory; },
+    // Sizes are whole MiB, as the builder names them.
+    p => { p.experimental_memory.module_base += 0x4000; p.experimental_memory.reserved_bytes -= 0x4000;
+      p.experimental_memory.heap_after = '01dae00000400000'; },  // 14 MiB + 16 KiB, consistent otherwise
     // A reservation larger than the heap fill would leave no heap at all.
     p => Object.assign(p.experimental_memory, {module_base:p.heap_fill_base - 0x10000,
       reserved_bytes:p.module_base + p.reserved_bytes - p.heap_fill_base + 0x10000})]) {

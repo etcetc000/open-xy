@@ -678,7 +678,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));
       $('download').href = $('flow-download').href = downloadUrl;
       const modes = new Set(kit.machines.filter(machine => selection.includes(machine.id) && machine.artwork).map(machine => core.graphicsForMachine(machine, settings)));
-      $('download-summary').textContent = selectionNames().concat(modes.has('grayscale') ? ['Grayscale machine graphics'] : []).join(' + ');
+      $('download-summary').textContent = selectionNames().concat(modes.has('grayscale') ? ['Grayscale machine graphics'] : [],
+        memory !== kit ? [expandedSize() + ' experimental memory (may be unstable)'] : []).join(' + ');
       $('download-graphics').textContent = modes.size > 1 ? 'Machine graphics: per-machine settings' : modes.has('grayscale')
         ? 'Machine graphics: grayscale' : modes.size ? 'Machine graphics: original designs' : 'Machine graphics: stock screens unchanged';
       $('bundle-art').replaceChildren(visuals.bundle(Object.keys(files)));
@@ -704,7 +705,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     memoryInput.checked = value && expandedKit !== null;
     $('capacity-foot').textContent = kib(core.moduleBytes(chosenKit().profile)) + ' for machines' +
       (memoryInput.checked ? ' (experimental)' : '') + '; CPU load is not measured';
-    return memoryInput.checked === before ? '' : memoryInput.checked
+    // A collection without the option clears it with nothing to say.
+    return memoryInput.checked === before || !expandedKit ? '' : memoryInput.checked
       ? 'it uses ' + expandedSize() + ' experimental memory, now turned on'
       : 'it uses standard memory, so ' + expandedSize() + ' is turned off';
   }
@@ -812,7 +814,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       if (loaded.selected) {
         try { core.linkKit(kitFor(wanted), loaded.selected, loaded.machines, extensions); }
         catch (error) {
-          if (loaded.memoryUnavailable) error.message = 'This layout used experimental memory this site doesn’t offer. ' + error.message;
+          if (loaded.memoryUnavailable && /^These machines need more than the /.test(error.message))
+            error.message = 'This layout used experimental memory this site doesn’t offer. ' + error.message;
           throw error;
         }
       }
