@@ -149,7 +149,7 @@
       "drum"
     ],
     "drum_sends": [
-      "padSend"
+      "padMix"
     ]
   },
   "patches": [

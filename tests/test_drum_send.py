@@ -1,4 +1,4 @@
-"""Per-key sends (resources.padSend): the mixer hooks, the adapter's codes and the build wiring."""
+"""Per-key sends (resources.padMix): the mixer hooks, the adapter's codes and the build wiring."""
 import copy
 import json
 import os
@@ -20,7 +20,7 @@ from test_sample_services import HOST_CXX
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 PROFILE = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text(encoding='utf-8'))
-# The four reviewed sites, as drum_send_hooks.s describes them.
+# The five reviewed sites, as drum_send_hooks.s describes them.
 SITES = {'0x8d510bea': ('sdk_drum_send_track', '00e38f5d'),
          '0x8d51c7b2': ('sdk_drum_send_voice_hook', '0adab01148150000'),
          '0x8d511088': ('sdk_drum_send_source_1', '09da901100360000'),
@@ -84,35 +84,49 @@ int main() {
     for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
     for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
     for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
-    // The model's packed words and, in word 6, FILTER and SRR bits, FX I's code 5 and FX II's 3.
-    const opxy::i32 word = opxy::platform::drum_send_store(opxy::platform::drum_send_store(0x00120000, 0, 5), 1, 3);
+    // In word 6, FILTER and SRR bits, FX I's code 5 and FX II's 3, on a key the kit set up.
+    const opxy::i32 word = opxy::platform::drum_send_store(
+        opxy::platform::drum_send_store(0x00120000 | opxy::platform::kDrumPadReady, 0, 5), 1, 3);
     opxy::i32 marked[8] = {kMarked, 0, 0, 0, 0, 0, word, 0};
     opxy::i32 unmarked[8] = {0, 0, 0, 0, 0, 0, word, 0};
+    // A key an SDK 1.9 kit marked keeps whatever stock left in the word: here stock's
+    // default kit's last key (0x26660000, FX I 3 and FX II 2 if it were read) and an
+    // editor value with its low half.
+    opxy::i32 old_default[8] = {kMarked, 0, 0, 0, 0, 0, 0x26660000, 0};
+    opxy::i32 old_editor[8] = {kMarked, 0, 0, 0, 0, 0, opxy::i32(199 * 10737418 + 5368709), 0};
     note(1, 53);
     note(2, 54);
+    note(3, 55);
+    note(4, 56);
     CHECK(probe_drum_send(objects[1]) == 0);       // nothing rendered yet
     render(1, marked);
     render(2, unmarked);
-    CHECK(probe_drum_send(objects[1]) == (PAD_SEND ? 5u + (3u << 3) : 0u));
+    render(3, old_default);
+    render(4, old_editor);
+    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? 5u + (3u << 3) : 0u));
     CHECK(probe_drum_send(objects[2]) == 0);       // a pad the kit has not marked follows
+    CHECK(probe_drum_send(objects[3]) == 0);       // nor one it has not set up
+    CHECK(probe_drum_send(objects[4]) == 0);
+    end(3);
+    end(4);
     render(1, nullptr);
     CHECK(probe_drum_send(objects[1]) == 0);
     render(1, marked);
     // A destroyed handle has no voice: whatever it renders is silence.
     end(1);
     CHECK(probe_drum_send(objects[1]) == 0);
-    CHECK(probe_drum_send(objects[3]) == 0);       // never played
+    CHECK(probe_drum_send(objects[5]) == 0);       // never played
     std::puts("adapter sends ok");
     return 0;
 }
 '''
 
 
-def kit(pad_send=None, sdk='1.10'):
+def kit(pad_mix=None, sdk='1.10'):
     definition = copy.deepcopy(fixture('probesynth').definition)
     definition['resources'].update(modelCount=12)
-    if pad_send is not None:
-        definition['resources']['padSend'] = pad_send
+    if pad_mix is not None:
+        definition['resources']['padMix'] = pad_mix
     return SimpleNamespace(kind='drum', id='probe', prefix='probe', native_name='probe', definition=definition,
                            sdk=sdk)
 
@@ -145,35 +159,39 @@ class DrumSend(unittest.TestCase):
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_the_adapter_keeps_each_voices_send_code(self):
-        for pad_send in (1, 0):
-            with self.subTest(padSend=pad_send):
-                driver = SEND_DRIVER.replace('PAD_SEND', 'true' if pad_send else 'false')
-                test_drum_voices.DrumVoices.run_adapter(self, SEND_ENGINE, driver, 4, padSend=pad_send)
+        for pad_mix in (1, 0):
+            with self.subTest(padMix=pad_mix):
+                driver = SEND_DRIVER.replace('PAD_MIX', 'true' if pad_mix else 'false')
+                test_drum_voices.DrumVoices.run_adapter(self, SEND_ENGINE, driver, 4, padMix=pad_mix)
 
     def test_definitions_and_versions(self):
         definition = test_drum_preview.DrumPreviewTests.definition(None, "drum")
         for value in (0, 1):
-            validate_definition(dict(definition, resources=dict(definition['resources'], padSend=value)), 'drum')
+            validate_definition(dict(definition, resources=dict(definition['resources'], padMix=value)), 'drum')
         for value in (2, -1):
+            with self.assertRaises(ValueError):
+                validate_definition(dict(definition, resources=dict(definition['resources'], padMix=value)), 'drum')
+        # The sends come with padMix alone: the editor that sets them is its Shift row.
+        for value in (0, 1):
             with self.assertRaises(ValueError):
                 validate_definition(dict(definition, resources=dict(definition['resources'], padSend=value)), 'drum')
         synth = copy.deepcopy(fixture('probesynth').definition)
-        synth['resources']['padSend'] = 1
+        synth['resources']['padMix'] = 1
         with self.assertRaises(ValueError):
             validate_definition(synth, 'synth')
 
-    def test_only_a_pad_send_kit_links_the_mixer_hooks(self):
+    def test_only_a_pad_mix_kit_links_the_mixer_hooks(self):
         services = PROFILE['services']
-        self.assertEqual(services['drum_sends'], ['padSend'])
+        self.assertEqual(services['drum_sends'], ['padMix'])
         with_sends, without = kit(1), kit()
-        self.assertIn('padSend', native.service_users([with_sends]))
-        self.assertNotIn('padSend', native.service_users([without]))
+        self.assertIn('padMix', native.service_users([with_sends]))
+        self.assertNotIn('padMix', native.service_users([without]))
         self.assertIn('drum_sends', active_services(PROFILE, native.service_users([with_sends])))
         self.assertNotIn('drum_sends', active_services(PROFILE, native.service_users([without])))
         self.assertEqual(native.UNIT_SERVICES['drum_send'], 'drum_sends')
         self.assertEqual(native.UNIT_SERVICES['drum_send_hooks'], 'drum_sends')
 
-    def test_the_profile_reviews_four_call_sites_outside_hardware_loops(self):
+    def test_the_profile_reviews_five_call_sites_outside_hardware_loops(self):
         hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') == 'drum_sends'}
         self.assertEqual(set(hooks), set(SITES))
         for address, (symbol, before) in SITES.items():
@@ -228,7 +246,7 @@ class DrumSend(unittest.TestCase):
         self.assertIn('reinterpret_cast<i32*>(0x%08x)' % loads['0x8d511088'], source)
         self.assertIn('reinterpret_cast<const i32*>(0x%08x)' % loads['0x8d51c7b2'], source)
 
-    def test_the_send_table_names_kits_that_declare_pad_send(self):
+    def test_the_send_table_names_kits_that_declare_pad_mix(self):
         plain = kit()
         sending = SimpleNamespace(**dict(vars(kit(1)), prefix='sender', id='sender'))
         with tempfile.TemporaryDirectory() as folder:

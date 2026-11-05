@@ -298,16 +298,24 @@ void state_ends_with_its_track() {
 
 void codes_and_amounts() {
     // Payload word 6 carries FX I's code in bits 25..27 and FX II's in 28..30,
-    // only on a marked pad; FILTER and SRR below them stay as they are.
+    // only on a key the kit set up; FILTER and SRR below them stay as they are.
     const i32 marked = i32(42u * 32537631u + 16268815u);
     i32 payload[8] = {marked, 0, 0, 0, 0, 0, 0, 0};
     for (u32 fx1 = 0; fx1 < kDrumSendCodes; ++fx1)
         for (u32 fx2 = 0; fx2 < kDrumSendCodes; ++fx2) {
-            payload[6] = drum_send_store(drum_send_store(0x01ab0000, 0, fx1), 1, fx2);
+            const i32 fields = drum_send_store(drum_send_store(0x01ab0000, 0, fx1), 1, fx2);
+            payload[6] = fields | i32(kDrumPadReady);
             CHECK(drum_send_codes(payload) == pair(fx1, fx2));
-            CHECK((payload[6] & 0x01ffffff) == 0x01ab0000);
+            CHECK((payload[6] & 0x01ffffff) == (0x01ab0000 | i32(kDrumPadReady)));
             CHECK((static_cast<u32>(payload[6]) >> 25 & 7) == fx1 && (static_cast<u32>(payload[6]) >> 28 & 7) == fx2);
+            // Without the set-up value (an SDK 1.9 kit's key, or a preset's) it follows the track.
+            payload[6] = fields;
+            CHECK(drum_send_codes(payload) == 0);
+            payload[6] = fields | 0x1234;
+            CHECK(drum_send_codes(payload) == 0);
         }
+    payload[6] = 0x7e000000 | i32(kDrumPadReady);
+    CHECK(drum_send_codes(payload) == pair(7, 7));
     payload[0] = 0;
     CHECK(drum_send_codes(payload) == 0);
     CHECK(drum_send_codes(nullptr) == 0);

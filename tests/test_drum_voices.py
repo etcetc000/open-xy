@@ -164,9 +164,9 @@ int main() {
         for (unsigned i = 0; i < 8; ++i) CHECK(raw(i) == controls[i]);
     }
     // Without padMix the pad's level (word 7) never reaches the voice, nor
-    // without padControls its pad word (word 6).
+    // without padControls its pad word (word 6), even on a key set up.
     payload[7] = 1 << 26;
-    payload[6] = 0x7a5a1234;
+    payload[6] = static_cast<opxy::i32>(0x7a5a0000u | opxy::platform::kDrumPadReady);
     CHECK(rendered(1) == 2);
     payload[7] = payload[6] = 0;
     char caption[16] = {};
@@ -274,8 +274,9 @@ int main() {
 """
 
 
-# A padMix kit: the payload's word 7, Q27 with 0 dB unity, cuts each voice;
-# a boost, a missing word and no payload play at unity.
+# A padMix kit: the payload's word 7, Q27 with 0 dB unity, cuts each voice of a
+# key the kit set up; a boost, a missing word, no payload and a key the kit has
+# not set up (an SDK 1.9 project's, whatever stock left there) play at unity.
 MIX_DRIVER = DRIVER[:DRIVER.index('int main() {')] + r"""
 opxy::i32 frame(unsigned id, const opxy::i32* region) {
     opxy::i32 output[opxy::block_frames];
@@ -284,14 +285,26 @@ opxy::i32 frame(unsigned id, const opxy::i32* region) {
     return output[0];
 }
 int main() {
-    (void)kMarked;
     for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
     for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
     for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
     note(1, 53);
     const opxy::i32 unity = opxy::q31::multiply(2 << 16, 0x7fffffff);
     CHECK(frame(1, nullptr) == unity);
-    opxy::i32 payload[8] = {};
+    // Keys an SDK 1.9 kit stored, or never stored: stock's default kit gives -2 dB
+    // (8403a79c) and, on its last key, 0x26660000 in the pad word; its editor a
+    // Q31 with a low half. None plays its level.
+    const opxy::i32 old_words[] = {0, 0x26660000, opxy::i32(199 * 10737418 + 5368709), opxy::i32(5368709),
+                                   opxy::i32(0x80000000u | opxy::platform::kDrumPadReady)};
+    for (opxy::i32 old_word : old_words) {
+        opxy::i32 old[8] = {kMarked, 0, 0, 0, 0, 0, old_word, 1 << 26};
+        CHECK(frame(1, old) == unity);
+        old[0] = 0;
+        CHECK(frame(1, old) == unity);
+    }
+    opxy::i32 unmarked[8] = {0, 0, 0, 0, 0, 0, opxy::i32(opxy::platform::kDrumPadReady), 1 << 26};
+    CHECK(frame(1, unmarked) == unity);
+    opxy::i32 payload[8] = {kMarked, 0, 0, 0, 0, 0, opxy::i32(opxy::platform::kDrumPadReady), 0};
     CHECK(frame(1, payload) == unity);                      // no level word
     payload[7] = 1 << 27;                                   // 0 dB
     CHECK(frame(1, payload) == unity);
@@ -309,8 +322,8 @@ int main() {
 """
 
 
-# A kit with pad controls and a drum_pad hook: a marked pad's fields from the
-# payload's word 6, neutral for an unmarked pad or no payload.
+# A kit with pad controls and a drum_pad hook: the fields of a key the kit set up
+# from the payload's word 6, neutral for any other key or no payload.
 PAD_ENGINE = ENGINE.replace('#include "core.h"', '#include "core.h"\nextern opxy::i32 pad_values[2];\nextern unsigned pad_calls;', 1).replace(
     'inline const char* parameter_name', """inline void drum_pad(Voice&, Shared&, opxy::u32, const opxy::i32* values) {
     ++pad_calls;
@@ -332,20 +345,31 @@ int main() {
     fixture_region = payload;
     // FILTER 5 bits signed at 16..20, SRR 4 at 21..24; the sends above are not the engine's.
     payload[0] = kMarked;
-    payload[6] = static_cast<opxy::i32>(((32u - 3u) << 16) | (9u << 21) | (5u << 25) | (6u << 28) | 0x1234u);
+    const opxy::u32 ready = opxy::platform::kDrumPadReady;
+    payload[6] = static_cast<opxy::i32>(((32u - 3u) << 16) | (9u << 21) | (5u << 25) | (6u << 28) | ready);
     CHECK(rendered(1) == 2 && pad_calls == 1);
     CHECK(pad_values[0] == -3 && pad_values[1] == 9);
-    payload[6] = static_cast<opxy::i32>((15u << 16) | (15u << 21));
+    payload[6] = static_cast<opxy::i32>((15u << 16) | (15u << 21) | ready);
     CHECK(rendered(1) == 2 && pad_values[0] == 15 && pad_values[1] == 15);
-    payload[6] = static_cast<opxy::i32>(16u << 16);
+    payload[6] = static_cast<opxy::i32>((16u << 16) | ready);
     CHECK(rendered(1) == 2 && pad_values[0] == -16 && !pad_values[1]);
+    // A key an SDK 1.9 kit marked, which never set it up: stock's default kit's
+    // last key, an editor value with the same fields and its own low half, and
+    // the fields with a low half of 0, as a preset restores them, are neutral.
+    const opxy::i32 old_words[] = {0x26660000, opxy::i32(199 * 10737418 + 5368709),
+                                   static_cast<opxy::i32>((15u << 16) | (15u << 21) | 0x1234u),
+                                   static_cast<opxy::i32>((15u << 16) | (15u << 21))};
+    for (opxy::i32 old_word : old_words) {
+        payload[6] = old_word;
+        CHECK(rendered(1) == 2 && !pad_values[0] && !pad_values[1]);
+    }
     // A pad the kit has not marked: whatever stock left in the word is neutral.
     payload[0] = opxy::i32(2u * 32537631u + 16268815u);
-    payload[6] = 0x7a5a1234;
+    payload[6] = static_cast<opxy::i32>(0x7a5a0000u | ready);
     CHECK(rendered(1) == 2 && !pad_values[0] && !pad_values[1]);
     fixture_region = nullptr;
     pad_values[0] = 9;
-    CHECK(rendered(1) == 2 && !pad_values[0] && pad_calls == 5);
+    CHECK(rendered(1) == 2 && !pad_values[0] && pad_calls == 9);
     // The stock header's caption comes from the engine.
     char text[16] = {};
     CHECK(probe_drum_pad_text(1, 5, text) && text[0] == 'B' && text[1] == '5');
@@ -487,7 +511,7 @@ class DrumVoices(unittest.TestCase):
         self.run_adapter(ENGINE, MIX_DRIVER, 2, padMix=1)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
-    def test_pad_controls_reach_the_engine_for_a_marked_pad_only(self):
+    def test_pad_controls_reach_the_engine_for_a_key_the_kit_set_up_only(self):
         self.run_adapter(PAD_ENGINE, PAD_DRIVER, 2, padMix=1, padControls=[
             dict(label='FILTER', bits=5, signed=True), dict(label='SRR', bits=4)])
 
