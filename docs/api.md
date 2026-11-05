@@ -95,7 +95,10 @@ not cycles: pipeline stalls add some. And the estimate understates what the
 host does fast and the Blackfin does not:
 
 - **Division** has no hardware instruction and costs tens of cycles on the
-  device. Divide once per block, or use a table or a reciprocal.
+  device. Divide once per block, or use a table or a reciprocal. For a 16-bit
+  quotient by a divisor below 32768, such as a sub-sample edge position,
+  [`divide.hpp`](../sdk/include/opxy/divide.hpp)'s `quotient16` is exact and
+  inline: 17 single-cycle divide steps on the device.
 - **Floating point** has no hardware either. Keep audio in integers;
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
   saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
