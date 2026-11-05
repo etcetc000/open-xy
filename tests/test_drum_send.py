@@ -171,6 +171,9 @@ class DrumSend(unittest.TestCase):
         for value in (2, -1):
             with self.assertRaises(ValueError):
                 validate_definition(dict(definition, resources=dict(definition['resources'], padMix=value)), 'drum')
+        # With model groups too (CURIO, GALILEO): its Shift row has no group; the groups title the models.
+        groups = [{'label': 'TRX', 'count': 7}, {'label': 'EFM', 'count': 5}]
+        validate_definition(dict(definition, resources=dict(definition['resources'], padMix=1, modelGroups=groups)), 'drum')
         # The sends come with padMix alone: the editor that sets them is its Shift row.
         for value in (0, 1):
             with self.assertRaises(ValueError):

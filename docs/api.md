@@ -474,7 +474,9 @@ and at least one model, whose counts add up
 to `modelCount`. Shift's first encoder then chooses the group (KIT), keeping
 the model's place in it, so a kit's first model stays first; the second the
 model within the group (MACHINE); the third the choke group (CHOKE); and the
-fourth turns nothing.
+fourth turns nothing. A kit with `padMix` (below) may name groups too, but its
+Shift row has no KIT: MACHINE scrolls every model through the groups, and a
+group only titles its models.
 
 With `"padMix": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), Shift
 gives each key the settings of a mixer channel. On the encoders' first row it
