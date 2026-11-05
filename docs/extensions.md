@@ -188,7 +188,7 @@ builder reads a setting back from an image exactly.
 | Capability | Setting | Effect |
 | --- | --- | --- |
 | `long_samples` | | A file loads up to 1,048,575 frames (2^20 - 1, 23.78 s at 44.1 kHz), the most a stock sample object holds, instead of stock's 882,000 (20 s). Recording still stops at 20 s. |
-| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block; stock stops at -66 dB. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release ends at the same level, fading its remainder over the same block. |
+| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block; stock stops at -66 dB without the fade, which -66 here keeps. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release ends at the same level, fading its remainder over the same block. |
 
 `python sdk.py settings show --image os.ldr` lists the capabilities an OS image
 has on; `python sdk.py settings apply --image os.ldr --extension <folder>
@@ -197,7 +197,8 @@ applied, to stock OS 1.2.1 or any open-xy OS made from it, without rebuilding it
 machines. Every capability site must hold stock or reviewed bytes, and the image
 is authenticated as the builder does. An open-xy OS from another SDK (its own
 hooks or module base) also needs `--stock-os <os.ldr>`: stock's loader records
-must be unchanged and in place, and none of its edits may touch a capability site.
+must be unchanged and in place, and none of its edits may touch a capability site. `apply` changes only
+capability sites; the rest of the image is the SDK's that built it to verify.
 
 ## Master processor
 

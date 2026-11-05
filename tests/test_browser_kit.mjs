@@ -168,6 +168,19 @@ test('stock with only reviewed edits applied, as sdk.py settings apply writes, r
   await assert.rejects(recoverFirmware(kit, foreign), /Only OP–XY OS 1\.2\.1 is supported/);
 });
 
+test('stock with a setting applied recovers stock and the setting; plain stock holds none', async () => {
+  const {kit, stock} = await profilingFixture();
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
+  const choices = {'-40':'01da470114ae0000', '-66':before};
+  kit.profile.patches.push({kind:'limit', service:'release_floor', setting:'release_floor', address:0x1018,
+    file_offset:56, length:8, before, after:choices['-40'], choices});
+  const applied = stock.slice(); applied.set(Buffer.from(choices['-40'], 'hex'), 56);
+  assert.deepEqual(await recoverFirmware(kit, applied),
+    {stock, selected:null, earlier:true, settings:{release_floor:-40}});
+  // A capability of setting edits only is not on in stock, though stock's bytes are a choice.
+  assert.deepEqual(imageSettings(kit, stock), {});
+});
+
 test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', async () => {
   const {kit, linked, stock} = await profilingFixture();
   const image = await patchFirmware(kit, linked, stock, {profiling:false});

@@ -225,8 +225,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
       } else if (recovered.earlier) {
+        extensionSettings = {...recovered.settings};
         $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again';
-      } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
+      } else { extensionSettings = {}; $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name; }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
       status(); ready();
@@ -613,7 +614,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const label = node('label', undefined, 'extension-setting'), input = node('input'), value = node('output');
       const show = () => { value.textContent = input.value + ' ' + setting.unit; };
       input.type = 'range'; input.min = setting.minimum; input.max = setting.maximum; input.step = 1;
-      input.value = extensionSettings[capability] ?? setting.value;
+      // What a build writes: the chosen value, else the first selected extension declaring it.
+      input.value = core.chosenSettings(kit, {extensions: selectedExtensions}, extensionSettings)[capability] ??
+        extensionSettings[capability] ?? setting.value;
       input.disabled = !selectedExtensions.includes(extension.id);
       input.oninput = () => { extensionSettings[capability] = Number(input.value); show(); };
       input.onchange = () => { invalidate(); recalculate(); };

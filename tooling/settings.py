@@ -14,13 +14,12 @@ given the stock OS (--stock-os), it is accepted when every stock loader record i
 unchanged and in place and none of its other edits touches a capability site.
 """
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import re
 
 from .extensions import capabilities, capability_settings, chosen_settings, extension_at
-from .formats import header, ldr, mapped_offset, require
+from .formats import header, ldr, mapped_offset, require, sha
 from .pipeline import add_overwrite_argument, config, fresh_output, read
 from .release import outside_checkouts
 
@@ -31,10 +30,14 @@ def capability_edits(profile, name):
     return [p for p in profile['patches'] if p.get('service') == name]
 
 
+def label(patch):
+    return patch.get('name', patch['address'])
+
+
 def site(image, blocks, patch):
     offset = int(patch['file_offset'], 16)
     require(mapped_offset(blocks, int(patch['address'], 16), patch['length']) == offset,
-            'Capability site is not where OS 1.2.1 holds it: ' + patch['name'])
+            'Capability site is not where OS 1.2.1 holds it: ' + label(patch))
     return offset, image[offset:offset + patch['length']].hex()
 
 
@@ -60,46 +63,38 @@ def authenticate(image, blocks, profile):
         offset = int(patch['file_offset'], 16)
         require(offset + patch['length'] <= len(stock), UNSUPPORTED)
         stock[offset:offset + patch['length']] = bytes.fromhex(patch['before'])
-    require(hashlib.sha256(stock).hexdigest() == profile['stock_sha256'], UNSUPPORTED)
+    require(sha(bytes(stock)) == profile['stock_sha256'], UNSUPPORTED)
 
 
 def compare_with_stock(image, blocks, profile, stock):
     """An open-xy OS from another SDK: the verified stock OS's loader records unchanged and in
-    place, records of its own only before FINAL, and none of its edits at a capability site.
-    Returns how many separate byte ranges it changed in stock's records."""
-    require(len(stock) == profile['stock_bytes'] and hashlib.sha256(stock).hexdigest() == profile['stock_sha256'],
+    place, records of its own only before FINAL, and no edit of its own beside a capability
+    site. The sites themselves may hold only stock or reviewed bytes, which state() checks;
+    the rest of that build is its own SDK's to verify."""
+    require(len(stock) == profile['stock_bytes'] and sha(stock) == profile['stock_sha256'],
             '--stock-os is not the exact stock OS 1.2.1')
     reference = ldr(stock)
     key = lambda b: (b['code'], b['target'], b['count'], b['argument'], b['offset'])
     require(len(blocks) > len(reference) and blocks[0]['code'] & 0xffff == 0x5004 and
             [key(b) for b in blocks[1:len(reference) - 1]] == [key(b) for b in reference[1:-1]] and
             image[-16:] == stock[-16:], UNSUPPORTED + ': its stock loader records moved or changed')
-    end = profile['stock_bytes'] - 16
-    sites = {o for p in profile['patches'] if 'service' in p and p['service'] in capabilities()
-             for o in range(int(p['file_offset'], 16), int(p['file_offset'], 16) + p['length'])}
-    changed = [i for i in range(16, end) if image[i] != stock[i]]
-    ranges = sum(1 for n, i in enumerate(changed) if n == 0 or changed[n - 1] != i - 1)
-    foreign = [i for i in changed if i in sites]
-    # A capability site may differ only by holding reviewed bytes, which state() checks.
+    names = set(capabilities())
     for p in profile['patches']:
-        o = int(p['file_offset'], 16)
-        if p.get('service') in capabilities() and any(o <= i < o + p['length'] for i in foreign):
-            require(image[o:o + p['length']].hex() in encodings(p), 'Another edit overlaps a capability site: ' + p['name'])
-    # Nothing else of this profile may be assumed beyond the capability sites.
-    edges = {o - 1 for o in sites if o - 1 not in sites} | {o + 1 for o in sites if o + 1 not in sites}
-    require(not any(i in edges for i in changed), 'Another edit adjoins a capability site')
-    return ranges
+        if p.get('service') in names:
+            lo = int(p['file_offset'], 16)
+            hi = lo + p['length']
+            require(image[lo - 1] == stock[lo - 1] and image[hi] == stock[hi],
+                    'Another edit adjoins a capability site: ' + label(p))
 
 
 def check_image(image, blocks, profile, stock=None):
-    """'exact' for an image this SDK reconstructs, else the other SDK's edited range count."""
+    """Authenticate as this SDK reconstructs an image, else, given stock, as another SDK's."""
     try:
         authenticate(image, blocks, profile)
-        return 'exact'
     except ValueError:
         require(stock is not None, UNSUPPORTED + ' by this SDK; for an open-xy OS from another SDK, '
                 'pass the stock OS with --stock-os')
-        return compare_with_stock(image, blocks, profile, stock)
+        compare_with_stock(image, blocks, profile, stock)
 
 
 def state(image, profile=None, stock=None):
@@ -112,7 +107,7 @@ def state(image, profile=None, stock=None):
         edits, held = capability_edits(profile, name), {}
         for patch in edits:
             _, data = site(image, blocks, patch)
-            require(data in encodings(patch), 'Unexpected bytes at a capability site: ' + patch['name'])
+            require(data in encodings(patch), 'Unexpected bytes at a capability site: ' + label(patch))
             held[patch['address']] = data
         if all(held[p['address']] == p['before'] for p in edits):
             result[name] = None
@@ -182,10 +177,11 @@ def main(argv=None):
         require(outside_checkouts(args.out), f'Firmware stays outside every checkout: choose --out elsewhere ({args.out})')
         extensions = [extension_at(folder) for folder in args.extension]
         result, values = apply(image, extensions, dict(parse_setting(s) for s in args.set), stock=stock)
-        out = fresh_output(args.out, args.overwrite, keep=[args.image, *args.extension])
+        inputs = [args.image, *args.extension, *([args.stock_os] if args.stock_os else [])]
+        out = fresh_output(args.out, args.overwrite, keep=inputs)  # --overwrite never deletes an input
         (out / 'os.ldr').write_bytes(result)
         report = dict(format='opxy-settings/1', source=str(Path(args.image).resolve()),
-                      source_sha256=hashlib.sha256(image).hexdigest(), sha256=hashlib.sha256(result).hexdigest(),
+                      source_sha256=sha(image), sha256=sha(result),
                       extensions=[e.id for e in extensions], capabilities=values,
                       changed_bytes=sum(a != b for a, b in zip(image, result)))
         (out / 'settings.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')

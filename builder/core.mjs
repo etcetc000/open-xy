@@ -877,9 +877,14 @@ const presentExtensions = (kit, payload, input) => (kit.extensions ?? [])
 // A capability's edits are fixed bytes (tooling.extensions.capabilities): applied
 // in an image exactly when every one holds its reviewed bytes.
 const siteBytes = (input, edit) => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
-const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
-  edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
-    : equal(siteBytes(input, edit), unhex(edit.after)));
+// A capability is on when every fixed edit holds its bytes and every setting edit holds a
+// choice; a capability of setting edits only is on when one differs from stock.
+const capabilityApplied = (p, service, input) => {
+  const edits = p.patches.filter(edit => edit.service === service), fixed = edits.filter(edit => !edit.choices);
+  return edits.every(edit => edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
+      : equal(siteBytes(input, edit), unhex(edit.after))) &&
+    (fixed.length > 0 || edits.some(edit => !equal(siteBytes(input, edit), unhex(edit.before))));
+};
 // The setting values an image holds, read from its reviewed bytes. A value whose bytes
 // are stock's (release_floor's -66) counts once the capability's other edits are on.
 export function imageSettings(kit, input) {
@@ -907,7 +912,11 @@ export async function recoverFirmware(kit, input, layout = null) {
   if (input.length === p.stock_bytes) {
     const restored = input.slice();
     for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
-    if (await sha256(restored) === p.stock_sha256) { readLdr(input); return {stock: restored, selected: null, earlier: true}; }
+    if (await sha256(restored) === p.stock_sha256) {
+      readLdr(input);
+      const settings = imageSettings(kit, input);
+      return {stock: restored, selected: null, earlier: true, ...(Object.keys(settings).length ? {settings} : {})};
+    }
   }
   const blocks = readLdr(input), first = blocks[0], module = blocks.at(-2), final = blocks.at(-1);
   check(blocks.length === p.stock_records + 1 && first.count === 0 &&
@@ -963,7 +972,8 @@ export async function recoverFirmware(kit, input, layout = null) {
   }
   // Another open-xy OS: an earlier release, other machines or another build.
   // Its stock OS is verified above; its machines and extensions are chosen again.
-  return {stock, selected: null, earlier: true};
+  const settings = imageSettings(kit, input);
+  return {stock, selected: null, earlier: true, ...(Object.keys(settings).length ? {settings} : {})};
 }
 
 export function presetPath(machine) {
