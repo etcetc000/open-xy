@@ -46,6 +46,9 @@ DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, s
                    stock_player_name_tail=0x8d5bdddc, stock_player_id_tail=0x8d5bde64, stock_sample_slice_receive_tail=0x8d5b1264)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
+# Hand-scheduled device kernels: sdk/include/opxy/kernels/<name>.hpp declares one
+# (with its portable reference) and KERNELS/<name>.s implements it.
+KERNELS = 'sdk/platform/blackfin/kernels/'
 ALLOWED_SECTIONS = {'.text', '.rodata', '.data', '.bss'}
 MAX_COMPILER_FILE = 64 << 20
 ANALYSIS = ['analysis/compile-report.json']
@@ -196,6 +199,9 @@ def plan(machines, profile=None):
         else:
             steps = ('registration', 'sample_voice', *(('display', 'screen') if m.display != 'stock' else ()))
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
+        units += [(f'{m.id}/kernel_{name}.o', m, 'kernel:' + name) for name in kernels(m)]
+    users = [name for m in machines for name in kernels(m)]
+    require(len(users) == len(set(users)), 'An SDK kernel is included by more than one machine')
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
@@ -203,6 +209,19 @@ def plan(machines, profile=None):
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
+
+
+_KERNEL_INCLUDE = re.compile(r'#\s*include\s*[<"]opxy/kernels/(\w+)\.hpp[>"]')
+
+
+def kernels(m):
+    """The SDK kernels a machine's C++ files include, in name order: each is linked
+    into that machine alone, owned by it, so a build without it carries none."""
+    found = set()
+    for path in tree(Path(m.source())):
+        if path.suffix in ('.cpp', '.cc', '.h', '.hpp'):
+            found.update(_KERNEL_INCLUDE.findall(path.read_text(encoding='utf-8', errors='replace')))
+    return sorted(name for name in found if (ROOT / KERNELS / (name + '.s')).is_file())
 
 
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
@@ -489,6 +508,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
         if step.startswith('source:'):
             return cxx(m.source(step.removeprefix('source:')), obj, m)
+        if step.startswith('kernel:'):
+            return assemble_unit(ROOT / KERNELS / (step.removeprefix('kernel:') + '.s'), obj)
         source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),

@@ -107,6 +107,13 @@ host does fast and the Blackfin does not:
   members; their code counts toward module memory.
 - **Per-sample work that changes only per block**, such as coefficients and
   increments, belongs outside the sample loop.
+- **Kernels.** `<opxy/kernels/*.hpp>` hold hand-scheduled device loops for
+  specific, widely ported algorithms, each with the portable reference it
+  matches sample for sample (used on the host and for calls outside the
+  kernel's stated range). Including one links its device unit
+  (`sdk/platform/blackfin/kernels/`) into that machine alone, counted in its
+  memory; one machine per kernel in a collection. `fold_pair.hpp` is the
+  Braids sine/triangle folder pair.
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
 submitting a catalog entry: add both average cost (`block_percent`) and worst
