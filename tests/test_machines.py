@@ -528,6 +528,181 @@ class OutsideMachines(unittest.TestCase):
         (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
         self.assertEqual(machines.machine_at(folder).display, 'drawing')
 
+    def sampler(self, samples, presets, sdk='1.10', folder='samples'):
+        """probesample as an SDK 1.10 sample engine forking the sampler, with its own samples and presets."""
+        root = self.copy('probesample')
+        definition = json.loads((root / 'definition.json').read_text(encoding='utf-8'))
+        definition['resources'].pop('padSettings')
+        definition['resources'].pop('drumControls')
+        (root / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(root, base='sampler', sdk=sdk, samples=folder, presets='presets')
+        for name, files in (('samples', samples), ('presets', presets)):
+            (root / name).mkdir()
+            for file, value in files.items():
+                data = value if isinstance(value, bytes) else json.dumps(value).encode()
+                (root / name / file).write_bytes(data)
+        return root
+
+    @staticmethod
+    def wav(frames=100, channels=1, rate=44100, width=2):
+        import io, wave
+        out = io.BytesIO()
+        with wave.open(out, 'wb') as w:
+            w.setnchannels(channels); w.setsampwidth(width); w.setframerate(rate)
+            w.writeframes(bytes(frames * channels * width))
+        return out.getvalue()
+
+    def region(self, **changes):
+        value = {'sample': 'content/samples/probesample/pad.wav', 'framecount': 100, 'sample.start': 0,
+                 'sample.end': 100, 'pitch.keycenter': 48, 'hikey': 127, 'gain': 0, 'tune': 0, 'reverse': False,
+                 'loop.start': 0, 'loop.end': 100, 'loop.crossfade': 0, 'loop.onrelease': False}
+        return {key: v for key, v in {**value, **changes}.items() if v is not None}
+
+    @staticmethod
+    def riff(fmt, data, extra=b''):
+        """A WAV file from its fmt and data chunk bodies, with `extra` chunks between them."""
+        chunk = lambda tag, body: tag + len(body).to_bytes(4, 'little') + body + b'\0' * (len(body) & 1)
+        body = b'WAVE' + chunk(b'fmt ', fmt) + extra + chunk(b'data', data)
+        return b'RIFF' + len(body).to_bytes(4, 'little') + body
+
+    @staticmethod
+    def fmt(tag=1, channels=1, rate=44100, bits=16, extensible=False):
+        align = channels * bits // 8
+        value = b''.join(n.to_bytes(size, 'little') for n, size in (
+            (0xfffe if extensible else tag, 2), (channels, 2), (rate, 4), (rate * align, 4), (align, 2), (bits, 2)))
+        if extensible:  # cbSize, valid bits, channel mask and the PCM subformat GUID
+            value += (22).to_bytes(2, 'little') + bits.to_bytes(2, 'little') + (4).to_bytes(4, 'little') + \
+                     bytes.fromhex('0100000000001000800000aa00389b71')
+        return value
+
+    def test_a_sample_engine_ships_its_own_samples_for_its_presets(self):
+        sample = self.preset(type='probesample', regions=[self.region()])
+        stereo = self.preset(type='probesample', regions=[self.region(
+            sample='content/samples/probesample/loop-2.wav', framecount=50, **{'sample.end': 50, 'loop.end': 50})])
+        root = self.sampler({'pad.wav': self.wav(), 'loop-2.wav': self.wav(50, 2), 'README.md': b'# Samples'},
+                            {'default.json': sample, 'empty.json': self.preset(type='probesample'), 'wide.json': stereo})
+        m = machines.machine_at(root)
+        self.assertEqual({name: (s.frames, s.channels) for name, s in m.samples.items()},
+                         {'loop-2': (50, 2), 'pad': (100, 1)})
+        self.assertEqual(m.presets['default']['regions'], [self.region()])
+        self.assertEqual(machines.sample_path(m.id, 'pad'), 'content/samples/probesample/pad.wav')
+        # The build installs each sample once, as it is, beside the presets naming it.
+        from tooling import native
+        from tooling.pipeline import config
+        catalog = (machines.ROOT / 'profiles/opxy-1.2.1/content/op1_factory.json').read_bytes()
+        outputs = native.prepare_assets(catalog, config(), [m])
+        self.assertEqual(outputs['content/samples/probesample/pad.wav'], self.wav())
+        self.assertEqual(sorted(p for p in outputs if p.startswith('content/samples/')),
+                         ['content/samples/probesample/loop-2.wav', 'content/samples/probesample/pad.wav'])
+        self.assertEqual(json.loads(outputs['content/presets/probesample/default.json'])['regions'], [self.region()])
+
+    def test_a_sample_is_read_from_its_wav_chunks(self):
+        # Chunks before the data, an odd-sized one padded, are skipped: the frames are the data's.
+        listed = self.riff(self.fmt(channels=2), bytes(40), extra=b'LIST' + (3).to_bytes(4, 'little') + b'abc\0')
+        root = self.sampler({'pad.wav': listed}, {'a.json': self.preset(type='probesample', regions=[
+            self.region(framecount=10, **{'sample.end': 10, 'loop.end': 10})])})
+        self.assertEqual((machines.machine_at(root).samples['pad'].frames, machines.machine_at(root).samples['pad'].channels),
+                         (10, 2))
+        self.assertEqual(machines.wav_format(self.wav(7, 2)), (1, 2, 44100, 16, 28, 4))
+
+    def test_a_sample_engines_own_samples_are_checked(self):
+        ok = {'pad.wav': self.wav()}
+        preset = lambda *regions: self.preset(type='probesample', regions=list(regions))
+        used = {'a.json': preset(self.region())}
+        cases = {
+            'old sdk': (ok, {'a.json': preset()}, '1.9', 'samples\\) needs "sdk": "1.10"'),
+            'empty': ({}, {'a.json': preset()}, '1.10', '1 to 4 samples'),
+            'too many': ({f's{i}.wav': self.wav() for i in range(5)}, {'a.json': preset()}, '1.10', '1 to 4 samples'),
+            'name': ({'Pad 1.wav': self.wav()}, {'a.json': preset()}, '1.10', 'Invalid sample file'),
+            'suffix': ({'pad.aif': self.wav()}, {'a.json': preset()}, '1.10', 'Invalid sample file'),
+            'not wav': ({'pad.wav': b'RIFF'}, {'a.json': preset()}, '1.10', 'not a PCM WAV'),
+            'rate': ({'pad.wav': self.wav(rate=48000)}, {'a.json': preset()}, '1.10', '16-bit PCM at 44100'),
+            'width': ({'pad.wav': self.wav(width=3)}, {'a.json': preset()}, '1.10', '16-bit PCM at 44100'),
+            'size': ({'pad.wav': self.wav(600000, 2)}, {'a.json': preset()}, '1.10', 'at most 2097152 bytes'),
+            # Python's wave module reads extensible WAVs from 3.12 only: refused on every version.
+            'extensible': ({'pad.wav': self.riff(self.fmt(extensible=True), bytes(200))}, used, '1.10',
+                           'WAVE_FORMAT_EXTENSIBLE'),
+            'float': ({'pad.wav': self.riff(self.fmt(tag=3, bits=32), bytes(400))}, used, '1.10', '16-bit PCM'),
+            'truncated': ({'pad.wav': self.wav()[:-10]}, used, '1.10', 'not a PCM WAV.*past the end'),
+            'odd data': ({'pad.wav': self.riff(self.fmt(channels=2), bytes(6))}, used, '1.10', '16-bit PCM'),
+            'no data': ({'pad.wav': self.wav(0)}, used, '1.10', '16-bit PCM'),
+            'no presets': (ok, None, '1.10', 'loaded by one of its presets.*pad'),
+            'unused': ({'pad.wav': self.wav(), 'tail.wav': self.wav()}, used, '1.10', 'none loads tail'),
+            'other sample': (ok, {'a.json': preset(self.region(sample='content/samples/probesample/kick.wav'))},
+                             '1.10', "machine's own samples"),
+            'user sample': (ok, {'a.json': preset(self.region(sample='/fat32/samples/user/a.wav'))}, '1.10',
+                            "machine's own samples"),
+            'framecount': (ok, {'a.json': preset(self.region(framecount=99))}, '1.10', 'framecount'),
+            'range': (ok, {'a.json': preset(self.region(**{'sample.end': 101}))}, '1.10', 'framecount'),
+            'loop': (ok, {'a.json': preset(self.region(**{'loop.end': 101}))}, '1.10', 'loop lies inside'),
+            'loop past end': (ok, {'a.json': preset(self.region(**{'sample.end': 80}))}, '1.10', 'loop lies inside'),
+            'loop before start': (ok, {'a.json': preset(self.region(**{'sample.start': 10}))}, '1.10',
+                                  'loop lies inside its sample.start..sample.end \\(10..100\\)'),
+            'gain high': (ok, {'a.json': preset(self.region(gain=21))}, '1.10', 'gain is -30..20'),
+            'gain low': (ok, {'a.json': preset(self.region(gain=-31))}, '1.10', 'gain is -30..20'),
+            'tune': (ok, {'a.json': preset(self.region(tune=12))}, '1.10', 'tune, pan.*at 0'),
+            'pan': (ok, {'a.json': preset(self.region(pan=-20))}, '1.10', 'tune, pan.*at 0'),
+            'crossfade': (ok, {'a.json': preset(self.region(**{'loop.crossfade': 100}))}, '1.10', 'at 0'),
+            'key': (ok, {'a.json': preset(self.region(hikey=128))}, '1.10', '0..127'),
+            'field': (ok, {'a.json': preset(self.region(slices=[]))}, '1.10', 'stock region fields'),
+            'value': (ok, {'a.json': preset(self.region(reverse=0))}, '1.10', 'region values'),
+            'missing': (ok, {'a.json': preset(self.region(framecount=None))}, '1.10', 'stock region fields'),
+            'two regions': (ok, {'a.json': preset(self.region(), self.region())}, '1.10', 'at most 1 sample region'),
+        }
+        for case, (samples, presets, sdk, error) in cases.items():
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, error):
+                root = self.sampler(samples, presets or {}, sdk)
+                if presets is None:
+                    self.numberless(root, base='sampler', sdk=sdk, samples='samples', presets=None)
+                machines.machine_at(root)
+            shutil.rmtree(self.folder.parent / 'probesample')
+        # Gain at its ends is kept.
+        for gain in (-30, 20):
+            root = self.sampler(ok, {'a.json': preset(self.region(gain=gain))})
+            self.assertEqual(machines.machine_at(root).presets['a']['regions'][0]['gain'], gain)
+            shutil.rmtree(root)
+        # Only a sample engine forking the sampler ships samples: not a synth, and not the
+        # drum sampler, whose pad regions save fields these checks don't cover yet.
+        drum = self.copy('probesample')
+        (drum / 'samples').mkdir()
+        (drum / 'samples/pad.wav').write_bytes(self.wav())
+        self.numberless(drum, base='drumSampler', sdk='1.10', samples='samples')
+        with self.assertRaisesRegex(ValueError, 'forking the sampler'):
+            machines.machine_at(drum)
+        (self.folder / 'samples').mkdir()
+        (self.folder / 'samples/pad.wav').write_bytes(self.wav())
+        self.numberless(self.folder, sdk='1.10', samples='samples')
+        with self.assertRaisesRegex(ValueError, 'forking the sampler'):
+            machines.machine_at(self.folder)
+
+    def test_a_kit_offers_a_sample_engine_without_its_own_samples(self):
+        """The builder doesn't install a machine's own samples yet: a kit made from a collection
+        holding such a machine still lists it and its presets, which load no sample there."""
+        import contextlib, io
+        from tooling import browser_kit
+        sample = self.preset(type='probesample', regions=[self.region()])
+        empty = self.preset(type='probesample')
+        self.sampler({'pad.wav': self.wav()}, {'default.json': sample, 'tape.json': sample, 'empty.json': empty})
+        self.copy('probefx')
+        listed = self.folder.parent / 'collection.json'
+        listed.write_text(json.dumps({'schema': 1, 'machines': [{'path': 'probefx'}, {'path': 'probesample'}]}),
+                          encoding='utf-8')
+        found = machines.collection(machines.read_collection(listed))
+        self.assertEqual([m.id for m in found if m.samples], ['probesample'])
+        notes = io.StringIO()
+        with contextlib.redirect_stderr(notes):
+            entries = {m.id: browser_kit.machine_entry(m, config(), {}, self.folder.parent / 'kit', 'clang++')
+                       for m in found}
+        self.assertEqual(set(entries), {'probefx', 'probesample'})
+        # Every preset, its own default included, with no sample region (core.mjs presetFiles).
+        self.assertEqual(entries['probesample']['presets'], {'default': empty, 'tape': empty, 'empty': empty})
+        self.assertIn('probesample: the kit leaves out its own samples; its presets default, tape load no sample',
+                      notes.getvalue())
+        # The machine's own presets are left as they are, for sdk.py build.
+        m = next(m for m in found if m.id == 'probesample')
+        self.assertEqual(m.presets['tape']['regions'], [self.region()])
+        self.assertEqual(browser_kit.kit_presets(replace(m, presets={'empty': empty})), {'empty': empty})
+
     def preset(self, **changes):
         value = {'engine': {'params': [0, 16384, 32767, 0, 0, 0, 0, 0], 'volume': 16384}, 'platform': 'OP-XY',
                  'regions': [], 'type': 'fmcopy', 'version': 4}

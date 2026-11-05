@@ -904,8 +904,9 @@ export function presetPath(machine) {
 }
 
 // The machine's init preset, then its own presets (tooling.machines.read_presets):
-// each a version 4 preset of this machine, pointing at no samples. Its own
-// default replaces the generated init preset.
+// each a version 4 preset of this machine, pointing at no samples: a kit empties the
+// regions of those loading a sample engine's own samples, which the builder doesn't
+// install (tooling.browser_kit.kit_presets). Its own default replaces the generated init preset.
 export function presetFiles(machine) {
   // An aux machine's presets: the files the kit generated (tooling.adapters.aux_preset_files).
   if (machine.catalog === '') {
