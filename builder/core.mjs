@@ -943,7 +943,7 @@ export async function recoverFirmware(kit, input, layout = null) {
         for (const extensions of choices) {
           try {
             if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
-          } catch (error) { if (!error.capacity) throw error; }  // a selection that cannot fit was not built
+          } catch {}  // a selection that cannot link (e.g. does not fit) is not this build
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }

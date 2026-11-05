@@ -50,8 +50,10 @@ def expanded_profile(profile):
             x['reserved_bytes'] > profile['reserved_bytes'] and x['reserved_bytes'] % mib == 0 and
             x['module_base'] + x['reserved_bytes'] == end == profile['heap_fill_base'] + profile['heap_fill_bytes'] and
             profile['heap_fill_base'] < x['module_base'] and heap == x['module_base'] - profile['heap_fill_base'] and
-            heap % mib == 0 and all(stock_tables.decode('imm32', bytes.fromhex(p['before'])) == (opcode, profile['heap_fill_bytes'])
-                                    for p in heaps), 'Experimental memory layout is inconsistent')
+            heap % mib == 0 and profile['reserved_bytes'] % mib == 0 and
+            all(stock_tables.decode('imm32', bytes.fromhex(p['before'])) == (opcode, profile['heap_fill_bytes']) and
+                stock_tables.decode('imm32', bytes.fromhex(p['after'])) == (opcode, profile['module_base'] - profile['heap_fill_base'])
+                for p in heaps), 'Experimental memory layout is inconsistent')
     expanded = copy.deepcopy(profile)
     expanded.update(module_base=x['module_base'], reserved_bytes=x['reserved_bytes'])
     for patch in expanded['patches']:

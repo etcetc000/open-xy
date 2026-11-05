@@ -64,7 +64,10 @@ if (offersExpandedMemory(kit.profile)) {
       assert.equal(readLdr(firmware).at(-2).target, expanded.profile.module_base);
       for (const edit of expanded.profile.patches.filter(e => e.kind === 'heap'))
         assert.equal(Buffer.from(firmware.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length)).toString('hex'), edit.after);
-      assert.deepEqual(await recoverFirmware(kit, firmware, layout), {stock, selected, extensions, memory: 'expanded'});
+      // A collection too large to search may recover only its stock OS; its memory is always known.
+      const recovered = await recoverFirmware(kit, firmware, layout);
+      assert.deepEqual(recovered, name === 'collection-expanded' && recovered.earlier
+        ? {stock, selected: null, earlier: true, memory: 'expanded'} : {stock, selected, extensions, memory: 'expanded'});
       await assert.rejects(patchFirmware(kit, linked, stock, {profiling}), /outside module|exceeds its profile/);
       writeFileSync(resolve(directory, 'reference', name) + (profiling ? '.ldr' : '.profiling-off.ldr'), firmware);
     }

@@ -232,9 +232,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
       stock = recovered.stock;
-      // An OS whose memory is known sets the choice: a recognized 6 MiB build turns it
-      // on, an exactly rebuilt standard build off. Stock OS, or an open-xy OS of an
-      // unknown layout, keeps the current one. A change is said, never silent.
+      // An open-xy OS whose module base and heap edits match a layout sets the choice
+      // to it, even when its machines cannot be rebuilt here. Stock OS, or an OS of
+      // no known layout, keeps the current one. A change is said, never silent.
       const memoryChange = recovered.memory ? setExpandedMemory(recovered.memory === 'expanded') : '';
       const memoryNote = memoryChange && ' · ' + memoryChange;
       if (recovered.selected) {
@@ -667,14 +667,14 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const ticket = revision; $('build').disabled = true; status('Linking and checking your build…');
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
-      const memory = chosenKit(), result = core.linkKit(memory, selection, numbers, extensions);
+      const expanded = expandedMemory(), memory = kitFor(expanded), result = core.linkKit(memory, selection, numbers, extensions);
       const files = await core.buildAssets(memory, selection, catalog, result.numbers, settings, result.extensions);
       files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
       const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers,
-        ...(memory !== kit ? {memory: 'expanded'} : {})};
+        ...(expanded ? {memory: 'expanded'} : {})};
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
@@ -685,7 +685,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('download').href = $('flow-download').href = downloadUrl;
       const modes = new Set(kit.machines.filter(machine => selection.includes(machine.id) && machine.artwork).map(machine => core.graphicsForMachine(machine, settings)));
       $('download-summary').textContent = selectionNames().concat(modes.has('grayscale') ? ['Grayscale machine graphics'] : [],
-        memory !== kit ? [expandedSize() + ' experimental memory (may be unstable)'] : []).join(' + ');
+        expanded ? [expandedSize() + ' experimental memory (may be unstable)'] : []).join(' + ');
       $('download-graphics').textContent = modes.size > 1 ? 'Machine graphics: per-machine settings' : modes.has('grayscale')
         ? 'Machine graphics: grayscale' : modes.size ? 'Machine graphics: original designs' : 'Machine graphics: stock screens unchanged';
       $('bundle-art').replaceChildren(visuals.bundle(Object.keys(files)));
