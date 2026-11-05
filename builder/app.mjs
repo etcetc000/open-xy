@@ -224,6 +224,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     wizard.clearSourceBackup();
     const current = ++ticket; invalidate();
     stock = null; ready();
+    // The OS sets the memory choice, so it cannot be changed while it is checked.
+    memoryInput.disabled = true;
     wizard.setFirmwareState('checking');
     $('firmware-result').textContent = 'Verifying ' + file.name + '…';
     try {
@@ -247,7 +249,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
-      status(); ready();
+      // Keep the reason when the selection no longer fits the memory this OS used.
+      if (linked || !selected.length) status();
+      ready();
       return true;
     } catch (error) {
       if (current !== ticket || !isCurrent()) return false;
@@ -255,6 +259,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       fail(error); ready();
       return false;
     } finally {
+      if (current === ticket) memoryInput.disabled = !expandedKit;
       if (current === ticket && !stock) {
         wizard.setFirmwareState('empty');
         $('firmware-result').textContent = 'OS not loaded';

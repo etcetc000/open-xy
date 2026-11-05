@@ -190,6 +190,10 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   // A 6 MiB build this kit cannot rebuild still reports its memory choice.
   const other = image.slice(); other[module.offset + 16] ^= 1;
   assert.deepEqual(await recoverFirmware(kit, other), {stock, selected:null, earlier:true, expanded:true});
+  // A module at the 6 MiB base whose heap edits still write the standard size is no 6 MiB build.
+  const standardHeap = other.slice();
+  for (const at of [48, 64]) standardHeap.set(load(kit.profile.module_base - kit.profile.heap_fill_base), at);
+  assert.deepEqual(await recoverFirmware(kit, standardHeap), {stock, selected:null, earlier:true});
   // A module linked for 6 MiB never patches into the standard layout.
   await assert.rejects(patchFirmware(kit, linked, stock), /Hook destination outside module/);
   // State that fits only the 6 MiB layout is refused by the standard one.

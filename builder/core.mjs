@@ -898,8 +898,10 @@ export async function recoverFirmware(kit, input, layout = null) {
   const payload = input.subarray(module.offset + 16, final.offset);
   // Each memory layout loads its module at its own base; the experimental larger
   // one is reported even when its selection cannot be rebuilt.
+  // Its heap edits must write that layout's heap size, as patchFirmware does.
   const built = [kit, ...(offersExpandedMemory(p) ? [memoryKit(kit, true)] : [])]
-    .find(k => k.profile.module_base === module.target);
+    .find(k => k.profile.module_base === module.target && k.profile.patches.every(e => e.kind !== 'heap' ||
+      equal(input.subarray(Number(e.file_offset), Number(e.file_offset) + e.length), unhex(e.after))));
   const found = built && built !== kit ? {expanded: true} : {};
   if (built && module.count <= moduleBytes(built.profile)) {
     // Reconstruct a selection's entire image; never trust the uploaded module
