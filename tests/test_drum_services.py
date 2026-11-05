@@ -165,3 +165,23 @@ class PadSetupStock(unittest.TestCase):
         self.assertEqual(decode_branch(0x8d4e35bc, bytes.fromhex(code(0x8d4e35bc, 4))), (0x8d4e22d4, True))
         self.assertEqual(decode_branch(0x8d4e35c0, bytes.fromhex(code(0x8d4e35c0, 4))), (0x8d587708, True))
         self.assertEqual(code(0x8d4e22e2, 2), '68a0')   # R0 = [P5 + 0x4]
+
+
+class DrumHookUnits(unittest.TestCase):
+    def test_every_drums_hook_is_defined_in_a_unit_of_the_drums_service(self):
+        # A service's hooks call into its own units (test_native_package checks the
+        # package): every build links the others, a build without the service neither.
+        import re
+        from tooling import native
+        from tooling.pipeline import config
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
+        for patch in config()['patches']:
+            if patch.get('service') != 'drums' or patch['kind'] != 'hook':
+                continue
+            symbol = patch['symbol']
+            defining = [f.stem for f in sorted(platform.iterdir()) if f.suffix in ('.cpp', '.s') and
+                        re.search(r'^\.global %s$|^[\w:* ]*\b%s\([^;]*\)\s*\{' % (symbol, symbol),
+                                  f.read_text(encoding='utf-8'), re.M)]
+            with self.subTest(symbol=symbol):
+                self.assertEqual(len(defining), 1, defining)
+                self.assertEqual(native.UNIT_SERVICES.get(defining[0]), 'drums', defining)
