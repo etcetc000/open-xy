@@ -1684,7 +1684,8 @@
       "call": true,
       "service": "extensions",
       "events": [
-        "context"
+        "context",
+        "motion"
       ]
     },
     {

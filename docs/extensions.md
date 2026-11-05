@@ -57,7 +57,7 @@ of its own beside it.
 | --- | --- | --- |
 | Observe | Read-only; every subscriber, in collection order | Every event |
 | Transform | One ordered chain that may change or drop the event | None yet |
-| Claim | One owner per build; a second claimant fails the build | `record_double_tap` |
+| Claim | One owner per build; a second claimant fails the build | `record_double_tap`; the `monitor_input` action also has one owner |
 
 ### Thread and host
 
@@ -71,7 +71,7 @@ filters to that track for it.
 | Kind | What | Here |
 | --- | --- | --- |
 | Events | Something happened | The `Hooks` callbacks |
-| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify` |
+| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify`, `Actions::monitor_input` |
 | Surfaces | Add to the screen | None for extensions yet: menu rows, pages, overlays |
 | Saved state | Data kept with a project | None for extensions yet |
 
@@ -95,6 +95,7 @@ only for the callback. The SDK does not sandbox native code.
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
 | `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
+| `motion` | Three signed stock motion channels and a monotonic microsecond time, plus live input-monitor status and scoped actions; once after each stock controller update, playing or stopped | Existing controller update |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
 scale 1 has 480 ticks per step. Stock's pickup gives negative positions near
@@ -114,7 +115,7 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   [`DoubleTap`](../sdk/include/opxy/double_tap.hpp) helper handles taps, holds,
   repeats and timeouts on any key without delaying stock controls.
   `record_double_tap` is capture's.
-- **An action** is permission to change stock state. The runtime grants an
+- **A control action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
   claim, and without it any claim its holder owns grants it.
@@ -128,7 +129,32 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
 
-  Calls outside the callback, with a stale context, or a second write or
+- **An event action** declares its callback with `event` in the registry;
+  it does not need a key claim. `monitor_input` declares `event: "motion"` and
+  `exclusive: true`: only one extension in a build may request it, and that
+  extension must subscribe to `motion`. Motion callbacks cannot edit notes or
+  post popups, including when the same extension also owns a key claim.
+
+  `Actions::monitor_input(true)` requests temporary internal-mic monitoring;
+  `false` releases it. Renew the request in each motion callback: omitting a
+  renewal releases it automatically. A second call in one callback is refused.
+  The SDK requires the internal mic already selected on the external-audio
+  track, no sample workflow or project load, enabled input and stock permission
+  to monitor. It never changes the selected source, gain, routing or project
+  parameters. `InputMonitor.active` reports stock monitoring;
+  `owned` distinguishes monitoring the SDK enabled; `available` reports the
+  current eligibility. Existing manual monitoring is never acquired or stopped.
+  A manual monitoring stop or an eligibility/project change cancels an owned
+  request; release it before trying again. Lowering before rearming is the
+  subscriber's responsibility. Audio transitions retain stock behavior.
+
+  `Motion.valid` rejects zero/uninitialized channels and disabled input. Channels
+  are signed stock units before LFO smoothing; the interface does not claim a
+  physical scale or infer face proximity. Observe timestamps to reject controller
+  gaps. The event samples the existing controller stage and installs no nearby
+  sensor hook.
+
+  Calls outside their callback scope, with a stale context, or a second write or
   popup in one callback are refused.
 
 Observers cannot transform notes or suppress stock input.

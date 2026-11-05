@@ -38,7 +38,7 @@ def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
     data (a label and the key it governs); actions are one bit each in RUNTIME."""
     data = document(ROOT / PROFILE)
-    require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
+    require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 4, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
@@ -47,8 +47,10 @@ def registry():
                 isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
                 type(claim['key']) is int and 0 <= claim['key'] < 256, 'Invalid claim: ' + name)
     for name, action in actions.items():
-        require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
-                ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
+        require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires', 'event', 'exclusive'} and
+                ('requires' not in action or action['requires'] in claims) and
+                ('event' not in action or (action['event'] == 'motion' and 'requires' not in action)) and
+                ('exclusive' not in action or type(action['exclusive']) is bool), 'Invalid action: ' + name)
     return claims, actions
 
 
@@ -112,7 +114,13 @@ def extension_at(folder):
     for action in data['actions']:
         needed = actions[action].get('requires')
         require(needed is None or needed in data['claims'], f'{name}: {action} requires the {needed} claim')
-    require(not data['actions'] or data['claims'], f'{name}: actions are granted through a claim it holds')
+    require(data['claims'] or all('event' in actions[a] for a in data['actions']),
+            f'{name}: control actions are granted through a claim it holds')
+    for action in data['actions']:
+        event = actions[action].get('event')
+        if event:
+            require('with_' + event + '(' in (root / 'extension.cpp').read_text(),
+                    f'{name}: {action} needs a {event} callback')
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
@@ -124,13 +132,18 @@ def check_collection(extensions):
     """A build's extensions: distinct, within the limit, and no claim held twice."""
     require(len(extensions) <= MAX_EXTENSIONS, f'At most {MAX_EXTENSIONS} extensions')
     ids, owners = set(), {}
-    claims, _actions = registry()
+    claims, actions = registry()
+    action_owners = {}
     for e in extensions:
         require(e.id not in ids, 'Duplicate extension ID: ' + e.id)
         ids.add(e.id)
         for claim in e.claims:
             require(claim not in owners, f'{claims[claim]["label"]} has multiple owners: {owners.get(claim)}, {e.id}')
             owners[claim] = e.id
+        for action in e.actions:
+            if actions[action].get('exclusive'):
+                require(action not in action_owners, f'{action} has multiple owners: {action_owners.get(action)}, {e.id}')
+                action_owners[action] = e.id
     processors = [e for e in extensions if e.master_processor is not None]
     ids = [e.master_processor.get('state_id', e.id) for e in processors]
     require(len(ids) == len(set(ids)), 'Master processor state IDs must be unique')
@@ -181,7 +194,10 @@ def generate_collection(folder, extensions):
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',
-              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d};' % (
+              'const ActionScope action_scopes[] = {' + table(
+                  ['ActionScope::motion' if a.get('event') == 'motion' else 'ActionScope::claimed_control'
+                   for a in actions.values()]) + '};',
+              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d, action_scopes};' % (
                   len(claims), len(actions)),
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',

@@ -25,6 +25,9 @@ const u32 kRecorder = 0x860c072c;
 const u32 kProject = 0x840a0524;
 const u32 kRecordHeld = kPlaying + 3;  // byte: Record held
 const u32 kInputEnabled = 0x08023c48;
+const u32 kMotion = 0x08037ba0;
+bool monitor_owned, monitor_blocked;
+u32 monitor_project;
 using Wide = __UINT64_TYPE__;
 // Only the normal live-input call establishes this scope. Sequencer playback
 // calls the broad dispatcher directly and cannot become a history event.
@@ -41,6 +44,48 @@ bool unmodified(u32 key) {
         if (other != key && stock<u32(u32)>(0x8d5b7d7c)(other)) return false;
     return true;
 }
+}
+
+extensions::Motion extension_motion() {
+    extensions::Motion motion = {};
+    const volatile i16* axes = at<const volatile i16>(kMotion);
+    motion.x = axes[0]; motion.y = axes[1]; motion.z = axes[2];
+    stock<void(extensions::Time*)>(0x8d5be3a0)(&motion.time);
+    motion.valid = (motion.x || motion.y || motion.z) && byte(kInputEnabled);
+    return motion;
+}
+
+extensions::InputMonitor extension_input_monitor() {
+    const bool active = stock<u32()>(0x8d4db490)() != 0;
+    bool available = word(kProject) && !word(kProject + 4) && byte(kInputEnabled) &&
+        !byte(kRecorder) && !byte(kRecorder + 1);
+    if (available) {
+        const u32 source = stock<u32(u32,u32,u32)>(0x8d5ac910)(0x86bd027c, 12, 0);
+        available = ((source >> 8) * 5u >> 23) == 0 && !stock<u32(u32)>(0x8d4dc450)(0);
+    }
+    return {active, monitor_owned && active, available};
+}
+
+bool extension_monitor_input(bool enabled) {
+    const extensions::InputMonitor input = extension_input_monitor();
+    if (!enabled) {
+        if (monitor_owned && input.active) stock<void(u32)>(0x8d4db4a4)(0);
+        monitor_owned = monitor_blocked = false;
+        return true;
+    }
+    if (monitor_owned && (!input.active || !input.available || monitor_project != word(kProject))) {
+        if (input.active) stock<void(u32)>(0x8d4db4a4)(0);
+        monitor_owned = false;
+        monitor_blocked = true;
+    }
+    if (monitor_blocked || !input.available) return false;
+    if (monitor_owned) return true;
+    // Existing manual monitoring stays with its user; we never borrow it.
+    if (input.active) { monitor_blocked = true; return false; }
+    monitor_project = word(kProject);
+    stock<void(u32)>(0x8d4db4a4)(1);
+    monitor_owned = true;
+    return true;
 }
 
 TrackPattern extension_pattern(u32 track) {
@@ -128,7 +173,7 @@ using namespace opxy::platform;
 void sdk_extensions_controller_update(u32 controller, u32 elapsed) {
     extensions_sync();
     stock<void(u32, u32)>(0x8d5986b8)(controller, elapsed);
-    extensions_sync();
+    extensions_motion();
 }
 void sdk_extensions_recorder_tick(u32 state, u32 delta) {
     extensions_recording_tick(delta);

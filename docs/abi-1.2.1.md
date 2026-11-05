@@ -174,6 +174,27 @@ named for the stock calls they replace; they are adapter entry points, not
 extension APIs. Capture ([open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture)) is the first
 subscriber: it owns the bounded current-track ghost pattern and the Record gesture.
 
+The same controller-update wrapper samples motion after forwarding stock and
+dispatches the `motion` event once, including while stopped. No sensor patch is
+added. Keyboard-controller message `0x45` carries signed big-endian 16-bit
+channels 8..10; `8d5b2814` calls `8c0b6414`, which scales channels 0 and 1 by
+-64 and channel 2 by +64. The setters `8d4db624`, `8d4db5f8`
+and `8d4db5d0` populate the three signed words at `08037ba0`. Stock publishes
+them in message `0xab`, subcommand 4 (`8d4dbc70`), and its audio-side receiver
+calls the same setters (`8d4dc18e`). The motion LFO consumes the second channel
+through `8d4db5bc` at `8d504308`; punch-in processing reads it at `8d58c9f4`.
+The event exposes these stock units without assigning a physical scale.
+
+Input monitoring uses stock's enable getter `8d4db490` and setter `8d4db4a4`
+(byte `84039579`). The external-audio controller's first encoder click on
+track index 12, page 0 toggles this flag at `8c08f7d2`; the shared publisher
+`8d4db758` transports changes to the audio role. The stock mix path at
+`8d50fdc0` checks the flag, then `8d4dc450(source)` for microphone feedback
+protection. The adapter uses this checker and decodes source word 0 of track
+12 like `8d58534c`; source 0 is the internal microphone. A monitoring lease
+changes only that enable flag and yields on a manual stop, project change or
+sample workflow. It never changes codec registers or persisted parameters.
+
 The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key
 dispatch at `0x8c0b6184`, normalized live onset/release at `0x8d594376` and
 `0x8d59420a`, accepted-note bookkeeping at `0x8d595844`, recorder tick at
