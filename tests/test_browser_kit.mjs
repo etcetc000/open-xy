@@ -113,6 +113,34 @@ test('a capability setting writes the reviewed bytes of its value and is recover
     {stock, selected:['a'], extensions:['idle'], settings:{release_floor:-40}});
 });
 
+test('a setting whose bytes are stock is recovered once its capability\'s other edits are on', async () => {
+  const {kit, stock} = await profilingFixture();
+  // Room for both edits: the floor where the third fixture hook was, the stage after it.
+  kit.profile.patches = kit.profile.patches.filter(edit => edit.file_offset !== 48);
+  const before = Buffer.from(stock.subarray(48, 56)).toString('hex'), stage = Buffer.from(stock.subarray(56, 58)).toString('hex');
+  const choices = {'-40':'01da470114ae0000', '-48':'01da8200a6730000', '-66':before};
+  kit.profile.services = {...kit.profile.services, release_floor:['release_floor']};
+  kit.profile.patches.push({kind:'limit', service:'release_floor', setting:'release_floor', address:0x1010, file_offset:48,
+      length:8, before, after:choices['-48'], choices},
+    {kind:'limit', service:'release_floor', address:0x1018, file_offset:56, length:2, before:stage,
+      after:stage === '2860' ? '3060' : '2860'});
+  kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false,
+    settings:{release_floor:{label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48, value:-40}}}];
+  const built = await patchFirmware(kit, linkKit(kit, ['a'], null, ['idle']), stock, {settings:{release_floor:-66}});
+  assert.deepEqual(imageSettings(kit, built), {release_floor:-66});
+  assert.deepEqual(await recoverFirmware(kit, built),
+    {stock, selected:['a'], extensions:['idle'], settings:{release_floor:-66}});
+  assert.deepEqual(imageSettings(kit, await patchFirmware(kit, linkKit(kit, ['a'], null, []), stock)), {});
+});
+
+test('a layout keeps the capability settings this site offers', () => {
+  const kit = {profile:{id:'p', patches:[{setting:'release_floor', choices:{'-40':'00', '-66':'00'}}]}, machines:[]};
+  const base = {format:'opxy-layout/1', profile:'p', machines:{}};
+  assert.deepEqual(readLayout(kit, {...base, settings:{release_floor:-40, gone:3}}).settings, {release_floor:-40});
+  assert.equal(readLayout(kit, base).settings, undefined);
+  assert.throws(() => readLayout(kit, {...base, settings:{release_floor:'-40'}}), /Invalid settings/);
+});
+
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {
   const {kit, linked, stock} = await profilingFixture();
   const on = await patchFirmware(kit, linked, stock), off = await patchFirmware(kit, linked, stock, {profiling:false});

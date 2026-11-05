@@ -12,7 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from .extensions import capabilities, capability_settings, extension_at
+from .extensions import capabilities, capability_settings, chosen_settings, extension_at
 from .formats import ldr, mapped_offset, require
 from .pipeline import ROOT, add_overwrite_argument, config, fresh_output, read
 
@@ -46,7 +46,7 @@ def state(image, profile=None):
             require(data in encodings(patch), 'Unexpected bytes at a capability site: ' + patch['name'])
             held[patch['address']] = data
         edits = capability_edits(profile, name)
-        if all(held[p['address']] == p['before'] for p in edits if 'choices' not in p):
+        if all(held[p['address']] == p['before'] for p in edits):
             result[name] = None
             continue
         require(all(held[p['address']] == p['after'] for p in edits if 'choices' not in p),
@@ -59,18 +59,16 @@ def state(image, profile=None):
 
 def apply(image, extensions, overrides=None, profile=None):
     """A copy of `image` with every capability the extensions declare turned on, each
-    setting at its override, else the first extension's value, else its default."""
+    setting at its override, else the first declaring extension's value, else its default."""
     profile, overrides = profile or config(), dict(overrides or {})
     specs = capability_settings()
     state(image, profile)  # every site holds stock or reviewed bytes
+    require(all(not e.linked for e in extensions),
+            'Only settings extensions apply to an image: an extension with code needs a build')
     declared = [c for e in extensions for c in e.capabilities]
     require(declared, 'The extensions declare no capabilities')
     require(set(overrides) <= set(declared) & set(specs), 'A setting names a capability the extensions do not declare')
-    values = {}
-    for e in extensions:
-        for name, value in e.settings.items():
-            values.setdefault(name, value)
-    values.update(overrides)
+    values = chosen_settings(extensions, overrides)
     for name, value in values.items():
         require(type(value) is int and specs[name]['minimum'] <= value <= specs[name]['maximum'],
                 f'{name} is {specs[name]["minimum"]}..{specs[name]["maximum"]} {specs[name]["unit"]}')

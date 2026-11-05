@@ -78,12 +78,9 @@ def linked_extensions(machines):
 
 
 def build_settings(machines):
-    """Capability settings a build's extensions choose: the first extension that sets one wins."""
-    settings = {}
-    for e in extensions_of(machines):
-        for name, value in getattr(e, 'settings', {}).items():
-            settings.setdefault(name, value)
-    return settings
+    """Capability settings a build writes: for each capability with a setting, the first
+    extension declaring it chooses, with its own value or else the default (as the builder)."""
+    return extensions.chosen_settings(extensions_of(machines))
 
 
 def subset(machines, chosen):
@@ -99,6 +96,9 @@ def configuration(entries=None, layout=None):
     stock_tables.check_profile(profile)
     stock_limits.check_profile(profile)
     release_floor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
+    # Every limit edit belongs to a service one of the two audits above checks.
+    require(all(p.get('service') in (stock_limits.SERVICE, release_floor.SERVICE)
+                for p in profile['patches'] if p['kind'] == 'limit'), 'Unaudited limit edit')
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(

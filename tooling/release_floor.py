@@ -14,7 +14,14 @@ The floor is the envelope's own level, before velocity, filter, track volume
 and mixing, so a setting is a level below the envelope's peak rather than true
 dBFS. Held notes (stage 3), stolen-voice fades (stages 6 and 7) and the drum
 renderer's envelopes stay stock. The filter envelope shares the routine: its
-release also stops at the floor, holding the last 0.03..10% of its depth.
+release also ends at the floor, fading its last 0.05..10% of depth to zero over
+the same block.
+
+Below the floor the stock path stores R0 as the stage and the per-sample slope
+(and 0x70000000 as the coefficient), so the first faded block carries slope +5,
+a negligible rise; the next block's stage-5 handler (8d50e262) sets the slope to
+-level/64 and the coefficient to unity, fading to silence, then idles at stock's
+-66 dB floor.
 
 Each value has its own reviewed bytes (the floor edit's `choices`), so the
 builder recognizes a setting in an image exactly, without arithmetic.

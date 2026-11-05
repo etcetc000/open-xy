@@ -90,6 +90,17 @@ def capability_settings():
     return {name: c['setting'] for name, c in document(ROOT / PROFILE)['capabilities'].items() if c}
 
 
+def chosen_settings(extensions, overrides=None):
+    """{capability: value} a build writes: an override, else the first extension declaring the
+    capability, with its own value or else the setting's default. The builder does the same."""
+    specs, chosen = capability_settings(), {}
+    for e in extensions:
+        for name in getattr(e, 'capabilities', ()):
+            if name in specs:
+                chosen.setdefault(name, e.settings.get(name, specs[name]['default']))
+    return {**chosen, **(overrides or {})}
+
+
 def setting_edits(profile, settings):
     """Each setting edit's chosen bytes: address -> after, from {capability: value}; missing
     values take their defaults."""

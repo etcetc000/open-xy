@@ -77,6 +77,12 @@ class Profile(unittest.TestCase):
             patch['after'] = patch['before']
         check_patch_boundaries(profile, len(profile['patches']))
 
+    def test_every_limit_edit_names_its_service(self):
+        profile = copy.deepcopy(config())
+        floor_edits(profile)[1].pop('service')
+        with self.assertRaises(ValueError):
+            check_patch_boundaries(profile, len(profile['patches']))
+
 
 class Extension(unittest.TestCase):
     def test_settings_choose_a_value_in_range(self):
@@ -97,6 +103,12 @@ class Extension(unittest.TestCase):
         self.assertEqual({patch_active(p, services) for p in floor_edits(config())}, {True})
         self.assertEqual(native.build_settings(Machines()), {'release_floor': -30})
         self.assertNotIn(floor.SERVICE, active_services(config(), native.service_users([])))
+
+    def test_the_first_declaring_extension_chooses_as_the_builder_does(self):
+        class Machines(list):
+            extensions = (extension_at(folder(self)), extension_at(folder(self, settings={'release_floor': -30})))
+        # The first declares no value, so its default wins, as builder/core.mjs chosenSettings.
+        self.assertEqual(native.build_settings(Machines()), {'release_floor': floor.DEFAULT})
 
 
 class Image(unittest.TestCase):
@@ -130,7 +142,13 @@ class Image(unittest.TestCase):
         self.assertEqual(image_settings.state(result, profile), {'long_samples': None, 'release_floor': -40})
         self.assertEqual(sum(a != b for a, b in zip(data, result)), 5)
         again, values = image_settings.apply(result, [extension], {'release_floor': -66}, profile)
+        # -66 is stock's floor bytes; the stage edit tells it from stock.
         self.assertEqual(image_settings.state(again, profile)['release_floor'], -66)
+        partial = bytearray(result)
+        stage = floor_edits(profile)[1]
+        partial[int(stage['file_offset'], 16):int(stage['file_offset'], 16) + 2] = bytes.fromhex(stage['before'])
+        with self.assertRaises(ValueError):
+            image_settings.state(bytes(partial), profile)  # floor raised, stage stock: partly applied
         with self.assertRaises(ValueError):
             image_settings.apply(data, [extension], {'release_floor': -10}, profile)
         with self.assertRaises(ValueError):

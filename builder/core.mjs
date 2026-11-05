@@ -283,7 +283,15 @@ export function readLayout(kit, saved) {
   const selected = saved.selected ?? null;
   check(selected === null || Array.isArray(selected) && selected.every(id => kit.machines.some(m => m.id === id)),
     'This layout lists a machine this site doesn’t have.');
-  return {machines: numbers, selected};
+  // Capability settings the build wrote; a value this site no longer offers is dropped.
+  const settings = {};
+  if (saved.settings !== undefined) {
+    check(saved.settings && typeof saved.settings === 'object' && !Array.isArray(saved.settings) &&
+      Object.values(saved.settings).every(Number.isInteger), 'Invalid settings in this layout.');
+    for (const [c, v] of Object.entries(saved.settings))
+      if (kit.profile.patches.some(edit => edit.setting === c && Object.hasOwn(edit.choices ?? {}, String(v)))) settings[c] = v;
+  }
+  return {machines: numbers, selected, ...(Object.keys(settings).length ? {settings} : {})};
 }
 // The kit's machines numbered for this selection, in kit order, and the layout after.
 export function assignNumbers(kit, selection, layout = null) {
@@ -867,12 +875,15 @@ const siteBytes = (input, edit) => input.subarray(Number(edit.file_offset), Numb
 const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
   edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
     : equal(siteBytes(input, edit), unhex(edit.after)));
-// The setting values an image holds, read from its reviewed bytes.
+// The setting values an image holds, read from its reviewed bytes. A value whose bytes
+// are stock's (release_floor's -66) counts once the capability's other edits are on.
 export function imageSettings(kit, input) {
   const found = {};
   for (const edit of kit.profile.patches.filter(e => e.choices)) {
     const value = Object.entries(edit.choices).find(([, b]) => equal(siteBytes(input, edit), unhex(b)))?.[0];
-    if (value !== undefined && !equal(siteBytes(input, edit), unhex(edit.before))) found[edit.setting] = Number(value);
+    const on = !equal(siteBytes(input, edit), unhex(edit.before)) || kit.profile.patches.some(other =>
+      other.service === edit.service && !other.choices && equal(siteBytes(input, other), unhex(other.after)));
+    if (value !== undefined && on) found[edit.setting] = Number(value);
   }
   return found;
 }

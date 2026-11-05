@@ -64,6 +64,7 @@ def check_patch_boundaries(profile, count):
                     'Invalid instruction edit')
         else:
             require(kind in ('hook', 'startup'), 'Heap, table, limit and text edits carry their reviewed bytes')
+        require(kind != 'limit' or 'service' in patch, 'A limit edit belongs to its capability service')
         if kind == 'text':
             # A stock string rewritten in place: printable text, then at least one NUL.
             for data in (before, bytes.fromhex(patch['after'])):

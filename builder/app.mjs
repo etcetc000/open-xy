@@ -659,13 +659,16 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const result = core.linkKit(kit, selection, numbers, extensions);
       const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
-      const capabilitySettings = Object.fromEntries(Object.entries(extensionSettings).filter(([c]) =>
-        (kit.extensions ?? []).some(e => result.extensions.includes(e.id) && e.settings?.[c])));
+      // Every setting this OS holds: the chosen value, else the first selected extension's own.
+      const capabilitySettings = {};
+      for (const e of (kit.extensions ?? []).filter(e => result.extensions.includes(e.id)))
+        for (const [c, s] of Object.entries(e.settings ?? {})) capabilitySettings[c] ??= extensionSettings[c] ?? s.value;
       files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false, settings: capabilitySettings});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
-      const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers};
+      const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers,
+        ...(Object.keys(capabilitySettings).length ? {settings: capabilitySettings} : {})};
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
@@ -788,7 +791,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
       if (loaded.selected) core.linkKit(kit, loaded.selected, loaded.machines, extensions);
-      selectedExtensions = extensions;
+      selectedExtensions = extensions; extensionSettings = {...loaded.settings};
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
@@ -803,7 +806,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   async function loadCollectionData(data) {
     const next = await core.openKit(data);
-    invalidate(); stock = null; kit = next;
+    invalidate(); stock = null; kit = next; extensionSettings = {};
     // A tap opens the memory breakdown on screens without hover.
     $('builder-version').textContent = 'v' + kit.version;
     $('capacity-foot').textContent = kib(core.moduleBytes(kit.profile)) + ' for machines; CPU load is not measured';
