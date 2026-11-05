@@ -38,6 +38,9 @@ const u32 kAuxTab = 0x0801eae4;  // the aux page shown: M1..M4 as 0..3
 const u32 kSendTracks = 14;  // send tracks 14 and 15
 const u32 kAllTracks = 16;
 u32 aux_engine(u32 track) { return sdk_aux_engine ? sdk_aux_engine(track) : 0; }
+// Stock's meter levels, read by its FX page (8d53b676) as linear Q31 amplitudes:
+// a send's input at 26 + send and its return at 28 + send (send A 0, B 1).
+const u32 kLevels = 0x080376e4;
 // The controller on top of the GUI stack, which receives key events.
 u32 top_controller_vtable() { return *stock<const u32*()>(0x8c0944b0)(); }
 
@@ -390,6 +393,9 @@ bool sdk_send_view(u32 track, SendView* view) {
     if (m->shift) shift_row::decode(current_value(track, shift_row::kWord), m->shift_choices, m->shift, fields);
     for (u32 i = 0; i < shift_row::kControls; ++i) view->choices[i] = static_cast<u8>(fields[i]);
     view->shift = m->shift && shift_held();
+    const u32 send = track - kSendTracks;
+    view->level_in = *at<volatile opxy::i32>(kLevels + 4 * (26 + send));
+    view->level_out = *at<volatile opxy::i32>(kLevels + 4 * (28 + send));
     for (u32 i = 0; i < opxy::page_controls; ++i) {
         const u32 slot = t->slots[i];
         char* text = view->texts[i];
