@@ -90,10 +90,10 @@ def configuration(entries=None, layout=None):
     stock_tables.check_profile(profile)
     # Every registry capability has its site-by-site audit and its stock dependencies
     # (tooling.settings.DEPENDS); every limit edit belongs to one of them.
-    from .settings import DEPENDS
-    audits = {stock_limits.SERVICE: stock_limits, release_floor.SERVICE: release_floor}
+    from .settings import AUDITS
+    audits = {audit.SERVICE: audit for audit in AUDITS}
     names = set(extensions.capabilities())
-    require(names == set(audits) == set(DEPENDS), 'Each capability needs its audit and stock dependencies')
+    require(names == set(audits), 'Each capability needs its audit module (tooling.settings.AUDITS)')
     for name in sorted(names):
         audits[name].check_profile(profile)
     require(all(p.get('service') in names for p in profile['patches'] if p['kind'] == 'limit'),

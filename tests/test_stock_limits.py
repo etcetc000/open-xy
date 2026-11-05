@@ -63,9 +63,15 @@ class Profile(unittest.TestCase):
             self.assertEqual(stock[offset:offset + patch['length']].hex(), patch['before'])
         # Every other stock load of 882,000 belongs to the recorder and stays stock.
         sites = {int(p['file_offset'], 16) for p in limit_edits(config())}
-        others = [m.start() for m in re.finditer(rb'[\x00-\x0f]\xda\x0d\x00\x50\x75\x00\x00', stock)
+        # Any Dreg/Preg = imm32 form (opcodes 0xda00..0xda3f, as stock_tables.decode accepts).
+        others = [m.start() for m in re.finditer(rb'[\x00-\x3f]\xda\x0d\x00\x50\x75\x00\x00', stock)
                   if m.start() not in sites]
         self.assertEqual(len(others), 3)
+        # Nor is 882,000 held as a data word, split into half-word loads, or derived as a
+        # byte count or off-by-one bound anywhere in stock.
+        for value in (882000, 881999, 882001, 882000 * 2, 882000 * 4):
+            self.assertNotIn(value.to_bytes(4, 'little'), stock)
+        self.assertIsNone(re.search(rb'[\x00-\xff]\xe1\x50\x75', stock))  # Reg.L = 0x7550
 
 
 class Service(unittest.TestCase):

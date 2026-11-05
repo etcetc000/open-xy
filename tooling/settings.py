@@ -17,7 +17,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .extensions import capabilities, extension_at
+from .extensions import capabilities, check_collection, extension_at
 from .firmware import hook_target
 from .formats import header, ldr, mapped_offset, require, sha
 from . import release_floor, startup_label, stock_limits
@@ -25,7 +25,9 @@ from .pipeline import add_overwrite_argument, config, fresh_output, read
 from .release import outside_checkouts
 
 # Stock ranges each capability's edits rely on beyond their sites: (address, bytes).
-DEPENDS = {release_floor.SERVICE: release_floor.DEPENDS, stock_limits.SERVICE: stock_limits.DEPENDS}
+# Each capability's audit module: its SERVICE, check_profile (site by site) and DEPENDS.
+AUDITS = (stock_limits, release_floor)
+DEPENDS = {audit.SERVICE: audit.DEPENDS for audit in AUDITS}
 
 UNSUPPORTED = 'Not OP-XY OS 1.2.1 or an open-xy OS made from it'
 
@@ -197,7 +199,7 @@ def main(argv=None):
             print(json.dumps(state(image, stock=stock), indent=2))
             return 0
         require(outside_checkouts(args.out), f'Firmware stays outside every checkout: choose --out elsewhere ({args.out})')
-        extensions = [extension_at(folder) for folder in args.extension]
+        extensions = check_collection([extension_at(folder) for folder in args.extension])
         result, on = apply(image, extensions, stock=stock)
         inputs = [args.image, *args.extension, *([args.stock_os] if args.stock_os else [])]
         out = fresh_output(args.out, args.overwrite, keep=inputs)  # --overwrite never deletes an input

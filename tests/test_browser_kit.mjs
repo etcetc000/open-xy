@@ -100,10 +100,10 @@ test('stock with only fixed capability edits, as sdk.py settings apply writes, r
   const applied = stock.slice();
   applied.set(Buffer.from('01da470114ae0000', 'hex'), 56); applied.set(Buffer.from('2860', 'hex'), 48);
   // No extension here offers the capability: recovery says so rather than dropping it silently.
-  assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true, unoffered:['release_floor']});
+  assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true, applied:true, unoffered:['release_floor']});
   // A settings extension whose capability the image holds is reported, so it stays selected.
   kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false}];
-  assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true, extensions:['idle']});
+  assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true, applied:true, extensions:['idle']});
   // Two extensions turning on one capability are chosen like a shared claim: only one.
   const both = [{claims:[], capabilities:['release_floor']}, {claims:[], capabilities:['release_floor']}];
   assert.equal(sharedClaim(both), 'capability:release_floor');

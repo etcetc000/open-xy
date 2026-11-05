@@ -507,7 +507,9 @@ export async function openKit(kit) {
     // capabilities, each the profile service of the same name (tooling.extensions).
     check((e.capabilities === undefined || Array.isArray(e.capabilities) && e.capabilities.length > 0 &&
       new Set(e.capabilities).size === e.capabilities.length &&
-      e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c)) &&
+      e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c &&
+        kit.profile.patches.some(edit => edit.service === c) &&  // fixed-byte limit edits, as capabilities() requires
+        kit.profile.patches.filter(edit => edit.service === c).every(edit => edit.kind === 'limit' && typeof edit.after === 'string'))) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e)), 'Invalid extension capabilities');
     if(processorOf(e)) {
@@ -853,7 +855,8 @@ const settingsPresent = (kit, input) => (kit.extensions ?? [])
 // capability it has on that no settings extension here turns on (it cannot be rebuilt).
 function heldSettings(kit, input) {
   const extensions = settingsPresent(kit, input);
-  const offered = new Set((kit.extensions ?? []).filter(e => extensions.includes(e.id)).flatMap(e => e.capabilities));
+  // Offered: declared by any extension here, code ones included.
+  const offered = new Set((kit.extensions ?? []).flatMap(e => e.capabilities ?? []));
   const unoffered = [...new Set(kit.profile.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))]
     .filter(c => capabilityApplied(kit.profile, c, input) && !offered.has(c));
   return {...(extensions.length ? {extensions} : {}), ...(unoffered.length ? {unoffered} : {})};
@@ -894,15 +897,14 @@ export async function recoverFirmware(kit, input, layout = null) {
     p.patches.filter(edit => edit.service === service).every(edit => equal(site(edit), unhex(edit.before)));
   const services = [...new Set(p.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))];
   if (input.length === p.stock_bytes && p.patches.every(reviewed)) {
-    const partial = services.find(service => !whole(service));
-    check(!partial, 'This OS has the ' + (partial ?? '').replaceAll('_', ' ') + ' capability only partly applied. ' + UPDATE);
-  }
-  if (input.length === p.stock_bytes && p.patches.every(reviewed) && services.every(whole)) {
     const restored = input.slice();
     for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
     if (await sha256(restored) === p.stock_sha256) {
+      // Stock by hash: now a capability partly applied is that, not a foreign file.
+      const partial = services.find(service => !whole(service));
+      check(!partial, 'This OS has the ' + (partial ?? '').replaceAll('_', ' ') + ' capability only partly applied. ' + UPDATE);
       readLdr(input);
-      return {stock: restored, selected: null, earlier: true, ...heldSettings(kit, input)};
+      return {stock: restored, selected: null, earlier: true, applied: true, ...heldSettings(kit, input)};
     }
   }
   const blocks = readLdr(input), first = blocks[0], module = blocks.at(-2), final = blocks.at(-1);
