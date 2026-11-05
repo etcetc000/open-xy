@@ -65,6 +65,12 @@ def check_patch_boundaries(profile, count):
         else:
             require(kind in ('hook', 'startup'), 'Heap, table, limit and text edits carry their reviewed bytes')
         require(kind != 'limit' or 'service' in patch, 'A limit edit belongs to its capability service')
+        if kind == 'limit':
+            # A capability edit changes only one immediate load's value, never its opcode.
+            from .stock_tables import decode
+            form = {8: 'imm32', 4: 'imm16', 2: 'imm7'}.get(len(before))
+            require(form is not None and decode(form, before)[0] == decode(form, bytes.fromhex(patch['after']))[0],
+                    'A limit edit changes only an immediate')
         if kind == 'text':
             # A stock string rewritten in place: printable text, then at least one NUL.
             for data in (before, bytes.fromhex(patch['after'])):

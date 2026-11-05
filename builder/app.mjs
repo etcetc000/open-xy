@@ -226,14 +226,19 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       } else {
         // Without a full selection, loading an OS only adds: the settings extensions it holds
         // join the user's choice unless one conflicts with it; nothing chosen is removed.
-        const held = (recovered.extensions ?? []).filter(id => !selectedExtensions.includes(id));
-        try { selectedExtensions = core.extensionSelection(kit, [...selectedExtensions, ...held]); } catch {}
+        for (const id of recovered.extensions ?? []) {
+          if (selectedExtensions.includes(id)) continue;
+          try { selectedExtensions = core.extensionSelection(kit, [...selectedExtensions, id]); } catch {}  // conflicts: skipped
+        }
         stock = recovered.stock; renderExtensions(); recalculate();
-        const names = (kit.extensions ?? []).filter(e => (recovered.extensions ?? []).includes(e.id)).map(e => e.name);
-        $('firmware-result').textContent = names.length
+        const names = (kit.extensions ?? []).filter(e => (recovered.extensions ?? []).includes(e.id) &&
+          selectedExtensions.includes(e.id)).map(e => e.name);
+        const missing = (recovered.unoffered ?? []).map(c => c.replaceAll('_', ' '));
+        $('firmware-result').textContent = (names.length
           ? '✓ OP–XY OS 1.2.1 with ' + names.join(' + ') + ' · choose your machines'
           : recovered.earlier ? '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again'
-          : '✓ OP–XY OS 1.2.1 verified · ' + file.name;
+          : '✓ OP–XY OS 1.2.1 verified · ' + file.name) +
+          (missing.length ? ' · it also had ' + missing.join(', ') + ', which no extension here offers' : '');
       }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();

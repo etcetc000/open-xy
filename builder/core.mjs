@@ -509,7 +509,7 @@ export async function openKit(kit) {
       new Set(e.capabilities).size === e.capabilities.length &&
       e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c)) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
-        !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
+        !processorOf(e)), 'Invalid extension capabilities');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
       const f=processorOf(e), stateId=f.state_id ?? e.id;
@@ -849,6 +849,15 @@ const presentMachines = (kit, payload) =>
 // The settings extensions whose capability edits an image holds.
 const settingsPresent = (kit, input) => (kit.extensions ?? [])
   .filter(e => e.linked === false && e.capabilities.every(c => capabilityApplied(kit.profile, c, input))).map(e => e.id);
+// What a recovered OS without a selection holds: the settings extensions to offer, and any
+// capability it has on that no settings extension here turns on (it cannot be rebuilt).
+function heldSettings(kit, input) {
+  const extensions = settingsPresent(kit, input);
+  const offered = new Set((kit.extensions ?? []).filter(e => extensions.includes(e.id)).flatMap(e => e.capabilities));
+  const unoffered = [...new Set(kit.profile.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))]
+    .filter(c => capabilityApplied(kit.profile, c, input) && !offered.has(c));
+  return {...(extensions.length ? {extensions} : {}), ...(unoffered.length ? {unoffered} : {})};
+}
 // A settings extension counts only for capabilities no present code extension declares,
 // so recovery never adds one whose bytes another extension already writes.
 const presentExtensions = (kit, payload, input) => {
@@ -883,14 +892,17 @@ export async function recoverFirmware(kit, input, layout = null) {
     (edit.kind === 'limit' && equal(site(edit), unhex(edit.after)));
   const whole = service => capabilityApplied(p, service, input) ||
     p.patches.filter(edit => edit.service === service).every(edit => equal(site(edit), unhex(edit.before)));
-  if (input.length === p.stock_bytes && p.patches.every(reviewed) &&
-      [...new Set(p.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))].every(whole)) {
+  const services = [...new Set(p.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))];
+  if (input.length === p.stock_bytes && p.patches.every(reviewed)) {
+    const partial = services.find(service => !whole(service));
+    check(!partial, 'This OS has the ' + (partial ?? '').replaceAll('_', ' ') + ' capability only partly applied. ' + UPDATE);
+  }
+  if (input.length === p.stock_bytes && p.patches.every(reviewed) && services.every(whole)) {
     const restored = input.slice();
     for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
     if (await sha256(restored) === p.stock_sha256) {
       readLdr(input);
-      const held = settingsPresent(kit, input);
-      return {stock: restored, selected: null, earlier: true, ...(held.length ? {extensions: held} : {})};
+      return {stock: restored, selected: null, earlier: true, ...heldSettings(kit, input)};
     }
   }
   const blocks = readLdr(input), first = blocks[0], module = blocks.at(-2), final = blocks.at(-1);
@@ -953,8 +965,7 @@ export async function recoverFirmware(kit, input, layout = null) {
   // Another open-xy OS: an earlier release, other machines or another build.
   // Its stock OS is verified above; its machines and code extensions are chosen again,
   // and the settings extensions whose edits it holds are reported.
-  const settingsHeld = settingsPresent(kit, input);
-  return {stock, selected: null, earlier: true, ...(settingsHeld.length ? {extensions: settingsHeld} : {})};
+  return {stock, selected: null, earlier: true, ...heldSettings(kit, input)};
 }
 
 export function presetPath(machine) {

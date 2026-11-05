@@ -12,7 +12,7 @@ from unittest import mock
 from tooling import native, release_floor as floor, settings as image_settings
 from tooling.extensions import check_collection, extension_at
 from tooling.firmware import absolute_call, active_services, patch_active
-from tooling.formats import header
+from tooling.formats import header, ldr, mapped_offset
 from tooling.pipeline import check_patch_boundaries, config
 from tooling.stock_tables import decode
 
@@ -60,6 +60,12 @@ class Profile(unittest.TestCase):
         for patch in floor_edits(profile):
             patch['after'] = patch['before']
         check_patch_boundaries(profile, len(profile['patches']))
+
+    def test_a_limit_edit_changes_only_an_immediate(self):
+        profile = copy.deepcopy(config())
+        floor_edits(profile)[0]['after'] = '07' + floor_edits(profile)[0]['after'][2:]  # another opcode
+        with self.assertRaisesRegex(ValueError, 'only an immediate'):
+            check_patch_boundaries(profile, len(profile['patches']))
 
     def test_every_limit_edit_names_its_service(self):
         profile = copy.deepcopy(config())
@@ -232,6 +238,22 @@ class Image(unittest.TestCase):
         moved[code - 16:code] = header(1, 0x80000010, 128, 0)  # a valid record at another address
         with self.assertRaisesRegex(ValueError, 'records moved'):
             image_settings.state(bytes(moved), profile, data)
+
+    @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
+    def test_another_sdks_image_of_the_real_stock_os(self):
+        stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        blocks = ldr(stock)
+        # Another SDK's build: its module elsewhere, and one hook of its own far from any site.
+        image = bytearray(stock[:-16] + header(4, 0x8ced0380, 16, 0) + bytes(16) + stock[-16:])
+        image[:16] = header(0x5004, blocks[0]['target'], 0, len(image) - 16)
+        hook = mapped_offset(blocks, 0x8d51b38a, 4)
+        image[hook:hook + 4] = bytes.fromhex('d9e3f863')
+        with self.assertRaisesRegex(ValueError, '--stock-os'):
+            image_settings.state(bytes(image))
+        self.assertEqual(image_settings.state(bytes(image), stock=stock), {'long_samples': False, 'release_floor': False})
+        result, on = image_settings.apply(bytes(image), [extension_at(folder(self))], stock=stock)
+        self.assertEqual(on, ['release_floor'])
+        self.assertEqual(sum(a != b for a, b in zip(image, result)), 5)
 
     @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
     def test_stock_holds_the_audited_preimages(self):
