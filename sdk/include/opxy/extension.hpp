@@ -27,7 +27,10 @@ struct NoteOff { u32 track, pitch; };
 struct Tick { u32 delta_q8; bool discontinuity; };
 using Time = __UINT64_TYPE__;
 // Key numbers as stock reports them in queued controls.
-namespace keys { const u32 record = 50; }
+namespace keys {
+const u32 project = 1, record = 50, minus = 53, plus = 54;
+const u32 none = 256;
+}
 struct Control {
     u32 key;
     bool pressed;
@@ -37,7 +40,16 @@ struct Control {
     // No other key and no Shift held when the event arrived.
     bool unmodified;
     Time time;
+    // A claimed chord bypassed stock; its modifier was deferred by the SDK.
+    // Ordinary stock controls have keys::none here.
+    u32 modifier;
+    constexpr Control(u32 k = 0, bool p = false, bool a = false, bool u = false,
+                      Time t = 0, u32 m = keys::none)
+        : key(k), pressed(p), accepted(a), unmodified(u), time(t), modifier(m) {}
 };
+
+enum class CheckpointCommand { store, restore, undo };
+enum class CheckpointResult { success, empty, wrong_scene, busy, changed, unavailable };
 
 // Each action needs its permission (profiles/extensions.json) and works only in
 // a queued_control callback for a key the extension claims, once stock accepted
@@ -52,6 +64,14 @@ struct Actions {
     // Replace an instrument track's pattern notes with these. Refused, changing
     // nothing, while stock is still recording a held note there. Needs edit_notes.
     u32 (*replace_notes)(const Context&, u32 track, const Note*, u32 count);
+    // One temporary scene checkpoint, including active and sound-linked patterns.
+    // A successful restore keeps one recovery state for undo. Needs checkpoint.
+    CheckpointResult (*checkpoint)(const Context&, CheckpointCommand);
+    constexpr Actions(u32 (*insert)(const Context&, u32, const Note*, u32) = nullptr,
+                      void (*popup)(const char*) = nullptr,
+                      u32 (*replace)(const Context&, u32, const Note*, u32) = nullptr,
+                      CheckpointResult (*state)(const Context&, CheckpointCommand) = nullptr)
+        : insert_notes(insert), notify(popup), replace_notes(replace), checkpoint(state) {}
 };
 
 using OnContext = void (*)(const Context&);

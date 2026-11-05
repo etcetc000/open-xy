@@ -101,7 +101,8 @@ class Services(unittest.TestCase):
         # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
         # sends or a padMix kit's step locks: those services stay off.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
-                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks')])
+                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks',
+                                           'checkpoint', 'checkpoint_control')])
         self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks'})
         self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})

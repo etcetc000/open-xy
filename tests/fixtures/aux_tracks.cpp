@@ -122,5 +122,10 @@ int main() {
     host_selected = 14;
     require(sdk_aux_page() == -1 && !sdk_aux_key(kAuxController, &event) && !sdk_aux_turn(0, 1, 123),
             "Send track dispatch changed");
+    const i32 saved_controls[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    aux_restore(11, 0, saved_controls);
+    require(cv_kept.patterns & 1, "per-pattern kept controls restored");
+    aux_restore(11, 0, nullptr);
+    require(!(cv_kept.patterns & 1), "null restore clears one pattern safely");
     return 0;
 }

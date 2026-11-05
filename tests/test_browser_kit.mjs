@@ -237,6 +237,19 @@ test('SDK objects of a profile service link only when a selected machine uses it
   k.machines.push({...machine('b',46,7),kind:'sample'});
   assert.throws(()=>linkKit(k,['a','b']),/Duplicate global symbol: entry/);
 });
+test('checkpoint storage and control support follow the selected extension and machines', () => {
+  const k = fixture();
+  k.definitions.kit_absent = k.profile.module_base;
+  k.extensions = [{id:'checkpoint', claims:['project_checkpoint'], actions:['checkpoint']}];
+  const omitted = linkKit(k, ['a']);
+  assert.equal(omitted.services.has('checkpoint'), false);
+  const enabled = linkKit(k, ['a'], null, ['checkpoint']);
+  assert.equal(enabled.services.has('checkpoint'), true);
+  assert.equal(enabled.services.has('checkpoint_control'), false);
+  k.machines[0].features = ['trackControl'];
+  assert.equal(linkKit(k, ['a'], null, ['checkpoint']).services.has('checkpoint_control'), true);
+  assert.equal(linkKit(k, ['a']).services.has('checkpoint_control'), false);
+});
 test('track control and hidden pages use the control service, whose entry points fall back while unused', () => {
   const k=fixture(), o=k.objects[0];
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control']);

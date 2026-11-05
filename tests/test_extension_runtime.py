@@ -56,6 +56,29 @@ class Runtime(unittest.TestCase):
     def test_double_tap_without_holds_chords_or_repeats(self):
         self.run_fixture('double_tap')
 
+    def test_claimed_chords_preserve_stock_controls_and_balanced_releases(self):
+        self.run_fixture('extension_controls')
+
+    def test_checkpoint_storage_round_trip_capacity_and_malformed_runs(self):
+        self.run_fixture('checkpoint_storage')
+
+    def test_checkpoint_actions_require_the_chord_owner_and_current_context(self):
+        self.run_fixture('checkpoint_runtime')
+
+    def test_checkpoint_control_state_and_aux_presence(self):
+        self.run_fixture('checkpoint_control')
+
+    def test_scene_checkpoint_stock_boundaries_and_recovery(self):
+        def prepare(folder):
+            stock = (PLATFORM / 'stock.hpp').read_text().replace('typedef __UINTPTR_TYPE__ Address;',
+                'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+            for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
+                stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                    'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
+            (folder / 'stock.hpp').write_text(stock)
+            (folder / 'checkpoint.cpp').write_text((PLATFORM / 'checkpoint.cpp').read_text())
+        self.run_fixture('checkpoint', prepare)
+
     def test_extension_observers_order_and_write_ownership(self):
         self.run_fixture('extension_runtime')
 
