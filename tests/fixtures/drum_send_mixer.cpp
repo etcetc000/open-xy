@@ -35,6 +35,15 @@ const DrumSendKit sdk_drum_send_kits[] = {{kit_table, kit_codes}};
 const u32 sdk_drum_send_kit_count = 1;
 
 namespace {
+// Each code's knob position, (c - 1) / 6 for codes 1..7, in Q31, and stock's
+// curve for a send's knob position as its engine computes it (FX I
+// 8d510d7a..8d510daa, FX II 8d510e0a): kDrumSendGains is these, worked out.
+const i32 kDrumSendPositions[kDrumSendCodes] = {
+    0, 0, 357913941, 715827883, 1073741824, 1431655765, 1789569707, q31::maximum};
+i32 drum_send_curve(u32 send, i32 position) {
+    if (send) return position;
+    return q31::add(q31::multiply(q31::multiply(position, position), 1717986918), q31::multiply(position, 429496729));
+}
 // FX I's code in bits 0..2, FX II's in 3..5, as drum_send_codes gives them.
 // 0 follows the track (TRK); 1 is dry; 7 is a full send of the key's own.
 u32 pair(u32 fx1, u32 fx2) { return fx1 | fx2 << kDrumSendCodeBits; }

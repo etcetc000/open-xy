@@ -40,18 +40,12 @@ inline i32 drum_send_store(i32 word, u32 send, u32 code) {
 // shown as 0, 17, 33, 50, 67, 83 and 100, through the same curve stock gives
 // that send's knob, so a key at N sends what the track's knob at N sends. Stock
 // builds FX I's gain as level x (0.8 k^2 + 0.2 k) of its knob k (8d510d7a..8d510daa)
-// and FX II's as level x k (8d510e0a). The positions in Q31:
-const i32 kDrumSendPositions[kDrumSendCodes] = {
-    0, 0, 357913941, 715827883, 1073741824, 1431655765, 1789569707, q31::maximum};
-// Each send's gain per code, worked with stock's arithmetic (drum_send_curve).
+// and FX II's as level x k (8d510e0a). Each send's gain per code, worked with
+// stock's arithmetic from those positions (tests/fixtures/drum_send_mixer.cpp
+// checks them):
 const i32 kDrumSendGains[kDrumSends][kDrumSendCodes] = {
     {0, 0, 119304646, 334053011, 644245093, 1049880892, 1550960410, 2147483644},
     {0, 0, 357913941, 715827883, 1073741824, 1431655765, 1789569707, q31::maximum}};
-// Stock's curve for send `send`'s knob position, as its engine computes it.
-inline i32 drum_send_curve(u32 send, i32 position) {
-    if (send) return position;
-    return q31::add(q31::multiply(q31::multiply(position, position), 1717986918), q31::multiply(position, 429496729));
-}
 inline i32 drum_send_gain(u32 send, u32 code) { return kDrumSendGains[send ? 1 : 0][code & (kDrumSendCodes - 1)]; }
 // The amount a code shows, in percent: 0..100 for codes 1..7 (code 0 shows TRK).
 inline i32 drum_send_percent(u32 code) {
