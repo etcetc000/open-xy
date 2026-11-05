@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def limit_edits(profile):
-    return [p for p in profile['patches'] if p['kind'] == 'limit']
+    return [p for p in profile['patches'] if p['kind'] == 'limit' and p.get('service') == limits.SERVICE]
 
 
 class Profile(unittest.TestCase):
@@ -44,7 +44,7 @@ class Profile(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 limits.check_profile(altered)
         altered = copy.deepcopy(profile)
-        altered['patches'] = [p for p in altered['patches'] if p['kind'] != 'limit'][:]
+        altered['patches'] = [p for p in altered['patches'] if p.get('service') != limits.SERVICE]
         with self.assertRaises(ValueError):
             limits.check_profile(altered)
 
@@ -130,7 +130,7 @@ class Service(unittest.TestCase):
             extension_at(without)
 
     def test_capabilities_are_fixed_edit_services(self):
-        self.assertEqual(capabilities(), (limits.SERVICE,))
+        self.assertEqual(capabilities(), (limits.SERVICE, 'release_floor'))
 
     def test_an_inactive_build_leaves_the_sites_stock(self):
         profile = copy.deepcopy(config())

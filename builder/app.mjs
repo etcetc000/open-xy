@@ -26,7 +26,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
   const kib = n => (n / 1024).toFixed(1) + ' KiB';
   const graphicsConfiguration = createGraphicsConfiguration();
-  let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+  let kit, stock, catalog, selected = [], selectedExtensions = [], extensionSettings = {}, recoveredSettings = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
@@ -219,14 +219,21 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
       stock = recovered.stock;
+      // Values read from a previously loaded OS go; a slider's or a layout's stay.
+      for (const c of recoveredSettings) delete extensionSettings[c];
+      recoveredSettings = Object.keys(recovered.settings ?? {});
       if (recovered.selected) {
-        selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
+        selected = recovered.selected; selectedExtensions = recovered.extensions ?? []; extensionSettings = {...recovered.settings};
         renderMachines(); renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
       } else if (recovered.earlier) {
+        // Settings this image holds join the values already chosen (a slider or a layout).
+        extensionSettings = {...extensionSettings, ...recovered.settings}; renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again';
-      } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
+      } else {
+        $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
+      }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
       status(); ready();
@@ -590,6 +597,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       input.onchange = () => {
         selectedExtensions = core.extensionSelection(kit, input.checked ? [...selectedExtensions, extension.id]
           : selectedExtensions.filter(id => id !== extension.id));
+        // Deselecting an extension drops the chosen values only it declared; values recovered
+        // from an image stay until an extension declaring them is chosen and deselected.
+        if (!input.checked) {
+          const declared = new Set((kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id))
+            .flatMap(e => Object.keys(e.settings ?? {})));
+          for (const c of Object.keys(extension.settings ?? {})) if (!declared.has(c)) delete extensionSettings[c];
+        }
         invalidate(); renderExtensions(); recalculate();
         document.querySelector('#extensions input[aria-label="Include ' + CSS.escape(extension.name) + '"]')?.focus();
       };
@@ -607,6 +621,23 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('extension-description').textContent = extension.description;
     $('extension-note').textContent = extension.note ?? '';
     $('extension-note').hidden = !extension.note;
+    // Capability settings: one slider each, written into the OS when it is built.
+    $('extension-settings').replaceChildren();
+    for (const [capability, setting] of Object.entries(extension.settings ?? {})) {
+      const label = node('label', undefined, 'extension-setting'), input = node('input'), value = node('output');
+      const show = () => { value.textContent = input.value + ' ' + setting.unit; };
+      input.type = 'range'; input.min = setting.minimum; input.max = setting.maximum; input.step = 1;
+      // What a build writes: the chosen value, else the first selected extension declaring it.
+      input.value = core.chosenSettings(kit, {extensions: selectedExtensions}, extensionSettings)[capability] ??
+        extensionSettings[capability] ?? setting.value;
+      input.disabled = !selectedExtensions.includes(extension.id);
+      input.oninput = () => { extensionSettings[capability] = Number(input.value); show(); };
+      input.onchange = () => { invalidate(); recalculate(); };
+      show();
+      label.append(node('span', setting.label), input, value);
+      $('extension-settings').append(label);
+    }
+    $('extension-settings').hidden = !extension.settings;
     document.querySelectorAll('#extensions button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
   }
   function recalculate() {
@@ -643,16 +674,20 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const result = core.linkKit(kit, selection, numbers, extensions);
+      // Every setting this OS holds, fixed when the build starts: the chosen value, else the
+      // first selected extension's own. A slider moved meanwhile invalidates this build.
+      const capabilitySettings = core.chosenSettings(kit, result, extensionSettings);
       const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
-      files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false});
+      files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false, settings: capabilitySettings});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
-      const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers};
+      const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers,
+        ...(Object.keys(capabilitySettings).length ? {settings: capabilitySettings} : {})};
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
-        settings, sizes: result.sizes, files: hashes, hardware_qualified: false, cpu_measured: false});
+        settings, capability_settings: capabilitySettings, sizes: result.sizes, files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
       if (ticket !== revision) return;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));
@@ -771,7 +806,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
       if (loaded.selected) core.linkKit(kit, loaded.selected, loaded.machines, extensions);
-      selectedExtensions = extensions;
+      selectedExtensions = extensions; extensionSettings = {...loaded.settings};
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
@@ -786,7 +821,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   async function loadCollectionData(data) {
     const next = await core.openKit(data);
-    invalidate(); stock = null; kit = next;
+    invalidate(); stock = null; kit = next; extensionSettings = {};
     // A tap opens the memory breakdown on screens without hover.
     $('builder-version').textContent = 'v' + kit.version;
     $('capacity-foot').textContent = kib(core.moduleBytes(kit.profile)) + ' for machines; CPU load is not measured';

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, imageSettings, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -72,6 +72,7 @@ test('profiling defaults on; disabling it changes only the reviewed diagnostic h
 
 test('a settings extension links no code, applies only its capability edits and is recovered from them', async () => {
   const {kit, stock} = await profilingFixture();
+  kit.profile.patches = kit.profile.patches.filter(edit => edit.file_offset !== 48);  // bytes 48..55: no edit
   const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
   kit.profile.services = {...kit.profile.services, long_samples:['long_samples']};
   kit.profile.patches.push({kind:'limit', service:'long_samples', address:0x1018, file_offset:56, length:8,
@@ -87,6 +88,62 @@ test('a settings extension links no code, applies only its capability edits and 
   assert.deepEqual(plain, longer);  // the capability's edit is the only difference
   assert.deepEqual(await recoverFirmware(kit, longer), {stock, selected:['a'], extensions:['longer']});
   assert.deepEqual(await recoverFirmware(kit, await patchFirmware(kit, off, stock)), {stock, selected:['a'], extensions:[]});
+});
+
+test('a capability setting writes the reviewed bytes of its value and is recovered with it', async () => {
+  const {kit, stock} = await profilingFixture();
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
+  const choices = {'-40':'01da470114ae0000', '-48':'01da8200a6730000', '-66':before};
+  kit.profile.services = {...kit.profile.services, release_floor:['release_floor']};
+  kit.profile.patches.push({kind:'limit', service:'release_floor', setting:'release_floor', address:0x1018, file_offset:56,
+    length:8, before, after:choices['-48'], choices});
+  const setting = {label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48};
+  kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false,
+    settings:{release_floor:{...setting, value:-40}}}];
+  const on = linkKit(kit, ['a'], null, ['idle']), off = linkKit(kit, ['a'], null, []);
+  const site = image => Buffer.from(image.subarray(56, 64)).toString('hex');
+  // The extension's own value, then a chosen one; without the extension, stock.
+  assert.equal(site(await patchFirmware(kit, on, stock)), choices['-40']);
+  const chosen = await patchFirmware(kit, on, stock, {settings:{release_floor:-66}});
+  assert.equal(site(chosen), before);
+  assert.equal(site(await patchFirmware(kit, off, stock)), before);
+  await assert.rejects(patchFirmware(kit, on, stock, {settings:{release_floor:-30}}), /outside its range/);
+  const built = await patchFirmware(kit, on, stock);
+  assert.deepEqual(imageSettings(kit, built), {release_floor:-40});
+  assert.deepEqual(await recoverFirmware(kit, built),
+    {stock, selected:['a'], extensions:['idle'], settings:{release_floor:-40}});
+});
+
+test('a setting whose bytes are stock is recovered once its capability\'s other edits are on', async () => {
+  const {kit, stock} = await profilingFixture();
+  // Room for both edits: the floor where the third fixture hook was, the stage after it.
+  kit.profile.patches = kit.profile.patches.filter(edit => edit.file_offset !== 48);
+  const before = Buffer.from(stock.subarray(48, 56)).toString('hex'), stage = Buffer.from(stock.subarray(56, 58)).toString('hex');
+  const choices = {'-40':'01da470114ae0000', '-48':'01da8200a6730000', '-66':before};
+  kit.profile.services = {...kit.profile.services, release_floor:['release_floor']};
+  kit.profile.patches.push({kind:'limit', service:'release_floor', setting:'release_floor', address:0x1010, file_offset:48,
+      length:8, before, after:choices['-48'], choices},
+    {kind:'limit', service:'release_floor', address:0x1018, file_offset:56, length:2, before:stage,
+      after:stage === '2860' ? '3060' : '2860'});
+  kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false,
+    settings:{release_floor:{label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48, value:-40}}}];
+  const built = await patchFirmware(kit, linkKit(kit, ['a'], null, ['idle']), stock, {settings:{release_floor:-66}});
+  assert.deepEqual(imageSettings(kit, built), {release_floor:-66});
+  // Partly applied (floor raised, stage edit stock) holds no setting, as tooling/settings.state.
+  const partial = (await patchFirmware(kit, linkKit(kit, ['a'], null, ['idle']), stock, {settings:{release_floor:-40}})).slice();
+  partial.set(stock.subarray(56, 58), 56);
+  assert.deepEqual(imageSettings(kit, partial), {});
+  assert.deepEqual(await recoverFirmware(kit, built),
+    {stock, selected:['a'], extensions:['idle'], settings:{release_floor:-66}});
+  assert.deepEqual(imageSettings(kit, await patchFirmware(kit, linkKit(kit, ['a'], null, []), stock)), {});
+});
+
+test('a layout keeps the capability settings this site offers', () => {
+  const kit = {profile:{id:'p', patches:[{setting:'release_floor', choices:{'-40':'00', '-66':'00'}}]}, machines:[]};
+  const base = {format:'opxy-layout/1', profile:'p', machines:{}};
+  assert.deepEqual(readLayout(kit, {...base, settings:{release_floor:-40, gone:3}}).settings, {release_floor:-40});
+  assert.equal(readLayout(kit, base).settings, undefined);
+  assert.throws(() => readLayout(kit, {...base, settings:{release_floor:'-40'}}), /Invalid settings/);
 });
 
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {
@@ -106,6 +163,40 @@ test('only an exact build restores its selection; others recover verified stock 
     const foreign = image.slice(); foreign[60] ^= 1;
     await assert.rejects(recoverFirmware(kit, foreign), /not made from OS 1\.2\.1/);
   }
+});
+
+test('stock with only reviewed edits applied, as sdk.py settings apply writes, recovers stock', async () => {
+  const {kit, stock} = await profilingFixture();
+  kit.profile.patches = kit.profile.patches.filter(edit => edit.file_offset !== 48);  // bytes 48..55: no edit
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
+  kit.profile.services = {...kit.profile.services, long_samples:['long_samples']};
+  kit.profile.patches.push({kind:'limit', service:'long_samples', address:0x1018, file_offset:56, length:8,
+    before, after:'01da0f00ffff0000'});
+  const applied = stock.slice(); applied.set(Buffer.from('01da0f00ffff0000', 'hex'), 56);  // a fixed reviewed edit
+  assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true});
+  // A capability partly applied is no image any tool writes.
+  kit.profile.patches.push({kind:'limit', service:'long_samples', address:0x1010, file_offset:48, length:2,
+    before:Buffer.from(stock.subarray(48, 50)).toString('hex'), after:'2860'});
+  await assert.rejects(recoverFirmware(kit, applied), /Only OP–XY OS 1\.2\.1 is supported/);
+  kit.profile.patches.pop();
+  // A hook needs a module record to branch into: without one its site must stay stock.
+  const hooked = stock.slice(); hooked[32] ^= 1;
+  await assert.rejects(recoverFirmware(kit, hooked), /Only OP–XY OS 1\.2\.1 is supported/);
+  const foreign = stock.slice(); foreign[50] ^= 1;
+  await assert.rejects(recoverFirmware(kit, foreign), /Only OP–XY OS 1\.2\.1 is supported/);
+});
+
+test('stock with a setting applied recovers stock and the setting; plain stock holds none', async () => {
+  const {kit, stock} = await profilingFixture();
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
+  const choices = {'-40':'01da470114ae0000', '-66':before};
+  kit.profile.patches.push({kind:'limit', service:'release_floor', setting:'release_floor', address:0x1018,
+    file_offset:56, length:8, before, after:choices['-40'], choices});
+  const applied = stock.slice(); applied.set(Buffer.from(choices['-40'], 'hex'), 56);
+  assert.deepEqual(await recoverFirmware(kit, applied),
+    {stock, selected:null, earlier:true, settings:{release_floor:-40}});
+  // A capability of setting edits only is not on in stock, though stock's bytes are a choice.
+  assert.deepEqual(imageSettings(kit, stock), {});
 });
 
 test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', async () => {
@@ -373,6 +464,18 @@ test('curated profile and object authentication reject modified input', async ()
   k.version='0.0.2';
   k.objects[0].sha256='0'.repeat(64); await assert.rejects(openKit(k),/hash mismatch/);
   k.profile.patches[0].after='0000000000000000'; await assert.rejects(openKit(k),/reviewed profile/);
+});
+test('a kit offers a setting only when every value in its range has reviewed bytes', async () => {
+  const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');
+  k.objects=[{name:'a.o',owner:'a',bytes:Buffer.from(elf()).toString('base64'),sha256:await sha256(elf())}];
+  k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
+  const setting = {label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48, value:-40};
+  const idle = settings => ({id:'idle', name:'Idle', description:'d', claims:[], actions:[], claim_labels:{},
+    capabilities:['release_floor'], linked:false, origin:'personal', settings});
+  k.extensions=[idle({release_floor:setting})]; await openKit(k);
+  for (const settings of [{release_floor:{...setting, minimum:-70}}, {release_floor:{...setting, default:-10}}, {release_floor:null}, null]) {
+    k.extensions=[idle(settings)]; await assert.rejects(openKit(k), /Invalid extension settings/);
+  }
 });
 test('SDK 1.5 machines ask for no numbers and the selection gives them', async () => {
   const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');

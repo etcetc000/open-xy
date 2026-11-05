@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, runtime, screen, startup_label, stock_limits, stock_tables
+from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_limits, stock_tables
 from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -77,6 +77,12 @@ def linked_extensions(machines):
     return tuple(e for e in extensions_of(machines) if e.linked)
 
 
+def build_settings(machines):
+    """Capability settings a build writes: for each capability with a setting, the first
+    extension declaring it chooses, with its own value or else the default (as the builder)."""
+    return extensions.chosen_settings(extensions_of(machines))
+
+
 def subset(machines, chosen):
     """Some of a collection's machines, with all of its extensions."""
     return Collection(chosen, extensions_of(machines))
@@ -89,6 +95,11 @@ def configuration(entries=None, layout=None):
     profile = config()
     stock_tables.check_profile(profile)
     stock_limits.check_profile(profile)
+    release_floor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
+    # Every limit edit belongs to a registry capability (each audited above).
+    names = set(extensions.capabilities())
+    require(all(p.get('service') in names for p in profile['patches'] if p['kind'] == 'limit'),
+            'A limit edit belongs to a registry capability')
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
@@ -714,9 +725,12 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
     hooks = {}
     text = allocated['.text']
     services = active_services(profile, service_users(machines))
+    chosen = extensions.setting_edits(profile, build_settings(machines))
     for patch in patch_profile['patches']:
         if not patch_active(patch, services, profiling):
             patch['after'] = patch['before']  # inactive hooks retain stock code
+        elif 'setting' in patch:
+            patch['after'] = chosen[patch['address']]  # the reviewed bytes of the chosen value
         elif patch['kind'] == 'startup':
             patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
         elif patch['kind'] == 'hook':
