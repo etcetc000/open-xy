@@ -138,7 +138,7 @@ class Extensions(unittest.TestCase):
     def test_checkpoint_storage_is_a_selected_capability(self):
         from dataclasses import replace
         from machine_fixtures import fixture
-        extension = extensions.Extension('checkpoint', PROBE, ('project_checkpoint',), ('checkpoint',), {})
+        extension = extensions.Extension('checkpoint', PROBE, ('metronome_checkpoint',), ('checkpoint',), {})
         synth = fixture('probesynth')
         selected = native.Collection([synth], [extension])
         self.assertIn('checkpoint', native.active_services(config(), native.service_users(selected)))

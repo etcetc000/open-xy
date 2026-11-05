@@ -28,7 +28,7 @@ struct Tick { u32 delta_q8; bool discontinuity; };
 using Time = __UINT64_TYPE__;
 // Key numbers as stock reports them in queued controls.
 namespace keys {
-const u32 project = 1, record = 50, minus = 53, plus = 54;
+const u32 metronome = 1, record = 50, minus = 53, plus = 54;
 const u32 none = 256;
 }
 struct Control {

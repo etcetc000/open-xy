@@ -121,7 +121,7 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   modifier tap replays on release; another combination replays the modifier
   before its next key. Shift, extra held controls and modal screens keep stock
   dispatch. With no owner selected, there is no deferral. The
-  `project_checkpoint` claim owns Project + plus/minus/Record.
+  `metronome_checkpoint` claim owns Metronome + plus/minus/Record.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
@@ -135,7 +135,7 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
-  - `checkpoint` (requires `project_checkpoint`) unlocks `Actions::checkpoint`:
+  - `checkpoint` (requires `metronome_checkpoint`) unlocks `Actions::checkpoint`:
     `CheckpointCommand::store`, `restore` or `undo`. It stores one temporary
     scene checkpoint, recalls it or recovers the state before the last recall.
     The action returns a `CheckpointResult`; a refusal changes no live pattern.

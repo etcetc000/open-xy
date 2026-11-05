@@ -192,7 +192,7 @@ except an enabled claim's registered chords. The key wrapper routes those before
 stock at the same authenticated site; it defers the modifier, consumes matching
 presses/repeats/releases, and replays ordinary modifier taps/combinations. Normal
 screens are instrument/aux (0/1), project (5), mix (7), bar (13), arrange/song
-(40/41); modal screens retain stock. Project is key 1, Record 50, minus 53, plus 54.
+(40/41); modal screens retain stock. Metronome is key 1, Record 50, minus 53, plus 54.
 
 The optional `checkpoint` service links only for an extension declaring that
 action. Stock's pattern clipboard copies 0x53f4-byte value records

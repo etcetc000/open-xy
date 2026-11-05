@@ -240,7 +240,7 @@ test('SDK objects of a profile service link only when a selected machine uses it
 test('checkpoint storage and control support follow the selected extension and machines', () => {
   const k = fixture();
   k.definitions.kit_absent = k.profile.module_base;
-  k.extensions = [{id:'checkpoint', claims:['project_checkpoint'], actions:['checkpoint']}];
+  k.extensions = [{id:'checkpoint', claims:['metronome_checkpoint'], actions:['checkpoint']}];
   const omitted = linkKit(k, ['a']);
   assert.equal(omitted.services.has('checkpoint'), false);
   const enabled = linkKit(k, ['a'], null, ['checkpoint']);
