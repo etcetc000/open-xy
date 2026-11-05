@@ -70,7 +70,8 @@ A drum preview auditions one parameter set across its voices; the device provide
 The OP-XY renders every voice and effect in 64-sample blocks, 1.45 ms each, on
 one Blackfin core that also runs its own engines, sequencer and effects. A
 machine's cost adds up per sounding voice and per track that uses it. The SDK
-sets no hard limit and does not yet measure device cycles.
+reports a host estimate during development; catalog submissions require the
+separate [hardware measurement](profiling.md) of average and peak CPU.
 
 `python sdk.py test` prints an estimate for synths and effects in **Blackfin
 instructions per 64-sample block**, at the machine's heaviest control setting.
@@ -105,7 +106,9 @@ host does fast and the Blackfin does not:
   increments, belongs outside the sample loop.
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
-submitting a catalog entry. Host estimates do not satisfy that requirement.
+submitting a catalog entry: add both average cost (`block_percent`) and worst
+observed block (`peak_percent`) from the generated report. A low average can
+hide a short spike; host estimates do not satisfy either measurement requirement.
 
 ## Definition
 
