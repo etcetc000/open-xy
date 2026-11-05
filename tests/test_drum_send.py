@@ -116,6 +116,39 @@ int main() {
     end(1);
     CHECK(probe_drum_send(objects[1]) == 0);
     CHECK(probe_drum_send(objects[5]) == 0);       // never played
+    // A stolen handle: its voice went to another note, so the block it renders
+    // is silence and follows the track, whatever the voice's new key sends.
+    end(2);
+    const opxy::i32 other_word = opxy::platform::drum_send_store(
+        opxy::platform::drum_send_store(opxy::platform::kDrumPadReady, 0, 2), 1, 6);
+    opxy::i32 other[8] = {kMarked, 0, 0, 0, 0, 0, other_word, 0};
+    const opxy::u32 codes = PAD_MIX ? 5u + (3u << 3) : 0u, other_codes = PAD_MIX ? 2u + (6u << 3) : 0u;
+    note(1, 53);
+    render(1, marked);
+    note(6, 57); note(7, 58); note(8, 59);         // the other three voices
+    note(9, 60);                                   // takes handle 1's, the oldest
+    CHECK(probe_drum_send(objects[1]) == 0 && probe_drum_send(objects[9]) == 0);
+    render(9, other);
+    render(1, marked);
+    CHECK(probe_drum_send(objects[9]) == other_codes);
+    CHECK(probe_drum_send(objects[1]) == 0);
+    end(6); end(7); end(8); end(9);
+    if (kChoke) {
+        // A same-key choke fades the old voice over two blocks inside its own
+        // renders, the second freeing it: that block still sends as its key
+        // does; after it, the handle renders silence and follows the track.
+        note(10, 60);
+        render(10, marked);
+        note(18, 60);                              // the same track (2) and key
+        render(10, marked);
+        CHECK(probe_drum_send(objects[10]) == codes);
+        render(10, marked);                        // the fade ends: the voice is freed
+        CHECK(probe_drum_send(objects[10]) == codes);
+        render(10, marked);
+        CHECK(probe_drum_send(objects[10]) == 0);
+        render(18, other);
+        CHECK(probe_drum_send(objects[18]) == other_codes && probe_drum_send(objects[10]) == 0);
+    }
     std::puts("adapter sends ok");
     return 0;
 }
@@ -159,10 +192,11 @@ class DrumSend(unittest.TestCase):
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_the_adapter_keeps_each_voices_send_code(self):
-        for pad_mix in (1, 0):
-            with self.subTest(padMix=pad_mix):
+        for pad_mix, choke in ((1, 0), (0, 0), (1, 1)):
+            with self.subTest(padMix=pad_mix, chokeSameKey=choke):
                 driver = SEND_DRIVER.replace('PAD_MIX', 'true' if pad_mix else 'false')
-                test_drum_voices.DrumVoices.run_adapter(self, SEND_ENGINE, driver, 4, padMix=pad_mix)
+                test_drum_voices.DrumVoices.run_adapter(self, SEND_ENGINE, driver, 4, padMix=pad_mix,
+                                                        chokeSameKey=choke)
 
     def test_definitions_and_versions(self):
         definition = test_drum_preview.DrumPreviewTests.definition(None, "drum")

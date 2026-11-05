@@ -1055,7 +1055,10 @@ finds silent (`8d51237a`) skips every bus.
 
 A `padMix` kit keeps each key's two send codes in bits 25..30 of its pad
 word `+0x14` (payload word 6), and the adapter keeps the codes of the block a
-voice last rendered, 0 on a key it has not set up. Code 0 (`TRK`) follows the
+voice last rendered, 0 on a key it has not set up. Only the handle holding the
+voice reports them (or one whose voice its own choke fade freed in that
+block); a handle whose voice went to another note rendered silence and reports
+0. Code 0 (`TRK`) follows the
 track's send; codes 1..7 send the key's own amount, 0..100 percent of a full
 send, whatever the track's send knob. Five hooks, each replacing one whole
 instruction outside every hardware
