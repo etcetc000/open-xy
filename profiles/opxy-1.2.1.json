@@ -1774,19 +1774,6 @@
     },
     {
       "kind": "hook",
-      "address": "0x8d598608",
-      "file_offset": "0x1cf864",
-      "length": 4,
-      "before": "ffe35a5e",
-      "symbol": "sdk_extensions_song_check",
-      "call": true,
-      "service": "extensions",
-      "actions": [
-        "loop_bars"
-      ]
-    },
-    {
-      "kind": "hook",
       "address": "0x8d5474ee",
       "file_offset": "0x17e74a",
       "length": 4,

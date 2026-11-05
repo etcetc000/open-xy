@@ -8,7 +8,7 @@
   "actions": {
     "edit_notes": {"requires": "record_double_tap"},
     "notify": {},
-    "loop_bars": {"requires": "bar_menu_m3"},
-    "play_from": {"requires": "shift_play"}
+    "loop_bars": {},
+    "play_from": {}
   }
 }

@@ -216,8 +216,8 @@ int main() {
     record(); CHECK(seen.control.key==50 && !seen.control.pressed && seen.control.accepted);
     CHECK(seen.control.unmodified && seen.control.time==clock_time && event_calls==4);
     key(10,true); CHECK(seen.control.key==10 && seen.control.accepted);
-    CHECK(seen.control.held==extensions::keys::none && !seen.control.shift && !seen.context.shift && !seen.control.bar_menu);
-    screen=0x23; key(8,true); CHECK(seen.control.bar_menu); key(8,false); screen=0;
+    CHECK(seen.control.held==extensions::keys::none && !seen.control.shift && !seen.context.shift && seen.control.screen == 0);
+    screen=0x23; key(8,true); CHECK(seen.control.screen==extensions::screens::bar_menu); key(8,false); screen=0;
     other_held=55; key(50,true); CHECK(!seen.control.unmodified && seen.control.held==55); key(50,false); other_held=0;
     // The sequencer view reaches the context: one bar of 16 steps at scale 3 (1680).
     CHECK(seen.context.sequencer.track[0].bars==1 && seen.context.sequencer.track[15].bar_ticks==7680);

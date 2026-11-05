@@ -101,7 +101,7 @@ class Extensions(unittest.TestCase):
         served = lambda p: next(x for x in p['patches'] if x.get('actions'))
         self.assertEqual({x['address'] for x in profile['patches'] if x.get('actions') == ['loop_bars']},
                          {'0x8d5ab84c', '0x8d5ab7d0', '0x8d5ac000', '0x8d5ac76e', '0x8d598038',
-                          '0x8d5474ee', '0x8d598608'})
+                          '0x8d5474ee'})
         self.assertEqual({x['address'] for x in profile['patches'] if x.get('actions') == ['play_from']},
                          {'0x8d597ffc', '0x11a0aa80'})
         for mutate in (

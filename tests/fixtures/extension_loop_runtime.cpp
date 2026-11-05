@@ -64,8 +64,8 @@ const extensions::Hooks first =
     extensions::Hooks().with_queued_control(looper).with_key_label(looper_label).with_sequencer_change(mover);
 const extensions::Hooks second = extensions::Hooks()
     .with_queued_control(observer).with_key_label(observer_label).with_sequencer_change(observer_change);
-// Claims: Record (50), M3 (8) and Play (51); loop_bars needs the second, play_from the third.
-u32 claim_keys[] = {50, 8, 51}, action_claims[] = {1u, 0, 2u, 4u};
+// Claims: Record (50), M3 (8) and Play (51); edit_notes needs the first, the others any claim.
+u32 claim_keys[] = {50, 8, 51}, action_claims[] = {1u, 0, 0, 0};
 const ExtensionRegistry tables = {claim_keys, 3, action_claims, 4};
 ExtensionEntry collection[] = {{"looper", 6u, action_loop_bars | action_notify | action_play_from, &first},
                                {"observer", 0, 0, &second}};
@@ -97,7 +97,7 @@ void extension_key_label(u32 key, const char* text) {
 }
 }}
 void control(u32 key, bool accepted) {
-    const extensions::Control event = {key, true, accepted, false, 100, extensions::keys::bar, false, true};
+    const extensions::Control event = {key, true, accepted, false, 100, extensions::keys::bar, false, extensions::screens::bar_menu};
     extensions_queued_control(event);
     ++controls;
 }
@@ -154,12 +154,13 @@ int main() {
     sequencer.track[2].loop = extensions::no_bar; sequencer.track[2].bars = 4;
     extensions_sync(); CHECK(changes == 2);                                         // loop gone: no event
     sequencer.track[2].bar_ticks = 7680; extensions_sync();
-    // play_from: granted by Play's claim while stopped, once per callback.
+    // play_from: granted by any claim of its holder, once per callback.
     mode = 6; playing = false; extensions_sync();
     control(51, true); CHECK(starts == 1 && started_at == 2 * 7680 && played == 1 && plays == 1);
-    control(8, true); CHECK(starts == 1 && played == 1);      // M3 doesn't grant it
-    control(51, false); CHECK(starts == 1);                    // nor a key stock didn't take
+    control(8, true); CHECK(starts == 2 && played == 2);      // M3, its other claim, grants it too
+    control(25, true); CHECK(starts == 2);                     // an unclaimed key doesn't
+    control(51, false); CHECK(starts == 2);                    // nor a key stock didn't take
     playing = true; extensions_sync();
-    control(51, true); CHECK(starts == 2 && played == 2);     // playing: a restart
+    control(51, true); CHECK(starts == 3 && played == 3);     // playing: a restart
     return 0;
 }

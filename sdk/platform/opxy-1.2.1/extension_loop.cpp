@@ -6,9 +6,9 @@
 // target inside it (8d583e44, called at 8d5ac76e). These four replacements keep
 // a looped track in its bar and forward everything else unchanged. A fifth
 // (8d598038) shows the looped bar at play start, where stock shows bar 1, and
-// a sixth (8d5474ee) draws the looped bar's box in the bar menu in grey. A
-// seventh (8d598608) keeps a song (one with scenes) in the current scene while
-// bars loop.
+// a sixth (8d5474ee) draws the looped bar's box in the bar menu in grey.
+// While bars loop, the scene clock follows the longest track, so it never
+// reaches the scene's end and a song (one with scenes) stays in its scene.
 //
 // play_from: tracks take their place from the transport's scene clock (its
 // word at +4, song ticks into the scene): at play start and at each pattern
@@ -32,7 +32,6 @@ opxy::u32 sdk_extensions_loop_step_target(opxy::u32, opxy::u32, opxy::u32, opxy:
 void sdk_extensions_loop_shown(opxy::u32, opxy::u32) __asm__("sdk_extensions_loop_shown");
 void sdk_extensions_play_reset(opxy::u32, opxy::u32) __asm__("sdk_extensions_play_reset");
 void sdk_extensions_count_in_end(opxy::u32, opxy::u32) __asm__("sdk_extensions_count_in_end");
-opxy::u32 sdk_extensions_song_check(opxy::u32) __asm__("sdk_extensions_song_check");
 void sdk_extensions_bar_color(opxy::u32, opxy::u32, const opxy::u8*) __asm__("sdk_extensions_bar_color");
 }
 
@@ -56,14 +55,20 @@ u32 object_of(u32 track) { return kTrackObjects + track * kTrackStride; }
 volatile u32& field(u32 object, u32 offset) { return *at<volatile u32>(object + offset); }
 // The current scene's pattern index for a track (scene records at +0x98).
 u32 scene(u32 project) { return byte(project + 6); }
-u32 song(u32 project) { return byte(project + 7); }  // the selected song
+// The selected song's number. Bit 4 of the same byte is a flag stock tests
+// (8d5842bc) and changes when a scene is picked by hand or the song screen
+// opens, without another song being selected.
+u32 song(u32 project) { return byte(project + 7) & 0x0f; }
 u32 pattern_index(u32 project, u32 track) { return byte(project + 0x98 + scene(project) * 33 + track); }
 
 // play_from's start, until play start takes it.
 const u32 kSequencer = 0x860c6adc;   // the sequencer
 const u32 kTransport = 0x86bd0064;
 // counting: play start began a count-in; the place is taken when it ends.
-struct Start { u32 tick; bool pending, counting; };
+// armed: recording was armed for it (Record held); it waits for stock's start,
+// by Play (with the count-in) or by the first note, unless recording is
+// disarmed first.
+struct Start { u32 tick; bool pending, counting, armed; };
 Start start;
 // The scene's length in song ticks: its longest track.
 u32 scene_ticks() {
@@ -79,7 +84,19 @@ u32 scene_ticks() {
 }
 // The Play key (8c0929b8) asks the transport to start, stopped or playing
 // (playing, that restarts from the top), unless this byte is set.
-bool startable() { return !byte(kSequencer + 0x3060); }
+// Record held (stock's Play then arms recording instead of starting).
+bool record_held() { return byte(kSequencer + 0x3060) != 0; }
+void place(u32 transport, bool counting);
+// Where a track starts for the pending start: the scene clock at its tick, in
+// the track's time (as 8d5abf80 places it), mod its length.
+u32 start_place(u32 track) {
+    const u32 scale = stock<u32(u32)>(0x8d586b50)(track);
+    const u32 factor = scale < 16 ? word(kTimeScale + scale * 4) : 0;
+    const u32 length = steps(track) * bar_loop::step_time;
+    // start.tick is below the scene's length, so tick * factor fits in 32 bits
+    // (at most 64 steps at the slowest scale times the fastest factor, ~2.5e9).
+    return factor && length ? (start.tick * factor) % length : 0;
+}
 
 // The held bars, and what they were taken against: a different project,
 // a looped track playing another pattern, or another song selected, ends them
@@ -90,9 +107,13 @@ struct Held {
     u32 project, song; bool any;
 };
 Held held;
-// A loop ended: the scene clock is put back in step with the tracks at the
-// next sequencer tick (it ran on, or the loop moved the tracks).
+// A loop ended: the scene clock is put back in step with the tracks once more
+// (the loop moved them).
 bool resync_clock;
+// The longest track (its length is the scene's) and its time per song tick,
+// kept by extension_sequencer: the track the scene clock follows.
+struct ClockTrack { u32 track, factor, length; };
+ClockTrack clock_track = {extensions::sequencer_tracks, 0, 0};
 
 void release() {
     if (held.any) resync_clock = true;
@@ -126,6 +147,8 @@ void restart(u32 object, u32 track) {
 void extension_sequencer(extensions::Sequencer& sequencer) {
     using namespace loop_stock;
     const u32 project = word(kProjectWord);
+    ClockTrack longest = {extensions::sequencer_tracks, 0, 0};
+
     for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
         extensions::SequencerTrack& k = sequencer.track[t];
         k = extensions::SequencerTrack();
@@ -141,27 +164,50 @@ void extension_sequencer(extensions::Sequencer& sequencer) {
         const u32 scale = stock<u32(u32)>(0x8d586b50)(t);
         const u32 factor = scale < 16 ? word(kTimeScale + scale * 4) : 0;
         k.bar_ticks = factor ? bar_loop::bar_time / factor : 0;
+        const u32 length = factor ? n * bar_loop::step_time / factor : 0;
+        if (length > longest.length) longest = {t, factor, length};
         bar_loop::Range r;
         if (looping(t, r)) k.loop = held.bar[t];
     }
+    clock_track = longest;
 }
 
-// Asks stock's transport to start, as the Play key does: stopped, with the
-// count-in it would give (seq + 0x305f, on with recording armed); playing, a
-// restart, except where Play takes its other path (count-in on).
+// Does what the Play key does (8c0929b8), from the place: stopped, asks the
+// transport to start with the count-in Play would give (seq + 0x305f, set
+// with recording armed); playing, a restart, except where Play takes its other
+// path (count-in on). With Record held (seq + 0x3060), stopped, it arms
+// recording as Play does (8d592998(seq, 1)) and moves the tracks there at
+// once; the start that follows takes the place.
 bool extension_play_from(u32 song_tick) {
     using namespace loop_stock;
     const bool playing = byte(kSequencer + 0x305d) || byte(kSequencer + 0x305e);
     const u8 count_in = byte(kSequencer + 0x305f);
-    if (!word(kProjectWord) || !startable() || (playing && count_in) || song_tick >= scene_ticks()) return false;
-    start = {song_tick, true, false};
+    if (!word(kProjectWord) || song_tick >= scene_ticks()) return false;
+    if (record_held()) {
+        if (playing) return false;
+        stock<void(u32, u32)>(0x8d592998)(kSequencer, 1);
+        start = {song_tick, true, false, true};
+        place(kTransport, true);
+        return true;
+    }
+    if (playing && count_in) return false;
+    start = {song_tick, true, false, false};
     *at<volatile unsigned char>(kSequencer + 0x3061) = count_in;
     stock<void(u32, u32)>(0x8d5aa9ee)(kTransport, 1);
     return true;
 }
 
+// Stopped, the tracks wait where play will start: a loop armed moves each
+// held track to its bar's first step, and ending it moves them back to the
+// top, where stock's play starts.
 bool extension_loop(const extensions::BarLoop& loop) {
     using namespace loop_stock;
+    const bool stopped = !byte(kSequencer + 0x305d) && !byte(kSequencer + 0x305e);
+    bool was[extensions::sequencer_tracks];
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
+        bar_loop::Range r;
+        was[t] = looping(t, r);
+    }
     release();
     const u32 project = word(kProjectWord);
     if (!project) return false;
@@ -169,10 +215,14 @@ bool extension_loop(const extensions::BarLoop& loop) {
     held.song = song(project);
     for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
         bar_loop::Range r;
-        if (loop.bar[t] == extensions::no_bar || !bar_loop::range(loop.bar[t], steps(t), r)) continue;
+        if (loop.bar[t] == extensions::no_bar || !bar_loop::range(loop.bar[t], steps(t), r)) {
+            if (stopped && was[t] && steps(t)) set_time(object_of(t), 0, 0, 0, 0);
+            continue;
+        }
         held.bar[t] = loop.bar[t];
         held.pattern[t] = static_cast<u8>(pattern_index(project, t));
         held.any = true;
+        if (stopped) set_time(object_of(t), r.start, 0, 0, 0);
     }
     return true;
 }
@@ -186,27 +236,23 @@ using namespace opxy::platform;
 // jump between passes plays no events: stock would take a backward move for a
 // pattern wrap and play the rest of the pattern.
 namespace opxy { namespace platform { namespace loop_stock {
-// After a loop ends, the scene clock is set from the longest track (whose
-// length is the scene's) right after it advances: its place in song ticks, so
-// the next scene end, and a song's next entry, come when the tracks reach the
-// end of the scene rather than after the time spent looping.
-void resync(u32 track) {
-    bar_loop::Range r;
-    for (u32 t = 0; t < extensions::sequencer_tracks; ++t)
-        if (looping(t, r)) { resync_clock = false; return; }
-    u32 longest = 0, which = extensions::sequencer_tracks, factor_of = 0;
-    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
-        const u32 scale = stock<u32(u32)>(0x8d586b50)(t);
-        const u32 factor = scale < 16 ? word(kTimeScale + scale * 4) : 0;
-        if (!factor || !steps(t)) continue;
-        const u32 length = steps(t) * bar_loop::step_time / factor;
-        if (length > longest) { longest = length; which = t; factor_of = factor; }
-    }
-    if (which == extensions::sequencer_tracks) { resync_clock = false; return; }
-    if (track != which) return;
-    const u32 place = field(object_of(which), kTime) / factor_of;
-    *at<volatile u32>(kTransport + 4) = place < longest ? place : 0;
-    resync_clock = false;
+// While bars loop, and once more after they end, the scene clock is set from
+// the longest track right after it advances: its place in song ticks, which
+// tempo-synced timing follows. Looping, that place stays inside the looped bar;
+// in the scene's last bar it is held half a step short of the scene's end,
+// since the transport adds a tick's time before the track wraps back, so the
+// clock never reaches the end (where stock moves a song on). After the loop,
+// the next scene end comes when the tracks reach it.
+const u32 kSceneEndMargin = bar_loop::step_time / 2;  // in track time; song ticks below
+void follow(u32 track) {
+    if (track != clock_track.track || !clock_track.factor || (!held.any && !resync_clock)) return;
+    u32 place = field(object_of(track), kTime) / clock_track.factor;
+    if (place >= clock_track.length) place = 0;
+    const u32 margin = kSceneEndMargin / clock_track.factor;
+    if (held.any && place + margin >= clock_track.length)
+        place = clock_track.length > margin ? clock_track.length - margin - 1 : 0;
+    *at<volatile u32>(kTransport + 4) = place;
+    if (!held.any) resync_clock = false;
 }
 void advance(u32 object, u32 time, u32 events, u32 steps_on, u32 edit);
 }}}
@@ -214,7 +260,7 @@ void advance(u32 object, u32 time, u32 events, u32 steps_on, u32 edit);
 void sdk_extensions_loop_advance(u32 object, u32 time, u32 events, u32 steps_on, u32 edit) {
     using namespace loop_stock;
     advance(object, time, events, steps_on, edit);
-    if (resync_clock) resync(byte(object + kIndex));
+    follow(byte(object + kIndex));
 }
 void opxy::platform::loop_stock::advance(u32 object, u32 time, u32 events, u32 steps_on, u32 edit) {
     const u32 track = byte(object + kIndex);
@@ -243,6 +289,10 @@ void sdk_extensions_loop_position(u32 object, u32 time, u32 events, u32 steps_on
     using namespace loop_stock;
     const u32 track = byte(object + kIndex);
     bar_loop::Range r;
+    // Recording armed for a place: play start's move to the top goes to the
+    // place instead, so a first note is never recorded at the top.
+    if (!looping(track, r) && time == 0 && start.pending && start.armed && !start.counting && steps(track))
+        return set_time(object, start_place(track), events, steps_on, edit);
     if (!looping(track, r) || bar_loop::inside(r, time)) return set_time(object, time, events, steps_on, edit);
     const u32 folded = bar_loop::fold(r, time);
     if (events && static_cast<i32>(folded) < static_cast<i32>(field(object, kProcessed)))
@@ -301,8 +351,9 @@ void sdk_extensions_play_reset(u32 transport, u32 count_in) {
     using namespace loop_stock;
     stock<void(u32, u32)>(0x8d5aaa38)(transport, count_in);
     if (!start.pending) return;
-    // A start after a count-in that never ended (stopped during it) is stock's.
-    if (start.counting || transport != kTransport) {
+    // A start after a count-in that never ended (stopped during it), or after
+    // recording armed for the place was disarmed, is stock's.
+    if (start.counting || transport != kTransport || (start.armed && !byte(kSequencer + 0x305f))) {
         start.pending = false;
         return;
     }
@@ -369,15 +420,3 @@ void sdk_extensions_bar_color(u32 screen, u32 node, const u8* color) {
     stock<SetColor>(0x8d520608)(screen, node, grey);
 }
 
-// At a scene end while playing, the scene-end handler (8d598040) asks whether
-// a song is selected (8d5842bc on the song index, at 8d598608) before moving
-// it to its next entry and having every track follow. While bars loop it is
-// told there is none: the song stays in the current scene and moves on at the
-// first scene end after the loop ends. Pattern loops don't use this path.
-u32 sdk_extensions_song_check(u32 song) {
-    using namespace loop_stock;
-    bar_loop::Range r;
-    for (u32 t = 0; t < extensions::sequencer_tracks; ++t)
-        if (looping(t, r)) return 1;
-    return stock<u32(u32)>(0x8d5842bc)(song);
-}

@@ -209,7 +209,7 @@ they do not establish device scheduling or timing.
 ### Bar loops
 
 `loop_bars` ([`extension_loop.cpp`](../sdk/platform/opxy-1.2.1/extension_loop.cpp))
-uses seven more hooks of the `extensions` service, and `play_from` one, tagged with the action instead
+uses six more hooks of the `extensions` service, and `play_from` two, tagged with the action instead
 of events. The sequencer's 16 track objects sit at `0x860c6adc + 0x108 + track *
 0x290`; each keeps its time (`+0x198`, 1680 units per pattern tick), the last
 time whose events it played (`+0x19c`) and its step (`+0x1a0`). Every playhead
@@ -228,7 +228,8 @@ restores the step it left so the first step's components run, and plays on. A
 jump elsewhere lands at the same offset within the bar; one behind `+0x19c` is
 first reached without events. A go-to target lands on the same step of the bar.
 A component on the bar's last step that jumps keeps its jump. Loops end when the
-project word, the selected song (`g_project + 7`) or a looped track's playing
+project word, the selected song (the low four bits of `g_project + 7`; bit 4 is
+a flag that a scene picked by hand or the song screen changes) or a looped track's playing
 pattern (`g_project + 0x98 + scene * 33 + track`, the scene at `g_project + 6`)
 changes. The scene index alone is not checked: a song changes it at its scene
 ends; a track whose looped bar
@@ -241,17 +242,18 @@ another bar shows it (`0x8d587458(track, bar)` at `0x8d5ac6ce`). Play start
 (`0x8d598038`) is replaced so a looped track shows its looped bar, which it
 never leaves; another bar can still be shown and edited.
 
-The sequencer tick (`0x8d5986b8`) gets the transport's scene end back from
-its tick (`11a0a8a4`: -1 for none) and hands it to `0x8d598040(seq, ticks,
-scene_end)`. Playing, at a scene end, that handler asks whether a song is
-selected (`0x8d5842bc(song)`, bit 4 of `g_project + 7`, at `0x8d598608`) before
-moving the song to its next entry (song position `seq + 0x3068`) and having the
-tracks follow the switch (`0x8d5abd18`). That call is replaced: while bars loop
-the answer is "none", so the song stays in the current scene. After a loop ends
-(by the holder, or because the pattern, song or project changed), the scene
-clock is set from the longest track's place (time / `factor[scale]`) right
-after that track next advances, since it ran on during the loop or the loop
-moved the tracks.
+A scene ends when the transport's scene clock (`+4`) reaches the scene's
+length, its longest track. Its tick (`11a0a8a4`) reports that to the sequencer
+tick (`0x8d5986b8`), whose handler (`0x8d598040`) then moves a song (one with
+scenes) to its next entry, or switches to a scene change queued for the scene
+end (`0x8d597e10`, at `0x8d598548`; `seq + 0x8434`). While bars loop, the
+advance hook sets the scene clock from the longest track right after that track
+advances (its time / `factor[scale]`), so the clock stays inside the looped bar
+and never reaches the scene's end: the song stays in its scene. In the scene's
+last bar it is held half a step short of the end, because each tick the
+transport adds its time before the track wraps back. Once more after
+a loop ends (by the holder, or because the pattern, song or project changed),
+the same keeps the next scene end in step with the tracks.
 
 The bar menu's refresh (`0x8d547474`) colours each of its 4 bar boxes with
 `0x8d520608(screen, node, rgba)` (at `0x8d5474ee`; node ids at `screen + 0x38`):
@@ -283,7 +285,12 @@ each track with `0x8d5abf80`, and shows the bar each starts in. A count-in
 transport tick (`0x8d5aaa38(transport, 0)` at `0x11a0aa80`, after which the
 tick re-reads the scene clock); that call is replaced by
 `sdk_extensions_count_in_end`, which sets the clock for a start that counted
-in. Such a start places its tracks already at play start, with the clock put
+in. With Record held (`seq + 0x3060`), Play arms recording instead
+(`0x8d592998(seq, 1)`: `seq + 0x305f`); once armed, Play counts in and a note
+played while stopped starts the transport at once (`0x8d5aa9ee` from the live
+note path, `0x8d594464`), both through play start. `play_from` arms the same
+way and places the tracks at once; the start that follows takes the place,
+unless recording was disarmed first. Such a start places its tracks already at play start, with the clock put
 back to zero for the count-in, so a note played just before the count-in ends
 is picked up on the start's bar.
 

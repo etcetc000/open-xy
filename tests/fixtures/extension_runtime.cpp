@@ -72,7 +72,7 @@ void extension_key_label(u32, const char*) {}
 bool extension_play_from(u32) { return false; }
 }}
 void control(u32 key, bool accepted) {
-    const extensions::Control event = {key, false, accepted, true, 100, extensions::keys::none, false, false};
+    const extensions::Control event = {key, false, accepted, true, 100, extensions::keys::none, false, 0};
     extensions_queued_control(event);
 }
 int main() {

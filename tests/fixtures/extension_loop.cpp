@@ -62,6 +62,9 @@ alignas(4) unsigned char controller_bytes[0x100];  // 0x860c6adc + 0x3000
 alignas(4) u32 transport_words[16];                 // 0x86bd0064
 u32 requests, request_flag, resets, reset_count_in, follow_on, resyncs;
 unsigned char& controller_byte(u32 offset) { return controller_bytes[offset - 0x3000]; }
+// Stock's arm (8d592998): recording armed as Record + Play arms it.
+u32 arms;
+void arm(u32 seq, u32 on) { failed |= seq != 0x860c6adc; ++arms; controller_byte(0x305f) = static_cast<unsigned char>(on); }
 void request(u32 transport, u32 flag) { failed |= transport != 0x86bd0064; ++requests; request_flag = flag; }
 void reset(u32 transport, u32 count_in) {
     failed |= transport != 0x86bd0064; ++resets; reset_count_in = count_in; transport_words[1] = 0;
@@ -84,9 +87,6 @@ void paint(u32 screen, u32 node, const unsigned char* rgba) {
     ++colored; colored_node = node;
     for (u32 i = 0; i < 4; ++i) painted[i] = rgba[i];
 }
-// Stock's "no song selected" check (8d5842bc): bit 4 of the song index.
-u32 song_checks;
-u32 no_song(u32 song) { ++song_checks; return (song >> 4) & 1; }
 // Stock's set_text (8d6011f0): the last text given to each bar's number node.
 char numbered[4][4]; u32 numberings;
 void number_text(u32 node, const char* text) {
@@ -120,6 +120,7 @@ Address host_stock_address(Address address) {
         return reinterpret_cast<Address>(transport_words) + (address - 0x86bd0064);
     switch (address) {
         case 0x8d5aa9ee: return reinterpret_cast<Address>(&request);
+        case 0x8d592998: return reinterpret_cast<Address>(&arm);
         case 0x8d5aaa38: return reinterpret_cast<Address>(&reset);
         case 0x8d592234: return reinterpret_cast<Address>(&follow);
         case 0x8d5abf80: return reinterpret_cast<Address>(&resync);
@@ -134,7 +135,6 @@ Address host_stock_address(Address address) {
         case 0x8d58b248: return reinterpret_cast<Address>(&clear_special);
         case 0x8d583e44: return reinterpret_cast<Address>(&components);
         case 0x8d4d6f14: return reinterpret_cast<Address>(&bar_menu_track);
-        case 0x8d5842bc: return reinterpret_cast<Address>(&no_song);
         case 0x8d6011f0: return reinterpret_cast<Address>(&number_text);
         case 0x8d520608: return reinterpret_cast<Address>(&paint);
         case 0x84eb3ad8: return reinterpret_cast<Address>(&theme);
@@ -248,6 +248,9 @@ int main() {
     ++pattern_byte(2);
     extension_sequencer(s); CHECK(s.track[2].loop == extensions::no_bar);
     CHECK(extension_loop(loop_of(2, 1)));
+    project_bytes[7] ^= 0x10;  // the flag a scene pick or the song screen changes: the loop holds
+    extension_sequencer(s); CHECK(s.track[2].loop == 1);
+    project_bytes[7] ^= 0x10;
     ++project_bytes[7];  // another song selected
     extension_sequencer(s); CHECK(s.track[2].loop == extensions::no_bar);
     --project_bytes[7];
@@ -256,9 +259,8 @@ int main() {
     extension_sequencer(s); CHECK(s.track[2].loop == extensions::no_bar);
 
     // play_from: tracks 2 (64 steps), 3 (40) and 8 (16) at scale 1; the scene is
-    // 4 bars long. Refused where the Play key doesn't ask for a start, or past the scene.
-    controller_byte(0x3060) = 1; CHECK(!extension_play_from(2 * 7680) && !requests);
-    controller_byte(0x3060) = 0; CHECK(!extension_play_from(4 * 7680) && !requests);
+    // 4 bars long. Refused past the scene.
+    CHECK(!extension_play_from(4 * 7680) && !requests);
     // From bar 3: asked as the Play key asks, without the count-in.
     controller_byte(0x3061) = 1;
     CHECK(extension_play_from(2 * 7680) && requests == 1 && request_flag == 1 && controller_byte(0x3061) == 0);
@@ -299,6 +301,36 @@ int main() {
     // Playing with the count-in on, Play takes its other path: no start.
     controller_byte(0x305e) = 1; CHECK(!extension_play_from(7680) && requests == 3);
     controller_byte(0x305e) = 0; controller_byte(0x305f) = 0;
+    // Record held (seq + 0x3060), stopped: recording is armed as Record + Play
+    // arms it, with no start asked for; the tracks move to the place at once
+    // (the clock stays at stock's zero). Play start's move to the top goes
+    // to each track's place instead. The start stock then makes (the first note,
+    // or Play with its count-in) takes the place.
+    controller_byte(0x3060) = 1; field_of(2, 0x198) = 0; shown_of[2] = 0;
+    CHECK(extension_play_from(7680) && arms == 1 && controller_byte(0x305f) == 1 && requests == 3);
+    CHECK(field_of(2, 0x198) == 16 * st && transport_words[1] == 0 && shown_of[2] == 1);
+    controller_byte(0x3060) = 0;
+    sdk_extensions_loop_position(object(3), 0, 1, 0, 0);
+    CHECK(field_of(3, 0x198) == 16 * st);
+    sdk_extensions_play_reset(0x86bd0064, 0);  // the first note started it
+    CHECK(transport_words[1] == 7680u && field_of(2, 0x198) == 16 * st);
+    controller_byte(0x3060) = 1;
+    CHECK(extension_play_from(2 * 7680) && arms == 2);
+    controller_byte(0x3060) = 0;
+    sdk_extensions_play_reset(0x86bd0064, 1);  // Play, with its count-in
+    CHECK(transport_words[1] == 0 && field_of(2, 0x198) == 32 * st);
+    sdk_extensions_count_in_end(0x86bd0064, 0);
+    CHECK(transport_words[1] == 2 * 7680u);
+    // Disarmed before any start: the next start is stock's.
+    controller_byte(0x3060) = 1;
+    CHECK(extension_play_from(7680) && arms == 3);
+    controller_byte(0x3060) = 0; controller_byte(0x305f) = 0;
+    sdk_extensions_play_reset(0x86bd0064, 0);
+    CHECK(transport_words[1] == 0);
+    // Record held while playing: nothing.
+    controller_byte(0x3060) = 1; controller_byte(0x305e) = 1;
+    CHECK(!extension_play_from(7680) && arms == 3);
+    controller_byte(0x3060) = 0; controller_byte(0x305e) = 0; controller_byte(0x305f) = 0;
     // Without the step display following, tracks start in place and keep their shown bar.
     follow_on = 0; shown_of[2] = 1;
     CHECK(extension_play_from(3 * 7680));
@@ -353,33 +385,58 @@ int main() {
     CHECK(numberings == 8 && shows(0, "1"));
     for (u32 i = 0; i < 4; ++i) *reinterpret_cast<u32*>(bar_screen + 0x50 + 4 * i) = 0;
 
-    // Songs: at a scene end stock asks whether a song is selected; while bars
-    // loop the answer is no, so the song stays in the current scene.
-    CHECK(sdk_extensions_song_check(3) == 0 && sdk_extensions_song_check(16) == 1 && song_checks == 2);
+    // While bars loop, the scene clock follows the longest track (2, 64 steps)
+    // right after it advances, so it stays inside the looped bar and never
+    // reaches the scene's end; the other tracks leave it alone.
+    extension_sequencer(s);
     CHECK(extension_loop(loop_of(2, 1)));
-    CHECK(sdk_extensions_song_check(3) == 1 && song_checks == 2);
-    // Ending the loop puts the scene clock in step with the longest track (2,
-    // 64 steps), right after it next advances: its place, in song ticks.
     transport_words[1] = 3;
-    CHECK(extension_loop(loop_of(2, extensions::no_bar)));
-    CHECK(sdk_extensions_song_check(3) == 0);
-    sdk_extensions_loop_advance(object(3), 5 * st, 0, 0, 0);  // not the longest: nothing yet
+    sdk_extensions_loop_advance(object(3), 5 * st, 0, 0, 0);
     CHECK(transport_words[1] == 3);
     sdk_extensions_loop_advance(object(2), 20 * st, 0, 0, 0);
     CHECK(transport_words[1] == 20 * st / 1680);
-    transport_words[1] = 7;
+    // In the scene's last bar it stays half a step short of the scene's end
+    // (64 steps of 480 song ticks; half a step is 240), so the transport's next
+    // tick can't reach it before the track wraps back.
+    CHECK(extension_loop(loop_of(2, 3)));
+    sdk_extensions_loop_advance(object(2), 64 * st - 100, 0, 0, 0);
+    CHECK(transport_words[1] == 64 * 480 - 240 - 1);
+    sdk_extensions_loop_advance(object(2), 60 * st, 0, 0, 0);
+    CHECK(transport_words[1] == 60 * 480);
+    CHECK(extension_loop(loop_of(2, 1)));
+    // Ending the loop: once more, then the clock runs on as stock's.
+    CHECK(extension_loop(loop_of(2, extensions::no_bar)));
     sdk_extensions_loop_advance(object(2), 21 * st, 0, 0, 0);
-    CHECK(transport_words[1] == 7);  // once
+    CHECK(transport_words[1] == 21 * st / 1680);
+    transport_words[1] = 7;
+    sdk_extensions_loop_advance(object(2), 22 * st, 0, 0, 0);
+    CHECK(transport_words[1] == 7);
     // The same when the loop ends because something changed (another song).
     CHECK(extension_loop(loop_of(2, 1)));
-    sdk_extensions_loop_advance(object(8), 3 * st, 0, 0, 0);
-    CHECK(transport_words[1] == 7);  // still looping: the clock is left alone
     u8& song = project_bytes[project_word - kFakeProject + 7];
     ++song;
     extension_sequencer(s); CHECK(s.track[2].loop == extensions::no_bar);
     sdk_extensions_loop_advance(object(2), 24 * st, 0, 0, 0);
     CHECK(transport_words[1] == 24 * st / 1680);
+    transport_words[1] = 7;
+    sdk_extensions_loop_advance(object(2), 25 * st, 0, 0, 0);
+    CHECK(transport_words[1] == 7);
     --song;
+    // Stopped, arming a loop moves each held track to its bar's first step, and
+    // ending it moves them back to the top; playing, neither moves them.
+    controller_byte(0x305d) = controller_byte(0x305e) = 0;
+    field_of(2, 0x198) = 0; field_of(3, 0x198) = 0; field_of(8, 0x198) = 0;
+    {
+        extensions::BarLoop l = loop_of(2, 2); l.bar[3] = 1;
+        CHECK(extension_loop(l));
+        CHECK(field_of(2, 0x198) == 32 * st && field_of(3, 0x198) == 16 * st && field_of(8, 0x198) == 0);
+        CHECK(extension_loop(loop_of(2, extensions::no_bar)));
+        CHECK(field_of(2, 0x198) == 0 && field_of(3, 0x198) == 0);
+        controller_byte(0x305e) = 1; field_of(2, 0x198) = 5 * st;
+        CHECK(extension_loop(loop_of(2, 2)) && field_of(2, 0x198) == 5 * st);
+        CHECK(extension_loop(loop_of(2, extensions::no_bar)) && field_of(2, 0x198) == 5 * st);
+        controller_byte(0x305e) = 0;
+    }
     CHECK(!failed);
     return 0;
 }

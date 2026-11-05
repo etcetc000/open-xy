@@ -49,6 +49,10 @@ const u32 bar = 25;  // Held: stock's bar menu; pressed: the next bar is shown.
 const u32 record = 50;
 const u32 play = 51, stop = 52;
 }
+// Stock's screen numbers (its current GUI page), as Control::screen reports them.
+namespace screens {
+const u32 bar_menu = 0x23;  // BAR's menu: BAR held, or kept open by pressing Shift first
+}
 struct Control {
     u32 key;
     bool pressed;
@@ -62,9 +66,8 @@ struct Control {
     u32 held;
     // Shift held when the event arrived.
     bool shift;
-    // Stock's bar menu (BAR's screen) was on screen: BAR held, or kept open
-    // by pressing Shift first.
-    bool bar_menu;
+    // Stock's screen when the event arrived (screens::bar_menu, ...).
+    u32 screen;
 };
 
 // Each action needs its permission (profiles/extensions.json) and works only in
@@ -93,8 +96,10 @@ struct Actions {
     // pattern lines up with bar N mod its length of the others), and its step
     // keys show that bar. Playing, it restarts from there, as Play restarts
     // from the top. Counts in as Play would (recording armed), then starts
-    // there; refused while playing with the count-in on. Loops hold as usual.
-    // Needs play_from.
+    // there; refused while playing with the count-in on. With Record held,
+    // stopped, it arms recording as Record + Play does, and the start that
+    // follows (Play with its count-in, or the first note) is from there.
+    // Loops hold as usual. Needs play_from.
     // Returns whether playback was asked for.
     bool (*play_from)(const Context&, u32 song_tick);
 };

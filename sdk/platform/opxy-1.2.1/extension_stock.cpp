@@ -25,7 +25,6 @@ const u32 kRecorder = 0x860c072c;
 const u32 kProject = 0x840a0524;
 const u32 kRecordHeld = kPlaying + 3;  // byte: Record held
 const u32 kInputEnabled = 0x08023c48;
-const u32 kBarMenuScreen = 0x23;  // BAR's screen (8c09291c opens it with 8c094284)
 using Wide = __UINT64_TYPE__;
 // Only the normal live-input call establishes this scope. Sequencer playback
 // calls the broad dispatcher directly and cannot become a history event.
@@ -180,7 +179,7 @@ void sdk_extensions_live_note_off(u32 controller, u32 track, u32 note, u32 a3, u
 void sdk_extensions_key(const u32* event) {
     extensions_sync();
     extensions::Control control = {event[0], event[1] != 0, false, unmodified(event[0]), 0, held_with(event[0]),
-                                   shift_held(), word(kScreen) == kBarMenuScreen};
+                                   shift_held(), word(kScreen)};
     const bool was_held = extension_record_held();
     const bool enabled = byte(kInputEnabled) != 0;
     // The clock writes a full 64-bit microsecond value through its argument.
