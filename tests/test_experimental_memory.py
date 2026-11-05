@@ -59,9 +59,11 @@ class ExperimentalMemory(unittest.TestCase):
                          (self.layout['module_base'], self.layout['reserved_bytes']))
         for edit, reviewed in zip(expanded['patches'], self.profile['patches']):
             changed = {k for k in reviewed if edit[k] != reviewed[k]}
-            self.assertEqual(changed, {'after'} if reviewed['kind'] == 'heap' else set())
+            self.assertEqual(changed, {'after', 'name'} if reviewed['kind'] == 'heap' else set())
             if reviewed['kind'] == 'heap':
                 self.assertEqual(edit['after'], self.layout['heap_after'])
+                self.assertEqual(edit['name'], 'IN-MEMORY application heap 0x1400000 -> 0xe00000 '
+                                               '(6 MiB module reservation, experimental)')
         self.assertEqual({k: v for k, v in expanded.items() if k not in ('module_base', 'reserved_bytes', 'patches')},
                          {k: v for k, v in self.profile.items() if k not in ('module_base', 'reserved_bytes', 'patches')})
 

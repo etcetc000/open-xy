@@ -505,6 +505,14 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.equal(linkedKits[linksBefore].profile.reserved_bytes, 6144);
   await restoreLayout({...expandedLayout, memory:undefined});
   assert.equal(memoryInput.checked, false);
+  assert.match($('status').textContent, /standard memory; 6 MiB is turned off/);
+  // A numbers-only layout keeps the current memory choice.
+  memoryInput.checked = true; memoryInput.onchange();
+  await restoreLayout({...expandedLayout, memory:undefined, selected:undefined});
+  assert.equal(memoryInput.checked, true);
+  await restoreLayout(expandedLayout);
+  assert.doesNotMatch($('status').textContent, /turned/);
+  memoryInput.checked = false; memoryInput.onchange();
   const originalKit = (await fixture()).kit;
   assert.equal(new TextDecoder().decode(defaultFiles['content/display/probe.svg']),
     originalKit.screenTemplate.replace('</svg>', originalKit.machines[0].artwork + '</svg>'));

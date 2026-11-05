@@ -493,8 +493,10 @@ export function expandedProfile(profile) {
     heaps.every(p => heapImmediate(p.before) === profile.heap_fill_bytes &&
       heapImmediate(p.after) === profile.module_base - profile.heap_fill_base),
     'This firmware profile cannot offer more memory');
+  const heap = x.module_base - profile.heap_fill_base, mib = x.reserved_bytes / 1024 ** 2;
+  const name = `IN-MEMORY application heap 0x${profile.heap_fill_bytes.toString(16)} -> 0x${heap.toString(16)} (${mib} MiB module reservation, experimental)`;
   return {...profile, module_base: x.module_base, reserved_bytes: x.reserved_bytes,
-    patches: profile.patches.map(p => p.kind === 'heap' ? {...p, after: x.heap_after} : p)};
+    patches: profile.patches.map(p => p.kind === 'heap' ? {...p, name, after: x.heap_after} : p)};
 }
 // The kit linked and patched for the chosen memory; the reviewed kit is unchanged.
 export const memoryKit = (kit, expanded) => {
@@ -887,10 +889,11 @@ export async function recoverFirmware(kit, input, layout = null) {
   check(await sha256(stock) === p.stock_sha256,
     'Only OP–XY OS 1.2.1 is supported. This open-xy OS was not made from OS 1.2.1. ' + UPDATE);
   const payload = input.subarray(module.offset + 16, final.offset);
-  // A build made with the experimental larger memory loads its module lower.
-  let built = module.target === p.module_base ? kit : null;
-  if (!built && offersExpandedMemory(p) && module.target === p.experimental_memory.module_base) built = memoryKit(kit, true);
-  const found = built === kit ? {} : {expanded: true};
+  // A build made with the experimental larger memory loads its module lower;
+  // even when its selection cannot be rebuilt, that choice is reported.
+  const expanded = offersExpandedMemory(p) && module.target === p.experimental_memory.module_base;
+  const built = module.target === p.module_base ? kit : expanded ? memoryKit(kit, true) : null;
+  const found = expanded ? {expanded: true} : {};
   if (built && module.count <= moduleBytes(built.profile)) {
     // Reconstruct a selection's entire image; never trust the uploaded module
     // or infer ownership from its label. SDK builds retain timing; site builds
@@ -931,7 +934,7 @@ export async function recoverFirmware(kit, input, layout = null) {
   }
   // Another open-xy OS: an earlier release, other machines or another build.
   // Its stock OS is verified above; its machines and extensions are chosen again.
-  return {stock, selected: null, earlier: true};
+  return {stock, selected: null, earlier: true, ...found};
 }
 
 export function presetPath(machine) {

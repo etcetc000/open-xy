@@ -234,7 +234,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
       } else if (recovered.earlier) {
-        $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again';
+        // A 6 MiB build whose selection this collection cannot rebuild keeps its memory choice.
+        if (recovered.expanded) { setExpandedMemory(true); invalidate(); updateOverrideCount(); recalculate(); }
+        $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again' +
+          (recovered.expanded ? ' · it used 6 MiB experimental memory, which is turned on' : '');
       } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
@@ -631,7 +634,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         size: linked.segments.filter(s => s.owner === m.id).reduce((n, s) => n + s.size, 0),
         color: colors[kit.machines.indexOf(m) % colors.length]}));
       allocations.push({name: 'Shared', size: linked.sizes.allocated - allocations.reduce((n, a) => n + a.size, 0), color: 'var(--shared)'},
-        {name: 'Available', size: linked.sizes.available, color: 'var(--paper)'}, {name: 'System', size: kit.profile.table_bytes, color: 'var(--tables)'});
+        {name: 'Available', size: linked.sizes.available, color: 'var(--paper)'}, {name: 'System', size: memory.profile.table_bytes, color: 'var(--tables)'});
       for (const a of allocations) {
         const segment = node('div', undefined, 'memory-segment'); segment.style.width = a.size / memory.profile.reserved_bytes * 100 + '%';
         segment.style.background = a.color; segment.title = a.name + ': ' + kib(a.size); $('memory-map').append(segment);
@@ -653,13 +656,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const memory = chosenKit(), result = core.linkKit(memory, selection, numbers, extensions);
-      const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
+      const files = await core.buildAssets(memory, selection, catalog, result.numbers, settings, result.extensions);
       files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
       const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers,
-        ...(expandedMemory ? {memory: 'expanded'} : {})};
+        ...(memory !== kit ? {memory: 'expanded'} : {})};
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
@@ -791,15 +794,17 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const offered = new Set((kit.extensions ?? []).map(e => e.id));
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
-      const memory = loaded.expanded ? expandedKit : kit;
-      core.requireThat(memory, 'This layout asks for memory this site doesn’t offer.');
-      if (loaded.selected) core.linkKit(memory, loaded.selected, loaded.machines, extensions);
-      setExpandedMemory(loaded.expanded === true);
+      // A layout with a selection records its build's memory (readLayout checks it is
+      // offered); a numbers-only layout leaves the current choice alone.
+      const wanted = loaded.selected ? loaded.expanded === true : expandedMemory, changed = wanted !== expandedMemory;
+      if (loaded.selected) core.linkKit(wanted ? expandedKit : kit, loaded.selected, loaded.machines, extensions);
+      setExpandedMemory(wanted);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
       status('Layout loaded: your machines keep their numbers.' +
+        (changed ? (wanted ? ' It uses 6 MiB experimental memory, now turned on.' : ' It uses standard memory; 6 MiB is turned off.') : '') +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
     } catch (error) { fail(error); }
   };

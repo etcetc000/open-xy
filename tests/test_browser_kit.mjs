@@ -117,6 +117,7 @@ test('the experimental 6 MiB layout moves only the module base and the heap imme
     // 20 MiB -> 14 MiB: the heap ends where the larger module begins.
     assert.deepEqual({...edit, name:undefined, after:undefined}, {...reviewed, name:undefined, after:undefined});
     assert.equal(edit.after, '01dae00000000000');
+    assert.equal(edit.name, 'IN-MEMORY application heap 0x1400000 -> 0xe00000 (6 MiB module reservation, experimental)');
     assert.equal(profile.heap_fill_base + 14 * 1024 ** 2, expanded.module_base);
   }
   assert.deepEqual(profile, JSON.parse(profileBytes));  // the reviewed profile is untouched
@@ -183,6 +184,9 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   view.setUint32(at + 4, kit.profile.module_base, true);
   moved[at + 2] = 0; moved[at + 2] = moved.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
   assert.deepEqual(await recoverFirmware(kit, moved), {stock, selected:null, earlier:true});
+  // A 6 MiB build this kit cannot rebuild still reports its memory choice.
+  const other = image.slice(); other[module.offset + 16] ^= 1;
+  assert.deepEqual(await recoverFirmware(kit, other), {stock, selected:null, earlier:true, expanded:true});
   // A module linked for 6 MiB never patches into the standard layout.
   await assert.rejects(patchFirmware(kit, linked, stock), /Hook destination outside module/);
   // State that fits only the 6 MiB layout is refused by the standard one.
