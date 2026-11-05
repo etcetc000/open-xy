@@ -73,11 +73,26 @@ class Extensions(unittest.TestCase):
     def test_the_registry_is_claims_and_actions_only(self):
         for mutate in (lambda d: d['claims'].update(bad={'label': ''}),
                        lambda d: d['actions'].update(other={'requires': 'missing'}),
-                       lambda d: d.update(extensions=[]), lambda d: d.update(schema=2)):
+                       lambda d: d.update(extensions=[]), lambda d: d.update(schema=2),
+                       lambda d: d['actions'].update(bad={'event': 'missing'}),
+                       lambda d: d['actions'].update(bad={'event': 'motion', 'requires': 'record_double_tap'}),
+                       lambda d: d['actions'].update(bad={'exclusive': 1})):
             data = document(ROOT / extensions.PROFILE)
             mutate(data)
             with mock.patch.object(extensions, 'document', return_value=data), self.assertRaises(ValueError):
                 extensions.registry()
+
+    def test_motion_actions_need_their_callback_and_have_one_owner(self):
+        with Folder() as folder:
+            root = folder.declare(claims=[], actions=['monitor_input'])
+            self.assertEqual(extensions.extension_at(root).claims, ())
+            (root / 'extension.cpp').write_text('extern constexpr Hooks hooks = Hooks();\n')
+            with self.assertRaisesRegex(ValueError, 'motion callback'):
+                extensions.extension_at(root)
+        first = extensions.Extension('one', PROBE, (), ('monitor_input',), {})
+        second = extensions.Extension('two', PROBE, (), ('monitor_input',), {})
+        with self.assertRaisesRegex(ValueError, 'multiple owners'):
+            extensions.check_collection([first, second])
 
     def test_actions_match_the_runtime_bits_and_claims_are_data(self):
         # An action is SDK code: one registry entry and one runtime constant, in
@@ -93,7 +108,7 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control', 'motion'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),

@@ -11,8 +11,9 @@ char notification[32];
 
 // The actions one callback may take, and what it has done with them: one stock
 // undo transaction and at most one notification per callback.
-struct Transaction { u32 granted; bool attempted, notified; };
+struct Transaction { u32 granted; bool attempted, notified; ActionScope scope; };
 Transaction transaction;
+bool monitor_requested;
 
 bool same_text(const char* a, const char* b) {
     if (!a || !b) return false;
@@ -20,9 +21,12 @@ bool same_text(const char* a, const char* b) {
     return *a == *b;
 }
 u32 bits(u32 count) { return count >= 32 ? ~0u : (1u << count) - 1; }
+ActionScope scope(const ExtensionRegistry& table, u32 action) {
+    return table.action_scopes ? table.action_scopes[action] : ActionScope::claimed_control;
+}
 
 // The collection must agree with the registry, whatever the build checked:
-// claims exclusive and known, every action backed by a claim its holder owns.
+// Claims are exclusive and known; actions need their claimed key or event scope.
 bool ready() {
     if (initialized) return entries != nullptr;
     initialized = true;
@@ -30,7 +34,7 @@ bool ready() {
     const ExtensionEntry* list = extension_collection(count);
     const ExtensionRegistry& known = extension_registry();
     if (!list || count > 16 || known.claim_count > 32 || known.action_count > 32) return false;
-    u32 claimed = 0;
+    u32 claimed = 0, monitor_owners = 0;
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
@@ -38,9 +42,16 @@ bool ready() {
             (entry.claims && !entry.hooks->queued_control)) return false;
         for (u32 a = 0; a < known.action_count; ++a) {
             if (!(entry.actions & (1u << a))) continue;
+            if (scope(known, a) == ActionScope::motion) {
+                if (!entry.hooks->motion || known.action_claims[a]) return false;
+                continue;
+            }
+            if (scope(known, a) != ActionScope::claimed_control) return false;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
             if (!(entry.claims & needs)) return false;
         }
+        if (entry.actions & action_monitor_input) ++monitor_owners;
+        if (monitor_owners > 1) return false;
         claimed |= entry.claims;
         for (u32 j = 0; j < i; ++j)
             if (same_text(entry.id, list[j].id)) return false;
@@ -59,6 +70,7 @@ u32 granted(const ExtensionEntry& entry, const extensions::Control& control) {
         if ((entry.claims & (1u << c)) && registry->claim_keys[c] == control.key) fired |= 1u << c;
     u32 result = 0;
     for (u32 a = 0; fired && a < registry->action_count; ++a) {
+        if (scope(*registry, a) != ActionScope::claimed_control) continue;
         const u32 needs = registry->action_claims[a] ? registry->action_claims[a] : entry.claims;
         if ((entry.actions & (1u << a)) && (fired & needs)) result |= 1u << a;
     }
@@ -69,7 +81,8 @@ u32 granted(const ExtensionEntry& entry, const extensions::Control& control) {
 // pattern or selection moved on since the event it acts on.
 u32 write_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count,
                 bool replace) {
-    if (!(transaction.granted & action_edit_notes) || transaction.attempted || !notes || !count ||
+    if (transaction.scope != ActionScope::claimed_control || !(transaction.granted & action_edit_notes) ||
+        transaction.attempted || !notes || !count ||
         count > 120 || track >= 8) return 0;
     bool playing = false;
     const RecordingContext now = extension_context(playing);
@@ -85,7 +98,8 @@ u32 write_notes(const extensions::Context& expected, u32 track, const RecordedNo
     return extension_write(track, notes, count, replace);
 }
 void notify(const char* text) {
-    if (!(transaction.granted & action_notify) || transaction.notified || !text) return;
+    if (transaction.scope != ActionScope::claimed_control || !(transaction.granted & action_notify) ||
+        transaction.notified || !text) return;
     u32 length = 0;
     while (length < 32 && text[length]) ++length;
     if (!length || length == 32) return;
@@ -99,7 +113,14 @@ u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedN
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes};
+bool monitor_input(bool enabled) {
+    if (!dispatching || transaction.scope != ActionScope::motion ||
+        !(transaction.granted & action_monitor_input) || transaction.attempted) return false;
+    transaction.attempted = true;
+    monitor_requested = true;
+    return extension_monitor_input(enabled);
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, monitor_input};
 }
 
 void extensions_sync() {
@@ -160,10 +181,33 @@ void extensions_queued_control(const extensions::Control& control) {
     if (!entries) return;
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i) {
-        transaction = {granted(entries[i], control), false, false};
+        transaction = {granted(entries[i], control), false, false, ActionScope::claimed_control};
         if (entries[i].hooks->queued_control) entries[i].hooks->queued_control(current, control, actions);
-        transaction = {0, false, false};
+        transaction = {0, false, false, ActionScope::claimed_control};
     }
     dispatching = false;
+}
+
+void extensions_motion() {
+    if (dispatching || !ready()) return;
+    extensions_sync();
+    bool subscribed = false;
+    for (u32 i = 0; i < entry_count; ++i) subscribed |= entries[i].hooks->motion != nullptr;
+    if (!subscribed) return;
+    const extensions::Motion motion = extension_motion();
+    const extensions::InputMonitor monitor = extension_input_monitor();
+    monitor_requested = false;
+    dispatching = true;
+    for (u32 i = 0; i < entry_count; ++i) {
+        u32 granted = 0;
+        for (u32 a = 0; a < registry->action_count; ++a)
+            if (scope(*registry, a) == ActionScope::motion) granted |= entries[i].actions & (1u << a);
+        transaction = {granted, false, false, ActionScope::motion};
+        if (entries[i].hooks->motion) entries[i].hooks->motion(motion, monitor, actions);
+        transaction = {0, false, false, ActionScope::claimed_control};
+    }
+    dispatching = false;
+    // A request is a lease for one update; an omitted renewal releases it.
+    if (!monitor_requested) extension_monitor_input(false);
 }
 }}
