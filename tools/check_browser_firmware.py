@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import zipfile
@@ -42,7 +43,8 @@ def expanded_profile(profile):
     """The reviewed experimental 4 MiB layout (builder/core.mjs expandedProfile), applied independently."""
     x = profile['experimental_memory']
     require(isinstance(x, dict) and set(x) == {'module_base', 'reserved_bytes', 'heap_after'} and
-            isinstance(x['heap_after'], str) and len(x['heap_after']) == 16, 'Experimental memory layout is inconsistent')
+            isinstance(x['heap_after'], str) and re.fullmatch('[0-9a-f]{16}', x['heap_after']) is not None,
+            'Experimental memory layout is inconsistent')
     # Checked here too, with the stock instruction decoder, rather than trusted.
     opcode, heap = stock_tables.decode('imm32', bytes.fromhex(x['heap_after']))
     heaps = [p for p in profile['patches'] if p['kind'] == 'heap']

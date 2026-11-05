@@ -809,10 +809,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       // The input is disabled while an OS is checked. An OS check that started, or even
       // finished, during the read set the memory and selection, so this layout waits.
-      const applied = osApplied, collection = kit;
+      const applied = osApplied, collection = kit, memoryBefore = expandedMemory();
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
-      core.requireThat(!checkingOs && osApplied === applied && kit === collection,
-        'Your OS file or the machines were loaded meanwhile. Load the layout again if you still want it.');
+      core.requireThat(!checkingOs && osApplied === applied && kit === collection && expandedMemory() === memoryBefore,
+        'Your OS file, the machines or the memory choice changed meanwhile. Load the layout again if you still want it.');
       const loaded = core.readLayout(kit, saved);
       // A layout keeps its machine numbers even when an extension it names is no
       // longer offered; that extension is left out and named.

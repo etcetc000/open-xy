@@ -65,7 +65,7 @@ if (layouts.length > 1) {
   else if (standard !== 'needs more' || larger !== 'fits')
     console.log('Experimental memory: the whole collection', standard === 'fits' ? 'fits standard memory' : 'does not fit 4 MiB either',
       '- no module beyond standard memory is checked.');
-  if (standard === 'needs more' && larger === 'fits') {
+  else {
     const mask = kit.machines.reduce((m, _, i) => m | selectionBit(i), 0n);
     await parity(layouts[1], mask, all, every, null, 'collection-expanded');
   }

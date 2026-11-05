@@ -482,8 +482,9 @@ export const heapBytes = profile => profile.module_base - profile.heap_fill_base
 // A Blackfin+ Dreg/Preg = imm32 load as tooling.stock_tables.decode reads it, or
 // null for any other bytes.
 const heapLoad = hex => {
-  if (typeof hex !== 'string' || !/^[0-9a-f]{16}$/i.test(hex)) return null;
-  const d = view(unhex(hex.toLowerCase())), opcode = d.getUint16(0, true);
+  // Lowercase only, as unhex (used when patching) requires.
+  if (typeof hex !== 'string' || !/^[0-9a-f]{16}$/.test(hex)) return null;
+  const d = view(unhex(hex)), opcode = d.getUint16(0, true);
   return (opcode & 0xffc0) === 0xda00 && d.getUint16(6, true) === 0
     ? {opcode, value: d.getUint16(2, true) * 65536 + d.getUint16(4, true)} : null;
 };

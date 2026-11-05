@@ -136,6 +136,8 @@ test('the experimental 4 MiB layout moves only the module base and the heap imme
     p => { p.experimental_memory.extra = 1; }, p => { delete p.experimental_memory; },
     // The larger heap must be loaded into the same register as the stock edit.
     p => { p.experimental_memory.heap_after = '02da000100000000'; },
+    // Lowercase hex only, as patching decodes it.
+    p => { p.experimental_memory.heap_after = '01DA000100000000'; },
     // Sizes are whole MiB, as the builder names them.
     p => { p.experimental_memory.module_base += 0x4000; p.experimental_memory.reserved_bytes -= 0x4000;
       p.experimental_memory.heap_after = '01da000100400000'; },  // 16 MiB + 16 KiB, consistent otherwise

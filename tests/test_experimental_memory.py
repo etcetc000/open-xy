@@ -35,7 +35,7 @@ class ExperimentalMemory(unittest.TestCase):
         self.profile = config()
         self.layout = self.profile['experimental_memory']
 
-    def test_six_mib_ends_where_the_reviewed_reservation_ends(self):
+    def test_four_mib_ends_where_the_reviewed_reservation_ends(self):
         p, x = self.profile, self.layout
         self.assertEqual(set(x), {'module_base', 'reserved_bytes', 'heap_after'})
         self.assertEqual(x['reserved_bytes'], 4 * 1024 * 1024)
