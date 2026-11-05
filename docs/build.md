@@ -106,8 +106,19 @@ Every build command takes the collection:
 | --- | --- |
 | `--collection <file>` | The file's `{"path": "<folder>"}` entries, relative to the file. `sdk.py catalog fetch` writes one with every [published machine](catalog.md) |
 | `--machine <folder>` | The machine in `<folder>`, after the collection's; repeatable |
+| `--option <name>` | A build option, after the collection's; repeatable |
 
 A build needs at least one machine; the SDK holds none of its own.
+
+A build option changes stock's own behaviour for the whole firmware, so every
+one is off unless the collection names it: `--option <name>`, or
+`"options": ["<name>"]` beside `"machines"` in a collection file. The package
+records it with its collection, so `verify` rebuilds it; a browser kit is
+exported only from a package without options.
+
+| Option | What it changes |
+| --- | --- |
+| `drumlinePage2` | Stock Drumline: a second page with each key's FILTER, SRR, FX I and FX II, and their step locks ([api](api.md#stock-drumlines-second-page), [firmware](abi-1.2.1.md#drumlines-second-page)) |
 
 All selected machines share 2032 KiB ([memory and limits](api.md#memory-and-limits));
 `compile` shows each machine's share. To make room, list fewer machines in your

@@ -98,10 +98,23 @@ class Services(unittest.TestCase):
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
-        # The fixtures declare no track control, hidden pages, aux tracks or players: those services stay off.
-        self.assertEqual(steps(machines), [u for u in native.SDK_UNITS
-                                          if native.UNIT_SERVICES.get(u) not in ('control', 'aux', 'players', 'master_filter')])
+        # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
+        # sends or a padMix kit's step locks, and the collection no build option: those
+        # services stay off.
+        self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
+                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks',
+                                           'drumline')])
+        self.assertEqual(active_services(profile, ['drum', 'padSend']), {'samples', 'octaves', 'drums', 'drum_sends'})
+        self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padSend', 'padMix']),
+                         {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
+        # The build option drumlinePage2 uses the drum hooks it extends and its own.
+        self.assertEqual(active_services(profile, ['synth', 'drumlinePage2']),
+                         {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'drumline'})
+        optioned = native.Collection(machines, [probe], ['drumlinePage2'])
+        self.assertEqual(steps(optioned), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
+                                           ('control', 'aux', 'players', 'master_filter')])
+        self.assertEqual(native.options_of(native.subset(optioned, optioned[:1])), ('drumlinePage2',))
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
         self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'drums', 'extensions'})
