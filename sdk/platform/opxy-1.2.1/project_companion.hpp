@@ -15,6 +15,14 @@ struct CompanionMachine {
 // Generated per collection; ends with a null ID.
 extern const opxy::platform::CompanionMachine sdk_companion_machines[];
 
+// Module synths, which companions list like the collection's machines (module_synths.cpp;
+// startup.cpp's stubs in a build without modules): the index-th registered one's
+// machine ID and numbers, false past the last; and a module's engine number by machine
+// ID (length bytes, not terminated), 0 when no module has it.
+extern "C" bool sdk_companion_module(opxy::u32 index, const char** id, opxy::u32* number, opxy::u32* page)
+    __asm__("sdk_companion_module");
+extern "C" opxy::u32 sdk_companion_module_number(const char* id, opxy::u32 length) __asm__("sdk_companion_module_number");
+
 // What track control machines keep, written into the open companion: generated in
 // startup.cpp, which reaches the control service (track_control_project.cpp) when the
 // collection links it.

@@ -12,6 +12,8 @@ void opxy::platform::control_loaded(const opxy::platform::ControlMachine&) {}
 
 extern "C" opxy::u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }
 extern "C" void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }
+extern "C" bool sdk_companion_module(opxy::u32, const char**, opxy::u32*, opxy::u32*) { return false; }
+extern "C" opxy::u32 sdk_companion_module_number(const char*, opxy::u32) { return 0; }
 
 using opxy::platform::Address;
 

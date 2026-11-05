@@ -40,6 +40,7 @@ char current_id[16];           // the module whose init runs now (sdk_module_cur
 
 struct Entry {
     const ModuleSynth* d;
+    char id[16];                   // the module's machine ID, as companions list it
     u32 engine, page;              // given at registration
     Record record;
     Screen screen;
@@ -349,6 +350,7 @@ int sdk_module_synth_register(const ModuleSynth* d) {
     Entry& e = entries[count];
     e = Entry{};
     e.d = d;
+    for (u32 i = 0; i < sizeof e.id; ++i) e.id[i] = current_id[i];
     e.engine = engine;
     e.page = page;
     e.record = Record{reinterpret_cast<const char*>(d->factory), reinterpret_cast<const char*>(d->parameter_name),
@@ -386,6 +388,29 @@ void* sdk_module_synth_voice(int handle, u32 index) {
 }
 
 void sdk_module_registration(bool open) { open_for_registration = open; }
+
+// Companions (project_companion.cpp). The writer lists a module once its engine is
+// registered on this role. The reader may run before that, for the workspace at
+// startup, so it loads the modules first (idempotent) and takes any numbered one.
+bool sdk_companion_module(u32 index, const char** id, u32* number, u32* page) {
+    for (u32 i = 0, k = 0; i < count; ++i) {
+        if (!entries[i].engine_ok || k++ != index) continue;
+        *id = entries[i].id; *number = entries[i].engine; *page = entries[i].page;
+        return true;
+    }
+    return false;
+}
+
+u32 sdk_companion_module_number(const char* id, u32 length) {
+    sdk_module_load();
+    for (u32 i = 0; i < count; ++i) {
+        const char* own = entries[i].id;
+        u32 n = 0;
+        while (n < length && own[n] && own[n] == id[n]) ++n;
+        if (n == length && !own[n]) return entries[i].engine;
+    }
+    return 0;
+}
 
 void sdk_module_current(const char* id) {
     u32 n = 0;

@@ -139,6 +139,22 @@ private:
     u32 length_ = 0;
 };
 
+// Machine IDs compare as bytes: lowercase ASCII, so this is the canonical key order.
+int compare_ids(const char* a, const char* b) {
+    while (*a && *a == *b) { ++a; ++b; }
+    return static_cast<int>(static_cast<unsigned char>(*a)) - static_cast<int>(static_cast<unsigned char>(*b));
+}
+
+void put_machine(Writer& w, u32& listed, const char* id, bool effect, u32 number, u32 page) {
+    w.put(listed++ ? ",\n        \"" : "\n        \"");
+    w.put(id);
+    w.put(effect ? "\": {\n          \"effect\": " : "\": {\n          \"engine\": ");
+    w.number(number);
+    w.put(",\n          \"page\": ");
+    w.number(page);
+    w.put("\n        }");
+}
+
 void write_companion(u32 bytes, u32 crc) {
     File* file = file_open(companion, "wb");
     if (!file) return;
@@ -152,17 +168,30 @@ void write_companion(u32 bytes, u32 crc) {
     w.flush();
     sdk_project_kept(file);
     w.put("    \"open-xy.machines\": {\n      \"machines\": {");
+    // The collection's machines (sorted by ID) and the module synths, merged in ID order.
     u32 listed = 0;
-    for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m) {
-        const u32 number = value(m->number);
-        if (!number) continue;  // a kit machine this selection left out
-        w.put(listed++ ? ",\n        \"" : "\n        \"");
-        w.put(m->id);
-        w.put(m->effect ? "\": {\n          \"effect\": " : "\": {\n          \"engine\": ");
-        w.number(number);
-        w.put(",\n          \"page\": ");
-        w.number(value(m->page));
-        w.put("\n        }");
+    const CompanionMachine* m = sdk_companion_machines;
+    const char* last = "";
+    for (;;) {
+        while (m->id && !value(m->number)) ++m;  // a kit machine this selection left out
+        const char* module = nullptr;
+        u32 module_number = 0, module_page = 0;
+        const char* id;
+        u32 number, page;
+        for (u32 i = 0; sdk_companion_module(i, &id, &number, &page); ++i)
+            if (compare_ids(id, last) > 0 && (!module || compare_ids(id, module) < 0)) {
+                module = id; module_number = number; module_page = page;
+            }
+        if (m->id && (!module || compare_ids(m->id, module) < 0)) {
+            put_machine(w, listed, m->id, m->effect, value(m->number), value(m->page));
+            last = m->id;
+            ++m;
+        } else if (module) {
+            put_machine(w, listed, module, false, module_number, module_page);
+            last = module;
+        } else {
+            break;
+        }
     }
     w.put(listed ? "\n      },\n" : "},\n");
     w.put("      \"profile\": \"opxy-1.2.1\",\n      \"version\": 1\n    }");
@@ -530,6 +559,8 @@ u32 number_here(const Listed& entry) {
         if (equal(entry.id, m->id, entry.length) && !m->id[entry.length] && m->effect == entry.effect &&
             value(m->number))
             return value(m->number);
+    if (!entry.effect)
+        if (const u32 number = sdk_companion_module_number(entry.id, entry.length)) return number;
     return entry.effect ? kNoEffect : kPrism;
 }
 
