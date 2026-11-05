@@ -164,10 +164,9 @@ optional tenth argument to `PreviewDisplay.tick`, after the drum model, Shift
 and its choices; omission reports the envelope as unknown, as the builder's
 preview and the SDK workbench do.
 
-Machines reading `amp` declare `"sdk": "1.10"`. New previews use drawing ABI 5,
-a 104-byte input with `amp` after a drum kit's `model`; the browser host also
-accepts the earlier ABIs, which keep their inputs and do not receive the
-envelope.
+Machines reading `amp` declare SDK 1.10 or newer. Drawing ABI 5 added
+`amp` after a drum kit's `model`; older ABIs keep their inputs and do not
+receive the envelope.
 
 ### Effect pages (SDK 1.7)
 
@@ -189,6 +188,10 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | `line` | The row the encoders edit, 0 the first and 1 the second; on a drum kit, also the Shift row (SDK 1.10). |
 | `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0..7, 0 following the track's send); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
 | `trigger_key`, `trigger_model`, `trigger_controls[8]` | The latest played drum pad on this track: canonical key 53..76, its model, and its eight controls with current GUI track offsets. `trigger_key` is 0 when unavailable. Use the snapshot when `note_serial` changes; it is independent of selection. Several hits between frames can coalesce to the last one, and this is not an audio-side step-lock history. |
+
+Machines reading the played-pad snapshot declare SDK 1.11 or newer. Browser
+hosts pass `{key, model, controls}` as the optional argument to
+`PreviewDisplay.tick`, after `amp`, `mix` and `line`; omission clears the snapshot.
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls in its edited row while `shift` is 1, as the stock header does.

@@ -10,17 +10,18 @@
 static opxy::u32 token = 1;
 opxy::u32 sdk_screen_activation(opxy::u32 page, opxy::u32) { return page == 84 ? token : 0; }
 void sdk_display_note_activity(opxy::u32, opxy::draw::Input*) {}
-void sdk_note_pitches(opxy::u32, opxy::u8*, opxy::u8*) {}
 void sdk_sample_overview_update(opxy::u32) {}
 struct Machine { static const bool sample = false; static const bool drum = OPXY_SCREEN_DRUM; static const char* const ids[2]; };
 static opxy::u8 pitches[128], releases[128];
 void sdk_note_pitches(opxy::u32, opxy::u8* held, opxy::u8* released) {
     for (unsigned i = 0; i < 128; ++i) { held[i] = pitches[i]; released[i] = releases[i]; }
 }
+#if OPXY_SCREEN_DRUM
 extern "C" void sdk_drum_trigger(opxy::u32, opxy::draw::Input* input) {
     input->trigger_key = 54; input->trigger_model = 9;
     input->trigger_controls[0] = 0x70000000;
 }
+#endif
 const char* const Machine::ids[2] = {"node", "palette"};
 
 int main() {

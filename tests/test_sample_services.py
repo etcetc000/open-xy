@@ -32,7 +32,7 @@ HOST_CXX = host_compiler()
 
 @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
 class SampleServices(unittest.TestCase):
-    def run_fixture(self, name, extra=()):
+    def run_fixture(self, name, extra=(), defines=()):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
@@ -59,7 +59,7 @@ class SampleServices(unittest.TestCase):
                 elif name == 'benchmark':
                     from tooling.benchmark import generate
                     generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
-            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves', 'sample_slice_clock', 'startup', 'sample_overview'):
+            if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves', 'sample_slice_clock', 'startup', 'sample_overview', 'drum_trigger'):
                 # Exercise the real tempo readers and assignment bridge with
                 # host addresses standing in for stock functions and globals.
                 stock = (ROOT / 'sdk/platform/opxy-1.2.1/stock.hpp').read_text()
@@ -93,7 +93,7 @@ class SampleServices(unittest.TestCase):
                                  effect_screens=['effect'], player_pages=['player'], control=True)
             # A fixture that includes barrier.hpp supplies host_barrier for the Blackfin SSYNC.
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-D__builtin_bfin_ssync()=host_barrier()',
-                       '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'),
+                       *('-D' + define for define in defines), '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'),
                        '-I' + str(ROOT / 'sdk/platform/opxy-1.2.1'), str(ROOT / 'tests/fixtures' / (name + '.cpp')),
                        *(str(ROOT / path) for path in extra), '-o', str(binary)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)

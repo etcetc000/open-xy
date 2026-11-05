@@ -48,7 +48,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # level, small controls and sends, which lock per hit (resources.padMix and
 # resources.padControls); runs every kit's voices through stock's track filter (M3);
 # and calls a kit's drum_transport with the tempo before every render.
-SDK_VERSION = (1, 10)
+# 1.11 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
+SDK_VERSION = (1, 11)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -530,6 +531,8 @@ def machine_at(root, identity=None):
     if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
+    if definition['resources'].get('parameterEdit'):
+        require_sdk(version, (1, 11), 'Per-model drum value editing (parameterEdit)')
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:
@@ -619,6 +622,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), "A machine's own presets")
         require(kind in ('synth', 'drum', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
         presets = read_presets(root, value['presets'], identity, samples, kind)
+        if kind == 'drum' and any(preset['regions'] for preset in presets.values()):
+            require_sdk(version, (1, 11), 'Sample-free drum-kit preset records')
     if samples:
         # Every sample is there for a preset: one no preset loads only takes up the player's storage.
         loaded = {region['sample'] for preset in (presets or {}).values() for region in preset['regions']}

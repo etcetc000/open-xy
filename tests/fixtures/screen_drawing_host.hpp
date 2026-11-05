@@ -30,7 +30,8 @@ inline void invalidate(PathNode*) {}
 template<unsigned N> void set_words(Leaf*, const u32 (&)[N], const i32 (&)[N]) {}
 inline void paint(void*, u32, bool) {}
 inline void set_text(Leaf*, const char*) {}
-inline u32 note_serial(u32) { return 0; }
+static u32 fixture_note_starts;
+inline u32 note_serial(u32) { return fixture_note_starts; }
 inline bool refresh_controls(Base*, Controls&) { return false; }
 inline void draw(Base*) {}
 }}}

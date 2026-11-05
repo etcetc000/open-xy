@@ -94,7 +94,7 @@ test('ABI 1 previews retain their original storage and unsupported layouts fail'
   const after = new Uint32Array(display.memory,2048+68,1); after[0] = 0xabcdef;
   display.tick(input(),17,2,0,false,{held_notes:2,note_off_serial:9});
   assert.equal(display.input.length, 17); assert.equal(after[0], 0xabcdef);
-  for (const [abi, bytes] of [[1,76],[2,68],[3,76],[2,92],[4,92],[5,88]]) assert.throws(() => new PreviewDisplay(fixture(abi,bytes)), /ABI/);
+  for (const [abi, bytes] of [[1,76],[2,68],[3,76],[2,92],[4,92],[5,88],[6,104],[6,128]]) assert.throws(() => new PreviewDisplay(fixture(abi,bytes)), /ABI/);
 });
 
 test('ABI 5 publishes the amp envelope after the drum model, and omission marks it unknown', () => {
@@ -104,7 +104,7 @@ test('ABI 5 publishes the amp envelope after the drum model, and omission marks 
   display.tick(input(),17,1,0,false,notes,0,0,[0,0,0,0],amp);
   assert.deepEqual([...display.input.slice(17)], [1,0,0,0,0,0x00800000,0x20000000,0x7fffffff,0]);
   display.tick(input(),17,1,0,false,notes);
-  assert.deepEqual([...display.input.slice(26)], Array(4).fill(0xffffffff), 'Omission invalidates a stale envelope');
+  assert.deepEqual([...display.input.slice(22)], Array(4).fill(0xffffffff), 'Omission invalidates a stale envelope');
   const before = new Uint8Array(display.memory).slice();
   for (const bad of [{}, {...amp, attack:-1}, {...amp, sustain:0x80000000}, {...amp, release:0.5}, {...amp, decay:'1'}]) {
     assert.throws(() => display.tick(input(),99,2,0,false,notes,0,0,[0,0,0,0],bad), /amp/);
@@ -122,7 +122,9 @@ test('ABI 4 previews ignore a supplied envelope and keep their storage', () => {
 test('ABI 7 keeps the played drum independent of selection and validates before publication', () => {
   const display = new PreviewDisplay(fixture(7));
   const trigger = {key:54,model:9,controls:[0x70000000,1,2,3,4,5,6,0x7fffffff]};
-  display.tick(input(),17,4,0,false,null,0,0,[0,0,0,0],null,{},0,trigger);
+  const amp = {attack:1,decay:2,sustain:3,release:4};
+  display.tick(input(),17,4,0,false,null,0,0,[0,0,0,0],amp,{},0,trigger);
+  assert.deepEqual([...display.input.slice(22,26)], [1,2,3,4]);
   assert.equal(display.input[21],0);
   assert.deepEqual([...display.input.slice(28)], [54,9,...trigger.controls]);
   const before = new Uint8Array(display.memory).slice();
