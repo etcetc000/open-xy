@@ -31,7 +31,7 @@ using Time = __UINT64_TYPE__;
 struct Motion { i16 x, y, z; Time time; bool valid; };
 struct InputMonitor {
     bool active, owned;
-    // Internal mic selected, no sample workflow, and stock permits monitoring.
+    // Auto enabled, internal mic selected, no sample workflow, and stock permits monitoring.
     bool available;
 };
 // Key numbers as stock reports them in queued controls.
@@ -61,7 +61,8 @@ struct Actions {
     // nothing, while stock is still recording a held note there. Needs edit_notes.
     u32 (*replace_notes)(const Context&, u32 track, const Note*, u32 count);
     // Renew a temporary input-monitoring request for this motion callback.
-    // false releases it. Requires monitor_input; never changes project routing.
+    // false fades out and releases it. Requires monitor_input and user opt-in;
+    // never changes project routing. Manual/safety cancellation is immediate.
     bool (*monitor_input)(bool enabled);
 };
 

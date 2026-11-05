@@ -47,6 +47,8 @@ version is rejected. The output differs from stock in exactly these places:
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Track control | 6 | Runs a synth's track control once per GUI tick, after stock's own call at that site, notes encoder edits, shows its overlays as parameter values, and keeps overlays off a parameter a step's lock holds (three lock writes) |
 | Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
+| Aux Shift menu | 1 shared | Reuses the existing Shift + M1 dispatch for aux machine choices and the optional input-monitoring preference |
+| Automatic input envelope | 1 optional | Fades only live-input scratch before dry/FX additions, preserving manual monitoring and stock protection |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
@@ -192,8 +194,32 @@ track index 12, page 0 toggles this flag at `8c08f7d2`; the shared publisher
 `8d50fdc0` checks the flag, then `8d4dc450(source)` for microphone feedback
 protection. The adapter uses this checker and decodes source word 0 of track
 12 like `8d58534c`; source 0 is the internal microphone. A monitoring lease
-changes only that enable flag and yields on a manual stop, project change or
-sample workflow. It never changes codec registers or persisted parameters.
+sets that enable flag and publishes an ownership/target token through stock's
+LIVE-only parameter setter `8d5acea8`, external-audio track 12, word 57 (the
+same unused last-word transport the aux service uses on CV). No stored track
+word is changed. The audio-side copy is at `84eab39c + 12*0xe8 + 57*4`.
+
+An optional eight-byte call at `8d50ffec` replaces the complete `P0 = 11b01dd4`
+load, preserving caller-saved registers and ASTAT and replaying that load.
+Stock has filled interleaved input scratch `11903600`; dry-music and FX-send
+additions follow. The audio-only envelope scales its 64 stereo frames, 2,205
+frames in and 8,820 out at 44.1 kHz. The controller retains the monitoring flag
+for 205 ms on ordinary release, then clears the flag. It publishes the envelope
+release token after the following stock controller update has published that
+flag, preventing a last full-volume block caused by early envelope bypass. Manual stop, project
+replacement, sampling, disabling Auto or lost eligibility release immediately.
+Explicit release tokens bypass stale envelope state for later manual monitoring;
+brief live-value resets retain the current envelope for at most 12 audio blocks.
+No audio callback allocates, blocks, logs or accesses files. Neither codec
+registers nor saved routing/gain/level controls change.
+
+The existing Aux Shift + M1 hook is shared through the `aux_menu` service,
+without a second hook in that input stage. On the external-audio track it opens
+the stock Off/Auto selector; other aux machine/send choices keep their original
+dispatch. GUI startup reads the bounded versioned `user/tilt-mic.cfg` preference;
+GUI confirmation writes it, and failed/cancelled choices do not change the active
+preference. Motion callbacks perform no file I/O. The menu and audio hook are
+selected only for a collection with a `monitor_input` action owner.
 
 The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key
 dispatch at `0x8c0b6184`, normalized live onset/release at `0x8d594376` and

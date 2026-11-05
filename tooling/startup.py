@@ -30,7 +30,7 @@ LOCK_CALLS = (('u32', 'size', ('void*', 'u32'), 'return 0;'),
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False, locks=False):
+           control=False, aux=False, extensions=False, monitor=False, locks=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -101,6 +101,15 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
         require(control, 'The aux service needs the control service')
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
         screens.append('    sdk_aux_startup();')
+    menu_fallbacks = []
+    if not aux:
+        menu_fallbacks.append('extern "C" void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");\nvoid sdk_aux_machine_menu() {}')
+    if not extensions:
+        menu_fallbacks.append('extern "C" bool sdk_input_monitor_menu() __asm__("sdk_input_monitor_menu");\nbool sdk_input_monitor_menu() { return false; }')
+    if monitor:
+        declarations.append('void sdk_input_monitor_startup() __asm__("sdk_input_monitor_startup");')
+        screens.append('    sdk_input_monitor_startup();')
+    kept += '\n' + '\n'.join(menu_fallbacks)
     owned += [f'    if (page == value({prefix}_fx_page_id)) return {prefix}_ready() == 1;' for prefix in effect_screens]
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
@@ -119,8 +128,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False, locks=False):
+             control=False, aux=False, extensions=False, monitor=False, locks=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux, locks), encoding='utf-8', newline='\n')
+                                  control, aux, extensions, monitor, locks), encoding='utf-8', newline='\n')
     return destination
