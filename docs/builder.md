@@ -211,7 +211,8 @@ may be unstable under heavy use. The selection summary shows the choice,
 `build.json` records `reserved_bytes` and `layout.json` records
 `"memory": "expanded"`. Loading an OS sets the option to what that OS used
 (stock and standard builds turn it off), and so does restoring a `layout.json`
-that lists machines; a site without the option keeps the layout's numbers.
+that lists machines; a site without the option restores such a layout with
+standard memory when its machines fit, and otherwise says why it cannot.
 `sdk.py build` uses only the standard layout and refuses a 6 MiB `layout.json`;
 `sdk.py project write` accepts it.
 

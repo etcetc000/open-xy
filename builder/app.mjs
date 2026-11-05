@@ -24,16 +24,18 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('risk-acknowledgement').disabled = !browserAllowed;
   $('risk-continue').disabled = true;
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
-  const kib = n => (n / 1024).toFixed(1) + ' KiB';
+  const kib = n => (n / 1024).toFixed(1) + ' KiB', mib = n => n / 1024 ** 2 + ' MiB';
   const graphicsConfiguration = createGraphicsConfiguration();
   // Experimental 6 MiB module memory (core.memoryKit), chosen on the machines page.
   // Off for every collection until chosen; restoring a 6 MiB build or its layout
-  // turns it on. expandedKit is derived once per collection, null when not offered.
-  let expandedMemory = false, expandedKit = null;
+  // turns it on. The checkbox is the state; expandedKit is derived once per
+  // collection, null when not offered.
+  let expandedKit = null;
   const memoryInput = $('expanded-memory');
   memoryInput.checked = false; memoryInput.disabled = true;
-  const kitFor = expanded => expanded ? expandedKit : kit, chosenKit = () => kitFor(expandedMemory);
-  const expandedSize = () => expandedKit.profile.reserved_bytes / 1024 ** 2 + ' MiB';
+  const expandedMemory = () => memoryInput.checked;
+  const kitFor = expanded => expanded ? expandedKit : kit, chosenKit = () => kitFor(expandedMemory());
+  const expandedSize = () => mib(expandedKit.profile.reserved_bytes);
   let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
@@ -201,7 +203,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     facts($('build-selection'), {
       Machines: selectedMachines().map(m => m.name).join(', ') || 'None',
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
-      Memory: expandedMemory ? expandedSize() + ' (experimental)' : 'Standard',
+      Memory: expandedMemory() ? expandedSize() + ' (experimental)' : 'Standard',
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
     });
   }
@@ -230,11 +232,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       stock = recovered.stock;
       // Every OS sets the memory choice to what it used: 6 MiB builds turn it on,
       // stock and standard builds off. A change is said, never silent.
-      const wasExpanded = expandedMemory;
-      setExpandedMemory(recovered.expanded === true);
-      const memoryNote = expandedMemory === wasExpanded ? '' : expandedMemory
-        ? ' · it used ' + expandedSize() + ' experimental memory, which is turned on'
-        : ' · it uses standard memory, so ' + expandedSize() + ' is turned off';
+      const memoryChange = setExpandedMemory(recovered.expanded === true);
+      const memoryNote = memoryChange && ' · ' + memoryChange;
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
         renderMachines(); renderExtensions(); recalculate();
@@ -698,11 +697,16 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   $('choose-extensions').onclick = () => { navigate(3); recalculate(); };
   $('build').onclick = build;
+  // Sets the memory choice (only offered memory can be chosen) and describes a
+  // change for the caller's message, or returns '' when it stays the same.
   function setExpandedMemory(value) {
-    core.requireThat(!value || expandedKit, 'This collection does not offer more memory.');
-    expandedMemory = memoryInput.checked = value;
-    if (kit) $('capacity-foot').textContent = kib(core.moduleBytes(chosenKit().profile)) + ' for machines' +
-      (value ? ' (experimental)' : '') + '; CPU load is not measured';
+    const before = expandedMemory();
+    memoryInput.checked = value && expandedKit !== null;
+    $('capacity-foot').textContent = kib(core.moduleBytes(chosenKit().profile)) + ' for machines' +
+      (memoryInput.checked ? ' (experimental)' : '') + '; CPU load is not measured';
+    return memoryInput.checked === before ? '' : memoryInput.checked
+      ? 'it uses ' + expandedSize() + ' experimental memory, now turned on'
+      : 'it uses standard memory, so ' + expandedSize() + ' is turned off';
   }
   memoryInput.onchange = () => {
     setExpandedMemory(memoryInput.checked);
@@ -802,25 +806,24 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
       // A layout with a selection records its build's memory; a numbers-only layout
-      // leaves the current choice alone. When this site lacks the layout's
-      // experimental memory, its numbers are still kept, and its selection too if
-      // it fits standard memory.
-      const wanted = loaded.selected ? loaded.expanded === true : expandedMemory, changed = wanted !== expandedMemory;
-      let fits = true;
+      // leaves the current choice alone. Nothing is applied unless the selection
+      // links; when this site lacks the layout's experimental memory, the error says so.
+      const wanted = loaded.selected ? loaded.expanded === true : expandedMemory();
       if (loaded.selected) {
         try { core.linkKit(kitFor(wanted), loaded.selected, loaded.machines, extensions); }
-        catch (error) { if (!loaded.memoryUnavailable) throw error; fits = false; }
+        catch (error) {
+          if (loaded.memoryUnavailable) error.message = 'This layout used experimental memory this site doesn’t offer. ' + error.message;
+          throw error;
+        }
       }
-      setExpandedMemory(wanted);
+      const memoryChange = setExpandedMemory(wanted);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
-      if (loaded.selected && fits) selected = [...loaded.selected];
+      if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
       status('Layout loaded: your machines keep their numbers.' +
-        (changed ? (wanted ? ' It uses ' + expandedSize() + ' experimental memory, now turned on.'
-          : ' It uses standard memory; ' + expandedSize() + ' is turned off.') : '') +
-        (loaded.memoryUnavailable && loaded.selected ? fits ? ' Its experimental memory isn’t offered here; it builds with standard memory.'
-          : ' Its machines need experimental memory, which isn’t offered here; choose machines again.' : '') +
+        (memoryChange && ' ' + memoryChange[0].toUpperCase() + memoryChange.slice(1) + '.') +
+        (loaded.memoryUnavailable && loaded.selected ? ' Its experimental memory isn’t offered here; it builds with standard memory.' : '') +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
     } catch (error) { fail(error); }
   };
@@ -838,7 +841,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     memoryInput.disabled = !expandedKit;
     $('expanded-memory-option').hidden = !expandedKit;
     if (expandedKit) {
-      const mib = n => n / 1024 ** 2 + ' MiB', heap = p => mib(p.module_base - p.heap_fill_base);
+      const heap = p => mib(p.module_base - p.heap_fill_base);
       $('expanded-memory-size').textContent = expandedSize();
       $('expanded-memory-heap').textContent = mib(expandedKit.profile.reserved_bytes - kit.profile.reserved_bytes) +
         ' more from the OP–XY’s own working memory (' + heap(kit.profile) + ' to ' + heap(expandedKit.profile) + ')';

@@ -895,11 +895,11 @@ export async function recoverFirmware(kit, input, layout = null) {
   check(await sha256(stock) === p.stock_sha256,
     'Only OP–XY OS 1.2.1 is supported. This open-xy OS was not made from OS 1.2.1. ' + UPDATE);
   const payload = input.subarray(module.offset + 16, final.offset);
-  // A build made with the experimental larger memory loads its module lower;
-  // even when its selection cannot be rebuilt, that choice is reported.
-  const expanded = offersExpandedMemory(p) && module.target === p.experimental_memory.module_base;
-  const built = module.target === p.module_base ? kit : expanded ? memoryKit(kit, true) : null;
-  const found = expanded ? {expanded: true} : {};
+  // Each memory layout loads its module at its own base; the experimental larger
+  // one is reported even when its selection cannot be rebuilt.
+  const built = [kit, ...(offersExpandedMemory(p) ? [memoryKit(kit, true)] : [])]
+    .find(k => k.profile.module_base === module.target);
+  const found = built && built !== kit ? {expanded: true} : {};
   if (built && module.count <= moduleBytes(built.profile)) {
     // Reconstruct a selection's entire image; never trust the uploaded module
     // or infer ownership from its label. SDK builds retain timing; site builds

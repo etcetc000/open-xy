@@ -433,6 +433,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   const previewModes = [];
   let currentFixture;
   const linkedKits = [], patchedKits = [];
+  let linkError = null;
   const fakeCore = {...Core,
     // Keep this test firmware-free: exercise the real app, asset writer and ZIP
     // with an authored kit; OS verification/linking have their own contract tests.
@@ -442,10 +443,12 @@ test('Extensions graphics defaults to original designs without firmware extensio
     decode64:value => value ? Core.decode64(value) : currentFixture.catalog,
     moduleBytes:profile => profile.reserved_bytes ?? 2048,
     offersExpandedMemory:profile => profile.experimental_memory !== undefined,
-    readLayout:(kit, saved) => ({...Core.readLayout(kit, {...saved, memory:undefined}), ...(saved.memory ? {expanded:true} : {})}),
+    // A layout whose memory is 'unoffered' stands for one from a site with experimental memory this one lacks.
+    readLayout:(kit, saved) => ({...Core.readLayout(kit, {...saved, memory:undefined}),
+      ...(saved.memory === 'unoffered' ? {memoryUnavailable:true} : saved.memory ? {expanded:true} : {})}),
     memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:6 * 1024 ** 2}} : kit,
     recoverFirmware:async () => ({stock:Uint8Array.of(1)}),
-    linkKit:kit => { linkedKits.push(kit); return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
+    linkKit:kit => { linkedKits.push(kit); if (linkError) throw linkError; return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
     patchFirmware:async kit => { patchedKits.push(kit);
       return blockPatch ? new Promise(resolve => { finishPatch = resolve; }) : Uint8Array.of(1, 2, 3); },
   };
@@ -508,17 +511,28 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.equal(linkedKits[linksBefore].profile.reserved_bytes, 6 * 1024 ** 2);
   await restoreLayout({...expandedLayout, memory:undefined});
   assert.equal(memoryInput.checked, false);
-  assert.match($('status').textContent, /standard memory; 6 MiB is turned off/);
+  assert.match($('status').textContent, /It uses standard memory, so 6 MiB is turned off\./);
   // A numbers-only layout keeps the current memory choice.
   memoryInput.checked = true; memoryInput.onchange();
   await restoreLayout({...expandedLayout, memory:undefined, selected:undefined});
   assert.equal(memoryInput.checked, true);
   await restoreLayout(expandedLayout);
   assert.doesNotMatch($('status').textContent, /turned/);
+  // A layout whose memory this site lacks applies nothing unless it links, and says why.
+  const before = {checked:memoryInput.checked};
+  linkError = new Error('These machines need more than the 2032 KiB available');
+  await restoreLayout({...expandedLayout, memory:'unoffered', machines:{probe:{engine:99, page:99}}});
+  linkError = null;
+  assert.match($('status').textContent, /^This layout used experimental memory this site doesn’t offer\. These machines need more/);
+  assert.equal(memoryInput.checked, before.checked);
+  await restoreLayout({...expandedLayout, memory:'unoffered'});
+  assert.match($('status').textContent, /isn’t offered here; it builds with standard memory\./);
+  assert.equal(memoryInput.checked, false);
+  memoryInput.checked = true; memoryInput.onchange();
   // Loading an OS sets the choice to what it used; stock used standard memory.
   assert.equal(await wizardOptions.onFirmware({name:'stock', size:1, arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
   assert.equal(memoryInput.checked, false);
-  assert.match($('firmware-result').textContent, /standard memory, so 6 MiB is turned off$/);
+  assert.match($('firmware-result').textContent, / · it uses standard memory, so 6 MiB is turned off$/);
   assert.equal(await wizardOptions.onFirmware({name:'stock', size:1, arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
   assert.doesNotMatch($('firmware-result').textContent, /turned/);
   const originalKit = (await fixture()).kit;
