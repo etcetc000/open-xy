@@ -232,12 +232,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('firmware-result').textContent = 'Verifying ' + file.name + '…';
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
-      stock = recovered.stock; osApplied++;
+      stock = recovered.stock;
       // An open-xy OS whose module base and heap edits match a layout sets the choice
       // to it, even when its machines cannot be rebuilt here. Stock OS, or an OS of
       // no known layout, keeps the current one. A change is said, never silent.
       const memoryChange = recovered.memory ? setExpandedMemory(recovered.memory === 'expanded') : '';
       const memoryNote = memoryChange && ' · ' + memoryChange;
+      if (recovered.selected || memoryChange) osApplied++;  // a layout read meanwhile would undo it
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
         renderMachines(); renderExtensions();

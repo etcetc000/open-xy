@@ -940,9 +940,8 @@ export async function recoverFirmware(kit, input, layout = null) {
     const choices = (kit.extensions ?? []).length <= RECOVERABLE_EXTENSIONS ? extensionChoices(kit)
       : guess.length ? [guess, []] : [[]];
     for (const extensions of present.length ? [guess, ...choices] : []) {
-      try {
-        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions, ...found};
-      } catch {}  // a guess that cannot link is not this kit's build
+      // A guess that cannot link is not this kit's build (rebuilds says false).
+      if (await rebuilds(present, extensions)) return {stock, selected: present, extensions, ...found};
     }
     // Small kits also try every selection: at most 1,023 deterministic links per
     // extension choice, each under a millisecond. Yield between candidates so file

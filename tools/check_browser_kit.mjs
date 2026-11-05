@@ -62,6 +62,9 @@ if (layouts.length > 1) {
   const fit = k => { try { linkKit(k, all, null, every); return 'fits'; } catch (error) { return error.capacity ? 'needs more' : 'unlinkable'; } };
   const standard = fit(kit), larger = fit(layouts[1].kit);
   if (standard === 'unlinkable' || larger === 'unlinkable') console.log('Experimental memory: the whole collection does not link together; no beyond-standard check.');
+  else if (standard !== 'needs more' || larger !== 'fits')
+    console.log('Experimental memory: the whole collection', standard === 'fits' ? 'fits standard memory' : 'does not fit 6 MiB either',
+      '- no module beyond standard memory is checked.');
   if (standard === 'needs more' && larger === 'fits') {
     const mask = kit.machines.reduce((m, _, i) => m | selectionBit(i), 0n);
     await parity(layouts[1], mask, all, every, null, 'collection-expanded');
