@@ -1357,6 +1357,30 @@
           "value": 268435455
         }
       }
+    },
+    {
+      "id": "vibe",
+      "kind": "effect",
+      "maintainer": "meemknight",
+      "status": "published",
+      "repository": "https://github.com/meemknight/vibe",
+      "tag": "v1.0.0",
+      "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
+      "path": ".",
+      "keywords": [
+        "ambient",
+        "delay",
+        "reverb",
+        "modulation",
+        "granular"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
+        "firmware_sha256": "66a78eaa5a9899345034f7be8285219d067a3acef21dc1d5cbb1a73ca74f23fe",
+        "runs": 1,
+        "block_percent": 4.615854
+      }
     }
   ]
 }
