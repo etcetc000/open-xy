@@ -20,6 +20,8 @@ int sdk_module_synth_register(const opxy::ModuleSynth*) __asm__("sdk_module_synt
 void* sdk_module_synth_voice(int handle, opxy::u32 index) __asm__("sdk_module_synth_voice");
 // Registration is open only while the loader runs module inits.
 void sdk_module_registration(bool open) __asm__("sdk_module_registration");
+// The machine ID (lowercase) of the module whose init runs now, or null after it.
+void sdk_module_current(const char* id) __asm__("sdk_module_current");
 // Startup hooks (startup.cpp.in): GUI screens and engines, catalog insertion,
 // own pages and the preset scan's installed check. The catalog hook returns 1
 // when the name is a module synth's, with stock's result in *result.

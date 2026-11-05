@@ -190,7 +190,10 @@ void load(const char* name, bool gui) {
     if (data) release(nullptr, data);
     if (status != modules::loaded) return;
     // A module whose init refuses stays in memory but is never called again.
+    // Its synth is numbered by its name (module_synths.cpp), the same on both roles.
+    sdk_module_current(name);
     reinterpret_cast<int (*)(const ModuleApi*)>(static_cast<Address>(module.init))(gui ? &api_gui : &api_audio);
+    sdk_module_current(nullptr);
 }
 }
 

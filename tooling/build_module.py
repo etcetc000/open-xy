@@ -305,7 +305,7 @@ unsigned display_validate(const void* f) {{ return {prefix}_display_validate(sta
 // The page's artwork, exactly as a build would install it as content/display/{asset}.
 const char svg[] = {{{svg}}};
 const opxy::ModuleSynth synth = {{
-    sizeof(opxy::ModuleSynth), "{name}", {engine_id}, {page_id}, factory, parameter_name,
+    sizeof(opxy::ModuleSynth), "{name}", 0, 0, factory, parameter_name,
     sizeof(Voice), alignof(Voice), {shared_bytes}, {capacity}, initialize, start, destroy, render,
     sizeof(DisplayState), alignof(DisplayState), sizeof(Frame),
     Frame::path_count, Frame::point_count, Frame::node_count, Frame::text_count, Frame::palette_count,
@@ -323,19 +323,18 @@ extern "C" int opxy_module_init(const opxy::ModuleApi*) {{
 '''
 
 
-def build_machine(folder, out, layout, version, toolchain=None, compiler=None):
+def build_machine(folder, out, version, toolchain=None, compiler=None):
     """A machine folder, unchanged, as a module: its sources, the generated
     display binding, a generated init that registers it, and the freestanding
-    runtime. Its engine and page numbers come from the layout; the module is
-    named after the machine's ID."""
+    runtime. The module is named after the machine's ID, and the firmware
+    numbers it by that ID when it loads (module_synths.cpp): no layout."""
     import json as _json
     from . import native
     from .adapters import generate_display
-    from .machines import read_layout
     tool_dir, compiler_dir = resolve_toolchain(toolchain, compiler)
     tools = tool_paths(tool_dir)
     cxx = native.compiler_paths(compiler_dir)['cxx']
-    _, machines, definitions = native.configuration([{'path': str(Path(folder).resolve())}], read_layout(Path(layout)))
+    _, machines, _definitions = native.configuration([{'path': str(Path(folder).resolve())}], None)
     require(len(machines) == 1, 'One machine per module')
     m = machines[0]
     require(m.kind == 'synth', f'Only synths can be modules so far, not {m.kind}')
@@ -347,7 +346,6 @@ def build_machine(folder, out, layout, version, toolchain=None, compiler=None):
     entry = catalog_entry(m).strip().lstrip(',').strip()
     require(_json.loads(entry)['type'] == m.native_name and entry.isascii(), 'Unexpected catalog entry')
     values = dict(name=m.native_name, namespace=m.definition['id'], prefix=m.prefix,
-                  engine_id=definitions[m.prefix + '_engine_id'], page_id=definitions[m.prefix + '_page_id'],
                   shared_bytes='sizeof(Shared)' if m.definition['resources']['sharedBytes'] else '0',
                   capacity=m.definition['resources']['voiceCapacity'],
                   labels=', '.join(_json.dumps(p['label'].lower()) for p in m.definition['parameters']),
@@ -373,8 +371,8 @@ def build_machine(folder, out, layout, version, toolchain=None, compiler=None):
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(data)
     checked = inspect(data)
-    return dict(file=str(out), manifest=checked['manifest'], imports=checked['imports'], engine_id=values['engine_id'],
-                page_id=values['page_id'], bytes=len(data), image=len(image), bss=bss, relocs=len(relocs))
+    return dict(file=str(out), manifest=checked['manifest'], imports=checked['imports'],
+                bytes=len(data), image=len(image), bss=bss, relocs=len(relocs))
 
 
 def main(argv=None):
@@ -384,7 +382,6 @@ def main(argv=None):
     command = commands.add_parser('build', help='Build a .opx module file from a module folder, or from a machine')
     command.add_argument('folder', type=Path, nargs='?')
     command.add_argument('--machine', type=Path, help='an unchanged machine folder, wrapped as a module')
-    command.add_argument('--layout', type=Path, help="with --machine: the layout.json that numbers the machine")
     command.add_argument('--version', required=True,
                          help="the module's version, MAJOR.MINOR.PATCH; raise it with every release")
     command.add_argument('--out', type=Path, required=True)
@@ -393,8 +390,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.machine:
-            require(args.layout and not args.folder, '--machine needs --layout and no module folder')
-            print(json.dumps(build_machine(args.machine, args.out, args.layout, args.version,
+            require(not args.folder, '--machine takes no module folder')
+            print(json.dumps(build_machine(args.machine, args.out, args.version,
                                            args.toolchain, args.compiler), indent=2))
             return 0
         require(args.folder, 'A module folder or --machine')

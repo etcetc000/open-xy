@@ -82,6 +82,22 @@ unsigned char lower(unsigned char c) { return c >= 'A' && c <= 'Z' ? static_cast
 bool space(unsigned char c) { return c == ' ' || c == '\n' || c == '\r' || c == '\t'; }
 }
 
+u32 fnv1a(const char* text) {
+    u32 value = 0x811c9dc5u;
+    for (; text && *text; ++text) value = (value ^ static_cast<unsigned char>(*text)) * 0x01000193u;
+    return value;
+}
+
+u32 preferred_number(const char* id, u32 first, u32 end, bool (*held)(void*, u32), void* context) {
+    if (!id || !*id || !held || end <= first) return 0;
+    const u32 size = end - first, start = fnv1a(id) % size;
+    for (u32 i = 0; i < size; ++i) {
+        const u32 n = first + (start + i) % size;
+        if (!held(context, n)) return n;
+    }
+    return 0;
+}
+
 bool manifest_names(const unsigned char* text, u32 bytes, const char* name) {
     if (!text || !name || !*name) return false;
     u32 depth = 0;

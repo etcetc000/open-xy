@@ -110,8 +110,16 @@ int array_end_of(const char* path) {
     return 0;
 }
 
+bool never_held(void*, u32) { return false; }
+bool held_below(void* limit, u32 n) { return n < *static_cast<u32*>(limit); }
+
 int main(int argc, char** argv) {
     if (argc > 2 && !std::strcmp(argv[1], "array_end")) return array_end_of(argv[2]);
+    if (argc > 4 && !std::strcmp(argv[1], "preferred")) {
+        // An ID's number in [first, end) with nothing held, for tooling/machines.py preferred() to match.
+        std::printf("%u\n", m::preferred_number(argv[2], u32(std::atoi(argv[3])), u32(std::atoi(argv[4])), never_held, nullptr));
+        return 0;
+    }
     if (argc > 1) return stage_file(argv[1]);
     {
         const char* json = "{\"a\":[1],\"engine_types\" : [ {\"t\":\"]\",\"p\":[1,[2]]}, {\"q\":\"\\\"]\"} ], \"z\":[]}";
@@ -236,5 +244,18 @@ int main(int argc, char** argv) {
         }
     }
     require(m::crc32(0, reinterpret_cast<const unsigned char*>("123456789"), 9) == 0xcbf43926u, "CRC-32 check value");
+    {
+        // Held numbers are skipped upward, wrapping around; with all held there is none.
+        require(m::fnv1a("") == 0x811c9dc5u && m::fnv1a("a") == 0xe40c292cu, "FNV-1a check values");
+        const u32 own = m::preferred_number("karplus", 34, 256, never_held, nullptr);
+        u32 limit = own + 1;
+        require(m::preferred_number("karplus", 34, 256, held_below, &limit) == (own == 255 ? 0 : own + 1), "held number taken");
+        limit = 256;
+        require(!m::preferred_number("karplus", 34, 256, held_below, &limit), "number given from a full pool");
+        limit = 255;
+        require(m::preferred_number("karplus", 34, 256, held_below, &limit) == 255, "pool end missed");
+        require(!m::preferred_number("", 34, 256, never_held, nullptr) && !m::preferred_number("a", 5, 5, never_held, nullptr),
+                "number for no ID or an empty pool");
+    }
     return 0;
 }

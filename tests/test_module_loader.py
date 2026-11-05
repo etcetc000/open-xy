@@ -22,6 +22,36 @@ class ModuleLoader(unittest.TestCase):
                            check=True,capture_output=True)
             subprocess.run([str(runner)],check=True)
             self.catalog_splices(runner, Path(temp))
+            self.numbers_match_a_build(runner)
+
+    def numbers_match_a_build(self, runner):
+        """A module gets the numbers a build without a layout gives the same machine."""
+        from tooling.machines import config, number_pools, preferred
+        rules = config()['identities']
+        pools = number_pools(rules)
+        for slot, first in (('engine', rules['engine_none'] + 1), ('page', rules['page_none'] + 1)):
+            self.assertEqual(pools[slot], list(range(first, 256)), slot)
+            for name in ('karplus', 'macroosc', 'a', 'troupe', 'my_synth_2', 'x' * 15):
+                got = int(subprocess.check_output([str(runner), 'preferred', name, str(first), '256'], text=True))
+                self.assertEqual(got, preferred(pools[slot], name)[0], (slot, name))
+
+    def test_module_numbers_follow_the_profile_and_the_fixed_machines(self):
+        """module_synths.cpp holds what a build holds: the profile's pools, the
+        reserved last page and the fixed machines' numbers."""
+        import re
+        from tooling.machines import FIXED_NUMBERS, config
+        rules = config()['identities']
+        text = (ROOT/'sdk/platform/opxy-1.2.1/module_synths.cpp').read_text(encoding='utf-8')
+        found = re.search(r'engine_first = (\d+), engine_end = (\d+), page_first = (\d+), page_end = (\d+), '
+                          r'page_reserved = (\d+);', text)
+        self.assertIsNotNone(found)
+        self.assertEqual(tuple(map(int, found.groups())),
+                         (rules['engine_none'] + 1, rules['engines'], rules['page_none'] + 1, rules['pages'],
+                          rules['pages'] - 1))
+        self.assertTrue(all(n <= rules['engine_none'] for n in rules['stock_engines']), 'stock engines inside the pool')
+        fixed = {name: (int(e), int(p)) for name, e, p in re.findall(r'\{"(\w+)", (\d+), (\d+)\}', text)}
+        self.assertEqual(fixed, {name: (identity.get('engine', identity.get('effect')), identity['page'])
+                                 for name, identity in FIXED_NUMBERS.items()})
 
     def catalog_splices(self, runner, temp):
         """A module entry lands at the end of engine_types and nowhere else, in the

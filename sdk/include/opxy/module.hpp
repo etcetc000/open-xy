@@ -25,7 +25,7 @@ const u32 module_api_version = 2;
 struct ModuleSynth {
     u32 size;                    // sizeof(ModuleSynth) as built; later fields only when larger
     const char* name;            // native engine name, 1-15 characters
-    u32 engine_id, page_id;      // the machine's numbers from its layout; checked against every owner
+    u32 engine_id, page_id;      // unused, 0: the firmware numbers a module by its machine ID
     // The module's own entry points, so stock can call them without context:
     // factory forwards to core::synth_voice with the handle synth_register gave.
     void* (*factory)(u32 index);

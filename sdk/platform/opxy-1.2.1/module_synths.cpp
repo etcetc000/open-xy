@@ -7,6 +7,7 @@
 #include "module_synths.hpp"
 #include "module_loader.hpp"
 #include "registration.hpp"
+#include "project_companion.hpp"
 #include "synth_pool.hpp"
 #include "screen.hpp"
 #include "note_activity.hpp"
@@ -24,8 +25,22 @@ namespace {
 const u32 entries_max = 200;   // the stock engine table, less stock and built-in machines
 const u32 page_limit = 256;    // OPXY_SCREEN's page limit
 
+// A module's numbers, by its machine ID, as a build gives a machine new to its
+// layout (tooling/machines.py number_layout): engines from the relocated table
+// above stock's "none" (33), pages above stock's "none" (81), each from the
+// ID's own place; the last page stays reserved for the SDK overlay screen.
+// Held: the fixed machines' numbers (FIXED_NUMBERS), every number this
+// firmware's own machines hold (an effect's number also as an engine), and
+// earlier modules'. Profile values: profiles/opxy-1.2.1.json "identities".
+const u32 engine_first = 34, engine_end = 256, page_first = 82, page_end = 256, page_reserved = 255;
+struct Fixed { const char* id; u32 engine, page; };
+const Fixed fixed[] = {{"fm2op", 34, 82}, {"macroosc", 26, 83}, {"ringmod", 1, 21}, {"timestretch", 35, 7}};
+
+char current_id[16];           // the module whose init runs now (sdk_module_current)
+
 struct Entry {
     const ModuleSynth* d;
+    u32 engine, page;              // given at registration
     Record record;
     Screen screen;
     synth::Pool* pool;             // audio role
@@ -259,8 +274,45 @@ bool shape_ok(const ModuleSynth& d) {
 }
 
 bool description_ok(const ModuleSynth* d) {
-    return d && d->size >= sizeof(ModuleSynth) && name_ok(d->name) && d->factory && d->parameter_name &&
-        d->engine_id && d->page_id && d->page_id < page_limit && shape_ok(*d);
+    return d && d->size >= sizeof(ModuleSynth) && name_ok(d->name) && d->factory && d->parameter_name && shape_ok(*d);
+}
+
+// ---- numbers
+u32 symbol_value(const char* symbol) { return static_cast<u32>(reinterpret_cast<Address>(symbol)); }
+bool equal_id(const char* a, const char* b) {
+    while (*a && *a == *b) { ++a; ++b; }
+    return *a == *b;
+}
+bool built_in(const char* id) {
+    for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m)
+        if (symbol_value(m->number) && equal_id(m->id, id)) return true;
+    return false;
+}
+bool engine_held(void*, u32 n) {
+    for (const Fixed& f : fixed) if (f.engine == n) return true;
+    for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m) if (symbol_value(m->number) == n) return true;
+    for (u32 i = 0; i < count; ++i) if (entries[i].engine == n) return true;
+    return false;
+}
+bool page_held(void*, u32 n) {
+    if (n == page_reserved) return true;
+    for (const Fixed& f : fixed) if (f.page == n) return true;
+    for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m)
+        if (symbol_value(m->number) && symbol_value(m->page) == n) return true;
+    for (u32 i = 0; i < count; ++i) if (entries[i].page == n) return true;
+    return false;
+}
+// A fixed machine as a module keeps its fixed numbers; any other gets its preferred free ones.
+bool number(const char* id, u32& engine, u32& page) {
+    for (const Fixed& f : fixed)
+        if (equal_id(f.id, id)) {
+            engine = f.engine; page = f.page;
+            for (u32 i = 0; i < count; ++i) if (entries[i].engine == engine || entries[i].page == page) return false;
+            return true;
+        }
+    engine = modules::preferred_number(id, engine_first, engine_end, engine_held, nullptr);
+    page = modules::preferred_number(id, page_first, page_end, page_held, nullptr);
+    return engine && page;
 }
 
 // Sized and laid out like Drawing<Machine>::Object after the stock Base.
@@ -289,13 +341,19 @@ int sdk_module_synth_register(const ModuleSynth* d) {
     if (!open_for_registration) return module_late;
     if (!description_ok(d)) return module_invalid;
     if (count == entries_max) return module_full;
-    for (u32 i = 0; i < count; ++i)
-        if (entries[i].d->engine_id == d->engine_id || entries[i].d->page_id == d->page_id) return module_taken;
+    // One synth per module, known by the module's machine ID; never one this firmware holds itself.
+    if (!current_id[0] || built_in(current_id)) return module_taken;
+    for (u32 i = 0; i < count; ++i) if (entries[i].d == d) return module_taken;
+    u32 engine = 0, page = 0;
+    if (!number(current_id, engine, page)) return module_full;
     Entry& e = entries[count];
     e = Entry{};
     e.d = d;
+    e.engine = engine;
+    e.page = page;
     e.record = Record{reinterpret_cast<const char*>(d->factory), reinterpret_cast<const char*>(d->parameter_name),
-                      d->name, as_symbol(d->engine_id), as_symbol(d->page_id), 0};
+                      d->name, as_symbol(engine), as_symbol(page), 0};
+    current_id[0] = 0;  // one synth per module
     if (stock_gui_role()) {
         // Registered with the screen at the end of startup, like a built-in synth.
         lay_out(e);
@@ -329,6 +387,13 @@ void* sdk_module_synth_voice(int handle, u32 index) {
 
 void sdk_module_registration(bool open) { open_for_registration = open; }
 
+void sdk_module_current(const char* id) {
+    u32 n = 0;
+    for (; id && id[n] && n + 1 < sizeof current_id; ++n)
+        current_id[n] = id[n] >= 'A' && id[n] <= 'Z' ? static_cast<char>(id[n] + 32) : id[n];
+    current_id[id && id[n] ? 0 : n] = 0;  // too long: no ID at all
+}
+
 void sdk_module_screens() {
     for (u32 i = 0; i < count; ++i) {
         Entry& e = entries[i];
@@ -342,7 +407,7 @@ int sdk_module_catalog(void* catalog, const void* name, u32 id, u32* result) {
     for (u32 i = 0; i < count; ++i) {
         Entry& e = entries[i];
         if (!sdk_name_matches(&e.record, name)) continue;
-        *result = id == e.d->engine_id && sdk_engine_ready(&e.record, e.object ? &e.screen : nullptr) == 1 ?
+        *result = id == e.engine && sdk_engine_ready(&e.record, e.object ? &e.screen : nullptr) == 1 ?
             stock_catalog_insert(catalog, name, id) : 0;
         return 1;
     }
@@ -351,7 +416,7 @@ int sdk_module_catalog(void* catalog, const void* name, u32 id, u32* result) {
 
 int sdk_module_screen_owned(u32 page) {
     for (u32 i = 0; i < count; ++i)
-        if (entries[i].object && entries[i].d->page_id == page) return sdk_engine_ready(&entries[i].record, &entries[i].screen) == 1;
+        if (entries[i].object && entries[i].page == page) return sdk_engine_ready(&entries[i].record, &entries[i].screen) == 1;
     return 0;
 }
 

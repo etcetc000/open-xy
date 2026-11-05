@@ -98,6 +98,15 @@ u32 crc32(u32 crc, const unsigned char* data, u32 bytes);
 // entries into stock's catalog text.
 u32 array_end(const unsigned char* text, u32 bytes, const char* key);
 
+// FNV-1a, 32-bit, of the text's bytes (tooling/machines.py fnv1a).
+u32 fnv1a(const char* text);
+
+// A machine ID's number from the pool [first, end), as tooling/machines.py
+// preferred() gives it: from the ID's own place, FNV-1a modulo the pool's
+// size, upward and wrapping, the first number held() refuses; 0 when every one
+// is held. A build without a layout gives a built-in machine the same number.
+u32 preferred_number(const char* id, u32 first, u32 end, bool (*held)(void*, u32), void* context);
+
 // Whether the manifest text names the module name, ignoring case (FAT32 does):
 // the top-level "name" key's value, a plain string.
 bool manifest_names(const unsigned char* text, u32 bytes, const char* name);
