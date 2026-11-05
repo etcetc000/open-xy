@@ -513,7 +513,10 @@ preset keeps all of a key's settings too: loading one on a `padMix` kit sets
 up every key the preset stores (its regions marked `fm slap`), with the level,
 pad controls and sends the preset holds (a region's `gain`, and its `random`,
 the pad word's top half: pad controls from bit 0, FX I's code at bits 9..11 and
-FX II's at 12..14) ([firmware](abi-1.2.1.md#synthesis-drum-kits)).
+FX II's at 12..14) ([firmware](abi-1.2.1.md#synthesis-drum-kits)). A region
+without `random` loads every pad field at 0; the OP-XY's own preset writer
+names it on every key the kit has set up, and a kit preset written by other
+tools should name it on every region, `"random": 0` included.
 
 A `padMix` kit may declare up to two small settings of each key's own in
 `resources.padControls` (SDK 1.10), such as a filter and a sample-rate

@@ -991,11 +991,21 @@ its run-length writer `8d5914bc`, and pad copy and paste copy the whole
 record, so projects keep the word and the level byte exactly.
 
 Stock fills the word itself. Preset import (`8d4e35a8`) clears the 24
-entries, copies a template over them and, for a Drumline-classified track,
-writes each region's `random` as `max(random << 16, 0)` (`8d4e3558`, stored
-at `8d4e3b9e`), or its default kit's value (`8d4e3958`, from the table at
-`8403a7b4`: 0 on every key but the last, `0x26660000`). The default kit's
-gains (`8403a79c`) run -5..+8 dB. Stock's Drumline editor writes
+entries and copies the preset object's own 24 (`+0x184`, `8d4e3690`) over
+them. Stock's preset reader (`8d4e4074`) cleared those (`8d4e47b2`) and gave
+each region's word 0 unless the region holds a sample's `framecount` or
+fades (`8d4e49f0`..`8d4e4a04`, `8d4e4cba`). Then, for a Drumline-classified
+track, import parses each region: its `params`, model and `playmode`, its
+`random` as `max(random << 16, 0)` (`8d4e3558`, stored at `8d4e3b9e`) only
+when the region names one (`8d4e38b4`), and its `hikey`. A kit's region
+without `random` therefore keeps a word of 0. A key with no region, or with
+one import rejects (no `model` or `params`), takes its default kit's whole
+entry instead (`8d4e391c`..`8d4e3960`): the word (from the table at
+`8403a7b4`: 0 on every key but the last, `0x26660000`), a stock model byte
+whose type is never 7, so the key is never marked, and a gain from
+`8403a79c`, -5..+8 dB. Stock's preset writer names a region's `random`, the
+word shifted right 16, whenever the word is nonzero (`8d4e7322`), so on every
+key the SDK has set up. Stock's Drumline editor writes
 `b * 10737418 + 5368709` for one of 200 steps `b` (`8d4d6098`, `8d4d6cc8`).
 Kits before SDK 1.10 never wrote the word and ignored word 7, so their keys,
 marked or not, can hold any of those values in the word and the level byte.
@@ -1021,12 +1031,12 @@ pattern it wrote (the current pattern `8d587708` of the track at the preset's
 of its 24 pad entries that is not set up gets the mark in its word's low half,
 the preset's fields, level and pan kept. So a preset plays the per-key settings
 it was saved with. Projects load through `deserialize`, never the preset import,
-so an old project's keys still read as they were saved. Stock's import takes a
-region's `params`, model, `playmode`, `random` and `hikey` itself; a key's level
-and pan come with the pad entries it first copies from the preset object
-(`+0x184`, `8d4e3690`). What a region that names no `gain`, `random` or `pan`
-gets there is not traced, and a preset an SDK 1.9 kit saved names none it held
-at 0; whatever it gets now plays.
+so an old project's keys still read as they were saved. A region without
+`random` sets the key up with every pad field 0, as above. A key's level and
+pan come with the pad entries import first copies from the preset object;
+what a region that names no `gain` or `pan` gets there is not traced, and a
+preset an SDK 1.9 kit saved names neither when it held 0; whatever it gets
+now plays.
 
 ### Per-key sends
 

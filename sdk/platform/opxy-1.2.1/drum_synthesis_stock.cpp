@@ -119,7 +119,8 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
 // 8d4e35a8(preset, flag), which writes the pads of the track at the preset's
 // +4 (8d4e22d4) in that track's current pattern (8d587708): the 24 entries at
 // +0x394c, 0x80 apart, each region's params, model byte, `random` (as
-// max(random << 16, 0), 8d4e3558), hikey, and level and pan. Once it returns,
+// max(random << 16, 0), 8d4e3558; 0 for a region without one,
+// drum_storage.hpp), hikey, and level and pan. Once it returns,
 // for a padMix kit (the pattern's machine at +0x18), every key the preset marked
 // is set up as loaded (drum_storage.hpp drum_setup_loaded), so it plays the
 // level, pad controls and sends the preset was saved with. Projects load

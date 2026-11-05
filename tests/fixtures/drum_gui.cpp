@@ -537,6 +537,13 @@ int main() {
         imported[7] = kit_regions[1];
         imported[2] = kit_regions[2];
         imported[4] = ImportedRegion{0x43, {0x0abc, 0, 0, 0}, 0x7a5a, -6, 0, true};   // a stock Drumline pad
+        // A kit region naming no `random`: stock's import leaves the word the
+        // preset reader gave it, 0 (drum_storage.hpp).
+        imported[5] = ImportedRegion{drum_mark(0x00), {7770, 18334, 24578, 10243}, 0, -3, 0, true};
+        // A key the preset has no region for: stock's default kit's whole
+        // entry, here its last key's (8403a7b4: 0x26660000), with a stock model
+        // byte, never type 7.
+        imported[23] = ImportedRegion{0x06, {0x2000, 0x4000, 0x4000, 0x4000}, 0x2666, -5, 0, true};
         preset_object[1] = 0;
         // Stock's import alone (what a preset load did before): nothing set up.
         preset_import(0x9000, 0);
@@ -544,7 +551,10 @@ int main() {
         // Through the hooked calls: engine 41 (padMix, FILTER 5 signed, SRR 4).
         *reinterpret_cast<u32*>(preset_pattern + 0x18) = 41;
         require(sdk_drum_preset_load(0x9000, 0) == 7 && imports == 2);
-        for (u32 k : {10u, 7u, 2u}) require(drum_ready(preset_pad(k)));
+        for (u32 k : {10u, 7u, 2u, 5u}) require(drum_ready(preset_pad(k)));
+        // Without `random`, every pad field 0: the sends follow the track.
+        require(reinterpret_cast<const i32*>(preset_pad(5))[5] == static_cast<i32>(kDrumPadReady));
+        require(!drum_ready(preset_pad(23)) && reinterpret_cast<const i32*>(preset_pad(23))[5] == 0x26660000);
         const i32* fx2 = reinterpret_cast<const i32*>(preset_pad(10));
         require(fx2[5] == static_cast<i32>((12288u << 16) | kDrumPadReady));
         require((static_cast<u32>(fx2[5]) >> 28 & 7) == 3 && static_cast<signed char>(preset_pad(10)[0x1d]) == -9 &&

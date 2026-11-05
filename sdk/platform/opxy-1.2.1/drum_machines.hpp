@@ -124,7 +124,7 @@ void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) __asm__("sdk_drum_p
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
 // Stock's preset import (8d4e35a8, its three calls hooked), then a padMix kit's
-// loaded keys set up as the preset holds them (drum_values_stock.cpp).
+// loaded keys set up as the preset holds them (drum_synthesis_stock.cpp).
 opxy::u32 sdk_drum_preset_load(opxy::u32 preset, opxy::u32 flag) __asm__("sdk_drum_preset_load");
 // A Shift press of encoder 0..3 on a kit with a second Shift row
 // (synth_controls.cpp): moves the encoders, and Shift with them, to the other row.
