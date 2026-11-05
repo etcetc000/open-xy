@@ -6,7 +6,8 @@ static void host_barrier() {}
 #include <keyboard_octaves.cpp>
 #include "drumline.hpp"
 // Built with the build option drumlineRow2: a stand-in service that only
-// records Shift's presses (drumline.cpp's switch the rows).
+// records presses (drumline.cpp's switch the pages, from sdk_synth_press;
+// the sample page's press hook never does).
 static unsigned drumline_presses, drumline_track_pressed, drumline_button;
 static void drumline_press(opxy::u32 track, opxy::u32 button) {
     ++drumline_presses; drumline_track_pressed = track; drumline_button = button;
@@ -528,8 +529,9 @@ int main() {
     check(sdk_sample_page_shift() == 1);
     shifted = false;
     check(sdk_sample_page_shift() == 0);
-    // Stock Drumline with the build option drumlineRow2: Shift and a press of
-    // encoder 2..4 (buttons 5..7) switch its rows; encoder 1 keeps stock's
+    // Stock Drumline with the build option drumlineRow2: the sample page's press
+    // hook (8c0b2730) leaves its pages alone (a plain press switches them, in
+    // sdk_synth_press), with Shift or not; Shift and encoder 1 keep stock's
     // play-mode cycle, and every press returns what stock acts on, as before.
     selected_track_value = 0;
     for (unsigned id : {4u, 3u, 2u, 30u}) {
@@ -539,9 +541,7 @@ int main() {
             for (unsigned button = 4; button < 8; ++button) {
                 const unsigned presses = drumline_presses;
                 check(sdk_sample_press_engine_owned(0, button) == sdk_sample_alias(id));
-                const bool switches = id == 4 && shift && button > 4;
-                check(drumline_presses == presses + (switches ? 1 : 0));
-                check(!switches || (drumline_track_pressed == 0 && drumline_button == button));
+                check(drumline_presses == presses);
             }
         }
     }
