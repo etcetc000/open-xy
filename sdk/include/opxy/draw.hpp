@@ -52,8 +52,9 @@ struct Frame {
     char header[page_controls][header_capacity];
 };
 // The track's stock amplitude envelope as Q31 words, 0..0x7fffffff, on the
-// scale of slots: a larger attack, decay or release is a longer stage, as
-// stock's envelope page draws it. These are control positions, not times.
+// scale of slots: a larger attack or decay is a longer stage, but a larger
+// release is a shorter one (stock reads it mirrored). Sustain is a linear
+// gain. These are control positions, not times; stock uses only word >> 24.
 struct Envelope { i32 attack, decay, sustain, release; };
 struct Input {
     i32 parameters[page_controls];

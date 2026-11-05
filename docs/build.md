@@ -150,6 +150,7 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
 | `content/op1_factory.json` | `/content/op1_factory.json` |
 | `content/display/<machine>.svg`, one per synth | `/content/display/<machine>.svg` |
 | `content/presets/<machine>/`, one per instrument (not effect): an init preset and the machine's [own](api.md#presets) | `/content/presets/<machine>/` |
+| `content/samples/<machine>/`, for a sample engine shipping [its own samples](api.md#own-samples) | `/content/samples/<machine>/` |
 
 1. Open file transfer as in step 2 and copy the files to the paths above,
    replacing existing files. Keep the device's other content.

@@ -19,6 +19,7 @@ from unittest.mock import patch
 from tooling import native
 from tooling.adapters import preset_files
 from tooling.formats import elf32, elf_sections, sha
+from tooling.machines import sample_path
 from tooling.pipeline import document, read, save_json
 
 
@@ -145,8 +146,10 @@ class PackageVerification(unittest.TestCase):
         files = {p.relative_to(self.package / 'candidate').as_posix()
                  for p in (self.package / 'candidate').rglob('*') if p.is_file()}
         presets |= {path for m in self.linked for path in aux_preset_files(m)}
+        # A sample engine's own samples (SDK 1.10), as its collection folder declares them; nothing else.
+        samples = {sample_path(m.id, name) for m in self.linked for name in (m.samples or {})}
         self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} |
-                         presets)
+                         presets | samples)
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',

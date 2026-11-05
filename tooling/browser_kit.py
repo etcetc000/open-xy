@@ -55,6 +55,71 @@ def extension_origins(extensions_, personal):
             for e in extensions_}
 
 
+def kit_presets(m):
+    """The machine's own presets as the builder installs them (builder/core.mjs presetFiles).
+    The builder doesn't install a sample engine's own samples (SDK 1.10) yet, so a kit keeps
+    each preset without its sample regions and leaves the samples out: such a preset opens
+    with no sample loaded, as before the machine shipped samples. sdk.py build installs the
+    samples and the presets as they are."""
+    presets = m.presets or {}
+    emptied = sorted(name for name, preset in presets.items() if preset['regions'])
+    if emptied:
+        print(f'{m.id}: the kit leaves out its own samples; its presets {", ".join(emptied)} load no sample in '
+              'the builder (sdk.py build installs them)', file=sys.stderr)
+    return {name: dict(preset, regions=[]) if name in emptied else preset for name, preset in presets.items()}
+
+
+def machine_entry(m, profile, sources, output, preview_cxx):
+    """A machine as the kit lists it for the builder."""
+    # The numbers it asks for, null where it leaves them to the layout; the builder
+    # numbers each selection (core.mjs assignNumbers).
+    requested = check_request(profile['identities'], m.kind, m.requested or m.identity)
+    entry = dict(id=m.id, name=m.name, kind=m.kind, prefix=m.prefix, description=m.description,
+                 identity=requested, controls=[p['label'] for p in m.definition['parameters']],
+                 positions=control_positions(m.definition), pages=paged(m.definition))
+    entry['catalog'] = catalog_entry(m)
+    # Where the machine comes from, for the builder to show (core.mjs validOrigin): a
+    # catalog machine is Open-XY's own only when maintainers list it (catalog.OFFICIAL).
+    entry['origin'] = ('personal' if m.id not in sources
+                       else 'official' if official(sources[m.id]) else 'catalog')
+    if m.id in sources:
+        entry['source'] = {key: sources[m.id][key] for key in ('repository', 'tag', 'commit', 'maintainer')}
+        if 'cpu' in sources[m.id]:
+            entry['cpu'] = sources[m.id]['cpu']
+        # The catalog's words for browsing it in the builder (catalog.KEYWORDS).
+        if 'keywords' in sources[m.id]:
+            entry['keywords'] = list(sources[m.id]['keywords'])
+    uses = sorted(set(native.service_users([m])) - {m.kind, 'extension'})
+    if uses:
+        entry['features'] = uses
+    entry['presetDefaults'] = m.preset_defaults
+    # A machine that takes over aux tracks: its preset files, which the builder installs as they are.
+    aux_presets = aux_preset_files(m)
+    if aux_presets:
+        entry['auxPresets'] = {path: data.decode('utf-8') for path, data in aux_presets.items()}
+    presets = kit_presets(m)
+    if presets:
+        entry['presets'] = presets
+    if m.icon:
+        entry['icon'] = m.icon
+    # An unselected machine's startup and catalog callbacks decline.
+    entry['absent'] = native.absent_symbols(m)
+    if m.display != 'stock':
+        entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
+        if m.grayscale:
+            entry['grayscaleArtwork'] = read(m.root / m.grayscale).decode('utf-8')
+        entry['asset'] = m.native_name + '.svg'
+    if m.display != 'stock' and m.kind == 'synth':
+        preview_dir = output / ('preview-' + m.id)
+        preview.build(preview_cxx, m, preview_dir)
+        preview.preview_bundle(preview_dir, require_reference=True)
+        wasm = read(preview_dir / 'engine.wasm')
+        entry['preview'] = dict(wasm=base64.b64encode(wasm).decode('ascii'), sha256=sha(wasm),
+                                graphics=preview.graphics_metadata(m),
+                                defaults=[round(p['default'] * 0x7fffffff) for p in m.definition['parameters']])
+    return entry
+
+
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
     profile, machines, definitions = native.configuration(native.package_collection(package))
     sources = catalog_sources(machines, personal)
@@ -62,54 +127,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])
     owners, services = native.object_owners(machines, profile, runtime_members), native.object_services(machines, profile)
     runtime_names = {native.runtime.object_name(member) for member in runtime_members}
-    kit_machines = []
-    for m in machines:
-        # The numbers it asks for, null where it leaves them to the layout; the builder
-        # numbers each selection (core.mjs assignNumbers).
-        requested = check_request(profile['identities'], m.kind, m.requested or m.identity)
-        entry = dict(id=m.id, name=m.name, kind=m.kind, prefix=m.prefix, description=m.description,
-                     identity=requested, controls=[p['label'] for p in m.definition['parameters']],
-                     positions=control_positions(m.definition), pages=paged(m.definition))
-        entry['catalog'] = catalog_entry(m)
-        # Where the machine comes from, for the builder to show (core.mjs validOrigin): a
-        # catalog machine is Open-XY's own only when maintainers list it (catalog.OFFICIAL).
-        entry['origin'] = ('personal' if m.id not in sources
-                           else 'official' if official(sources[m.id]) else 'catalog')
-        if m.id in sources:
-            entry['source'] = {key: sources[m.id][key] for key in ('repository', 'tag', 'commit', 'maintainer')}
-            if 'cpu' in sources[m.id]:
-                entry['cpu'] = sources[m.id]['cpu']
-            # The catalog's words for browsing it in the builder (catalog.KEYWORDS).
-            if 'keywords' in sources[m.id]:
-                entry['keywords'] = list(sources[m.id]['keywords'])
-        uses = sorted(set(native.service_users([m])) - {m.kind, 'extension'})
-        if uses:
-            entry['features'] = uses
-        entry['presetDefaults'] = m.preset_defaults
-        # A machine that takes over aux tracks: its preset files, which the builder installs as they are.
-        aux_presets = aux_preset_files(m)
-        if aux_presets:
-            entry['auxPresets'] = {path: data.decode('utf-8') for path, data in aux_presets.items()}
-        if m.presets:
-            entry['presets'] = m.presets
-        if m.icon:
-            entry['icon'] = m.icon
-        # An unselected machine's startup and catalog callbacks decline.
-        entry['absent'] = native.absent_symbols(m)
-        if m.display != 'stock':
-            entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
-            if m.grayscale:
-                entry['grayscaleArtwork'] = read(m.root / m.grayscale).decode('utf-8')
-            entry['asset'] = m.native_name + '.svg'
-        if m.display != 'stock' and m.kind == 'synth':
-            preview_dir = output / ('preview-' + m.id)
-            preview.build(preview_cxx, m, preview_dir)
-            preview.preview_bundle(preview_dir, require_reference=True)
-            wasm = read(preview_dir / 'engine.wasm')
-            entry['preview'] = dict(wasm=base64.b64encode(wasm).decode('ascii'), sha256=sha(wasm),
-                                    graphics=preview.graphics_metadata(m),
-                                    defaults=[round(p['default'] * 0x7fffffff) for p in m.definition['parameters']])
-        kit_machines.append(entry)
+    kit_machines = [machine_entry(m, profile, sources, output, preview_cxx) for m in machines]
     # The native build's own objects, in its link order.
     object_dir = output / 'objects'
     object_dir.mkdir()

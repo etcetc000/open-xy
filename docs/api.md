@@ -70,7 +70,8 @@ A drum preview auditions one parameter set across its voices; the device provide
 The OP-XY renders every voice and effect in 64-sample blocks, 1.45 ms each, on
 one Blackfin core that also runs its own engines, sequencer and effects. A
 machine's cost adds up per sounding voice and per track that uses it. The SDK
-sets no hard limit and does not yet measure device cycles.
+reports a host estimate during development; catalog submissions require the
+separate [hardware measurement](profiling.md) of average and peak CPU.
 
 `python sdk.py test` prints an estimate for synths and effects in **Blackfin
 instructions per 64-sample block**, at the machine's heaviest control setting.
@@ -105,7 +106,9 @@ host does fast and the Blackfin does not:
   increments, belongs outside the sample loop.
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
-submitting a catalog entry. Host estimates do not satisfy that requirement.
+submitting a catalog entry: add both average cost (`block_percent`) and worst
+observed block (`peak_percent`) from the generated report. A low average can
+hide a short spike; host estimates do not satisfy either measurement requirement.
 
 ## Definition
 
@@ -917,6 +920,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
+| `samples` | Optional folder inside the machine folder holding a sample engine's own [samples](#own-samples), which its presets load; `sdk` 1.10, sample engines forking the sampler |
 | `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
 
 An effect's optional `dryParameter` field names the control used by the stock
@@ -938,8 +942,62 @@ firmware that holds it.
 - At most 16 presets, each at most 16 KiB.
 - Each is a version 4 OP-XY preset whose `type` is the machine's ID, with
   eight engine `params` from 0 to 32767 and no sample `regions`, since a
-  preset never points into a user's sample library. Other fields stay as the
-  device saved them.
+  preset never points into a user's sample library. A sample engine shipping
+  its [own samples](#own-samples) may point at those instead. Other fields stay
+  as the device saved them.
+
+#### Own samples
+
+From SDK 1.10 a sample engine forking the sampler (`"base": "sampler"`) can ship
+samples of its own, so its init preset and its other presets open with a sound
+loaded instead of an empty track. `machine.json` `samples` names a folder of
+`<name>.wav` files, and `sdk.py build` installs each as
+`content/samples/<id>/<name>.wav`. They live in the OP-XY's content storage, not
+in the module memory: stock loads one into its sample memory when a preset
+pointing at it is loaded, as it loads any other sample, and the player can still
+load another sample over it.
+
+Ship only audio you made yourself or may redistribute under the machine's
+licence: never the OP-XY's own content, and no commercial, library or other
+third-party sounds you can't relicense. Say in a `README.md` in the samples
+folder where each sample comes from, how it was made and under which licence it
+ships. Catalog review checks it.
+
+- A name is lowercase letters, digits, `-` and `_`, at most 24. Other files in
+  the folder, except `.md` and hidden files, are refused.
+- At most 4 samples, each at most 2 MiB: a WAV file of plain 16-bit PCM
+  (format 1, not `WAVE_FORMAT_EXTENSIBLE`) at 44.1 kHz, mono or stereo.
+- Every sample is loaded by at least one of the machine's [presets](#presets), so
+  `samples` needs `presets`.
+- A preset points at one in its single sampler region, as stock saves a sample
+  engine's preset. Its `sample` is the installed path,
+  `content/samples/<id>/<name>.wav`; its `framecount` is the sample's frame
+  count; `sample.start` (0 if absent) and `sample.end` lie inside it, and the
+  loop markers inside them. `pitch.keycenter` and `hikey` are 0..127, `gain`
+  is -30..20 dB, and `reverse` and the loop flags are true or false. `tune`,
+  `pan`, `fade.in`, `fade.out` and `loop.crossfade` stay 0: the SDK doesn't
+  record their saved ranges yet.
+- Presets name the file, so it is installed once however many presets use it.
+  A machine without `samples` keeps empty `regions`.
+- Projects and presets name a sample by its path. Treat a shipped sample as
+  fixed: replacing or removing it under the same name changes or silences every
+  project and preset that loads it, and builds never delete files an earlier
+  build installed. Give new or changed audio a new name.
+- The files share `content/samples/` with whatever else is on the OP-XY. The SDK
+  doesn't record the names of stock's own sample folders, so it can't refuse a
+  machine ID that matches one: check the device's `/content/samples/` before
+  choosing a sample engine's ID.
+- The browser builder doesn't install samples yet. Its kit still offers the
+  machine and its presets, but not the samples: there each preset opens with no
+  sample loaded, as a sample engine's presets did before. `sdk.py build`
+  installs the samples and the presets as they are.
+
+```json
+"regions": [{"sample": "content/samples/mysampler/pad.wav", "framecount": 264600,
+  "sample.start": 0, "sample.end": 264600, "pitch.keycenter": 48, "hikey": 127,
+  "gain": 0, "tune": 0, "reverse": false, "loop.start": 0, "loop.end": 264600,
+  "loop.crossfade": 0, "loop.onrelease": false}]
+```
 
 ### Identity
 
