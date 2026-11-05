@@ -96,9 +96,9 @@ def configuration(entries=None, layout=None):
     stock_tables.check_profile(profile)
     stock_limits.check_profile(profile)
     release_floor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
-    # Every limit edit belongs to a service one of the two audits above checks.
-    require(all(p.get('service') in (stock_limits.SERVICE, release_floor.SERVICE)
-                for p in profile['patches'] if p['kind'] == 'limit'), 'Unaudited limit edit')
+    # Every limit edit belongs to a registry capability (each audited above).
+    require(all(p.get('service') in extensions.capabilities() for p in profile['patches'] if p['kind'] == 'limit'),
+            'A limit edit belongs to a registry capability')
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(

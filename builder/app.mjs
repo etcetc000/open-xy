@@ -591,6 +591,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       input.onchange = () => {
         selectedExtensions = core.extensionSelection(kit, input.checked ? [...selectedExtensions, extension.id]
           : selectedExtensions.filter(id => id !== extension.id));
+        // A chosen value lasts only while a selected extension declares its capability.
+        const declared = new Set((kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id))
+          .flatMap(e => Object.keys(e.settings ?? {})));
+        for (const c of Object.keys(extensionSettings)) if (!declared.has(c)) delete extensionSettings[c];
         invalidate(); renderExtensions(); recalculate();
         document.querySelector('#extensions input[aria-label="Include ' + CSS.escape(extension.name) + '"]')?.focus();
       };

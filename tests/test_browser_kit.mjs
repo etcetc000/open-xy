@@ -128,6 +128,10 @@ test('a setting whose bytes are stock is recovered once its capability\'s other 
     settings:{release_floor:{label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48, value:-40}}}];
   const built = await patchFirmware(kit, linkKit(kit, ['a'], null, ['idle']), stock, {settings:{release_floor:-66}});
   assert.deepEqual(imageSettings(kit, built), {release_floor:-66});
+  // Partly applied (floor raised, stage edit stock) holds no setting, as tooling/settings.state.
+  const partial = (await patchFirmware(kit, linkKit(kit, ['a'], null, ['idle']), stock, {settings:{release_floor:-40}})).slice();
+  partial.set(stock.subarray(56, 58), 56);
+  assert.deepEqual(imageSettings(kit, partial), {});
   assert.deepEqual(await recoverFirmware(kit, built),
     {stock, selected:['a'], extensions:['idle'], settings:{release_floor:-66}});
   assert.deepEqual(imageSettings(kit, await patchFirmware(kit, linkKit(kit, ['a'], null, []), stock)), {});

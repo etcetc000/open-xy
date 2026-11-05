@@ -19,7 +19,9 @@ from pathlib import Path
 import re
 
 from .extensions import capabilities, capability_settings, chosen_settings, extension_at
+from .firmware import hook_target
 from .formats import header, ldr, mapped_offset, require, sha
+from . import startup_label
 from .pipeline import add_overwrite_argument, config, fresh_output, read
 from .release import outside_checkouts
 
@@ -42,22 +44,35 @@ def site(image, blocks, patch):
 
 
 def encodings(patch):
-    return {patch['before'], patch['after'], *patch.get('choices', {}).values()}
+    return {patch['before'], *([patch['after']] if 'after' in patch else []), *patch.get('choices', {}).values()}
 
 
 def authenticate(image, blocks, profile):
     """The image is stock OS 1.2.1, or an open-xy OS made from it: with its module record
     (before FINAL) removed and every reviewed edit undone, it is stock by SHA-256, as
-    builder/core.mjs recoverFirmware requires."""
-    stock = bytearray(image)
+    builder/core.mjs recoverFirmware requires. Since apply writes the image back out, every
+    other edit site must also hold stock, or its reviewed bytes, or for a hook or startup
+    label a branch into the image's own module record (none without one)."""
+    stock, low, high = bytearray(image), None, None
     if len(blocks) == profile['stock_records'] + 1:
         first, module, final = blocks[0], blocks[-2], blocks[-1]
         require(module['offset'] == profile['stock_bytes'] - 16 and module['code'] & 0xffff == 4 and
                 first['code'] & 0xffff == 0x5004, UNSUPPORTED)
         stock = bytearray(image[:module['offset']] + image[final['offset']:])
         stock[:16] = header(0x5004, first['target'], 0, len(stock) - 16)
+        low, high = module['target'], module['target'] + module['count']
     else:
         require(len(blocks) == profile['stock_records'], UNSUPPORTED)
+    for patch in profile['patches']:
+        offset = int(patch['file_offset'], 16)
+        held = image[offset:offset + patch['length']]
+        if held.hex() == patch['before'] or held.hex() in encodings(patch):
+            continue
+        require(low is not None and patch['kind'] in ('hook', 'startup'),
+                UNSUPPORTED + ': unexpected bytes at a reviewed edit site ' + label(patch))
+        target = (startup_label.destination(held) if patch['kind'] == 'startup'
+                  else hook_target(patch, held)[0])
+        require(low <= target < high, UNSUPPORTED + ': a hook leaves its module: ' + label(patch))
     require(len(stock) == profile['stock_bytes'], UNSUPPORTED)
     for patch in profile['patches']:
         offset = int(patch['file_offset'], 16)
@@ -78,22 +93,23 @@ def compare_with_stock(image, blocks, profile, stock):
     require(len(blocks) > len(reference) and blocks[0]['code'] & 0xffff == 0x5004 and
             [key(b) for b in blocks[1:len(reference) - 1]] == [key(b) for b in reference[1:-1]] and
             image[-16:] == stock[-16:], UNSUPPORTED + ': its stock loader records moved or changed')
-    names = set(capabilities())
-    for p in profile['patches']:
-        if p.get('service') in names:
-            lo = int(p['file_offset'], 16)
-            hi = lo + p['length']
-            require(image[lo - 1] == stock[lo - 1] and image[hi] == stock[hi],
-                    'Another edit adjoins a capability site: ' + label(p))
+    # Around each capability site (the instructions its edit relies on, such as the compare
+    # between the floor and stage edits) the image must be stock, apart from the sites.
+    names, window = set(capabilities()), 32
+    spans = [(int(p['file_offset'], 16), int(p['file_offset'], 16) + p['length'])
+             for p in profile['patches'] if p.get('service') in names]
+    for lo, hi in spans:
+        for i in range(max(16, lo - window), hi + window):  # FIRST's header is checked above
+            require(image[i] == stock[i] or any(a <= i < b for a, b in spans),
+                    'Another edit is within %d bytes of a capability site' % window)
 
 
 def check_image(image, blocks, profile, stock=None):
     """Authenticate as this SDK reconstructs an image, else, given stock, as another SDK's."""
     try:
         authenticate(image, blocks, profile)
-    except ValueError:
-        require(stock is not None, UNSUPPORTED + ' by this SDK; for an open-xy OS from another SDK, '
-                'pass the stock OS with --stock-os')
+    except ValueError as error:
+        require(stock is not None, f'{error}. For an open-xy OS from another SDK, pass the stock OS with --stock-os')
         compare_with_stock(image, blocks, profile, stock)
 
 

@@ -891,10 +891,12 @@ export function imageSettings(kit, input) {
   const found = {};
   for (const edit of kit.profile.patches.filter(e => e.choices)) {
     const value = Object.entries(edit.choices).find(([, b]) => equal(siteBytes(input, edit), unhex(b)))?.[0];
-    // As tooling/settings.state: every fixed edit of the capability applied, when it has any.
+    // As tooling/settings.state: a capability with fixed edits is on only with all of them
+    // applied (a partly applied image holds no setting); one of setting edits only, when
+    // its bytes differ from stock.
     const fixed = kit.profile.patches.filter(other => other.service === edit.service && !other.choices);
-    const on = !equal(siteBytes(input, edit), unhex(edit.before)) ||
-      (fixed.length > 0 && fixed.every(other => equal(siteBytes(input, other), unhex(other.after))));
+    const on = fixed.length > 0 ? fixed.every(other => equal(siteBytes(input, other), unhex(other.after)))
+      : !equal(siteBytes(input, edit), unhex(edit.before));
     if (value !== undefined && on) found[edit.setting] = Number(value);
   }
   return found;

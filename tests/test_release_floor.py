@@ -10,7 +10,7 @@ import unittest
 
 from tooling import native, release_floor as floor, settings as image_settings
 from tooling.extensions import capability_settings, extension_at, metadata, setting_edits
-from tooling.firmware import active_services, patch_active
+from tooling.firmware import absolute_call, active_services, patch_active
 from tooling.formats import header, ldr
 from tooling.pipeline import ROOT, check_patch_boundaries, config, document
 from tooling.stock_tables import decode
@@ -122,7 +122,7 @@ class Image(unittest.TestCase):
         records = [header(0x5004, 0, 0, 0)]
         for patch in edits:
             records.append(header(1, int(patch['address'], 16), patch['length'], 0) + bytes.fromhex(patch['before']))
-        records.append(header(1, 0x80000000, 16, 0) + bytes(range(16)))  # other stock code
+        records.append(header(1, 0x80000000, 128, 0) + bytes(range(128)))  # other stock code
         records.append(header(0x8004, 0, 0, 0))
         data = bytearray(b''.join(records))
         data[:16] = header(0x5004, 0, 0, len(data) - 16)  # FIRST holds the image size, as stock's does
@@ -176,15 +176,37 @@ class Image(unittest.TestCase):
         self.assertEqual(image_settings.state(result, profile)['release_floor'], -40)
         self.assertEqual(result[-36:], bytes(built[-36:]))  # the module record is untouched
 
+    def test_hook_sites_hold_stock_or_a_branch_into_the_image_module(self):
+        data, profile = self.image()
+        code = len(data) - 16 - 128 + 64  # inside the other stock record's payload: a hook site here
+        profile['patches'].append(dict(kind='hook', symbol='entry', call=True, length=8,
+                                       address=hex(0x80000000), file_offset=hex(code), before=data[code:code + 8].hex()))
+        profile['stock_sha256'] = hashlib.sha256(data).hexdigest()
+        module = header(4, 0x30000000, 4, 0) + bytes(4)
+        built = bytearray(data[:-16] + module + data[-16:])
+        built[:16] = header(0x5004, 0, 0, len(built) - 16)
+        self.assertEqual(image_settings.state(bytes(built), profile)['release_floor'], None)
+        into = bytearray(built)
+        into[code:code + 8] = absolute_call(0x30000000)
+        self.assertEqual(image_settings.state(bytes(into), profile)['release_floor'], None)
+        outside = bytearray(built)
+        outside[code:code + 8] = absolute_call(0x30000100)
+        with self.assertRaisesRegex(ValueError, 'leaves its module'):
+            image_settings.state(bytes(outside), profile)
+        bare = bytearray(data)  # a hook with no module record to land in
+        bare[code:code + 8] = absolute_call(0x30000000)
+        with self.assertRaisesRegex(ValueError, 'unexpected bytes'):
+            image_settings.state(bytes(bare), profile)
+
     def test_an_image_from_another_sdk_needs_the_stock_os(self):
         data, profile = self.image()
         module = header(4, 0x30000000, 4, 0) + bytes(4)
         other = bytearray(data[:-16] + module + data[-16:])
         other[:16] = header(0x5004, 0, 0, len(other) - 16)
-        code = len(data) - 16 - 16  # the other stock record's payload
-        other[code + 4] ^= 0x5a  # a hook of its own, which this profile cannot undo
+        code = len(data) - 16 - 128  # the other stock record's payload
+        other[code + 64] ^= 0x5a  # a hook of its own, far from any capability site
         extension = extension_at(folder(self, settings={'release_floor': -40}))
-        with self.assertRaisesRegex(ValueError, '--stock-os'):
+        with self.assertRaisesRegex(ValueError, 'pass the stock OS with --stock-os'):
             image_settings.state(bytes(other), profile)
         self.assertEqual(image_settings.state(bytes(other), profile, data), {'long_samples': None, 'release_floor': None})
         result, _ = image_settings.apply(bytes(other), [extension], {}, profile, data)
@@ -199,7 +221,7 @@ class Image(unittest.TestCase):
         with self.assertRaises(ValueError):
             image_settings.state(bytes(near), profile, data)
         moved = bytearray(other)
-        moved[code - 16:code] = header(1, 0x80000010, 16, 0)  # a valid record at another address
+        moved[code - 16:code] = header(1, 0x80000010, 128, 0)  # a valid record at another address
         with self.assertRaisesRegex(ValueError, 'records moved'):
             image_settings.state(bytes(moved), profile, data)
 
