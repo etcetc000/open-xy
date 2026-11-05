@@ -31,7 +31,7 @@ class PlayerContracts(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk='1.8', kind='player',
                                                                description='Player contract fixture.')))
         definition = dict(schema=1, id='probeplayer', name='Player', resources={}, presets={},
