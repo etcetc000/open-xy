@@ -183,7 +183,9 @@ default in the registry). An extension chooses its value with
 `"settings": {"<capability>": <value>}` in `extension.json`; the builder shows a
 slider for it beside the extension's description and writes the chosen value.
 Each value has its own reviewed bytes in the profile edit's `choices`, so the
-builder reads a setting back from an image exactly.
+builder reads a setting back from an image exactly. The builder's `layout.json`
+keeps the slider's value for its next build; native builds (`sdk.py build`) take
+the value from `extension.json`.
 
 | Capability | Setting | Effect |
 | --- | --- | --- |

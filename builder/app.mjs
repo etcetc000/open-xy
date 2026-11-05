@@ -26,7 +26,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
   const kib = n => (n / 1024).toFixed(1) + ' KiB';
   const graphicsConfiguration = createGraphicsConfiguration();
-  let kit, stock, catalog, selected = [], selectedExtensions = [], extensionSettings = {}, inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+  let kit, stock, catalog, selected = [], selectedExtensions = [], extensionSettings = {}, recoveredSettings = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
@@ -219,6 +219,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
       stock = recovered.stock;
+      // Values read from a previously loaded OS go; a slider's or a layout's stay.
+      for (const c of recoveredSettings) delete extensionSettings[c];
+      recoveredSettings = Object.keys(recovered.settings ?? {});
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? []; extensionSettings = {...recovered.settings};
         renderMachines(); renderExtensions(); recalculate();

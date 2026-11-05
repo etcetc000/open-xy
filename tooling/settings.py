@@ -21,7 +21,10 @@ import re
 from .extensions import capabilities, capability_settings, chosen_settings, extension_at
 from .firmware import hook_target
 from .formats import header, ldr, mapped_offset, require, sha
-from . import startup_label
+from . import release_floor, startup_label
+
+# Stock ranges each capability's edits rely on beyond their sites: (address, bytes).
+DEPENDS = {release_floor.SERVICE: release_floor.DEPENDS}
 from .pipeline import add_overwrite_argument, config, fresh_output, read
 from .release import outside_checkouts
 
@@ -102,6 +105,11 @@ def compare_with_stock(image, blocks, profile, stock):
         for i in range(max(16, lo - window), hi + window):  # FIRST's header is checked above
             require(image[i] == stock[i] or any(a <= i < b for a, b in spans),
                     'Another edit is within %d bytes of a capability site' % window)
+    for name in names:
+        for address, size in DEPENDS.get(name, ()):
+            at = mapped_offset(reference, address, size)
+            require(all(image[i] == stock[i] or any(a <= i < b for a, b in spans) for i in range(at, at + size)),
+                    'Another edit changes stock code %s relies on (0x%x)' % (name, address))
 
 
 def check_image(image, blocks, profile, stock=None):

@@ -37,6 +37,10 @@ MINIMUM, MAXIMUM, DEFAULT = -66, -20, -48
 FLOOR_SITE = 0x8d50e226  # stage 4: R1 = floor; CC = level <= R1
 STAGE_SITE = 0x8d50e232  # stage 4 below the floor: R0 = 0 (stage 0, slope 0) -> 5
 SPEC = dict(label='Idle threshold', unit='dB', minimum=MINIMUM, maximum=MAXIMUM, default=DEFAULT)
+# Stock code and data the edits rely on: the whole envelope routine (stage handlers,
+# including stage 5's fade) and its stage dispatch table. An image from another SDK
+# must leave them stock (tooling/settings.compare_with_stock).
+DEPENDS = ((0x8d50e110, 0x1cc), (0x8404caa8, 0x20))
 
 
 def floor(db):

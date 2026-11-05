@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 from tooling import native, release_floor as floor, settings as image_settings
 from tooling.extensions import capability_settings, extension_at, metadata, setting_edits
@@ -199,6 +200,10 @@ class Image(unittest.TestCase):
             image_settings.state(bytes(bare), profile)
 
     def test_an_image_from_another_sdk_needs_the_stock_os(self):
+        # In the synthetic image, the capability relies on the first 64 bytes of the other record.
+        patcher = mock.patch.dict(image_settings.DEPENDS, {floor.SERVICE: ((0x80000000, 64),)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         data, profile = self.image()
         module = header(4, 0x30000000, 4, 0) + bytes(4)
         other = bytearray(data[:-16] + module + data[-16:])
@@ -220,6 +225,10 @@ class Image(unittest.TestCase):
         near[site - 1] ^= 0xff
         with self.assertRaises(ValueError):
             image_settings.state(bytes(near), profile, data)
+        relied = bytearray(other)
+        relied[code + 48] ^= 0x01  # inside the stock code the capability relies on, past the window
+        with self.assertRaisesRegex(ValueError, 'relies on'):
+            image_settings.state(bytes(relied), profile, data)
         # A build of this SDK (its module at this profile's base) that fails reconstruction is
         # corrupt: the stock OS does not admit it.
         own = bytearray(data[:-16] + header(4, profile['module_base'], 4, 0) + bytes(4) + data[-16:])
