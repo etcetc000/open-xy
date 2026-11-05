@@ -660,35 +660,44 @@ Kits use the same fixed shared-state and voice-pool rules as synths. Their
 code and state are linked once per machine, shared across tracks; voices
 still require independent state. Machine code and model data need no file loading when notes or patterns change.
 
-### Stock Drumline's second Shift row
+### Stock Drumline's second page
 
 The build option `drumlineRow2` ([build options](build.md#3-add-your-machine))
-gives stock's own Drumline (engine 4) the second Shift row a `padMix` kit like
-MD KIT has. It is off by default: it changes the stock engine on every Drumline
-track of the firmware, and no machine declares it.
+gives stock's own Drumline (engine 4) a second page of per-key settings, the
+ones a `padMix` kit like MD KIT keeps on its pad fields. It is off by default:
+it changes the stock engine on every Drumline track of the firmware, and no
+machine declares it.
 
-- **Shift's second row.** Shift and a press of the second, third or fourth
-  encoder switch the Shift row; Shift and a press of the first still cycle the
-  play mode. Row 1 is stock's: TYPE, RANDOM, PAN, VOLUME. Row 2 holds the
-  selected key's FILTER, SRR, FX I and FX II, as MD KIT's row 2:
+- **Page 2.** A press of any encoder on the engine page switches pages (stock's
+  own press does nothing there). Page 1 is stock's: the type's four sound
+  controls. Page 2 holds FILTER, SRR, FX I and FX II of the key the encoders
+  edit (one held or selected with Shift, else the last played), as MD KIT's
+  pad fields:
   - FILTER, -16..15: low-pass below 0 (`L150` .. `L8.0k`), `OPEN` at 0,
     high-pass above (`H50` .. `H4.0k`), MD KIT's filter and captions;
   - SRR (`OFF`, `22k` … `689`): a sample-and-hold of 2 to 64 samples;
   - FX I and FX II: `TRK`, which follows the track's send, or the key's own
     amount 0..100, as a `padSend` key's.
 
-  The row is kept per track. SRR and then FILTER run on the voice after its
-  level and envelope, before its pan; at 0 the voice is stock's, bit for bit.
+  The page is kept per track and shown in place of page 1's four names and
+  values (stock's page has four of each, so the two pages cannot stack as an SDK
+  kit's do). Shift is stock's one row on either page: TYPE, RANDOM, PAN, VOLUME,
+  and Shift and a press of the first encoder still cycle the play mode. SRR and
+  then FILTER run on the voice after its level and envelope, before its pan; at
+  0 the voice is stock's, bit for bit.
 - **Per hit.** Each voice keeps its key's settings from its first block: a
   later hit or edit of the same key does not reach a voice already sounding.
-- **No step locks yet.** M3's filter and envelope act on Drumline, so the
-  option leaves every lockable word to stock: with a step held, Shift and a
-  turn do what stock does. Per-hit locks of the Shift settings wait for the
-  SDK's handle-based lock storage.
+- **Step locks.** Hold a step and turn a page-2 encoder: the step gets an offset
+  of that field for the key the encoders edit, one step a detent (FILTER within
+  ±31, SRR ±15, a send ±7 codes), kept in the SDK's step-lock handles. Each hit
+  of that key on the step plays it; other keys play their own. A field turned
+  back to 0 is unlocked. While the step is held page 2 shows what it plays.
+  Page 1 and Shift lock as stock does (the four sound controls). A pattern
+  copied between a kit and Drumline locks nothing on the other.
 - **Saved.** The settings live in each pad, saved with the project and copied
-  with the pad and the pattern. Stock's Drumline presets do not keep them. A
-  project saved with them opens on any other firmware as a stock Drumline
-  project, the settings ignored.
+  with the pad and the pattern; the locks with the step, as a kit's. Stock's
+  Drumline presets do not keep them. A project saved with them opens on any
+  other firmware as a stock Drumline project, the settings ignored.
 
 ## Sample engines
 

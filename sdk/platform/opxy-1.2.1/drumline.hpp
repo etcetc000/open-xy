@@ -1,9 +1,13 @@
-// Stock Drumline's second Shift row: the build option drumlineRow2
+// Stock Drumline's second page: the build option drumlineRow2
 // (tooling/machines.py BUILD_OPTIONS), off by default, because it changes
 // stock's own engine 4 ("dbox") on every Drumline track.
-// - Row 2 of Shift: FILTER, SRR, FX I and FX II of the selected key, as MD
-//   KIT's row 2. Shift and a press of encoder 2, 3 or 4 switch the rows; Shift
-//   and a press of encoder 1 keep stock's play-mode cycle.
+// - Page 2: FILTER, SRR, FX I and FX II of the key stock edits, as MD KIT's
+//   pad fields. A press of any encoder on the engine page (stock's click does
+//   nothing there for Drumline: 8c0b3314 -> 8c0b2a6c, page 0, a continuous
+//   word, only clears a field at 8c0b2cca) switches pages; the unshifted
+//   encoders then edit the page shown. Shift is stock's one row (TYPE, RANDOM,
+//   PAN, VOLUME) on either page, and Shift and a press of encoder 1 keep stock's
+//   play-mode cycle.
 // - Storage: the pad record's word +0x00, which stock's Drumline never reads or
 //   writes (stock's samplers keep a frame count there): bits 0..3 SRR, 4..6 FX
 //   I's code, 7..9 FX II's, 10..14 FILTER (signed). 0 is neutral in each, so a
@@ -14,12 +18,12 @@
 //   block, applies SRR and then FILTER to the voice's mono block after stock's
 //   level and envelope, and hands the send codes to the per-key send hooks
 //   (drum_send.hpp), which mix them as a padSend kit's.
-// - Locks: none yet. Stock Drumline reads every lockable word an SDK kit can
-//   spare (M3's filter 16..19 and its envelope 32..35 act on it), so per-hit
-//   locks of the Shift settings wait for the SDK's handle-based lock storage
-//   (one handle a step in word 37, its values in an SDK pool). drumline_fold
-//   already takes a step's offsets; drumline.cpp's step_offsets is where that
-//   storage plugs in. Until then a held step's Shift turn is stock's.
+// - Locks: with a step held, a turn on page 2 locks that field for the step's
+//   hits of the key stock edits, an offset in the step-lock handles' pool
+//   (lock_handles.hpp) under fields 8.. (drumline_pool_field), apart from a
+//   kit's 0..5, so a pattern copied between a kit and Drumline locks nothing on
+//   the other. At note start drumline_fold adds them to the payload. Page 1's
+//   held-step turns stay stock's (the four sound words 0..3).
 #pragma once
 #include "drum_locks.hpp"
 #include "drum_storage.hpp"
@@ -136,11 +140,37 @@ inline i32 drumline_lock_reach(u32 lock) {
     case kLineFx1: case kLineFx2: return 7; case kLineRandom: return 99; case kLineFilter: return 31; default: return 0;
     }
 }
-// What Shift and the encoder at a position (0..3) would lock on the shown row:
-// row 1 TYPE (nothing), RANDOM, PAN, VOLUME; row 2 FILTER, SRR, FX I, FX II.
-inline u32 drumline_shift_lock(u32 position, bool second) {
-    if (second) return position == 0 ? kLineFilter : position == 1 ? kLineSrr : position == 2 ? kLineFx1 : kLineFx2;
-    return position == 1 ? kLineRandom : position == 2 ? kLinePan : position == 3 ? kLineVolume : kDrumlineNoLock;
+// What the encoder at a position (0..3) of page 2 edits and locks: FILTER,
+// SRR, FX I, FX II.
+inline u32 drumline_page_lock(u32 position) {
+    return position == 0 ? kLineFilter : position == 1 ? kLineSrr : position == 2 ? kLineFx1 : position == 3 ? kLineFx2
+                                                                                                   : kDrumlineNoLock;
+}
+// A Drumline lock's field in the handles' pool: 8 + its DrumlineLock, apart
+// from a padMix kit's 0..5 (DrumHitField), since stock copies a step's handle
+// with the step to any track.
+const u32 kDrumlinePoolFields = 8;
+inline u32 drumline_pool_field(u32 lock) { return kDrumlinePoolFields + lock; }
+// A step's offsets from a handle's fields for a key (`mask` and `values` by
+// pool field, as step_locks::handle_fields gives them), each within its reach;
+// true when any is set.
+inline bool drumline_offsets(u32 mask, const i32* values, i32* offsets) {
+    bool any = false;
+    for (u32 lock = 0; lock < kDrumlineLocks; ++lock) {
+        const u32 field = drumline_pool_field(lock);
+        const i32 reach = drumline_lock_reach(lock);
+        offsets[lock] = mask >> field & 1u ? drum_lock_clamp(values[field], -reach, reach) : 0;
+        any = any || offsets[lock];
+    }
+    return any;
+}
+// A page-2 field as a step plays it: the pad's own value plus an offset.
+inline DrumlineFields drumline_offset_fields(DrumlineFields f, const i32* offsets) {
+    f.srr = static_cast<u32>(drum_lock_clamp(static_cast<i32>(f.srr) + offsets[kLineSrr], 0, kDrumlineSrrMax));
+    for (u32 s = 0; s < 2; ++s)
+        f.send[s] = static_cast<u32>(drum_lock_clamp(static_cast<i32>(f.send[s]) + offsets[kLineFx1 + s], 0, kDrumlineSendMax));
+    f.filter = drum_lock_clamp(f.filter + offsets[kLineFilter], kDrumlineFilterMin, kDrumlineFilterMax);
+    return f;
 }
 
 // Stock's own Drumline pad fields: pan the signed byte at +0x1e (-100..100),
@@ -174,10 +204,7 @@ inline void drumline_fold(const unsigned char* record, const i32* offsets, i32* 
         if (offsets[kLineRandom])
             payload[6] = drumline_random_word(drum_lock_clamp(drumline_random_bucket(payload[6]) + 2 * offsets[kLineRandom], 0,
                                                               static_cast<i32>(kDrumlineRandomBuckets) - 1));
-        f.srr = static_cast<u32>(drum_lock_clamp(static_cast<i32>(f.srr) + offsets[kLineSrr], 0, kDrumlineSrrMax));
-        for (u32 s = 0; s < 2; ++s)
-            f.send[s] = static_cast<u32>(drum_lock_clamp(static_cast<i32>(f.send[s]) + offsets[kLineFx1 + s], 0, kDrumlineSendMax));
-        f.filter = drum_lock_clamp(f.filter + offsets[kLineFilter], kDrumlineFilterMin, kDrumlineFilterMax);
+        f = drumline_offset_fields(f, offsets);
     }
     drumline_carry(payload, f);
 }
@@ -188,13 +215,17 @@ struct Drumline {
     // Whether a track (0..7) is a Drumline track: its own engine is stock's 4,
     // never a kit's alias (sdk_drum_alias).
     bool (*track)(u32 track);
-    // A Shift turn of the per-key editor (8c0b147a) on row 2: true when handled.
+    // An unshifted turn of the per-key editor (8c0b147a, control 0..3) on
+    // page 2: true when handled.
     bool (*edit)(u32 track, u32 key, u32 control, const u32* event);
-    // Shift and a press of encoder 2..4 (button 5..7): switches the rows.
-    void (*press)(u32 track, u32 button);
-    // The payload of a pad slot the builder publishes (8d5ad776); `note` at a
-    // note's start, when a step's locks would apply.
-    void (*publish)(u32 track, u32 slot, i32* payload, bool note);
+    // A press of encoder 0..3 on the engine page (sdk_synth_press): switches pages.
+    void (*press)(u32 track, u32 encoder);
+    // The payload of a pad slot the builder publishes (8d5ad776); at a note's
+    // start, the step-lock handle its step applied (0 for none) and its key.
+    void (*publish)(u32 track, u32 slot, i32* payload, u32 handle, u32 key);
+    // With a step held, an unshifted turn at position 0..3 (the generic call,
+    // 8c0b15aa): on page 2 it locks that field for the step; true when handled.
+    bool (*lock)(u32 track, u32 position, const u32* event);
 };
 }}
 

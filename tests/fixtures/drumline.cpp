@@ -24,6 +24,7 @@ opxy::u32 sdk_drum_lock_note(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u
     __asm__("sdk_drum_lock_note");
 opxy::u32 sdk_drum_lock_publish(opxy::u32, opxy::u32, opxy::u32, opxy::i32*) __asm__("sdk_drum_lock_publish");
 opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_synth_turn");
+void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
 opxy::u32 sdk_synth_scramble(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("sdk_synth_scramble");
 opxy::u32 sdk_dbox_render(unsigned char*, opxy::i32*, const opxy::i32*, const opxy::i32*) __asm__("sdk_dbox_render");
 void sdk_drumline_page(unsigned char*) __asm__("sdk_drumline_page");
@@ -39,12 +40,35 @@ const opxy::platform::Drumline* const sdk_drumline = nullptr;
 #endif
 // drum_send.cpp's, which this fixture does not link.
 opxy::u8 sdk_drum_send_dbox[opxy::platform::kDboxVoices];
-// The step-lock handles (lock_handles.cpp), which this fixture does not link: a
-// Drumline track is no handle client yet, so no step hands its note a handle.
-opxy::u32 opxy::platform::step_locks::take_step(opxy::u32) { return 0; }
-opxy::u32 opxy::platform::step_locks::handle_fields(opxy::u32, opxy::u32, opxy::i32*) { return 0; }
-bool opxy::platform::step_locks::held_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32&) { return false; }
-bool opxy::platform::step_locks::held_set(opxy::u32, opxy::u32, opxy::u32, bool, opxy::i32) { return false; }
+// The step-lock handles (lock_handles.cpp), which this fixture does not link:
+// a double over the real pool, a handle for each held step it locks, and the
+// handle the next note start takes (as the sequencer's step hook notes it).
+namespace {
+opxy::platform::step_locks::Pool lock_pool;
+opxy::u32 step_handles[128], next_handle = 1, held_at = 5, noted_handle, held_sets;
+bool holding;
+}
+opxy::u32 opxy::platform::step_locks::take_step(opxy::u32) {
+    const opxy::u32 h = noted_handle;
+    noted_handle = 0;
+    return h;
+}
+opxy::u32 opxy::platform::step_locks::handle_fields(opxy::u32 h, opxy::u32 key, opxy::i32* values) {
+    return h ? lock_pool.fields(h, key, values) : 0;
+}
+bool opxy::platform::step_locks::step_held() { return holding; }
+bool opxy::platform::step_locks::held_value(opxy::u32, opxy::u32 key, opxy::u32 field, opxy::i32& value) {
+    return holding && lock_pool.get(step_handles[held_at], key, field, value);
+}
+bool opxy::platform::step_locks::held_set(opxy::u32, opxy::u32 key, opxy::u32 field, bool present, opxy::i32 value) {
+    if (!holding) return false;
+    opxy::u32& h = step_handles[held_at];
+    if (!h) h = next_handle++;
+    if (present) lock_pool.set(h, key, field, value);
+    else lock_pool.erase(h, key, field);
+    ++held_sets;
+    return true;
+}
 
 namespace {
 using namespace opxy;
@@ -59,6 +83,16 @@ const u32 kKit = 3, kOther = 5, kSampler = 6;
 u32 engines[16] = {0, 0, 4, 41, 0, 4, 3, 0};
 u32 selected = kLine, key = 53, page_word, controller = 0x8400dff8, loading;
 bool shifted, held;
+// A turn as stock hands it on, at a stand-in address (kTurn): [0] its
+// continuous motion, [1] its detents, [2] its speed.
+const u32 kTurn = 0x2000;
+i32 turn_event[3];
+#ifdef DRUMLINE_ON
+u32 turning(i32 detents) {
+    turn_event[0] = detents * 0x00a3d70a; turn_event[1] = detents; turn_event[2] = 0;
+    return kTurn;
+}
+#endif
 i32 live[8 * 58];
 i32 held_words[58];
 // Each track's pattern track object: its stored words at +0x3864, its 24 pads at +0x394c.
@@ -81,7 +115,12 @@ u32 count(u32) { return 8; }
 bool format(u32, i32, char*) { return false; }
 
 u32 get_engine(u32 track) { return track < 16 ? engines[track] : 0; }
+// The key stock edits (stock.hpp drum_edit_key): the one it holds for editing
+// (0x8400dfc8, -1 none), else the last played (8d4d6cb0), `key`. The track's
+// "selected" key (8d4d6c98) is another byte nothing may read.
+u32 edit_latch = 0xffffffffu;
 u32 get_key(u32) { return key; }
+u32 get_selected(u32) { std::fputs("read 8d4d6c98\n", stderr); std::abort(); }
 u32 get_track() { return selected; }
 u32 get_shift() { return shifted; }
 const u32* top() { return &controller; }
@@ -113,7 +152,7 @@ u32 set_node_text(void* node, const char* text) {
     ++text_sets;
     return 0;
 }
-u32 step_held() { return held; }
+u32 step_held() { return held || holding; }
 i32 held_word(u32 project, u32 track, u32 index) { CHECK(project == kProject && track < 8 && index < 58); return held_words[index]; }
 u32 track_object(u32 track) { CHECK(track < 8); return kObject + track * kObjectBytes; }
 void live_set(u32 project, u32 track, u32 index, i32 value) {
@@ -188,7 +227,9 @@ Address opxy::platform::host_stock_address(Address address) {
     case 0x080238bc: return reinterpret_cast<Address>(&page_word);
     case 0x840a0528: return reinterpret_cast<Address>(&loading);
     case 0x8d58781c: return reinterpret_cast<Address>(&get_engine);
-    case 0x8d4d6c98: return reinterpret_cast<Address>(&get_key);
+    case 0x8d4d6cb0: return reinterpret_cast<Address>(&get_key);
+    case 0x8d4d6c98: return reinterpret_cast<Address>(&get_selected);
+    case 0x8400dfc8: return reinterpret_cast<Address>(&edit_latch);
     case 0x8d4d6f14: return reinterpret_cast<Address>(&get_track);
     case 0x8d51f184: return reinterpret_cast<Address>(&get_shift);
     case 0x8c0944b0: return reinterpret_cast<Address>(&top);
@@ -213,6 +254,7 @@ Address opxy::platform::host_stock_address(Address address) {
     case 0x8d5ad604: return reinterpret_cast<Address>(&gain);
     case 0x8d5acb9c: return reinterpret_cast<Address>(&flush);
     case 0x11a06d28: return reinterpret_cast<Address>(&dbox_render);
+    case kTurn: return reinterpret_cast<Address>(turn_event);
     default:
         if (address >= kLive && address < kLive + sizeof(live)) return reinterpret_cast<Address>(live) + (address - kLive);
         if (address >= kObject && address < kObject + sizeof(objects))
@@ -278,11 +320,22 @@ void packing() {
     // The DSP's decode of word 0 never sees the low byte: 66 bins from bits 8..31.
     for (u32 low = 0; low < 256; ++low)
         CHECK((((0x55aa1200u | low) >> 8) * 66u) >> 23 == ((0x55aa1200u >> 8) * 66u) >> 23);
-    // A future lock's reach stays within stock's 255 steps; row 2's positions name FILTER, SRR, FX I, FX II.
-    for (u32 i = 0; i < kDrumlineLocks; ++i) CHECK(2 * drumline_lock_reach(i) + 1 < 256);
-    CHECK(drumline_shift_lock(0, true) == kLineFilter && drumline_shift_lock(1, true) == kLineSrr);
-    CHECK(drumline_shift_lock(2, true) == kLineFx1 && drumline_shift_lock(3, true) == kLineFx2);
-    CHECK(drumline_shift_lock(0, false) == kDrumlineNoLock && drumline_shift_lock(1, false) == kLineRandom);
+    // Page 2's positions name FILTER, SRR, FX I, FX II; their locks sit in the
+    // handles' pool at fields 8.., apart from a padMix kit's 0..5, and within 16.
+    CHECK(drumline_page_lock(0) == kLineFilter && drumline_page_lock(1) == kLineSrr);
+    CHECK(drumline_page_lock(2) == kLineFx1 && drumline_page_lock(3) == kLineFx2 && drumline_page_lock(4) == kDrumlineNoLock);
+    for (u32 i = 0; i < kDrumlineLocks; ++i)
+        CHECK(drumline_pool_field(i) >= kHitFields && drumline_pool_field(i) < step_locks::kFields);
+    {
+        // A kit's fields (0..5) give Drumline no offsets; its own give each
+        // within its reach.
+        i32 values[step_locks::kFields] = {50, -3, 7, 2, 4, 5}, offsets[kDrumlineLocks];
+        CHECK(!drumline_offsets(0x3fu, values, offsets));
+        values[drumline_pool_field(kLineFilter)] = -40;
+        values[drumline_pool_field(kLineSrr)] = 4;
+        CHECK(drumline_offsets(0x3fu | 1u << drumline_pool_field(kLineFilter) | 1u << drumline_pool_field(kLineSrr), values, offsets));
+        CHECK(offsets[kLineFilter] == -31 && offsets[kLineSrr] == 4 && !offsets[kLinePan] && !offsets[kLineFx1]);
+    }
     // The fold applies a step's offsets when the lock storage gives some.
     stock_pad(kLine);
     i32 payload_[8] = {0x12345600, 1, 2, 3, 4, drum_pan_word(30), drumline_random_word(80), 9};
@@ -337,9 +390,10 @@ void filter_words_are_stocks() {
 }
 
 #ifdef DRUMLINE_ON
-// Row 1 is stock's; Shift and a press of encoder 2..4 switch to row 2:
-// FILTER, SRR, FX I, FX II.
-void rows() {
+// Page 1 is stock's; a press of any encoder on the engine page switches to
+// page 2, whose unshifted encoders edit FILTER, SRR, FX I and FX II. Shift's
+// encoders (4..7) stay stock's on either page.
+void pages() {
     selected = kLine;
     stock_pad(kLine);
     const u32 before = fields(kLine, 53), edits0 = stock_edits;
@@ -349,51 +403,60 @@ void rows() {
         CHECK(stock_edits == edits + 1 && edited_control == control);
     }
     CHECK(fields(kLine, 53) == before && !republished);
-    sdk_drumline->press(kLine, 4);            // encoder 1: stock's play-mode cycle, no switch
-    sdk_drum_edit(53, 4, up, 0);
+    // Another page of the track (M2..M4) or another controller: no switch.
+    page_word = 1;
+    sdk_synth_press(2);
+    page_word = 0;
+    controller = 0x1234;
+    sdk_synth_press(2);
+    controller = 0x8400dff8;
+    sdk_drum_edit(53, 0, up, 0);
     CHECK(stock_edits == edits0 + 9);
-    sdk_drumline->press(kLine, 6);            // encoder 3: row 2
+    sdk_synth_press(2);                       // the engine page: page 2
     // FILTER, -16..15.
-    sdk_drum_edit(53, 4, up, 0);
+    sdk_drum_edit(53, 0, up, 0);
     CHECK(drumline_fields(fields(kLine, 53)).filter == -3 && republished == 1 && republished_key == 53 && dirty == 1);
-    sdk_drum_edit(53, 4, far_up, 0);
+    sdk_drum_edit(53, 0, far_up, 0);
     CHECK(drumline_fields(fields(kLine, 53)).filter == 15 && republished == 2);
-    sdk_drum_edit(53, 4, up, 0);              // at the top: nothing moves, nothing republished
+    sdk_drum_edit(53, 0, up, 0);              // at the top: nothing moves, nothing republished
     CHECK(republished == 2);
     const u32 minus[3] = {1000, static_cast<u32>(-40), 0};
-    sdk_drum_edit(53, 4, minus, 0);
+    sdk_drum_edit(53, 0, minus, 0);
     CHECK(drumline_fields(fields(kLine, 53)).filter == -16 && republished == 3);
     // SRR, 0..15.
-    sdk_drum_edit(53, 5, up, 0);
+    sdk_drum_edit(53, 1, up, 0);
     CHECK(drumline_fields(fields(kLine, 53)).srr == 6 && republished == 4);
-    sdk_drum_edit(53, 5, far_up, 0);
+    sdk_drum_edit(53, 1, far_up, 0);
     CHECK(drumline_fields(fields(kLine, 53)).srr == 15);
     // FX I and FX II, codes 0..7.
-    sdk_drum_edit(53, 6, far_up, 0);
-    sdk_drum_edit(53, 7, down, 0);            // already TRK
+    sdk_drum_edit(53, 2, far_up, 0);
+    sdk_drum_edit(53, 3, down, 0);            // already TRK
     DrumlineFields f = drumline_fields(fields(kLine, 53));
     CHECK(f.send[0] == 7 && f.send[1] == 0 && f.filter == -16 && f.srr == 15 && republished == 6);
-    sdk_drum_edit(53, 7, up, 0);
+    sdk_drum_edit(53, 3, up, 0);
     CHECK(drumline_fields(fields(kLine, 53)).send[1] == 1);
     CHECK((fields(kLine, 53) & ~kDrumlineFieldMask) == 0xabc00000u);   // the other bits stay
     CHECK(stock_edits == edits0 + 9);
-    // Unshifted encoders stay stock's on row 2.
-    sdk_drum_edit(53, 2, up, 0);
-    CHECK(stock_edits == edits0 + 10 && edited_control == 2);
-    // Each track keeps its own row.
+    // Shift's encoders stay stock's on page 2: TYPE, RANDOM, PAN, VOLUME.
+    for (u32 control = 4; control < 8; ++control) {
+        sdk_drum_edit(53, control, up, 0);
+        CHECK(edited_control == control);
+    }
+    CHECK(stock_edits == edits0 + 13);
+    // Each track keeps its own page.
     selected = kOther;
     stock_pad(kOther);
-    sdk_drum_edit(53, 4, up, 0);
-    CHECK(stock_edits == edits0 + 11);
+    sdk_drum_edit(53, 0, up, 0);
+    CHECK(stock_edits == edits0 + 14);
     selected = kLine;
-    sdk_drumline->press(kLine, 5);            // encoder 2: back to row 1
-    sdk_drum_edit(53, 4, up, 0);
-    CHECK(stock_edits == edits0 + 12);
-    // A kit is never Drumline, though classifiers alias it to 4.
+    sdk_synth_press(0);                       // any encoder: back to page 1
+    sdk_drum_edit(53, 0, up, 0);
+    CHECK(stock_edits == edits0 + 15);
+    // A kit is never Drumline, though classifiers alias it to 4; its press is its own.
     CHECK(sdk_drum_alias(41) == 4 && !drumline_track(kKit) && drumline_track(kLine) && !drumline_track(kSampler));
     CHECK(!drumline_track(8) && !drumline_track(14));
     stock_pad(kLine);
-    std::puts("rows ok");
+    std::puts("pages ok");
 }
 
 // Every publication of a Drumline pad carries its fields, a note's as any other's.
@@ -453,12 +516,12 @@ void page_texts() {
     stock_texts();
     held = true;
     sdk_drumline_page(page);
-    CHECK(text_sets == 0 && icons[2][0x5c] == 1);       // row 1 is stock's, step held or not
+    CHECK(text_sets == 0 && icons[2][0x5c] == 1);       // page 1 is stock's, step held or not
     held = false;
     sdk_drumline_page(page);
     CHECK(text_sets == 0);
-    // Row 2: FILTER, SRR, FX I, FX II; the icons hide.
-    sdk_drumline->press(kLine, 6);
+    // Page 2, unshifted: FILTER, SRR, FX I, FX II; the icons hide.
+    sdk_synth_press(1);
     stock_texts();
     sdk_drumline_page(page);
     CHECK(!std::strcmp(texts[4], "filter") && !std::strcmp(texts[0], "L3.6k"));
@@ -466,6 +529,12 @@ void page_texts() {
     CHECK(!std::strcmp(texts[6], "fx i") && !std::strcmp(texts[2], "33"));
     CHECK(!std::strcmp(texts[7], "fx ii") && !std::strcmp(texts[3], "TRK"));
     for (u32 i = 0; i < 6; ++i) CHECK(icons[i][0x5c] == 0);
+    // Shift held: stock's own Shift row, on page 2 too.
+    shifted = true;
+    stock_texts();
+    sdk_drumline_page(page);
+    CHECK(text_sets == 0 && icons[2][0x5c] == 1);
+    shifted = false;
     // MD KIT's FILTER captions at its ends and centre; the sends' 0 and 100.
     const struct { i32 filter; u32 send; const char* caption; const char* amount; } cases[] = {
         {-16, 1, "L150", "0"}, {0, 7, "OPEN", "100"}, {1, 4, "H50", "50"}, {15, 2, "H4.0k", "17"}};
@@ -475,17 +544,101 @@ void page_texts() {
         sdk_drumline_page(page);
         CHECK(!std::strcmp(texts[0], c.caption) && !std::strcmp(texts[2], c.amount) && !std::strcmp(texts[1], "OFF"));
     }
-    sdk_drumline->press(kLine, 6);
+    // The key stock edits: a pad held for editing (0x8400dfc8) shows, not the last played.
+    stock_pad(kLine);
+    std::memcpy(record(kLine, 60), record(kLine, 53), 0x80);
+    DrumlineFields other = {9, {0, 0}, 0};
+    fields(kLine, 60) = drumline_store(0, other);
+    edit_latch = 60;
+    sdk_drumline_page(page);
+    CHECK(!std::strcmp(texts[0], "OPEN") && !std::strcmp(texts[1], "2.8k"));
+    edit_latch = 0xffffffffu;
+    sdk_drumline_page(page);
+    CHECK(!std::strcmp(texts[0], "L3.6k"));
+    sdk_synth_press(1);
     // Another engine's page is left alone.
-    sdk_drumline->press(kKit, 6);
     selected = kKit;
     stock_texts();
     sdk_drumline_page(page);
     CHECK(text_sets == 0);
-    sdk_drumline->press(kKit, 6);
     selected = kLine;
     stock_pad(kLine);
     std::puts("page ok");
+}
+
+// Page 2's step locks, in the handles' pool: with a step held, an unshifted
+// encoder on page 2 locks its field for the key stock edits, a detent a step
+// within the field's reach (overnight-001 left them to stock). Page 1 and
+// Shift keep stock's locks. A note on the step plays its key's offsets; the
+// page shows them while the step is held.
+void locks() {
+    selected = kLine;
+    key = 53;
+    stock_pad(kLine);                         // FILTER -4, SRR 5, FX I 3, FX II 0
+    page_nodes();
+    neutral_live();
+    held = holding = true;
+    held_at = 21;
+    // Page 1: stock's lock of the sound word the encoder shows.
+    const u32 turns0 = turns, sets0 = held_sets;
+    sdk_synth_turn(kProject, kLine, 2, 0);
+    CHECK(turns == turns0 + 1 && turned_index == 2 && held_sets == sets0);
+    sdk_synth_press(3);                       // page 2
+    // FILTER walks its reach a detent at a time: -4 + n, shown as the step plays it.
+    for (i32 n = 1; n <= 31; ++n) {
+        CHECK(sdk_synth_turn(kProject, kLine, 0, turning(1)) == 0);
+        i32 v = 0;
+        CHECK(step_locks::held_value(kLine, 53, drumline_pool_field(kLineFilter), v) && v == n);
+    }
+    CHECK(turns == turns0 + 1 && held_sets == sets0 + 31);
+    sdk_synth_turn(kProject, kLine, 0, turning(1));   // its end
+    CHECK(held_sets == sets0 + 31);
+    stock_texts();
+    sdk_drumline_page(page);
+    CHECK(!std::strcmp(texts[0], "H4.0k"));   // -4 + 31, clamped at 15
+    for (i32 n = 30; n >= 0; --n) sdk_synth_turn(kProject, kLine, 0, turning(-1));
+    i32 v = 0;
+    CHECK(!step_locks::held_value(kLine, 53, drumline_pool_field(kLineFilter), v));   // back at 0: unlocked
+    // SRR +2, FX I -1, FX II +3, each its own field.
+    for (u32 n = 0; n < 2; ++n) sdk_synth_turn(kProject, kLine, 1, turning(1));
+    sdk_synth_turn(kProject, kLine, 2, turning(-1));
+    sdk_synth_turn(kProject, kLine, 3, turning(3));
+    stock_texts();
+    sdk_drumline_page(page);
+    CHECK(!std::strcmp(texts[0], "L3.6k") && !std::strcmp(texts[1], "4.4k") && !std::strcmp(texts[2], "17") &&
+          !std::strcmp(texts[3], "33"));
+    // Shift: stock's own lock of words 4..7, as before.
+    shifted = true;
+    sdk_synth_turn(kProject, kLine, 6, 0);
+    CHECK(turned_index == 6 && turns == turns0 + 2);
+    shifted = false;
+    // A note on the step plays its key's offsets; another key, none; a live note, none.
+    noted_handle = step_handles[21];
+    note(kLine, 53);
+    CHECK(drumline_srr(published) == 7 && drumline_codes(published) == (2u | 3u << 3) && drumline_filter(published) == -4);
+    std::memcpy(record(kLine, 54), record(kLine, 53), 0x80);
+    noted_handle = step_handles[21];
+    note(kLine, 54);
+    CHECK(drumline_srr(published) == 5 && drumline_codes(published) == 3u);
+    note(kLine, 53);
+    CHECK(drumline_srr(published) == 5 && drumline_codes(published) == 3u);
+    // A kit's handle on a Drumline step (a copied pattern) moves nothing.
+    const u32 kit_handle = next_handle++;
+    for (u32 field = 0; field < kHitFields; ++field) lock_pool.set(kit_handle, 53, field, 5);
+    noted_handle = kit_handle;
+    note(kLine, 53);
+    CHECK(drumline_srr(published) == 5 && drumline_codes(published) == 3u && published[5] == built[5] &&
+          published[7] == built[7]);
+    // Drumline is a handle client with the option; a kit always.
+    CHECK(step_locks::handle_client(kLine) && step_locks::handle_client(kKit) && !step_locks::handle_client(kSampler));
+    // With the step released the page shows the key's own values.
+    held = holding = false;
+    stock_texts();
+    sdk_drumline_page(page);
+    CHECK(!std::strcmp(texts[1], "7.3k") && !std::strcmp(texts[2], "33"));
+    sdk_synth_press(3);                       // back to page 1
+    held_at = 5;
+    std::puts("locks ok");
 }
 
 // MD KIT's FILTER, worked out apart from the wrapper in 64-bit arithmetic.
@@ -595,9 +748,10 @@ int main() {
     packing();
     filter_words_are_stocks();
 #ifdef DRUMLINE_ON
-    rows();
+    pages();
     publications_carry_the_fields();
     page_texts();
+    locks();
     render_wrapper();
 #else
     stock_behaviour();

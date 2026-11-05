@@ -33,7 +33,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
 | Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padSend` kit |
 | Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts; linked only with a `padMix` kit |
-| Drumline's second Shift row | 2 | Shows stock Drumline's second Shift row and wraps its voices' render for FILTER, SRR and per-hit settings; linked only with the build option `drumlineRow2` |
+| Drumline's second Shift row | 2 | Shows stock Drumline's second page and wraps its voices' render for FILTER, SRR and per-hit settings; linked only with the build option `drumlineRow2` |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
@@ -1326,24 +1326,39 @@ never a kit's alias (`sdk_drum_alias`); an SDK kit's track never has engine 4.
   Stock's Drumline preset writer exports only `model`, `playmode`, `params`,
   `random`, `pan`, `hikey` and `gain`, and its reader clears the pads first
   (`8d4e367c`), so presets do not keep them.
-- **Row 2.** The press hook (`8c0b2730`, `sdk_sample_press_engine`): Shift and
-  a press of encoder 2, 3 or 4 (buttons 5..7) toggle the track's row. Stock's
-  own action for engine 4 acts on button 4 only (`8c0b2752`..`8c0b275a`: the
-  play-mode cycle `8d4d6180`) and still runs. The per-key editor call
-  (`8c0b147a`, `sdk_drum_edit`), reached for engine 4 only with no step held:
-  on row 2, Shift's positions 4..7 edit FILTER (-16..15), SRR (0..15), FX I and
-  FX II (0..7) one a detent, then call `8d585ee8` and `8d4d5f18(key)` as
-  stock's editor does; row 1 and the unshifted encoders call stock's editor.
-- **The page.** The dbox page's Shift branch (`8d530fb8`..`8d531190`, behind
-  `8d51f184`) sets each pass the four titles (nodes at page + `0x54`..`0x60`:
-  `""`, `random`, `pan`, `volume`) and values (+`0x44`..`0x50`) through
-  `8d6011f0`, and shows the play mode by one of six icons (nodes at
-  +`0x6c`..`0x80`, shown by their byte +`0x5c`). A hook at `8d531192`
-  (`R0 = B[P4 + 0xb4] (Z)`, `a0e4 b400`, `sdk_drumline_page_hook`, P4 the page)
-  runs after them: on row 2 it sets `filter`, `srr`, `fx i`, `fx ii` and their
-  values (MD KIT's captions: `L150` .. `OPEN` .. `H4.0k`, `OFF` .. `689`, `TRK`
-  or 0..100) and hides the icons, which stock sets again on its next pass. Row 1
-  is stock's.
+- **Page 2.** A click of encoder 1..4 on the instrument controller's engine page
+  (codes 10..13, the key table `0x8400e36c` entries 4..7, `8c0b3314` ->
+  `8c0b2a6c`) does nothing for Drumline: its engine-page words are continuous, and
+  that branch only writes -1 to a field (`8c0b2cca`). The click hook
+  (`8c0b5b72`, `sdk_synth_press`) toggles the track's page there. Shift's clicks
+  stay stock's (encoder 1: the play-mode cycle, `8c0b2752`..`8c0b275a`). The
+  per-key editor call (`8c0b147a`, `sdk_drum_edit`), reached for engine 4 only
+  with no step held: on page 2 the unshifted positions 0..3 edit FILTER
+  (-16..15), SRR (0..15), FX I and FX II (0..7) one a detent (the event's word
+  1), then call `8d585ee8` and `8d4d5f18(key)` as stock's editor does; Shift's
+  positions 4..7, and page 1, call stock's editor.
+- **The key.** Stock's per-key editing acts on the key the controller holds at
+  `0x8400dfc8` (a held or Shift-selected pad, `8c0b29ce`; the first turn latches
+  the last played key there, `8c0b1678`), else on the track's last played key
+  (`8d4d6cb0`, the byte `0x080379f0 + track` note start sets, `8d595838`), and
+  the dbox page shows that key (`8d530724`, `8d52d7c8`). Page 2's texts and
+  locks use the same (`drum_edit_key`), never the track's selected key
+  (`8d4d6c98`, set only by a played GUI note), which can be another.
+- **The page.** Both of the dbox page's branches end at `8d531192`
+  (`R0 = B[P4 + 0xb4] (Z)`, `a0e4 b400`): the Shift branch (`8d530fb8`..
+  `8d531190`, behind `8d51f184`) falls through, the unshifted one jumps back
+  from `8d5314e2` (`582e`). Each sets, every pass, the four titles (nodes at page
+  + `0x54`..`0x60`) and values (+`0x44`..`0x50`) through `8d6011f0`, and the
+  play mode shows as one of six icons (nodes at +`0x6c`..`0x80`, shown by their
+  byte +`0x5c`). A hook there (`sdk_drumline_page_hook`, P4 the page) runs
+  after them: unshifted on page 2 it sets `filter`, `srr`, `fx i`, `fx ii` and
+  their values (MD KIT's captions: `L150` .. `OPEN` .. `H4.0k`, `OFF` .. `689`,
+  `TRK` or 0..100; with a step held, as that step plays them) and hides the
+  icons, which stock sets again on its next pass. Shift and page 1 are stock's.
+  The page has four title and four value nodes and no spare one, so page 2
+  replaces page 1's texts in place: the SDK's stacked two-page header (an SDK
+  screen's own artwork covering the stock header) has no counterpart on a
+  stock page.
 - **Carrying the fields.** At every publication of a Drumline pad (the
   builder's call `8d5ad776`, `sdk_drum_lock_publish`, with `R2 = B[P5]` the
   slot, `8d5ad766`) the GUI writes FX I's code into payload word 0's bits 0..2,
@@ -1381,20 +1396,23 @@ never a kit's alias (`sdk_drum_alias`); an SDK kit's track never has engine 4.
   object's method table is `0x8404ce3c` as a stock Drumline voice: its codes
   are those its render kept (`sdk_drum_send_dbox`), 0 in every build without
   the option. Only stock's dbox factory makes such an object.
-- **No step locks yet.** M3's filter (words 16..19) and its envelope (32..35)
-  act on a Drumline track (device check), so unlike on an SDK kit no lockable
-  word is spare there. The option reads, folds, steps and resets none of them,
-  and with a step held Shift and a turn reach stock's own path (`8c0b15aa`, which
-  locks the engine's words 4..7) as without the option. Per-hit locks of the
-  Shift settings wait for the SDK's handle-based lock storage, one handle a step
-  in word 37 with the values in an SDK pool: the note-start hooks already
-  publish with a note flag, and `drumline_fold` already adds a step's offsets.
-  Word 37 has no reader in the drum renderer (track words 0, 4, 32..35, 39..41,
-  48, 55..57), the voice constructor (38..41, 51), the dbox DSP (0..11), the
-  voice loop or the track mixer's engine block; but the path by which M3 reaches
-  a Drumline track is not traced yet (the drum-track branches near `8d50e894`
-  and `8d50e994`, which test `8d5b79f0`, are the likely place), so word 37 is
-  not known to be dead on Drumline.
+- **Step locks.** With a step held the instrument controller's turn skips the
+  per-key editor and makes its generic call at `8c0b15aa` (`sdk_synth_turn`)
+  with the unshifted positions 0..3. On page 2 the SDK locks the position's
+  field for the step's hits of the key stock edits, as an offset (FILTER ±31,
+  SRR ±15, a send ±7 codes; the event's word 1 a detent), in the step-lock
+  handles' pool under fields 8..14 (`drumline_pool_field`), apart from a `padMix`
+  kit's 0..5: stock copies a step's handle with the step to any track, so a
+  pattern copied from a kit to Drumline, or back, locks nothing on the other.
+  Drumline is a handle client with the option (`handle_client`), so the
+  sequencer's step hook (`8d5939aa`) notes a Drumline step's handle and note
+  start (`8d595b50`) takes it; the publication hook (`8d5ad776`) adds the note's
+  key's offsets to its fields before carrying them (`drumline_fold`). On page 1
+  and with Shift a held step's turn is stock's (it locks words 0..7). Word 37,
+  which carries the handle, has no reader on a Drumline track as far as traced
+  (the drum renderer reads 0, 4, 32..35, 39..41, 48, 55..57, the voice
+  constructor 38..41 and 51, the dbox DSP 0..11), and on overnight-001 a kit's
+  locked pattern copied onto a Drumline track sounded as with no locks.
 
 ## Note players
 

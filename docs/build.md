@@ -118,7 +118,7 @@ exported only from a package without options.
 
 | Option | What it changes |
 | --- | --- |
-| `drumlineRow2` | Stock Drumline: a second Shift row with each key's FILTER, SRR, FX I and FX II ([api](api.md#stock-drumlines-second-shift-row), [firmware](abi-1.2.1.md#drumlines-second-shift-row)) |
+| `drumlineRow2` | Stock Drumline: a second page with each key's FILTER, SRR, FX I and FX II, and their step locks ([api](api.md#stock-drumlines-second-page), [firmware](abi-1.2.1.md#drumlines-second-shift-row)) |
 
 All selected machines share 2032 KiB ([memory and limits](api.md#memory-and-limits));
 `compile` shows each machine's share. To make room, list fewer machines in your

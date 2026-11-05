@@ -11,6 +11,7 @@
 #include "drum_storage.hpp"
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
+#include "drumline.hpp"
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
@@ -197,6 +198,13 @@ void sdk_synth_press(u32 encoder) {
     const SynthControls* m;
     if (encoder >= opxy::page_controls) return;
     const u32 controller = top_controller_vtable();
+    // Stock Drumline with the build option drumlineRow2: the press switches its
+    // pages (drumline.hpp). Stock's own click there does nothing (8c0b2a6c, page
+    // 0, a continuous word: it only clears a field, 8c0b2cca).
+    if (controller == kInstrumentController && word(kInstrumentPage) == 0 && drumline_track(byte(kSelectedTrack))) {
+        sdk_drumline->press(byte(kSelectedTrack), encoder);
+        return;
+    }
     if (controller == kInstrumentController && word(kInstrumentPage) == 0 && (m = machine(byte(kSelectedTrack), t))) {
         // A paged synth's or a drum kit's press moves the whole row; a slot the
         // selected key's model leaves unnamed shows blank. A key whose model has
@@ -298,6 +306,11 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
                 const opxy::i32 start = field >= kHitSend1 ? key_send(track, field - kHitSend1) : 0;
                 return drum_lock_store_edit(project, track, *kit, field, event, start);
             }
+    // Stock Drumline's page 2 (drumlineRow2): with a step held, an unshifted
+    // encoder locks the page's field for the step's hits (drumline.hpp).
+    if (index < opxy::page_controls && !fine_turn && word(kInstrumentPage) == 0 && step_held() &&
+        drumline_track(track) && sdk_drumline->lock(track, index, event ? at<const u32>(event) : nullptr))
+        return 0;
     const u32 original_index = index;
     if (fine_turn) index -= 4;
     const SynthControls* m = index < opxy::page_controls ? machine(track, t) : nullptr;

@@ -15,8 +15,8 @@
 // its previews) publishes the key's own values.
 //
 // With the build option drumlineRow2 the same two hooks serve stock Drumline
-// (drumline.hpp): every publication of a Drumline pad carries its row-2
-// fields, and a note's is marked for the step locks still to come.
+// (drumline.hpp): every publication of a Drumline pad carries its page-2
+// fields, and a note's adds its step's locks of them for its key.
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
 #include "drumline.hpp"
@@ -67,8 +67,8 @@ u32 sdk_drum_lock_note(u32 project, u32 track, u32 key, u32 engine, u32 a, u32 b
     note_kit = kit && kit->pad_mix ? kit : nullptr;
     note_track = note_kit ? track : kNoTrack;
     note_key = key;
-    note_handle = note_kit ? drum_lock_store_take(track) : 0;
     note_line = drumline_track(track) ? track : kNoTrack;
+    note_handle = note_kit || note_line != kNoTrack ? drum_lock_store_take(track) : 0;
     const u32 result = stock<u32(u32, u32, u32, u32, u32, u32, u32)>(0x8d5ad660)(project, track, key, engine, a, b, c);
     note_track = note_line = kNoTrack;
     return result;
@@ -81,13 +81,15 @@ u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
         stock<void(u32, u32)>(0x8d5acb9c)(project, track);
         fold(*note_kit, track, note_key, payload);
     }
-    if (payload && drumline_track(track)) sdk_drumline->publish(track, kind, payload, track == note_line);
+    if (payload && drumline_track(track))
+        sdk_drumline->publish(track, kind, payload, track == note_line ? note_handle : 0, note_key);
     note_track = note_line = kNoTrack;
     return stock<u32(u32, u32, u32, i32*)>(0x8d5ad194)(project, track, kind, payload);
 }
 
-// The step-lock handles' one client check (lock_handles.hpp): an owned padMix kit.
+// The step-lock handles' client check (lock_handles.hpp): an owned padMix kit,
+// or stock Drumline with the build option drumlineRow2 (its page 2's locks).
 bool opxy::platform::step_locks::handle_client(u32 track) {
     const DrumMachine* kit = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
-    return kit && kit->pad_mix;
+    return (kit && kit->pad_mix) || drumline_track(track);
 }

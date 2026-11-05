@@ -1,4 +1,4 @@
-/* Stock Drumline's second Shift row (drumline.hpp): the two
+/* Stock Drumline's second page (drumline.hpp): the two
  * hooks of the build option drumlineRow2. Each replaces one whole instruction
  * pair outside every hardware loop body and replays it.
  */
@@ -36,8 +36,9 @@ sdk_dbox_render_select:
 .size sdk_dbox_render_select, .-sdk_dbox_render_select
 
 /* 8d531192: R0 = B[P4 + 0xb4] (Z) (a0e4 b400) in the dbox page, P4 the page,
- * just after its Shift branch (8d530fb8..8d531190) set the four titles and
- * values. */
+ * where both of its branches end once they have set the four titles and values:
+ * the Shift branch (8d530fb8..8d531190) falls through, the unshifted one jumps
+ * back from 8d5314e2. */
 .global sdk_drumline_page_hook
 .type sdk_drumline_page_hook, STT_FUNC
 sdk_drumline_page_hook:

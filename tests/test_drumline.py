@@ -1,4 +1,4 @@
-"""Stock Drumline's second Shift row (the build option drumlineRow2, drumline.hpp): the
+"""Stock Drumline's second page (the build option drumlineRow2, drumline.hpp): the
 shared hooks and this option's own against host doubles, with the option and without
 (M3's filter and filter envelope words stay stock's in both); the build option's wiring;
 and the stock sites it relies on."""
@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 PROFILE = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text(encoding='utf-8'))
 # The option's two sites: the drum renderer's load of a voice's method table,
-# and the end of the dbox page's Shift branch.
+# and where both of the dbox page's branches end.
 SITES = {'0x8d51b554': ('sdk_dbox_render_select', '48914130', '0x1527b0'),
          '0x8d531192': ('sdk_drumline_page_hook', 'a0e4b400', '0x1683ee')}
 OPTION = 'drumlineRow2'
@@ -226,6 +226,30 @@ class Drumline(unittest.TestCase):
         self.assertEqual(load(0x8d5310cc), (0, 0x51eb851f))
         self.assertEqual(at(0x8d5310e4, 2).hex(), 'f264')        # R2 += 30
 
+        # Both page branches end at the hook: the unshifted one jumps back from 8d5314e2
+        # (JUMP.S 0x8d531192), so page 2 can replace the unshifted texts there.
+        self.assertEqual(at(0x8d5314e2, 2).hex(), '582e')
+        # An unshifted click of encoder 1..4 (codes 10..13, the instrument controller's key
+        # table 0x8400e36c entries 4..7) runs 8c0b3314 -> 8c0b2a6c, which on the engine page
+        # of a continuous word, Drumline's, only clears a field ([P1] = R6, 8c0b2cca): page 2
+        # takes a click stock leaves unused.
+        table = [int.from_bytes(at(0x8400e36c + 4 * i, 4), 'little') for i in range(8)]
+        self.assertEqual(table[4:], [0x8c0b3314] * 4)
+        self.assertEqual(decode_branch(0x8c0b3316, at(0x8c0b3316, 4)), (0x8c0b2a6c, True))
+        self.assertEqual(at(0x8c0b2cca, 2).hex(), '0e93')
+        # The key the per-key editor edits (stock.hpp drum_edit_key): 0x8400dfc8 if set
+        # (8c0b1344, 8c0b1448), else the last played key, 8d4d6cb0, which the first turn
+        # latches there (8c0b167a, 8c0b1682); Shift and a pad set it (8c0b29ce); the dbox page
+        # reads it (8d530724). The track's "selected" key 8d4d6c98 is another byte.
+        self.assertEqual(load(0x8c0b1344), (9, 0x8400dfc8))
+        self.assertEqual(at(0x8c0b1448, 8).hex(), '03c800180891eca0')    # R0 = [P1] || R4 = [P5 + 0xc]
+        self.assertEqual(at(0x8c0b167a, 6).hex(), '00de4d8db06c')        # CALL.A 0x8d4d6cb0
+        self.assertEqual(load(0x8c0b1682), (9, 0x8400dfc8))
+        self.assertEqual(at(0x8c0b168a, 2).hex(), '08b0')                # [P1] = R0
+        self.assertEqual(at(0x8c0b29ce, 6).hex(), '00d80084c8df')
+        self.assertEqual(at(0x8d530724, 6).hex(), '00d80084c8df')
+        self.assertEqual(load(0x8d4d6cb0), (1, 0x080379f0))
+        self.assertEqual(load(0x8d4d6c98), (1, 0x08037a00))
         # Stock's Shift-press action for engine 4 acts on encoder 1 only (8c0b2752..8c0b275a).
         # R0 = 4; CC = R7 == R0; IF !CC JUMP; CC = R5 == R7; IF CC JUMP 8c0b27f8 (the mode cycle 8d4d6180).
         self.assertEqual(at(0x8c0b2752, 10).hex(), '2060070803103d084f18')

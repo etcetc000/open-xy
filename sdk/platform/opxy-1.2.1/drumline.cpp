@@ -1,4 +1,4 @@
-// Stock Drumline's second Shift row (drumline.hpp), linked only with the build
+// Stock Drumline's second page (drumline.hpp), linked only with the build
 // option drumlineRow2. The GUI functions run from the shared hooks through
 // sdk_drumline; the render wrapper and the page's texts from this unit's own
 // hooks (drumline_hooks.s).
@@ -6,6 +6,7 @@
 #include "drumline.hpp"
 #include "drum_send.hpp"
 #include "stock.hpp"
+#include "lock_handles.hpp"
 
 using opxy::i32;
 using opxy::u32;
@@ -27,56 +28,96 @@ unsigned char* pad_slot(u32 track, u32 slot) {
 bool is_drumline(u32 t) { return t < kTracks && track_engine(t) == kDrumlineEngine; }
 i32 stock_gain(i32 db) { return stock<i32(i32)>(0x8d5ad604)(db); }
 
-// Each track's Shift row: false the first (stock's), true the second.
+// Each track's page: false the first (stock's), true the second.
 bool second[kTracks];
 
-// 8c0b147a on row 2, no step held: FILTER, SRR, FX I and FX II of the key, one
-// step a detent; stock's republication as its editor does it.
-bool edit(u32 track, u32 key, u32 control, const u32* event) {
-    if (control < opxy::page_controls || control >= 2 * opxy::page_controls || !second[track]) return false;
-    unsigned char* record = static_cast<unsigned char*>(pad_region(track, key));
-    if (!record || !event) return true;
-    const u32 position = control - opxy::page_controls;
-    i32 delta = static_cast<i32>(event[1]);
-    if (delta > 127) delta = 127;
-    if (delta < -127) delta = -127;
-    u32* word = reinterpret_cast<u32*>(record);
-    DrumlineFields f = drumline_fields(*word);
+// One page-2 field of a pad (position 0..3), moved `delta` steps within its
+// range; false when it was already at that end.
+bool step_field(DrumlineFields& f, u32 position, i32 delta) {
     if (position == 0) {
         const i32 next = drum_lock_clamp(f.filter + delta, kDrumlineFilterMin, kDrumlineFilterMax);
-        if (next == f.filter) return true;
+        if (next == f.filter) return false;
         f.filter = next;
-    } else {
-        u32& field = position == 1 ? f.srr : f.send[position - 2];
-        const i32 high = position == 1 ? kDrumlineSrrMax : kDrumlineSendMax;
-        const u32 next = static_cast<u32>(drum_lock_clamp(static_cast<i32>(field) + delta, 0, high));
-        if (next == field) return true;
-        field = next;
+        return true;
     }
+    u32& field = position == 1 ? f.srr : f.send[position - 2];
+    const i32 high = position == 1 ? kDrumlineSrrMax : kDrumlineSendMax;
+    const u32 next = static_cast<u32>(drum_lock_clamp(static_cast<i32>(field) + delta, 0, high));
+    if (next == field) return false;
+    field = next;
+    return true;
+}
+// A turn's detents, bounded as the per-key editor bounds them (sdk_drum_edit).
+i32 detents(const u32* event) {
+    i32 delta = static_cast<i32>(event[1]);
+    return delta > 127 ? 127 : delta < -127 ? -127 : delta;
+}
+
+// 8c0b147a on page 2, no step held: an unshifted encoder edits FILTER, SRR,
+// FX I or FX II of the key stock passes (the key it edits, stock.hpp
+// drum_edit_key), one step a detent; stock's republication as its editor does it.
+// Shift's encoders (4..7) are stock's TYPE, RANDOM, PAN, VOLUME on either page.
+bool edit(u32 track, u32 key, u32 control, const u32* event) {
+    if (track >= kTracks || control >= opxy::page_controls || !second[track]) return false;
+    unsigned char* record = static_cast<unsigned char*>(pad_region(track, key));
+    if (!record || !event) return true;
+    u32* word = reinterpret_cast<u32*>(record);
+    DrumlineFields f = drumline_fields(*word);
+    if (!step_field(f, control, detents(event))) return true;
     *word = drumline_store(*word, f);
     stock<void()>(0x8d585ee8)();
     stock<void(u32)>(0x8d4d5f18)(key);
     return true;
 }
 
-void press(u32 track, u32 button) {
-    if (track < kTracks && button > 4 && button < 8) second[track] = !second[track];
+void press(u32 track, u32 encoder) {
+    if (track < kTracks && encoder < opxy::page_controls) second[track] = !second[track];
 }
 
-// Where per-hit locks of the Shift settings will come from: a held step's
-// offsets, indexed by DrumlineLock. Stock Drumline reads M3's and the filter
-// envelope's words, so no stock lock word is free for them; they wait for the
-// SDK's handle-based lock storage (a handle a step in word 37, the values in an
-// SDK pool), which fills `offsets` and returns true for a step that has any.
-bool step_offsets(u32, i32*) { return false; }
+// A step's offsets of a key, from its handle (0: none); true when any is set.
+bool step_offsets(u32 handle, u32 key, i32* offsets) {
+    i32 values[step_locks::kFields];
+    const u32 mask = handle ? step_locks::handle_fields(handle, key, values) : 0;
+    return drumline_offsets(mask, values, offsets);
+}
+// The held step's offsets of the key stock edits.
+bool held_offsets(u32 track, i32* offsets) {
+    const u32 key = drum_edit_key(track);
+    bool any = false;
+    for (u32 lock = 0; lock < kDrumlineLocks; ++lock) {
+        i32 value = 0;
+        const i32 reach = drumline_lock_reach(lock);
+        offsets[lock] = step_locks::held_value(track, key, drumline_pool_field(lock), value)
+            ? drum_lock_clamp(value, -reach, reach) : 0;
+        any = any || offsets[lock];
+    }
+    return any;
+}
+
+// 8c0b15aa with a step held, an unshifted encoder on page 2: the step's offset
+// of that field for the key stock edits, a detent a step within its reach, in
+// the handles' pool; turned back to 0 it is unlocked. Page 1 is stock's.
+bool lock(u32 track, u32 position, const u32* event) {
+    if (track >= kTracks || position >= opxy::page_controls || !second[track]) return false;
+    if (!event) return true;
+    const u32 which = drumline_page_lock(position);
+    const u32 key = drum_edit_key(track), field = drumline_pool_field(which);
+    const i32 reach = drumline_lock_reach(which);
+    i32 now = 0;
+    if (!step_locks::held_value(track, key, field, now)) now = 0;
+    now = drum_lock_clamp(now, -reach, reach);
+    const i32 next = drum_lock_clamp(now + detents(event), -reach, reach);
+    if (next != now) step_locks::held_set(track, key, field, next != 0, next);
+    return true;
+}
 
 // 8d5ad776: every publication of a Drumline pad carries its fields; a note's
-// would also carry its step's offsets.
-void publish(u32 track, u32 slot, i32* payload, bool note) {
+// also its step's offsets for its key.
+void publish(u32 track, u32 slot, i32* payload, u32 handle, u32 key) {
     const unsigned char* record = pad_slot(track, slot);
     if (!record || !payload) return;
     i32 offsets[kDrumlineLocks];
-    drumline_fold(record, note && step_offsets(track, offsets) ? offsets : nullptr, payload, stock_gain);
+    drumline_fold(record, step_offsets(handle, key, offsets) ? offsets : nullptr, payload, stock_gain);
 }
 
 // Two digits, as stock's "%02d" of 0..99.
@@ -176,7 +217,7 @@ const u32 kValueNodes = 0x44, kTitleNodes = 0x54, kModeIconNodes = 0x6c, kModeIc
 
 extern "C" {
 extern const Drumline sdk_drumline_service __asm__("sdk_drumline_service");
-const Drumline sdk_drumline_service = {is_drumline, edit, press, publish};
+const Drumline sdk_drumline_service = {is_drumline, edit, press, publish, lock};
 }
 
 // The drum renderer's call of a stock dbox voice's render (8d51b55a, through
@@ -211,16 +252,17 @@ extern const DboxRender sdk_dbox_methods[4] __asm__("sdk_dbox_methods");
 const DboxRender sdk_dbox_methods[4] = {nullptr, nullptr, nullptr, sdk_dbox_render};
 }
 
-// 8d531192: stock's dbox page has just set its Shift row's four titles (nodes
-// at page + 0x54..0x60) and values (+0x44..0x50); its play-mode icons are the
-// six nodes at +0x6c..0x80, shown by the byte +0x5c. On row 2 the SDK's titles
-// and values replace them and the icons hide (stock sets them again on its
-// next pass). Row 1 is stock's.
+// 8d531192: both of stock's dbox page branches end here (the Shift branch
+// 8d530fb8..8d531190 falls through; the unshifted one, 8d531268..8d5314e2,
+// jumps back), each having set the four titles (nodes at page + 0x54..0x60) and
+// values (+0x44..0x50); the play-mode icons are the six nodes at +0x6c..0x80,
+// shown by the byte +0x5c. Unshifted on page 2 the SDK's titles and values
+// replace stock's (with a step held, as that step plays them) and the icons
+// hide (stock sets them again on its next pass). Shift and page 1 are stock's.
 void sdk_drumline_page(unsigned char* page) {
     const u32 track = byte(kSelectedTrack);
-    if (!page || !drumline_track(track) || !second[track]) return;
-    const u32 key = stock<u32(u32)>(0x8d4d6c98)(track);
-    const unsigned char* record = static_cast<const unsigned char*>(pad_region(track, key));
+    if (!page || !drumline_track(track) || !second[track] || shift_held()) return;
+    const unsigned char* record = static_cast<const unsigned char*>(pad_region(track, drum_edit_key(track)));
     if (!record) return;
     // The page's node pointers, 32-bit words.
     void* values[4];
@@ -230,7 +272,9 @@ void sdk_drumline_page(unsigned char* page) {
         titles[i] = at<void>(*reinterpret_cast<const u32*>(page + kTitleNodes + 4 * i));
     }
     static char text[2][8];
-    const DrumlineFields f = drumline_fields(*reinterpret_cast<const u32*>(record));
+    DrumlineFields f = drumline_fields(*reinterpret_cast<const u32*>(record));
+    i32 offsets[kDrumlineLocks];
+    if (step_locks::step_held() && held_offsets(track, offsets)) f = drumline_offset_fields(f, offsets);
     for (u32 i = 0; i < kModeIcons; ++i)
         if (const u32 icon = *reinterpret_cast<const u32*>(page + kModeIconNodes + 4 * i)) at<unsigned char>(icon)[kNodeShown] = 0;
     send_text(text[0], f.send[0]);
