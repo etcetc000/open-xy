@@ -450,7 +450,8 @@ GUI tick from track control's tick. The instrument controller's page word
 which M1..M4, track changes and menus all reach. When the selected track's synth
 hides the page shown, the SDK calls `8c0b19c4` with the page shown before, or
 the engine page. Only the envelope (M2) and filter (M3) pages can be hidden;
-the LFO page (M4) always stays.
+the LFO page (M4) always stays. A drum kit's page is in the same table; no kit
+hides M3 unless it says so, since M3 is its [track filter](#the-track-filter-on-kit-voices).
 
 ### Track control
 

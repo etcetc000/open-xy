@@ -180,9 +180,10 @@ editing a shared control keeps the current page. Use the SDK's
 emphasis and motion. `sdk.py new` supplies it by default. Macro Osc is the
 [worked reference](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json).
 
-A synth for which a stock instrument page means nothing (one that makes no
+A synth or drum kit for which a stock instrument page means nothing (one that makes no
 sound of its own, say) may declare `"hidePages"` at the top of
-`definition.json` (SDK 1.9), listing `"envelope"` (M2), `"filter"` (M3) or both. On its
+`definition.json` (SDK 1.9), listing `"envelope"` (M2), `"filter"` (M3) or both. A
+drum kit's M3 is its [track filter](#synthesis-drum-kits), shown unless hidden. On its
 track, those keys then leave the page shown as it was, and selecting the track
 while another track shows a hidden page shows the engine page. The SDK
 corrects the page once per GUI tick, so the hidden page may flash for a frame.

@@ -4,13 +4,17 @@ The adapter's behaviour against host doubles is in test_drum_voices."""
 import json
 import os
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from tooling.firmware import decode_branch
 from tooling.formats import ldr, mapped_offset, sha
-from tooling.adapters import default_preset
+from tooling.adapters import default_preset, generate_synth_controls
+from tooling.definitions import hidden_pages, validate_definition
+from tooling.firmware import active_services
+from tooling import native
 from machine_fixtures import fixture
 import test_drum_preview
 
@@ -160,6 +164,22 @@ class DrumFilter(unittest.TestCase):
         for store in ('20e61100', '20e61200'):   # [P4 + 0x44] = R0, [P4 + 0x48] = R0
             self.assertNotIn(bytes.fromhex(store), kit)
 
+
+    def test_every_kit_shows_m3_and_may_hide_pages_itself(self):
+        # M3 is every kit's track filter (drum_filter.hpp): no kit hides it unless it says so.
+        self.assertEqual(hidden_pages(kit().definition), 0)
+        self.assertEqual(hidden_pages(kit(0).definition), 0)
+        self.assertEqual(hidden_pages(dict(kit().definition, hidePages=['envelope'])), 2)
+        self.assertNotIn('hidePages', native.service_users([kit()]))
+        self.assertNotIn('control', active_services(PROFILE, native.service_users([kit()])))
+        drum = kit(0).definition
+        validate_definition(dict(drum, hidePages=['filter']), 'drum')
+        self.assertEqual(hidden_pages(dict(drum, hidePages=['filter'])), 4)
+        with self.assertRaises(ValueError):
+            validate_definition(dict(drum, hidePages=['lfo']), 'drum')
+        with tempfile.TemporaryDirectory() as folder:
+            table = generate_synth_controls(folder, [kit()]).read_text()
+        self.assertRegex(table, r'probe_format, false, true, 0[,}]')
 
     def test_a_kits_init_preset_has_stocks_filter_switched_off(self):
         # M3 off (fx.active false) and stock's filter values, as a synth's init preset.
