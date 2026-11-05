@@ -1134,12 +1134,16 @@ plays. Words 36 and 38 carry nothing.
   editor call at `8c0b147a` and makes its generic call at `8c0b15aa`
   (`sdk_synth_turn`) with Shift's index 4..7. For such a kit the SDK maps the
   position through `DrumMachine::shift` and the encoders' row. Each of the six
-  fields reads what the held step plays for the key stock's per-key editing
-  acts on (`drum_edit_key`: the key held for editing at `0x8400dfc8`, a held or
-  Shift-selected pad, which the controller's first turn sets at `8c0b1678`, else
-  the track's last played key, `8d4d6cb0`; stock's dbox page shows the same key,
-  `8d530724`; the track's selected key `8d4d6c98`, set only by a played GUI note,
-  can be another), changes it by the turn's detents within its range (a send
+  fields reads what the held step plays for the kit's key (`drum_edit_key`: the
+  key stock's controller holds for its per-key editing at `0x8400dfc8`, a held or
+  Shift-selected pad, else the track's selected key `8d4d6c98`). When that word
+  is -1 (each page or track change sets it so, `8c0b1a04`, `8c091d92`) stock's
+  first turn latches the track's last played key there (`8d4d6cb0`, which every
+  note start sets, sequenced ones too, `8d595838`; `8c0b1678`), so during playback
+  a turn edited whichever key the sequencer played last while the screen showed
+  the selected one. Once a frame (`sdk_send_refresh`) the SDK now holds a kit
+  track's selected key in that word while it holds -1 or the key the SDK put
+  there, and leaves a held or Shift-selected pad alone; it changes it by by the turn's detents within its range (a send
   from what the key plays): the event's word 1, PAN's times its speed (word 2)
   plus 1, as the per-key editor steps them (`8d4d60b0`), never word 0, the
   continuous motion stock adds to a Q31 word (`8d5ad254`), which as a step sent
@@ -1178,8 +1182,8 @@ plays. Words 36 and 38 carry nothing.
 - **Slide.** The step hook takes each step's own handle whatever the slide byte,
   so these locks hold their step's values and do not blend.
 - **Showing.** The kit's selected-key values (`sdk_drum_values`, the pan,
-  level, choke and pad fields, the selected pad) are those of the same key the
-  per-key editor edits (`drum_edit_key`). With a step held that key's pan, level and pad fields
+  level, choke and pad fields, the selected pad) are those of the same key
+  (`drum_edit_key`): a pad held or selected with Shift shows. With a step held that key's pan, level and pad fields
   (`sdk_drum_pan`, `sdk_drum_level`, `sdk_drum_pad_values`, which the Shift row
   and the display's input read) show the held step's locks for that key: pan,
   level and the pad controls with their offsets, a send with its override.
