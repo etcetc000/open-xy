@@ -216,7 +216,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'input_monitor_stock',
-             'input_monitor_audio', 'input_monitor_hooks', 'aux_menu', 'aux_menu_hooks', 'track_control',
+             'input_monitor_audio', 'input_monitor_hooks', 'input_monitor_ui', 'aux_menu', 'aux_menu_hooks', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
@@ -231,7 +231,7 @@ UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callba
 UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
 UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'input_monitor_stock'), 'extensions'))
-UNIT_SERVICES.update(dict.fromkeys(('input_monitor_audio', 'input_monitor_hooks'), 'input_monitor'))
+UNIT_SERVICES.update(dict.fromkeys(('input_monitor_audio', 'input_monitor_hooks', 'input_monitor_ui'), 'input_monitor'))
 UNIT_SERVICES.update(dict.fromkeys(('aux_menu', 'aux_menu_hooks'), 'aux_menu'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
@@ -384,9 +384,11 @@ def service_fallbacks(services):
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
     if 'aux' in services:
-        fallbacks['aux'] = dict.fromkeys(('sdk_aux_startup', 'sdk_aux_machine_menu'), 'kit_absent')
+        fallbacks['aux'] = dict.fromkeys(('sdk_aux_startup', 'sdk_aux_machine_menu', 'sdk_aux_machine_turn'), 'kit_absent')
     if 'extensions' in services:
-        fallbacks['extensions'] = dict.fromkeys(('sdk_input_monitor_menu', 'sdk_input_monitor_startup'), 'kit_absent')
+        fallbacks['extensions'] = dict.fromkeys(('sdk_input_monitor_menu', 'sdk_input_monitor_startup', 'sdk_input_monitor_turn'), 'kit_absent')
+    if 'input_monitor' in services:
+        fallbacks['input_monitor'] = {'sdk_input_monitor_frame': 'kit_absent'}
     if 'drum_locks' in services:
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     return fallbacks
@@ -960,9 +962,13 @@ def extend_catalog(catalog, profile, machines):
 def prepare_assets(catalog, profile, machines):
     require(sha(catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     outputs = {'content/op1_factory.json': extend_catalog(catalog, profile, machines)}
+    if any('monitor_input' in e.actions for e in extensions_of(machines)):
+        outputs['content/display/tilt_mic.svg'] = (ROOT / 'sdk/platform/opxy-1.2.1/tilt_mic.svg').read_bytes()
     for m in machines:
         if m.display != 'stock':
-            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
+            name = f'content/display/{m.native_name}.svg'
+            require(name not in outputs, 'Display asset collision: ' + name)
+            outputs[name] = screen.compose(validate_panel(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
         # A sample engine's own samples (SDK 1.10), installed as they are.

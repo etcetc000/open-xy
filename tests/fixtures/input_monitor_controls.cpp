@@ -8,7 +8,7 @@ using namespace opxy;
 using namespace opxy::platform;
 namespace {
 bool capable = true, file_exists, file_failure, close_failure, browser_failure;
-u32 selected_aux, project_id = 1, loading, input_enabled = 1, recorder, source, feedback, active, live_word, io_calls;
+u32 shifted, aux_tab, selected_aux, project_id = 1, loading, input_enabled = 1, recorder, source, feedback, active, live_word, io_calls;
 extensions::Time now = 10000;
 u8 saved[8];
 char notification[32];
@@ -28,6 +28,7 @@ u32 write_file(const void* in,u32 size,u32 count,void* file) {
     require(file==saved && size*count==8,"bounded preference write");std::memcpy(saved,in,8);file_exists=true;return 8;
 }
 int close_file(void*) { return close_failure ? -1 : 0; }
+u32 get_shift() { return shifted; }
 u32 get_monitor() { return active; }
 void set_monitor(u32 value) { active=value; }
 u32 get_source(u32,u32 track,u32 index) { require(track==12 && !index,"read selected input only");return source; }
@@ -45,6 +46,8 @@ void extension_notify(const char* text) {
 }
 Address host_stock_address(Address address) {
     switch(address) {
+    case 0x8d51f184:return reinterpret_cast<Address>(&get_shift);
+    case 0x0801eae4:return reinterpret_cast<Address>(&aux_tab);
     case 0x840a0534:return reinterpret_cast<Address>(&selected_aux);
     case 0x840a0524:return reinterpret_cast<Address>(&project_id);
     case 0x840a0528:return reinterpret_cast<Address>(&loading);
@@ -85,6 +88,24 @@ int main() {
     input_monitor::automatic=0;sdk_input_monitor_startup();
     require(extension_input_monitor().available,"Auto preference must survive restart");
     selected_aux=12;
+    static i32 turn[3] = {1,0,0};
+    require(!sdk_input_monitor_turn(0,turn),"unshifted input turn must pass through");
+    shifted=1; aux_tab=1;
+    require(!sdk_input_monitor_shift_visible(),"other Aux tabs must keep stock Shift controls");
+    aux_tab=0;
+    require(sdk_input_monitor_shift_visible(),"Shift must reveal control on external input page");
+    for (u32 encoder=1;encoder<4;++encoder)
+        require(!sdk_input_monitor_turn(encoder,turn),"other encoders must retain stock routing");
+    turn[0]=-1;
+    require(sdk_input_monitor_turn(4,turn) && !input_monitor::automatic,"dark encoder counterclockwise selects Off");
+    const u32 saved_io=io_calls;
+    sdk_input_monitor_turn(0,turn);
+    require(io_calls==saved_io,"turns at Off endpoint must not rewrite preference");
+    turn[0]=1;file_failure=true;sdk_input_monitor_turn(0,turn);
+    require(!input_monitor::automatic,"failed encoder save must retain previous mode");
+    file_failure=false;sdk_input_monitor_turn(0,turn);
+    require(input_monitor::automatic,"clockwise selects saved Auto");
+    shifted=0;
     const u32 io_before=io_calls;
     require(extension_monitor_input(true) && active && (live_word&1u),"Auto acquires and publishes fade-in");
     require(std::strcmp(notification,"tilt mic live")==0,"Aux track must confirm live monitoring");

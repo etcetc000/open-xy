@@ -12,6 +12,7 @@ static opxy::u32 owned_page, asked, refreshes, substitutions, sample_page, sampl
 static int ready = 1;
 int sdk_screen_owned(opxy::u32 page) { ++asked; return page == owned_page ? ready : 0; }
 void sdk_send_refresh() { ++refreshes; }
+void sdk_input_monitor_frame(opxy::u32 painted, opxy::u32 selected) { require(painted == 63 && selected == 63); }
 opxy::u32 substitute(opxy::u32) { ++substitutions; return 0; }
 // A sample engine's own screen while its stock sample page is selected.
 opxy::u32 sdk_sample_screen(opxy::u32 page) { ++sample_asked; return page == sample_page ? sample_screen_page : 0; }

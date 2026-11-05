@@ -102,10 +102,12 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
         screens.append('    sdk_aux_startup();')
     menu_fallbacks = []
+    if not monitor:
+        menu_fallbacks.append('extern "C" void sdk_input_monitor_frame(u32,u32) __asm__("sdk_input_monitor_frame");\nvoid sdk_input_monitor_frame(u32,u32) {}')
     if not aux:
-        menu_fallbacks.append('extern "C" void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");\nvoid sdk_aux_machine_menu() {}')
+        menu_fallbacks.append('extern "C" void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");\nvoid sdk_aux_machine_menu() {}\nextern "C" u32 sdk_aux_machine_turn(u32,u32,u32) __asm__("sdk_aux_machine_turn");\nu32 sdk_aux_machine_turn(u32,u32,u32) { return 0; }')
     if not extensions:
-        menu_fallbacks.append('extern "C" bool sdk_input_monitor_menu() __asm__("sdk_input_monitor_menu");\nbool sdk_input_monitor_menu() { return false; }')
+        menu_fallbacks.append('extern "C" bool sdk_input_monitor_menu() __asm__("sdk_input_monitor_menu");\nbool sdk_input_monitor_menu() { return false; }\nextern "C" bool sdk_input_monitor_turn(u32,const i32*) __asm__("sdk_input_monitor_turn");\nbool sdk_input_monitor_turn(u32,const i32*) { return false; }')
     if monitor:
         declarations.append('void sdk_input_monitor_startup() __asm__("sdk_input_monitor_startup");')
         screens.append('    sdk_input_monitor_startup();')

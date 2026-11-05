@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220">
+  <rect x="3" y="28" width="114" height="67" rx="4" fill="#191919" stroke="#cdcdcd" stroke-width="1"/>
+  <text x="11" y="50" fill="#cdcdcd" font-family="UniversNextPro-Light" font-size="18">tilt mic</text>
+  <text id="mode" x="11" y="81" fill="#ffffff" font-family="UniversNextPro-Light" font-size="26">off</text>
+</svg>

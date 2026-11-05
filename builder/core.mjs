@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'e51c59603f5fef3a441428ab5fb581eb6d4e58c354d8ab3a14817749bf827ef6';
+export const PROFILE_SHA256 = '3cdcab60b431e2c15867f44200d19cee0b2064c4608120f427b5e726cee2429e';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -993,11 +993,19 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
     expected[key] = [...base[key], ...group.map(m => JSON.parse(catalogEntry(m, numbers).trim().replace(/^,/, '')))];
   check(JSON.stringify(JSON.parse(text)) === JSON.stringify(expected), 'Unexpected catalog modification');
   const files = {'content/op1_factory.json': extended};
+  if (extensionSelection(kit, extensionIds).some(id => kit.extensions.find(e => e.id === id).actions?.includes('monitor_input'))) {
+    const asset = kit.inputMonitorArtwork;
+    check(asset && typeof asset.bytes === 'string', 'Missing input monitor artwork');
+    const data = decode64(asset.bytes);
+    check(data.length <= 65536 && await sha256(data) === asset.sha256, 'Input monitor artwork differs');
+    files['content/display/tilt_mic.svg'] = data;
+  }
   for(const id of extensionSelection(kit,extensionIds)) {
     const filter=processorOf(kit.extensions.find(e => e.id===id));
     if(!filter)continue;
     const data=decode64(filter.artwork);
     check(data.length<=65536 && await sha256(data)===filter.sha256, 'Master filter artwork differs');
+    check(files['content/display/'+filter.asset] === undefined, 'Display asset collision: ' + filter.asset);
     files['content/display/'+filter.asset]=data;
   }
   for (const machine of machines)

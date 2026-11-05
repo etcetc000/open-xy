@@ -155,6 +155,13 @@ class Extensions(unittest.TestCase):
         self.assertEqual(services, {'extensions', 'input_monitor', 'aux_menu'})
         steps = {step for _, _, step in native.plan(machines)}
         self.assertIn('input_monitor_audio', steps)
+        self.assertIn('input_monitor_ui', steps)
+        data = (ROOT / 'profiles/opxy-1.2.1/content/op1_factory.json').read_bytes()
+        assets = native.prepare_assets(data, config(), machines)
+        self.assertEqual(assets['content/display/tilt_mic.svg'],
+                         (ROOT / 'sdk/platform/opxy-1.2.1/tilt_mic.svg').read_bytes())
+        omitted = native.prepare_assets(data, config(), native.Collection([fixture('probesynth')], []))
+        self.assertNotIn('content/display/tilt_mic.svg', omitted)
         self.assertIn('aux_menu_hooks', steps)
         self.assertNotIn('aux_tracks', steps)
         self.assertNotIn('aux_hooks', steps)

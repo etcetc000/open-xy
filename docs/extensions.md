@@ -141,9 +141,11 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   The SDK requires the internal mic already selected on the external-audio
   track, no sample workflow or project load, enabled input and stock permission
   to monitor. The user must also opt in: on the external-audio Aux track,
-  **Shift + M1** opens the stock **tilt mic** selector with **off** and **auto**.
-  Off is the default; confirmation saves this device preference separately
-  from projects in `user/tilt-mic.cfg`. Cancelling leaves it unchanged.
+  hold **Shift** on its input page to reveal **tilt mic**. Turn the dark encoder
+  counterclockwise for **off**, clockwise for **auto**. Changes save separately
+  from projects in `user/tilt-mic.cfg`; failed saves retain the previous choice.
+  Off is the default. **Shift + M1** also opens the stock selector; cancelling
+  that selector leaves the preference unchanged.
   The Aux input track shows short native live/idle confirmations as automatic
   monitoring changes; the normal manual-monitor control remains available.
   It never changes the selected source, gain, routing or project
