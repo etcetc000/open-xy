@@ -509,9 +509,11 @@ at 0, so the key sounds as it did. Until then a key plays at 0 dB with every
 pad field neutral, whatever stock or an earlier SDK build left in its pad
 record, so projects saved before SDK 1.10, and keys a stock kit filled, play as
 before. Projects keep a key's settings, and copying a pad copies them. A
-preset keeps a key's model, controls, choke group and pan; a key loaded from a
-preset plays at 0 dB with every pad field neutral until it is edited again
-([firmware](abi-1.2.1.md#synthesis-drum-kits)).
+preset keeps all of a key's settings too: loading one on a `padMix` kit sets
+up every key the preset stores (its regions marked `fm slap`), with the level,
+pad controls and sends the preset holds (a region's `gain`, and its `random`,
+the pad word's top half: pad controls from bit 0, FX I's code at bits 9..11 and
+FX II's at 12..14) ([firmware](abi-1.2.1.md#synthesis-drum-kits)).
 
 A `padMix` kit may declare up to two small settings of each key's own in
 `resources.padControls` (SDK 1.10), such as a filter and a sample-rate

@@ -30,7 +30,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sampler page | 9 | Shows an owned page-2 engine's track as the stock sampler's page, with its one sample in region 0 for every key |
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
-| Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
+| Synthesis drum transport | 15 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
 | Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
@@ -878,9 +878,9 @@ inside the effect. See the [effect API](api.md#effects).
 
 An owned `drum` registration uses flag 1, its own engine ID and drawing page.
 The SDK aliases only the local Drumline classification branches to engine 4;
-stock and occupied registrations retain their behavior. Twelve exact hooks cover
-the drum predicate, region lookup, note start, project load, editor dispatch and
-preset import/export. Project load's track check at `8d588ec8` resets a
+stock and occupied registrations retain their behavior. Fifteen exact hooks cover
+the drum predicate, region lookup, note start, project load, editor dispatch,
+preset import/export and preset load (below). Project load's track check at `8d588ec8` resets a
 Drumline track's eight parameters to neutral offsets (`0x40000000`); without
 the alias a loaded kit kept zero offsets and every note decoded 64 below its
 stored values. Note start tests for Drumline at `8d595a4c`; only that branch
@@ -1009,9 +1009,24 @@ and sends; any other plays at 0 dB with every field neutral, as an owned kit
 did before. A `padMix` kit's first edit of a key that is not set up sets it
 up: it packs the key's model and controls with the mark, writes the word as
 the set-up value alone (every field 0) and the level byte 0 dB, then applies
-the edit. Its pan, which stock always played, stays. Presets carry only the
-word's top half (`random`, restored shifted up 16), so a key loaded from a
-preset is not set up until the kit edits it again.
+the edit. Its pan, which stock always played, stays.
+
+Presets carry the word's top half (stock's preset writer exports it as a
+region's `random`; import writes `max(random << 16, 0)`), the level (`gain`)
+and pan, but not the mark. Stock's preset import `8d4e35a8(preset, flag)` has
+three callers, `8d4dda96`, `8d4ddb84` and `8d4dde44`, each hooked
+(`sdk_drum_preset_load`, the `drums` service): after stock's import, if the
+pattern it wrote (the current pattern `8d587708` of the track at the preset's
+`+4`, `8d4e22d4`) runs a `padMix` kit (its machine at `+0x18`), every marked key
+of its 24 pad entries that is not set up gets the mark in its word's low half,
+the preset's fields, level and pan kept. So a preset plays the per-key settings
+it was saved with. Projects load through `deserialize`, never the preset import,
+so an old project's keys still read as they were saved. Stock's import takes a
+region's `params`, model, `playmode`, `random` and `hikey` itself; a key's level
+and pan come with the pad entries it first copies from the preset object
+(`+0x184`, `8d4e3690`). What a region that names no `gain`, `random` or `pan`
+gets there is not traced, and a preset an SDK 1.9 kit saved names none it held
+at 0; whatever it gets now plays.
 
 ### Per-key sends
 
