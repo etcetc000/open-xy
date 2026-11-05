@@ -174,6 +174,11 @@ test('stock with only reviewed edits applied, as sdk.py settings apply writes, r
     before, after:'01da0f00ffff0000'});
   const applied = stock.slice(); applied.set(Buffer.from('01da0f00ffff0000', 'hex'), 56);  // a fixed reviewed edit
   assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true});
+  // A capability partly applied is no image any tool writes.
+  kit.profile.patches.push({kind:'limit', service:'long_samples', address:0x1010, file_offset:48, length:2,
+    before:Buffer.from(stock.subarray(48, 50)).toString('hex'), after:'2860'});
+  await assert.rejects(recoverFirmware(kit, applied), /Only OP–XY OS 1\.2\.1 is supported/);
+  kit.profile.patches.pop();
   // A hook needs a module record to branch into: without one its site must stay stock.
   const hooked = stock.slice(); hooked[32] ^= 1;
   await assert.rejects(recoverFirmware(kit, hooked), /Only OP–XY OS 1\.2\.1 is supported/);

@@ -225,10 +225,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
       } else if (recovered.earlier) {
-        extensionSettings = {...recovered.settings}; renderExtensions(); recalculate();
+        // Settings this image holds join the values already chosen (a slider or a layout).
+        extensionSettings = {...extensionSettings, ...recovered.settings}; renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again';
       } else {
-        extensionSettings = {}; renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
       }
       wizard.setFirmwareState('loaded');

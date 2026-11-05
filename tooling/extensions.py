@@ -78,13 +78,13 @@ def capabilities():
                     all(type(spec[k]) is int for k in ('minimum', 'maximum', 'default')) and
                     spec['minimum'] <= spec['default'] <= spec['maximum'], 'Invalid capability setting: ' + name)
             values = {str(v) for v in range(spec['minimum'], spec['maximum'] + 1)}
-            # An image must show whether the capability is on: a fixed edit, or no choice that is stock.
-            require(len(chosen) < len(edits) or all(p['before'] not in p['choices'].values() for p in chosen),
-                    'A capability setting needs a fixed edit when a choice equals stock: ' + name)
             require(chosen and all(p.get('setting') == name and isinstance(p.get('choices'), dict) and
                                    set(p['choices']) == values and p['after'] == p['choices'][str(spec['default'])] and
                                    all(len(bytes.fromhex(b)) == p['length'] for b in p['choices'].values())
                                    for p in chosen), 'Invalid capability setting edits: ' + name)
+            # An image must show whether the capability is on: a fixed edit, or no choice that is stock.
+            require(len(chosen) < len(edits) or all(p['before'] not in p['choices'].values() for p in chosen),
+                    'A capability setting needs a fixed edit when a choice equals stock: ' + name)
         else:
             require(not chosen, 'Invalid capability: ' + name)
     return tuple(data)
@@ -97,6 +97,7 @@ def capability_settings():
 
 @lru_cache(maxsize=None)
 def _capability_settings():
+    capabilities()  # validated first
     return {name: c['setting'] for name, c in document(ROOT / PROFILE)['capabilities'].items() if c}
 
 

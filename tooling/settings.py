@@ -109,6 +109,10 @@ def check_image(image, blocks, profile, stock=None):
     try:
         authenticate(image, blocks, profile)
     except ValueError as error:
+        # Only another SDK's build (its module loads elsewhere) may be checked against stock;
+        # one of this SDK's that fails reconstruction is corrupt.
+        other = len(blocks) > profile['stock_records'] and blocks[-2]['target'] != profile['module_base']
+        require(other, str(error))
         require(stock is not None, f'{error}. For an open-xy OS from another SDK, pass the stock OS with --stock-os')
         compare_with_stock(image, blocks, profile, stock)
 

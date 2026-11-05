@@ -220,6 +220,14 @@ class Image(unittest.TestCase):
         near[site - 1] ^= 0xff
         with self.assertRaises(ValueError):
             image_settings.state(bytes(near), profile, data)
+        # A build of this SDK (its module at this profile's base) that fails reconstruction is
+        # corrupt: the stock OS does not admit it.
+        own = bytearray(data[:-16] + header(4, profile['module_base'], 4, 0) + bytes(4) + data[-16:])
+        own[:16] = header(0x5004, 0, 0, len(own) - 16)
+        own[code + 64] ^= 0x5a
+        with self.assertRaises(ValueError) as caught:
+            image_settings.state(bytes(own), profile, data)
+        self.assertNotIn('--stock-os', str(caught.exception))
         moved = bytearray(other)
         moved[code - 16:code] = header(1, 0x80000010, 128, 0)  # a valid record at another address
         with self.assertRaisesRegex(ValueError, 'records moved'):

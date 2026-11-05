@@ -913,13 +913,17 @@ export async function recoverFirmware(kit, input, layout = null) {
   // Every other site holds stock or its reviewed bytes, as tooling/settings.authenticate requires.
   const reviewed = edit => [edit.before, ...(['hook', 'startup'].includes(edit.kind) ? [] : [edit.after]),
     ...Object.values(edit.choices ?? {})].some(b => b !== undefined && equal(siteBytes(input, edit), unhex(b)));
-  if (input.length === p.stock_bytes && p.patches.every(reviewed)) {
+  // A capability is all on or all stock; partly applied is not an image any tool writes.
+  const whole = service => capabilityApplied(p, service, input) ||
+    p.patches.filter(edit => edit.service === service).every(edit => equal(siteBytes(input, edit), unhex(edit.before)));
+  const capabilityServices = [...new Set(p.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))];
+  const settings = imageSettings(kit, input), withSettings = Object.keys(settings).length ? {settings} : {};
+  if (input.length === p.stock_bytes && p.patches.every(reviewed) && capabilityServices.every(whole)) {
     const restored = input.slice();
     for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
     if (await sha256(restored) === p.stock_sha256) {
       readLdr(input);
-      const settings = imageSettings(kit, input);
-      return {stock: restored, selected: null, earlier: true, ...(Object.keys(settings).length ? {settings} : {})};
+      return {stock: restored, selected: null, earlier: true, ...withSettings};
     }
   }
   const blocks = readLdr(input), first = blocks[0], module = blocks.at(-2), final = blocks.at(-1);
@@ -940,7 +944,6 @@ export async function recoverFirmware(kit, input, layout = null) {
     // or infer ownership from its label. SDK builds retain timing; site builds
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
-    const settings = imageSettings(kit, input), withSettings = Object.keys(settings).length ? {settings} : {};
     const rebuilds = async (selected, extensions) => {
       const linked = linkKit(kit, selected, layout, extensions);
       if (!equal(linked.module, payload)) return false;
@@ -976,8 +979,7 @@ export async function recoverFirmware(kit, input, layout = null) {
   }
   // Another open-xy OS: an earlier release, other machines or another build.
   // Its stock OS is verified above; its machines and extensions are chosen again.
-  const settings = imageSettings(kit, input);
-  return {stock, selected: null, earlier: true, ...(Object.keys(settings).length ? {settings} : {})};
+  return {stock, selected: null, earlier: true, ...withSettings};
 }
 
 export function presetPath(machine) {
