@@ -66,7 +66,7 @@ def authenticate(image, blocks, profile):
     for patch in profile['patches']:
         offset = int(patch['file_offset'], 16)
         held = image[offset:offset + patch['length']]
-        if held.hex() == patch['before'] or held.hex() in encodings(patch):
+        if held.hex() in encodings(patch):
             continue
         require(low is not None and patch['kind'] in ('hook', 'startup'),
                 UNSUPPORTED + ': unexpected bytes at a reviewed edit site ' + label(patch))

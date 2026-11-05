@@ -188,7 +188,7 @@ builder reads a setting back from an image exactly.
 | Capability | Setting | Effect |
 | --- | --- | --- |
 | `long_samples` | | A file loads up to 1,048,575 frames (2^20 - 1, 23.78 s at 44.1 kHz), the most a stock sample object holds, instead of stock's 882,000 (20 s). Recording still stops at 20 s. |
-| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block. Stock stops abruptly at -66 dB; at -66 here the floor is stock's but releases still end with the one-block fade. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release ends at the same level, fading its remainder over the same block. |
+| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block. Stock stops abruptly at -66 dB; at -66 here the floor is stock's but releases still end with the one-block fade. A note whose sustain is already below the threshold loses its whole release when the key is let go. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release ends at the same level, fading its remainder over the same block. |
 
 `python sdk.py settings show --image os.ldr` lists the capabilities an OS image
 has on; `python sdk.py settings apply --image os.ldr --extension <folder>

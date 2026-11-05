@@ -8,6 +8,7 @@ a build's collection lists the extensions it links, in callback order. No dynami
 loading or arbitrary hooks.
 """
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 import re
 import base64
@@ -55,6 +56,7 @@ def registry():
 
 
 
+@lru_cache(maxsize=None)
 def capabilities():
     """The registry's capabilities: each is the firmware profile service of the same name,
     which only extensions that declare it use. A capability carries no fields, or one
@@ -90,6 +92,11 @@ def capabilities():
 
 def capability_settings():
     """Capability name -> its setting (label, unit, minimum, maximum, default), for those with one."""
+    return {name: dict(spec) for name, spec in _capability_settings().items()}
+
+
+@lru_cache(maxsize=None)
+def _capability_settings():
     return {name: c['setting'] for name, c in document(ROOT / PROFILE)['capabilities'].items() if c}
 
 

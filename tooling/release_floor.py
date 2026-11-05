@@ -21,7 +21,9 @@ Below the floor the stock path stores R0 as the stage and the per-sample slope
 (and 0x70000000 as the coefficient), so the first faded block carries slope +5,
 a negligible rise; the next block's stage-5 handler (8d50e262) sets the slope to
 -level/64 and the coefficient to unity, fading to silence, then idles at stock's
--66 dB floor.
+-66 dB floor. That first block also keeps stage 0's coefficient (0x70000000), so
+the level decays quickly from at most the floor before the linear fade.
+A note whose sustain is already below the floor loses its whole release.
 
 Each value has its own reviewed bytes (the floor edit's `choices`), so the
 builder recognizes a setting in an image exactly, without arithmetic.
