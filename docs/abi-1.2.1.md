@@ -979,7 +979,8 @@ stock's Shift-press action `8c0b270e`. That action acts only for the samplers
 `8c0b2730` is already the drum page's hook (`sdk_sample_press_engine`, button
 4..7 in `R5`); for an owned kit with a second Shift row it now switches the
 encoders' row as an unshifted press does (`sdk_drum_shift_press`), and stock
-still sees the kit's own engine, for which it does nothing.
+still sees the kit's own engine, for which it does nothing. Every other press,
+and a Shift press no such row takes, gets the hook's answer as before.
 
 A `padMix` kit's pad fields live in bits 16..30 of the pad word at `+0x14`:
 its `padControls` packed from bit 16 in declaration order (at most 9 bits),
