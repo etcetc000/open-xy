@@ -217,12 +217,21 @@ The `aux_menu` service shares the existing Aux encoder hook at `8c08fa14`
 with aux machine routing. On external-audio track 12, tab 0, holding Shift
 reveals a `tilt mic` overlay; the dark encoder (index 0 or shifted index 4)
 selects Off counterclockwise and Auto clockwise. Other turns delegate unchanged.
-The existing compositor traversal draws this authored overlay immediately after
-stock input page 63, before later stock dialogs. Releasing Shift hides it.
+The existing compositor traversal draws a private instance of stock's send
+popup immediately after input page 63, before later stock dialogs. Its 96-byte
+layout has value leaves at +24, row groups at +40, palette IDs at +56, icons at
++64 and binary32 motion states at +80. Base construction with page zero leaves
+stock's registered page 22 alone. The adapter loads `fx_send.svg`, binds with
+`8d53b04c`, resets with `8d53adc4`, and advances with `8d53ae00`. This retains
+the stock easing and dimmed background. It defers the presenter's SVG draw,
+then displays only its first row, centered with a tilt-mic Off/Auto caption.
+The stock frame reads routing values into this private presenter; no routing
+setter is called. Releasing Shift hides it, and reopening restarts the native
+animation. No additional artwork is installed.
 Shift + M1 also opens the stock Off/Auto selector through the shared menu hook.
 GUI startup reads bounded, versioned `user/tilt-mic.cfg`; an actual mode change
-writes it, and failed saves retain the previous mode. Motion and drawing
-callbacks perform no file I/O. These controls and the audio hook are selected
+writes it, and failed saves retain the previous mode. Motion callbacks perform
+no file I/O; the GUI presenter uses the stock SVG loader. These controls and the audio hook are selected
 only for a collection with a `monitor_input` action owner.
 
 The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key

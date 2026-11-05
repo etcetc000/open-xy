@@ -231,11 +231,6 @@ def main():
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
-        if 'input_monitor' in services:
-            name = 'content/display/tilt_mic.svg'
-            art = (ROOT / 'sdk/platform/opxy-1.2.1/tilt_mic.svg').read_bytes()
-            require((prefix / name).read_bytes() == art, 'Input monitor artwork differs')
-            expected_files[name] = art
         for machine in selected:
             if machine['kind'] in ('synth', 'drum', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'

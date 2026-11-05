@@ -71,6 +71,18 @@ class Runtime(unittest.TestCase):
             (folder / 'input_monitor_audio.cpp').write_text((PLATFORM / 'input_monitor_audio.cpp').read_text())
         self.run_fixture('input_monitor_audio', prepare)
 
+    def test_input_monitor_reuses_stock_send_popup_and_animation(self):
+        def prepare(folder):
+            stock = (PLATFORM / 'stock.hpp').read_text().replace(
+                'typedef __UINTPTR_TYPE__ Address;',
+                'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+            stock = stock.replace('reinterpret_cast<T*>(address)',
+                                  'reinterpret_cast<T*>(host_stock_address(address))')
+            (folder / 'stock.hpp').write_text(stock)
+            for name in ('input_monitor_ui.cpp', 'input_monitor_popup.hpp'):
+                (folder / name).write_text((PLATFORM / name).read_text())
+        self.run_fixture('input_monitor_ui', prepare)
+
     def test_input_monitor_opt_in_persistence_and_lease(self):
         def prepare(folder):
             stock = (PLATFORM / 'stock.hpp').read_text().replace(

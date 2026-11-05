@@ -962,13 +962,9 @@ def extend_catalog(catalog, profile, machines):
 def prepare_assets(catalog, profile, machines):
     require(sha(catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     outputs = {'content/op1_factory.json': extend_catalog(catalog, profile, machines)}
-    if any('monitor_input' in e.actions for e in extensions_of(machines)):
-        outputs['content/display/tilt_mic.svg'] = (ROOT / 'sdk/platform/opxy-1.2.1/tilt_mic.svg').read_bytes()
     for m in machines:
         if m.display != 'stock':
-            name = f'content/display/{m.native_name}.svg'
-            require(name not in outputs, 'Display asset collision: ' + name)
-            outputs[name] = screen.compose(validate_panel(m))
+            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
         # A sample engine's own samples (SDK 1.10), installed as they are.
