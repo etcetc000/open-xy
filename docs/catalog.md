@@ -67,9 +67,11 @@ Note players carry no audio-render CPU record; their note transforms are not
 covered by the profiler.
 
 New or changed draft/published instrument/effect entries require a `cpu` record generated
-from [hardware profiling](profiling.md), for synth, sample and effect machines; a synth's is a
-control sweep that records its heaviest setting. Results above the recommended
-3.5% of the block budget are accepted with a warning. That guide owns
+from [hardware profiling](profiling.md), for synths, drum kits, sample engines and effects,
+including average cost and the worst observed block peak. A synth's control
+sweep reports both, which may occur at different settings. Mean results above the recommended
+3.5% of the block budget are accepted with a warning; clipped peaks cannot be
+published as exact measurements. That guide owns
 the field schema, workloads and contributor commands. Unchanged legacy entries
 may remain without a record until their next update; measurements are never
 backfilled with host estimates.
@@ -130,7 +132,12 @@ python sdk.py compile --collection local/catalog/collection.json --out <folder>
    `v1.0.0`. Change the catalog entry to `draft` for review or `published` for
    inclusion, adding `repository`, `tag`, the full tagged `commit` and `path`
    from the field table, and one to five `keywords` that describe it. Add the
-   generated `cpu` member from `catalog-cpu.json`.
+   complete generated `cpu` member from `catalog-cpu.json`, including both
+   `block_percent` (average cost) and `peak_percent` (worst observed block).
+   An average-only record fails a new submission. The heaviest setting by mean
+   need not be the setting with the largest spike; the report lists both.
+   Existing complete captures can be reprocessed with `sdk.py profile report`
+   to obtain the peak without another device run, if source and package still match.
    A new CPU record's commit must equal the tagged machine commit. If you link a
    report, keep it in an issue/comment or separate evidence location so adding
    the readout does not change the machine commit after measurement.

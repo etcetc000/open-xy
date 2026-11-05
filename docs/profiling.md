@@ -1,7 +1,9 @@
 # Measure CPU cost on your OP-XY
 
 New or changed `draft` and `published` catalog entries must include a hardware
-`cpu` measurement for their pinned machine commit. This applies to synths,
+`cpu` measurement for their pinned machine commit, with **both average CPU and
+worst observed block CPU (peak/spike)**. Profiling is complete only after the
+generated `cpu` member is added to the catalog entry. This applies to synths,
 drum kits, sample engines and effects. Unchanged older entries can remain without one
 until their next update. A maintainer can run a batch for contributors who do
 not have hardware; contributors can also follow this procedure themselves.
@@ -52,8 +54,11 @@ One capture is enough: each run averages 1,500 blocks of a fixed workload, and
 repeated captures of the same build agree to within a few hundredths of a
 percent. A machine with randomness (noise, random modulation) may vary more:
 collect several, one after another, each to a new directory, and pass every
-capture to the report, which publishes their median (two give their average,
-so take three or more to outvote an outlier). Each stock-workload
+capture to the report. For averages it publishes their median (two give their
+average); for peaks it keeps the largest observed block across every supplied
+capture and every measured setting/workload. Never discard a capture because
+its spike is higher. One capture meets the submission requirement but cannot
+prove an absolute worst-case bound. Each stock-workload
 run takes about 2.2 seconds, so a sweep run takes longer: about 80 seconds for a
 synth with four controls. The collector waits for every expected report (by
 default up to 3 seconds per run plus 15) and stops early once they have arrived.
@@ -92,7 +97,10 @@ reports, or disabled profiling is a failed measurement, never a zero-cost machin
 
 The following is offline; `--machine` here takes the machine ID, not its
 folder. It verifies that the clean, committed machine source still matches the
-measured package.
+measured package. Existing complete captures already contain the peak: rerun
+this command with the current SDK and the original package/captures to upgrade
+an average-only report. No new build or device run is needed when those inputs
+still match. Repeat `--capture` for every independent capture of that build.
 
 ```sh
 python sdk.py profile report --package <private>/cpu-build-001 --machine mymachine --capture <private>/cpu-run-001/capture.json --out <private>/cpu-report-001
@@ -113,7 +121,8 @@ firmware-containing packages.
 | `commit` | Full machine source SHA, equal to the catalog entry's `commit` (or an earlier release's, when a maintainer approves carrying it over) |
 | `firmware_sha256` | Exact tested candidate OS image |
 | `runs` | 1 to 100 independent, complete captures of the same build and collector (one is enough) |
-| `block_percent` | The run's mean cost (the median across captures when there are several), as a percentage of the stock 580,352-cycle block budget. For a synth, its heaviest run: the median of each swept setting and of the midpoint run, the largest of them |
+| `block_percent` | The run's mean cost (the median across captures when there are several), as a percentage of the stock 580,352-cycle block budget. For a synth, the largest median across midpoint, swept and combined runs; for a drum kit, the largest single-voice median. This is an average, not a spike |
+| `peak_percent` | Required for new measurements: the largest single measured block across **all** settings/workloads and **all** supplied captures, in the same budget units. For drums this includes whole-kit, choke and ceiling runs. Never a median of maxima or the mean of the heaviest setting. The generated report identifies the workload and shows each run's peak |
 | `midpoint_percent` | Synths: the midpoint run's median, stock's own workload |
 | `combined_percent` | Synths: the median of the run with every control at its heaviest position |
 | `worst_setting` | Synths: the heaviest swept setting: `control` (0-7), its `label`, and its Q31 `value` |
@@ -122,6 +131,13 @@ firmware-containing packages.
 Keep `block_percent` at or below the **recommended 3.5%**. A higher result is
 still accepted, but `profile report`, the collector's readout and `catalog check`
 print a warning naming the heaviest setting: make that path lighter where you can.
+This recommendation applies to the mean; it is not a separate 3.5% peak limit.
+Inspect the peak alongside it: a low mean can conceal an expensive block.
+Both timing fields use `100 * encoded_value / 65535`. A peak encoded as 65535
+is clipped at the whole block budget: the collector labels it **at least 100%**,
+and `profile report` refuses to publish it as an exact peak. Optimize the named
+path and remeasure; do not replace the clipped value with an estimate or omit
+that capture. Invalid peaks below their run's mean are also refused.
 Stock keeps rendering a voice until its amplitude envelope ends, so a long
 release calls `render` well after the machine's own sound has died away, and
 the benchmark's 500 release blocks count that work. Once a voice's tail is
@@ -136,6 +152,10 @@ heaviest single voice, the figure the recommendation applies to; `kit_percent`,
 Synth records from before the sweep (`opxy-synth-c8-v1`) stay valid while their
 release stays at the commit they measured; a new synth, or one whose release
 moves, submits a sweep (unless a maintainer approves carrying the record over).
+Average-only records may likewise stay unchanged, including an evidence-link
+update or promotion from draft at the same commit. New measurements require
+`peak_percent`; a changed machine revision needs new measurements unless a
+maintainer explicitly approves carrying the exact previous record over.
 
 Updating a machine's commit requires a new measurement, unless a catalog
 maintainer approves keeping the previous one ([catalog updates](catalog.md#submit-a-machine)).
@@ -167,7 +187,9 @@ overhead and may include interrupt time; the stock synth runner masks interrupts
 while rendering. Do not compare different scopes as though they include the same work.
 
 100% is the stock diagnostic's normalization budget, not total device utilization.
-The number is neither a worst-case bound nor a maximum-polyphony prediction.
+Neither the mean nor the worst observed block is a proven worst-case bound or
+a maximum-polyphony prediction. The synth's combined setting is selected by
+mean cost, not by peak, and the sweep does not exhaust all control combinations.
 Graphics, project scheduling, disk/USB I/O and sample preparation are excluded.
 Check demanding settings, control motion, many simultaneous voices, feedback/tails
 and normal playback separately. A successful benchmark is not full hardware acceptance.
@@ -179,4 +201,8 @@ profiling is an explicit task: confirm the user wants the device test, prepare
 and verify a local build, install only when instructed, then wait for the user to
 flash/reboot before collecting. Do not infer installed firmware from a package
 path or turn host timings into hardware claims. The same batch captures can
-produce one offline report per included machine.
+produce one offline report per included machine. Before declaring submission
+ready, generate the report, explain both mean and peak and their measured scope,
+and add the complete `cpu` member to the catalog entry. If hardware or valid
+captures are unavailable, leave the entry reserved and report profiling pending;
+do not fabricate evidence or weaken the catalog check.

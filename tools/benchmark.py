@@ -257,11 +257,11 @@ def main(argv=None):
         (a.out / 'messages.txt').write_text('\n'.join((f['text'] for f in record['frames'])), encoding='utf-8')
     if expected is not None:
         decoded = decode(record, expected)
-        results = {'package': package_identity, 'engines': decoded, 'normalization': '100 * encoded average / 65535; stock 580352-cycle block budget', 'workload': 'Versioned workloads in docs/profiling.md; synth: stock note 60/midpoint, then in a sweep build each control through its positions; effect/sample: isolated default-setting callback fixtures', 'limitations': ['Synthetic test, not live project utilization or maximum polyphony.', 'Results assigned by build order and exact packet count; device firmware hash is not attested.', 'Machine settings affect cost; a sweep moves one control at a time, then combines each control at its heaviest position; other combinations and presets are not run.', 'Graphics are excluded. Effect/sample callback tests exclude stock mixing, preparation and allocation.', 'Whole voice includes oscillator; do not add the two.', 'A maximum of 65535 is clipped; insufficient voice activity is flagged.']}
+        results = {'package': package_identity, 'engines': decoded, 'normalization': '100 * encoded average or maximum / 65535; stock 580352-cycle block budget', 'workload': 'Versioned workloads in docs/profiling.md; synth: stock note 60/midpoint, then in a sweep build each control through its positions; effect/sample: isolated default-setting callback fixtures', 'limitations': ['Synthetic test, not live project utilization or maximum polyphony.', 'Results assigned by build order and exact packet count; device firmware hash is not attested.', 'Machine settings affect cost; a sweep moves one control at a time, then combines each control at its heaviest position; other combinations and presets are not run.', 'Graphics are excluded. Effect/sample callback tests exclude stock mixing, preparation and allocation.', 'Whole voice includes oscillator; do not add the two.', 'A maximum of 65535 is clipped; insufficient voice activity is flagged.']}
         (a.out / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
         from tooling.cpu_measurement import recommendation
         from tooling.benchmark import case_label, combined_label, combined_positions
-        lines = ['| Machine | Scope | Setting | Mean block budget |', '| --- | --- | --- | ---: |']
+        lines = ['| Machine | Scope | Setting | Mean block budget | Worst observed block |', '| --- | --- | --- | ---: | ---: |']
         heaviest, swept = {}, {}
         for item in decoded:
             metrics = item['metrics']
@@ -275,7 +275,9 @@ def main(argv=None):
                 swept.setdefault(case['name'], []).append((setting, metric['encoded_average']))
             label = (combined_label(combined_positions(swept.get(case['name'], []))) if case.get('combined')
                      else case_label(case))
-            lines.append(f"| {case['name']}{suffix} | {scope} | {label} | {value:.3f}% |")
+            peak = metric['maximum_budget_percent']
+            peak_text = '>=100% (clipped; exact peak unavailable)' if metric['maximum_clipped'] else f'{peak:.3f}%'
+            lines.append(f"| {case['name']}{suffix} | {scope} | {label} | {value:.3f}% | {peak_text} |")
             # A silent run says nothing about cost; a saturated one is the heaviest of all.
             # As profile report: a swept setting counts if it timed anything; others must sound.
             sounded = metric['encoded_average'] > 0 and (setting or not item['insufficient_voice_activity'])
