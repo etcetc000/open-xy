@@ -490,7 +490,7 @@ const heapLoad = hex => {
 // The size a heap edit loads, or NaN for any other instruction (never equal).
 const heapImmediate = hex => heapLoad(hex)?.value ?? NaN;
 // Whether an edit's replacement loads the same register as its stock instruction.
-const sameLoad = (a, b) => heapLoad(a) !== null && heapLoad(a).opcode === heapLoad(b)?.opcode;
+const sameLoad = (a, b) => { const load = heapLoad(a); return load !== null && load.opcode === heapLoad(b)?.opcode; };
 // Whether the profile carries a reviewed larger layout consistent with its heap
 // edits. Without one the builder simply does not offer the option.
 export function offersExpandedMemory(profile) {
