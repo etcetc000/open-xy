@@ -183,7 +183,7 @@ class DrumLocks(unittest.TestCase):
         self.assertEqual({a: (p['symbol'], p['before'], p['length'], p['call'], p['service']) for a, p in hooks.items()},
                          {'0x8c0b14b4': ('sdk_drum_unheld_key', call, 8, True, 'drums'),
                           '0x8c0b167a': ('sdk_drum_latch_key', call, 8, True, 'drums')})
-        values = (PLATFORM / 'drum_values_stock.cpp').read_text(encoding='utf-8')
+        values = (PLATFORM / 'drum_synthesis_stock.cpp').read_text(encoding='utf-8')   # the drums unit
         self.assertIn('opxy::u32 sdk_drum_latch_key(opxy::u32 track) {', values)
         self.assertIn('opxy::u32 sdk_drum_unheld_key(opxy::u32 track) {', values)
         self.assertNotIn('kDrumEditKey) =', (PLATFORM / 'stock.hpp').read_text(encoding='utf-8'))
