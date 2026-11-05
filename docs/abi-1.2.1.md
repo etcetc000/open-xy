@@ -252,10 +252,10 @@ the table at `8404caa8`: 0 idle, 1 attack, 2 decay, 3 sustain, 4 release, 5 forc
 fade (linear to silence over one block, then idle), 6 stolen-voice fade, 7 start
 the waiting stolen note. Release ends at `8d50e226`: a level at or below
 1,073,741 (2^31 / 2000, -66 dB) enters stage 0, and the renderer retires a voice
-whose amplitude stage is then idle. The `release_floor` capability rewrites that
-immediate (one reviewed encoding per dB value) and the stage written below it,
-`8d50e232`, from 0 to 5, so a raised floor fades over one block rather than
-stopping abruptly. The steal ranking (`8d51ca94`) and the renderers' stage-6
+whose amplitude stage is then idle. The `release_floor` capability raises that
+immediate to 21,474,836 (-40 dB, stock's own 0.01 constant) and the stage written
+below it, `8d50e232`, from 0 to 5, so the raised floor fades over one block rather
+than stopping abruptly. The steal ranking (`8d51ca94`) and the renderers' stage-6
 checks (`11a09aaa`, `8d51b880`) stay stock.
 
 ## Synth voices

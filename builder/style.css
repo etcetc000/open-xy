@@ -566,9 +566,6 @@ footer details[open] { flex-basis:100%; }
 }
 #extension-details #extension-description { color:var(--ink); font-size:14px; line-height:1.45; min-height:0; margin-bottom:0; }
 #extension-details .extension-note { color:var(--muted); font-size:12px; line-height:1.4; margin-top:6px; }
-#extension-details .extension-settings { margin-top:12px; display:grid; gap:8px; }
-#extension-details .extension-setting { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:10px; font-size:12px; }
-#extension-details .extension-setting output { font-variant-numeric:tabular-nums; min-width:9ch; text-align:right; }
 .extension-conflict { display:block; color:var(--muted); font-size:11px; margin:4px 0; }
 .extension-inspector .machine-facts { grid-template-columns:1fr; }
 .extension-inspector .machine-facts dd { text-align:left; margin-bottom:8px; }

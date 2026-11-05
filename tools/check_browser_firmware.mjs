@@ -2,7 +2,7 @@
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
 import assert from 'node:assert/strict';
-import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections, imageSettings} from '../builder/core.mjs';
+import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections} from '../builder/core.mjs';
 const [directory, stockFile, content] = process.argv.slice(2);
 const kit = await openKit(JSON.parse(readFileSync(resolve(directory, 'kit.json'))));
 const stock = new Uint8Array(readFileSync(stockFile));
@@ -14,13 +14,11 @@ for (const {name, selected, extensions, layout} of selections) {
   const linked = linkKit(kit, selected, layout, extensions), target = resolve(directory, 'reference', name);
   const firmware = await patchFirmware(kit, linked, stock);
   const recovered = await recoverFirmware(kit, firmware, layout);
-  // Capability settings an image holds come back with its selection.
-  const held = imageSettings(kit, firmware), settings = Object.keys(held).length ? {settings: held} : {};
-  assert.deepEqual(recovered, {stock, selected, extensions, ...settings});
+  assert.deepEqual(recovered, {stock, selected, extensions});
   assert.deepEqual(await patchFirmware(kit, linkKit(kit, recovered.selected, layout, recovered.extensions), recovered.stock), firmware);
   const profilingOff = await patchFirmware(kit, linked, stock, {profiling: false});
   assert.notDeepEqual(profilingOff, firmware);
-  assert.deepEqual(await recoverFirmware(kit, profilingOff, layout), {stock, selected, extensions, ...settings});
+  assert.deepEqual(await recoverFirmware(kit, profilingOff, layout), {stock, selected, extensions});
   assert.deepEqual(await patchFirmware(kit, linkKit(kit, selected, layout, extensions), stock, {profiling: false}), profilingOff);
   writeFileSync(target + '.profiling-off.ldr', profilingOff);
   const timingHooks = kit.profile.patches.filter(edit => edit.profiling === false);
@@ -29,8 +27,7 @@ for (const {name, selected, extensions, layout} of selections) {
   const offset = Number(firstHook.file_offset);
   mixed.set(firmware.subarray(offset, offset + firstHook.length), offset);
   // Not an exact build: stock is still recovered and verified, but no selection.
-  // Recovery still reports the settings an image holds when it cannot restore a selection.
-  const earlier = {stock, selected:null, earlier:true, ...settings};
+  const earlier = {stock, selected:null, earlier:true};
   assert.deepEqual(await recoverFirmware(kit, mixed, layout), earlier);
   const damagedLabel = firmware.slice();
   damagedLabel[Number(kit.profile.patches.at(-1).file_offset)] ^= 1;

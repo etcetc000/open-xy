@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '985bda8138d5c652567e08585d51bdb7f24a3faac7152f4bce276570ca68d13a';
+export const PROFILE_SHA256 = 'dbf68c0ff4444b056fee1de240b8699a58107248f827a5f47e2f1d641094bd98';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -283,15 +283,7 @@ export function readLayout(kit, saved) {
   const selected = saved.selected ?? null;
   check(selected === null || Array.isArray(selected) && selected.every(id => kit.machines.some(m => m.id === id)),
     'This layout lists a machine this site doesn’t have.');
-  // Capability settings the build wrote; a value this site no longer offers is dropped.
-  const settings = {};
-  if (saved.settings !== undefined) {
-    check(saved.settings && typeof saved.settings === 'object' && !Array.isArray(saved.settings) &&
-      Object.values(saved.settings).every(Number.isInteger), 'Invalid settings in this layout.');
-    for (const [c, v] of Object.entries(saved.settings))
-      if (kit.profile.patches.some(edit => edit.setting === c && Object.hasOwn(edit.choices ?? {}, String(v)))) settings[c] = v;
-  }
-  return {machines: numbers, selected, ...(Object.keys(settings).length ? {settings} : {})};
+  return {machines: numbers, selected};
 }
 // The kit's machines numbered for this selection, in kit order, and the layout after.
 export function assignNumbers(kit, selection, layout = null) {
@@ -513,16 +505,6 @@ export async function openKit(kit) {
       e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c)) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
-    // A capability setting: its range and the extension's value; the profile lists the bytes
-    // of every value in range, so any slider position builds.
-    const everyValue = (c, v) => kit.profile.patches.some(edit => edit.setting === c) &&
-      kit.profile.patches.filter(edit => edit.setting === c).every(edit => v.maximum - v.minimum <= 1000 &&
-        Array.from({length: v.maximum - v.minimum + 1}, (_, i) => String(v.minimum + i)).every(n => Object.hasOwn(edit.choices ?? {}, n)));
-    check(e.settings === undefined || e.settings && typeof e.settings === 'object' && Object.entries(e.settings).every(([c, v]) =>
-      e.capabilities?.includes(c) && v && [v.minimum, v.maximum, v.default, v.value].every(Number.isInteger) &&
-      v.minimum <= v.value && v.value <= v.maximum && v.minimum <= v.default && v.default <= v.maximum &&
-      typeof v.label === 'string' && typeof v.unit === 'string' && everyValue(c, v)),
-      'Invalid extension settings');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
       const f=processorOf(e), stateId=f.state_id ?? e.id;
@@ -768,17 +750,8 @@ export function redirect(edit, destination) {
   after.set(words((edit.call ? 0xe300 : 0xe200) | value >>> 16, value & 0xffff));
   return after;
 }
-// Capability settings a build writes, for the capabilities its extensions declare: chosen
-// values, else the first selected extension's own.
-export function chosenSettings(kit, linked, settings = {}) {
-  const chosen = {};
-  for (const e of (kit.extensions ?? []).filter(e => (linked.extensions ?? []).includes(e.id)))
-    for (const [c, v] of Object.entries(e.settings ?? {})) chosen[c] ??= settings[c] ?? v.value;
-  return chosen;
-}
-export async function patchFirmware(kit, linked, stock, {profiling = true, settings = {}} = {}) {
+export async function patchFirmware(kit, linked, stock, {profiling = true} = {}) {
   check(typeof profiling === 'boolean', 'Profiling must be a boolean');
-  const values = chosenSettings(kit, linked, settings);
   const p = kit.profile;
   check(stock.length === p.stock_bytes && await sha256(stock) === p.stock_sha256,
     'Only OP–XY OS 1.2.1 is supported. Choose the OS file, os.ldr, copied from your OP–XY, not a .tfw update file.');
@@ -814,10 +787,7 @@ export async function patchFirmware(kit, linked, stock, {profiling = true, setti
       after = redirect(edit, destination);
     } else {
       check(['heap', 'table', 'limit', 'text'].includes(edit.kind), 'Unknown edit kind');
-      // A setting edit writes the reviewed bytes of its chosen value (tooling.extensions.capabilities).
-      check(!edit.choices || values[edit.setting] === undefined || Object.hasOwn(edit.choices, String(values[edit.setting])),
-        'Setting outside its range: ' + edit.setting);
-      after = unhex(edit.choices && values[edit.setting] !== undefined ? edit.choices[String(values[edit.setting])] : edit.after);
+      after = unhex(edit.after);
     }
     check(before.length === edit.length && after.length === edit.length, 'Patch length mismatch');
     for (let i = 0; i < edit.length; i++) {
@@ -876,29 +846,8 @@ const presentExtensions = (kit, payload, input) => (kit.extensions ?? [])
     : holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
 // A capability's edits are fixed bytes (tooling.extensions.capabilities): applied
 // in an image exactly when every one holds its reviewed bytes.
-const siteBytes = (input, edit) => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
-// A capability is on when every fixed edit holds its bytes and every setting edit holds a
-// choice; a capability of setting edits only is on when one differs from stock.
-const capabilityApplied = (p, service, input) => {
-  const edits = p.patches.filter(edit => edit.service === service), fixed = edits.filter(edit => !edit.choices);
-  return edits.every(edit => edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
-      : equal(siteBytes(input, edit), unhex(edit.after))) &&
-    (fixed.length > 0 || edits.some(edit => !equal(siteBytes(input, edit), unhex(edit.before))));
-};
-// The setting values an image holds, read from its reviewed bytes. A value whose bytes
-// are stock's (release_floor's -66) counts once the capability's other edits are on.
-export function imageSettings(kit, input) {
-  const found = {}, conflicting = new Set();
-  for (const edit of kit.profile.patches.filter(e => e.choices)) {
-    const value = Object.entries(edit.choices).find(([, b]) => equal(siteBytes(input, edit), unhex(b)))?.[0];
-    // One rule for "on", shared with recovery's extension guess (and tooling/settings.state).
-    if (value === undefined || !capabilityApplied(kit.profile, edit.service, input)) continue;
-    if (Object.hasOwn(found, edit.setting) && found[edit.setting] !== Number(value)) conflicting.add(edit.setting);
-    found[edit.setting] = Number(value);
-  }
-  for (const setting of conflicting) delete found[setting];  // edits that disagree hold no setting
-  return found;
-}
+const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
+  equal(input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length), unhex(edit.after)));
 const UPDATE = 'Update your OP–XY to OS 1.2.1 with teenage engineering’s updater, then copy its OS file (os.ldr) again; a .tfw update file will not work.';
 const UNSUPPORTED = 'Only OP–XY OS 1.2.1 is supported. This file is not OS 1.2.1 or an open-xy OS made from it. ' + UPDATE;
 export async function recoverFirmware(kit, input, layout = null) {
@@ -907,24 +856,20 @@ export async function recoverFirmware(kit, input, layout = null) {
     readLdr(input);
     return {stock: input.slice(), selected: null};
   }
-  // Stock with only reviewed edits applied, as `sdk.py settings apply` writes: stock is
-  // rebuilt by undoing every edit and verified by hash; its machines are chosen again.
-  // Without a module record no hook or startup label may branch anywhere: those sites stay stock.
-  // Every other site holds stock or its reviewed bytes, as tooling/settings.authenticate requires.
-  const reviewed = edit => [edit.before, ...(['hook', 'startup'].includes(edit.kind) ? [] : [edit.after]),
-    ...Object.values(edit.choices ?? {})].some(b => b !== undefined && equal(siteBytes(input, edit), unhex(b)));
-  // A capability is all on or all stock; partly applied is not an image any tool writes.
-  const whole = service => capabilityApplied(p, service, input) ||
-    p.patches.filter(edit => edit.service === service).every(edit => equal(siteBytes(input, edit), unhex(edit.before)));
-  const capabilityServices = [...new Set(p.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))];
-  const settings = imageSettings(kit, input), withSettings = Object.keys(settings).length ? {settings} : {};
-  if (input.length === p.stock_bytes && p.patches.every(reviewed) && capabilityServices.every(whole)) {
+  // Stock with only fixed reviewed edits applied, as `sdk.py settings apply` writes: every
+  // site holds stock or its reviewed bytes (hooks and the startup label stay stock, having
+  // no module record to branch into), each capability is all on or all stock, and undoing
+  // every edit gives stock by hash. Its machines and extensions are chosen again.
+  const site = edit => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
+  const reviewed = edit => equal(site(edit), unhex(edit.before)) ||
+    (!['hook', 'startup'].includes(edit.kind) && equal(site(edit), unhex(edit.after)));
+  const whole = service => [true, false].some(on => p.patches.filter(edit => edit.service === service && edit.kind === 'limit')
+    .every(edit => equal(site(edit), unhex(on ? edit.after : edit.before))));
+  if (input.length === p.stock_bytes && p.patches.every(reviewed) &&
+      [...new Set(p.patches.filter(edit => edit.kind === 'limit').map(edit => edit.service))].every(whole)) {
     const restored = input.slice();
     for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
-    if (await sha256(restored) === p.stock_sha256) {
-      readLdr(input);
-      return {stock: restored, selected: null, earlier: true, ...withSettings};
-    }
+    if (await sha256(restored) === p.stock_sha256) { readLdr(input); return {stock: restored, selected: null, earlier: true}; }
   }
   const blocks = readLdr(input), first = blocks[0], module = blocks.at(-2), final = blocks.at(-1);
   check(blocks.length === p.stock_records + 1 && first.count === 0 &&
@@ -948,7 +893,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       const linked = linkKit(kit, selected, layout, extensions);
       if (!equal(linked.module, payload)) return false;
       for (const profiling of [true, false]) {
-        if (equal(await patchFirmware(kit, linked, stock, {profiling, settings}), input)) return true;
+        if (equal(await patchFirmware(kit, linked, stock, {profiling}), input)) return true;
       }
       return false;
     };
@@ -961,7 +906,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       : guess.length ? [guess, []] : [[]];
     for (const extensions of present.length ? [guess, ...choices] : []) {
       try {
-        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions, ...withSettings};
+        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions};
       } catch {}  // a guess that cannot link is not this kit's build
     }
     // Small kits also try every selection: at most 1,023 deterministic links per
@@ -971,7 +916,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
         for (const extensions of choices) {
-          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...withSettings};
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions};
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }
@@ -979,7 +924,7 @@ export async function recoverFirmware(kit, input, layout = null) {
   }
   // Another open-xy OS: an earlier release, other machines or another build.
   // Its stock OS is verified above; its machines and extensions are chosen again.
-  return {stock, selected: null, earlier: true, ...withSettings};
+  return {stock, selected: null, earlier: true};
 }
 
 export function presetPath(machine) {

@@ -15,7 +15,7 @@ COMMANDS = '''Commands:
   verify    Rebuild and compare a native package: python sdk.py verify --help
   kit       Browser builder export: python sdk.py kit --help
   release   Catalog kit and site: python sdk.py release --help
-  settings  Settings extensions on an existing OS image: python sdk.py settings show --image os.ldr | apply --image os.ldr --extension ../mysettings [--set release_floor=-40] --out <dir>
+  settings  Settings extensions on an existing OS image: python sdk.py settings show --image os.ldr | apply --image os.ldr --extension ../mysettings [--stock-os os.ldr] --out <dir>
   toolchain Install the pinned Blackfin tools: python sdk.py toolchain fetch
   device    Copy a build to a connected OP-XY (Windows, macOS, Linux): python sdk.py device push <build>/candidate | list | pull
   doctor    Check tools: python sdk.py doctor --preview | --toolchain [<dir>]

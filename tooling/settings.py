@@ -16,9 +16,8 @@ unchanged and in place and none of its other edits touches a capability site.
 import argparse
 import json
 from pathlib import Path
-import re
 
-from .extensions import capabilities, capability_settings, chosen_settings, extension_at
+from .extensions import capabilities, extension_at
 from .firmware import hook_target
 from .formats import header, ldr, mapped_offset, require, sha
 from . import release_floor, startup_label
@@ -47,7 +46,7 @@ def site(image, blocks, patch):
 
 
 def encodings(patch):
-    return {patch['before'], *([patch['after']] if 'after' in patch else []), *patch.get('choices', {}).values()}
+    return {patch['before'], *([patch['after']] if 'after' in patch else [])}
 
 
 def authenticate(image, blocks, profile):
@@ -126,7 +125,7 @@ def check_image(image, blocks, profile, stock=None):
 
 
 def state(image, profile=None, stock=None):
-    """Capability -> None (off), True (on) or its setting value, read from the image's bytes."""
+    """Capability -> whether the image has it on, read from the bytes at its sites."""
     profile = profile or config()
     blocks = ldr(image)
     check_image(image, blocks, profile, stock)
@@ -137,62 +136,40 @@ def state(image, profile=None, stock=None):
             _, data = site(image, blocks, patch)
             require(data in encodings(patch), 'Unexpected bytes at a capability site: ' + label(patch))
             held[patch['address']] = data
-        if all(held[p['address']] == p['before'] for p in edits):
-            result[name] = None
-            continue
-        require(all(held[p['address']] == p['after'] for p in edits if 'choices' not in p),
-                'Capability only partly applied: ' + name)
-        chosen = [int(v) for p in edits if 'choices' in p for v, b in p['choices'].items() if b == held[p['address']]]
-        require(len(set(chosen)) <= 1, 'Inconsistent capability setting: ' + name)
-        result[name] = chosen[0] if chosen else True
+        on = [held[p['address']] == p['after'] for p in edits]
+        require(all(on) or not any(on), 'Capability only partly applied: ' + name)
+        result[name] = all(on)
     return result
 
 
-def apply(image, extensions, overrides=None, profile=None, stock=None):
-    """A copy of `image` with every capability the extensions declare turned on, each
-    setting at its override, else the first declaring extension's value, else its default."""
-    profile, overrides = profile or config(), dict(overrides or {})
-    specs = capability_settings()
+def apply(image, extensions, profile=None, stock=None):
+    """A copy of `image` with every capability the extensions declare turned on."""
+    profile = profile or config()
     state(image, profile, stock)  # authenticated; every site holds stock or reviewed bytes
     require(all(not e.linked for e in extensions),
             'Only settings extensions apply to an image: an extension with code needs a build')
-    declared = [c for e in extensions for c in e.capabilities]
+    declared = list(dict.fromkeys(c for e in extensions for c in e.capabilities))
     require(declared, 'The extensions declare no capabilities')
-    require(set(overrides) <= set(declared) & set(specs), 'A setting names a capability the extensions do not declare')
-    values = chosen_settings(extensions, overrides)
-    for name, value in values.items():
-        require(type(value) is int and specs[name]['minimum'] <= value <= specs[name]['maximum'],
-                f'{name} is {specs[name]["minimum"]}..{specs[name]["maximum"]} {specs[name]["unit"]}')
     blocks, patched = ldr(image), bytearray(image)
-    for name in dict.fromkeys(declared):
+    for name in declared:
         for patch in capability_edits(profile, name):
             offset, _ = site(image, blocks, patch)
-            after = (patch['choices'][str(values[name])] if 'choices' in patch
-                     else patch['after'])
-            patched[offset:offset + patch['length']] = bytes.fromhex(after)
+            patched[offset:offset + patch['length']] = bytes.fromhex(patch['after'])
     result = bytes(patched)
     require(len(ldr(result)) == len(blocks), 'Loader records changed')
-    return result, {n: values[n] if n in specs else True for n in dict.fromkeys(declared)}
-
-
-def parse_setting(text):
-    name, separator, value = text.partition('=')
-    require(separator and name and re.fullmatch(r'-?[0-9]+', value), 'A setting is <capability>=<whole number>')
-    return name, int(value)
+    return result, declared
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='sdk.py settings', description=__doc__.split('\n')[0])
     commands = parser.add_subparsers(dest='command', required=True)
-    show = commands.add_parser('show', help='List the capabilities an OS image has on, with their settings')
+    show = commands.add_parser('show', help='List the capabilities an OS image has on')
     show.add_argument('--image', type=Path, required=True, help='os.ldr: stock OS 1.2.1 or an open-xy OS made from it')
     show.add_argument('--stock-os', type=Path, help='stock OS 1.2.1, to check an open-xy OS from another SDK')
     put = commands.add_parser('apply', help='Write a copy of an OS image with settings extensions applied')
     put.add_argument('--image', type=Path, required=True, help='os.ldr: stock OS 1.2.1 or an open-xy OS made from it')
     put.add_argument('--stock-os', type=Path, help='stock OS 1.2.1, to check an open-xy OS from another SDK')
     put.add_argument('--extension', type=Path, action='append', required=True, help='settings extension folder; repeatable')
-    put.add_argument('--set', action='append', default=[], metavar='CAPABILITY=VALUE',
-                     help='override a setting, for example --set release_floor=-40')
     put.add_argument('--out', type=Path, required=True, help='new folder outside the checkout for os.ldr and settings.json')
     add_overwrite_argument(put)
     args = parser.parse_args(argv)
@@ -204,13 +181,13 @@ def main(argv=None):
             return 0
         require(outside_checkouts(args.out), f'Firmware stays outside every checkout: choose --out elsewhere ({args.out})')
         extensions = [extension_at(folder) for folder in args.extension]
-        result, values = apply(image, extensions, dict(parse_setting(s) for s in args.set), stock=stock)
+        result, declared = apply(image, extensions, stock=stock)
         inputs = [args.image, *args.extension, *([args.stock_os] if args.stock_os else [])]
         out = fresh_output(args.out, args.overwrite, keep=inputs)  # --overwrite never deletes an input
         (out / 'os.ldr').write_bytes(result)
         report = dict(format='opxy-settings/1', source=str(Path(args.image).resolve()),
                       source_sha256=sha(image), sha256=sha(result),
-                      extensions=[e.id for e in extensions], capabilities=values,
+                      extensions=[e.id for e in extensions], capabilities=declared,
                       changed_bytes=sum(a != b for a, b in zip(image, result)))
         (out / 'settings.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(report, indent=2))

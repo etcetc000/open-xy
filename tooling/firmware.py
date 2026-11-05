@@ -100,8 +100,6 @@ def assemble(stock, module, profile, original_profile, edits, services, profilin
         elif original['kind'] == 'hook':
             target, call = hook_target(original, after)
             require(call == original['call'] and low <= target < low + len(module), 'Hook does not target module')
-        elif 'choices' in original:
-            require(patch['after'] in original['choices'].values(), 'Unreviewed capability setting bytes')
         else:
             require(patch['after'] == original['after'], 'Changed heap reservation or table edit')
     check_patch_boundaries(profile, edits)

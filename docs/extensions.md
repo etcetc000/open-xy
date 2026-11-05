@@ -178,29 +178,21 @@ It appears in the builder's Extensions step and the catalog like any extension,
 but links no code: selecting only settings extensions leaves the extension
 runtime out. An extension with code may declare capabilities too.
 
-A capability may have one whole-number **setting** (a label, unit, range and
-default in the registry). An extension chooses its value with
-`"settings": {"<capability>": <value>}` in `extension.json`; the builder shows a
-slider for it beside the extension's description and writes the chosen value.
-Each value has its own reviewed bytes in the profile edit's `choices`, so the
-builder reads a setting back from an image exactly. The builder's `layout.json`
-keeps the slider's value for its next build; native builds (`sdk.py build`) take
-the value from `extension.json`.
-
-| Capability | Setting | Effect |
-| --- | --- | --- |
-| `long_samples` | | A file loads up to 1,048,575 frames (2^20 - 1, 23.78 s at 44.1 kHz), the most a stock sample object holds, instead of stock's 882,000 (20 s). Recording still stops at 20 s. |
-| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block. Stock stops abruptly at -66 dB; at -66 here the floor is stock's but releases still end with the one-block fade. A note whose sustain is already below the threshold loses its whole release when the key is let go. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release ends at the same level, fading its remainder over the same block. |
+| Capability | Effect |
+| --- | --- |
+| `long_samples` | A file loads up to 1,048,575 frames (2^20 - 1, 23.78 s at 44.1 kHz), the most a stock sample object holds, instead of stock's 882,000 (20 s). Recording still stops at 20 s. |
+| `release_floor` | A released note stops, and frees its voice, once its amplitude envelope falls 40 dB below its peak, fading over one block; stock stops abruptly at -66 dB. The level is the envelope's own, before velocity, filter and track volume. A note whose sustain is already below -40 dB loses its whole release. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release ends at the same level. |
 
 `python sdk.py settings show --image os.ldr` lists the capabilities an OS image
-has on; `python sdk.py settings apply --image os.ldr --extension <folder>
-[--set release_floor=-40] --out <dir>` writes a copy with settings extensions
-applied, to stock OS 1.2.1 or any open-xy OS made from it, without rebuilding its
-machines. Every capability site must hold stock or reviewed bytes, and the image
-is authenticated as the builder does. An open-xy OS from another SDK (its own
-hooks or module base) also needs `--stock-os <os.ldr>`: stock's loader records
-must be unchanged and in place, and none of its edits may touch a capability site. `apply` changes only
-capability sites; the rest of the image is the SDK's that built it to verify.
+has on; `python sdk.py settings apply --image os.ldr --extension <folder> --out
+<dir>` writes a copy with settings extensions applied, to stock OS 1.2.1 or an
+open-xy OS made from it, without rebuilding its machines. The image is
+authenticated as the builder does, and every capability site must hold stock or
+reviewed bytes. An open-xy OS from another SDK (its module loads elsewhere) also
+needs `--stock-os <os.ldr>`: stock's loader records must be unchanged and in
+place, and the stock code around and behind each capability's edits untouched.
+`apply` changes only capability sites; the rest of that image is its SDK's to
+verify.
 
 ## Master processor
 
@@ -247,9 +239,8 @@ generated registry. Never add a per-claim field to the collection or a
 per-claim branch to the runtime.
 
 **Add a capability** for a build-time setting the SDK owns: a registry entry
-(`{}`, or `{"setting": {...}}` with a range whose every value has reviewed bytes
-in its edit's `choices`), a profile service of the same name used only by it,
-and that service's reviewed edits. Its edits are fixed bytes, never hooks, so the builder can tell
+(`{}`), a profile service of the same name used only by it, and that service's
+reviewed edits. Its edits are fixed bytes, never hooks, so the builder can tell
 from an image whether it is on; the build and builder add nothing per
 capability.
 
