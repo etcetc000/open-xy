@@ -16,7 +16,9 @@ Adjust that path if the user already has the SDK elsewhere.
    `opxy/page_header.hpp` header and its SVG bindings: fixed rows, lowercase
    titles, active-row emphasis, any encoder press switches pages. Repeat the
    same saved parameter in columns without alternates; never invent filler
-   parameters. Format captions in real units and keep artwork below y=38.
+   parameters. Caption numbers 00 to 99 and choices with their names, as the
+   [UX conventions](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md#controls)
+   say, and keep artwork below y=38.
    Preserve licences and attribution when reusing code.
    When the user wants colorful artwork, consider the optional
    [color design guidance](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md#color-design-guidance).

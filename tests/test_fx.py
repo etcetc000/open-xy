@@ -185,6 +185,40 @@ int main() {
             self.assertNotIn('case 1', body)
             self.assertNotIn('control_tenths', body)
 
+    def synth_captions(self, sdk):
+        definition = fixture('probesynth').definition
+        parameters = [dict(p) for p in definition['parameters']]
+        parameters[0] = dict(parameters[0], display='ratio', mapping={'kind': 'anchors', 'values': [1, 2, 4]})
+        synth = replace(fixture('probesynth'), definition=dict(definition, parameters=parameters), sdk=sdk)
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_synth_controls(Path(directory), [synth]).read_text()
+        return text[text.index('static bool probesynth_format'):text.index('const SynthControls')]
+
+    def test_new_synth_numbers_count_as_stock_does(self):
+        body = self.synth_captions((1, 11))
+        self.assertIn('case 0:\n        opxy::draw::header_number(text, 16, value);', body)
+        self.assertNotIn('control_tenths', body)
+
+    def test_whole_semitones_keep_their_unit_from_the_stock_count(self):
+        definition = fixture('probesynth').definition
+        parameters = [dict(p) for p in definition['parameters']]
+        parameters[0] = dict(parameters[0], display='semitones', mapping={'kind': 'linear', 'minimum': -12, 'maximum': 12})
+        parameters[1] = dict(parameters[1], display='semitones', mapping={'kind': 'linear', 'minimum': -0.5, 'maximum': 0.5})
+        for sdk, expected in (((1, 11), True), ((1, 10), False)):
+            synth = replace(fixture('probesynth'), definition=dict(definition, parameters=parameters), sdk=sdk)
+            with tempfile.TemporaryDirectory() as directory:
+                text = adapters.generate_synth_controls(Path(directory), [synth]).read_text()
+            body = text[text.index('static bool probesynth_format'):text.index('const SynthControls')]
+            self.assertEqual('case 0:\n        opxy::draw::header_semitones(text, 16, value, -12, 12);' in body, expected)
+            self.assertNotIn('value, 0, 0)', body)
+
+    def test_published_synths_keep_their_captions(self):
+        for sdk in ((1, 1), (1, 10)):
+            body = self.synth_captions(sdk)
+            self.assertIn('control_ratio(value, anchors, 3), ":1"', body)
+            self.assertIn('control_tenths(text, value < 0', body)
+            self.assertNotIn('header_number', body)
+
     def test_device_and_browser_name_divisions_alike(self):
         native = (ROOT / 'sdk/platform/opxy-1.2.1/synth_controls.cpp').read_text()
         browser = (ROOT / 'sdk/browser/controls.mjs').read_text()

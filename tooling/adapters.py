@@ -20,6 +20,7 @@ from .definitions import (ROOT, SYNTH_POSITIONS, control_positions, hidden_pages
 # An effect's shift-row controls follow its eight parameter words (slots 8..11).
 SHIFT_SLOT = 8
 from .formats import require
+from .machines import STOCK_COUNT_SDK
 from .stock_tables import REGISTRATION as RELOCATED
 
 TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
@@ -424,9 +425,18 @@ def generate_synth_controls(directory, machines):
                 continue
             if effect:
                 continue
+            # Every other number counts 00..99, as the stock pages caption it. A machine
+            # targeting an earlier SDK keeps the captions it was published with.
+            if m.sdk >= STOCK_COUNT_SDK:
+                # Whole semitones keep their unit, as stock's sampler screens show theirs.
+                low, high = mapping.get('minimum'), mapping.get('maximum')
+                whole = p['display'] == 'semitones' and mapping['kind'] == 'linear' and low == int(low) and high == int(high) \
+                    and -99 <= low < high <= 99
+                caption = f'header_semitones(text, 16, value, {int(low)}, {int(high)})' if whole else 'header_number(text, 16, value)'
+                body.extend([f'    case {i}:', f'        opxy::draw::{caption};', '        return true;'])
             # Compact native ratio captions; unusual/signed ranges retain the
             # stock normalized display, with an extra decimal place.
-            if p['display'] == 'ratio' and mapping['kind'] == 'anchors' and 0 <= mapping['values'][0] < mapping['values'][-1] <= 1000:
+            elif p['display'] == 'ratio' and mapping['kind'] == 'anchors' and 0 <= mapping['values'][0] < mapping['values'][-1] <= 1000:
                 anchors = ', '.join(str(math.floor(v * 10 + 0.5)) for v in mapping['values'])
                 body.extend([f'    case {i}: {{', f'        static const opxy::u32 anchors[] = {{{anchors}}};',
                              f'        control_tenths(text, control_ratio(value, anchors, {len(mapping["values"])}), ":1");',

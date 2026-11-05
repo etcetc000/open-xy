@@ -128,7 +128,10 @@ python sdk.py compile --collection local/catalog/collection.json --out <folder>
    readout. Keep all firmware outside every checkout. A maintainer can run this
    for authors without an XY. A reserved entry can stay reserved while hardware
    evidence is pending; `draft` and `published` submissions both need it.
-5. **Tag the measured commit and submit it.** Push a release tag such as
+5. **Tag the measured commit and submit it.** A new or updated machine targets
+   SDK 1.11 or later (`"sdk"` in `machine.json`), so its numbers
+   [count 00 to 99](ux.md#controls); CI refuses an earlier one. Entries an
+   update doesn't touch keep what they show. Push a release tag such as
    `v1.0.0`. Change the catalog entry to `draft` for review or `published` for
    inclusion, adding `repository`, `tag`, the full tagged `commit` and `path`
    from the field table, and one to five `keywords` that describe it. Add the

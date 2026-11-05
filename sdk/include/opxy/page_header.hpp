@@ -13,7 +13,35 @@ struct PageHeader {
 const u32 page_header_nodes = 8, page_header_texts = 16;
 const u8 page_header_slots[2][4] = {{0, 1, 2, 3}, {4, 5, 6, 7}};
 
-// Rounded 0..100 caption without a percent sign. The underlying Q31 is unchanged.
+// A control's place in its travel as two digits, 00..99, exactly as the stock
+// pages caption it: floor(100 * value / 2^31). A quarter of travel reads 25,
+// full scale 99. The underlying Q31 is unchanged.
+static inline void header_number(char* out, u32 capacity, i32 value) {
+    const u32 n = value < 0 ? 0 : ((static_cast<u32>(value) >> 8) * 100) >> 23;
+    const char number[3] = {static_cast<char>('0' + n / 10), static_cast<char>('0' + n % 10), 0};
+    copy(out, capacity, number);
+}
+
+// A control mapped linearly from low to high whole semitones, as +7st, -12st or
+// 0st, short enough for a header column. The underlying Q31 is unchanged.
+static inline void header_semitones(char* out, u32 capacity, i32 value, i32 low, i32 high) {
+    const u32 position = value < 0 ? 0 : static_cast<u32>(value) >> 16;
+    const i32 n = low + static_cast<i32>((static_cast<u32>(high - low) * position + 16384) >> 15);
+    const u32 size = static_cast<u32>(n < 0 ? -n : n);
+    char text[8];
+    u32 at = 0;
+    if (n) text[at++] = n < 0 ? '-' : '+';
+    if (size >= 100) text[at++] = static_cast<char>('0' + size / 100 % 10);
+    if (size >= 10) text[at++] = static_cast<char>('0' + size / 10 % 10);
+    text[at++] = static_cast<char>('0' + size % 10);
+    text[at++] = 's';
+    text[at++] = 't';
+    text[at] = 0;
+    copy(out, capacity, text);
+}
+
+// Rounded 0..100 caption without a percent sign, for machines that already use
+// it; new ones count with header_number. The underlying Q31 is unchanged.
 static inline void header_amount(char* out, u32 capacity, i32 value) {
     const u32 n = value < 0 ? 0 : ((static_cast<u32>(value) >> 10) * 100 + (1u << 20)) >> 21;
     char number[4];
@@ -22,15 +50,6 @@ static inline void header_amount(char* out, u32 capacity, i32 value) {
     if (n >= 10) number[at++] = static_cast<char>('0' + n / 10 % 10);
     number[at++] = static_cast<char>('0' + n % 10);
     number[at] = 0;
-    copy(out, capacity, number);
-}
-
-// A control's place in its travel as two digits, 00..99, exactly as stock's FX
-// page captions it: floor(100 * value / 2^31), full scale 99. The underlying
-// Q31 is unchanged.
-static inline void header_number(char* out, u32 capacity, i32 value) {
-    const u32 n = value < 0 ? 0 : ((static_cast<u32>(value) >> 8) * 100) >> 23;
-    const char number[3] = {static_cast<char>('0' + n / 10), static_cast<char>('0' + n % 10), 0};
     copy(out, capacity, number);
 }
 
@@ -77,7 +96,7 @@ static inline u32 page_motion(PageHeader& state, const Input& input, const u8 (&
 }
 
 // titles and values are indexed by saved parameter slot, never by the current
-// encoder selection. Supply real-unit captions; use header_amount for amounts.
+// encoder selection. Use header_number for numbers and a name for a choice.
 // slots maps page/column to parameter slot when alternates are not in column order.
 // Other artwork belongs below y=38. No audio state or drawing ABI changes.
 template <class F>

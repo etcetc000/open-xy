@@ -26,7 +26,7 @@ import sys
 from .definitions import stock_name
 from . import cpu_measurement
 from .formats import require
-from .machines import machine_at, relative_path
+from .machines import STOCK_COUNT_SDK, machine_at, relative_path
 from .pipeline import NO_WINDOW, ROOT
 
 CATALOG = ROOT / 'catalog/machines.json'
@@ -336,6 +336,14 @@ def pinned(m, entries):
         return False
 
 
+def require_stock_count(machine):
+    """A new or updated release counts its numbers as the stock pages do; entries it
+    doesn't touch keep the SDK version, and so the captions, they were published with."""
+    require(machine.sdk >= STOCK_COUNT_SDK,
+            f'{machine.id}: a new or updated machine needs "sdk": "%d.%d" in machine.json, which '
+            'shows its numbers 00 to 99 (docs/ux.md#controls)' % STOCK_COUNT_SDK)
+
+
 def base_entries(base, listed, path):
     """A catalog file's entries at a git revision; a revision without the file held none."""
     name = path.relative_to(ROOT).as_posix()
@@ -410,8 +418,11 @@ def main(argv=None):
                 fetched = fetch(entry, args.cache)
                 found[listed].append(fetched.root)
                 # An entry whose keywords alone changed builds as before, so it needs no test of its own.
-                if not earlier or release_fields(earlier.get(entry['id'])) != release_fields(entry):
+                moved = release_fields(earlier.get(entry['id'])) != release_fields(entry)
+                if not earlier or moved:
                     tested[listed].append(fetched.root)
+                if getattr(args, 'changed_from', None) and moved and listed == 'machines':
+                    require_stock_count(fetched)
                 print(f"Fetched {fetched.id} {entry['tag']} ({entry['commit'][:12]}): {fetched.root}")
         # Every published machine and extension, in catalog order: a collection for any build command.
         collection = Path(args.cache) / 'collection.json'

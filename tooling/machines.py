@@ -43,7 +43,11 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # sample engine's own screen give any encoder to one of the stock sampler page's own
 # controls (resources.stockShift), and lets a sample engine ship its own samples
 # (machine.json `samples`), installed in the content folder, and its presets point at them.
-SDK_VERSION = (1, 10)
+# 1.11 captions a machine's numbers as the stock pages do, 00 to 99 (docs/ux.md#controls).
+SDK_VERSION = (1, 11)
+# The SDK version from which generated captions count 00 to 99. Machines targeting an
+# earlier one keep the captions they were published with.
+STOCK_COUNT_SDK = (1, 11)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -108,6 +112,7 @@ class Machine:
     dry_level: int | None = None  # a fixed source dry, Q31 (SDK 1.7)
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
     grayscale: str | None = None
+    sdk: tuple = STOCK_COUNT_SDK  # the SDK version machine.json targets
 
     @property
     def sample_page(self):
@@ -538,7 +543,7 @@ def machine_at(root, identity=None):
     result = Machine(id=identity, kind=kind, name=definition['name'], description=value['description'],
                    display=display, sources=sources, includes=includes,
                    definition=definition,
-                   identity=requested, preset_defaults=defaults,
+                   identity=requested, preset_defaults=defaults, sdk=version,
                    root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, samples=samples,
                    grayscale=grayscale)
     if grayscale:

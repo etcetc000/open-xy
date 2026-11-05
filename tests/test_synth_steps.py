@@ -34,7 +34,7 @@ class SynthSteps(unittest.TestCase):
         definition = self.synth(enum('mode', 3), *fixture('probesynth').definition['parameters'][1:2],
                                 enum('scene', 17), enum('wide', 256))
         validate_definition(definition, 'synth')
-        machines = [SimpleNamespace(kind='synth', prefix='steps', identity=dict(engine=40), definition=definition)]
+        machines = [SimpleNamespace(sdk=(1, 11), kind='synth', prefix='steps', identity=dict(engine=40), definition=definition)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         row = re.search(r'^    \{steps_engine_id, steps_ready, \{[\d, ]+\}, (\d+), \{([\d, ]+)\},', text, re.M)

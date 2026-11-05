@@ -76,6 +76,24 @@ int main() {
     if (std::strcmp(amount, "100")) return 14;
     header_amount(amount, header_capacity, -1);
     if (std::strcmp(amount, "0")) return 15;
+    // New machines count as the stock pages do: cut off, two digits.
+    header_number(amount, header_capacity, 0x7fffffff);
+    if (std::strcmp(amount, "99")) return 16;
+    header_number(amount, header_capacity, 0x20000000);
+    if (std::strcmp(amount, "25")) return 17;
+    header_number(amount, header_capacity, 0x1fffffff);
+    if (std::strcmp(amount, "24")) return 18;
+    header_number(amount, header_capacity, 0x7000000);
+    if (std::strcmp(amount, "05")) return 19;
+    // Whole semitones keep their unit and fit a column.
+    header_semitones(amount, header_capacity, 0x7fffffff, -12, 12);
+    if (std::strcmp(amount, "+12st")) return 20;
+    header_semitones(amount, header_capacity, 0, -12, 12);
+    if (std::strcmp(amount, "-12st")) return 21;
+    header_semitones(amount, header_capacity, 0x40000000, -12, 12);
+    if (std::strcmp(amount, "0st")) return 22;
+    header_semitones(amount, header_capacity, -1, 0, 24);
+    if (std::strcmp(amount, "0st")) return 23;
     return 0;
 }
 '''

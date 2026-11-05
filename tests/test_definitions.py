@@ -244,7 +244,7 @@ class Definitions(unittest.TestCase):
         effect = copy.deepcopy(fixture('probefx').definition)
         effect['parameters'].append(self.absent('none'))
         with self.assertRaisesRegex(ValueError, 'Only a synth'): validate_definition(effect, 'effect')
-        machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
+        machines = [SimpleNamespace(sdk=(1, 11), kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         # The row's last field: the absent slots' mask (slots 3 and 4), which are not continuous either;
@@ -306,8 +306,8 @@ class Definitions(unittest.TestCase):
         sample['press'] = 'page'
         with self.assertRaisesRegex(ValueError, 'press'): validate_definition(sample, 'sample')
         # The control table marks the paged synth's row.
-        machines = [SimpleNamespace(kind='synth', prefix='paged', identity=dict(engine=9), definition=value),
-                    SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
+        machines = [SimpleNamespace(sdk=(1, 11), kind='synth', prefix='paged', identity=dict(engine=9), definition=value),
+                    SimpleNamespace(sdk=(1, 11), kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false), \d+, \d+\},$', text, re.M),
@@ -345,7 +345,7 @@ class Definitions(unittest.TestCase):
         effect['parameters'][7]['control'] = 0
         validate_definition(effect, 'effect')
         self.assertEqual(control_cycles(effect), [4, 5, 6, 3, 7, 1, 2, 0])
-        machines = [SimpleNamespace(kind='effect', prefix='alts', identity=dict(effect=23), definition=effect)]
+        machines = [SimpleNamespace(sdk=(1, 11), kind='effect', prefix='alts', identity=dict(effect=23), definition=effect)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         self.assertEqual(re.findall(r'^    \{alts_fx_id, alts_ready, \{([\d, ]+)\},', text, re.M), ['4, 5, 6, 3, 7, 1, 2, 0'])
@@ -353,8 +353,8 @@ class Definitions(unittest.TestCase):
     def test_control_table_owns_all_synths_and_preserves_alternates(self):
         alternates = copy.deepcopy(self.engine)
         alternates['parameters'].append(self.alternate(2))
-        machines = [SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine),
-                    SimpleNamespace(kind='synth', prefix='alt', identity=dict(engine=9), definition=alternates),
+        machines = [SimpleNamespace(sdk=(1, 11), kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine),
+                    SimpleNamespace(sdk=(1, 11), kind='synth', prefix='alt', identity=dict(engine=9), definition=alternates),
                     fixture('probesample'), fixture('probefx')]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')

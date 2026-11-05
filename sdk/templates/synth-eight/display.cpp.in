@@ -7,7 +7,7 @@ inline void display(DisplayState& state, const opxy::draw::Input& input, Frame& 
     using namespace opxy::draw;
     const char* const titles[8] = {"Blend", "Width", "Level", "Motion", "Drive", "Crush", "Rectify", "Smooth"};
     char values[8][header_capacity];
-    for (opxy::u32 i = 0; i < 8; ++i) header_amount(values[i], header_capacity, input.slots[i]);
+    for (opxy::u32 i = 0; i < 8; ++i) header_number(values[i], header_capacity, input.slots[i]);
     const opxy::u8 slots[2][4] = {{0, 1, 2, 3}, {@PAGE_SLOTS@}};
     page_header(state.header, input, frame, titles, values, 2, slots);
     if (input.held_notes > 0 && input.held_notes <= 128 && !input.reduced_motion)

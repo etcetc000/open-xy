@@ -385,19 +385,150 @@ its choice count and `scale` 1, so a detent selects the next choice, and passes
 every other query to stock.
 
 Stock draws each position's title from the engine record's parameter-name
-callback and its value as a percentage of the vector word. The adapter
+callback and its value as [00 to 99](#control-values-and-captions) of the vector word. The adapter
 passes the selected track to the screen's parameter-vector getter after
 refreshing alternate-control selection.
 The engine-page title call maps the position to its shown slot; the record's
 parameter-name callback always names the raw slot, including when called by
 an LFO page. The screen shell passes stock a copy
 of the vector with each position's shown word in place. Generated metadata
-then supplies one-decimal amounts (0.0–100.0 without a suffix) and bounded positive
-anchor-ratio captions on custom synth screens; enums and machine text overrides remain
-discrete. FX pages retain their stock captions, except that a send page
+then supplies the same 00 to 99, or `+7st` for whole semitones, on the screens of custom synths targeting SDK 1.11;
+earlier ones keep one-decimal amounts (0.0–100.0 without a suffix) and bounded positive
+anchor-ratio captions. Enums and machine text overrides remain discrete. FX pages retain their stock captions, except that a send page
 hook (`8d53b636`, the value-text call in its loop over positions) lets an owned
 effect name a `division` control's value, as stock does only for its delay
 (effect 0, table `0x84056aa0`).
+
+### Control values and captions
+
+What stock 1.2.1 shows and where its values fall. Each fact is marked by how it is
+known: **firmware** (read in place from the device's `os.ldr` and disassembled
+outside the checkout, with nothing extracted committed), **catalog**
+(`profiles/opxy-1.2.1/content/op1_factory.json`), **guide** (Teenage Engineering's
+[synth engine guide](https://teenage.engineering/guides/op-xy/synth-engines)) or
+**scan** (a search for a code pattern that found none). None has been measured on a
+device; [#252](https://github.com/etcetc000/open-xy/issues/252) tracks those checks.
+
+#### Captions (firmware)
+
+Every number a stock page captions is `floor(100 × word / 2^31)`, computed as
+`((word >>> 8) * 100) >>> 23` and printed with `%02i`:
+
+| Page | Code | Format string |
+| --- | --- | --- |
+| send FX, value loop | `8d53b5fc..8d53b636` | `0x840569d8` |
+| reverb | `8d53bf24..8d53bf36` | `0x84056b78` |
+| delay | `8d538bc4..8d538bda` | `0x840566c8` |
+| filter | `8d539be2..8d539bfc`, `8d539c72..8d539c7e` | `0x840567c8` |
+| fx filter | `8d53ab14..8d53ab24`, `8d53ac4c..8d53ac56` | `0x840568ac` |
+| generic synth | `8d5640d6..8d5640ee` | `0x8406e22c` |
+| every synth engine's header, `8d5466ac(values, track, params)` | | `0x84057548` |
+
+- 0.25, 0.5 and 0.75 of travel read exactly 25, 50 and 75, a word just below a
+  quarter reads 24 and full scale reads 99. Captions keep their leading zero (`05`).
+- They truncate: Prism's default, 16704, reads 50, and would read 51 if rounded.
+- A control that is inactive shows empty text: the header calls `8d5210d8` and
+  substitutes the string at `0x84057550`.
+- A centred variant, `floor(198 × word / 2^31) − 99`, reads −99 to +99 with 0 at half
+  (`8d56565c..8d565670`). It is only on a legacy screen that loads the `spiral` names,
+  and no 1.2.1 engine uses it.
+- No synth engine page uses another number format.
+
+#### What doesn't count 00 to 99
+
+| Screen | Shows | Format | Code |
+| --- | --- | --- | --- |
+| Delay and reverb size | A name from their tables, below | | |
+| Sampler | Pitch in semitones and cents (`3.34`), and a percentage (`3%`) | `%d.[%02d]`, `%d%%` | `8d566640..8d5667b4` |
+| Drum sampler | Pitch as the sampler's, and a level | `%d.[%02d]` | `8d53404a..8d5342ea` |
+| LFO pages | Names for destination and wave, and a single digit | `%01i` | `8d53d4fa`, `8d53e69a`, `8d540d1e`, `8d542a04`, `8d54356a` |
+| Play mode | Words (`poly`, `1 semitone`) and a number | `%d` | `8d546bb4..8d546c30` |
+| Tempo, clock, song, pattern, prefs | Tempo with a decimal, dates and counts; not sound controls | `%d.%1d`, `%i`, `%02d`, `%d` | `8d56c29e`, `8d54c03a`, `8d55e876`, `8d55b030`, `8d5697c6` |
+
+Firmware gives these formats; which control each sampler, drum and LFO number belongs
+to wasn't traced. `%d semi` and `%d ct` (`0x8406e900`, `0x8406e908`) serve parameter IDs
+from 42 through `8d5692d8..8d569406`, on a screen that wasn't identified. The filter
+pages caption 00 to 99 over a fixed Hz scale. The master page's `%02i` comes through a
+float × 100 (`8d5453e6`), and whether it rounds wasn't traced.
+
+- **The value inside (firmware, guide):** a caption reading 00 to 99 doesn't mean the
+  sound moves evenly from 00 to 99. Stepped, split and curved controls are
+  [below](#controls-that-arent-a-plain-line).
+
+#### Stepped controls (firmware)
+
+`8c0b2468(track, index, &scale)` gives a control's steps; every other control is
+continuous. A stepped control stores its bucket's centre.
+
+| Control | Steps |
+| --- | --- |
+| Wavetable `table` (engine 31) | 9, one for each `content/wavetables/*.mip` |
+| Engine 29's first control | 16 |
+| Engine 3's fourth control | 4 |
+| Some LFO-type controls (indices 24..31) | 2 to 17 |
+
+Delay and reverb size instead take a name from `word >> 28` (tables `0x84056aa0` and
+`0x84056ac0`, reverb's code at `8d53be90..8d53be9a`). Each name starts at
+`floor(12.5 × step)`, so the straight lengths and three of reverb's sizes begin exactly
+on the quarters. [`opxy::division`](api.md#effects) matches delay's.
+
+| Starts at | 00 | 12 | 25 | 37 | 50 | 62 | 75 | 87 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Delay size | 1/32 | 1/32 dotted | 1/16 | 1/16 dotted | 1/8 | 1/8 dotted | 1/4 | 1/2 |
+| Reverb size | micro | tiny | small | mid | large | larger | huge | insane |
+
+#### Controls and defaults (firmware, catalog)
+
+Names are from the string table at `0x84047a6c..0x84047f64`. Defaults are the catalog's
+Q15 values, captioned by the formula above with each as the word's top 16 bits. Engine
+numbers are from `tooling/benchmark.py`. The default of every drumline control is 50.
+
+| Engine or effect | Number | Controls | Default captions |
+| --- | --- | --- | --- |
+| organ | 6 | tone, shape, vibrato, speed | 40, 53, 82, 09 |
+| epiano | 7 | tone, texture, tine, punch | 19, 00, 00, 25 (punch is exactly 8192) |
+| prism | 18 | shape, ratio, detune, stereo | 50, 00, 00, 00 |
+| hardsync | 19 | freq, sub, noise, lowcut | 50, 00, 00, 00 |
+| dissolve | 20 | swarm, am, fm, detune | 50, 00, 00, 00 |
+| axis | 22 | tone, ratio, shape, tremolo | 50, 00, 00, 00 |
+| wavetable | 31 | table, position, warp, drift | 00, 00, 00, 00 |
+| simple | 32 | shape, pw, noise, stereo | 99, 00, 18, 00 |
+| z lowpass, z hipass | | cutoff, res, env, key | 50, 19, 50, 00 |
+| svf, ladder | | cutoff, res, env, key | 50, 19, 00, 00 |
+| reverb | | size, mod, tone, dry | 51 (`large`), 00, 51, 99 |
+| delay | | size, fine, feedback, dry | 65 (`1/8 dotted`), 50, 50, 99 |
+| phaser | | frequency, depth, rate, feedback | 30, 61, 30, 50 |
+| chorus | | rate, depth, feedback, stereo | 59, 50, 50, 50 |
+| dist | | drive, clip, lo cut, hi cut | 06, 99, 50, 99 |
+| lofi | | rate, bits, quality, drift | 50, 73, 61, 99 |
+
+#### Controls that aren't a plain line
+
+These cover the synth engines; the sampler and drum engines weren't reviewed. All of
+them still caption 00 to 99.
+
+| Control | What the value does | Evidence | Known from |
+| --- | --- | --- | --- |
+| Wavetable `table` | 9 discrete tables, one per detent; the caption moves in steps | `8c0b2468`, engine 31, index 0 | firmware |
+| Prism `shape` | one of 8 presets by `word >> 28`: a new shape at 00, 12, 25, 37, 50, 62, 75 and 87, with no detents. Rows hold separate values for notes up to 72 and above, interpolated across the keyboard | `8d5174da` and `8d517208` index a 136-byte row of the table at `840500d8` | firmware for the steps; the presets' contents weren't interpreted |
+| Prism `ratio` | continuous: moves up to four of the shape's fields, with quadratic weights r² and (1−r)² around each entry's midpoint. It doesn't move the 4 oscillators' pitch offsets, `value × 76 − 38` in cents, which are small fixed detunes | `8d517240..8d5172fc`, `8d51736a..8d51738a`; entries of 12 bytes at `84050518`, filled at start-up by `8d517598`; pitch converter `8d5ba68c`, 1200 to the octave | firmware; what most of those fields do to the sound wasn't interpreted |
+| One Dissolve control | a curve split at a threshold, then a 9-point interpolated table (`word >> 28` plus a 28-bit fraction) | `8d515404..8d5154f0` | firmware for the curve; which control wasn't traced |
+| Axis `ratio` | a detune from 0 to 50, ascending fifths from 51 to 100 | no `axis.cpp` assertion string to locate its code | guide only |
+| Organ | the guide describes switching organ types, but the firmware's names have no `type` and the step table lists none, so an encoder would turn it continuously | | guide; unresolved, with boundaries unknown |
+| Hardsync `freq` | the guide describes it as shifting the harmonics | | guide only; the curve wasn't decoded |
+| Epiano, Simple | nothing non-linear found looking for bucketing (`>> 28`, division magic numbers) | `8d515f00..8d516600`, `8d5179c0..8d517e00` | scan only |
+
+#### Not confirmed
+
+- Inside the synth DSP: where unison, octaves and fifths fall on Prism's `detune`,
+  Axis's `ratio` and Hardsync's `freq`, and whether Prism's `ratio` changes pitch at all. So placing them on quarters holds for
+  stock's stepped controls and many defaults, but is unverified for its continuous
+  curves.
+- Whether delay `fine` at 50 is exactly no offset.
+- The encoder's step: stock's continuous step (`8d5ad2e8` → `8d5ad254`) takes its size
+  from the encoder's event word, halved or quartered for parameter indices 8, 16 and 32.
+  The event's size comes from outside that code. So it's open whether turning up from
+  00 lands exactly on 25 or just under it, on 24.
 
 ### LFO destinations
 

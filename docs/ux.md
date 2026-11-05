@@ -3,7 +3,8 @@
 How a machine looks and behaves on the OP-XY, so every machine plays like part
 of one instrument. Catalog review checks machines against these conventions.
 [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/tree/main/machines/macroosc)
-is the reference for each of them.
+is the reference for each of them, apart from its captions, which predate
+[counting 00 to 99](#controls).
 
 ## Principles
 
@@ -33,14 +34,59 @@ is the reference for each of them.
 ## Controls
 
 - **Clockwise goes up.** Turning an encoder clockwise makes its shown number
-  rise. Name a control for what rises: Bits counts bits, Rate counts kHz.
+  rise. Name a control for what rises: more Bits is more bits, more Rate is faster.
 - **Defaults are clean.** A new sound starts at the machine's plainest useful
   setting. A control that colours or degrades the sound (crush, drift,
   modulation depth) defaults to off.
-- **Real units in the header.** A [header value](display.md#frame), or the
-  machine's own header text when it draws one, shows what the musician thinks in: `2.0` for a ratio, `16` for bits, `11k` for a rate,
-  a model's short code. Amounts are 0 to 100 without a percent sign. Keep it
-  to about five characters.
+- **Count 00 to 99 (SDK 1.11).** A number on a stock synth engine, FX or filter
+  page is the control's place in its travel, `floor(100 × value)` as two digits,
+  whatever the control does: a delay's feedback, a filter's cutoff and a synth's
+  ratio all read 00 to 99. Not every stock value is on this scale: delay and reverb
+  sizes show names, and the sampler's pitch reads `3.34`, in semitones and cents.
+  [Stock's other formats](abi-1.2.1.md#what-doesnt-count-00-to-99) are listed there.
+  The number is cut off, not rounded, and keeps its zero: `05`, `24` just below
+  a quarter, `99` at full travel. A centred control counts the same way, with
+  its middle at 50. Caption a machine's own numbers with
+  [`header_number`](display.md#effect-page), so a value reads the same on every
+  page. Text is for choices only, an `enum`'s label or a `division`'s note
+  length, [measured to fit](#screens), or a real unit where stock uses one. A control
+  with the `semitones` [display](api.md#definition) and a whole-number linear range
+  shows `+7st`: stock's other screens write `7 semi`, but at 59 px that doesn't fit
+  a header column's 53. Own text can do the same where stock has a unit. The
+  [firmware ABI](abi-1.2.1.md#control-values-and-captions) has stock's values
+  and says how each is known. A machine targeting SDK 1.11 gets this count from
+  its generated captions; one already in the catalog keeps what it shows until
+  its next [update](catalog.md#submit-a-machine), which must target 1.11.
+- **Significant values on the quarters.** A convention for new machines, taken
+  from where stock steps: stock doesn't follow it everywhere. Put what the
+  musician aims for at 00, 25, 50, 75 and 99, where the caption says so: unison,
+  an octave, a fifth, a neutral or centred setting, a round ratio or time. Stock
+  does this where it steps: delay's size reads `1/16` from 25, `1/8` from 50 and
+  `1/4` from 75, with the dotted lengths between, and reverb's size reads `small`,
+  `large` and `huge` from the same points. Many of its defaults sit there too:
+  delay's fine and feedback, chorus's depth, feedback and stereo, the lowpass,
+  highpass, svf and ladder filters' cutoff and every drumline control start at 50,
+  epiano's punch at 25, dry levels at 99. Not all do: none of organ's defaults
+  sits on a quarter, and it's unconfirmed where stock's continuous synth curves
+  place unison, octaves or fifths. Declare five [`anchors`](api.md#definition) for
+  such a control and map it in C++ with `opxy::q31::anchored` and the same values,
+  so each anchor is exact on its caption; a linear range whose quarters are already
+  round (5 to 25 ms) needs none. Between anchors, move smoothly.
+- **Stepped, split and curved controls still count 00 to 99.** Every stock 1.2.1
+  synth control is captioned the same way, whatever it does inside
+  ([evidence](abi-1.2.1.md#control-values-and-captions)):
+  - *Stepped:* Wavetable's table moves one of nine tables per detent, and Prism's
+    shape picks one of eight presets in equal eighths of the travel (a new shape at
+    00, 12, 25, 37, 50, 62, 75 and 87) with no detents. For a handful of settings
+    the musician names, use an `enum`, which steps one choice per detent and shows
+    its label. Otherwise split the travel evenly, so each step starts where the
+    caption says.
+  - *Split:* Teenage Engineering's guide describes Axis's ratio as a detune up to
+    50 and ascending fifths above it. Put such a boundary at 50 and make both
+    halves start there.
+  - *Curved:* Prism's ratio crossfades some of each shape's settings with
+    quadratic weights, and Dissolve shapes one control through a nine-point curve. A curve is fine as long as it rises with the number
+    and has no jumps the caption doesn't show.
 - **Short labels.** One or two words, at most eight characters; the stock
   header writes them in lower case.
 - **The OP-XY already modulates.** Its envelopes, LFOs, filter and FX have
@@ -140,9 +186,9 @@ How a screen looks is the machine's own. These hold whatever it draws.
   font the [screen template](../sdk/platform/opxy-1.2.1/screen.svg) names.
   Check every caption a control can show by its width in that font, not by
   counting characters: a 20 px header value has about 53 px before the next
-  column, and `5.5mm` needs 64.
+  column, and the choice `square` needs 61.
 - **One subject, and every control reads.** Draw the object or scene the sound
-  acts on. At 0, 50 and 100, each control's effect is visible at a glance; a
+  acts on. At 00, 50 and 99, each control's effect is visible at a glance; a
   tiny mark or a faint change of grey doesn't count.
 - **Scale motion to the sound.** Judge each control's audible effect across
   its range, by ear or by the change in level or band energy, and scale its
@@ -166,8 +212,10 @@ How a screen looks is the machine's own. These hold whatever it draws.
 
 Before a [catalog submission](catalog.md#submit-a-machine), check:
 
-- A contact sheet of every control at 0, 50 and 100, at 1:1, with text in the
+- A contact sheet of every control at 00, 50 and 99, at 1:1, with text in the
   device's font.
+- Numbers read 00 to 99, text is for choices or a real unit stock uses, and each
+  significant value lands on its caption.
 - Every caption measured; outlines checked across a sweep of every control and
   of every pair of controls, since a control can switch on the drawing that
   faults; the redraw measured at the heaviest setting.

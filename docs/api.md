@@ -128,10 +128,18 @@ Every machine kind keeps its controls in `definition.json` (for example
 Controls are finite numbers in [0, 1]. Mappings support `linear`
 (`minimum + (maximum - minimum) * value`), three or more increasing `anchors`
 interpolated evenly, `power` (`maximum * value^exponent`, exponent other than 1),
-`exponential` (`minimum * (maximum/minimum)^value`) and `enum`. Display formats
-are `ratio`, `percent` (the normalized value scaled to 0.0–100.0, without a suffix), `bipolar` (a -1..1 value as a signed
-percentage), `duration`, `semitones`, `enum` and `division` (SDK 1.2: one of
-stock delay's eight note lengths, below). Mappings describe
+`exponential` (`minimum * (maximum/minimum)^value`) and `enum`. Five anchors
+fall on the quarters, where stock captions read 00, 25, 50, 75 and 99;
+`opxy::q31::anchored` (`opxy/q31.hpp`) applies the same mapping to integer
+values in C++. Display formats
+are `ratio`, `percent`, `bipolar`, `duration`, `semitones`, `enum` and `division`
+(SDK 1.2: one of stock delay's eight note lengths, below). An `enum` or `division`
+shows its name. From SDK 1.11 a `semitones` control with a whole-number linear range shows its
+unit on the device, such as `+7st`, and every other format only says what the control
+means: the device shows its place in its travel, [00 to 99](ux.md#controls), and the
+builder's preview does too, for `semitones` as well. A machine targeting an earlier SDK keeps a `percent`'s
+0.0–100.0 without a suffix and a `ratio`'s `2.0:1` where its anchors allow it.
+Mappings describe
 the control for previews and the builder; the C++ applies its own mapping. Enum quantization matches the native Q31-to-Q15 path.
 On the device, a synth's or send effect's enum of up to 255 choices moves one
 choice per encoder detent (two when turned fast), in plain and locked edits
@@ -148,7 +156,7 @@ A synth's first four parameters belong to the four encoder positions of its
 page. Up to four more are alternates: each also names its position with
 `"control": 0..3`. Pressing that encoder cycles the position through its own
 parameter, then its alternates in parameter order; turning it edits the one
-shown, whose title and stock percentage the page shows. Every parameter keeps
+shown, whose title and value the page shows. Every parameter keeps
 its own slot in the eight-word vector, so `render` receives all of them and
 presets, projects and the catalog's defaults store each one. The selection is
 per track, starts on the position's own parameter and is not saved. The track
@@ -912,7 +920,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.10 and builds 1.0 to 1.10 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.11 and builds 1.0 to 1.11 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
