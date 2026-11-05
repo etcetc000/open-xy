@@ -1083,7 +1083,8 @@ loop body and replaying it:
   goes through the same curve as its send's knob at N (`drum_send_curve`), so it
   sends what the track's knob at N sends, and the track's mute and level still
   apply. The level ramps over the block from the
-  previous block's, as stock steps FX I's gain.
+  previous block's, one step a frame with the same gain on both channels,
+  stepped before each frame as stock steps FX I's gain before each word.
 
 Stock's loops do the followers' mixing, and the main mix always reads stock's
 sum. A send every voice follows, every stock track and every block of a kit

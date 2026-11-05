@@ -251,7 +251,9 @@ void own_amount_matches_the_knob() {
         }
 }
 
-// The level ramps from one block's to the next, as stock steps FX I's gain.
+// The level ramps from one block's to the next, one step a frame and the
+// same on both of a frame's words, stepped before each frame as stock steps
+// FX I's gain before each word, so the last frame is at the new level.
 void level_ramps() {
     static StockVoice voice;
     static i32 start[kDrumSendWords];
@@ -265,10 +267,19 @@ void level_ramps() {
     mix(buses, 0, &voice, 1, start, low, true, false);
     std::memset(&buses, 0, sizeof buses);
     mix(buses, 0, &voice, 1, start, high, true, false);
-    for (u32 i = 1; i < kDrumSendWords; ++i) CHECK(buses.fx1[i] > buses.fx1[i - 1]);
-    CHECK(buses.fx1[0] > q31::multiply(low.level, 1 << 28));
-    CHECK(buses.fx1[kDrumSendWords - 1] <= q31::multiply(high.level, 1 << 28));
-    CHECK(buses.fx1[kDrumSendWords - 1] > q31::multiply(high.level - (1 << 20), 1 << 28));
+    const i32 own = q31::multiply(kDrumSendGains[0][7], 1 << 28), step = (high.level >> 6) - (low.level >> 6);
+    for (u32 f = 0; f < opxy::block_frames; ++f) {
+        CHECK(buses.fx1[2 * f] == q31::multiply(low.level + static_cast<i32>(f + 1) * step, own));
+        CHECK(buses.fx1[2 * f + 1] == buses.fx1[2 * f]);
+        if (f) CHECK(buses.fx1[2 * f] > buses.fx1[2 * f - 2]);
+    }
+    CHECK(buses.fx1[kDrumSendWords - 1] == q31::multiply(high.level, own));
+    // Down again, to silence: the last frame sends nothing.
+    const Gains silent = {0, 0, 0, 0, 0};
+    std::memset(&buses, 0, sizeof buses);
+    mix(buses, 0, &voice, 1, start, silent, true, false);
+    for (u32 f = 1; f < opxy::block_frames; ++f) CHECK(buses.fx1[2 * f] < buses.fx1[2 * f - 2]);
+    CHECK(buses.fx1[kDrumSendWords - 2] == 0 && buses.fx1[kDrumSendWords - 1] == 0);
 }
 
 // The sums belong to one track of one block: the next track, or the same

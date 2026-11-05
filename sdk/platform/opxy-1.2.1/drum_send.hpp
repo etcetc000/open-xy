@@ -96,13 +96,20 @@ static inline __attribute__((noinline)) void drum_send_scale(i32* __restrict to,
     for (u32 n = kDrumSendWords; n; --n, ++to) *to = q31::add(*to, q31::multiply(gain, *from++));
 }
 // Into a send bus, `from` at a gain ramped linearly from `start` towards `end`
-// over the block, as stock steps FX I's gain (8d5110aa).
+// over the block's frames, the same gain on a frame's left and right words.
+// As stock steps FX I's gain before each word it scales (8d5110aa), the gain
+// steps before each frame, so the last frame plays at `end` within the step's
+// rounding.
+static_assert(block_frames == 64, "drum_send_ramp steps 1/64 of the change a frame");
 static inline __attribute__((noinline)) void drum_send_ramp(i32* __restrict to, const i32* __restrict from, i32 start, i32 end) {
-    const i32 step = (end >> 7) - (start >> 7);
+    const i32 step = (end >> 6) - (start >> 6);
     i32 gain = start;
-    for (u32 n = kDrumSendWords; n; --n, ++to) {
+    for (u32 n = block_frames; n; --n) {
         gain = q31::add(gain, step);
         *to = q31::add(*to, q31::multiply(gain, *from++));
+        ++to;
+        *to = q31::add(*to, q31::multiply(gain, *from++));
+        ++to;
     }
 }
 // Before stock adds a voice into the track's sum, for one send. While every
