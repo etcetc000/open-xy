@@ -265,7 +265,7 @@ async function fixture() {
   const machine = {id:'probe', kind:'synth', name:'Probe', artwork, asset:'probe.svg',
     catalog:',{"type":"probe","default_params":[0,0,0,0,0,0,0,0]}'};
   const kit = {machines:[machine, {...machine, id:'other', asset:'other.svg', artwork:'<circle fill="unsupported"/>'}],
-    screenTemplate, profile:{stock_catalog_sha256:await sha256(catalog),
+    screenTemplate, profile:{experimental_memory:{}, stock_catalog_sha256:await sha256(catalog),
       screen_template_sha256:await sha256(new TextEncoder().encode(screenTemplate)),
       stock_catalog_inserts:{engine_types:text.indexOf('\n]'), fx_types:text.indexOf('],"seq_types"'), seq_types:text.lastIndexOf(']')}}};
   return {kit, catalog};
@@ -477,6 +477,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   // Standard memory unless the experimental 6 MiB option is chosen on the machines page.
   const memoryInput = $('expanded-memory'), buildJson = () => JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['build.json']));
   assert.equal(memoryInput.checked, false);
+  assert.equal(memoryInput.disabled, false);  // this collection's profile offers it
   assert.equal(patchedKits.at(-1).profile.reserved_bytes, undefined);
   assert.equal(buildJson().reserved_bytes, undefined);
   memoryInput.checked = true; memoryInput.onchange();
@@ -487,11 +488,23 @@ test('Extensions graphics defaults to original designs without firmware extensio
   await $('build').onclick();
   assert.equal(patchedKits.at(-1).profile.reserved_bytes, 6144);
   assert.equal(buildJson().reserved_bytes, 6144);
+  const expandedLayout = JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['layout.json']));
+  assert.equal(expandedLayout.memory, 'expanded');
   memoryInput.checked = false; memoryInput.onchange();
   assert.equal(linkedKits.at(-1).profile.reserved_bytes, undefined);
   await $('build').onclick();
   assert.equal(buildJson().reserved_bytes, undefined);
   assert.deepEqual($('build-selection').children.slice(-4, -2).map(e => e.textContent), ['Memory', 'Standard']);
+  assert.equal(JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['layout.json'])).memory, undefined);
+  // Restoring the 6 MiB build's layout checks it against 6 MiB and turns the option back on.
+  const restoreLayout = async value => $('restore').onchange({target:{files:[{size:1,
+    arrayBuffer:async () => new TextEncoder().encode(JSON.stringify(value)).buffer}]}});
+  const linksBefore = linkedKits.length;
+  await restoreLayout(expandedLayout);
+  assert.equal(memoryInput.checked, true);
+  assert.equal(linkedKits[linksBefore].profile.reserved_bytes, 6144);
+  await restoreLayout({...expandedLayout, memory:undefined});
+  assert.equal(memoryInput.checked, false);
   const originalKit = (await fixture()).kit;
   assert.equal(new TextDecoder().decode(defaultFiles['content/display/probe.svg']),
     originalKit.screenTemplate.replace('</svg>', originalKit.machines[0].artwork + '</svg>'));

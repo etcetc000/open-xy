@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, EXPANDED_RESERVED_BYTES, expandedProfile, memoryKit, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -21,6 +21,7 @@ function elf() {
   return bytes;
 }
 function machine(id, engine, page, origin='personal') { return {id, prefix:id, kind:'synth', identity:{engine,page}, absent:{}, origin}; }
+const SIX_MIB = 6 * 1024 ** 2;
 const profileBytes = readFileSync(new URL('../profiles/opxy-1.2.1.json',import.meta.url));
 function fixture() {
   const object = {...readObject(elf()), name:'a.o',owner:'a'};
@@ -105,8 +106,8 @@ test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', 
 
 test('the experimental 6 MiB layout moves only the module base and the heap immediates', () => {
   const profile = JSON.parse(profileBytes), expanded = expandedProfile(profile);
-  assert.equal(EXPANDED_RESERVED_BYTES, 6 * 1024 ** 2);
-  assert.equal(expanded.reserved_bytes, EXPANDED_RESERVED_BYTES);
+  assert.equal(offersExpandedMemory(profile), true);
+  assert.equal(expanded.reserved_bytes, SIX_MIB);
   assert.equal(expanded.module_base, 0x8ced0380);  // the same end as the reviewed reservation
   assert.equal(expanded.module_base + expanded.reserved_bytes, profile.module_base + profile.reserved_bytes);
   assert.equal(moduleBytes(expanded), 6128 * 1024);
@@ -127,7 +128,12 @@ test('the experimental 6 MiB layout moves only the module base and the heap imme
   for (const change of [p => { p.patches = p.patches.filter(e => e.kind !== 'heap'); },
     p => { p.patches.find(e => e.kind === 'heap').after = '01da300100000000'; },
     p => { p.patches.find(e => e.kind === 'heap').before = 'e1a0400100000000'; },
-    p => { p.heap_fill_bytes += 4; }, p => { p.reserved_bytes = EXPANDED_RESERVED_BYTES; }]) {
+    p => { p.heap_fill_bytes += 4; }, p => { p.reserved_bytes = SIX_MIB; },
+    p => { p.experimental_memory.module_base += 2; }, p => { p.experimental_memory.heap_after = '01dae00100000000'; },
+    p => { p.experimental_memory.extra = 1; }, p => { delete p.experimental_memory; },
+    // A reservation larger than the heap fill would leave no heap at all.
+    p => Object.assign(p.experimental_memory, {module_base:p.heap_fill_base - 0x10000,
+      reserved_bytes:p.module_base + p.reserved_bytes - p.heap_fill_base + 0x10000})]) {
     const altered = JSON.parse(profileBytes); change(altered);
     assert.throws(() => expandedProfile(altered), /cannot offer more memory|Unexpected heap edit/);
   }
@@ -151,6 +157,7 @@ async function heapFixture() {
   record(96, 0x8004, 0, 0);
   Object.assign(kit.profile, {stock_bytes:stock.length, stock_sha256:await sha256(stock), stock_records:4,
     module_base:base + heap - reserved, reserved_bytes:reserved, table_bytes:0, heap_fill_base:base, heap_fill_bytes:heap,
+    experimental_memory:{module_base:base + heap - SIX_MIB, reserved_bytes:SIX_MIB, heap_after:load(heap - SIX_MIB).toString('hex')},
     patches:[{kind:'hook', call:true, symbol:'entry', length:8, address:0x1000, file_offset:32,
       before:Buffer.from(stock.subarray(32, 40)).toString('hex')},
       ...[16, 32].map(offset => ({kind:'heap', name:'heap', length:8, address:0x1000 + offset, file_offset:32 + offset,
@@ -163,10 +170,10 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   const standard = await patchFirmware(kit, linkKit(kit, ['a']), stock, {profiling:false});
   assert.deepEqual(await recoverFirmware(kit, standard), {stock, selected:['a'], extensions:[]});
   const expanded = memoryKit(kit, true), linked = linkKit(expanded, ['a']);
-  assert.equal(linked.sizes.available, EXPANDED_RESERVED_BYTES - linked.sizes.allocated);
+  assert.equal(linked.sizes.available, SIX_MIB - linked.sizes.allocated);
   const image = await patchFirmware(expanded, linked, stock, {profiling:false});
   const module = readLdr(image).at(-2);
-  assert.equal(module.target, kit.profile.module_base + kit.profile.reserved_bytes - EXPANDED_RESERVED_BYTES);
+  assert.equal(module.target, kit.profile.module_base + kit.profile.reserved_bytes - SIX_MIB);
   const heap = module.target - kit.profile.heap_fill_base;
   for (const at of [48, 64]) assert.deepEqual(Buffer.from(image.subarray(at, at + 8)), load(heap));
   assert.notDeepEqual(image, standard);
@@ -176,8 +183,24 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   view.setUint32(at + 4, kit.profile.module_base, true);
   moved[at + 2] = 0; moved[at + 2] = moved.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
   assert.deepEqual(await recoverFirmware(kit, moved), {stock, selected:null, earlier:true});
-  // The standard module is refused beyond its own limit.
-  await assert.rejects(patchFirmware(kit, linked, stock), /Module exceeds its profile|Hook destination outside module/);
+  // A module linked for 6 MiB never patches into the standard layout.
+  await assert.rejects(patchFirmware(kit, linked, stock), /Hook destination outside module/);
+  // State that fits only the 6 MiB layout is refused by the standard one.
+  const large = {...kit, objects:[...kit.objects, {...readObject(elf()), name:'b.o', owner:'a', symbols:[],
+    relocations:[], sections:[{index:1, name:'.bss', group:'bss', type:8, alignment:4, size:3 * 1024 ** 2, data:new Uint8Array()}]}]};
+  assert.throws(() => linkKit(large, ['a']), /need more than the 2048 KiB available/);
+  const big = linkKit(memoryKit(large, true), ['a']);
+  assert.ok(big.sizes.allocated > kit.profile.reserved_bytes);
+  await assert.rejects(patchFirmware(kit, big, stock), /Module exceeds its profile/);
+  assert.equal(readLdr(await patchFirmware(memoryKit(large, true), big, stock)).at(-2).target, module.target);
+  // Layouts record the choice; a site without it refuses such a layout.
+  assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'expanded'}),
+    {machines:{}, selected:null, expanded:true});
+  assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}}), {machines:{}, selected:null});
+  assert.throws(() => readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'large'}), /doesn’t offer/);
+  const plain = fixture(); delete plain.profile.experimental_memory;
+  assert.throws(() => readLayout(plain, {format:'opxy-layout/1', profile:plain.profile.id, machines:{}, memory:'expanded'}), /doesn’t offer/);
+  assert.throws(() => memoryKit(plain, true), /cannot offer more memory/);
 });
 
 test('profiling option and profile hook condition must be exact booleans', async () => {

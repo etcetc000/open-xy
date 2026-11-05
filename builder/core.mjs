@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '7aed83c5d2be2126bad81451a2d9658bde268e160f999e4a1bc2026f5c53424c';
+export const PROFILE_SHA256 = 'dd4141c6f31dec69d1428672c362e212bf277fa25fa047e4bc452d597051ed63';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -283,7 +283,9 @@ export function readLayout(kit, saved) {
   const selected = saved.selected ?? null;
   check(selected === null || Array.isArray(selected) && selected.every(id => kit.machines.some(m => m.id === id)),
     'This layout lists a machine this site doesn’t have.');
-  return {machines: numbers, selected};
+  check(saved.memory === undefined || (saved.memory === 'expanded' && offersExpandedMemory(kit.profile)),
+    'This layout asks for memory this site doesn’t offer.');
+  return {machines: numbers, selected, ...(saved.memory === 'expanded' ? {expanded: true} : {})};
 }
 // The kit's machines numbered for this selection, in kit order, and the layout after.
 export function assignNumbers(kit, selection, layout = null) {
@@ -467,31 +469,32 @@ export function extensionChoices(kit) {
 // Memory every machine and extension shares, below the relocated stock tables.
 export const moduleBytes = profile => profile.reserved_bytes - profile.table_bytes;
 
-// Experimental larger memory: the reservation grows to 6 MiB by taking 4 MiB more
-// from the stock application heap, which shrinks from 18 MiB to 14 MiB. Only the
-// module base and the immediates of the reviewed heap edits change; the relocated
-// tables, hooks and every other edit stay where the reviewed profile puts them.
+// Experimental larger memory: the profile's reviewed experimental_memory grows
+// the reservation to 6 MiB by taking 4 MiB more from the stock application heap,
+// which shrinks from 18 MiB to 14 MiB. Only the module base and the immediates of
+// the two heap edits change; the relocated tables, hooks and every other edit stay
+// where the reviewed profile puts them (tests/test_experimental_memory.py).
 // Less heap for the stock OS is untested under heavy use, so this is opt-in.
-export const EXPANDED_RESERVED_BYTES = 6 * 1024 ** 2;
 const HEAP_LOAD = /^01da[0-9a-f]{8}0000$/;  // Blackfin+ Dreg = imm32 (tooling.stock_tables.decode)
 const heapImmediate = hex => {
-  check(HEAP_LOAD.test(hex), 'Unexpected heap edit');
+  check(typeof hex === 'string' && HEAP_LOAD.test(hex), 'Unexpected heap edit');
   const d = view(unhex(hex));
   return d.getUint16(2, true) * 65536 + d.getUint16(4, true);
 };
-const heapLoad = bytes => '01da' + [bytes >>> 16, bytes & 0xffff]
-  .map(word => [word & 0xff, word >>> 8].map(b => b.toString(16).padStart(2, '0')).join('')).join('') + '0000';
+export const offersExpandedMemory = profile => profile.experimental_memory !== undefined;
 export function expandedProfile(profile) {
-  const end = profile.module_base + profile.reserved_bytes, heaps = profile.patches.filter(p => p.kind === 'heap');
-  check(EXPANDED_RESERVED_BYTES > profile.reserved_bytes && heaps.length === 2 &&
-    profile.heap_fill_base + profile.heap_fill_bytes === end &&
+  const x = profile.experimental_memory, heaps = profile.patches.filter(p => p.kind === 'heap');
+  const end = profile.module_base + profile.reserved_bytes;
+  check(x && typeof x === 'object' && Object.keys(x).sort().join() === 'heap_after,module_base,reserved_bytes' &&
+    Number.isInteger(x.module_base) && Number.isInteger(x.reserved_bytes) &&
+    x.reserved_bytes > profile.reserved_bytes && x.module_base + x.reserved_bytes === end &&
+    x.module_base > profile.heap_fill_base && heapImmediate(x.heap_after) === x.module_base - profile.heap_fill_base &&
+    profile.heap_fill_base + profile.heap_fill_bytes === end && heaps.length === 2 &&
     heaps.every(p => heapImmediate(p.before) === profile.heap_fill_bytes &&
       heapImmediate(p.after) === profile.module_base - profile.heap_fill_base),
     'This firmware profile cannot offer more memory');
-  const module_base = end - EXPANDED_RESERVED_BYTES, heap = module_base - profile.heap_fill_base;
-  const name = `IN-MEMORY application heap 0x${profile.heap_fill_bytes.toString(16)} -> 0x${heap.toString(16)} (6 MiB module reservation, experimental)`;
-  return {...profile, module_base, reserved_bytes: EXPANDED_RESERVED_BYTES,
-    patches: profile.patches.map(p => p.kind === 'heap' ? {...p, name, after: heapLoad(heap)} : p)};
+  return {...profile, module_base: x.module_base, reserved_bytes: x.reserved_bytes,
+    patches: profile.patches.map(p => p.kind === 'heap' ? {...p, after: x.heap_after} : p)};
 }
 // The kit linked and patched for the chosen memory; the reviewed kit is unchanged.
 export const memoryKit = (kit, expanded) => {
@@ -886,10 +889,7 @@ export async function recoverFirmware(kit, input, layout = null) {
   const payload = input.subarray(module.offset + 16, final.offset);
   // A build made with the experimental larger memory loads its module lower.
   let built = module.target === p.module_base ? kit : null;
-  if (!built) try {
-    const expanded = memoryKit(kit, true);
-    if (module.target === expanded.profile.module_base) built = expanded;
-  } catch {}  // a profile that cannot offer more memory has only its own layout
+  if (!built && offersExpandedMemory(p) && module.target === p.experimental_memory.module_base) built = memoryKit(kit, true);
   const found = built === kit ? {} : {expanded: true};
   if (built && module.count <= moduleBytes(built.profile)) {
     // Reconstruct a selection's entire image; never trust the uploaded module

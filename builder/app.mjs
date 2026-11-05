@@ -27,11 +27,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const kib = n => (n / 1024).toFixed(1) + ' KiB';
   const graphicsConfiguration = createGraphicsConfiguration();
   // Experimental 6 MiB module memory (core.memoryKit), chosen on the machines page.
-  // Off for every collection until chosen; restoring a 6 MiB build turns it on.
-  let expandedMemory = false;
+  // Off for every collection until chosen; restoring a 6 MiB build or its layout
+  // turns it on. expandedKit is derived once per collection, null when not offered.
+  let expandedMemory = false, expandedKit = null;
   const memoryInput = $('expanded-memory');
-  memoryInput.checked = false;
-  const chosenKit = () => expandedMemory ? core.memoryKit(kit, true) : kit;
+  memoryInput.checked = false; memoryInput.disabled = true;
+  const chosenKit = () => expandedMemory ? expandedKit : kit;
   let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
@@ -657,7 +658,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
-      const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers};
+      const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers,
+        ...(expandedMemory ? {memory: 'expanded'} : {})};
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
@@ -687,13 +689,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('choose-extensions').onclick = () => { navigate(3); recalculate(); };
   $('build').onclick = build;
   function setExpandedMemory(value) {
+    core.requireThat(!value || expandedKit, 'This collection does not offer more memory.');
     expandedMemory = memoryInput.checked = value;
     if (kit) $('capacity-foot').textContent = kib(core.moduleBytes(chosenKit().profile)) + ' for machines' +
       (value ? ' (experimental)' : '') + '; CPU load is not measured';
   }
   memoryInput.onchange = () => {
-    try { setExpandedMemory(memoryInput.checked); }
-    catch (error) { setExpandedMemory(false); fail(error); return; }
+    setExpandedMemory(memoryInput.checked);
     invalidate(); updateOverrideCount(); recalculate();
   };
   $('firmware').onchange = e => acceptFirmware(e.target.files[0]);
@@ -789,7 +791,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const offered = new Set((kit.extensions ?? []).map(e => e.id));
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
-      if (loaded.selected) core.linkKit(kit, loaded.selected, loaded.machines, extensions);
+      const memory = loaded.expanded ? expandedKit : kit;
+      core.requireThat(memory, 'This layout asks for memory this site doesn’t offer.');
+      if (loaded.selected) core.linkKit(memory, loaded.selected, loaded.machines, extensions);
+      setExpandedMemory(loaded.expanded === true);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
@@ -808,6 +813,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     invalidate(); stock = null; kit = next;
     // A tap opens the memory breakdown on screens without hover.
     $('builder-version').textContent = 'v' + kit.version;
+    expandedKit = core.offersExpandedMemory(kit.profile) ? core.memoryKit(kit, true) : null;
+    memoryInput.disabled = !expandedKit;
     setExpandedMemory(false);
     selected = kit.machines.filter(core.chosenByDefault).map(machine => machine.id);
     try {
