@@ -922,10 +922,11 @@ export async function recoverFirmware(kit, input, layout = null) {
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
     const rebuilds = async (selected, extensions) => {
-      // A selection that cannot link (e.g. does not fit) is not this build, so the
-      // exhaustive search below goes on; it reports errors patching one that links.
+      // A selection that does not fit is not this build, so the exhaustive search
+      // below goes on; any other link or patch error is a real defect and reported.
       let linked;
-      try { linked = linkKit(built, selected, layout, extensions); } catch { return false; }
+      try { linked = linkKit(built, selected, layout, extensions); }
+      catch (error) { if (error.capacity === true) return false; throw error; }
       if (!equal(linked.module, payload)) return false;
       for (const profiling of [true, false]) {
         if (equal(await patchFirmware(built, linked, stock, {profiling}), input)) return true;

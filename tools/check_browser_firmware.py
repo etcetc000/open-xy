@@ -105,6 +105,7 @@ def check_expanded(directory, kit, stock, boot_label):
         check_fallbacks(module, symbols, low)
         check_startup_label(module, symbols, low, boot_label)
         require(symbols['__extensions_reserved_start']['value'] == low and
+                symbols['__extensions_reserved_end']['value'] - low == reviewed['reserved_bytes'] - reviewed['table_bytes'] and
                 symbols['__extensions_initialized_end']['value'] - low == result['sizes']['initialized'] and
                 symbols['__extensions_module_end']['value'] - low == result['sizes']['allocated'] and
                 sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs (experimental memory)')
