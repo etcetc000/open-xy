@@ -78,3 +78,63 @@ class DrumServices(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class PadSetupStock(unittest.TestCase):
+    """drum_storage.hpp's set-up value against each stock writer of a kit key's pad word."""
+
+    @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
+    def test_no_stock_writer_of_the_pad_word_gives_the_set_up_value(self):
+        import re
+        from tooling.formats import ldr, mapped_offset, sha
+        from tooling.pipeline import config
+        stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(stock), config()['stock_sha256'])
+        blocks = ldr(stock)
+
+        def code(address, length):
+            offset = mapped_offset(blocks, address, length)
+            return stock[offset:offset + length].hex()
+
+        def word(address):
+            # Stock's data mixes stored and filled load blocks.
+            block = next(b for b in blocks if b['target'] <= address < b['target'] + b['count'])
+            if block['fill']:
+                return block['argument']
+            offset = mapped_offset(blocks, address, 4)
+            return int.from_bytes(stock[offset:offset + 4], 'little')
+
+        header = (ROOT / 'sdk/platform/opxy-1.2.1/drum_storage.hpp').read_text(encoding='utf-8')
+        ready = int(re.search(r'kDrumPadReady = (0x[0-9a-f]+);', header).group(1), 16)
+
+        def is_ready(value):
+            return value & 0x8000ffff == ready
+
+        # Projects keep the record byte for byte: the pattern writer (8d598ce8)
+        # hands the 24 pad entries at +0x394c, 0xc00 bytes, to its writer 8d5914bc.
+        self.assertEqual(code(0x8d598e68, 16), '20e14c394650073022e1000cffe324c3')
+        # The payload builder's word 6 is max(word +0x14, flag): R0 = [P4 + 0x14];
+        # R0 = MAX (R0, R6); [P3 + 0x18] = R0.
+        self.assertEqual(code(0x8d5ad738, 8), '60a107c4060098b1')
+        # Preset import: a region's random as max(random << 16, 0) (8d4e3558),
+        # stored at +0x14 (8d4e3b9e, [P5 + 0x10] with P5 the entry + 4); so a
+        # preset leaves a low half of 0.
+        self.assertEqual(code(0x8d4e3588, 30), '073000de058c1043000082ce8080f7a0000001e80000016007c401001000')
+        self.assertEqual(code(0x8d4e3b94, 12), 'b1af09e46000ffe3dffc28b1')
+        # Or its default kit's value from the table at 8403a7b4 (8d4e3956..3958).
+        self.assertEqual(code(0x8d4e394a, 16), '31e5170030e51500e9b0a865099129b1')
+        defaults = [word(0x8403a7b4 + 4 * k) for k in range(24)]
+        self.assertEqual(defaults, [0] * 23 + [0x26660000])
+        # Stock's Drumline editor (8d4d6098): 8d4d6cc8 with 100, which it doubles
+        # to 200 steps, then b * q + q / 2 for q = 0x7fffffff / 200.
+        self.assertEqual(code(0x8d4d6098, 20), '29e1640082ce07c2f1bc68a1026000e3110668b1')
+        self.assertEqual(code(0x8d4d6cde, 90),
+                         '82ce088ca8a00000000d10600d60280620e100018608221082cec70169a00000e940f040b84d0850'
+                         '0e30fe6707c40640026007c4020e00daff7fffff000000de02048c050000666c71c27820ad0501e8'
+                         '0000084d04c408201000')
+        step = 0x7fffffff // 200
+        editor = [b * step + (step >> 1) for b in range(200)]
+        self.assertEqual((editor[0], editor[-1]), (5368709, 2142114891))
+        for value in defaults + editor:
+            self.assertFalse(is_ready(value), hex(value))
+        self.assertNotEqual(ready & 0xffff, 0)   # any value a preset restores has a low half of 0

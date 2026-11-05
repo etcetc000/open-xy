@@ -230,7 +230,7 @@ UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
-# Per-key sends hook stock's mixer, so only a build with a padSend or padMix kit links them.
+# Per-key sends hook stock's mixer, so only a build with a padMix kit links them.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
 UNIT_SERVICES['drum_locks'] = 'drum_locks'
@@ -249,13 +249,12 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
-    they declare ('trackControl', 'auxTrack', 'hidePages', 'padSend', 'padMix'), and
+    they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix'), and
     'extension' when it links extensions (native builds link all of the collection's)."""
     users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
-            ['padSend' for m in machines if sends_per_key(m)] +
             ['padMix' for m in machines if pad_mix(m)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
 

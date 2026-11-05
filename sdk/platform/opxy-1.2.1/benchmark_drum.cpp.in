@@ -34,9 +34,10 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
     // Stock's eight payload words: the mark, the four stored words, pan (word 5,
     // applied by stock's renderer, not here), the pad controls (word 6) and the
     // pad's level (word 7, Q27). The kit's own run plays its keys as they start,
-    // neutral at 0 dB; every other run its heaviest pad settings: each pad
-    // control at its top and, with padMix, a cut, which the adapter applies.
-    i32 pad_word = 0;
+    // neutral at 0 dB; every other run its heaviest pad settings on keys the kit
+    // has set up: each pad control at its top and, with padMix, a cut, which
+    // the adapter applies.
+    i32 pad_word = static_cast<i32>(platform::kDrumPadReady);
     for (u32 f = 0; f < kPadCount && f < platform::kDrumKitPadFields; ++f)
         pad_word = platform::drum_field_set(pad_word, platform::drum_pad_low(f, pad_bits), pad_bits[f],
                                             platform::drum_field_max(pad_bits[f], (kPadSigns >> f & 1u) != 0));

@@ -130,8 +130,9 @@ inline i32 drum_pan_played(i32 pan, i32 term) {
 // A note's pad payload with a step's locks: a pan offset into word 5, level
 // into word 7 through stock's dB-to-gain (`gain`), the pad controls and send
 // overrides into word 6, each clamped to its field; pan and level are the
-// key's stored ones. The pad must be marked for word 6 to reach the adapter
-// (drum_lock_mark). False when no lock moves anything.
+// key's as it plays them (`level` 0 dB on a key the kit has not set up). Word
+// 6 and 7 reach the adapter only for a key set up (drum_lock_setup). False
+// when no lock moves anything.
 inline bool drum_lock_fold(const DrumMachine& machine, const DrumHitLocks& locks, i32 pan, i32 level, i32* payload,
                            i32 (*gain)(i32)) {
     bool moved = false;
@@ -162,23 +163,30 @@ inline bool drum_lock_fold(const DrumMachine& machine, const DrumHitLocks& locks
     }
     return moved;
 }
-// Whether a step's locks need a marked pad's payload: word 6's fields reach
-// the adapter only for one.
-inline bool drum_lock_needs_mark(const DrumHitLocks& locks) {
-    return locks.offset[kHitPad1] || locks.offset[kHitPad2] || locks.offset[kHitSend1] || locks.offset[kHitSend2];
+// Whether a step's locks need a key set up: the level and word 6's fields reach
+// the adapter only for one (drum_storage.hpp). PAN is stock's, on every key.
+inline bool drum_lock_needs_setup(const DrumHitLocks& locks) {
+    for (u32 field = kHitLevel; field < kHitFields; ++field)
+        if (locks.offset[field]) return true;
+    return false;
 }
 
-// An unmarked pad (one the kit has not stored) plays its key's defaults and
-// neutral pad fields, whatever stock left in its words. Before pad-control or
-// send locks go into its payload, give the payload the form a marked pad has:
-// the mark (stock's bin, its choke group kept), the defaults packed into
-// words 1..4, and word 6's pad fields and sends cleared. It plays as before.
-inline bool drum_lock_mark(i32* payload, u8 byte, u32 model, const u8* controls, const DrumCodec& codec) {
-    i32 words[kDrumStorageWords];
-    if (!drum_pack(model, controls, words, codec)) return false;
-    payload[0] = drum_marked_word(byte);
-    for (u32 i = 0; i < kDrumStorageWords; ++i) payload[1 + i] = words[i];
-    payload[kDrumPadPayload] &= ~static_cast<i32>(kDrumPadMask);
+// A key the kit has not set up plays at 0 dB with neutral pad fields, and an
+// unmarked one its key's defaults, whatever stock left in its record. Before
+// level, pad-control or send locks go into its payload, give the payload a
+// set-up key's form, as the kit's first edit of the key would: the mark
+// (stock's bin, its choke group kept) and the defaults packed into words 1..4
+// if it is unmarked, word 6 the set-up value with every field neutral and word
+// 7 0 dB (`unity`). It plays as before, plus the locks.
+inline bool drum_lock_setup(i32* payload, u8 byte, u32 model, const u8* controls, const DrumCodec& codec, i32 unity) {
+    if (!drum_marked_q31(payload[0])) {
+        i32 words[kDrumStorageWords];
+        if (!drum_pack(model, controls, words, codec)) return false;
+        payload[0] = drum_marked_word(byte);
+        for (u32 i = 0; i < kDrumStorageWords; ++i) payload[1 + i] = words[i];
+    }
+    payload[kDrumPadPayload] = static_cast<i32>(kDrumPadReady);
+    payload[kDrumGainWord] = unity;
     return true;
 }
 

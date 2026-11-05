@@ -95,10 +95,10 @@ STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
 EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose;
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
-# padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level and its sends
-# (which padMix implies); padSend 1 (SDK 1.10) for the sends alone; and padControls
-# (SDK 1.10, with padMix), up to two small fields of each key's own on Shift's second row.
-DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'padSend')
+# padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level and its own FX I
+# and FX II sends; and padControls (SDK 1.10, with padMix), up to two small fields of
+# each key's own on Shift's second row.
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls')
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
 PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
 EFFECT_BUFFER_LIMIT = 524288
@@ -207,7 +207,6 @@ def validate_definition(value, kind):
     if kind == 'drum':
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
         require(resources.get('chokeSameKey', 0) in (0, 1), 'chokeSameKey must be 0 or 1')
-        require(resources.get('padSend', 0) in (0, 1), 'padSend must be 0 or 1')
         require(resources.get('padMix', 0) in (0, 1), 'padMix must be 0 or 1')
         if 'padControls' in resources:
             fields = resources['padControls']
@@ -219,9 +218,12 @@ def validate_definition(value, kind):
                         'A pad control has a label, bits and optionally signed')
                 require(isinstance(field['label'], str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 -]{0,7}', field['label']),
                         'A pad control label is at most eight letters, digits, spaces or hyphens')
-                require(type(field['bits']) is int and 1 <= field['bits'] <= 8, 'A pad control has 1..8 bits')
-                require(type(field.get('signed', False)) is bool and not (field.get('signed') and field['bits'] < 2),
-                        'A signed pad control has at least 2 bits')
+                # The display's draw::Input::pad holds each value in a signed byte.
+                require(type(field.get('signed', False)) is bool, 'A pad control is signed or not')
+                if field.get('signed'):
+                    require(type(field['bits']) is int and 2 <= field['bits'] <= 8, 'A signed pad control has 2..8 bits')
+                else:
+                    require(type(field['bits']) is int and 1 <= field['bits'] <= 7, 'An unsigned pad control has 1..7 bits')
             require(sum(f['bits'] for f in fields) <= PAD_CONTROL_BITS,
                     'Pad controls share at most %d bits' % PAD_CONTROL_BITS)
         if 'modelGroups' in resources:

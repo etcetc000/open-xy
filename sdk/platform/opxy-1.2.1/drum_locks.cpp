@@ -43,14 +43,16 @@ void fold(const DrumMachine& kit, u32 track, u32 key, i32* payload) {
     if (!locks.any()) return;
     const unsigned char* record = static_cast<const unsigned char*>(pad_region(track, key));
     if (!record) return;
-    if (drum_lock_needs_mark(locks) && !drum_marked_q31(payload[0])) {
+    const bool ready = drum_ready(record);
+    if (!ready && drum_lock_needs_setup(locks)) {
         u8 model, controls[kDrumControlCount];
         const bool known = drum_region_values(kit, track, key, record, &model, controls) &&
-                           drum_lock_mark(payload, record[24], model, controls, drum_codec(kit.model_count, kit.count));
+                           drum_lock_setup(payload, record[24], model, controls, drum_codec(kit.model_count, kit.count),
+                                           stock_gain(0));
         if (!known)
-            for (u32 field = kHitPad1; field < kHitFields; ++field) locks.offset[field] = 0;
+            for (u32 field = kHitLevel; field < kHitFields; ++field) locks.offset[field] = 0;
     }
-    drum_lock_fold(kit, locks, drum_pan(record), drum_level(record), payload, stock_gain);
+    drum_lock_fold(kit, locks, drum_pan(record), ready ? drum_level(record) : 0, payload, stock_gain);
 }
 }
 

@@ -31,7 +31,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 12 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
-| Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padSend` kit |
+| Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit |
 | Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts; linked only with a `padMix` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
@@ -57,10 +57,10 @@ form the profile's `samples` service (apart from octave publication,
 which is shared with players and drum kits): a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine or synthesis drum
 kit. Synthesis drum transport is the `drums` service, used only by drum kits, and
-per-key sends the `drum_sends` service, used only by a kit declaring `padSend`
-(or `padMix`). The step locks of a kit's Shift fields are the `drum_locks` service,
-used only by a `padMix` kit. The [track filter](#the-track-filter-on-kit-voices) on
-kit voices needs no hook: it is in every kit's adapter.
+per-key sends the `drum_sends` service, used only by a kit declaring `padMix`.
+The step locks of a kit's Shift fields are the `drum_locks` service, used only
+by a `padMix` kit. The [track filter](#the-track-filter-on-kit-voices) on kit
+voices needs no hook: it is in every kit's adapter.
 Otherwise their sites stay stock. The track control rows (and the project read of the
 project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
@@ -959,7 +959,7 @@ A `padMix` kit's Shift pan and level edit the pad's own bytes as stock's
 editor does: pan (`8d4d60b0`) adds `(event[2] + 1) * event[1]` to the signed
 byte at `+0x1e` within -100..100; level (`8d4d60d8`) adds `event[1]` to the
 signed dB byte at `+0x1d`, which stock bounds to -30..+20 and the kit to
--30..0. Neither repacks the four words or the mark. Stock's payload builder
+-30..0. Stock's payload builder
 (`8d5ad660`, the Drumline branch) writes pan as payload word 5,
 `byte * 10737418 + 0x40000000` (`8d5ad71a`), and level as word 7 through
 `8d5ad604`: `10^(dB / 20) / 16 * 2^31`, Q27 with 0 dB unity (`8d5ad740`). The
@@ -970,8 +970,9 @@ zero), mixes the output at left `2 (1 - p)` and right `2 p`, each saturated and
 ramped over the block (`8d51ba50`, `8d51bad0`). So an owned kit is panned by
 stock without SDK code. Stock Drumline applies word 7 in its own DSP
 (`11a073f8`, its payload at `[FP - 0x10]`), which an owned kit replaces; a
-`padMix` kit's adapter multiplies the output by word 7 shifted to Q31 when it
-is below unity, and otherwise leaves it, so a stored boost plays at 0 dB. The
+`padMix` kit's adapter multiplies the output of a key it has set up (below)
+by word 7 shifted to Q31 when it is below unity, and otherwise leaves it, so a
+stored boost plays at 0 dB. The
 drum profiling workload supplies stock's eight payload words: for the kit's
 own keys word 6 neutral and word 7 at unity, and for every other run each pad
 control at its top and, with `padMix`, a 6 dB cut, the heaviest path.
@@ -989,16 +990,35 @@ still sees the kit's own engine, for which it does nothing.
 
 A `padMix` kit's pad fields live in bits 16..30 of the pad word at `+0x14`:
 its `padControls` packed from bit 16 in declaration order (at most 9 bits),
-then FX I at bits 25..27 and FX II at 28..30; bit 31 and the low half stay
-stock's. Stock edits that word only on its own Drumline (Shift's second
-encoder, `8d4d6098`, a Q31 value in 100 steps through `8d4d6cc8`), so a pad
-stock wrote can hold any bits there: the kit reads them only on a marked pad,
-and its first edit of an unmarked pad clears bits 16..30. Stock's payload
-builder delivers the word as payload word 6, `max(word, flag)` with a 0 or 1
-flag (`8d5ad738`), which the adapter decodes for a marked pad. Pad copy and
-paste copy the whole record. Whether stock's preset writer exports this word,
-and how, is not yet traced; the fields stay above bit 15 so a `>> 16` export
-would keep them.
+then FX I at bits 25..27 and FX II at 28..30. Stock's payload builder delivers
+the word as payload word 6, `max(word, flag)` with a flag of 0 on a kit
+(`8d5ad738`). Stock's project writer (`8d598ce8`) saves a pattern's 24 pad
+entries (`+0x394c`, 128 bytes each, the record first) byte for byte through
+its run-length writer `8d5914bc`, and pad copy and paste copy the whole
+record, so projects keep the word and the level byte exactly.
+
+Stock fills the word itself. Preset import (`8d4e35a8`) clears the 24
+entries, copies a template over them and, for a Drumline-classified track,
+writes each region's `random` as `max(random << 16, 0)` (`8d4e3558`, stored
+at `8d4e3b9e`), or its default kit's value (`8d4e3958`, from the table at
+`8403a7b4`: 0 on every key but the last, `0x26660000`). The default kit's
+gains (`8403a79c`) run -5..+8 dB. Stock's Drumline editor writes
+`b * 10737418 + 5368709` for one of 200 steps `b` (`8d4d6098`, `8d4d6cc8`).
+Kits before SDK 1.10 never wrote the word and ignored word 7, so their keys,
+marked or not, can hold any of those values in the word and the level byte.
+
+The SDK therefore sets a key up before it plays any of these fields: the low
+half of the word is `kDrumPadReady` (`0x4d4b`) and bit 31 is clear
+(`drum_storage.hpp`). None of stock's writers above leaves that low half: each
+leaves 0 or the low half of one of the editor's 200 values, and a test checks
+all of them. Only a marked key that is set up plays its level, pad controls
+and sends; any other plays at 0 dB with every field neutral, as an owned kit
+did before. A `padMix` kit's first edit of a key that is not set up sets it
+up: it packs the key's model and controls with the mark, writes the word as
+the set-up value alone (every field 0) and the level byte 0 dB, then applies
+the edit. Its pan, which stock always played, stays. Presets carry only the
+word's top half (`random`, restored shifted up 16), so a key loaded from a
+preset is not set up until the kit edits it again.
 
 ### Per-key sends
 
@@ -1014,11 +1034,12 @@ send slots 14 and 15 on those buses. The gains come from the track's mixer
 record (`0x84eab39c + 0xe8 * track`) and the sends' dry queries. A track stock
 finds silent (`8d51237a`) skips every bus.
 
-A kit with `padSend` keeps each key's two send codes in bits 25..30 of its pad
+A `padMix` kit keeps each key's two send codes in bits 25..30 of its pad
 word `+0x14` (payload word 6), and the adapter keeps the codes of the block a
-voice last rendered. Code 0 (`TRK`) follows the track's send; codes 1..7 send
-the key's own amount, 0..100 percent of a full send, whatever the track's send
-knob. Five hooks, each replacing one whole instruction outside every hardware
+voice last rendered, 0 on a key it has not set up. Code 0 (`TRK`) follows the
+track's send; codes 1..7 send the key's own amount, 0..100 percent of a full
+send, whatever the track's send knob. Five hooks, each replacing one whole
+instruction outside every hardware
 loop body and replaying it:
 
 - `8d510bea`, the call of the voice loop: resets the per-key state, then jumps
@@ -1170,11 +1191,12 @@ plays. Words 36 and 38 carry nothing.
   pad controls into word 6 (each within its field) and the send overrides into
   word 6's bits 25..30; then publishes. A value outside its field's range counts
   as none. The builder's other callers (`8d4d5f56`, `8d4dcdce`, `8d582128`: the
-  per-key editor and its previews) publish the key's own values. A pad-control or
-  send lock on a pad the kit has not marked first gives the payload a marked
-  pad's form, as the kit's first edit of a pad would: word 0 the mark with the
-  pad's choke group, words 1..4 the key's defaults packed, word 6's bits 16..30
-  cleared. The record itself is not changed. Pan is copied into the voice when it
+  per-key editor and its previews) publish the key's own values. A level,
+  pad-control or send lock on a key the kit has not set up first gives the
+  payload a set-up key's form, as the kit's first edit of the key would: on an
+  unmarked pad word 0 the mark with the pad's choke group and words 1..4 the
+  key's defaults packed; word 6 the set-up value with every field neutral; word
+  7 0 dB. The record itself is not changed. Pan is copied into the voice when it
   is built (voice `+0x88`, `8d51af1e`); the adapter keeps a note's level, pad
   controls and send codes from its first block's payload. Words 6 and 7 live in
   the pad's region, which the next note on the pad replaces, so each hit plays

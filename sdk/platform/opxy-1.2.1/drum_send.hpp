@@ -1,7 +1,7 @@
-// Per-key sends for synthesis drum kits (resources.padSend, SDK 1.10), as a
+// Per-key sends for synthesis drum kits (resources.padMix, SDK 1.10), as a
 // Machinedrum track's own delay and reverb sends. Stock mixes a track's voices
 // into one stereo sum and scales that sum into the two send buses by the
-// track's send amounts. With padSend, a key either follows the track's send
+// track's send amounts. On a padMix kit, a key either follows the track's send
 // (TRK) or sends its own amount, whatever the track's send knob says:
 // - followers still go through stock's send loop at the track's send amount,
 //   which then reads a sum of the followers alone;
@@ -21,12 +21,13 @@ namespace opxy { namespace platform {
 // A key's send codes live in stock's pad word +0x14, which reaches the audio
 // side as the note payload's word 6 (8d5ad738). From bit 16 the word holds the
 // kit's FILTER (5 bits) and SRR (4), then FX I's code in bits 25..27 and FX
-// II's in 28..30. Code 0 follows the track's send exactly, so a pad saved
-// before padSend, or one the kit has not marked, plays as before.
+// II's in 28..30. Code 0 follows the track's send exactly. A key the kit has
+// not set up (drum_storage.hpp) follows the track whatever the word holds, so
+// it plays as before.
 const u32 kDrumSendPayload = 6, kDrumSendShift = 25, kDrumSendCodeBits = 3, kDrumSendCodes = 8, kDrumSends = 2;
 // Both codes of a payload, FX I's in bits 0..2 and FX II's in 3..5.
 inline u32 drum_send_codes(const i32* payload) {
-    return payload && drum_marked_q31(payload[0]) && payload[kDrumSendPayload] > 0
+    return payload && drum_marked_q31(payload[0]) && drum_pad_ready(payload[kDrumSendPayload])
         ? (static_cast<u32>(payload[kDrumSendPayload]) >> kDrumSendShift) & ((1u << (kDrumSends * kDrumSendCodeBits)) - 1) : 0;
 }
 // One send's code (0 FX I, 1 FX II) of what drum_send_codes gives.
@@ -150,7 +151,7 @@ inline void drum_send_own(DrumSendState& state, i32 (*own)[kDrumSendWords], i32*
     state.level_known |= bit;
 }
 
-// A kit declaring padSend, for the voice hook to recognize its voices: its
+// A padMix kit, for the voice hook to recognize its voices: its
 // method table, and both send codes of the block one of its handles just rendered.
 struct DrumSendKit {
     const void* vtable;

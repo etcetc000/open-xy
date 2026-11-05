@@ -102,8 +102,8 @@ class Services(unittest.TestCase):
         # sends or a padMix kit's step locks: those services stay off.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
                                           ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks')])
-        self.assertEqual(active_services(profile, ['drum', 'padSend']), {'samples', 'octaves', 'drums', 'drum_sends'})
-        self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padSend', 'padMix']),
+        self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks'})
+        self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension

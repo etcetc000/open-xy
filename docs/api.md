@@ -483,28 +483,47 @@ chooses the model (MACHINE: every model in turn; in a kit with groups the
 cell's title is the model's group, `TRX` over `BD`), the choke group (CHOKE), and the key's own pan (PAN)
 and level (LEVEL), as on stock Drumline: pan -100..100 with 0 centred, moving
 faster on a fast turn as stock's does, and level in whole dB, -30..0, one a
-detent, shown as `-6dB`. Pan and level are stock's own pad fields, so projects
-and presets keep them with the key. Stock pans every voice of a kit already;
-the SDK applies the level, as a cut: a key a stock kit had boosted plays at
-0 dB, so a voice stays within its declared `outputPeakQ31`. On the encoders'
-second row Shift edits the key's pad fields: the kit's own pad controls on the
-first two encoders, then FX I and FX II, 0..7, where 0 (`TRK`) follows the
-track's send. Every key of such a kit has the second row, a model with four or
-fewer controls too, whose encoders there are blank. Shift always edits the row
-the encoders are on; the display's `line` says which. A press of any encoder
-switches the row with Shift held too, so Shift and a press reach the second
-row without letting go.
+detent, shown as `-6dB`. Pan and level are stock's own pad fields. Stock pans
+every voice of a kit already; the SDK applies the level, as a cut, so a voice
+stays within its declared `outputPeakQ31`. On the encoders' second row Shift
+edits the key's pad fields: the kit's own pad controls on the first two
+encoders, then its FX I and FX II sends. Every key of such a kit has the
+second row, a model with four or fewer controls too, whose encoders there are
+blank. Shift always edits the row the encoders are on; the display's `line`
+says which. A press of any encoder switches the row with Shift held too, so
+Shift and a press reach the second row without letting go.
+
+Each key of a `padMix` kit has its own FX I and FX II sends, as a Machinedrum
+track has its own delay and reverb sends: a kick can stay dry while the snare
+is wet, even with the track's send knobs at 0. A send at 0 (`TRK`) follows the
+track's send exactly; 1..7 send the key's own amount, shown as 0, 17, 33, 50,
+67, 83 or 100, whatever the track's send knob says: a key at N sends what the
+track's knob at N would, through the same curve stock gives that send's knob.
+An amount scales the voice after stock's pan, level and envelope, and the
+track's level and mute still apply to it. The track's own mix is unchanged,
+and so is the source dry reduction of a send effect with a Dry control. The
+kit's DSP never sees the sends ([firmware](abi-1.2.1.md#per-key-sends)).
+
+A key plays its level, pad controls and sends once the kit has set it up: the
+kit's first edit of a key does that, with its level at 0 dB and every pad field
+at 0, so the key sounds as it did. Until then a key plays at 0 dB with every
+pad field neutral, whatever stock or an earlier SDK build left in its pad
+record, so projects saved before SDK 1.10, and keys a stock kit filled, play as
+before. Projects keep a key's settings, and copying a pad copies them. A
+preset keeps a key's model, controls, choke group and pan; a key loaded from a
+preset plays at 0 dB with every pad field neutral until it is edited again
+([firmware](abi-1.2.1.md#synthesis-drum-kits)).
 
 A `padMix` kit may declare up to two small settings of each key's own in
 `resources.padControls` (SDK 1.10), such as a filter and a sample-rate
 reduction: a list of `{"label": "FILTER", "bits": 5, "signed": true}`, each with
-a label of at most eight letters, digits, spaces or hyphens, 1..8 bits
-(`signed`, at least 2, is two's complement, so the field runs -16..15 in five
-bits), together at most 9 bits. They step one a detent. 0 is neutral in every
-field, and a key the kit has never stored reads 0. The pad fields are kept in a
-stock pad word that stock saves with the project, copies with a pad and keeps
-through the kit's own edits. Before every render the adapter passes the played
-key's pad controls to
+a label of at most eight letters, digits, spaces or hyphens, and 1..7 bits, or
+2..8 when `signed` (two's complement, so the field runs -16..15 in five bits),
+together at most 9 bits. A value always fits the display's signed byte. They
+step one a detent. 0 is neutral in every field, and a key the kit has not set
+up reads 0. The pad fields are kept in a stock pad word that stock saves with
+the project and copies with a pad. Before every render the adapter passes the
+played key's pad controls to
 
 ```cpp
 void drum_pad(Voice&, Shared&, opxy::u32 owner, const opxy::i32* values);   // optional; one per declared field
@@ -514,8 +533,7 @@ bool pad_control_text(opxy::u32 field, opxy::i32 value, char* text);        // o
 in the machine namespace; `pad_control_text` captions a value for the stock
 header (without it, or when it returns false, the number shows). The display's
 `pad` holds the selected key's pad fields. A kit's own header captions them
-itself. FX I and FX II are stored and shown; the mixer that plays them is a
-separate change.
+itself.
 
 Every kit's track runs stock's own track filter on its voices, as a synth
 track does (SDK 1.10). M3 is the filter, with stock's types (svf, ladder, z
@@ -623,22 +641,6 @@ flag, notes on one key layer, up to `voiceCapacity`. This is separate from the
 choke groups Shift chooses, which stock applies to keys sharing a group. A
 synth or an effect cannot declare it; sample engines have their own
 `chokeSameKey` (see [Services](#services)).
-
-With `"padSend": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), each
-key has its own FX I and FX II sends, as a Machinedrum track has its own delay
-and reverb sends: a kick can stay dry while the snare is wet, even with the
-track's send knobs at 0. Each send has a 3-bit code in stock's pad word
-`+0x14`, FX I's in bits 25..27 and FX II's in 28..30 (`drum_send.hpp`), saved
-with the project and copied with the pad. Code 0 (`TRK`) follows the track's
-send exactly, so a pad saved before, or one the kit has not marked, plays as it
-did; codes 1..7 send the key's own amount, shown as 0, 17, 33, 50, 67, 83 or
-100, whatever the track's send knob says: a key at N sends what the track's
-knob at N would, through the same curve stock gives that send's knob. An
-amount scales the voice after stock's pan, level and envelope, and the track's
-level and mute still apply to it.
-The track's own mix is unchanged, and so is the source dry reduction of a send
-effect with a Dry control. The kit's DSP never sees the codes
-([firmware](abi-1.2.1.md#per-key-sends)).
 
 A kit's engine may also report that a voice's sound has ended, so stock
 retires its note and the voice is free for the next one before stock's
@@ -758,8 +760,8 @@ means 0. Callbacks are functions in the machine's namespace.
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
-| `padControls` | Up to two `{label, bits, signed}` fields, 9 bits in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
-| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad fields; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
+| `padControls` | Up to two `{label, bits, signed}` fields, 1..7 bits each (2..8 signed), 9 in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
+| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad controls and its own FX I and FX II sends; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |

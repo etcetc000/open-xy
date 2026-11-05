@@ -89,11 +89,10 @@ class DrumLocks(unittest.TestCase):
             self.assertIn('(0x%08x)' % target, source)
             self.assertIn('__asm__("%s")' % symbol, source)
         self.assertEqual(native.UNIT_SERVICES['drum_locks'], 'drum_locks')
-        with_mix, plain, sending = kit(), kit(0), kit(0, padSend=1)
+        with_mix, plain = kit(), kit(0)
         self.assertIn('padMix', native.service_users([with_mix]))
         self.assertIn('drum_locks', active_services(PROFILE, native.service_users([with_mix])))
-        for other in (plain, sending):
-            self.assertNotIn('drum_locks', active_services(PROFILE, native.service_users([other])))
+        self.assertNotIn('drum_locks', active_services(PROFILE, native.service_users([plain])))
 
     def test_a_padmix_kit_shows_m3_and_may_hide_pages_itself(self):
         # M3 is every kit's track filter (drum_filter.hpp): no kit hides it unless it says so.

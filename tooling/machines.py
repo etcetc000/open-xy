@@ -42,9 +42,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.10 gives display code the track's amp envelope (draw::Input amp); lets Shift on a
 # sample engine's own screen give any encoder to one of the stock sampler page's own
 # controls (resources.stockShift); and gives each key of a drum kit a mixer channel of its
-# own on Shift: pan, level, small controls and sends (resources.padMix, which implies the
-# sends and locks pan, level, small controls and sends per hit, resources.padControls and
-# resources.padSend). Every kit's voices run stock's track filter (M3).
+# own on Shift: pan, level, small controls and sends, which lock per hit
+# (resources.padMix and resources.padControls). Every kit's voices run stock's track
+# filter (M3).
 SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -324,9 +324,9 @@ def machine_at(root, identity=None):
     icon = value.get('icon', '')
     require(icon == '' or isinstance(icon, str) and ICON.fullmatch(icon), 'icon is SVG path data')
     definition = validate_definition(json.loads((root / 'definition.json').read_text(encoding='utf-8')), kind)
-    if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padSend', 'padControls')):
+    if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
-        require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padSend, padControls)")
+        require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:

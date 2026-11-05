@@ -55,7 +55,7 @@ const char* sdk_drum_title(opxy::u32 engine, opxy::u32 slot) {
     return machine->label(model, slot);
 }
 
-// The selected key's stock pan, and its level as a padMix kit plays it.
+// The record of the key the kit's screen shows and its edits change (stock.hpp drum_edit_key).
 static const unsigned char* selected_record(opxy::u32 track) {
     using namespace opxy::platform;
     if (track >= kTracks || !sdk_drum_machine(track_engine(track))) return nullptr;
@@ -71,9 +71,11 @@ static void held_locks(opxy::u32 track, opxy::platform::DrumHitLocks& locks) {
     const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
     if (machine && machine->pad_mix && stock<opxy::u32()>(0x8d5b7e34)()) drum_lock_store_held(*machine, track, locks);
 }
-// With a step held, each as that step plays it: PAN with stock's pan term
-// (8d51a688) or an offset, LEVEL and the pad controls with their offsets, a
-// send with its override.
+// The key's stock pan, which stock plays on every key, its level and its pad
+// fields as a padMix kit plays them: 0 dB and neutral on a key the kit has not
+// set up (drum_storage.hpp). With a step held, each as that step plays it: PAN
+// with stock's pan term (8d51a688) or an offset, LEVEL and the pad controls
+// with their offsets, a send with its override.
 opxy::i32 sdk_drum_pan(opxy::u32 track) {
     using namespace opxy::platform;
     DrumHitLocks locks;
@@ -85,13 +87,16 @@ opxy::i32 sdk_drum_level(opxy::u32 track) {
     using namespace opxy::platform;
     DrumHitLocks locks;
     held_locks(track, locks);
-    return drum_lock_clamp(drum_level(selected_record(track)) + locks.offset[kHitLevel], kDrumLevelFloor, kDrumLevelCeiling);
+    // A key the kit has not set up plays at 0 dB (drum_storage.hpp).
+    const unsigned char* record = selected_record(track);
+    const opxy::i32 level = drum_ready(record) ? drum_level(record) : 0;
+    return drum_lock_clamp(level + locks.offset[kHitLevel], kDrumLevelFloor, kDrumLevelCeiling);
 }
 void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) {
     using namespace opxy::platform;
     const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
     const unsigned char* record = machine ? selected_record(track) : nullptr;
-    const bool marked = record && drum_marked(record[24]);
+    const bool ready = drum_ready(record);
     DrumHitLocks locks;
     held_locks(track, locks);
     for (opxy::u32 i = 0; i < kDrumPadFields; ++i) {
@@ -99,7 +104,7 @@ void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) {
         bool sign;
         values[i] = 0;
         if (!record || !machine->pad_field(i, low, bits, sign)) continue;
-        if (marked) values[i] = drum_field_get(reinterpret_cast<const opxy::i32*>(record)[kDrumPadWord / 4], low, bits, sign);
+        if (ready) values[i] = drum_field_get(reinterpret_cast<const opxy::i32*>(record)[kDrumPadWord / 4], low, bits, sign);
         const opxy::i32 lock = locks.offset[kHitPad1 + i];   // the pad controls, then FX I and FX II
         if (!lock) continue;
         values[i] = i < kDrumKitPadFields

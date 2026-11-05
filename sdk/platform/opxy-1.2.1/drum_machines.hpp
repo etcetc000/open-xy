@@ -117,11 +117,12 @@ const char* sdk_drum_choke(opxy::u32 track) __asm__("sdk_drum_choke");
 // The same as a choice, 0 (none) to 3.
 opxy::u32 sdk_drum_choke_choice(opxy::u32 track) __asm__("sdk_drum_choke_choice");
 // The selected key's stock pan, -100..100 (0 centre), and its level in whole
-// dB as a padMix kit plays it, -30..0; 0 when the track is not an owned kit.
+// dB as a padMix kit plays it, -30..0; 0 when the track is not an owned kit
+// (and the level 0 when the kit has not set the key up, drum_storage.hpp).
 opxy::i32 sdk_drum_pan(opxy::u32 track) __asm__("sdk_drum_pan");
 opxy::i32 sdk_drum_level(opxy::u32 track) __asm__("sdk_drum_level");
 // The selected key's four pad fields (the kit's pad controls, FX I, FX II),
-// each 0 when the key is not marked or the field is not there.
+// each 0 when the kit has not set the key up or the field is not there.
 void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) __asm__("sdk_drum_pad_values");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
