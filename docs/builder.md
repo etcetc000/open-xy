@@ -200,6 +200,16 @@ selected machine shares for code, data and state, and 16 KiB for relocated stock
 tables. The memory meter shows each machine's share; see
 [memory and limits](api.md#memory-and-limits). CPU headroom is not measured.
 
+Below the meter, **Use 6 MiB for machines** is an experimental option, off by
+default. It grows the reservation to 6 MiB (6128 KiB for machines) by
+shortening the application heap from 18 MiB to 14 MiB: the module starts 4 MiB
+lower and the two reviewed heap edits write the smaller size, while the tables,
+hooks and every other edit are unchanged. The stock OS needs that heap for its
+interface, projects, presets, file browsing and MTP, and running out of it is
+fatal, so this build may be unstable under heavy use. The selection summary
+shows the choice and `build.json` records `reserved_bytes`. Loading a 6 MiB
+build as your OS turns the option back on and restores its machines.
+
 Projects save each track's machine by number, so a machine keeps its numbers
 in your firmware for good ([layouts](api.md#identity)). The builder remembers
 your layout in this browser and writes it to `layout.json` in every download;

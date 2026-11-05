@@ -432,6 +432,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   let wizardOptions, invalidations = 0, finishPatch, blockPatch = false;
   const previewModes = [];
   let currentFixture;
+  const linkedKits = [], patchedKits = [];
   const fakeCore = {...Core,
     // Keep this test firmware-free: exercise the real app, asset writer and ZIP
     // with an authored kit; OS verification/linking have their own contract tests.
@@ -439,10 +440,12 @@ test('Extensions graphics defaults to original designs without firmware extensio
       machines:data.machines.map(machine => ({controls:[], identity:{}, ...machine}))}),
     chosenByDefault:machine => (currentFixture.selected ?? ['probe']).includes(machine.id),
     decode64:value => value ? Core.decode64(value) : currentFixture.catalog,
-    moduleBytes:() => 2048,
+    moduleBytes:profile => profile.reserved_bytes ?? 2048,
+    memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:6144}} : kit,
     recoverFirmware:async () => ({stock:Uint8Array.of(1)}),
-    linkKit:() => ({segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}),
-    patchFirmware:async () => blockPatch ? new Promise(resolve => { finishPatch = resolve; }) : Uint8Array.of(1, 2, 3),
+    linkKit:kit => { linkedKits.push(kit); return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
+    patchFirmware:async kit => { patchedKits.push(kit);
+      return blockPatch ? new Promise(resolve => { finishPatch = resolve; }) : Uint8Array.of(1, 2, 3); },
   };
   const wizard = {invalidate() { invalidations++; }, navigate() {}, previewLink:() => false,
     clearSourceBackup() {}, setFirmwareState() {}};
@@ -471,6 +474,24 @@ test('Extensions graphics defaults to original designs without firmware extensio
   await $('build').onclick();
   const defaultFiles = wizardOptions.getFiles();
   assert.deepEqual(JSON.parse(new TextDecoder().decode(defaultFiles['build.json'])).settings, {graphics:'colorful'});
+  // Standard memory unless the experimental 6 MiB option is chosen on the machines page.
+  const memoryInput = $('expanded-memory'), buildJson = () => JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['build.json']));
+  assert.equal(memoryInput.checked, false);
+  assert.equal(patchedKits.at(-1).profile.reserved_bytes, undefined);
+  assert.equal(buildJson().reserved_bytes, undefined);
+  memoryInput.checked = true; memoryInput.onchange();
+  assert.equal(linkedKits.at(-1).profile.reserved_bytes, 6144);
+  assert.match($('capacity-foot').textContent, /^6\.0 KiB for machines \(experimental\)/);
+  assert.deepEqual($('build-selection').children.slice(-4, -2).map(e => e.textContent), ['Memory', '6 MiB (experimental)']);
+  assert.equal($('download').href, undefined);  // choosing it invalidates the previous build
+  await $('build').onclick();
+  assert.equal(patchedKits.at(-1).profile.reserved_bytes, 6144);
+  assert.equal(buildJson().reserved_bytes, 6144);
+  memoryInput.checked = false; memoryInput.onchange();
+  assert.equal(linkedKits.at(-1).profile.reserved_bytes, undefined);
+  await $('build').onclick();
+  assert.equal(buildJson().reserved_bytes, undefined);
+  assert.deepEqual($('build-selection').children.slice(-4, -2).map(e => e.textContent), ['Memory', 'Standard']);
   const originalKit = (await fixture()).kit;
   assert.equal(new TextDecoder().decode(defaultFiles['content/display/probe.svg']),
     originalKit.screenTemplate.replace('</svg>', originalKit.machines[0].artwork + '</svg>'));

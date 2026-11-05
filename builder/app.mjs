@@ -26,6 +26,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
   const kib = n => (n / 1024).toFixed(1) + ' KiB';
   const graphicsConfiguration = createGraphicsConfiguration();
+  // Experimental 6 MiB module memory (core.memoryKit), chosen on the machines page.
+  // Off for every collection until chosen; restoring a 6 MiB build turns it on.
+  let expandedMemory = false;
+  const memoryInput = $('expanded-memory');
+  memoryInput.checked = false;
+  const chosenKit = () => expandedMemory ? core.memoryKit(kit, true) : kit;
   let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
@@ -193,6 +199,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     facts($('build-selection'), {
       Machines: selectedMachines().map(m => m.name).join(', ') || 'None',
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
+      Memory: expandedMemory ? '6 MiB (experimental)' : 'Standard',
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
     });
   }
@@ -221,6 +228,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       stock = recovered.stock;
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
+        setExpandedMemory(recovered.expanded === true);
         renderMachines(); renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
@@ -616,18 +624,19 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('memory-map').replaceChildren(); $('memory-legend').replaceChildren();
     try {
       if (!selected.length) { $('room-value').textContent = 'Choose at least one machine'; $('capacity-details').replaceChildren(); ready(); return; }
-      linked = core.linkKit(kit, selected, numbers, selectedExtensions);
+      const memory = chosenKit();
+      linked = core.linkKit(memory, selected, numbers, selectedExtensions);
       const allocations = kit.machines.filter(m => selected.includes(m.id)).map(m => ({name: m.name,
         size: linked.segments.filter(s => s.owner === m.id).reduce((n, s) => n + s.size, 0),
         color: colors[kit.machines.indexOf(m) % colors.length]}));
       allocations.push({name: 'Shared', size: linked.sizes.allocated - allocations.reduce((n, a) => n + a.size, 0), color: 'var(--shared)'},
         {name: 'Available', size: linked.sizes.available, color: 'var(--paper)'}, {name: 'System', size: kit.profile.table_bytes, color: 'var(--tables)'});
       for (const a of allocations) {
-        const segment = node('div', undefined, 'memory-segment'); segment.style.width = a.size / kit.profile.reserved_bytes * 100 + '%';
+        const segment = node('div', undefined, 'memory-segment'); segment.style.width = a.size / memory.profile.reserved_bytes * 100 + '%';
         segment.style.background = a.color; segment.title = a.name + ': ' + kib(a.size); $('memory-map').append(segment);
         const legend = node('span', a.name + ' ' + kib(a.size)); legend.style.setProperty('--swatch', a.color); $('memory-legend').append(legend);
       }
-      $('room-value').textContent = kib(linked.sizes.allocated) + ' of ' + kib(core.moduleBytes(kit.profile)) + ' used';
+      $('room-value').textContent = kib(linked.sizes.allocated) + ' of ' + kib(core.moduleBytes(memory.profile)) + ' used';
       $('extension-memory').textContent = $('room-value').textContent;
       $('memory-map').setAttribute('aria-label', allocations.map(a => a.name + ': ' + kib(a.size)).join(', '));
       facts($('capacity-details'), {'Code and data': kib(linked.sizes.initialized),
@@ -642,9 +651,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const ticket = revision; $('build').disabled = true; status('Linking and checking your build…');
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
-      const result = core.linkKit(kit, selection, numbers, extensions);
+      const memory = chosenKit(), result = core.linkKit(memory, selection, numbers, extensions);
       const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
-      files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false});
+      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
@@ -652,7 +661,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
-        settings, sizes: result.sizes, files: hashes, hardware_qualified: false, cpu_measured: false});
+        settings, sizes: result.sizes, reserved_bytes: memory.profile.reserved_bytes, files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
       if (ticket !== revision) return;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));
@@ -677,6 +686,16 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   $('choose-extensions').onclick = () => { navigate(3); recalculate(); };
   $('build').onclick = build;
+  function setExpandedMemory(value) {
+    expandedMemory = memoryInput.checked = value;
+    if (kit) $('capacity-foot').textContent = kib(core.moduleBytes(chosenKit().profile)) + ' for machines' +
+      (value ? ' (experimental)' : '') + '; CPU load is not measured';
+  }
+  memoryInput.onchange = () => {
+    try { setExpandedMemory(memoryInput.checked); }
+    catch (error) { setExpandedMemory(false); fail(error); return; }
+    invalidate(); updateOverrideCount(); recalculate();
+  };
   $('firmware').onchange = e => acceptFirmware(e.target.files[0]);
   const drop = $('firmware-drop');
   for (const type of ['dragover', 'dragleave', 'drop']) drop.addEventListener(type, e => {
@@ -789,7 +808,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     invalidate(); stock = null; kit = next;
     // A tap opens the memory breakdown on screens without hover.
     $('builder-version').textContent = 'v' + kit.version;
-    $('capacity-foot').textContent = kib(core.moduleBytes(kit.profile)) + ' for machines; CPU load is not measured';
+    setExpandedMemory(false);
     selected = kit.machines.filter(core.chosenByDefault).map(machine => machine.id);
     try {
       const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');

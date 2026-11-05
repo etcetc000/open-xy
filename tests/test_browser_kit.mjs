@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, EXPANDED_RESERVED_BYTES, expandedProfile, memoryKit, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -101,6 +101,83 @@ test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', 
   kit.machines = [...kit.machines, ...Array.from({length:10}, (_, i) => machine('m' + i, 35 + i, 83 + i))];
   const exact = await patchFirmware(kit, linked, stock, {profiling:false});
   assert.deepEqual(await recoverFirmware(kit, exact), {stock, selected:null, earlier:true});
+});
+
+test('the experimental 6 MiB layout moves only the module base and the heap immediates', () => {
+  const profile = JSON.parse(profileBytes), expanded = expandedProfile(profile);
+  assert.equal(EXPANDED_RESERVED_BYTES, 6 * 1024 ** 2);
+  assert.equal(expanded.reserved_bytes, EXPANDED_RESERVED_BYTES);
+  assert.equal(expanded.module_base, 0x8ced0380);  // the same end as the reviewed reservation
+  assert.equal(expanded.module_base + expanded.reserved_bytes, profile.module_base + profile.reserved_bytes);
+  assert.equal(moduleBytes(expanded), 6128 * 1024);
+  for (const [i, edit] of expanded.patches.entries()) {
+    const reviewed = profile.patches[i];
+    if (edit.kind !== 'heap') { assert.equal(edit, reviewed); continue; }
+    // 20 MiB -> 14 MiB: the heap ends where the larger module begins.
+    assert.deepEqual({...edit, name:undefined, after:undefined}, {...reviewed, name:undefined, after:undefined});
+    assert.equal(edit.after, '01dae00000000000');
+    assert.equal(profile.heap_fill_base + 14 * 1024 ** 2, expanded.module_base);
+  }
+  assert.deepEqual(profile, JSON.parse(profileBytes));  // the reviewed profile is untouched
+  const kit = fixture();
+  assert.equal(memoryKit(kit, false), kit);
+  assert.equal(memoryKit(kit, true).profile.module_base, expanded.module_base);
+  for (const value of [1, 'true', null, undefined]) assert.throws(() => memoryKit(kit, value), /must be a boolean/);
+  // Edits that do not describe the reviewed heap cannot be widened.
+  for (const change of [p => { p.patches = p.patches.filter(e => e.kind !== 'heap'); },
+    p => { p.patches.find(e => e.kind === 'heap').after = '01da300100000000'; },
+    p => { p.patches.find(e => e.kind === 'heap').before = 'e1a0400100000000'; },
+    p => { p.heap_fill_bytes += 4; }, p => { p.reserved_bytes = EXPANDED_RESERVED_BYTES; }]) {
+    const altered = JSON.parse(profileBytes); change(altered);
+    assert.throws(() => expandedProfile(altered), /cannot offer more memory|Unexpected heap edit/);
+  }
+});
+
+// An authored loader whose heap fill holds the reservation, with the two heap
+// edits and one hook, so a 6 MiB build is patched and recovered end to end.
+async function heapFixture() {
+  const kit = fixture(), stock = new Uint8Array(112), d = new DataView(stock.buffer);
+  const record = (at, flags, address, size, argument = 0) => {
+    [0xad000000 | flags, address, size, argument].forEach((v, i) => d.setUint32(at + i * 4, v, true));
+    stock[at + 2] = stock.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
+  };
+  const heap = 0x800000, base = 0x100000, reserved = 2 * 1024 ** 2;
+  record(0, 0x5004, 0x1000, 0, stock.length - 16);
+  record(16, 4, 0x1000, 48);
+  stock.set(Array.from({length:8}, (_, i) => i + 1), 32);
+  const load = value => Buffer.from('01da' + Buffer.from(Uint16Array.of(value >>> 16, value & 0xffff).buffer).toString('hex') + '0000', 'hex');
+  stock.set(load(heap), 48); stock.set(load(heap), 64);
+  record(80, 0x104, base, heap);
+  record(96, 0x8004, 0, 0);
+  Object.assign(kit.profile, {stock_bytes:stock.length, stock_sha256:await sha256(stock), stock_records:4,
+    module_base:base + heap - reserved, reserved_bytes:reserved, table_bytes:0, heap_fill_base:base, heap_fill_bytes:heap,
+    patches:[{kind:'hook', call:true, symbol:'entry', length:8, address:0x1000, file_offset:32,
+      before:Buffer.from(stock.subarray(32, 40)).toString('hex')},
+      ...[16, 32].map(offset => ({kind:'heap', name:'heap', length:8, address:0x1000 + offset, file_offset:32 + offset,
+        before:load(heap).toString('hex'), after:load(heap - reserved).toString('hex')}))]});
+  return {kit, stock, load};
+}
+
+test('a 6 MiB build loads its module lower, shrinks the heap and restores its selection', async () => {
+  const {kit, stock, load} = await heapFixture();
+  const standard = await patchFirmware(kit, linkKit(kit, ['a']), stock, {profiling:false});
+  assert.deepEqual(await recoverFirmware(kit, standard), {stock, selected:['a'], extensions:[]});
+  const expanded = memoryKit(kit, true), linked = linkKit(expanded, ['a']);
+  assert.equal(linked.sizes.available, EXPANDED_RESERVED_BYTES - linked.sizes.allocated);
+  const image = await patchFirmware(expanded, linked, stock, {profiling:false});
+  const module = readLdr(image).at(-2);
+  assert.equal(module.target, kit.profile.module_base + kit.profile.reserved_bytes - EXPANDED_RESERVED_BYTES);
+  const heap = module.target - kit.profile.heap_fill_base;
+  for (const at of [48, 64]) assert.deepEqual(Buffer.from(image.subarray(at, at + 8)), load(heap));
+  assert.notDeepEqual(image, standard);
+  assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[], expanded:true});
+  // A module linked for one layout never passes as the other.
+  const moved = image.slice(), at = module.offset, view = new DataView(moved.buffer);
+  view.setUint32(at + 4, kit.profile.module_base, true);
+  moved[at + 2] = 0; moved[at + 2] = moved.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
+  assert.deepEqual(await recoverFirmware(kit, moved), {stock, selected:null, earlier:true});
+  // The standard module is refused beyond its own limit.
+  await assert.rejects(patchFirmware(kit, linked, stock), /Module exceeds its profile|Hook destination outside module/);
 });
 
 test('profiling option and profile hook condition must be exact booleans', async () => {

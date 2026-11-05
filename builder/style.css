@@ -291,6 +291,10 @@ details input { max-width:100%; }
 .memory-legend span::before { content:''; display:inline-block; width:7px; height:7px; background:var(--swatch); margin-right:7px; }
 .capacity-foot { display:flex; flex-wrap:wrap; gap:12px 24px; color:var(--muted); font-size:12px; margin-top:18px; }
 .capacity details { margin-bottom:0; }
+.memory-expand { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; align-items:start; margin-top:16px; font-size:13px; cursor:pointer; }
+.memory-expand input { margin:2px 0 0; }
+.memory-expand-name { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-weight:600; }
+.memory-expand-note { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
 #download-overview { width:100%; text-align:center; max-width:760px; margin:auto; }
 .download-card h2 { font-size:19px; }
 #bundle-art { max-width:440px; max-height:240px; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; margin:0 auto 28px; text-align:left; }
