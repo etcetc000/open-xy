@@ -1047,10 +1047,20 @@ into `0x11b01548` (64 interleaved stereo frames, after stock's per-voice pan
 and gain) and adds it with a saturating add into the track's stereo sum at
 `0x11903600` (`8d51c7b0`..`8d51c7d8`). The engine then scales that sum into
 the main mix at a constant gain (`8d511038`), into FX I's bus `0x84caa140` at a
-gain stepped every word (`8d511088`..`8d5110c8`) and into FX II's bus
-`0x84caa340` at a constant gain (`8d5110ca`..`8d51110e`); `8d50f594` then runs
-send slots 14 and 15 on those buses. The gains come from the track's mixer
-record (`0x84eab39c + 0xe8 * track`) and the sends' dry queries. A track stock
+gain stepped every word by a step of 0 (`8d511088`..`8d5110c8`) and into FX
+II's bus `0x84caa340` at a constant gain (`8d5110ca`..`8d51110e`); `8d50f594`
+then runs send slots 14 and 15 on those buses. The gains come from the track's
+mixer record (`0x84eab39c + 0xe8 * track`, 58 Q31 words written by
+`8d518d78(record, track, index, value)`; a pattern saves the same 58 words at
+`+0x3864`) and the sends' dry queries. FX I's knob is word 22 (`+0x58`) and FX
+II's word 23 (`+0x5c`), each the knob's position in Q31 as the project stores
+it (50 is `0x40002e00`). With `L` the track's level (`[FP - 0x68]`,
+`(1 - w20 (1 - m)) (1 - w21 (1 - g))`, `8d510ce2`..`8d510d38`), FX I's gain is
+`L (0.8 k² + 0.2 k)` (`8d510d7a`..`8d510daa`), FX II's `L k` (`8d510e0a`), and
+the dry gain `L (1 - t (1 - d1)) - L k (1 - d2)` (`[FP - 0x50]`,
+`8d510da2`..`8d510e44`, applied from `8d511122`),
+`t` FX I's taper and `d1`, `d2` the dry queries of slots 14 and 15 (method
+`+0x1c`, given the effect track's record; `0x7fffffff` for an empty slot). A track stock
 finds silent (`8d51237a`) skips every bus.
 
 A `padMix` kit keeps each key's two send codes in bits 25..30 of its pad
@@ -1082,9 +1092,9 @@ loop body and replaying it:
   level × (0.8x² + 0.2x) of its knob x, FX II's as level × x). A key's amount N
   goes through the same curve as its send's knob at N (`kDrumSendGains`), so it
   sends what the track's knob at N sends, and the track's mute and level still
-  apply. The level ramps over the block from the
-  previous block's, one step a frame with the same gain on both channels,
-  stepped before each frame as stock steps FX I's gain before each word.
+  apply. The level is this block's, as stock's own send gains are: FX I's loop
+  adds a step to its gain each word (`8d5110aa`), but the step is always 0
+  (`R4`, cleared at `8d5107a8`, stored at `8d510d74`).
 
 Stock's loops do the followers' mixing, and the main mix always reads stock's
 sum. A send every voice follows, every stock track and every block of a kit
