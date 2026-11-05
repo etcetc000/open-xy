@@ -6,15 +6,25 @@ it without rebuilding its machines: open-xy builds add their module record befor
 FINAL and leave every stock record, and so every capability site, where stock has it.
 Each site must hold stock bytes or one of the capability's reviewed encodings; the
 output is a copy with only those bytes changed. No device operations.
+
+An image is authenticated as the builder does: with its module record removed and
+this profile's reviewed edits undone it must be stock by SHA-256. An open-xy OS
+from another SDK (other hooks, another module base) cannot be undone that way;
+given the stock OS (--stock-os), it is accepted when every stock loader record is
+unchanged and in place and none of its other edits touches a capability site.
 """
 import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 
 from .extensions import capabilities, capability_settings, chosen_settings, extension_at
-from .formats import ldr, mapped_offset, require
-from .pipeline import ROOT, add_overwrite_argument, config, fresh_output, read
+from .formats import header, ldr, mapped_offset, require
+from .pipeline import add_overwrite_argument, config, fresh_output, read
+from .release import outside_checkouts
+
+UNSUPPORTED = 'Not OP-XY OS 1.2.1 or an open-xy OS made from it'
 
 
 def capability_edits(profile, name):
@@ -32,20 +42,78 @@ def encodings(patch):
     return {patch['before'], patch['after'], *patch.get('choices', {}).values()}
 
 
-def state(image, profile=None):
+def authenticate(image, blocks, profile):
+    """The image is stock OS 1.2.1, or an open-xy OS made from it: with its module record
+    (before FINAL) removed and every reviewed edit undone, it is stock by SHA-256, as
+    builder/core.mjs recoverFirmware requires."""
+    stock = bytearray(image)
+    if len(blocks) == profile['stock_records'] + 1:
+        first, module, final = blocks[0], blocks[-2], blocks[-1]
+        require(module['offset'] == profile['stock_bytes'] - 16 and module['code'] & 0xffff == 4 and
+                first['code'] & 0xffff == 0x5004, UNSUPPORTED)
+        stock = bytearray(image[:module['offset']] + image[final['offset']:])
+        stock[:16] = header(0x5004, first['target'], 0, len(stock) - 16)
+    else:
+        require(len(blocks) == profile['stock_records'], UNSUPPORTED)
+    require(len(stock) == profile['stock_bytes'], UNSUPPORTED)
+    for patch in profile['patches']:
+        offset = int(patch['file_offset'], 16)
+        require(offset + patch['length'] <= len(stock), UNSUPPORTED)
+        stock[offset:offset + patch['length']] = bytes.fromhex(patch['before'])
+    require(hashlib.sha256(stock).hexdigest() == profile['stock_sha256'], UNSUPPORTED)
+
+
+def compare_with_stock(image, blocks, profile, stock):
+    """An open-xy OS from another SDK: the verified stock OS's loader records unchanged and in
+    place, records of its own only before FINAL, and none of its edits at a capability site.
+    Returns how many separate byte ranges it changed in stock's records."""
+    require(len(stock) == profile['stock_bytes'] and hashlib.sha256(stock).hexdigest() == profile['stock_sha256'],
+            '--stock-os is not the exact stock OS 1.2.1')
+    reference = ldr(stock)
+    key = lambda b: (b['code'], b['target'], b['count'], b['argument'], b['offset'])
+    require(len(blocks) > len(reference) and blocks[0]['code'] & 0xffff == 0x5004 and
+            [key(b) for b in blocks[1:len(reference) - 1]] == [key(b) for b in reference[1:-1]] and
+            image[-16:] == stock[-16:], UNSUPPORTED + ': its stock loader records moved or changed')
+    end = profile['stock_bytes'] - 16
+    sites = {o for p in profile['patches'] if 'service' in p and p['service'] in capabilities()
+             for o in range(int(p['file_offset'], 16), int(p['file_offset'], 16) + p['length'])}
+    changed = [i for i in range(16, end) if image[i] != stock[i]]
+    ranges = sum(1 for n, i in enumerate(changed) if n == 0 or changed[n - 1] != i - 1)
+    foreign = [i for i in changed if i in sites]
+    # A capability site may differ only by holding reviewed bytes, which state() checks.
+    for p in profile['patches']:
+        o = int(p['file_offset'], 16)
+        if p.get('service') in capabilities() and any(o <= i < o + p['length'] for i in foreign):
+            require(image[o:o + p['length']].hex() in encodings(p), 'Another edit overlaps a capability site: ' + p['name'])
+    # Nothing else of this profile may be assumed beyond the capability sites.
+    edges = {o - 1 for o in sites if o - 1 not in sites} | {o + 1 for o in sites if o + 1 not in sites}
+    require(not any(i in edges for i in changed), 'Another edit adjoins a capability site')
+    return ranges
+
+
+def check_image(image, blocks, profile, stock=None):
+    """'exact' for an image this SDK reconstructs, else the other SDK's edited range count."""
+    try:
+        authenticate(image, blocks, profile)
+        return 'exact'
+    except ValueError:
+        require(stock is not None, UNSUPPORTED + ' by this SDK; for an open-xy OS from another SDK, '
+                'pass the stock OS with --stock-os')
+        return compare_with_stock(image, blocks, profile, stock)
+
+
+def state(image, profile=None, stock=None):
     """Capability -> None (off), True (on) or its setting value, read from the image's bytes."""
     profile = profile or config()
-    require(len(image) >= profile['stock_bytes'], 'Not OP-XY OS 1.2.1 or an open-xy OS made from it')
     blocks = ldr(image)
-    require(len(blocks) >= profile['stock_records'], 'Not OP-XY OS 1.2.1 or an open-xy OS made from it')
+    check_image(image, blocks, profile, stock)
     result = {}
     for name in capabilities():
-        held = {}
-        for patch in capability_edits(profile, name):
+        edits, held = capability_edits(profile, name), {}
+        for patch in edits:
             _, data = site(image, blocks, patch)
             require(data in encodings(patch), 'Unexpected bytes at a capability site: ' + patch['name'])
             held[patch['address']] = data
-        edits = capability_edits(profile, name)
         if all(held[p['address']] == p['before'] for p in edits):
             result[name] = None
             continue
@@ -57,12 +125,12 @@ def state(image, profile=None):
     return result
 
 
-def apply(image, extensions, overrides=None, profile=None):
+def apply(image, extensions, overrides=None, profile=None, stock=None):
     """A copy of `image` with every capability the extensions declare turned on, each
     setting at its override, else the first declaring extension's value, else its default."""
     profile, overrides = profile or config(), dict(overrides or {})
     specs = capability_settings()
-    state(image, profile)  # every site holds stock or reviewed bytes
+    state(image, profile, stock)  # authenticated; every site holds stock or reviewed bytes
     require(all(not e.linked for e in extensions),
             'Only settings extensions apply to an image: an extension with code needs a build')
     declared = [c for e in extensions for c in e.capabilities]
@@ -76,17 +144,17 @@ def apply(image, extensions, overrides=None, profile=None):
     for name in dict.fromkeys(declared):
         for patch in capability_edits(profile, name):
             offset, _ = site(image, blocks, patch)
-            after = (patch['choices'][str(values.get(name, specs[name]['default']))] if 'choices' in patch
+            after = (patch['choices'][str(values[name])] if 'choices' in patch
                      else patch['after'])
             patched[offset:offset + patch['length']] = bytes.fromhex(after)
     result = bytes(patched)
     require(len(ldr(result)) == len(blocks), 'Loader records changed')
-    return result, {n: values.get(n, specs[n]['default']) if n in specs else True for n in dict.fromkeys(declared)}
+    return result, {n: values[n] if n in specs else True for n in dict.fromkeys(declared)}
 
 
 def parse_setting(text):
     name, separator, value = text.partition('=')
-    require(separator and name and value.lstrip('-').isdigit(), 'A setting is <capability>=<whole number>')
+    require(separator and name and re.fullmatch(r'-?[0-9]+', value), 'A setting is <capability>=<whole number>')
     return name, int(value)
 
 
@@ -95,8 +163,10 @@ def main(argv=None):
     commands = parser.add_subparsers(dest='command', required=True)
     show = commands.add_parser('show', help='List the capabilities an OS image has on, with their settings')
     show.add_argument('--image', type=Path, required=True, help='os.ldr: stock OS 1.2.1 or an open-xy OS made from it')
+    show.add_argument('--stock-os', type=Path, help='stock OS 1.2.1, to check an open-xy OS from another SDK')
     put = commands.add_parser('apply', help='Write a copy of an OS image with settings extensions applied')
     put.add_argument('--image', type=Path, required=True, help='os.ldr: stock OS 1.2.1 or an open-xy OS made from it')
+    put.add_argument('--stock-os', type=Path, help='stock OS 1.2.1, to check an open-xy OS from another SDK')
     put.add_argument('--extension', type=Path, action='append', required=True, help='settings extension folder; repeatable')
     put.add_argument('--set', action='append', default=[], metavar='CAPABILITY=VALUE',
                      help='override a setting, for example --set release_floor=-40')
@@ -105,13 +175,13 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         image = read(args.image)
+        stock = read(args.stock_os) if args.stock_os else None
         if args.command == 'show':
-            print(json.dumps(state(image), indent=2))
+            print(json.dumps(state(image, stock=stock), indent=2))
             return 0
-        out = Path(args.out).resolve()
-        require(not out.is_relative_to(ROOT), 'Firmware stays outside the checkout: choose --out elsewhere')
+        require(outside_checkouts(args.out), f'Firmware stays outside every checkout: choose --out elsewhere ({args.out})')
         extensions = [extension_at(folder) for folder in args.extension]
-        result, values = apply(image, extensions, dict(parse_setting(s) for s in args.set))
+        result, values = apply(image, extensions, dict(parse_setting(s) for s in args.set), stock=stock)
         out = fresh_output(args.out, args.overwrite, keep=[args.image, *args.extension])
         (out / 'os.ldr').write_bytes(result)
         report = dict(format='opxy-settings/1', source=str(Path(args.image).resolve()),

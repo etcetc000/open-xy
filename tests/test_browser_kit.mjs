@@ -160,6 +160,14 @@ test('only an exact build restores its selection; others recover verified stock 
   }
 });
 
+test('stock with only reviewed edits applied, as sdk.py settings apply writes, recovers stock', async () => {
+  const {kit, stock} = await profilingFixture();
+  const applied = stock.slice(); applied[32] ^= 1;  // a reviewed edit site
+  assert.deepEqual(await recoverFirmware(kit, applied), {stock, selected:null, earlier:true});
+  const foreign = stock.slice(); foreign[60] ^= 1;
+  await assert.rejects(recoverFirmware(kit, foreign), /Only OP–XY OS 1\.2\.1 is supported/);
+});
+
 test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', async () => {
   const {kit, linked, stock} = await profilingFixture();
   const image = await patchFirmware(kit, linked, stock, {profiling:false});
@@ -425,6 +433,18 @@ test('curated profile and object authentication reject modified input', async ()
   k.version='0.0.2';
   k.objects[0].sha256='0'.repeat(64); await assert.rejects(openKit(k),/hash mismatch/);
   k.profile.patches[0].after='0000000000000000'; await assert.rejects(openKit(k),/reviewed profile/);
+});
+test('a kit offers a setting only when every value in its range has reviewed bytes', async () => {
+  const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');
+  k.objects=[{name:'a.o',owner:'a',bytes:Buffer.from(elf()).toString('base64'),sha256:await sha256(elf())}];
+  k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
+  const setting = {label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48, value:-40};
+  const idle = settings => ({id:'idle', name:'Idle', description:'d', claims:[], actions:[], claim_labels:{},
+    capabilities:['release_floor'], linked:false, origin:'personal', settings});
+  k.extensions=[idle({release_floor:setting})]; await openKit(k);
+  for (const settings of [{release_floor:{...setting, minimum:-70}}, {release_floor:{...setting, default:-10}}, {release_floor:null}, null]) {
+    k.extensions=[idle(settings)]; await assert.rejects(openKit(k), /Invalid extension settings/);
+  }
 });
 test('SDK 1.5 machines ask for no numbers and the selection gives them', async () => {
   const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');

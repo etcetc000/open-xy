@@ -301,13 +301,13 @@ def metadata(extensions, origins):
     """The kit's extension entries: the site's text, claims and actions, and an origin
     (official, catalog or personal, as for machines) from `origins` by ID."""
     claims, _actions = registry()
+    specs = capability_settings()
     rows = [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
     for e, row in zip(extensions, rows):
         if e.capabilities:
             row['capabilities'] = list(e.capabilities)
             # The builder shows each capability setting with the extension's value as its default.
-            specs = capability_settings()
             chosen = {c: dict(specs[c], value=e.settings.get(c, specs[c]['default'])) for c in e.capabilities if c in specs}
             if chosen:
                 row['settings'] = chosen

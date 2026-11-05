@@ -611,7 +611,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('extension-settings').replaceChildren();
     for (const [capability, setting] of Object.entries(extension.settings ?? {})) {
       const label = node('label', undefined, 'extension-setting'), input = node('input'), value = node('output');
-      const show = () => { value.textContent = input.value + ' ' + setting.unit + (Number(input.value) === setting.minimum ? ' (stock)' : ''); };
+      const show = () => { value.textContent = input.value + ' ' + setting.unit; };
       input.type = 'range'; input.min = setting.minimum; input.max = setting.maximum; input.step = 1;
       input.value = extensionSettings[capability] ?? setting.value;
       input.disabled = !selectedExtensions.includes(extension.id);
@@ -660,9 +660,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const result = core.linkKit(kit, selection, numbers, extensions);
       const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings, result.extensions);
       // Every setting this OS holds: the chosen value, else the first selected extension's own.
-      const capabilitySettings = {};
-      for (const e of (kit.extensions ?? []).filter(e => result.extensions.includes(e.id)))
-        for (const [c, s] of Object.entries(e.settings ?? {})) capabilitySettings[c] ??= extensionSettings[c] ?? s.value;
+      const capabilitySettings = core.chosenSettings(kit, result, extensionSettings);
       files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false, settings: capabilitySettings});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);

@@ -194,7 +194,10 @@ builder reads a setting back from an image exactly.
 has on; `python sdk.py settings apply --image os.ldr --extension <folder>
 [--set release_floor=-40] --out <dir>` writes a copy with settings extensions
 applied, to stock OS 1.2.1 or any open-xy OS made from it, without rebuilding its
-machines. Every capability site must hold stock or reviewed bytes.
+machines. Every capability site must hold stock or reviewed bytes, and the image
+is authenticated as the builder does. An open-xy OS from another SDK (its own
+hooks or module base) also needs `--stock-os <os.ldr>`: stock's loader records
+must be unchanged and in place, and none of its edits may touch a capability site.
 
 ## Master processor
 

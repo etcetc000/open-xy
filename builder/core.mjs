@@ -513,11 +513,15 @@ export async function openKit(kit) {
       e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c)) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
-    // A capability setting: its range and the extension's value; the profile lists every value's bytes.
-    check(e.settings === undefined || typeof e.settings === 'object' && Object.entries(e.settings).every(([c, v]) =>
-      e.capabilities?.includes(c) && [v.minimum, v.maximum, v.default, v.value].every(Number.isInteger) &&
-      v.minimum <= v.value && v.value <= v.maximum && typeof v.label === 'string' && typeof v.unit === 'string' &&
-      kit.profile.patches.some(edit => edit.setting === c && Object.hasOwn(edit.choices ?? {}, String(v.value)))),
+    // A capability setting: its range and the extension's value; the profile lists the bytes
+    // of every value in range, so any slider position builds.
+    const everyValue = (c, v) => kit.profile.patches.some(edit => edit.setting === c) &&
+      kit.profile.patches.filter(edit => edit.setting === c).every(edit => v.maximum - v.minimum <= 1000 &&
+        Array.from({length: v.maximum - v.minimum + 1}, (_, i) => String(v.minimum + i)).every(n => Object.hasOwn(edit.choices ?? {}, n)));
+    check(e.settings === undefined || e.settings && typeof e.settings === 'object' && Object.entries(e.settings).every(([c, v]) =>
+      e.capabilities?.includes(c) && v && [v.minimum, v.maximum, v.default, v.value].every(Number.isInteger) &&
+      v.minimum <= v.value && v.value <= v.maximum && v.minimum <= v.default && v.default <= v.maximum &&
+      typeof v.label === 'string' && typeof v.unit === 'string' && everyValue(c, v)),
       'Invalid extension settings');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
@@ -764,12 +768,13 @@ export function redirect(edit, destination) {
   after.set(words((edit.call ? 0xe300 : 0xe200) | value >>> 16, value & 0xffff));
   return after;
 }
-// Capability settings a build writes: chosen values, else each selected extension's own.
-function chosenSettings(kit, linked, settings) {
+// Capability settings a build writes, for the capabilities its extensions declare: chosen
+// values, else the first selected extension's own.
+export function chosenSettings(kit, linked, settings = {}) {
   const chosen = {};
   for (const e of (kit.extensions ?? []).filter(e => (linked.extensions ?? []).includes(e.id)))
-    for (const [c, v] of Object.entries(e.settings ?? {})) chosen[c] ??= v.value;
-  return {...chosen, ...settings};
+    for (const [c, v] of Object.entries(e.settings ?? {})) chosen[c] ??= settings[c] ?? v.value;
+  return chosen;
 }
 export async function patchFirmware(kit, linked, stock, {profiling = true, settings = {}} = {}) {
   check(typeof profiling === 'boolean', 'Profiling must be a boolean');
@@ -881,8 +886,10 @@ export function imageSettings(kit, input) {
   const found = {};
   for (const edit of kit.profile.patches.filter(e => e.choices)) {
     const value = Object.entries(edit.choices).find(([, b]) => equal(siteBytes(input, edit), unhex(b)))?.[0];
-    const on = !equal(siteBytes(input, edit), unhex(edit.before)) || kit.profile.patches.some(other =>
-      other.service === edit.service && !other.choices && equal(siteBytes(input, other), unhex(other.after)));
+    // As tooling/settings.state: every fixed edit of the capability applied, when it has any.
+    const fixed = kit.profile.patches.filter(other => other.service === edit.service && !other.choices);
+    const on = !equal(siteBytes(input, edit), unhex(edit.before)) ||
+      (fixed.length > 0 && fixed.every(other => equal(siteBytes(input, other), unhex(other.after))));
     if (value !== undefined && on) found[edit.setting] = Number(value);
   }
   return found;
@@ -894,6 +901,13 @@ export async function recoverFirmware(kit, input, layout = null) {
   if (input.length === p.stock_bytes && await sha256(input) === p.stock_sha256) {
     readLdr(input);
     return {stock: input.slice(), selected: null};
+  }
+  // Stock with only reviewed edits applied, as `sdk.py settings apply` writes: stock is
+  // rebuilt by undoing every edit and verified by hash; its machines are chosen again.
+  if (input.length === p.stock_bytes) {
+    const restored = input.slice();
+    for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
+    if (await sha256(restored) === p.stock_sha256) { readLdr(input); return {stock: restored, selected: null, earlier: true}; }
   }
   const blocks = readLdr(input), first = blocks[0], module = blocks.at(-2), final = blocks.at(-1);
   check(blocks.length === p.stock_records + 1 && first.count === 0 &&

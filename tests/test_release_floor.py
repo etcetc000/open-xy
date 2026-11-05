@@ -1,5 +1,6 @@
 """The release_floor capability: audited edits, its setting and applying it to an image."""
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -121,16 +122,19 @@ class Image(unittest.TestCase):
         records = [header(0x5004, 0, 0, 0)]
         for patch in edits:
             records.append(header(1, int(patch['address'], 16), patch['length'], 0) + bytes.fromhex(patch['before']))
+        records.append(header(1, 0x80000000, 16, 0) + bytes(range(16)))  # other stock code
         records.append(header(0x8004, 0, 0, 0))
         data = bytearray(b''.join(records))
+        data[:16] = header(0x5004, 0, 0, len(data) - 16)  # FIRST holds the image size, as stock's does
         # Point each edit at its record and pad the image to the profile's sizes.
         fake = copy.deepcopy(profile)
+        fake['patches'] = [p for p in fake['patches'] if p in edits]
         offset = 16
         for patch in fake['patches']:
-            if patch in edits or any(patch['address'] == e['address'] for e in edits):
-                patch['file_offset'] = hex(offset + 16)
-                offset += 16 + patch['length']
+            patch['file_offset'] = hex(offset + 16)
+            offset += 16 + patch['length']
         fake['stock_bytes'], fake['stock_records'] = len(data), len(records)
+        fake['stock_sha256'] = hashlib.sha256(data).hexdigest()
         return bytes(data), fake
 
     def test_apply_and_show(self):
@@ -158,6 +162,46 @@ class Image(unittest.TestCase):
         corrupt[site] ^= 0xff
         with self.assertRaises(ValueError):
             image_settings.state(bytes(corrupt), profile)
+        # Reviewed bytes at every site are not enough: the image must be made from stock.
+        with self.assertRaisesRegex(ValueError, 'Not OP-XY OS 1.2.1'):
+            image_settings.apply(data, [extension], {}, dict(profile, stock_sha256='0' * 64))
+
+    def test_an_open_xy_image_is_authenticated_and_applied(self):
+        data, profile = self.image()
+        module = header(4, 0x20000000, 4, 0) + bytes(4)
+        built = bytearray(data[:-16] + module + data[-16:])
+        built[:16] = header(0x5004, 0, 0, len(built) - 16)
+        extension = extension_at(folder(self, settings={'release_floor': -40}))
+        result, _ = image_settings.apply(bytes(built), [extension], {}, profile)
+        self.assertEqual(image_settings.state(result, profile)['release_floor'], -40)
+        self.assertEqual(result[-36:], bytes(built[-36:]))  # the module record is untouched
+
+    def test_an_image_from_another_sdk_needs_the_stock_os(self):
+        data, profile = self.image()
+        module = header(4, 0x30000000, 4, 0) + bytes(4)
+        other = bytearray(data[:-16] + module + data[-16:])
+        other[:16] = header(0x5004, 0, 0, len(other) - 16)
+        code = len(data) - 16 - 16  # the other stock record's payload
+        other[code + 4] ^= 0x5a  # a hook of its own, which this profile cannot undo
+        extension = extension_at(folder(self, settings={'release_floor': -40}))
+        with self.assertRaisesRegex(ValueError, '--stock-os'):
+            image_settings.state(bytes(other), profile)
+        self.assertEqual(image_settings.state(bytes(other), profile, data), {'long_samples': None, 'release_floor': None})
+        result, _ = image_settings.apply(bytes(other), [extension], {}, profile, data)
+        self.assertEqual(image_settings.state(result, profile, data)['release_floor'], -40)
+        self.assertEqual(sum(a != b for a, b in zip(other, result)), 5)
+        with self.assertRaisesRegex(ValueError, 'exact stock'):
+            image_settings.state(bytes(other), profile, data[:-1] + b'\1')
+        # Its edits must not adjoin a capability site, and stock's records must stay in place.
+        site = int(floor_edits(profile)[0]['file_offset'], 16)
+        near = bytearray(other)
+        near[site - 1] ^= 0xff
+        with self.assertRaises(ValueError):
+            image_settings.state(bytes(near), profile, data)
+        moved = bytearray(other)
+        moved[code - 16:code] = header(1, 0x80000010, 16, 0)  # a valid record at another address
+        with self.assertRaisesRegex(ValueError, 'records moved'):
+            image_settings.state(bytes(moved), profile, data)
 
     @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
     def test_stock_holds_the_audited_preimages(self):
