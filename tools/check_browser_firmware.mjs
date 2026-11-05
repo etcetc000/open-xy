@@ -2,7 +2,7 @@
 import {existsSync, readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
 import assert from 'node:assert/strict';
-import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections, memoryKit, offersExpandedMemory, sha256} from '../builder/core.mjs';
+import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections, memoryKit, offersExpandedMemory, sha256, RECOVERABLE_MACHINES} from '../builder/core.mjs';
 const [directory, stockFile, content] = process.argv.slice(2);
 const kit = await openKit(JSON.parse(readFileSync(resolve(directory, 'kit.json'))));
 const stock = new Uint8Array(readFileSync(stockFile));
@@ -64,9 +64,10 @@ if (offersExpandedMemory(kit.profile)) {
       assert.equal(readLdr(firmware).at(-2).target, expanded.profile.module_base);
       for (const edit of expanded.profile.patches.filter(e => e.kind === 'heap'))
         assert.equal(Buffer.from(firmware.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length)).toString('hex'), edit.after);
-      // A collection too large to search may recover only its stock OS; its memory is always known.
+      // A collection too large to search exhaustively may recover only its stock OS;
+      // its memory is always known. A small one is always recovered exactly.
       const recovered = await recoverFirmware(kit, firmware, layout);
-      assert.deepEqual(recovered, name === 'collection-expanded' && recovered.earlier
+      assert.deepEqual(recovered, name === 'collection-expanded' && kit.machines.length > RECOVERABLE_MACHINES && recovered.earlier
         ? {stock, selected: null, earlier: true, memory: 'expanded'} : {stock, selected, extensions, memory: 'expanded'});
       await assert.rejects(patchFirmware(kit, linked, stock, {profiling}), /outside module|exceeds its profile/);
       writeFileSync(resolve(directory, 'reference', name) + (profiling ? '.ldr' : '.profiling-off.ldr'), firmware);

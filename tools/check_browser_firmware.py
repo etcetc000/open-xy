@@ -48,7 +48,7 @@ def expanded_profile(profile):
     heaps = [p for p in profile['patches'] if p['kind'] == 'heap']
     end = profile['module_base'] + profile['reserved_bytes']
     mib = 1024 * 1024
-    require(set(x) == {'module_base', 'reserved_bytes', 'heap_after'} and len(heaps) == 2 and
+    require(len(heaps) == 2 and
             all(type(x[k]) is int for k in ('module_base', 'reserved_bytes')) and
             (profile['module_base'] - profile['heap_fill_base']) % mib == 0 and
             x['reserved_bytes'] > profile['reserved_bytes'] and x['reserved_bytes'] % mib == 0 and

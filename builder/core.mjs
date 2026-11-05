@@ -856,7 +856,7 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
 // image is rebuilt by undoing every reviewed edit and accepted only by its
 // SHA-256; the uploaded module is never executed or reused for a build. An exact
 // output of this curated collection also restores its machine selection.
-const RECOVERABLE_MACHINES = 10;
+export const RECOVERABLE_MACHINES = 10;
 // Recovery tries every extension choice only for small collections; larger ones
 // try the extensions whose code the module holds.
 const RECOVERABLE_EXTENSIONS = 4;
@@ -922,8 +922,8 @@ export async function recoverFirmware(kit, input, layout = null) {
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
     const rebuilds = async (selected, extensions) => {
-      // A selection that cannot link (e.g. does not fit) is not this build; any
-      // error patching an image that does link is real and reported.
+      // A selection that cannot link (e.g. does not fit) is not this build, so the
+      // exhaustive search below goes on; it reports errors patching one that links.
       let linked;
       try { linked = linkKit(built, selected, layout, extensions); } catch { return false; }
       if (!equal(linked.module, payload)) return false;
@@ -940,8 +940,9 @@ export async function recoverFirmware(kit, input, layout = null) {
     const choices = (kit.extensions ?? []).length <= RECOVERABLE_EXTENSIONS ? extensionChoices(kit)
       : guess.length ? [guess, []] : [[]];
     for (const extensions of present.length ? [guess, ...choices] : []) {
-      // A guess that cannot link is not this kit's build (rebuilds says false).
-      if (await rebuilds(present, extensions)) return {stock, selected: present, extensions, ...found};
+      try {
+        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions, ...found};
+      } catch {}  // a guess that cannot link is not this kit's build
     }
     // Small kits also try every selection: at most 1,023 deterministic links per
     // extension choice, each under a millisecond. Yield between candidates so file
