@@ -61,7 +61,8 @@ if (Core.selectArtwork({artwork:svg, grayscaleArtwork:variant}, 'grayscale') !==
   throw new Error('Offline authored grayscale differs');
 '''
             # Every core function the app calls must be in the closed file:// namespace.
-            app = re.sub(r'//.*', '', (ROOT / 'builder/app.mjs').read_text(encoding='utf-8'))
+            # Drop line comments, not '//' inside strings such as URLs.
+            app = re.sub(r'(^|\s)//.*', r'\1', (ROOT / 'builder/app.mjs').read_text(encoding='utf-8'), flags=re.M)
             used = sorted(set(re.findall(r'\bcore\.(\w+)', app)) - {'mjs'})
             self.assertIn('memoryKit', used)
             check += 'for (const name of %s) if (!(name in Core)) throw new Error("Offline Core lacks " + name);\n' % json.dumps(used)

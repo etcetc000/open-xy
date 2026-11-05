@@ -224,11 +224,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     wizard.clearSourceBackup();
     const current = ++ticket; invalidate();
     stock = null; ready();
-    // The OS sets the memory choice, so neither it nor a layout can change it while it is checked.
-    memoryInput.disabled = true; checkingOs = true;
-    wizard.setFirmwareState('checking');
-    $('firmware-result').textContent = 'Verifying ' + file.name + '…';
     try {
+      // The OS sets the memory choice, so neither it nor a layout can change it while it is checked.
+      memoryInput.disabled = true; checkingOs = true;
+      wizard.setFirmwareState('checking');
+      $('firmware-result').textContent = 'Verifying ' + file.name + '…';
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
       stock = recovered.stock;
@@ -248,9 +248,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
-      // One link for the selection or memory this OS set, after clearing the status
-      // so a selection that cannot be built says why.
-      status(); if (recovered.selected || memoryNote || (!linked && selected.length)) recalculate();
+      // One link for what this OS set, after clearing the status so a selection
+      // that cannot be built says why.
+      status(); recalculate();
       ready();
       return true;
     } catch (error) {

@@ -492,8 +492,9 @@ export function offersExpandedMemory(profile) {
   const x = profile.experimental_memory, heaps = (profile.patches ?? []).filter(p => p.kind === 'heap');
   const end = profile.module_base + profile.reserved_bytes;
   return Boolean(x && typeof x === 'object' && Object.keys(x).sort().join() === 'heap_after,module_base,reserved_bytes' &&
-    Number.isInteger(x.module_base) && Number.isInteger(x.reserved_bytes) && x.reserved_bytes % 1024 ** 2 === 0 &&
-    (x.module_base - profile.heap_fill_base) % 1024 ** 2 === 0 &&
+    // Every size is whole MiB, as the builder names them.
+    [x.reserved_bytes, profile.reserved_bytes, x.module_base - profile.heap_fill_base, heapBytes(profile)].every(n => Number.isInteger(n) && n % 1024 ** 2 === 0) &&
+    Number.isInteger(x.module_base) &&
     x.reserved_bytes > profile.reserved_bytes && x.module_base + x.reserved_bytes === end &&
     x.module_base > profile.heap_fill_base && heapImmediate(x.heap_after) === x.module_base - profile.heap_fill_base &&
     profile.heap_fill_base + profile.heap_fill_bytes === end && heaps.length === 2 &&
