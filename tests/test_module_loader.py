@@ -35,6 +35,19 @@ class ModuleLoader(unittest.TestCase):
                 got = int(subprocess.check_output([str(runner), 'preferred', name, str(first), '256'], text=True))
                 self.assertEqual(got, preferred(pools[slot], name)[0], (slot, name))
 
+    def test_module_presets_appear_where_the_preset_walk_looks_and_nowhere_else(self):
+        compiler=os.environ.get('OPXY_TEST_HOST_CXX') or shutil.which('g++') or shutil.which('clang++')
+        if not compiler: raise unittest.SkipTest('No host C++ compiler (set OPXY_TEST_HOST_CXX)')
+        with tempfile.TemporaryDirectory() as temp:
+            runner=Path(temp)/('presets.exe' if os.name=='nt' else 'presets')
+            subprocess.run([compiler,'-std=c++11','-Wall','-Wextra','-Werror',
+                            '-I'+str(ROOT/'sdk/include'),'-I'+str(ROOT/'sdk/platform'),
+                            str(ROOT/'tests/fixtures/module_presets.cpp'),
+                            str(ROOT/'sdk/platform/module_presets.cpp'),'-o',str(runner)],
+                           check=True,capture_output=True)
+            result=subprocess.run([str(runner)],capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+
     def test_module_numbers_follow_the_profile_and_the_fixed_machines(self):
         """module_synths.cpp holds what a build holds: the profile's pools, the
         reserved last page and the fixed machines' numbers."""

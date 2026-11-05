@@ -6,6 +6,7 @@
 // description instead of compiled in. Startup calls the hooks at the end.
 #include "module_synths.hpp"
 #include "module_loader.hpp"
+#include "module_presets.hpp"
 #include "registration.hpp"
 #include "project_companion.hpp"
 #include "synth_controls.hpp"
@@ -561,61 +562,35 @@ bool parse_json(const unsigned char* text, u32 bytes, void* out) {
     return parsed;
 }
 
-// ---- presets: content/presets/<machine ID>/<name>.json, from the module, while it is loaded
-const char presets_root[] = "content/presets";
-
+// ---- presets: content/presets/<machine ID>/<name>.json, from the module, while it is
+// loaded (module_presets.hpp has the view; this binds it to stock's folder calls)
 u32 preset_count(const Entry& e) { return presets_present(*e.d) ? e.d->preset_count : 0; }
+
+// The loaded modules' presets, in registration order (entry i is module i).
+modules::PresetModule preset_list[entries_max];
+modules::PresetModules presets_view() {
+    for (u32 i = 0; i < count; ++i)
+        preset_list[i] = modules::PresetModule{entries[i].id, preset_count(entries[i]), entries[i].d->preset_names};
+    return modules::PresetModules{preset_list, count};
+}
 bool any_presets() {
     for (u32 i = 0; i < count; ++i) if (preset_count(entries[i])) return true;
     return false;
 }
-
-// The rest of path after prefix, or null.
-const char* after(const char* path, const char* prefix) {
-    if (!path) return nullptr;
-    while (*prefix) if (*path++ != *prefix++) return nullptr;
-    return path;
-}
-// The entry with presets whose machine ID path starts with, followed by end
-// ('/' or 0); the rest after the ID in rest.
-Entry* preset_owner(const char* path, char end, const char*& rest) {
-    for (u32 i = 0; i < count; ++i) {
-        if (!preset_count(entries[i])) continue;
-        const char* p = after(path, entries[i].id);
-        if (p && *p == end) { rest = p; return &entries[i]; }
-    }
-    return nullptr;
-}
-// content/presets/<id>/<name>.json, with or without stock's /yaffs2/ in front:
-// its module and preset, or null.
-Entry* virtual_preset(const char* path, u32& preset) {
-    if (const char* p = after(path, "/yaffs2/")) path = p;
-    const char* p = after(path, presets_root);
-    if (!p || *p++ != '/') return nullptr;
-    const char* rest;
-    Entry* e = preset_owner(p, '/', rest);
-    if (!e) return nullptr;
-    ++rest;
-    for (preset = 0; preset < preset_count(*e); ++preset) {
-        const char* q = after(rest, e->d->preset_names[preset]);
-        if (q && equal(q, ".json")) return e;
-    }
-    return nullptr;
+// The module and preset a path names, or null.
+const Entry* virtual_preset(const char* path, u32& preset) {
+    u32 module;
+    return modules::preset_file(presets_view(), path, module, preset) ? &entries[module] : nullptr;
 }
 
-// The preset walk's folders (8d4eb928). content/presets lists stock's folders,
-// then one per module with presets, its own name taking a stock folder's place;
-// content/presets/<id> lists only the module's presets, never files left there.
-// An entry holds its type at +0xa (4 folder, 8 file) and its name at +0xb.
+// A walk's open folder: a virtual one, with stock's own beneath for content/presets.
 struct Folder {
-    bool used, root;
-    void* real;                  // stock's folder for content/presets
-    Entry* module;               // whose presets, for content/presets/<id>
-    u32 next;
-    unsigned char entry[64];
+    bool used;
+    void* real;
+    modules::PresetFolder view;
+    unsigned char entry[modules::entry_bytes];
 };
-Folder folders[4];               // the walk nests: the root and one module folder
-const u32 entry_type = 0xa, entry_name = 0xb, type_folder = 4, type_file = 8;
+Folder folders[4];  // the walk nests: the root and one module folder
 
 void* dir_open(const char* path) { return stock<void*(const char*)>(0x8c0be54a)(path); }
 const unsigned char* dir_next(void* dir) { return stock<const unsigned char*(void*)>(0x8c0be6a4)(dir); }
@@ -625,30 +600,20 @@ Folder* ours(void* handle) {
     for (Folder& f : folders) if (handle == &f && f.used) return &f;
     return nullptr;
 }
-const unsigned char* entry_of(Folder& f, u32 type, const char* name, const char* suffix) {
-    for (unsigned char& b : f.entry) b = 0;
-    f.entry[entry_type] = static_cast<unsigned char>(type);
-    u32 n = entry_name;
-    for (const char* c = name; *c && n + 1 < sizeof f.entry; ++c) f.entry[n++] = static_cast<unsigned char>(*c);
-    for (const char* c = suffix; *c && n + 1 < sizeof f.entry; ++c) f.entry[n++] = static_cast<unsigned char>(*c);
-    return f.entry;
-}
 }
 
 void* sdk_module_preset_dir_open(const char* path) {
     sdk_module_load();
     if (!any_presets()) return dir_open(path);
-    const char* p = after(path, presets_root);
-    const char* rest = nullptr;
-    Entry* module = p && *p == '/' ? preset_owner(p + 1, 0, rest) : nullptr;
-    if (!p || (*p && !module)) return dir_open(path);
+    u32 module = 0;
+    const u32 kind = modules::preset_folder(presets_view(), path, module);
+    if (kind == modules::folder_stock) return dir_open(path);
     for (Folder& f : folders) {
         if (f.used) continue;
         f = Folder{};
         f.used = true;
-        f.root = !*p;
-        f.real = f.root ? dir_open(path) : nullptr;
-        f.module = module;
+        f.view = modules::PresetFolder{kind, module, 0};
+        f.real = kind == modules::folder_root ? dir_open(path) : nullptr;
         return &f;
     }
     return dir_open(path);  // nested deeper than ever seen: stock's alone
@@ -657,21 +622,13 @@ void* sdk_module_preset_dir_open(const char* path) {
 const unsigned char* sdk_module_preset_dir_next(void* handle) {
     Folder* f = ours(handle);
     if (!f) return dir_next(handle);
-    if (f->root) {
-        while (f->real) {
-            const unsigned char* e = dir_next(f->real);
-            if (!e) break;
-            const char* rest;
-            if (e[entry_type] == type_folder && preset_owner(reinterpret_cast<const char*>(e + entry_name), 0, rest))
-                continue;  // a module's folder replaces a stock one of its name
-            return e;
-        }
-        while (f->next < count)
-            if (preset_count(entries[f->next++])) return entry_of(*f, type_folder, entries[f->next - 1].id, "");
-        return nullptr;
+    const modules::PresetModules all = presets_view();
+    while (f->real) {
+        const unsigned char* e = dir_next(f->real);
+        if (!e) break;
+        if (!modules::replaced(all, e)) return e;  // a module's folder takes a stock one's place
     }
-    if (f->next >= preset_count(*f->module)) return nullptr;
-    return entry_of(*f, type_file, f->module->d->preset_names[f->next++], ".json");
+    return modules::next_entry(all, f->view, f->entry) ? f->entry : nullptr;
 }
 
 void sdk_module_preset_dir_close(void* handle) {

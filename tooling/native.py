@@ -205,6 +205,7 @@ def plan(machines, profile=None):
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
     if getattr(machines, 'modules', False):
         units += [('sdk/module_loader.o', None, 'module_loader'),
+                  ('sdk/module_presets.o', None, 'module_presets'),
                   ('sdk/module_loader_stock.o', None, 'module_loader_stock'),
                   ('sdk/safe_mode.o', None, 'safe_mode'),
                   ('sdk/module_mtp.o', None, 'module_mtp'),
@@ -453,7 +454,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         if m is None:
             if step == 'drum_callbacks':
                 return cxx(str(generate_drum_callbacks(folder, machines)), obj)
-            if step in ('module_loader', 'synth_pool'):
+            if step in ('module_loader', 'module_presets', 'synth_pool'):
                 return cxx('sdk/platform/' + step + '.cpp', obj)
             if step == 'benchmark':
                 return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
