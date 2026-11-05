@@ -200,8 +200,11 @@ Address opxy::platform::host_stock_address(Address address) {
     std::abort();
 }
 
-// The client glue's one check: tracks 0..7 here.
+// The client glue's checks: tracks 0..7 here, and a pattern whose machine word is not
+// 77 (a stock machine's, in these tests).
+const u32 kStockMachine = 77;
 bool opxy::platform::step_locks::handle_client(u32 track) { return track < 8; }
+bool opxy::platform::step_locks::pattern_client(u32 engine) { return engine != kStockMachine; }
 
 namespace {
 const u32 kKick = 53, kSnare = 54;
@@ -304,8 +307,12 @@ void pool_tests() {
     CHECK(pool.has(4));
     pool.erase(4, sl::kStepWide, 4);
     CHECK(!pool.has(4) && pool.handles() == 1);
-    // Bounds: no field 16, no key 128, no handle 0 or 4096, at most 25 entries.
-    CHECK(!pool.set(3, kKick, 16, 1) && !pool.set(3, 128, 0, 1) && !pool.set(0, kKick, 0, 1) && !pool.set(4096, kKick, 0, 1));
+    // Bounds: no field 16, no key 128, no handle 0 or 2458 (the arena holds at most
+    // 2,457 blocks), at most 25 entries.
+    CHECK(sl::kHandles == 2458 && sl::kArenaWords / 5 == 2457);
+    CHECK(!pool.set(3, kKick, 16, 1) && !pool.set(3, 128, 0, 1) && !pool.set(0, kKick, 0, 1) &&
+          !pool.set(sl::kHandles, kKick, 0, 1) && pool.set(sl::kHandles - 1, kKick, 0, 1));
+    pool.free(sl::kHandles - 1);
     for (u32 k = 0; k < 24; ++k) CHECK(pool.set(5, k, 0, static_cast<i32>(k)));
     CHECK(pool.set(5, sl::kStepWide, 0, 1) && !pool.set(5, 100, 0, 1) && pool.set(5, 3, 2, 3));
     // The arena: full blocks are refused and leave the rest; erasing makes room.
@@ -320,7 +327,7 @@ void pool_tests() {
     pool.erase(5, kKick, 0);
     CHECK(!pool.has(5) && pool.set(4, kKick, 1, 1));   // the freed block's room, after compaction
     // Garbage collection keeps only marked handles.
-    u8 marks[sl::kHandles / 8] = {};
+    u8 marks[(sl::kHandles + 7) / 8] = {};
     marks[0] = 1 << 1;
     CHECK(pool.keep_only(marks) == made - 2 && pool.handles() == 1 && pool.live_words() == 2 + 2 + 2);
 
@@ -341,6 +348,7 @@ void pool_tests() {
         {1, 0},                                   // a block cut short
         {0, 0, 1, 0, 1, 0, 255, 255, 5, 0},       // handle 0
         {0, 16, 1, 0, 1, 0, 255, 255, 5, 0},      // handle 4096
+        {0x9a, 0x09, 1, 0, 1, 0, 255, 255, 5, 0}, // handle 2458
         {2, 0, 1, 0, 1, 0, 255, 255, 5, 0, 1, 0, 1, 0, 1, 0, 255, 255, 5, 0},   // not ascending
         {1, 0, 0, 0},                             // no entries
         {1, 0, 1, 0, 0, 0, 255, 255},             // an empty mask
@@ -396,6 +404,13 @@ int main(int argc, char** argv) {
     CHECK(play(3) == 0);
     gate[0] = true;
     CHECK(sl::take_step(0) == 0);
+    // A note start that returned before its payload (8d59576a, 8d59582e, 8d595a02)
+    // took nothing: a GUI frame later the handle has expired, so a note played by
+    // hand on the track does not take the step's locks.
+    sdk_lock_step(0x86bd027c, 0, 3 * 480);
+    sdk_step_locks_frame();
+    CHECK(sl::take_step(0) == 0);
+    CHECK(play(3) == h);   // the next step's note takes its own again
     // Sliding: the pass blends the handle word, so the step's own handle is taken.
     *reinterpret_cast<u8*>(p + kSlide) = 1;
     CHECK(play(3) == h && play(4) == 0);
@@ -503,41 +518,77 @@ int main(int argc, char** argv) {
     make_active(0);
     make_active(1);
 
-    // A missing companion: every handle word in the loaded project is cleared.
+    // Only a whole version 1 pool from a matching companion says which handles have
+    // values. Without one the loaded project's handles all stay, as saved: they play
+    // nothing here, and firmware that reads their values still finds them.
+    CHECK(sdk_project_save(reinterpret_cast<void*>(active), path) == 1);
+    text = companion_text();
+    const Address r = pattern_at(reinterpret_cast<Address>(buffers[0]), 0, 0);
+    auto all_kept = [&]() {
+        CHECK(handle(r, 4) == handle(q, 4) && handle(r, 12) == handle(q, 12) && handle(r, 20) == handle(q, 20));
+        CHECK(reinterpret_cast<u32*>(r + kUnion)[1] & kBit);
+    };
+    // A missing companion (saved by a build without these locks, or by stock).
     remove_companion();
     CHECK(sdk_project_load(buffers[0], path) == 1);
-    for (u32 s = 0; s < 128; ++s) CHECK(!handle(pattern_at(reinterpret_cast<Address>(buffers[0]), 0, 0), s));
-    CHECK(!(reinterpret_cast<u32*>(pattern_at(reinterpret_cast<Address>(buffers[0]), 0, 0) + kUnion)[1] & kBit));
-    // A mismatched one (the project saved again since, by other firmware): the same.
-    CHECK(sdk_project_save(reinterpret_cast<void*>(active), path) == 1);
+    all_kept();
+    // A newer version of the section, which this firmware can't read.
+    {
+        std::string newer = text;
+        const size_t at = newer.find("\"version\": 1\n    },\n    \"open-xy.machines\"");
+        CHECK(at != std::string::npos);
+        newer.replace(at, std::strlen("\"version\": 1"), "\"version\": 2");
+        write_companion_text(newer);
+    }
+    CHECK(sdk_project_load(buffers[0], path) == 1);
+    all_kept();
+    // A malformed pool, from a companion that matches.
+    write_companion_text(with_pool(text, {1, 2, 3}));
+    CHECK(sdk_project_load(buffers[0], path) == 1);
+    all_kept();
+    // A mismatched companion (the project saved again since, by other firmware).
+    write_companion_text(text);
     {
         std::FILE* file = std::fopen(path, "ab");
         std::fputs("changed elsewhere\n", file);
         std::fclose(file);
     }
     CHECK(sdk_project_load(buffers[0], path) == 1);
-    for (u32 s = 0; s < 128; ++s) CHECK(!handle(pattern_at(reinterpret_cast<Address>(buffers[0]), 0, 0), s));
+    all_kept();
     // A load that never becomes active changes nothing for the active project.
     hold(4);
     CHECK(value(kKick, 0) == 22);
-    // A valid one whose pool lacks one handle (a section cut short): only that one is swept.
+    // A valid one whose pool lacks a handle (a block left out): only that one is
+    // swept, and each pattern's union recomputed once. A pattern of another machine
+    // on an instrument track, and every aux track's, keep their word 37 as it was,
+    // through saving's collection and loading's sweep.
+    const Address other_machine = pattern_at(active, 1, 0), aux = pattern_at(active, 9, 0);
+    for (Address o : {other_machine, aux}) {
+        reinterpret_cast<u16*>(o + kValues + 7 * kStep)[kWord] = 999;
+        reinterpret_cast<u32*>(o + kMasks + 7 * 8)[1] |= kBit;
+    }
+    reinterpret_cast<u32*>(other_machine + 0x18)[0] = kStockMachine;
+    if (count(active, 1) < 1) count(active, 1) = 1;
+    if (count(active, 9) < 1) count(active, 9) = 1;
     CHECK(sdk_project_save(reinterpret_cast<void*>(active), path) == 1);
     text = companion_text();
     {
         sl::Pool& kept = saved(text);
-        CHECK(kept.has(handle(q, 4)) && kept.has(handle(q, 12)));
+        CHECK(kept.has(handle(q, 4)) && kept.has(handle(q, 12)) && !kept.has(999));
         kept.free(handle(q, 12));
         struct Bytes { std::vector<u8> b; void byte(u8 x) { b.push_back(x); } } out;
         kept.write(out, sl::kSavedBytes);
         write_companion_text(with_pool(text, out.b));
     }
-    CHECK(sdk_project_load(buffers[0], path) == 1);
-    const Address r = pattern_at(reinterpret_cast<Address>(buffers[0]), 0, 0);
-    CHECK(handle(r, 4) == handle(q, 4) && !handle(r, 12) && handle(q, 12));
-    // A malformed pool counts as none: every handle swept, the rest of the companion read.
-    write_companion_text(with_pool(text, {1, 2, 3}));
-    CHECK(sdk_project_load(buffers[0], path) == 1);
-    CHECK(!handle(r, 4) && !handle(r, 20));
+    {
+        const u32 before = unions;
+        CHECK(sdk_project_load(buffers[0], path) == 1);
+        CHECK(handle(r, 4) == handle(q, 4) && !handle(r, 12) && handle(q, 12));
+        CHECK(unions == before + 1);
+        for (Address o : {pattern_at(reinterpret_cast<Address>(buffers[0]), 1, 0),
+                          pattern_at(reinterpret_cast<Address>(buffers[0]), 9, 0)})
+            CHECK(handle(o, 7) == 999);
+    }
 
     // Neutral: a project with no locks writes no section and plays no handle.
     for (unsigned char* b : buffers) std::memset(b, 0, kProjectBytes);

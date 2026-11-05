@@ -12,11 +12,15 @@
 // - Saving: garbage collection keeps only the handles the saved project, stock's two
 //   clipboards and the recorder's snapshot hold; the companion's open-xy.locks section
 //   keeps their values (project_companion.cpp).
-// - Loading: a load stages the companion's pool beside the active one, and every handle
-//   the loaded project holds that the staged pool lacks (no companion, one that does
-//   not match, a section cut short) is cleared from it, so none dangles. The staged
-//   pool becomes the active one when stock makes that project active; handles in the
-//   clipboards and the snapshot are then carried over to it under new numbers.
+// - Loading: a load stages the companion's pool beside the active one. When the
+//   companion matches the project and its open-xy.locks is a whole version 1 pool,
+//   every handle the loaded project holds that the pool lacks is cleared, so none
+//   dangles. Otherwise (no companion, one that does not match, a newer version, a
+//   section cut short or missing) the handles stay: they play nothing here, no new
+//   lock takes their numbers, and firmware that reads their values still finds them.
+//   The staged pool becomes the active one when stock makes that project active;
+//   handles in the clipboards and the snapshot are then carried over to it under new
+//   numbers, and one with no values is left as it is.
 // - Playback: the step hook notes, for each track, the handle of the step whose locks
 //   stock just applied (gate included), for that step's note start to take.
 #pragma once
@@ -26,10 +30,13 @@ namespace opxy { namespace platform { namespace step_locks {
 // The lock word that carries the handle.
 const u32 kHandleWord = 37;
 
-// Whether `track` is a handle client: the one check the backend asks, defined by the
-// client's glue (drum_locks.cpp: an owned padMix kit). Another client (stock Drumline,
-// a synth) adds itself there; the backend itself knows no machine.
+// Whether `track` is a handle client, and whether a pattern's machine `engine` is one:
+// the checks the backend asks, defined by the client's glue (drum_locks.cpp: an owned
+// padMix kit). Another client (stock Drumline, a synth) adds itself there; the backend
+// itself knows no machine. Only a client's patterns on instrument tracks 0..7 are
+// searched, collected, swept and carried: word 37 on any other track stays stock's.
 bool handle_client(u32 track);
+bool pattern_client(u32 engine);
 
 // The handle of the step whose note is now starting on `track`, as the sequencer's
 // step hook noted it, or 0: the note was played live, or its step locks nothing. A
@@ -61,4 +68,18 @@ void sdk_step_locks_write(void* file) __asm__("sdk_step_locks_write");
 void sdk_step_locks_begin() __asm__("sdk_step_locks_begin");
 void sdk_step_locks_byte(opxy::u32 byte) __asm__("sdk_step_locks_byte");
 void sdk_step_locks_loaded(void* project, opxy::u32 valid) __asm__("sdk_step_locks_loaded");
+// held_value and held_set for units every build links (opxy::i32* for the reference),
+// and once a GUI frame (sdk_send_refresh): a step note's handle no note start took expires.
+opxy::u32 sdk_step_locks_held_value(opxy::u32 track, opxy::u32 key, opxy::u32 field, opxy::i32* value)
+    __asm__("sdk_step_locks_held_value");
+opxy::u32 sdk_step_locks_held_set(opxy::u32 track, opxy::u32 key, opxy::u32 field, opxy::u32 present, opxy::i32 value)
+    __asm__("sdk_step_locks_held_set");
+void sdk_step_locks_frame() __asm__("sdk_step_locks_frame");
+// The same calls as every build links them (startup.cpp): the service's in a build with
+// it, otherwise 0 and nothing. Units outside the drum_locks service call these, never
+// step_locks:: directly, so a build without a padMix kit links.
+opxy::u32 sdk_project_locks_held_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32*) __asm__("sdk_project_locks_held_value");
+opxy::u32 sdk_project_locks_held_set(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::i32)
+    __asm__("sdk_project_locks_held_set");
+void sdk_project_locks_frame() __asm__("sdk_project_locks_frame");
 }

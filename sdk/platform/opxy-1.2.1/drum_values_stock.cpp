@@ -55,6 +55,26 @@ const char* sdk_drum_title(opxy::u32 engine, opxy::u32 slot) {
     return machine->label(model, slot);
 }
 
+// 8c0b14b4 and 8c0b167a: the instrument controller's turn handler (8c0b12e4)
+// asks for the track's last played key (8d4d6cb0) when it holds no key for
+// editing (-1 at 0x8400dfc8, stock.hpp): at 8c0b1678 to latch it there, then
+// at 8c0b14b2 for the per-key editor's key. On an owned kit's track the latch
+// keeps -1 and the editor gets the selected key, so a turn edits the key the
+// screen shows, as it moves, never one the sequencer just played; a pad held
+// or Shift-selected stays stock's. Any other track keeps stock's answer.
+static bool owned_kit(opxy::u32 track) {
+    using namespace opxy::platform;
+    return track < kTracks && sdk_drum_machine(track_engine(track));
+}
+opxy::u32 sdk_drum_unheld_key(opxy::u32 track) {
+    using namespace opxy::platform;
+    return owned_kit(track) ? drum_selected_key(track) : drum_played_key(track);
+}
+opxy::u32 sdk_drum_latch_key(opxy::u32 track) {
+    using namespace opxy::platform;
+    return owned_kit(track) ? 0xffffffffu : drum_played_key(track);
+}
+
 // The record of the key the kit's screen shows and its edits change (stock.hpp drum_edit_key).
 static const unsigned char* selected_record(opxy::u32 track) {
     using namespace opxy::platform;
@@ -73,15 +93,13 @@ static void held_locks(opxy::u32 track, opxy::platform::DrumHitLocks& locks) {
 }
 // The key's stock pan, which stock plays on every key, its level and its pad
 // fields as a padMix kit plays them: 0 dB and neutral on a key the kit has not
-// set up (drum_storage.hpp). With a step held, each as that step plays it: PAN
-// with stock's pan term (8d51a688) or an offset, LEVEL and the pad controls
-// with their offsets, a send with its override.
+// set up (drum_storage.hpp). With a step held, each as that step plays it: PAN,
+// LEVEL and the pad controls with their offsets, a send with its override.
 opxy::i32 sdk_drum_pan(opxy::u32 track) {
     using namespace opxy::platform;
     DrumHitLocks locks;
     held_locks(track, locks);
-    const opxy::i32 pan = drum_lock_clamp(drum_pan(selected_record(track)) + locks.offset[kHitPan], -kDrumPanLimit, kDrumPanLimit);
-    return drum_pan_played(pan, locks.pan_term);
+    return drum_lock_clamp(drum_pan(selected_record(track)) + locks.offset[kHitPan], -kDrumPanLimit, kDrumPanLimit);
 }
 opxy::i32 sdk_drum_level(opxy::u32 track) {
     using namespace opxy::platform;

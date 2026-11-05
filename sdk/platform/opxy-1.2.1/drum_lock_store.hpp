@@ -5,8 +5,6 @@
 //   `track` plays (taken at note start, after the sequencer's lock pass), and its
 //   locks for the note's key;
 // - drum_lock_store_held: the held step's locks for the selected key, for the screen;
-// - drum_lock_store_steps: stock's step count for a word the backend leaves to
-//   stock's own editor, else 0;
 // - drum_lock_store_neutral / _neutral_words: the stored base back to "no
 //   lock", at load, after scramble and once a frame for the selected kit.
 //
@@ -40,7 +38,7 @@ inline void drum_lock_store_held(const DrumMachine& machine, u32 track, DrumHitL
     const u32 key = drum_lock_key(track);
     for (u32 field = 0; field < kHitFields; ++field) {
         i32 value;
-        if (step_locks::held_value(track, key, field, value)) locks.offset[field] = drum_lock_checked(machine, field, value);
+        if (sdk_project_locks_held_value(track, key, field, &value)) locks.offset[field] = drum_lock_checked(machine, field, value);
     }
 }
 // At note start (the payload builder's call, 8d595b50): the handle the
@@ -55,8 +53,6 @@ inline void drum_lock_store_note(const DrumMachine& machine, u32 handle, u32 key
     for (u32 field = 0; field < kHitFields; ++field)
         if (mask >> field & 1u) locks.offset[field] = drum_lock_checked(machine, field, values[field]);
 }
-// No word is left to stock's editor.
-inline u32 drum_lock_store_steps(const DrumMachine&, u32) { return 0; }
 // A turn of `field` with a step held, for the selected key: from what the step
 // plays for it (or, for a send, `start`: 1 + the send code the key plays), into
 // the pool; a field turned back to 0 is unlocked.
@@ -66,16 +62,16 @@ inline u32 drum_lock_store_edit(u32, u32 track, const DrumMachine& machine, u32 
     if (!delta) return 0;
     const u32 key = drum_lock_key(track);
     i32 lock = 0;
-    if (!step_locks::held_value(track, key, field, lock)) lock = 0;
+    if (!sdk_project_locks_held_value(track, key, field, &lock)) lock = 0;
     lock = drum_lock_checked(machine, field, lock);
     const i32 next = drum_lock_turn(machine, field, lock, start, delta);
     if (next == lock) return 0;
-    return step_locks::held_set(track, key, field, next != 0, next) ? 1 : 0;
+    return sdk_project_locks_held_set(track, key, field, next != 0, next) ? 1 : 0;
 }
 // A track object's stored words with no per-hit lock: 36, 37 at 0, 38 centred.
 inline void drum_lock_store_neutral_words(volatile i32* stored) {
     stored[kDrumHitMixWord] = 0;
-    stored[kDrumHitPadWord] = 0;
+    stored[kDrumHitHandleWord] = 0;
     stored[kDrumHitPanWord] = kDrumPanTermNeutral;
 }
 // The track's stored words (its selected pattern's, 8d587708) back to no

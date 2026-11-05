@@ -81,22 +81,14 @@ inline u32 drum_held_key() { return word(kDrumEditKey); }
 inline u32 drum_played_key(u32 track) { return stock<u32(u32)>(0x8d4d6cb0)(track); }
 inline u32 drum_selected_key(u32 track) { return stock<u32(u32)>(0x8d4d6c98)(track); }
 // An owned kit's key, which its screen, Shift row and locks show and its
-// per-key edits change: the held key, else the selected one. Once a frame the
-// SDK holds the selected key there while nothing else does (sdk_send_refresh,
-// drum_hold_selected), so a first turn latches the key the screen shows, not
-// one the sequencer last played.
+// per-key edits change: the held key, else the selected one. The SDK never
+// writes the held key: on an owned kit's track the turn's fallback to the last
+// played key (8c0b14b4) gives the selected key instead and its latch
+// (8c0b167a) keeps -1 (drum_values_stock.cpp), so only a pad held or
+// Shift-selected is held, and a turn edits the key the screen shows.
 inline u32 drum_edit_key(u32 track) {
     const u32 held = drum_held_key();
     return held < 128 ? held : drum_selected_key(track);
-}
-// Once a frame for an owned kit's track: when stock holds no key (-1), or still
-// holds the one this put there (`owned`) while the selected key has moved, hold
-// the selected key. A pad held or Shift-selected (another value) stays.
-inline void drum_hold_selected(u32 track, u32& owned) {
-    const u32 held = drum_held_key(), selected = drum_selected_key(track);
-    if (selected >= 128 || !(held >= 128 || held == owned)) return;
-    if (held != selected) *at<volatile u32>(kDrumEditKey) = selected;
-    owned = selected;
 }
 inline void set_text(void* node, const char* text) { stock<void(void*, const char*)>(0x8d6011f0)(node, text); }
 inline void* find_node(void* page, const char* id) { return stock<void*(void*, const char*, u32)>(0x8d520308)(page, id, 1); }

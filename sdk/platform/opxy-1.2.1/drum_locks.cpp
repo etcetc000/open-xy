@@ -8,10 +8,9 @@
 // first notes the note's track, engine and key, and takes the step the
 // sequencer's step hook noted for it (drum_lock_store_take); the second folds
 // that step's locks for the key (drum_lock_store_note) into the payload on the
-// way, after publishing
-// the track's live words that changed (8d5acb9c), so a word the sequencer
-// restored without publishing, PAN's 38 among them, reaches the audio side
-// before the note. Every other caller of the builder (the per-key editor and
+// way, after publishing the track's live words that changed (8d5acb9c), so a
+// word the sequencer restored without publishing reaches the audio side before
+// the note. Every other caller of the builder (the per-key editor and
 // its previews) publishes the key's own values.
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
@@ -80,8 +79,12 @@ u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
     return stock<u32(u32, u32, u32, i32*)>(0x8d5ad194)(project, track, kind, payload);
 }
 
-// The step-lock handles' one client check (lock_handles.hpp): an owned padMix kit.
-bool opxy::platform::step_locks::handle_client(u32 track) {
-    const DrumMachine* kit = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
+// The step-lock handles' client checks (lock_handles.hpp): an owned padMix kit, on an
+// instrument track or as a pattern's machine.
+bool opxy::platform::step_locks::pattern_client(u32 engine) {
+    const DrumMachine* kit = sdk_drum_machine(engine);
     return kit && kit->pad_mix;
+}
+bool opxy::platform::step_locks::handle_client(u32 track) {
+    return track < kTracks && pattern_client(track_engine(track));
 }

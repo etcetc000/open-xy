@@ -70,16 +70,21 @@ i32 scrambled(u32, u32) { return 0x1234; }
 u32 stock_steps(u32, u32, u32* scale) { ++steps_asked; *scale = 2; return 0xffffffffu; }
 // A kit's key (stock.hpp drum_edit_key): the key stock holds for editing
 // (0x8400dfc8, -1 for none), else the track's selected key, `key`. The last
-// played key (8d4d6cb0), which stock's first turn would latch, a kit never reads.
-u32 edit_latch = 0xffffffffu;
+// played key (8d4d6cb0), which stock's turn falls back on and latches, only a
+// track without an owned kit reads.
+u32 edit_latch = 0xffffffffu, played_key = 70, played_asks;
 u32 get_key(u32 selected) { require(selected == track); return key; }
-u32 get_played(u32) { std::abort(); return 0; }
+u32 get_played(u32 selected) { require(selected == track); ++played_asks; return played_key; }
 }
-bool opxy::platform::step_locks::held_value(u32 selected, u32 note, u32 field, i32& value) {
-    require(selected == track);
-    return held && lock_pool.get(step_handle[held_at()], note, field, value);
+// The step-lock handles as every build reaches them (startup.cpp's calls into the
+// drum_locks service).
+extern "C" u32 sdk_project_locks_held_value(u32 selected, u32 note, u32 field, i32* value) {
+    require(selected == track && value);
+    return held && lock_pool.get(step_handle[held_at()], note, field, *value);
 }
-bool opxy::platform::step_locks::held_set(u32 selected, u32 note, u32 field, bool present, i32 value) {
+u32 frames;
+extern "C" void sdk_project_locks_frame() { ++frames; }
+extern "C" u32 sdk_project_locks_held_set(u32 selected, u32 note, u32 field, u32 present, i32 value) {
     require(selected == track && held);
     u32& h = step_handle[held_at()];
     if (!h) h = next_handle++;
@@ -581,7 +586,7 @@ int main() {
         DrumHitLocks shown;
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitPan] == 15 && shown.offset[kHitLevel] == -3 && !shown.offset[kHitSend1]);
-        require(shown.pan_term == kDrumPanTermNeutral && sdk_drum_level(0) == -3);
+        require(sdk_drum_level(0) == -3);
         turn_by(-40);   // clamped at -30
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
@@ -702,26 +707,30 @@ int main() {
         edit_latch = 0xffffffffu;
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitPan] == 9);
-        // Once a frame the SDK holds a kit's selected key for stock's editor
-        // while it holds none, so a first turn edits the key the screen shows,
-        // not the one the sequencer played last; it follows the selected key,
-        // and leaves a pad held or chosen with Shift alone.
-        sdk_send_refresh();
-        require(edit_latch == 57);
+        // With none held, stock's turn falls back on the last played key
+        // (8c0b14b4) and latches it (8c0b167a). On a kit's track the fallback is
+        // the selected key and the latch keeps -1, so a turn edits the key the
+        // screen shows, even in the frame a page or track change set -1, and it
+        // follows the selected key; the SDK never writes the held key.
+        require(sdk_drum_unheld_key(0) == 57 && sdk_drum_latch_key(0) == 0xffffffffu && !played_asks);
+        edit_latch = sdk_drum_latch_key(0);   // the latch's store
         key = 58;
+        require(sdk_drum_unheld_key(0) == 58 && drum_edit_key(0) == 58);
+        const u32 frames_before = frames;
         sdk_send_refresh();
-        require(edit_latch == 58);
-        edit_latch = 61;                      // Shift and a pad
+        require(edit_latch == 0xffffffffu && frames == frames_before + 1);   // and a frame for the handles
+        // A pad held or chosen with Shift is stock's, whatever its key: one the
+        // same as the selected key stays when the selected key moves.
+        edit_latch = 58;
         key = 59;
         sdk_send_refresh();
-        require(edit_latch == 61);
+        require(edit_latch == 58 && drum_edit_key(0) == 58);
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(!shown.any());                // key 58's locks, not 59's
         edit_latch = 0xffffffffu;             // a page change
-        sdk_send_refresh();
-        require(edit_latch == 59);
+        require(drum_edit_key(0) == 59);
         engine = 99;                          // not a kit: stock's own
-        edit_latch = 0xffffffffu;
-        sdk_send_refresh();
-        require(edit_latch == 0xffffffffu);
+        require(sdk_drum_unheld_key(0) == 70 && sdk_drum_latch_key(0) == 70 && played_asks == 2);
         engine = 41;
         key = 57;
         edit_latch = 0xffffffffu;

@@ -126,6 +126,11 @@ opxy::i32 sdk_drum_level(opxy::u32 track) __asm__("sdk_drum_level");
 void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) __asm__("sdk_drum_pad_values");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
+// The instrument turn's key when it holds none (8c0b14b4) and the key it latches
+// then (8c0b167a): on an owned kit's track the selected key and none (-1), so
+// the SDK never holds a key itself (stock.hpp drum_edit_key); else stock's.
+opxy::u32 sdk_drum_unheld_key(opxy::u32 track) __asm__("sdk_drum_unheld_key");
+opxy::u32 sdk_drum_latch_key(opxy::u32 track) __asm__("sdk_drum_latch_key");
 // A Shift press of encoder 0..3 on a kit with a second Shift row
 // (synth_controls.cpp): moves the encoders, and Shift with them, to the other row.
 // True when it did.

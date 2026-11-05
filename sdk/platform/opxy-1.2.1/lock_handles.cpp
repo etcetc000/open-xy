@@ -13,7 +13,9 @@ const u32 kProjectPointer = 0x840a0524;
 // A project's patterns: track t at +0xd7c + t * 0x53f44, pattern k of it at
 // + k * 0x53f4, the track's pattern count at its +0x53f40 (16 slots at most).
 const Address kFirstTrack = 0xd7c, kTrackBytes = 0x53f44, kPatternBytes = 0x53f4, kPatternCount = 0x53f40;
-const u32 kAllTracks = 16, kPatternSlots = 16, kSteps = 128;
+const u32 kAllTracks = 16, kInstrumentTracks = 8, kPatternSlots = 16, kSteps = 128;
+// A pattern's machine, as stock's track engine lookup reads it (8d58781c).
+const Address kPatternEngine = 0x18;
 // A pattern's locks: 42 halfwords a step from +0x258 (0x54 a step), a 64-bit mask a
 // step from +0x2c58 (word i's bit), the union of the masks at +0x3058, the slide byte
 // at +0x3060 and the 58 stored words from +0x3864.
@@ -36,7 +38,8 @@ const u32 kLive = 0x86bd027c + 0x4080, kLiveBytes = 0xe8;
 Pool pools[2];
 u32 active_pool;     // pools[active_pool] holds the active project's values
 Address pending;     // the buffer a load staged pools[1 - active_pool] for, until active
-u8 marks[kHandles / 8];
+const u32 kMarkBytes = (kHandles + 7) / 8;
+u8 marks[kMarkBytes];
 // The sequencer's step hook: by track, the handle its lock pass applied for the note
 // about to start, while that note start has not taken it.
 u16 step_handle[kAllTracks];
@@ -66,8 +69,13 @@ Slot step_slot(Address p, u32 step) {
     return Slot{p + kMasks + step * 8 + 4, p + kValues + step * kStepBytes + kHandleSlot, p};
 }
 
-// Every slot holding a handle: in a project's patterns, and (`stock_copies`) in the
-// clipboards and the snapshot.
+// Whether a pattern is a client's: its machine is (pattern_client).
+bool client_pattern(Address p) { return pattern_client(word_at(p + kPatternEngine)); }
+
+// Every slot holding a handle: in a project's client patterns (instrument tracks
+// only), and (`stock_copies`) in the clipboards and the snapshot. The pattern
+// clipboard is a whole pattern and names its machine; the step clipboard and the
+// snapshot name none, so they are searched whatever track they came from.
 template <class Visit> void each_in_pattern(Address p, Visit& visit) {
     for (u32 s = 0; s < kSteps; ++s) {
         const Slot slot = step_slot(p, s);
@@ -75,7 +83,7 @@ template <class Visit> void each_in_pattern(Address p, Visit& visit) {
     }
 }
 template <class Visit> void each_copy(Visit& visit) {
-    each_in_pattern(kPatternClip, visit);
+    if (client_pattern(kPatternClip)) each_in_pattern(kPatternClip, visit);
     const Slot clip = {kStepClipMask + 4, kStepClipValues + kHandleSlot, 0};
     if (const u32 h = clip.handle()) visit(clip, h);
     for (u32 s = 0; s < kSteps; ++s) {
@@ -85,16 +93,26 @@ template <class Visit> void each_copy(Visit& visit) {
 }
 template <class Visit> void each_reference(Address project, bool stock_copies, Visit& visit) {
     if (project)
-        for (u32 t = 0; t < kAllTracks; ++t)
-            for (u32 k = 0, n = patterns(project, t); k < n; ++k) each_in_pattern(pattern(project, t, k), visit);
+        for (u32 t = 0; t < kInstrumentTracks; ++t)
+            for (u32 k = 0, n = patterns(project, t); k < n; ++k) {
+                const Address p = pattern(project, t, k);
+                if (client_pattern(p)) each_in_pattern(p, visit);
+            }
     if (stock_copies) each_copy(visit);
 }
 
-// Clears a slot's handle word: its mask bit and value, and the pattern's union.
-void clear_slot(const Slot& slot) {
+// Clears a slot's handle word: its mask bit and value; then (clear_slot) the
+// pattern's union of its steps' masks, through stock's own (8d5843ec).
+void clear_word(const Slot& slot) {
     word_at(slot.mask) &= ~kHandleBit;
     half_at(slot.value) = 0;
-    if (slot.pattern) stock<void(Address)>(0x8d5843ec)(slot.pattern);
+}
+void union_of(Address p) {
+    if (p) stock<void(Address)>(0x8d5843ec)(p);
+}
+void clear_slot(const Slot& slot) {
+    clear_word(slot);
+    union_of(slot.pattern);
 }
 
 struct Marker {
@@ -102,7 +120,7 @@ struct Marker {
 };
 // Marks every handle the project (and stock's copies) holds.
 void mark(Address project) {
-    for (u32 i = 0; i < kHandles / 8; ++i) marks[i] = 0;
+    for (u32 i = 0; i < kMarkBytes; ++i) marks[i] = 0;
     Marker marker;
     each_reference(project, true, marker);
 }
@@ -131,8 +149,11 @@ struct Carry {
     void operator()(const Slot& slot, u32 h) {
         u32 i = 0;
         while (i < count && old_handles[i] != h) ++i;
+        // A handle with no values (a dangling one, or a stock word on a track the step
+        // clipboard or snapshot came from) is left as it is.
+        if (!from->has(h)) return;
         if (i == count) {
-            u32 next = from->has(h) ? to->unused(marks) : 0;
+            u32 next = to->unused(marks);
             if (next && !to->copy(next, *from, h)) next = 0;
             if (next) marks[next >> 3] = static_cast<u8>(marks[next >> 3] | 1u << (next & 7));
             if (count < 2 * kSteps + 1) {
@@ -156,7 +177,7 @@ void commit() {
     Pool& from = pools[active_pool];
     Pool& to = pools[1 - active_pool];
     // The new project's own handles are taken; then each copy gets a free one.
-    for (u32 i = 0; i < kHandles / 8; ++i) marks[i] = 0;
+    for (u32 i = 0; i < kMarkBytes; ++i) marks[i] = 0;
     Marker marker;
     each_reference(pending, false, marker);
     carry.from = &from;
@@ -386,20 +407,45 @@ void sdk_step_locks_begin() {
     pools[1 - active_pool].begin();
 }
 
+u32 sdk_step_locks_held_value(u32 track, u32 key, u32 field, i32* value) {
+    return value && held_value(track, key, field, *value) ? 1 : 0;
+}
+u32 sdk_step_locks_held_set(u32 track, u32 key, u32 field, u32 present, i32 value) {
+    return held_set(track, key, field, present != 0, value) ? 1 : 0;
+}
+// Once a GUI frame: the sequencer's step hook and its note start run in one call
+// (8d593980), so a handle still fresh a frame later is one whose note start returned
+// before the payload builder (8d59576a, 8d59582e, 8d595a02). It expires, so the next
+// note played by hand on the track can't take it.
+void sdk_step_locks_frame() {
+    for (u32 t = 0; t < kAllTracks; ++t) step_fresh[t] = false;
+}
+
 void sdk_step_locks_byte(u32 byte) { pools[1 - active_pool].byte(static_cast<opxy::u8>(byte)); }
 
 void sdk_step_locks_loaded(void* project, u32 valid) {
     Pool& staged = pools[1 - active_pool];
-    if (!valid || !staged.finish()) staged.clear();
+    // `valid`: the companion matches the project and its open-xy.locks is version 1.
+    const bool whole = valid && staged.finish();
+    if (!whole) staged.clear();
     const Address loaded = reinterpret_cast<Address>(project);
     if (!loaded) return;
-    // No handle the staged pool lacks stays in the loaded project.
+    // Only a whole pool from a matching companion says which handles have values: each
+    // the loaded project holds that it lacks is cleared, and each pattern's union
+    // recomputed once. Without one the handles stay (lock_handles.hpp).
     struct Sweep {
         Pool* pool;
+        Address dirty;
         void operator()(const Slot& slot, u32 h) {
-            if (!pool->has(h)) clear_slot(slot);
+            if (pool->has(h)) return;
+            if (slot.pattern != dirty) union_of(dirty);
+            clear_word(slot);
+            dirty = slot.pattern;
         }
-    } sweep = {&staged};
-    each_reference(loaded, false, sweep);
+    } sweep = {&staged, 0};
+    if (whole) {
+        each_reference(loaded, false, sweep);
+        union_of(sweep.dirty);
+    }
     pending = loaded;
 }

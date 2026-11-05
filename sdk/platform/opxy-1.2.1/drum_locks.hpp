@@ -24,15 +24,11 @@ const i32 kDrumLockPan = 100, kDrumLockLevel = 30, kDrumLockPad = 127;
 const i32 kDrumPanTermNeutral = 0x40000000;
 
 // A step's locks, as a backend reads them. Each field's 0 is "not locked".
-// - pan_term: stock's note-start pan term (word 38) the hit plays, which stock
-//   combines with the pad's pan itself (8d51a688): neutral at 0x40000000.
-// - offset[kHitPan]: a pan offset to fold into the payload instead (a backend
-//   that does not use word 38); offset[kHitLevel]: dB; offset[kHitPad1/2]: the
-//   pad controls' units.
+// - offset[kHitPan]: a pan offset, folded into the payload's word 5;
+//   offset[kHitLevel]: dB; offset[kHitPad1/2]: the pad controls' units.
 // - offset[kHitSend1/2]: an override of the key's send: 1 + its send code
 //   (1 TRK, 2..8 the amounts 0..100, drum_send.hpp).
 struct DrumHitLocks {
-    i32 pan_term;
     i32 offset[kHitFields];
     bool any() const {
         for (u32 i = 0; i < kHitFields; ++i) if (offset[i]) return true;
@@ -40,7 +36,6 @@ struct DrumHitLocks {
     }
 };
 inline void drum_hit_clear(DrumHitLocks& locks) {
-    locks.pan_term = kDrumPanTermNeutral;
     for (u32 i = 0; i < kHitFields; ++i) locks.offset[i] = 0;
 }
 
@@ -108,25 +103,6 @@ inline i32 drum_pan_word(i32 pan) { return pan * 0x00a3d70a + 0x40000000; }
 inline i32 drum_marked_word(u8 byte) {
     return static_cast<i32>((6 * kDrumModelMark + (drum_mark(byte) >> 4)) * 0x01f07c1fu + 0x00f83e0fu);
 }
-// Stock's note-start pan (8d51a688): a pad's pan word with the pan term. Above
-// its centre the term pushes towards the right by (term - 1/2) x 2 x (1 - pan);
-// at or below, it scales the pan towards the left by 2 x term.
-inline i32 drum_pan_push(i32 pan_word, i32 term) {
-    const i32 centre = 0x40000000;
-    if (term > centre)
-        return q31::add(pan_word, q31::multiply(q31::add(q31::add(term, -centre), q31::add(term, -centre)),
-                                                q31::add(q31::maximum, -pan_word)));
-    return q31::multiply(pan_word, q31::add(term, term));
-}
-// The pan a key at `pan` plays with a pan term, back in stock's -100..100.
-inline i32 drum_pan_played(i32 pan, i32 term) {
-    if (term == kDrumPanTermNeutral) return pan;
-    const i32 word = drum_pan_push(drum_pan_word(pan), term) - 0x40000000;
-    const i32 step = 0x00a3d70a;
-    const i32 played = word >= 0 ? (word + step / 2) / step : -((-word + step / 2) / step);
-    return drum_lock_clamp(played, -kDrumPanLimit, kDrumPanLimit);
-}
-
 // A note's pad payload with a step's locks: a pan offset into word 5, level
 // into word 7 through stock's dB-to-gain (`gain`), the pad controls and send
 // overrides into word 6, each clamped to its field; pan and level are the
@@ -190,8 +166,9 @@ inline bool drum_lock_setup(i32* payload, u8 byte, u32 model, const u8* controls
     return true;
 }
 
-// The words around the per-hit locks: 37 carries the step's handle (the
-// backend, drum_lock_store.hpp); 36 carries nothing; 38 is stock's note-start pan
-// term, kept centred. Each one's stored base stays at no lock.
-const u32 kDrumHitPanWord = 38, kDrumHitMixWord = 36, kDrumHitPadWord = 37;
+// The track words around the per-hit locks, each one's stored base kept at no
+// lock (drum_lock_store.hpp): 37 carries the step's handle (lock_handles.hpp); 36
+// carries nothing on a kit's track; 38 is stock's note-start pan term (8d51af24),
+// kept centred, as PAN's locks go into the payload's word 5 instead.
+const u32 kDrumHitPanWord = 38, kDrumHitMixWord = 36, kDrumHitHandleWord = 37;
 }}
