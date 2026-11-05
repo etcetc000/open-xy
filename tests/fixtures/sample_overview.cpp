@@ -55,6 +55,7 @@ int main() {
     sdk_sample_overview_update(3);
     sdk_sample_overview_prepare();
     require(!o.assigned && !o.loaded && acquired == 0 && wakes == 0);
+    require(o.gain == opxy::draw::gain_unavailable);  // no sample, no gain to show
 
     // A sample still loading: assigned, not loaded, nothing borrowed; one wake per request.
     path("/samples/loop.wav");
@@ -93,6 +94,26 @@ int main() {
     sdk_sample_overview_update(3);
     require(o.begin == 1200 && o.end == 90000);
     has_pad = false;
+
+    // The gain is the region's signed level byte, -30..+20, read every frame;
+    // unknown without a region record.
+    sdk_sample_overview_update(3);
+    require(o.gain == opxy::draw::gain_unavailable);
+    has_pad = true;
+    unsigned char* bytes = reinterpret_cast<unsigned char*>(pad);
+    bytes[29] = 0;
+    sdk_sample_overview_update(3);
+    require(o.gain == 0);
+    bytes[29] = 226;  // the bottom of its travel
+    sdk_sample_overview_update(3);
+    require(o.gain == -30);
+    bytes[29] = 20;
+    sdk_sample_overview_update(3);
+    require(o.gain == 20 && o.begin == 1200 && o.end == 90000);
+    has_pad = false;
+    sdk_sample_overview_update(9);  // not an instrument track: nothing, gain unknown
+    require(!o.assigned && o.gain == opxy::draw::gain_unavailable);
+    sdk_sample_overview_update(3);
 
     // Replaced under the same name, in a new object: the worker's next pass finds it,
     // whatever length it has, with no key change and no eviction reported.

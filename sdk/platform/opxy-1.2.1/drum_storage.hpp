@@ -89,9 +89,12 @@ inline i32 drum_level(const void* record) {
 // level, pad controls and sends; any other plays as before SDK 1.10, at 0 dB
 // with every field neutral. A padMix kit's first edit of a key sets it up:
 // fields and level neutral, so it sounds as it did, and the mark. Presets
-// keep only the word's top half (`random`), so a key loaded from a preset is
-// not ready.
+// keep the word's top half (`random`), the level (`gain`) and pan but not the
+// mark, so a padMix kit's preset load sets up every key it marked
+// (drum_setup_loaded): a preset plays the per-key settings it was saved with.
 const u32 kDrumPadWord = 0x14, kDrumPadPayload = 6;
+// A pattern's machine word and its 24 pad entries (8d58781c, 8d58926c).
+const u32 kDrumPatternMachine = 0x18, kDrumPatternPadsAt = 0x394c, kDrumPatternPadBytes = 0x80, kDrumPatternPads = 24;
 const u32 kDrumPadReady = 0x4d4b;
 const u32 kDrumPadFields = 4;              // the second Shift row's positions
 const u32 kDrumKitPadFields = 2, kDrumKitPadBits = 9, kDrumPadShift = 16;
@@ -103,6 +106,17 @@ inline bool drum_pad_ready(i32 word) { return (static_cast<u32>(word) & 0x8000ff
 inline bool drum_ready(const void* record) {
     const unsigned char* bytes = static_cast<const unsigned char*>(record);
     return record && drum_marked(bytes[24]) && drum_pad_ready(static_cast<const i32*>(record)[kDrumPadWord / 4]);
+}
+// A key a padMix kit's preset has just loaded: set up as the preset holds it.
+// Preset import writes `random` as max(random << 16, 0), so bits 16..30 are the
+// preset's fields and bit 31 is clear; the mark goes in the low half. Level and
+// pan stay as imported. An unmarked key (not the kit's) or one set up stays.
+inline bool drum_setup_loaded(void* record) {
+    unsigned char* bytes = static_cast<unsigned char*>(record);
+    if (!record || !drum_marked(bytes[24]) || drum_ready(record)) return false;
+    i32* word = static_cast<i32*>(record) + kDrumPadWord / 4;
+    *word = static_cast<i32>((static_cast<u32>(*word) & kDrumPadMask) | kDrumPadReady);
+    return true;
 }
 inline u32 drum_pad_low(u32 field, const u8* bits) {
     u32 low = kDrumPadShift;

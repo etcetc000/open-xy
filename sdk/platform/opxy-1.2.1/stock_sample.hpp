@@ -30,7 +30,7 @@ namespace pad_record {
 const u32 kFrames = 0, kStart = 1, kEnd = 2;  // outer markers
 const u32 kLoopStart = 3, kLoopEnd = 4;       // inner loop markers
 const u32 kFade = 5;                          // stock fade word; carries SDK pad settings
-const u32 kRoot = 24, kMode = 27, kFine = 28, kLevel = 29, kFlags = 31;  // byte offsets
+const u32 kRoot = 24, kMode = 27, kFine = 28, kLevel = 29, kFlags = 31;  // byte offsets; kLevel signed, -30..+20
 const u32 kModeBits = 63;                     // play mode in kMode; stock owns the top two bits
 const u32 kReverse = 1;                       // in kFlags
 }
@@ -169,8 +169,9 @@ inline u32 q31_float_bits(u32 value) {
     return (exponent << 23) + ((value >> 7) & 0x7fffffu) + ((value >> 6) & 1u);
 }
 // GUI records and audio records order their markers differently. The GUI
-// record carries no level (stock keeps the volume separately), so its level is
-// unity; an empty pad has neutral tuning.
+// record's level byte holds the gain control's signed steps (SampleOverview.gain),
+// not the audio's Q27 level, so its level here is unity; an empty pad has
+// neutral tuning.
 inline SampleRegion sample_gui_region(const void* raw) {
     using namespace pad_record;
     const i32* words = static_cast<const i32*>(raw);

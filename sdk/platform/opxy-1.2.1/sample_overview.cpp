@@ -45,6 +45,7 @@ void clear() {
     overview.frames = overview.rate = overview.channels = 0;
     overview.begin = overview.end = overview.reverse = 0;
     for (u32 i = 0; i < overview_bins; ++i) overview.low[i] = overview.high[i] = 0;
+    overview.gain = opxy::draw::gain_unavailable;
     shown_key = 0;
 }
 
@@ -136,13 +137,16 @@ void sdk_sample_overview_update(u32 track) {
         overview.loaded = 1;
     }
     overview.assigned = 1;
-    // The outer markers as the engine plays them, from the region's record.
+    overview.gain = opxy::draw::gain_unavailable;
+    // The outer markers as the engine plays them, and the gain, from the region's record.
     if (const void* region = pad_region(track, 0)) {
         if (static_cast<opxy::i32>(pad_word(region, pad_record::kFrames)) > 0) {
             const opxy::SampleRegion outer = sample_gui_region(region);
             overview.begin = outer.begin;
             overview.end = outer.end;
             overview.reverse = outer.reverse;
+            // The sampler page's Shift + encoder 4 steps this signed byte, -30..+20.
+            overview.gain = static_cast<signed char>(pad_byte(region, pad_record::kLevel));
             if (overview.frames) {
                 if (overview.begin > overview.frames) overview.begin = overview.frames;
                 if (overview.end > overview.frames) overview.end = overview.frames;
