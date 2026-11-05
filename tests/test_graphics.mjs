@@ -635,16 +635,3 @@ test('machine graphics settings preserve selected master artwork and reject asse
   kit.machines[0].asset = 'processor.svg';
   await assert.rejects(buildAssets(kit, ['probe'], catalog, {}, {graphics:'grayscale'}, ['processor']), /asset collision/i);
 });
-
-
-test('tilt mic artwork is installed only with its permission owner and verifies its hash', async () => {
-  const {kit, catalog} = await fixture();
-  const data = readFileSync(new URL('../sdk/platform/opxy-1.2.1/tilt_mic.svg', import.meta.url));
-  kit.extensions = [{id:'tilt', actions:['monitor_input']}];
-  kit.inputMonitorArtwork = {bytes:data.toString('base64'), sha256:await sha256(data)};
-  const path='content/display/tilt_mic.svg';
-  assert.equal((await buildAssets(kit, ['probe'], catalog, {}, {}, []))[path], undefined);
-  assert.deepEqual((await buildAssets(kit, ['probe'], catalog, {}, {}, ['tilt']))[path], new Uint8Array(data));
-  kit.inputMonitorArtwork.sha256 = '0'.repeat(64);
-  await assert.rejects(buildAssets(kit, ['probe'], catalog, {}, {}, ['tilt']), /Input monitor artwork differs/);
-});

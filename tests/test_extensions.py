@@ -156,33 +156,9 @@ class Extensions(unittest.TestCase):
         steps = {step for _, _, step in native.plan(machines)}
         self.assertIn('input_monitor_audio', steps)
         self.assertIn('input_monitor_ui', steps)
-        data = (ROOT / 'profiles/opxy-1.2.1/content/op1_factory.json').read_bytes()
-        assets = native.prepare_assets(data, config(), machines)
-        self.assertEqual(assets['content/display/tilt_mic.svg'],
-                         (ROOT / 'sdk/platform/opxy-1.2.1/tilt_mic.svg').read_bytes())
-        omitted = native.prepare_assets(data, config(), native.Collection([fixture('probesynth')], []))
-        self.assertNotIn('content/display/tilt_mic.svg', omitted)
         self.assertIn('aux_menu_hooks', steps)
         self.assertNotIn('aux_tracks', steps)
         self.assertNotIn('aux_hooks', steps)
-
-    def test_monitor_overlay_uses_native_encoder_header_text_placement(self):
-        import xml.etree.ElementTree as ET
-        ns = {'svg': 'http://www.w3.org/2000/svg'}
-        folder = ROOT / 'sdk/platform/opxy-1.2.1'
-        template = ET.parse(folder / 'screen.svg').getroot()
-        overlay = ET.parse(folder / 'tilt_mic.svg').getroot()
-        for name, group in (('title', 'titles'), ('mode', 'values')):
-            expected = template.find("svg:g[@id='" + group + "']/svg:g/svg:text", ns)
-            actual = overlay.find("svg:text[@id='" + name + "']", ns)
-            self.assertIsNotNone(actual)
-            # Native text leaves require an explicit matrix; x/y-only SVG text
-            # rendered outside the display in the first hardware overlay test.
-            self.assertNotIn('x', actual.attrib)
-            self.assertNotIn('y', actual.attrib)
-            for field in ('transform', 'font-family', 'font-size', 'fill'):
-                self.assertEqual(actual.get(field), expected.get(field))
-        self.assertFalse(any('rx' in node.attrib for node in overlay.iter()))
 
     def test_no_extensions_means_no_extension_objects_or_service(self):
         self.assertFalse(any(step.startswith('extension:') for _, _, step in native.plan([])))

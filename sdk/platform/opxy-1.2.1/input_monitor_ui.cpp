@@ -1,31 +1,46 @@
-// GUI-only Shift control, painted over the external-input page by the shared
-// compositor traversal. Later stock dialogs and alerts retain their order.
+// Reuse stock's centered send control and its animation, on a private document.
 #include "input_monitor.hpp"
-#include "screen.hpp"
+#include "input_monitor_popup.hpp"
 using namespace opxy;
-using namespace opxy::screen;
+using namespace opxy::platform;
 namespace {
-struct Overlay {
-    struct Object { Base base; };
-};
-Overlay::Object overlay;
-bool constructed;
-void init(Overlay::Object*) {}
-void frame(Overlay::Object*, i32) {}
-const VTable<Overlay> methods = {&destroy<Overlay::Object>, &destroy<Overlay::Object>,
-    reinterpret_cast<const void*>(0x8d51fcd4), frame, init,
-    reinterpret_cast<const void*>(0x8c0867f0)};
+using input_monitor_popup::Popup;
+Popup popup;
+bool constructed, bound, visible;
 }
 void sdk_input_monitor_frame(u32 painted, u32 selected) {
-    if (painted != 63 || selected != 63 || !sdk_input_monitor_shift_visible()) return;
+    if (selected != 63 || !sdk_input_monitor_shift_visible()) { visible = false; return; }
+    if (painted != 63) return;
     if (!constructed) {
-        base_construct(&overlay.base, 0, "tilt_mic.svg");
-        overlay.base.vtable = &methods;
+        // Page zero does not register or replace stock's send screen.
+        stock<void(Popup*,u32,const char*)>(0x8d520844)(&popup, 0, "fx_send.svg");
         constructed = true;
     }
-    if (!overlay.base.svg) stock<void(Base*)>(0x8d520ce0)(&overlay.base);
-    if (!overlay.base.svg) return;
-    if (Leaf* value = text_node(find(&overlay.base, "mode")))
-        set_text(value, sdk_input_monitor_choice() ? "auto" : "off");
-    draw(&overlay.base);
+    if (!popup.svg) stock<void(Popup*)>(0x8d520ce0)(&popup);
+    if (!popup.svg) { visible = false; return; }
+    if (!bound) { stock<void(Popup*)>(0x8d53b04c)(&popup); bound = true; }
+    if (!visible) { stock<void(Popup*)>(0x8d53adc4)(&popup); visible = true; }
+
+    // Stock updates only this presenter's text and motion and dims the page.
+    // Defer its SVG draw until our caption, visibility and centering are set.
+    const void* document = popup.svg;
+    popup.svg = nullptr;
+    stock<void(Popup*,i32)>(0x8d53ae00)(&popup, 0);
+    popup.svg = document;
+    for (u32 i = 0; i < 4; ++i) {
+        if (popup.rows[i]) popup.rows[i]->hidden = i != 0;
+        if (popup.icons[i]) popup.icons[i]->hidden = 1;
+    }
+    if (popup.rows[0]) {
+        i32 matrix[9];
+        for (u32 i = 0; i < 9; ++i) matrix[i] = popup.rows[0]->matrix[i];
+        matrix[7] = 60 * 1024 + input_monitor_popup::motion_q10(popup.motion[0]);
+        stock<void(void*,const i32*)>(0x8d5f06a6)(popup.rows[0], matrix);
+    }
+    if (popup.values[0]) {
+        const i32 matrix[9] = {1024,0,0,0,1024,0,155*1024,57*1024+512,1024};
+        stock<void(void*,const i32*)>(0x8d5f06a6)(popup.values[0], matrix);
+        set_text(popup.values[0], sdk_input_monitor_choice() ? "tilt mic   auto" : "tilt mic   off");
+    }
+    stock<void(Popup*,u32)>(0x8d51fe1c)(&popup, 0);
 }

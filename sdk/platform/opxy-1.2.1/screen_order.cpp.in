@@ -22,7 +22,7 @@ opxy::platform::ScreenActivation activation;
 
 // selected is the page stock selected for this frame.
 opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor* cursor, opxy::u32 selected) {
-    if (cursor->page == 63 && selected == 63) sdk_input_monitor_frame(cursor->page, selected);
+    if (cursor->page == 0 || (cursor->page == 63 && selected == 63)) sdk_input_monitor_frame(cursor->page, selected);
     const bool first = cursor->page == 0;
     // Once a frame, at its first slot: the sends' effect controls 5..8.
     if (first) sdk_send_refresh();

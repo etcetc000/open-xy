@@ -163,9 +163,6 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     fallbacks = native.service_fallbacks(services)
     if fallbacks:
         kit['serviceFallbacks'] = fallbacks
-    if 'input_monitor' in services:
-        data = read(ROOT / 'sdk/platform/opxy-1.2.1/tilt_mic.svg')
-        kit['inputMonitorArtwork'] = dict(bytes=base64.b64encode(data).decode('ascii'), sha256=sha(data))
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves
