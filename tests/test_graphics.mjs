@@ -433,7 +433,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   const previewModes = [];
   let currentFixture;
   const linkedKits = [], patchedKits = [];
-  let linkError = null;
+  let linkError = null, recoverResult = null;
   const fakeCore = {...Core,
     // Keep this test firmware-free: exercise the real app, asset writer and ZIP
     // with an authored kit; OS verification/linking have their own contract tests.
@@ -447,7 +447,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
     readLayout:(kit, saved) => ({...Core.readLayout(kit, {...saved, memory:undefined}),
       ...(saved.memory === 'unoffered' ? {memoryUnavailable:true} : saved.memory ? {expanded:true} : {})}),
     memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:6 * 1024 ** 2}} : kit,
-    recoverFirmware:async () => ({stock:Uint8Array.of(1)}),
+    recoverFirmware:async () => recoverResult ?? ({stock:Uint8Array.of(1)}),
     linkKit:kit => { linkedKits.push(kit); if (linkError) throw linkError; return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
     patchFirmware:async kit => { patchedKits.push(kit);
       return blockPatch ? new Promise(resolve => { finishPatch = resolve; }) : Uint8Array.of(1, 2, 3); },
@@ -534,12 +534,21 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.match($('status').textContent, /isn’t offered here; it builds with standard memory\./);
   assert.equal(memoryInput.checked, false);
   memoryInput.checked = true; memoryInput.onchange();
-  // Loading an OS sets the choice to what it used; stock used standard memory.
-  assert.equal(await wizardOptions.onFirmware({name:'stock', size:1, arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  // Stock OS records no memory choice and keeps the current one; an open-xy OS sets it.
+  const loadOs = () => wizardOptions.onFirmware({name:'os', size:1, arrayBuffer:async () => Uint8Array.of(1).buffer});
+  assert.equal(await loadOs(), true);
+  assert.equal(memoryInput.checked, true);
+  assert.doesNotMatch($('firmware-result').textContent, /turned/);
+  recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true};  // a standard open-xy OS
+  assert.equal(await loadOs(), true);
   assert.equal(memoryInput.checked, false);
   assert.match($('firmware-result').textContent, / · it uses standard memory, so 6 MiB is turned off$/);
-  assert.equal(await wizardOptions.onFirmware({name:'stock', size:1, arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
-  assert.doesNotMatch($('firmware-result').textContent, /turned/);
+  recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true, expanded:true};
+  assert.equal(await loadOs(), true);
+  assert.equal(memoryInput.checked, true);
+  assert.match($('firmware-result').textContent, / · it uses 6 MiB experimental memory, now turned on$/);
+  recoverResult = null;
+  memoryInput.checked = false; memoryInput.onchange();
   // A collection without the option loads cleanly while it was on, and hides it.
   memoryInput.checked = true; memoryInput.onchange();
   const without = await fixture(); delete without.kit.profile.experimental_memory;

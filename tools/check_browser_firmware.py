@@ -38,6 +38,66 @@ def check_fallbacks(module, symbols, base):
             'Absent-machine callback differs from its source')
 
 
+def expanded_profile(profile):
+    """The reviewed experimental 6 MiB layout (builder/core.mjs expandedProfile), applied independently."""
+    x = profile['experimental_memory']
+    expanded = copy.deepcopy(profile)
+    expanded.update(module_base=x['module_base'], reserved_bytes=x['reserved_bytes'])
+    for patch in expanded['patches']:
+        if patch['kind'] == 'heap':
+            patch['after'] = x['heap_after']
+    return expanded
+
+
+def selection_services(kit, result):
+    return active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
+                           (['extension'] if result['extensions'] else []) +
+                           (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
+                                                    for e in kit.get('extensions', [])) else []))
+
+
+def assembled(stock, module, symbols, reviewed, services, profiling):
+    """Python's own LDR for a GNU-linked module and the reviewed profile it was linked for."""
+    profile = copy.deepcopy(reviewed)
+    for patch in profile['patches']:
+        if not patch_active(patch, services, profiling):
+            patch['after'] = patch['before']
+        elif patch['kind'] == 'hook':
+            patch['after'] = hook_instruction(patch, symbols[patch['symbol']]['value']).hex()
+        elif patch['kind'] == 'startup':
+            patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
+    return assemble(stock, module, profile, reviewed, len(profile['patches']), services, profiling)
+
+
+def check_expanded(directory, kit, stock, boot_label):
+    """GNU-linked 6 MiB modules: their symbols and sizes, and Python's LDR equal to the browser's."""
+    results = directory / 'reference/selections-expanded.json'
+    require(results.is_file() == ('experimental_memory' in kit['profile']), 'Experimental memory checks missing or unexpected')
+    if not results.is_file():
+        return 0
+    reviewed = expanded_profile(kit['profile'])
+    low = reviewed['module_base']
+    selections = json.loads(results.read_text())
+    for result in selections:
+        prefix = directory / 'reference' / result['name']
+        sections, symbols = elf32(prefix.with_suffix('.elf').read_bytes())
+        module = prefix.with_suffix('.bin').read_bytes()
+        require(sha(module) == result['module_sha256'], 'GNU module digest differs (experimental memory)')
+        check_fallbacks(module, symbols, low)
+        check_startup_label(module, symbols, low, boot_label)
+        require(symbols['__extensions_reserved_start']['value'] == low and
+                symbols['__extensions_initialized_end']['value'] - low == result['sizes']['initialized'] and
+                symbols['__extensions_module_end']['value'] - low == result['sizes']['allocated'] and
+                sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs (experimental memory)')
+        for name, value in result['globals'].items():
+            require(symbols[name]['value'] == value, 'GNU symbol differs (experimental memory): ' + name)
+        services = selection_services(kit, result)
+        for profiling, suffix in ((True, '.ldr'), (False, '.profiling-off.ldr')):
+            require(assembled(stock, module, symbols, reviewed, services, profiling) == prefix.with_suffix(suffix).read_bytes(),
+                    'Python/browser firmware differs (experimental memory): ' + suffix)
+    return len(selections)
+
+
 def main():
     directory, stock_file, content = map(lambda p: Path(p).resolve(), sys.argv[1:])
     subprocess.run(['node', str(ROOT / 'tools/check_browser_firmware.mjs'), str(directory), str(stock_file), str(content)], check=True)
@@ -111,21 +171,10 @@ def main():
                      }.get(machine['kind'], (('_engine_id', 'engine'), ('_page_id', 'page')))
             require(all(value(suffix) == own[key] for suffix, key in pairs),
                     'Selection numbers differ: ' + machine['id'])
-        services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
-                                   (['extension'] if result['extensions'] else []) +
-                                   (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
-                                                            for e in kit.get('extensions', [])) else []))
+        services = selection_services(kit, result)
         modes = {}
         for profiling in (True, False):
-            profile = copy.deepcopy(kit['profile'])
-            for patch in profile['patches']:
-                if not patch_active(patch, services, profiling):
-                    patch['after'] = patch['before']
-                elif patch['kind'] == 'hook':
-                    patch['after'] = hook_instruction(patch, symbols[patch['symbol']]['value']).hex()
-                elif patch['kind'] == 'startup':
-                    patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
-            expected = assemble(stock, module, profile, kit['profile'], len(profile['patches']), services, profiling)
+            expected = assembled(stock, module, symbols, kit['profile'], services, profiling)
             suffix = '.ldr' if profiling else '.profiling-off.ldr'
             require(expected == prefix.with_suffix(suffix).read_bytes(), 'Python/browser firmware differs: ' + suffix)
             modes[profiling] = expected
@@ -193,7 +242,9 @@ def main():
             require(set(archive.namelist()) == set(expected_files) and archive.testzip() is None, 'Invalid ZIP file')
             for name, data in expected_files.items():
                 require(archive.read(name) == data, 'ZIP payload differs')
-    print('Independent GNU/Python verification passed for the checked selections (module, symbols, BSS, LDR, assets, ZIP).')
+    expanded = check_expanded(directory, kit, stock, boot_label)
+    print('Independent GNU/Python verification passed for the checked selections (module, symbols, BSS, LDR, assets, ZIP)'
+          + (f', and {expanded} at the experimental 6 MiB layout (module, symbols, BSS, LDR).' if expanded else '.'))
 
 
 if __name__ == '__main__':

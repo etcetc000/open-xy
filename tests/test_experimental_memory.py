@@ -4,6 +4,7 @@ profiles/opxy-1.2.1.json `experimental_memory` moves only the module base and th
 two heap immediates (builder/core.mjs expandedProfile). These checks hold it to
 the same stock instruction forms and table placement as the standard layout.
 """
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -69,6 +70,21 @@ class ExperimentalMemory(unittest.TestCase):
                                                '(6 MiB module reservation, experimental)')
         self.assertEqual({k: v for k, v in expanded.items() if k not in ('module_base', 'reserved_bytes', 'patches')},
                          {k: v for k, v in self.profile.items() if k not in ('module_base', 'reserved_bytes', 'patches')})
+
+    def test_release_check_applies_the_same_layout_as_the_browser(self):
+        # tools/check_browser_firmware.py assembles 6 MiB LDRs from its own copy of the layout.
+        spec = importlib.util.spec_from_file_location('check_browser_firmware', ROOT / 'tools/check_browser_firmware.py')
+        release = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(release)
+        script = BROWSER % json.dumps((ROOT / 'builder/core.mjs').as_uri())
+        browser = json.loads(subprocess.run(['node', '--input-type=module', '-e', script], input=json.dumps(self.profile),
+                                            capture_output=True, text=True, cwd=ROOT, timeout=60, check=True).stdout)
+        python = release.expanded_profile(self.profile)
+        for patches in (browser['patches'], python['patches']):
+            for patch in patches:
+                patch.pop('name', None)
+        self.assertEqual(python, browser)
+        self.assertEqual(self.profile, config())  # the reviewed profile is not changed
 
     def test_sdk_builds_refuse_a_layout_that_asks_for_it(self):
         with tempfile.TemporaryDirectory() as directory:

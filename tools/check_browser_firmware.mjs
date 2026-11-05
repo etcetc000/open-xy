@@ -2,7 +2,8 @@
 import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
 import assert from 'node:assert/strict';
-import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections} from '../builder/core.mjs';
+import {existsSync} from 'node:fs';
+import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections, memoryKit, offersExpandedMemory, sha256} from '../builder/core.mjs';
 const [directory, stockFile, content] = process.argv.slice(2);
 const kit = await openKit(JSON.parse(readFileSync(resolve(directory, 'kit.json'))));
 const stock = new Uint8Array(readFileSync(stockFile));
@@ -48,6 +49,26 @@ for (const {name, selected, extensions, layout} of selections) {
   for (const offset of [Number(kit.profile.patches[2].file_offset), readLdr(firmware).at(-2).offset + 16]) {
     const damaged = firmware.slice(); damaged[offset] ^= 1;
     assert.deepEqual(await recoverFirmware(kit, damaged, layout), earlier);
+  }
+}
+// Experimental larger memory: each GNU-checked selection patches the real stock OS,
+// writes the smaller heap and is recovered exactly, with the option turned on.
+const expandedFile = resolve(directory, 'reference/selections-expanded.json');
+assert.equal(existsSync(expandedFile), offersExpandedMemory(kit.profile));
+if (offersExpandedMemory(kit.profile)) {
+  const expanded = memoryKit(kit, true);
+  for (const {name, selected, extensions, layout, module_sha256} of JSON.parse(readFileSync(expandedFile))) {
+    const linked = linkKit(expanded, selected, layout, extensions);
+    assert.equal(await sha256(linked.module), module_sha256);
+    for (const profiling of [true, false]) {
+      const firmware = await patchFirmware(expanded, linked, stock, {profiling});
+      assert.equal(readLdr(firmware).at(-2).target, expanded.profile.module_base);
+      for (const edit of expanded.profile.patches.filter(e => e.kind === 'heap'))
+        assert.equal(Buffer.from(firmware.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length)).toString('hex'), edit.after);
+      assert.deepEqual(await recoverFirmware(kit, firmware, layout), {stock, selected, extensions, expanded: true});
+      await assert.rejects(patchFirmware(kit, linked, stock, {profiling}), /outside module|exceeds its profile/);
+      writeFileSync(resolve(directory, 'reference', name) + (profiling ? '.ldr' : '.profiling-off.ldr'), firmware);
+    }
   }
 }
 // Relinking does not depend on checkbox order or mutate the object capsules.
