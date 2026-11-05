@@ -75,6 +75,23 @@ inline void drum_lock_range(const DrumMachine& machine, u32 field, i32& low, i32
     low = -high;
 }
 inline i32 drum_lock_clamp(i32 value, i32 low, i32 high) { return value < low ? low : value > high ? high : value; }
+// A turn's step for a lock, in the field's own units, as the unlocked field
+// moves (sdk_drum_edit): stock's turn event is three words, [0] the continuous
+// motion stock adds to a Q31 word (8d5ad254), [1] the signed detents and [2] the
+// speed (8d5ad2e8). PAN moves (speed + 1) units a detent, as stock's pan editor
+// (8d4d60b0); every other field one. Never word [0]: taken as units, any turn
+// clamped a lock to one end of its range or the other.
+inline i32 drum_lock_detents(const i32* event, u32 field) {
+    if (!event) return 0;
+    i32 delta = event[1];
+    if (delta > 127) delta = 127;
+    if (delta < -127) delta = -127;
+    if (field != kHitPan) return delta;
+    i32 step = event[2] + 1;
+    if (step < 1) step = 1;
+    if (step > 200) step = 200;
+    return delta * step;
+}
 // A turn of `delta` detents on a field's lock: a send starts from what the key
 // plays (`start`, 1 + its code), any other field from no offset.
 inline i32 drum_lock_turn(const DrumMachine& machine, u32 field, i32 lock, i32 start, i32 delta) {

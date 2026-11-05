@@ -43,7 +43,15 @@ u32 get_engine(u32 selected) { if (selected >= 8) return 0; require(selected == 
 // stand-in address) and its live words as 8d5acea8 sets them.
 bool held;
 u32 held_step = 5, held_page = 2, written_step, written_index, written_value, writes;
+// A turn as stock's controller hands it on (8d5ad2e8): [0] its continuous
+// motion, a Q31 step stock adds to a continuous word (8d5ad254), [1] its signed
+// detents, [2] its speed. A lock turn steps by detents, never by [0].
 i32 turn_event[3];
+void turn_by(i32 detents, i32 speed = 0) {
+    turn_event[0] = detents * 0x00a3d70a;
+    turn_event[1] = detents;
+    turn_event[2] = speed;
+}
 const u32 kObject = 0x10000000;
 i32 object[0x3864 / 4 + 58];
 i32 live_set[58];
@@ -60,7 +68,12 @@ void live(u32 project, u32 selected, u32 index, i32 value) {
 u32 set(u32, u32 selected, u32 index, i32 value) { require(selected == track && index < 58); object[0x3864 / 4 + index] = value; ++sets; return 0; }
 i32 scrambled(u32, u32) { return 0x1234; }
 u32 stock_steps(u32, u32, u32* scale) { ++steps_asked; *scale = 2; return 0xffffffffu; }
+// Stock's per-key edit key (stock.hpp drum_edit_key): the key it holds for
+// editing (0x8400dfc8, -1 for none), else the track's last played key, `key`.
+// The track's "selected" key (8d4d6c98) is another byte, which nothing may read.
+u32 edit_latch = 0xffffffffu, selected_key = 77;
 u32 get_key(u32 selected) { require(selected == track); return key; }
+u32 get_selected(u32) { std::abort(); return selected_key; }
 }
 bool opxy::platform::step_locks::held_value(u32 selected, u32 note, u32 field, i32& value) {
     require(selected == track);
@@ -137,7 +150,9 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case kSelectedTrack: return reinterpret_cast<Address>(&track);
     case 0x080238bc: return reinterpret_cast<Address>(&page);
     case 0x8d58781c: return reinterpret_cast<Address>(&get_engine);
-    case 0x8d4d6c98: return reinterpret_cast<Address>(&get_key);
+    case 0x8d4d6cb0: return reinterpret_cast<Address>(&get_key);
+    case 0x8d4d6c98: return reinterpret_cast<Address>(&get_selected);
+    case 0x8400dfc8: return reinterpret_cast<Address>(&edit_latch);
     case 0x8d4d6f14: return reinterpret_cast<Address>(&get_track);
     case 0x8d51f184: return reinterpret_cast<Address>(&get_shift);
     case 0x8c0944b0: return reinterpret_cast<Address>(&top);
@@ -520,7 +535,7 @@ int main() {
         engine = 41; key = 57; shifted = true;
         u32 project = 0x86bd027c;
         const u32 event = 0x1000;
-        turn_event[0] = 1;
+        turn_by(1);
         turned_slot = 99;
         // No step held: a Shift turn that reaches here is stock's fine turn of
         // the engine control the position shows, as before.
@@ -533,17 +548,17 @@ int main() {
             turned_slot = 99;
             require(sdk_synth_turn(project, 0, 4 + position, event) == 0 && turned_slot == 99 && !writes);
         }
-        turn_event[0] = 15;
+        turn_by(15);
         require(sdk_synth_turn(project, 0, 6, event) == 1 && turned_slot == 99 && writes == 1);
         require(written_step == 37 && written_index == kHitPan && written_value == 15);
-        turn_event[0] = -3;
+        turn_by(-3);
         sdk_synth_turn(project, 0, 7, event);
         require(turned_slot == 99 && writes == 2 && written_index == kHitLevel);
         DrumHitLocks shown;
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitPan] == 15 && shown.offset[kHitLevel] == -3 && !shown.offset[kHitSend1]);
         require(shown.pan_term == kDrumPanTermNeutral && sdk_drum_level(0) == -3);
-        turn_event[0] = -40;   // clamped at -30
+        turn_by(-40);   // clamped at -30
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitLevel] == -30 && writes == 3);
@@ -553,10 +568,10 @@ int main() {
         shifted = false;
         sdk_synth_press(0); ++presses; shown(4,5,6,7);
         shifted = true;
-        turn_event[0] = 2;
+        turn_by(2);
         sdk_synth_turn(project, 0, 4, event);
         require(writes == 4 && written_index == kHitPad1);
-        turn_event[0] = -1;
+        turn_by(-1);
         sdk_synth_turn(project, 0, 5, event);
         require(writes == 5 && written_index == kHitPad2);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
@@ -566,13 +581,13 @@ int main() {
         u8* pad = reinterpret_cast<u8*>(regions[4]);
         pad[24] = drum_mark(0x20);
         regions[4][5] = static_cast<i32>((3u << 25) | 0x1234u);
-        turn_event[0] = 1;
+        turn_by(1);
         sdk_synth_turn(project, 0, 6, event);
         require(writes == 6 && written_index == kHitSend1);
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitSend1] == 5 && shown.offset[kHitSend2] == 2 && shown.offset[kHitLevel] == -30);
-        turn_event[0] = 20;    // at most 100 (lock 8)
+        turn_by(20);    // at most 100 (lock 8)
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitSend2] == 8);
@@ -582,7 +597,7 @@ int main() {
         sdk_drum_pad_values(0, values);
         require(values[0] == 2 && values[1] == 0 && values[2] == 4 && values[3] == 7);   // SRR clamps at its 0
         // Turned back to 0, a field is unlocked: FILTER from 2 by -2.
-        turn_event[0] = -2;
+        turn_by(-2);
         sdk_synth_turn(project, 0, 4, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(writes == 9 && !shown.offset[kHitPad1] && shown.offset[kHitPad2] == -1);
@@ -592,7 +607,7 @@ int main() {
         key = 58;
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(!shown.any());
-        turn_event[0] = 4;
+        turn_by(4);
         sdk_synth_turn(project, 0, 4, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitPad1] == 4 && !shown.offset[kHitLevel]);
@@ -604,6 +619,70 @@ int main() {
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(!shown.any());
         held_step = 5;
+        // A lock walks its whole range a detent at a time, as the unlocked
+        // field does (overnight-001 read the event's continuous word as the
+        // step, so every turn landed on one end or the other). On step 7:
+        // FILTER (signed 5 bits, -31..31 as a lock) one a detent, both ways,
+        // to its ends; LEVEL one dB; PAN (speed + 1) a detent.
+        held_step = 7;
+        {
+            const u32 ahead = writes;
+            for (i32 n = 1; n <= 31; ++n) {
+                turn_by(1);
+                sdk_synth_turn(project, 0, 4, event);
+                drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+                require(shown.offset[kHitPad1] == n);
+            }
+            turn_by(1);
+            sdk_synth_turn(project, 0, 4, event);   // at its end: no write
+            require(writes == ahead + 31);
+            for (i32 n = 30; n >= -31; --n) {
+                turn_by(-1);
+                sdk_synth_turn(project, 0, 4, event);
+                drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+                require(shown.offset[kHitPad1] == n || (n == 0 && !shown.offset[kHitPad1]));
+            }
+            turn_by(-1);
+            sdk_synth_turn(project, 0, 5, event);   // SRR one step
+            drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+            require(shown.offset[kHitPad2] == -1);
+        }
+        // Back on the first row: LEVEL -1 dB, PAN 3 x (2 + 1) at speed 2.
+        shifted = false;
+        sdk_synth_press(0); ++presses; shown(0,1,2,3);
+        shifted = true;
+        turn_by(-1);
+        sdk_synth_turn(project, 0, 7, event);
+        turn_by(3, 2);
+        sdk_synth_turn(project, 0, 6, event);
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(shown.offset[kHitLevel] == -1 && shown.offset[kHitPan] == 9);
+        // A turn with no detents (motion only) locks nothing.
+        {
+            const u32 ahead = writes;
+            turn_event[0] = 0x7fffffff; turn_event[1] = 0; turn_event[2] = 0;
+            sdk_synth_turn(project, 0, 6, event);
+            require(writes == ahead);
+        }
+        // The key stock edits, not the track's "selected" key: with a pad held
+        // for editing (0x8400dfc8) the Shift row shows and locks it; without
+        // one, the last played key (8d4d6cb0). get_selected aborts if read.
+        edit_latch = 60;
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(!shown.any());
+        turn_by(5);
+        sdk_synth_turn(project, 0, 6, event);
+        require(written_index == kHitPan);
+        i32 latched;
+        require(lock_pool.own(step_handle[held_at()], 60, kHitPan, latched) && latched == 5);
+        require(sdk_drum_pan(0) == 5);
+        edit_latch = 0xffffffffu;
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(shown.offset[kHitPan] == 9);
+        shifted = false;
+        sdk_synth_press(0); ++presses; shown(4,5,6,7);
+        shifted = true;
+        held_step = 5;
         // Unshifted, a held step locks the engine control shown, as before.
         shifted = false;
         sdk_synth_turn(project, 0, 1, event);
@@ -614,7 +693,7 @@ int main() {
         sdk_synth_press(0); ++presses; shown(4,5,6,7);
         shifted = true;
         const u32 before = writes;
-        turn_event[0] = 1;
+        turn_by(1);
         for (u32 position = 0; position < 2; ++position) {
             turned_slot = 99;
             require(sdk_synth_turn(project, 0, 4 + position, event) == 0 && turned_slot == 99);

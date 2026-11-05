@@ -26,8 +26,8 @@
 namespace opxy { namespace platform {
 const u32 kDrumLockBase = 0x3864;          // a pattern's track object: its 58 stored words
 
-// The key the Shift row shows (stock's selected key for the track).
-inline u32 drum_lock_key(u32 track) { return stock<u32(u32)>(0x8d4d6c98)(track); }
+// The key the Shift row shows and stock edits (stock.hpp drum_edit_key).
+inline u32 drum_lock_key(u32 track) { return drum_edit_key(track); }
 // A stored field value within what the kit locks (0, no lock, outside it).
 inline i32 drum_lock_checked(const DrumMachine& machine, u32 field, i32 value) {
     i32 low, high;
@@ -62,7 +62,8 @@ inline u32 drum_lock_store_steps(const DrumMachine&, u32) { return 0; }
 // the pool; a field turned back to 0 is unlocked.
 inline u32 drum_lock_store_edit(u32, u32 track, const DrumMachine& machine, u32 field, u32 event, i32 start) {
     if (field >= kHitFields || !event) return 0;
-    const i32 delta = *at<const i32>(event);
+    const i32 delta = drum_lock_detents(at<const i32>(event), field);
+    if (!delta) return 0;
     const u32 key = drum_lock_key(track);
     i32 lock = 0;
     if (!step_locks::held_value(track, key, field, lock)) lock = 0;

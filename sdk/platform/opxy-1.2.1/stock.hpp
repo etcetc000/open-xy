@@ -68,6 +68,20 @@ inline void* pad_region(u32 track, u32 key) {
     u32 scratch;
     return stock<void*(u32, u32, u32*, u32)>(0x8d58926c)(track, key, &scratch, 0);
 }
+// The key a drum track's per-key editing acts on, as stock's instrument
+// controller picks it for its per-key editor (8c0b1344, 8c0b1448..8c0b1454):
+// the key it holds for editing at 0x8400dfc8 (a held or Shift-selected pad,
+// 8c0b29ce; the first turn sets it, 8c0b1678), else the track's last played key
+// (8d4d6cb0, a byte at 0x080379f0 + track that note start sets, 8d595838).
+// Stock's dbox page shows the same key (8d530724, 8d52d7c8). The track's
+// "selected" key (8d4d6c98, set only by a played GUI note, 8d59429a) can differ:
+// a screen or lock that read it showed and locked one key while turns edited
+// another.
+const u32 kDrumEditKey = 0x8400dfc8;
+inline u32 drum_edit_key(u32 track) {
+    const u32 held = word(kDrumEditKey);
+    return held < 128 ? held : stock<u32(u32)>(0x8d4d6cb0)(track);
+}
 inline void set_text(void* node, const char* text) { stock<void(void*, const char*)>(0x8d6011f0)(node, text); }
 inline void* find_node(void* page, const char* id) { return stock<void*(void*, const char*, u32)>(0x8d520308)(page, id, 1); }
 }}

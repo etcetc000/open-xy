@@ -537,7 +537,9 @@ A resonant peak more than 6 dB above a kit's half-scale ceiling clips.
 A `padMix` kit's steps lock its keys' PAN, LEVEL, pad controls, FX I and FX II
 per hit and **per key**, as stock's steps lock a track's parameters. Hold a step
 and Shift and turn one of them: the step gets a lock of that field for the key
-the Shift row shows (the selected key), one unit a detent. PAN (-100..100),
+the Shift row shows (the key the encoders edit: one held or selected with
+Shift, else the last played), one unit a detent (PAN faster when turned fast,
+as without a step held). PAN (-100..100),
 LEVEL (-30..30 dB) and a pad control (as far as its whole span, at most 127)
 lock an offset to the key's own value, clamped to the field (LEVEL stays a cut,
 -30..0); FX I and FX II lock the send itself, TRK or 0..100, starting from what

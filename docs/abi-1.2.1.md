@@ -1134,9 +1134,16 @@ plays. Words 36 and 38 carry nothing.
   editor call at `8c0b147a` and makes its generic call at `8c0b15aa`
   (`sdk_synth_turn`) with Shift's index 4..7. For such a kit the SDK maps the
   position through `DrumMachine::shift` and the encoders' row. Each of the six
-  fields reads what the held step plays for the selected key (`8d4d6c98`),
-  changes it by the turn's detents within its range (a send from what the key
-  plays), and writes it for that key through the handles (`held_set`), which
+  fields reads what the held step plays for the key stock's per-key editing
+  acts on (`drum_edit_key`: the key held for editing at `0x8400dfc8`, a held or
+  Shift-selected pad, which the controller's first turn sets at `8c0b1678`, else
+  the track's last played key, `8d4d6cb0`; stock's dbox page shows the same key,
+  `8d530724`; the track's selected key `8d4d6c98`, set only by a played GUI note,
+  can be another), changes it by the turn's detents within its range (a send
+  from what the key plays): the event's word 1, PAN's times its speed (word 2)
+  plus 1, as the per-key editor steps them (`8d4d60b0`), never word 0, the
+  continuous motion stock adds to a Q31 word (`8d5ad254`), which as a step sent
+  every turn to an end of the range. It writes it for that key through the handles (`held_set`), which
   allocate or copy the step's handle and write it with stock's lock writer; a
   field turned back to 0 is unlocked. `sdk_param_steps` answers no lock word.
   MACHINE and CHOKE return without a call, where a held step used to take a fine
@@ -1170,7 +1177,9 @@ plays. Words 36 and 38 carry nothing.
   its own locks and voices still sounding keep theirs.
 - **Slide.** The step hook takes each step's own handle whatever the slide byte,
   so these locks hold their step's values and do not blend.
-- **Showing.** With a step held the selected key's pan, level and pad fields
+- **Showing.** The kit's selected-key values (`sdk_drum_values`, the pan,
+  level, choke and pad fields, the selected pad) are those of the same key the
+  per-key editor edits (`drum_edit_key`). With a step held that key's pan, level and pad fields
   (`sdk_drum_pan`, `sdk_drum_level`, `sdk_drum_pad_values`, which the Shift row
   and the display's input read) show the held step's locks for that key: pan,
   level and the pad controls with their offsets, a send with its override.
