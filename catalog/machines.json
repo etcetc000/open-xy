@@ -510,8 +510,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Grains",
-      "tag": "v1.1.0",
-      "commit": "dee67f6a3348959c1759143525b1fdeddff703ea",
+      "tag": "v1.2.0",
+      "commit": "6be0359958df95f34dc7a27c959d853a3959d925",
       "path": ".",
       "keywords": [
         "granular",
@@ -519,10 +519,10 @@
       ],
       "cpu": {
         "benchmark": "opxy-sample-callback-v1",
-        "commit": "dee67f6a3348959c1759143525b1fdeddff703ea",
-        "firmware_sha256": "6aca8365d9188bfbafc858447a869d1d0792c59355e73c89b736bf6eb7da9150",
+        "commit": "6be0359958df95f34dc7a27c959d853a3959d925",
+        "firmware_sha256": "4b97a9500c15a865683076ca688161b0212db1223270b74b08796c65e59ebbfa",
         "runs": 1,
-        "block_percent": 3.067063
+        "block_percent": 3.088426
       }
     },
     {
@@ -886,8 +886,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Nonagon",
-      "tag": "v0.7.0",
-      "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+      "tag": "v0.8.0",
+      "commit": "809d3ca74fae24f504fdcc063f61e2d3bb323146",
       "path": "ghost",
       "keywords": [
         "experimental",
@@ -897,10 +897,10 @@
       ],
       "cpu": {
         "benchmark": "opxy-sample-callback-v1",
-        "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
-        "firmware_sha256": "531fafab7eb846e4c3eeb9fd8a1176c0636cc931c6d7ae577e80990f09c9b708",
-        "runs": 1,
-        "block_percent": 3.065537
+        "commit": "809d3ca74fae24f504fdcc063f61e2d3bb323146",
+        "firmware_sha256": "b0d8783ad5e6905f8745b46ad114e511dbd20032f8448427396a5376bbd92f4c",
+        "runs": 3,
+        "block_percent": 3.030442
       }
     },
     {
@@ -909,8 +909,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Nonagon",
-      "tag": "v0.7.0",
-      "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
+      "tag": "v0.8.0",
+      "commit": "809d3ca74fae24f504fdcc063f61e2d3bb323146",
       "path": "recur",
       "keywords": [
         "experimental",
@@ -918,10 +918,10 @@
       ],
       "cpu": {
         "benchmark": "opxy-sample-callback-v1",
-        "commit": "8257f3e990a150ebedcd647dc00659fc03ec3f75",
-        "firmware_sha256": "531fafab7eb846e4c3eeb9fd8a1176c0636cc931c6d7ae577e80990f09c9b708",
-        "runs": 1,
-        "block_percent": 1.156634
+        "commit": "809d3ca74fae24f504fdcc063f61e2d3bb323146",
+        "firmware_sha256": "b0d8783ad5e6905f8745b46ad114e511dbd20032f8448427396a5376bbd92f4c",
+        "runs": 3,
+        "block_percent": 1.228351
       }
     },
     {
