@@ -1671,6 +1671,27 @@
       }
     },
     {
+      "id": "tesla",
+      "kind": "synth",
+      "maintainer": "meemknight",
+      "status": "published",
+      "repository": "https://github.com/meemknight/OPXY-Tesla",
+      "tag": "v1.0.0",
+      "commit": "a03e42c57f7e62440c3e76c41120946bade75145",
+      "path": ".",
+      "keywords": ["emulation", "analog", "lofi", "modulation", "noise"],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "a03e42c57f7e62440c3e76c41120946bade75145",
+        "firmware_sha256": "dbd5d39e8d93668b86ab925ae834b031bcae0443ecd279eab08be4253a02fbb7",
+        "runs": 3,
+        "block_percent": 3.132677,
+        "midpoint_percent": 2.317845,
+        "combined_percent": 2.384985,
+        "worst_setting": {"control": 4, "label": "Crush", "value": 268435455}
+      }
+    },
+    {
       "id": "halo",
       "kind": "effect",
       "maintainer": "kristapskristaps",
