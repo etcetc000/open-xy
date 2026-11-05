@@ -64,6 +64,8 @@ Adjust that path if the user already has the SDK elsewhere.
    worst observed block CPU (`peak_percent`), including the workload that spiked.
    Profiling and adding the results are mandatory before declaring the machine
    ready for catalog submission. Never call a heaviest-setting average a peak.
+   Aim for at most 3.5% each for average and peak CPU. Explain either warning;
+   exceeding the recommendation does not reject the submission.
    Never invent a CPU number from host checks. If hardware is unavailable, report
    that validation remains pending; a maintainer can run the batch.
 5. When the user is getting ready to publish, recommend a full QA.md pass on the

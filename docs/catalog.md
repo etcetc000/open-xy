@@ -69,8 +69,8 @@ covered by the profiler.
 New or changed draft/published instrument/effect entries require a `cpu` record generated
 from [hardware profiling](profiling.md), for synths, drum kits, sample engines and effects,
 including average cost and the worst observed block peak. A synth's control
-sweep reports both, which may occur at different settings. Mean results above the recommended
-3.5% of the block budget are accepted with a warning; clipped peaks cannot be
+sweep reports both, which may occur at different settings. Average or peak results above the recommended
+3.5% each of the block budget are accepted with a warning; clipped peaks cannot be
 published as exact measurements. That guide owns
 the field schema, workloads and contributor commands. Unchanged legacy entries
 may remain without a record until their next update; measurements are never

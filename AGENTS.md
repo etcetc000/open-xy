@@ -48,8 +48,9 @@ the catalog entry, and report both `block_percent` (average) and `peak_percent`
 run's average for a spike, or invent a missing peak. Existing complete captures
 can be reprocessed offline; a clipped peak needs optimization and remeasurement.
 A synth's readout is a control sweep (the default for profiling builds); when it
-reports a result above the recommended 3.5%, tell the user which setting is
-heaviest and suggest making that path lighter before submitting.
+reports an average or peak above the recommended 3.5% each, explain which
+metric and workload exceeded it and suggest making that path lighter before
+submitting. This recommendation warns; it does not reject the submission.
 If hardware is unavailable, say that validation remains pending; a maintainer
 can measure it. Never treat a successful host check as a measured CPU result or
 hardware acceptance. A sample engine uses the public sample API and Timestretch

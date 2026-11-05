@@ -239,7 +239,8 @@ def create(package, paths, name, url, out):
     text = (f"# {name}: hardware CPU measurement\n\n"
             f"Machine commit: `{commit}`. Benchmark: `{measurement['benchmark']}`. Scope: {scope}.\n\n"
             f"{published}\n\n"
-            f"Recommended mean: at most {RECOMMENDED_PERCENT}%. {advice}\n\n"
+            f"Recommended mean and worst observed block peak: each at most {RECOMMENDED_PERCENT}%. "
+            f"Exceeding the recommendation is a warning, not a catalog rejection. {advice}\n\n"
             "This is a synthetic measurement on the USB-MIDI command endpoint, not total device CPU, " + limits +
             "Graphics are excluded. "
             "Callback tests exclude sample preparation, allocation, stock mixing and voice processing; "

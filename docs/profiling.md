@@ -128,11 +128,13 @@ firmware-containing packages.
 | `worst_setting` | Synths: the heaviest swept setting: `control` (0-7), its `label`, and its Q31 `value` |
 | `report` | Optional: public HTTPS evidence URL containing the generated readout |
 
-Keep `block_percent` at or below the **recommended 3.5%**. A higher result is
+Keep both `block_percent` (average) and `peak_percent` (worst observed block)
+at or below the **recommended 3.5% each**. A higher result is
 still accepted, but `profile report`, the collector's readout and `catalog check`
-print a warning naming the heaviest setting: make that path lighter where you can.
-This recommendation applies to the mean; it is not a separate 3.5% peak limit.
-Inspect the peak alongside it: a low mean can conceal an expensive block.
+warn for each metric above the recommendation. The report identifies the
+workloads: make those paths lighter where you can. This is guidance, not a hard
+admission limit. Inspect both metrics; a low mean can
+conceal an expensive block.
 Both timing fields use `100 * encoded_value / 65535`. A peak encoded as 65535
 is clipped at the whole block budget: the collector labels it **at least 100%**,
 and `profile report` refuses to publish it as an exact peak. Optimize the named
@@ -146,8 +148,10 @@ the rest.
 
 A drum kit's record has a run per model and level, plus three for the whole kit, so a
 kit of 33 models adds about 100 reports and takes about half a minute. `block_percent` is its
-heaviest single voice, the figure the recommendation applies to; `kit_percent`,
-`choke_percent` and `ceiling_percent` are whole kits against the same budget.
+heaviest single voice; `kit_percent`, `choke_percent` and `ceiling_percent` are
+whole kits against the same budget. `peak_percent` covers all those workloads,
+so its warning may refer to a whole-kit run. Use the report's workload labels
+when interpreting it; a whole-kit peak is not a per-voice cost.
 
 Synth records from before the sweep (`opxy-synth-c8-v1`) stay valid while their
 release stays at the commit they measured; a new synth, or one whose release

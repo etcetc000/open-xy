@@ -215,7 +215,14 @@ class Measurements(unittest.TestCase):
         self.assertIn('4.810%', warning)
         self.assertIn('Tone 100.0%', warning)
         self.assertIn('recommended 3.5%', warning)
-        self.assertIsNone(cpu_measurement.above_recommended(dict(measurement('synth'), block_percent=3.5)))
+        self.assertIsNone(cpu_measurement.above_recommended(dict(measurement('synth'), block_percent=3.5, peak_percent=3.5)))
+        peak_only = cpu_measurement.above_recommended(dict(measurement('synth'), block_percent=3.0, peak_percent=4.5))
+        self.assertIn('Worst observed block peak 4.500%', peak_only)
+        self.assertNotIn('Mean', peak_only)
+        self.assertIn('Mean 4.810%', warning)
+        self.assertIn('Worst observed block peak 6.000%', warning)
+        # Both recommendations warn; neither 3.5% nor 4.5% is an admission ceiling.
+        cpu_measurement.validate(measurement('synth'), 'synth', legacy=False)
         self.assertIn('above the recommended', cpu_measurement.above_recommended(legacy_synth()))
 
     def test_changed_submissions_require_a_measurement_but_legacy_entries_can_stay(self):

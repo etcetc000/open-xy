@@ -53,6 +53,8 @@ build with profiling enabled, install when authorized and collect a run
 average CPU (`block_percent`) and worst observed block CPU (`peak_percent`).
 The peak is the largest measured block across all settings and captures, never
 an average of peaks. A clipped peak cannot be published as an exact measurement.
+Aim for at most 3.5% of the block budget for both average and peak CPU;
+exceeding either recommendation warns but does not reject the submission.
 The host estimate printed by `test` cannot substitute for those measurements.
 
 For the builder, follow [catalog submission](https://github.com/etcetc000/open-xy/blob/staging/docs/catalog.md#submit-a-machine).

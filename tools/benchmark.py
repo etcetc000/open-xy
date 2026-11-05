@@ -262,7 +262,7 @@ def main(argv=None):
         from tooling.cpu_measurement import recommendation
         from tooling.benchmark import case_label, combined_label, combined_positions
         lines = ['| Machine | Scope | Setting | Mean block budget | Worst observed block |', '| --- | --- | --- | ---: | ---: |']
-        heaviest, swept = {}, {}
+        heaviest, peaks, swept = {}, {}, {}
         for item in decoded:
             metrics = item['metrics']
             suffix = ' (insufficient activity)' if item['insufficient_voice_activity'] else ''
@@ -281,6 +281,8 @@ def main(argv=None):
             # A silent run says nothing about cost; a saturated one is the heaviest of all.
             # As profile report: a swept setting counts if it timed anything; others must sound.
             sounded = metric['encoded_average'] > 0 and (setting or not item['insufficient_voice_activity'])
+            if case.get('source') == 'sdk' and sounded and peak > peaks.get(case['name'], (0, ''))[0]:
+                peaks[case['name']] = (peak, label)
             # A kit's recommendation is for one voice; its whole-kit runs are listed above.
             whole_kit = case.get('drum', {}).get('run', 'voice') != 'voice'
             if case.get('source') == 'sdk' and sounded and not whole_kit and value > heaviest.get(case['name'], (0, ''))[0]:
@@ -288,9 +290,14 @@ def main(argv=None):
                                                           if metric['encoded_average'] >= 65535 else ''))
         lines.append('')
         for name, (value, label) in heaviest.items():
-            warning = recommendation(value, 'at ' + label)
+            warning = recommendation(value, 'at ' + label, 'Mean')
             lines.append(f'- {name}: heaviest {value:.3f}% at {label} in this run.' +
                          (f' **{warning[0].upper() + warning[1:]}.**' if warning else ''))
+        for name, (peak, label) in peaks.items():
+            warning = recommendation(peak, 'at ' + label, 'Worst observed block peak')
+            peak_text = '>=100% (clipped; exact peak unavailable)' if peak == 100 else f'{peak:.3f}%'
+            lines.append(f'- {name}: worst observed block {peak_text} at {label} in this run.' +
+                         (f' **{warning}.**' if warning else ''))
         lines += ['', 'Workload: ' + results['workload'] + '.', '', 'Normalization: ' + results['normalization'] + '.',
                   '', *('- ' + item for item in results['limitations']), '',
                   'Firmware SHA-256: `' + package_identity['firmware_sha256'] + '`']

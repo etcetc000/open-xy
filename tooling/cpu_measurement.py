@@ -36,14 +36,17 @@ def above_recommended(value):
         where = 'at ' + position(value['worst_setting'])
     elif 'worst_model' in value:
         where = 'for ' + drum_label(value['worst_model'])
-    return recommendation(value['block_percent'], where)
+    warnings = [recommendation(value['block_percent'], where, 'Mean')]
+    if 'peak_percent' in value:
+        warnings.append(recommendation(value['peak_percent'], 'across all measured workloads', 'Worst observed block peak'))
+    return '; '.join(warning for warning in warnings if warning) or None
 
 
-def recommendation(percent, where=''):
+def recommendation(percent, where='', metric=''):
     """The warning for a share above the recommended one, else None; `where` names the run."""
     if percent <= RECOMMENDED_PERCENT:
         return None
-    return (f"{percent:.3f}% of the block budget{' ' + where if where else ''} is above the recommended "
+    return (f"{metric + ' ' if metric else ''}{percent:.3f}% of the block budget{' ' + where if where else ''} is above the recommended "
             f"{RECOMMENDED_PERCENT}%; make it lighter where you can (docs/profiling.md)")
 # An optional public evidence URL, never a local path or a URL with credentials.
 REPORT_URL = r'https://[A-Za-z0-9.-]+(?::[0-9]+)?/[^\s<>"\\]*'
