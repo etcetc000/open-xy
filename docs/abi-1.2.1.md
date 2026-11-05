@@ -1346,8 +1346,10 @@ never a kit's alias (`sdk_drum_alias`); an SDK kit's track never has engine 4.
   the last played key there, `8c0b1678`), else on the track's last played key
   (`8d4d6cb0`, the byte `0x080379f0 + track` note start sets, `8d595838`), and
   the dbox page shows that key (`8d530724`, `8d52d7c8`). Page 2's texts and
-  locks use the same (`drum_edit_key`), never the track's selected key
-  (`8d4d6c98`, set only by a played GUI note), which can be another.
+  locks use the same (`edit_key` in `drumline.cpp`), as page 1 does, never the
+  track's selected key (`8d4d6c98`, set only by a played GUI note), which can be
+  another. (An owned kit instead holds its selected key there, stock.hpp
+  `drum_edit_key`; Drumline keeps stock's choice.)
 - **The page.** Both of the dbox page's branches end at `8d531192`
   (`R0 = B[P4 + 0xb4] (Z)`, `a0e4 b400`): the Shift branch (`8d530fb8`..
   `8d531190`, behind `8d51f184`) falls through, the unshifted one jumps back

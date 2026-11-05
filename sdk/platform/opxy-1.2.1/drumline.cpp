@@ -26,6 +26,13 @@ unsigned char* pad_slot(u32 track, u32 slot) {
                                 : nullptr;
 }
 bool is_drumline(u32 t) { return t < kTracks && track_engine(t) == kDrumlineEngine; }
+// The key stock's editor edits and its dbox page shows (stock.hpp): the key it
+// holds for editing, else the track's last played key. Page 2 shows and locks
+// the same, as stock's page 1 does.
+u32 edit_key(u32 track) {
+    const u32 held = drum_held_key();
+    return held < 128 ? held : drum_played_key(track);
+}
 i32 stock_gain(i32 db) { return stock<i32(i32)>(0x8d5ad604)(db); }
 
 // Each track's page: false the first (stock's), true the second.
@@ -54,8 +61,8 @@ i32 detents(const u32* event) {
 }
 
 // 8c0b147a on page 2, no step held: an unshifted encoder edits FILTER, SRR,
-// FX I or FX II of the key stock passes (the key it edits, stock.hpp
-// drum_edit_key), one step a detent; stock's republication as its editor does it.
+// FX I or FX II of the key stock passes (the key it edits, edit_key), one
+// step a detent; stock's republication as its editor does it.
 // Shift's encoders (4..7) are stock's TYPE, RANDOM, PAN, VOLUME on either page.
 bool edit(u32 track, u32 key, u32 control, const u32* event) {
     if (track >= kTracks || control >= opxy::page_controls || !second[track]) return false;
@@ -82,7 +89,7 @@ bool step_offsets(u32 handle, u32 key, i32* offsets) {
 }
 // The held step's offsets of the key stock edits.
 bool held_offsets(u32 track, i32* offsets) {
-    const u32 key = drum_edit_key(track);
+    const u32 key = edit_key(track);
     bool any = false;
     for (u32 lock = 0; lock < kDrumlineLocks; ++lock) {
         i32 value = 0;
@@ -101,7 +108,7 @@ bool lock(u32 track, u32 position, const u32* event) {
     if (track >= kTracks || position >= opxy::page_controls || !second[track]) return false;
     if (!event) return true;
     const u32 which = drumline_page_lock(position);
-    const u32 key = drum_edit_key(track), field = drumline_pool_field(which);
+    const u32 key = edit_key(track), field = drumline_pool_field(which);
     const i32 reach = drumline_lock_reach(which);
     i32 now = 0;
     if (!step_locks::held_value(track, key, field, now)) now = 0;
@@ -262,7 +269,7 @@ const DboxRender sdk_dbox_methods[4] = {nullptr, nullptr, nullptr, sdk_dbox_rend
 void sdk_drumline_page(unsigned char* page) {
     const u32 track = byte(kSelectedTrack);
     if (!page || !drumline_track(track) || !second[track] || shift_held()) return;
-    const unsigned char* record = static_cast<const unsigned char*>(pad_region(track, drum_edit_key(track)));
+    const unsigned char* record = static_cast<const unsigned char*>(pad_region(track, edit_key(track)));
     if (!record) return;
     // The page's node pointers, 32-bit words.
     void* values[4];
