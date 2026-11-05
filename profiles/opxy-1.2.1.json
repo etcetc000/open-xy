@@ -1868,7 +1868,7 @@
       "before": "0dda0a8434050000",
       "symbol": "sdk_aux_turn_hook",
       "call": true,
-      "service": "aux"
+      "service": "aux_menu"
     },
     {
       "kind": "hook",

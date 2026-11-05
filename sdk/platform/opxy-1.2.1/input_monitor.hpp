@@ -57,5 +57,9 @@ public:
 extern "C" {
 void sdk_input_monitor_startup() __asm__("sdk_input_monitor_startup");
 bool sdk_input_monitor_menu() __asm__("sdk_input_monitor_menu");
+bool sdk_input_monitor_shift_visible() __asm__("sdk_input_monitor_shift_visible");
+opxy::u32 sdk_input_monitor_choice() __asm__("sdk_input_monitor_choice");
+bool sdk_input_monitor_turn(opxy::u32, const opxy::i32*) __asm__("sdk_input_monitor_turn");
+void sdk_input_monitor_frame(opxy::u32, opxy::u32) __asm__("sdk_input_monitor_frame");
 void sdk_input_monitor_audio() __asm__("sdk_input_monitor_audio");
 }

@@ -72,6 +72,9 @@ def expanded_profile(profile):
 def selection_services(kit, result):
     return active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
                            (['extension'] if result['extensions'] else []) +
+                           (['inputMonitor'] if any('monitor_input' in e.get('actions', []) and
+                                                      e['id'] in result['extensions']
+                                                      for e in kit.get('extensions', [])) else []) +
                            (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
                                                     for e in kit.get('extensions', [])) else []))
 
@@ -228,6 +231,11 @@ def main():
         actual_catalog = (prefix / 'content/op1_factory.json').read_bytes()
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
+        if 'input_monitor' in services:
+            name = 'content/display/tilt_mic.svg'
+            art = (ROOT / 'sdk/platform/opxy-1.2.1/tilt_mic.svg').read_bytes()
+            require((prefix / name).read_bytes() == art, 'Input monitor artwork differs')
+            expected_files[name] = art
         for machine in selected:
             if machine['kind'] in ('synth', 'drum', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'

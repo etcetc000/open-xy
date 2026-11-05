@@ -84,7 +84,7 @@ int main() {
     host_engine(11) = 18;
     for (u32 i = 0; i < 8; ++i) host_base(11, i) = 100 + i;
     u32 event = 7;
-    require(sdk_aux_page() == -1 && !sdk_aux_key(kAuxController, &event) && !sdk_aux_turn(0, 0, 123),
+    require(sdk_aux_page() == -1 && !sdk_aux_key(kAuxController, &event) && !sdk_aux_machine_turn(0, 0, 123),
             "Stock CV did not retain its own dispatch");
     take(11, 1);
     require(host_engine(11) == 40 && host_base(11, 0) == 10 && host_live[11][57] == kAuxMark,
@@ -93,7 +93,7 @@ int main() {
     for (u32 tab = 0; tab < 4; ++tab) {
         host_tab = tab;
         require(sdk_aux_page() == 120 && owns_page(11), "Inherited CV page escaped ownership");
-        require(sdk_aux_turn(0, 5, 123) && host_turn_track == 11 && host_turn_index == 1 && host_turn_event == 123,
+        require(sdk_aux_machine_turn(0, 5, 123) && host_turn_track == 11 && host_turn_index == 1 && host_turn_event == 123,
                 "Inherited CV tab changed encoder routing");
         event = 10;
         require(sdk_aux_key(kAuxController, &event) == 2, "CV received a machine encoder click or lost its handled result");
@@ -109,7 +109,7 @@ int main() {
     host_tab = 3; event = 9;
     const u32 turns_before = host_turns;
     require(sdk_aux_page() == -1 && !owns_page(11) && !sdk_aux_key(kAuxController, &event) &&
-            !sdk_aux_turn(0, 1, 123) && host_turns == turns_before, "Explicit shared LFO was intercepted");
+            !sdk_aux_machine_turn(0, 1, 123) && host_turns == turns_before, "Explicit shared LFO was intercepted");
     event = 7;
     require(sdk_aux_key(kAuxController, &event) && host_key == 2 && host_tab == 3,
             "M2 was lost on the shared LFO page");
@@ -120,7 +120,7 @@ int main() {
     for (u32 i = 0; i < 8; ++i) require(host_base(11, i) == static_cast<i32>(100 + i), "CV's controls not restored");
     require(host_engine(11) == 18 && sdk_aux_page() == -1, "CV ownership not restored");
     host_selected = 14;
-    require(sdk_aux_page() == -1 && !sdk_aux_key(kAuxController, &event) && !sdk_aux_turn(0, 1, 123),
+    require(sdk_aux_page() == -1 && !sdk_aux_key(kAuxController, &event) && !sdk_aux_machine_turn(0, 1, 123),
             "Send track dispatch changed");
     return 0;
 }

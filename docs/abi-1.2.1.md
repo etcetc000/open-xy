@@ -213,13 +213,17 @@ brief live-value resets retain the current envelope for at most 12 audio blocks.
 No audio callback allocates, blocks, logs or accesses files. Neither codec
 registers nor saved routing/gain/level controls change.
 
-The existing Aux Shift + M1 hook is shared through the `aux_menu` service,
-without a second hook in that input stage. On the external-audio track it opens
-the stock Off/Auto selector; other aux machine/send choices keep their original
-dispatch. GUI startup reads the bounded versioned `user/tilt-mic.cfg` preference;
-GUI confirmation writes it, and failed/cancelled choices do not change the active
-preference. Motion callbacks perform no file I/O. The menu and audio hook are
-selected only for a collection with a `monitor_input` action owner.
+The `aux_menu` service shares the existing Aux encoder hook at `8c08fa14`
+with aux machine routing. On external-audio track 12, tab 0, holding Shift
+reveals a `tilt mic` overlay; the dark encoder (index 0 or shifted index 4)
+selects Off counterclockwise and Auto clockwise. Other turns delegate unchanged.
+The existing compositor traversal draws this authored overlay immediately after
+stock input page 63, before later stock dialogs. Releasing Shift hides it.
+Shift + M1 also opens the stock Off/Auto selector through the shared menu hook.
+GUI startup reads bounded, versioned `user/tilt-mic.cfg`; an actual mode change
+writes it, and failed saves retain the previous mode. Motion and drawing
+callbacks perform no file I/O. These controls and the audio hook are selected
+only for a collection with a `monitor_input` action owner.
 
 The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key
 dispatch at `0x8c0b6184`, normalized live onset/release at `0x8d594376` and

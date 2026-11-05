@@ -65,7 +65,7 @@ void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");
 opxy::u32 sdk_aux_shift_track(opxy::u32 controller, opxy::u32 track) __asm__("sdk_aux_shift_track");
 opxy::i32 sdk_aux_page() __asm__("sdk_aux_page");
 opxy::u32 sdk_aux_key(opxy::u32, const opxy::u32*) __asm__("sdk_aux_key");
-opxy::u32 sdk_aux_turn(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_aux_turn");
+opxy::u32 sdk_aux_machine_turn(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_aux_machine_turn");
 opxy::u32 sdk_effect_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_effect_turn");
 const char* sdk_aux_lfo_label(opxy::u32 track, opxy::u32 slot) __asm__("sdk_aux_lfo_label");
 void sdk_cv_output(opxy::u32) __asm__("sdk_cv_output");
@@ -568,7 +568,7 @@ u32 sdk_aux_key(u32 controller, const u32* event) {
 
 // Before stock translates a tab to CV parameter indices. The SDK editor
 // retains stepping, fine turns and locks, but stock CV's page logic never runs.
-u32 sdk_aux_turn(u32, u32 encoder, u32 event) {
+u32 sdk_aux_machine_turn(u32, u32 encoder, u32 event) {
     const u32 track = byte(kSelectedTrack);
     if (!owns_page(track)) return 0;
     if (encoder < 8) sdk_effect_turn(kProject, track, encoder % 4, event);

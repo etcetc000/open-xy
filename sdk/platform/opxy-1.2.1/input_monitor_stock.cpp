@@ -58,7 +58,6 @@ void selected(void*, u32 choice) {
     if (!preference(true, choice)) { extension_notify("tilt mic save failed"); return; }
     automatic = choice;
     // The next controller update releases our lease and disarms the gesture.
-    extension_notify(choice ? "tilt mic auto" : "tilt mic off");
 }
 }
 }}}
@@ -75,6 +74,20 @@ bool sdk_input_monitor_menu() {
     const char* labels[2] = {"off", "auto"};
     if (!input_monitor::selector.open("tilt mic", labels, input_monitor::automatic,
                                     {nullptr, input_monitor::selected, nullptr, nullptr})) return false;
+    return true;
+}
+
+bool sdk_input_monitor_shift_visible() {
+    return extensions_monitor_available() && byte(kSelectedTrack) == 12 &&
+        word(0x0801eae4) == 0 && shift_held();
+}
+u32 sdk_input_monitor_choice() { return input_monitor::automatic; }
+bool sdk_input_monitor_turn(u32 encoder, const i32* event) {
+    if (encoder >= 8 || encoder % 4 || !sdk_input_monitor_shift_visible()) return false;
+    if (event) {
+        const i32 delta = event[0];
+        if (delta) input_monitor::selected(nullptr, delta > 0 ? 1u : 0u);
+    }
     return true;
 }
 
