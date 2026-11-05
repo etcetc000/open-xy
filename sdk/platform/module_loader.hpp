@@ -20,11 +20,13 @@
 // magic (8 bytes).
 //
 // The manifest says what the module is, for people and tools (the builder,
-// a catalog, a web installer); the loader only requires that it ends before
-// the image. Manifest 1, as tooling/build_module.py writes it:
+// a catalog, a web installer); the loader requires that it ends before the
+// image and that its name is the file's. Manifest 1, as tooling/build_module.py
+// writes it:
 //   {"manifest": 1, "name": "karplus", "version": "1.0.0", "kind": "synth",
 //    "os": "1.2.1", "api": 2}
-//   name     the file name without .opx: [A-Za-z0-9_-], at most 15
+//   name     the machine ID (tooling/projects.py MACHINE_ID): [a-z][a-z0-9_], at
+//            most 15; also the file name without .opx
 //   version  MAJOR.MINOR.PATCH; a catalog can refuse an update that does not raise it
 //   kind     a machine kind (synth, ...), or "module" for a bare module with its own init
 //   os       the stock OS the module is linked against (also the trailer's os)
@@ -57,6 +59,7 @@ enum Status : u32 {
     short_file = 101, bad_trailer = 102, wrong_os = 103, bad_layout = 104,
     no_space = 105, bad_crc = 106, bad_reloc = 107, init_failed = 108,
     too_many = 109, reserved = 110, io_error = 111, missing_import = 112,
+    wrong_name = 113,
 };
 
 // A firmware function a module may import, by the name after opxy_import_.
@@ -95,9 +98,14 @@ u32 crc32(u32 crc, const unsigned char* data, u32 bytes);
 // entries into stock's catalog text.
 u32 array_end(const unsigned char* text, u32 bytes, const char* key);
 
+// Whether the manifest text names the module name, ignoring case (FAT32 does):
+// the top-level "name" key's value, a plain string.
+bool manifest_names(const unsigned char* text, u32 bytes, const char* name);
+
 // Checks the whole file in data, copies and relocates it into fresh memory,
-// resolves its imports from exports, zeroes bss and synchronizes caches. On
-// success the module is ready for its init call; on failure nothing stays
-// allocated.
-Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory, const Exports& exports, Module& out);
+// resolves its imports from exports, zeroes bss and synchronizes caches. With
+// a name (the file's, without .opx), the manifest must carry it. On success
+// the module is ready for its init call; on failure nothing stays allocated.
+Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory, const Exports& exports, Module& out,
+             const char* name = nullptr);
 }}

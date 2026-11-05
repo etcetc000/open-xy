@@ -147,6 +147,31 @@ int main(int argc, char** argv) {
     { Spec s; s.manifest = "{\"manifest\": 1}\n"; s.extra_manifest_bytes = 4;
       expect(s, m::bad_layout, "manifest reaching into the image admitted"); }
     {
+        // The manifest's name is the file's, but for case; nothing else counts as it.
+        Spec s; s.manifest = "{\n  \"kind\": \"name\",\n  \"name\" : \"karplus\"\n}\n";
+        for (const char* name : {"karplus", "Karplus", "KARPLUS"}) {
+            Context c = {}; m::Module out;
+            const std::vector<unsigned char> f = build(s);
+            require(m::stage(f.data(), u32(f.size()), m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, exports,
+                             out, name) == m::loaded, "manifest name refused");
+            release(&c, out.block);
+        }
+        const char* wrong[][2] = {
+            {"{\"name\": \"karplus\"}", "karplus2"}, {"{\"name\": \"karplus2\"}", "karplus"},
+            {"{\"name\": \"karplus\"}", ""}, {"{\"manifest\": 1}", "karplus"},
+            {"{\"kind\": \"karplus\"}", "karplus"}, {"{\"names\": \"karplus\"}", "karplus"},
+            {"{\"a\": {\"name\": \"karplus\"}}", "karplus"}, {"{\"name\": [\"karplus\"]}", "karplus"},
+            {"{\"name\": \"karp\\u006cus\"}", "karplus"}, {"{\"name\": \"karplus", "karplus"},
+            {"{\"x\": \"name\", \"y\": \"karplus\"}", "karplus"}, {"", "karplus"},
+        };
+        for (const auto& w : wrong) {
+            Spec t; t.manifest = w[0]; Context c = {}; m::Module out;
+            const std::vector<unsigned char> f = build(t);
+            require(m::stage(f.data(), u32(f.size()), m::os_1_2_1, m::Memory{&c, allocate, release, synchronize}, exports,
+                             out, w[1]) == m::wrong_name && !c.allocated, w[0]);
+        }
+    }
+    {
         // Imports by name: the export's address lands in the slot, wherever the
         // name sits in the firmware's table.
         Spec s; s.names = text("beta\0alpha\0\0\0", 13);

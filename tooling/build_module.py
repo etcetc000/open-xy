@@ -19,6 +19,7 @@ import zlib
 
 from .formats import elf_sections, require
 from .pipeline import ROOT, execute, resolve_toolchain, tool_paths
+from .projects import MACHINE_ID
 
 LINKER = ROOT / 'linker/module.ld'
 CHECK_BASE = 0x01234560  # aligned like the loader's bases (32)
@@ -41,7 +42,9 @@ KINDS = {R_BFIN_BYTE4_DATA: ABS32, R_BFIN_HUIMM16: HI16, R_BFIN_LUIMM16: LO16}
 LOADED = ('.text', '.rodata', '.data')
 ENTRY = '_opxy_module_init'
 MANIFEST = 1
-NAME = re.compile(r'[A-Za-z0-9_-]{1,15}')  # the file name on the device, without .opx
+# A machine ID, as projects and their companions name machines; also the file
+# name on the device, without .opx.
+NAME = MACHINE_ID
 # MAJOR.MINOR.PATCH, so a catalog can refuse an update that does not raise it.
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)')
 
@@ -57,7 +60,7 @@ def api_version():
 def manifest(name, version, kind):
     """The module's manifest: what it is, for people and tools. The loader does
     not read it; see module_loader.hpp for what it may carry later."""
-    require(NAME.fullmatch(name), f'Module name "{name}": letters, digits, _ and -, at most 15')
+    require(NAME.fullmatch(name), f'Module name "{name}": a lowercase letter, then lowercase letters, digits or _, at most 15')
     require(type(version) is str and VERSION.fullmatch(version), f'Module version "{version}": MAJOR.MINOR.PATCH')
     return dict(manifest=MANIFEST, name=name, version=version, kind=kind, os='1.2.1', api=api_version())
 

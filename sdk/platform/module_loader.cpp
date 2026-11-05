@@ -77,9 +77,43 @@ bool terminated(const unsigned char* names, u32 names_bytes, u32 at) {
     for (u32 i = at; i < names_bytes; ++i) if (!names[i]) return i > at;
     return false;
 }
+
+unsigned char lower(unsigned char c) { return c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c + 32) : c; }
+bool space(unsigned char c) { return c == ' ' || c == '\n' || c == '\r' || c == '\t'; }
 }
 
-Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory, const Exports& exports, Module& out) {
+bool manifest_names(const unsigned char* text, u32 bytes, const char* name) {
+    if (!text || !name || !*name) return false;
+    u32 depth = 0;
+    for (u32 i = 0; i < bytes; ++i) {
+        const unsigned char c = text[i];
+        if (c == '{' || c == '[') { ++depth; continue; }
+        if (c == '}' || c == ']') { if (!depth--) return false; continue; }
+        if (c != '"') continue;
+        const u32 start = ++i;
+        while (i < bytes && text[i] != '"') i += text[i] == '\\' ? 2 : 1;
+        if (i >= bytes) return false;
+        const u32 end = i;
+        u32 j = end + 1;
+        while (j < bytes && space(text[j])) ++j;
+        if (j >= bytes || text[j] != ':') continue;  // a value, not a key
+        const bool key = depth == 1 && end - start == 4 && text[start] == 'n' && text[start + 1] == 'a' &&
+                         text[start + 2] == 'm' && text[start + 3] == 'e';
+        i = j;
+        if (!key) continue;
+        // The value: a plain string, equal to name but for case.
+        for (++j; j < bytes && space(text[j]); ++j) {}
+        if (j >= bytes || text[j] != '"') return false;
+        u32 k = 0;
+        for (++j; j < bytes && text[j] != '"' && text[j] != '\\' && name[k]; ++j, ++k)
+            if (lower(text[j]) != lower(static_cast<unsigned char>(name[k]))) return false;
+        return j < bytes && text[j] == '"' && !name[k];
+    }
+    return false;
+}
+
+Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory, const Exports& exports, Module& out,
+             const char* name) {
     out = Module{nullptr, nullptr, 0, 0, 0};
     if (!data || bytes < trailer_bytes) return short_file;
     const unsigned char* tail = data + bytes - trailer_bytes;
@@ -93,6 +127,7 @@ Status stage(const unsigned char* data, u32 bytes, u32 os, const Memory& memory,
         t.reloc_offset > end || t.reloc_count > (end - t.reloc_offset) / sizeof(Reloc) ||
         t.init_offset >= t.image_bytes || (t.init_offset & 1) ||
         t.bss_bytes > 0x01000000u || t.image_bytes > 0x01000000u) return bad_layout;
+    if (name && !manifest_names(data, t.manifest_bytes, name)) return wrong_name;
     const unsigned char* image = data + t.image_offset;
     const unsigned char* relocs = data + t.reloc_offset;
     const u32 reloc_bytes = t.reloc_count * u32(sizeof(Reloc));

@@ -12,7 +12,8 @@ class CfwFiles(unittest.TestCase):
     def test_only_known_subfolders_and_names_are_admitted(self):
         for parts in (('open-xy', 'notes.txt'), ('open-xy', 'other', 'a.opx'), ('open-xy', 'modules', 'sub', 'a.opx'),
                       ('open-xy', 'modules', 'a b.opx'), ('open-xy', 'modules', 'a.oxc'), ('open-xy', 'modules', '.opx'),
-                      ('open-xy', 'modules', 'x' * 16 + '.opx')):
+                      ('open-xy', 'modules', 'x' * 16 + '.opx'), ('open-xy', 'modules', 'Karplus.opx'),
+                      ('open-xy', 'modules', 'my-synth.opx')):
             with self.assertRaises(ValueError, msg=parts):
                 cfw_files.check(parts, module('a'))
 

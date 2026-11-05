@@ -56,7 +56,7 @@ class Packing(unittest.TestCase):
                          dict(manifest=1, name='karplus', version='1.2.10', kind='synth', os='1.2.1',
                               api=build_module.api_version()))
         self.assertGreaterEqual(build_module.api_version(), 2)
-        for name in ('', 'a b', 'a.b', 'x' * 16, 'ü'):
+        for name in ('', 'a b', 'a.b', 'x' * 16, 'ü', 'Karplus', 'my-synth', '2op', '_a'):
             with self.assertRaises(ValueError):
                 build_module.manifest(name, '1.0.0', 'synth')
         for version in ('', '1', '1.0', '01.0.0', '1.0.0-beta', 'v1.0.0', '1.0.0.0', None):

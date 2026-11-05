@@ -65,13 +65,15 @@ const unsigned char* dir_next(void* dir) { return stock<const unsigned char*(voi
 void dir_close(void* dir) { stock<void(void*)>(0x8c0be7b2)(dir); }
 const u32 dirent_type = 0xa, dirent_name = 0xb, dirent_folder = 4;
 
-// A module name: letters, digits, _ and -, at most name_max, then ".opx".
+// A module name: a machine ID (tooling/projects.py MACHINE_ID), at most
+// name_max, then ".opx". FAT32 ignores case, so a file renamed to capitals
+// still counts; it keeps its spelling, for the path.
 bool module_name(const char* file, char* name) {
     u32 n = 0;
     for (; n < name_max && file[n] && file[n] != '.'; ++n) {
         const char c = file[n];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
-            return false;
+        const bool letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+        if (!(letter || (n && ((c >= '0' && c <= '9') || c == '_')))) return false;
         name[n] = c;
     }
     name[n] = 0;  // n <= name_max: inside the buffer
@@ -184,7 +186,7 @@ void load(const char* name, bool gui) {
     modules::Module module = {};
     const modules::Status status = !data ? modules::io_error :
         modules::stage(data, bytes, modules::os_1_2_1, modules::Memory{nullptr, allocate, release, synchronize},
-                       modules::Exports{exports, sizeof exports / sizeof exports[0]}, module);
+                       modules::Exports{exports, sizeof exports / sizeof exports[0]}, module, name);
     if (data) release(nullptr, data);
     if (status != modules::loaded) return;
     // A module whose init refuses stays in memory but is never called again.
