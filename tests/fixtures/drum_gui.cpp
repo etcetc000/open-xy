@@ -8,6 +8,7 @@
 #include "lock_pool.hpp"
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
@@ -150,6 +151,44 @@ const opxy::platform::SynthControls sdk_synth_controls[] = {
 const opxy::u32 sdk_synth_control_count = 6;
 }
 
+namespace {
+// Stock's preset import (8d4e35a8) into the current pattern (8d587708) of the
+// track at the preset's +4: here a pattern block of its own, which the import
+// fills as stock does for a Drumline region: params << 16, the model byte, the
+// pad word max(random << 16, 0), the level and pan bytes.
+alignas(4) unsigned char preset_pattern[0x394c + 24 * 0x80];
+alignas(4) u32 preset_object[2];
+struct ImportedRegion { u8 model_byte; u32 params[4]; i32 random; signed char gain, pan; bool listed; };
+ImportedRegion imported[24];
+u32 imports;
+unsigned char* preset_pad(u32 k) { return preset_pattern + 0x394c + k * 0x80; }
+u32 preset_import(u32 preset, u32) {
+    require(preset == 0x9000);
+    ++imports;
+    std::memset(preset_pattern + 0x394c, 0, 24 * 0x80);
+    for (u32 k = 0; k < 24; ++k) {
+        if (!imported[k].listed) continue;
+        i32* words = reinterpret_cast<i32*>(preset_pad(k));
+        for (u32 i = 0; i < 4; ++i) words[1 + i] = static_cast<i32>(imported[k].params[i] << 16);
+        const i32 random = static_cast<i32>(static_cast<u32>(imported[k].random) << 16);
+        words[5] = random < 0 ? 0 : random;
+        preset_pad(k)[24] = imported[k].model_byte;
+        preset_pad(k)[26] = static_cast<u8>(53 + k);
+        preset_pad(k)[0x1d] = static_cast<u8>(imported[k].gain);
+        preset_pad(k)[0x1e] = static_cast<u8>(imported[k].pan);
+    }
+    return 7;
+}
+// The current pattern (8d587708): the preset tests' own block while they load,
+// else the track object the lock tests use.
+bool loading_preset;
+Address current_pattern(u32 selected) {
+    if (!loading_preset) return static_cast<Address>(track_object(selected));
+    require(selected == preset_object[1]);
+    return reinterpret_cast<Address>(preset_pattern);
+}
+}
+
 opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     switch (address) {
     case kSelectedTrack: return reinterpret_cast<Address>(&track);
@@ -168,10 +207,13 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case 0x8d4d5f18: return reinterpret_cast<Address>(&publish);
     case 0x8d4d5f60: return reinterpret_cast<Address>(&stock_edit);
     case 0x8d5ad5bc: return reinterpret_cast<Address>(&turn);
+    case 0x8d4e35a8: return reinterpret_cast<Address>(&preset_import);
+    case 0x8d587708: return reinterpret_cast<Address>(&current_pattern);
+    case 0x9000: return reinterpret_cast<Address>(preset_object);
+    case 0x9004: return reinterpret_cast<Address>(preset_object + 1);
     case 0x8d506c4c: return reinterpret_cast<Address>(&title);
     case 0x8d6011f0: return reinterpret_cast<Address>(&text);
     case 0x8d5b7e34: return reinterpret_cast<Address>(&step_held);
-    case 0x8d587708: return reinterpret_cast<Address>(&track_object);
     case 0x8d5acea8: return reinterpret_cast<Address>(&live);
     case 0x8d5acf28: return reinterpret_cast<Address>(&set);
     case 0x8c0b5230: return reinterpret_cast<Address>(&scrambled);
@@ -181,6 +223,8 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     default:
         if (address >= kObject && address < kObject + sizeof(object))
             return reinterpret_cast<Address>(object) + (address - kObject);
+        if (address >= reinterpret_cast<Address>(preset_pattern) &&
+            address < reinterpret_cast<Address>(preset_pattern) + sizeof(preset_pattern)) return address;
         std::abort();
     }
 }
@@ -835,6 +879,55 @@ int main() {
         require(object[0x3864 / 4 + 16] == 3 && object[0x3864 / 4 + 35] == 0 && object[0x3864 / 4 + 39] == 0);
         shifted = false; held = false;
         engine = 34; key = 53;
+    }
+
+    {
+        // A padMix kit's preset: stock's import leaves each listed key's pad
+        // fields in bits 16..30 (`random` << 16), its level and pan, and no
+        // mark. Before, every such key played and showed neutral at 0 dB; now
+        // the load sets up each key the preset marked, as loaded. Regions as
+        // THUNDER's presets write them (brushes key 63, foundry key 60,
+        // gamelan-shed key 55): FX II 33 (code 3); DRIVE 9; TUNE 2.
+        const ImportedRegion kit_regions[3] = {
+            {drum_mark(0x00), {7770, 18334, 24578, 10243}, 12288, -9, 30, true},
+            {drum_mark(0x10), {11554, 19004, 1282, 12288}, 288, -13, 25, true},
+            {drum_mark(0x00), {3919, 29741, 1439, 8192}, 2, -6, 10, true}};
+        for (u32 k = 0; k < 24; ++k) imported[k] = ImportedRegion{};
+        imported[10] = kit_regions[0];
+        imported[7] = kit_regions[1];
+        imported[2] = kit_regions[2];
+        imported[4] = ImportedRegion{0x43, {0x0abc, 0, 0, 0}, 0x7a5a, -6, 0, true};   // a stock Drumline pad
+        preset_object[1] = 0;
+        loading_preset = true;
+        // Stock's import alone (what a preset load did before): nothing set up.
+        preset_import(0x9000, 0);
+        for (u32 k : {10u, 7u, 2u}) require(drum_marked(preset_pad(k)[24]) && !drum_ready(preset_pad(k)));
+        // Through the hooked calls: engine 41 (padMix, FILTER 5 signed, SRR 4).
+        *reinterpret_cast<u32*>(preset_pattern + 0x18) = 41;
+        require(sdk_drum_preset_load(0x9000, 0) == 7 && imports == 2);
+        for (u32 k : {10u, 7u, 2u}) require(drum_ready(preset_pad(k)));
+        const i32* fx2 = reinterpret_cast<const i32*>(preset_pad(10));
+        require(fx2[5] == static_cast<i32>((12288u << 16) | kDrumPadReady));
+        require((static_cast<u32>(fx2[5]) >> 28 & 7) == 3 && static_cast<signed char>(preset_pad(10)[0x1d]) == -9 &&
+                static_cast<signed char>(preset_pad(10)[0x1e]) == 30);
+        require((static_cast<u32>(reinterpret_cast<const i32*>(preset_pad(7))[5]) >> 21 & 15) == 9);
+        require((static_cast<u32>(reinterpret_cast<const i32*>(preset_pad(2))[5]) >> 16 & 31) == 2);
+        // The stock pad, and every key the preset left out, stay as stock left them.
+        require(!drum_ready(preset_pad(4)) && reinterpret_cast<const i32*>(preset_pad(4))[5] == 0x7a5a0000);
+        require(!drum_ready(preset_pad(0)) && !reinterpret_cast<const i32*>(preset_pad(0))[5]);
+        // A kit without padMix, a synth and an aux track's preset set nothing up.
+        for (u32 engine : {34u, 99u}) {
+            *reinterpret_cast<u32*>(preset_pattern + 0x18) = engine;
+            sdk_drum_preset_load(0x9000, 0);
+            for (u32 k : {10u, 7u, 2u}) require(!drum_ready(preset_pad(k)));
+        }
+        *reinterpret_cast<u32*>(preset_pattern + 0x18) = 41;
+        preset_object[1] = 9;
+        const u32 before = imports;
+        sdk_drum_preset_load(0x9000, 0);
+        require(imports == before + 1 && !drum_ready(preset_pad(10)));
+        preset_object[1] = 0;
+        loading_preset = false;
     }
 
     ownership = 0;

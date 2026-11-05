@@ -138,3 +138,31 @@ class PadSetupStock(unittest.TestCase):
         for value in defaults + editor:
             self.assertFalse(is_ready(value), hex(value))
         self.assertNotEqual(ready & 0xffff, 0)   # any value a preset restores has a low half of 0
+        # A preset load: stock's preset import 8d4e35a8(preset, flag) has three callers,
+        # each hooked so a padMix kit's loaded keys are set up (sdk_drum_preset_load). It
+        # writes the track at the preset's +4 (8d4e22d4: R0 = [P5 + 0x4]) in that track's
+        # current pattern (8d587708), which the hook reads back.
+        from tooling.firmware import decode_branch
+        sites = {0x8d4dda96: '00e3892d', 0x8d4ddb84: '00e3122d', 0x8d4dde44: '00e3b22b'}
+        callers = set()
+        for block in blocks:
+            if block['fill'] or not block['stored']:
+                continue
+            body = stock[block['offset'] + 16:block['offset'] + 16 + block['stored']]
+            for i in range(0, len(body) - 8, 2):
+                address = block['target'] + i
+                half = int.from_bytes(body[i:i + 2], 'little')
+                if half >> 8 == 0xe3 and decode_branch(address, body[i:i + 4]) == (0x8d4e35a8, True):
+                    callers.add(address)
+                elif half == 0xde00 and body[i + 6:i + 8] == bytes(2) and \
+                        (int.from_bytes(body[i + 2:i + 4], 'little') << 16 | int.from_bytes(body[i + 4:i + 6], 'little')) == 0x8d4e35a8:
+                    callers.add(address)
+        self.assertEqual(callers, set(sites))
+        for address, before in sites.items():
+            self.assertEqual(code(address, 4), before)
+        hooks = {int(p['address'], 16): p for p in config()['patches'] if p.get('symbol') == 'sdk_drum_preset_load'}
+        self.assertEqual({a: (p['before'], p['length'], p['call'], p['service']) for a, p in hooks.items()},
+                         {a: (h, 4, True, 'drums') for a, h in sites.items()})
+        self.assertEqual(decode_branch(0x8d4e35bc, bytes.fromhex(code(0x8d4e35bc, 4))), (0x8d4e22d4, True))
+        self.assertEqual(decode_branch(0x8d4e35c0, bytes.fromhex(code(0x8d4e35c0, 4))), (0x8d587708, True))
+        self.assertEqual(code(0x8d4e22e2, 2), '68a0')   # R0 = [P5 + 0x4]

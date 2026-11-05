@@ -1464,6 +1464,39 @@
     },
     {
       "kind": "hook",
+      "name": "Preset load, its first call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
+      "address": "0x8d4dda96",
+      "file_offset": "0x114cf2",
+      "length": 4,
+      "before": "00e3892d",
+      "symbol": "sdk_drum_preset_load",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset load, its second call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
+      "address": "0x8d4ddb84",
+      "file_offset": "0x114de0",
+      "length": 4,
+      "before": "00e3122d",
+      "symbol": "sdk_drum_preset_load",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset load, its third call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
+      "address": "0x8d4dde44",
+      "file_offset": "0x1150a0",
+      "length": 4,
+      "before": "00e3b22b",
+      "symbol": "sdk_drum_preset_load",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "Instrument turn: the key the per-key editor gets when none is held, an owned kit's selected key",
       "address": "0x8c0b14b4",
       "file_offset": "0xe86f0",

@@ -182,13 +182,19 @@ A maintainer then reviews a new machine once, in full:
 - It uses only the public headers: no assembly, raw addresses or platform code.
 - Its audio callbacks never allocate, block, log or do I/O.
 - Its name is sensible, and its licence allows redistribution.
+- A sample engine's [own samples](api.md#own-samples) are audio its maintainer
+  made or may redistribute under the machine's licence, never stock OP-XY content
+  or commercial or library sounds, and the samples folder's `README.md` states
+  each one's provenance and licence.
 - New synths follow the [control and header conventions](ux.md): five to eight
   controls use two fixed rows and whole-page switching, with repeated shared
   controls where the second page has no alternate.
 - It sounds right in the browser preview from its CI.
 
-An update moves `tag` and `commit` and is reviewed as a diff. The workflow
-compares the catalog with the pull request's target branch: a change of `kind`
+An update moves `tag` and `commit` and is reviewed as a diff. A sample engine's
+update keeps each sample an earlier release shipped and gives new audio a new
+name, since projects load [its own samples](api.md#own-samples) by name. The
+workflow compares the catalog with the pull request's target branch: a change of `kind`
 is refused, and a removed machine becomes `retired`, never deleted.
 A new `repository` or `maintainer` is a handover: it fails the check, and a
 catalog maintainer approves it in a pull request of its own.
