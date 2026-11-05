@@ -71,12 +71,12 @@ void live(u32 project, u32 selected, u32 index, i32 value) {
 u32 set(u32, u32 selected, u32 index, i32 value) { require(selected == track && index < 58); object[0x3864 / 4 + index] = value; ++sets; return 0; }
 i32 scrambled(u32, u32) { return 0x1234; }
 u32 stock_steps(u32, u32, u32* scale) { ++steps_asked; *scale = 2; return 0xffffffffu; }
-// Stock's per-key edit key (stock.hpp drum_edit_key): the key it holds for
-// editing (0x8400dfc8, -1 for none), else the track's last played key, `key`.
-// The track's "selected" key (8d4d6c98) is another byte, which nothing may read.
-u32 edit_latch = 0xffffffffu, selected_key = 77;
+// A kit's key (stock.hpp drum_edit_key): the key stock holds for editing
+// (0x8400dfc8, -1 for none), else the track's selected key, `key`. The last
+// played key (8d4d6cb0), which stock's first turn would latch, a kit never reads.
+u32 edit_latch = 0xffffffffu;
 u32 get_key(u32 selected) { require(selected == track); return key; }
-u32 get_selected(u32) { std::abort(); return selected_key; }
+u32 get_played(u32) { std::abort(); return 0; }
 }
 bool opxy::platform::step_locks::held_value(u32 selected, u32 note, u32 field, i32& value) {
     require(selected == track);
@@ -153,8 +153,8 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case kSelectedTrack: return reinterpret_cast<Address>(&track);
     case 0x080238bc: return reinterpret_cast<Address>(&page);
     case 0x8d58781c: return reinterpret_cast<Address>(&get_engine);
-    case 0x8d4d6cb0: return reinterpret_cast<Address>(&get_key);
-    case 0x8d4d6c98: return reinterpret_cast<Address>(&get_selected);
+    case 0x8d4d6c98: return reinterpret_cast<Address>(&get_key);
+    case 0x8d4d6cb0: return reinterpret_cast<Address>(&get_played);
     case 0x8400dfc8: return reinterpret_cast<Address>(&edit_latch);
     case 0x8d4d6f14: return reinterpret_cast<Address>(&get_track);
     case 0x8d51f184: return reinterpret_cast<Address>(&get_shift);
@@ -667,9 +667,8 @@ int main() {
             sdk_synth_turn(project, 0, 6, event);
             require(writes == ahead);
         }
-        // The key stock edits, not the track's "selected" key: with a pad held
-        // for editing (0x8400dfc8) the Shift row shows and locks it; without
-        // one, the last played key (8d4d6cb0). get_selected aborts if read.
+        // The key stock edits: with a pad held for editing (0x8400dfc8) the Shift
+        // row shows and locks it; without one, the selected key.
         edit_latch = 60;
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(!shown.any());
@@ -682,6 +681,29 @@ int main() {
         edit_latch = 0xffffffffu;
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitPan] == 9);
+        // Once a frame the SDK holds a kit's selected key for stock's editor
+        // while it holds none, so a first turn edits the key the screen shows,
+        // not the one the sequencer played last; it follows the selected key,
+        // and leaves a pad held or chosen with Shift alone.
+        sdk_send_refresh();
+        require(edit_latch == 57);
+        key = 58;
+        sdk_send_refresh();
+        require(edit_latch == 58);
+        edit_latch = 61;                      // Shift and a pad
+        key = 59;
+        sdk_send_refresh();
+        require(edit_latch == 61);
+        edit_latch = 0xffffffffu;             // a page change
+        sdk_send_refresh();
+        require(edit_latch == 59);
+        engine = 99;                          // not a kit: stock's own
+        edit_latch = 0xffffffffu;
+        sdk_send_refresh();
+        require(edit_latch == 0xffffffffu);
+        engine = 41;
+        key = 57;
+        edit_latch = 0xffffffffu;
         shifted = false;
         sdk_synth_press(0); ++presses; shown(4,5,6,7);
         shifted = true;

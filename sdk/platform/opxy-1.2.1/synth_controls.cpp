@@ -521,6 +521,11 @@ void sdk_send_refresh() {
     // whatever put another there (a track newly the kit); never while a project loads.
     const u32 selected = byte(kSelectedTrack);
     if (!word(kProjectLoading) && pad_kit(selected)) drum_lock_store_neutral(kProject, selected);
+    // An owned kit's per-key edits act on the key its screen shows (stock.hpp
+    // drum_edit_key): stock's controller holds the selected key, not the last
+    // played, when nothing else is held.
+    static u32 held_by_sdk = 0xffffffffu;
+    if (selected < kTracks && sdk_drum_machine(track_engine(selected))) drum_hold_selected(selected, held_by_sdk);
     for (u32 s = 0; s < 2; ++s) {
         Track* t;
         const u32 track = kSendTracks + s;
