@@ -136,17 +136,26 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   post popups, including when the same extension also owns a key claim.
 
   `Actions::monitor_input(true)` requests temporary internal-mic monitoring;
-  `false` releases it. Renew the request in each motion callback: omitting a
-  renewal releases it automatically. A second call in one callback is refused.
+  `false` starts a 200 ms fade-out and releases it after the fade. Renew the
+  request in each motion callback: omitting a renewal starts the same release. A second call in one callback is refused.
   The SDK requires the internal mic already selected on the external-audio
   track, no sample workflow or project load, enabled input and stock permission
-  to monitor. It never changes the selected source, gain, routing or project
+  to monitor. The user must also opt in: on the external-audio Aux track,
+  **Shift + M1** opens the stock **tilt mic** selector with **off** and **auto**.
+  Off is the default; confirmation saves this device preference separately
+  from projects in `user/tilt-mic.cfg`. Cancelling leaves it unchanged.
+  The Aux input track shows short native live/idle confirmations as automatic
+  monitoring changes; the normal manual-monitor control remains available.
+  It never changes the selected source, gain, routing or project
   parameters. `InputMonitor.active` reports stock monitoring;
   `owned` distinguishes monitoring the SDK enabled; `available` reports the
   current eligibility. Existing manual monitoring is never acquired or stopped.
   A manual monitoring stop or an eligibility/project change cancels an owned
   request; release it before trying again. Lowering before rearming is the
-  subscriber's responsibility. Audio transitions retain stock behavior.
+  subscriber's responsibility. Automatic monitoring fades in over 50 ms and
+  out over 200 ms before the input reaches the dry mix and FX sends. Manual
+  monitoring bypasses this envelope. Safety/manual cancellations release
+  immediately; switching Auto off never switches off manually owned monitoring.
 
   `Motion.valid` rejects zero/uninitialized channels and disabled input. Channels
   are signed stock units before LFO smoothing; the interface does not claim a

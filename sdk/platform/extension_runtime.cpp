@@ -123,6 +123,13 @@ bool monitor_input(bool enabled) {
 const extensions::Actions actions = {insert_notes, notify, replace_notes, monitor_input};
 }
 
+bool extensions_monitor_available() {
+    if (!ready()) return false;
+    for (u32 i = 0; i < entry_count; ++i)
+        if (entries[i].actions & action_monitor_input) return true;
+    return false;
+}
+
 void extensions_sync() {
     if (dispatching || !ready()) return;
     current.recording = extension_context(current.playing);

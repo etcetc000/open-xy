@@ -61,7 +61,7 @@
 #include "synth_controls.hpp"
 
 extern "C" {
-void sdk_aux_shift_m1() __asm__("sdk_aux_shift_m1");
+void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");
 opxy::u32 sdk_aux_shift_track(opxy::u32 controller, opxy::u32 track) __asm__("sdk_aux_shift_track");
 opxy::i32 sdk_aux_page() __asm__("sdk_aux_page");
 opxy::u32 sdk_aux_key(opxy::u32, const opxy::u32*) __asm__("sdk_aux_key");
@@ -522,7 +522,7 @@ void aux_tick() {
 // through stock's Shift + track key (8c08f60c, from 8c091e24 with the aux
 // controller), whose hook passes the sends on to stock.
 const u32 kAuxController = 0x08014db4;
-void sdk_aux_shift_m1() {
+void sdk_aux_machine_menu() {
     const u32 track = byte(kSelectedTrack);
     if (takeable(track)) open_chooser(track);
     else if (track == 14 || track == 15) stock<void(u32, u32)>(0x8c08f60c)(kAuxController, track);

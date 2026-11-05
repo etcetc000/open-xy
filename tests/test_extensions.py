@@ -145,6 +145,20 @@ class Extensions(unittest.TestCase):
         # A subset of the machines keeps the collection's extensions.
         self.assertEqual(native.subset(machines, []).extensions, (probe,))
 
+    def test_monitor_owner_selects_audio_and_shared_menu_without_aux_takeover(self):
+        from tooling.extensions import Extension
+        from machine_fixtures import fixture
+        from tooling.pipeline import config
+        monitor = Extension('monitor', PROBE, (), ('monitor_input',), {})
+        machines = native.Collection([fixture('probesynth')], [monitor])
+        services = native.active_services(config(), native.service_users(machines))
+        self.assertEqual(services, {'extensions', 'input_monitor', 'aux_menu'})
+        steps = {step for _, _, step in native.plan(machines)}
+        self.assertIn('input_monitor_audio', steps)
+        self.assertIn('aux_menu_hooks', steps)
+        self.assertNotIn('aux_tracks', steps)
+        self.assertNotIn('aux_hooks', steps)
+
     def test_no_extensions_means_no_extension_objects_or_service(self):
         self.assertFalse(any(step.startswith('extension:') for _, _, step in native.plan([])))
         self.assertFalse(any(name.startswith('extension:') for name in native.provenance([])))

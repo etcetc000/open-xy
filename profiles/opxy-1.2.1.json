@@ -153,6 +153,13 @@
     ],
     "drum_locks": [
       "padMix"
+    ],
+    "input_monitor": [
+      "inputMonitor"
+    ],
+    "aux_menu": [
+      "auxTrack",
+      "inputMonitor"
     ]
   },
   "patches": [
@@ -1610,14 +1617,14 @@
     },
     {
       "kind": "hook",
-      "name": "Shift + M1 on an aux track opens the machine chooser",
+      "name": "Aux Shift + M1: machine chooser or input monitoring preference",
       "address": "0x8c08f6ec",
       "file_offset": "0xc6928",
       "length": 8,
       "before": "01e8000008601000",
       "symbol": "sdk_aux_shift_m1_hook",
       "call": true,
-      "service": "aux"
+      "service": "aux_menu"
     },
     {
       "kind": "hook",
@@ -2213,6 +2220,17 @@
       "symbol": "sdk_lock_step",
       "call": true,
       "service": "drum_locks"
+    },
+    {
+      "kind": "hook",
+      "name": "Live input scratch: temporary monitoring envelope before dry and FX mixing",
+      "address": "0x8d50ffec",
+      "file_offset": "0x147248",
+      "length": 8,
+      "before": "08dab011d41d0000",
+      "symbol": "sdk_input_monitor_audio_hook",
+      "call": true,
+      "service": "input_monitor"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

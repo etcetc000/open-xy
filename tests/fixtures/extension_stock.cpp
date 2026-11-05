@@ -4,13 +4,16 @@
 #include <extension_probe.cpp>
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
+#include <input_monitor_stock.cpp>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
+opxy::u32 stock_gui_role() { return 1; }
 using namespace opxy;
 using namespace opxy::platform;
 namespace {
 u32 project_id = 1, selected = 0, input_enabled = 1, screen = 0;
 u32 project_loading, input_source, monitor_active, monitor_writes, monitoring_disabled;
+u32 live_monitor_word;
 i16 motion_axes[3] = {100, -200, 300};
 u32 pattern_id = 2, track_length = 16, scale = 3, quantization = 0;
 i32 position = 0;
@@ -45,6 +48,9 @@ u32 get_input(u32 project,u32 track,u32 index) {
 u32 get_monitor() { return monitor_active; }
 void set_monitor(u32 value) { monitor_active = value; ++monitor_writes; }
 u32 monitor_disabled(u32 source) { failed |= source != 0; return monitoring_disabled; }
+void live_monitor_set(u32 base,u32 track,u32 index,i32 value) {
+    failed |= base != 0x86bd027c || track != 12 || index != 57; live_monitor_word = static_cast<u32>(value);
+}
 void forward_loop(u32 controller, u32 elapsed) {
     failed |= controller != 0x860c6adc || elapsed != 17; ++loop_calls;
 }
@@ -130,6 +136,8 @@ Address host_stock_address(Address address) {
     switch (address) {
         case 0x840a0524: return reinterpret_cast<Address>(&project_id);
         case 0x840a0528: return reinterpret_cast<Address>(&project_loading);
+        case 0x86bd4ec0: return reinterpret_cast<Address>(&live_monitor_word);
+        case 0x8d5acea8: return reinterpret_cast<Address>(&live_monitor_set);
         case 0x08037ba0: return reinterpret_cast<Address>(motion_axes);
         case 0x8d4db490: return reinterpret_cast<Address>(&get_monitor);
         case 0x8d4db4a4: return reinterpret_cast<Address>(&set_monitor);
@@ -173,11 +181,16 @@ Address host_stock_address(Address address) {
 }
 }}
 
+namespace opxy { namespace platform { namespace stock_browser { namespace detail {
+bool open(Session&, Row*, u32, const char*, const char* const*, u32, Callbacks, i32) { return false; }
+}}}}
+
 using extensions::probe::seen;
 using extensions::probe::command;
 using extensions::probe::written;
 
 int main() {
+    input_monitor::automatic = 1;
     fill_pattern(0);
     // The controller update forwards and refreshes the context.
     sdk_extensions_controller_update(0x860c6adc,17); CHECK(loop_calls==1 && seen.contexts>=1);
@@ -251,6 +264,8 @@ int main() {
     // The adapter leases only monitoring it enabled, and never edits routing.
     CHECK(extension_monitor_input(true) && monitor_active && monitor_writes == 1);
     CHECK(extension_input_monitor().owned && extension_monitor_input(true) && monitor_writes == 1);
+    CHECK(extension_monitor_input(false) && monitor_active);
+    clock_time += input_monitor::release_us;
     CHECK(extension_monitor_input(false) && !monitor_active && monitor_writes == 2);
     monitor_active = 1;
     CHECK(!extension_monitor_input(true) && !extension_input_monitor().owned);
