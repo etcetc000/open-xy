@@ -51,7 +51,8 @@ class Drumline(unittest.TestCase):
                 stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                       'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
             (folder / 'stock.hpp').write_text(stock)
-            (folder / 'drum_values.hpp').write_text((PLATFORM / 'drum_values.hpp').read_text())
+            for header in ('drum_values.hpp', 'drum_lock_store.hpp'):
+                (folder / header).write_text((PLATFORM / header).read_text())
             # The dbox objects live at stock's addresses on the device; here, the fixture's.
             unit = (PLATFORM / 'drumline.cpp').read_text()
             index = 'dbox_index(static_cast<u32>(reinterpret_cast<Address>(self)))'

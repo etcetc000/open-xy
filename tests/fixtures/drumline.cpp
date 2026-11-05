@@ -16,6 +16,7 @@
 #include "stock.hpp"
 #include "drumline.hpp"
 #include "drum_locks.hpp"
+#include "lock_handles.hpp"
 #include "synth_controls.hpp"
 
 extern "C" {
@@ -38,6 +39,12 @@ const opxy::platform::Drumline* const sdk_drumline = nullptr;
 #endif
 // drum_send.cpp's, which this fixture does not link.
 opxy::u8 sdk_drum_send_dbox[opxy::platform::kDboxVoices];
+// The step-lock handles (lock_handles.cpp), which this fixture does not link: a
+// Drumline track is no handle client yet, so no step hands its note a handle.
+opxy::u32 opxy::platform::step_locks::take_step(opxy::u32) { return 0; }
+opxy::u32 opxy::platform::step_locks::handle_fields(opxy::u32, opxy::u32, opxy::i32*) { return 0; }
+bool opxy::platform::step_locks::held_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32&) { return false; }
+bool opxy::platform::step_locks::held_set(opxy::u32, opxy::u32, opxy::u32, bool, opxy::i32) { return false; }
 
 namespace {
 using namespace opxy;
@@ -137,8 +144,11 @@ u32 builder(u32 project, u32 track, u32 note, u32, u32, u32, u32) {
     std::memcpy(built, payload, sizeof(built));
     return sdk_drum_lock_publish(project, track, note - 53, payload);
 }
+// 8d5acb9c: the tick's flush of a track's changed live words, which a padMix
+// kit's note start runs before its payload (drum_locks.cpp); nothing to flush here.
+void flush(u32 project, u32) { CHECK(project == kProject); }
 void note(u32 track, u32 note) { sdk_drum_lock_note(kProject, track, note, engines[track], 0, 0, 0); }
-void neutral_live() { for (u32 i = 0; i < 8 * 58; ++i) live[i] = kDrumLockNeutral; }
+void neutral_live() { for (u32 i = 0; i < 8 * 58; ++i) live[i] = 0x40000000; }
 
 // The dbox render 11a06d28: what it was handed, and a ramp out scaled by the
 // payload's level word, counting its block as the DSP does (+0x30).
@@ -201,6 +211,7 @@ Address opxy::platform::host_stock_address(Address address) {
     case 0x8d5ad660: return reinterpret_cast<Address>(&builder);
     case 0x8d5ad194: return reinterpret_cast<Address>(&publisher);
     case 0x8d5ad604: return reinterpret_cast<Address>(&gain);
+    case 0x8d5acb9c: return reinterpret_cast<Address>(&flush);
     case 0x11a06d28: return reinterpret_cast<Address>(&dbox_render);
     default:
         if (address >= kLive && address < kLive + sizeof(live)) return reinterpret_cast<Address>(live) + (address - kLive);
@@ -268,7 +279,7 @@ void packing() {
     for (u32 low = 0; low < 256; ++low)
         CHECK((((0x55aa1200u | low) >> 8) * 66u) >> 23 == ((0x55aa1200u >> 8) * 66u) >> 23);
     // A future lock's reach stays within stock's 255 steps; row 2's positions name FILTER, SRR, FX I, FX II.
-    for (u32 i = 0; i < kDrumlineLocks; ++i) CHECK(drum_lock_buckets(drumline_lock_reach(i)) < 256);
+    for (u32 i = 0; i < kDrumlineLocks; ++i) CHECK(2 * drumline_lock_reach(i) + 1 < 256);
     CHECK(drumline_shift_lock(0, true) == kLineFilter && drumline_shift_lock(1, true) == kLineSrr);
     CHECK(drumline_shift_lock(2, true) == kLineFx1 && drumline_shift_lock(3, true) == kLineFx2);
     CHECK(drumline_shift_lock(0, false) == kDrumlineNoLock && drumline_shift_lock(1, false) == kLineRandom);

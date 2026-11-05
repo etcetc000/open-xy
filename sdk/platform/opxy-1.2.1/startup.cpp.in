@@ -19,6 +19,11 @@ u32 stock_gui_role() __asm__("stock_gui_role");
 int sdk_screen_owned(u32) __asm__("sdk_screen_owned");
 u32 sdk_project_kept(void*) __asm__("sdk_project_kept");
 void sdk_project_loaded(const char*) __asm__("sdk_project_loaded");
+u32 sdk_project_locks_size(void*, u32) __asm__("sdk_project_locks_size");
+void sdk_project_locks_write(void*) __asm__("sdk_project_locks_write");
+void sdk_project_locks_begin() __asm__("sdk_project_locks_begin");
+void sdk_project_locks_byte(u32) __asm__("sdk_project_locks_byte");
+void sdk_project_locks_loaded(void*, u32) __asm__("sdk_project_locks_loaded");
 u32 sdk_sample_screen(u32) __asm__("sdk_sample_screen");
 int sdk_engine_installed(const void*) __asm__("sdk_engine_installed");
 int sdk_stock_engine_known(const void*) __asm__("sdk_stock_engine_known");
@@ -34,6 +39,7 @@ int kit_absent() { return 0; }
 
 // What track control machines keep, written into a project's open companion, and
 // given back after a project loads: the control service's, when this collection links it.
+// Likewise the step-lock handles' open-xy.locks: the drum_locks service's.
 @PROJECT_KEPT@
 
 // Effects register on both roles, like stock FX initialisation; engines

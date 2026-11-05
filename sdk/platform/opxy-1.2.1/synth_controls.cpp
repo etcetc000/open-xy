@@ -10,6 +10,7 @@
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
 #include "drum_locks.hpp"
+#include "drum_lock_store.hpp"
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
@@ -99,24 +100,18 @@ const SynthControls* machine(u32 track, Track*& t) {
 // The owned synth on instrument track 0..7, or null.
 const SynthControls* synth(u32 track) { return track < kTracks ? owned(track_engine(track)) : nullptr; }
 
-// A padMix kit on instrument track 0..7 (its Shift fields lock, drum_locks.hpp), or null.
+// A padMix kit on instrument track 0..7 (its Shift fields lock per hit, drum_locks.hpp), or null.
 const DrumMachine* pad_kit(u32 track) {
     const DrumMachine* kit = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
     return kit && kit->pad_mix ? kit : nullptr;
 }
 // Whether a step is held for parameter locks (8d5b7e34: its step word is not -1).
 bool step_held() { return stock<u32()>(0x8d5b7e34)() != 0; }
-// A padMix kit's lock words back to their neutral base: the stored word, then
-// the live one through 8d5acea8, which sends it to the audio side. Not stock's
-// set, which would also record the value as a lock while recording.
-void neutral_locks(u32 project, u32 track) {
-    for (u32 i = 0; i < kDrumLocks; ++i) {
-        const u32 index = kDrumLockWord + i;
-        opxy::i32* base = at<opxy::i32>(stock<u32(u32)>(0x8d587708)(track) + 0x3864 + index * 4);
-        if (*base == kDrumLockNeutral) continue;
-        *base = kDrumLockNeutral;
-        stock<void(u32, u32, u32, opxy::i32)>(0x8d5acea8)(project, track, index, kDrumLockNeutral);
-    }
+// What the selected key's send `send` plays, as a send lock starts from: 1 + its code.
+opxy::i32 key_send(u32 track, u32 send) {
+    opxy::i32 values[kDrumPadFields];
+    sdk_drum_pad_values(track, values);
+    return 1 + values[kDrumKitPadFields + send];
 }
 }  // namespace
 
@@ -260,13 +255,13 @@ bool sdk_drum_shift_press(u32 track, u32 encoder) {
 // when turned fast), and stores the bucket's centre. An owned machine's enum
 // slot answers its choice count with scale 1: one choice per detent.
 u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
-    // A padMix kit's lock words: one unit of the field a detent (drum_locks.hpp).
-    if (index >= kDrumLockWord && index < kDrumLockWord + kDrumLocks)
-        if (const DrumMachine* kit = pad_kit(track))
-            if (const u32 buckets = drum_lock_buckets(drum_lock_reach(*kit, index - kDrumLockWord))) {
-                *scale = 1;
-                return buckets;
-            }
+    // A word a padMix kit's per-hit locks leave to stock's editor (PAN's): one
+    // unit a detent (drum_lock_store.hpp).
+    if (const DrumMachine* kit = pad_kit(track))
+        if (const u32 buckets = drum_lock_store_steps(*kit, index)) {
+            *scale = 1;
+            return buckets;
+        }
     const SynthControls* m = index < opxy::parameter_slots ? editor(track) : nullptr;
     if (m && m->steps[index]) {
         *scale = 1;
@@ -291,16 +286,17 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     // an alternate selected by a click. Other pages keep stock routing.
     const bool fine_turn = index >= 4 && index < 8 && word(kInstrumentPage) == 0 && shift_held();
     // A padMix kit shows its Shift row there (DrumMachine::shift). With a step
-    // held (only then does stock route a kit's Shift turn here), PAN, LEVEL and
-    // the kit's pad controls lock the step's offset (drum_locks.hpp) through
-    // stock's editor; the model, the choke group and the sends lock nothing,
-    // so their turns do nothing.
+    // held (only then does stock route a kit's Shift turn here), PAN, LEVEL,
+    // the kit's pad controls, FX I and FX II lock the step's hits
+    // (drum_locks.hpp) in the lock store (drum_lock_store.hpp); the model and
+    // the choke group lock nothing, so their turns do nothing.
     if (fine_turn && step_held())
         if (const DrumMachine* kit = pad_kit(track))
             if (machine(track, t)) {
-                const u32 lock = drum_lock(*kit, kit->shift(index - 4, t->slots[0] >= opxy::page_controls));
-                if (lock == kDrumNoLock) return 0;
-                return stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(project, track, kDrumLockWord + lock, event);
+                const u32 field = drum_lock(*kit, kit->shift(index - 4, t->slots[0] >= opxy::page_controls));
+                if (field == kDrumNoLock) return 0;
+                const opxy::i32 start = field >= kHitSend1 ? key_send(track, field - kHitSend1) : 0;
+                return drum_lock_store_edit(project, track, *kit, field, event, start);
             }
     const u32 original_index = index;
     if (fine_turn) index -= 4;
@@ -486,9 +482,9 @@ bool sdk_send_view(u32 track, SendView* view) {
 // stock's own generator (8c0b5230), as stock does for slots 0..3.
 u32 sdk_synth_scramble(u32 project, u32 track, u32 index, opxy::i32 value) {
     const u32 result = set_parameter(project, track, index, value);
-    // Scramble (8c0b52fc) also randomizes 16..19 (8c0b53ac..8c0b53ce), a
-    // padMix kit's lock words: their base stays neutral.
-    if (pad_kit(track)) neutral_locks(project, track);
+    // A padMix kit's per-hit lock words keep a base with no lock (stock's
+    // scramble, 8c0b52fc, leaves 36..41 alone; this keeps it so whatever it does).
+    if (pad_kit(track)) drum_lock_store_neutral(project, track);
     const SynthControls* m = synth(track);
     if (!m) return result;
     for (u32 s = opxy::page_controls; s < opxy::parameter_slots; ++s)
@@ -508,10 +504,10 @@ bool sdk_synth_value(u32 track, u32 slot, opxy::i32 value, char* text) {
 // lock may later move a current value away
 // from the stored one on purpose.
 void sdk_send_refresh() {
-    // The selected padMix kit's lock words keep a neutral base, whatever put
-    // another there (a track newly the kit, a preset); never while a project loads.
+    // The selected padMix kit's per-hit lock words keep a base with no lock,
+    // whatever put another there (a track newly the kit); never while a project loads.
     const u32 selected = byte(kSelectedTrack);
-    if (!word(kProjectLoading) && pad_kit(selected)) neutral_locks(kProject, selected);
+    if (!word(kProjectLoading) && pad_kit(selected)) drum_lock_store_neutral(kProject, selected);
     for (u32 s = 0; s < 2; ++s) {
         Track* t;
         const u32 track = kSendTracks + s;

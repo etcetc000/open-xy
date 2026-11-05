@@ -16,6 +16,7 @@ from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
 from .definitions import control_positions, paged
 from .formats import require, sha
+from .startup import LOCK_CALLS
 from .machines import FIXED_NUMBERS, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
                        resolve_toolchain, tool_paths)
@@ -150,6 +151,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                                             'kit_absent')}
     if 'aux' in services:
         kit.setdefault('serviceFallbacks', {})['aux'] = {'sdk_aux_startup': 'kit_absent'}
+    if 'drum_locks' in services:
+        kit.setdefault('serviceFallbacks', {})['drum_locks'] = dict.fromkeys(
+            ('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves

@@ -228,7 +228,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'drum_locks', 'drumline', 'drumline_hooks')
+             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -243,6 +243,8 @@ UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
 UNIT_SERVICES['drum_locks'] = 'drum_locks'
+# Their values by handle (lock_handles.cpp): the pool, the step hook and open-xy.locks.
+UNIT_SERVICES['lock_handles'] = 'drum_locks'
 # The build option drumlineRow2: stock Drumline's second Shift row (drumline.hpp). It also
 # uses the drums, samples, drum_sends and drum_locks services' hooks.
 UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
@@ -261,13 +263,12 @@ def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padSend', 'padMix'),
     'extension' when it links extensions (native builds link all of the collection's),
-    and its build options (machines.BUILD_OPTIONS). A padMix kit hides M3, so it also
-    uses 'hidePages'."""
+    and its build options (machines.BUILD_OPTIONS)."""
     users = ([m.kind for m in machines] + (['extension'] if extensions_of(machines) else []) +
              list(options_of(machines)))
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
-            ['hidePages' for m in machines if 'hidePages' in m.definition or pad_mix(m)] +
+            ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padSend' for m in machines if sends_per_key(m)] +
             ['padMix' for m in machines if pad_mix(m)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
@@ -509,6 +510,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
+                                                locks='drum_locks' in services,
                                                 drumline='drumline' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
