@@ -146,5 +146,18 @@ class SampleServices(unittest.TestCase):
     def test_startup_registers_in_order_and_gates_the_catalog(self):
         self.run_fixture('startup')
 
+    def test_startup_builds_without_an_engine_or_own_page(self):
+        # With no engine and no own page, nothing in the generated text looks up
+        # a symbol's value; firmware builds treat an unused helper as an error.
+        hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        for name, machines in (('effect', dict(effects=['effect'])), ('player', dict(player_pages=['player']))):
+            with self.subTest(name), tempfile.TemporaryDirectory(prefix='startup-') as folder:
+                source = generate_startup(folder, [], **machines)
+                command = [HOST_CXX, '-std=c++11', '-Wall', '-Werror', '-I' + str(ROOT / 'sdk/include'),
+                           '-I' + str(ROOT / 'sdk/platform/opxy-1.2.1'), '-c', str(source),
+                           '-o', str(Path(folder) / 'startup.o')]
+                result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_benchmark_forwards_stock_and_only_owned_arbitrary_synths(self):
         self.run_fixture('benchmark')
