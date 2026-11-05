@@ -113,7 +113,8 @@ host does fast and the Blackfin does not:
   kernel's stated range). Including one links its device unit
   (`sdk/platform/blackfin/kernels/`) into that machine alone, counted in its
   memory; one machine per kernel in a collection. `fold_pair.hpp` is the
-  Braids sine/triangle folder pair.
+  Braids sine/triangle folder pair; `blep_square.hpp` the Braids
+  band-limited square (one to four oscillators per call).
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
 submitting a catalog entry: add both average cost (`block_percent`) and worst
