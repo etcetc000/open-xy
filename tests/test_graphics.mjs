@@ -521,11 +521,15 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.doesNotMatch($('status').textContent, /turned/);
   // A layout whose memory this site lacks applies nothing unless it links, and says why.
   const before = {checked:memoryInput.checked};
-  linkError = new Error('These machines need more than the 2032 KiB available');
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
   await restoreLayout({...expandedLayout, memory:'unoffered', machines:{probe:{engine:99, page:99}}});
   linkError = null;
   assert.match($('status').textContent, /^This layout used experimental memory this site doesn’t offer\. These machines need more/);
   assert.equal(memoryInput.checked, before.checked);
+  linkError = new Error('Machine numbers overlap');  // not a memory problem: no memory hint
+  await restoreLayout({...expandedLayout, memory:'unoffered'});
+  linkError = null;
+  assert.equal($('status').textContent, 'Machine numbers overlap');
   await restoreLayout({...expandedLayout, memory:'unoffered'});
   assert.match($('status').textContent, /isn’t offered here; it builds with standard memory\./);
   assert.equal(memoryInput.checked, false);

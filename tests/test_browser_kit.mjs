@@ -199,7 +199,7 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   // State that fits only the 6 MiB layout is refused by the standard one.
   const large = {...kit, objects:[...kit.objects, {...readObject(elf()), name:'b.o', owner:'a', symbols:[],
     relocations:[], sections:[{index:1, name:'.bss', group:'bss', type:8, alignment:4, size:3 * 1024 ** 2, data:new Uint8Array()}]}]};
-  assert.throws(() => linkKit(large, ['a']), /need more than the 2048 KiB available/);
+  assert.throws(() => linkKit(large, ['a']), e => e.capacity === true && /need more than the 2048 KiB available/.test(e.message));
   const big = linkKit(memoryKit(large, true), ['a']);
   assert.ok(big.sizes.allocated > kit.profile.reserved_bytes);
   await assert.rejects(patchFirmware(kit, big, stock), /Module exceeds its profile/);

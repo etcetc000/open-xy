@@ -478,6 +478,8 @@ export const moduleBytes = profile => profile.reserved_bytes - profile.table_byt
 // where the reviewed profile puts them (tests/test_experimental_memory.py).
 // Less heap for the stock OS is untested under heavy use, so this is opt-in.
 const HEAP_LOAD = /^01da[0-9a-f]{8}0000$/;  // Blackfin+ Dreg = imm32 (tooling.stock_tables.decode)
+// The application heap a layout leaves below its module.
+export const heapBytes = profile => profile.module_base - profile.heap_fill_base;
 // The size a heap edit loads, or NaN for any other instruction (never equal).
 const heapImmediate = hex => {
   if (typeof hex !== 'string' || !HEAP_LOAD.test(hex)) return NaN;
@@ -500,7 +502,7 @@ export function offersExpandedMemory(profile) {
 }
 export function expandedProfile(profile) {
   check(offersExpandedMemory(profile), 'This firmware profile cannot offer more memory');
-  const x = profile.experimental_memory, heap = x.module_base - profile.heap_fill_base, mib = x.reserved_bytes / 1024 ** 2;
+  const x = profile.experimental_memory, heap = heapBytes({...profile, module_base: x.module_base}), mib = x.reserved_bytes / 1024 ** 2;
   const name = `IN-MEMORY application heap 0x${profile.heap_fill_bytes.toString(16)} -> 0x${heap.toString(16)} (${mib} MiB module reservation, experimental)`;
   return {...profile, module_base: x.module_base, reserved_bytes: x.reserved_bytes,
     patches: profile.patches.map(p => p.kind === 'heap' ? {...p, name, after: x.heap_after} : p)};
@@ -661,7 +663,9 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
         const used = new Map();
         for (const x of objects) for (const y of x.sections) if (y.group) used.set(x.owner ?? 'sdk', (used.get(x.owner ?? 'sdk') || 0) + y.size);
         const shares = [...used].sort((a, b) => b[1] - a[1]).map(([owner, size]) => `${owner} ${(size / 1024).toFixed(1)} KiB`);
-        check(false, `These machines need more than the ${limit / 1024} KiB available: ${shares.join(', ')}`);
+        const error = new Error(`These machines need more than the ${limit / 1024} KiB available: ${shares.join(', ')}`);
+        error.capacity = true;  // callers can tell a selection that does not fit from other link errors
+        throw error;
       }
     }
     if (group === 'data') initializedEnd = cursor;

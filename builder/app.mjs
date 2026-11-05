@@ -218,14 +218,14 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   });
   window.addEventListener('pagehide', graphicsDialog.clear);
   $('preview-selected').onclick = () => graphicsDialog.open({machines:selectedMachines(), screenTemplate:kit?.screenTemplate});
-  let ticket = 0;
+  let ticket = 0, checkingOs = false;
   async function acceptFirmware(file, isCurrent = () => true) {
     if (!file || !kit || !isCurrent()) return false;
     wizard.clearSourceBackup();
     const current = ++ticket; invalidate();
     stock = null; ready();
-    // The OS sets the memory choice, so it cannot be changed while it is checked.
-    memoryInput.disabled = true;
+    // The OS sets the memory choice, so neither it nor a layout can change it while it is checked.
+    memoryInput.disabled = true; checkingOs = true;
     wizard.setFirmwareState('checking');
     $('firmware-result').textContent = 'Verifying ' + file.name + '…';
     try {
@@ -249,8 +249,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
-      // Keep the reason when the selection no longer fits the memory this OS used.
-      if (linked || !selected.length) status();
+      // Show again why a selection cannot be built, e.g. when this OS used less memory.
+      status(); if (!linked && selected.length) recalculate();
       ready();
       return true;
     } catch (error) {
@@ -259,7 +259,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       fail(error); ready();
       return false;
     } finally {
-      if (current === ticket) memoryInput.disabled = !expandedKit;
+      if (current === ticket) { memoryInput.disabled = !expandedKit; checkingOs = false; }
       if (current === ticket && !stock) {
         wizard.setFirmwareState('empty');
         $('firmware-result').textContent = 'OS not loaded';
@@ -804,6 +804,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   $('restore').onchange = async e => {
     try {
+      core.requireThat(!checkingOs, 'Wait until your OS file has been checked, then load the layout.');
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
       const loaded = core.readLayout(kit, saved);
       // A layout keeps its machine numbers even when an extension it names is no
@@ -819,7 +820,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       if (loaded.selected) {
         try { core.linkKit(kitFor(wanted), loaded.selected, loaded.machines, extensions); }
         catch (error) {
-          if (loaded.memoryUnavailable && /^These machines need more than the /.test(error.message))
+          if (loaded.memoryUnavailable && error.capacity === true)
             error.message = 'This layout used experimental memory this site doesn’t offer. ' + error.message;
           throw error;
         }
@@ -849,7 +850,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     memoryInput.disabled = !expandedKit;
     $('expanded-memory-option').hidden = !expandedKit;
     if (expandedKit) {
-      const heap = p => mib(p.module_base - p.heap_fill_base);
+      const heap = p => mib(core.heapBytes(p));
       $('expanded-memory-size').textContent = expandedSize();
       $('expanded-memory-heap').textContent = mib(expandedKit.profile.reserved_bytes - kit.profile.reserved_bytes) +
         ' more from the OP–XY’s own working memory (' + heap(kit.profile) + ' to ' + heap(expandedKit.profile) + ')';
