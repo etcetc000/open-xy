@@ -611,7 +611,7 @@ def read_layout(path, build=False):
     # Earlier profiles with the same identity rules number machines the same way.
     require(value.get('profile') in (profile['id'], *profile.get('layout_profiles', ())),
             f"{path} is a layout for {value.get('profile')}, not {profile['id']}")
-    # The builder's experimental 6 MiB memory (profile experimental_memory) is
+    # The builder's experimental 4 MiB memory (profile experimental_memory) is
     # builder-only; an SDK build from its layout would quietly use 2 MiB.
     require(value.get('memory', 'expanded') == 'expanded', f'{path} has an invalid memory choice')
     require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "

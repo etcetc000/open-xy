@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'dd4141c6f31dec69d1428672c362e212bf277fa25fa047e4bc452d597051ed63';
+export const PROFILE_SHA256 = '7fd3a5a0b6aa5d2795c872f7cb060b135328fde7a66c4dc98c781f9ab48c8c26';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -472,8 +472,8 @@ export function extensionChoices(kit) {
 export const moduleBytes = profile => profile.reserved_bytes - profile.table_bytes;
 
 // Experimental larger memory: the profile's reviewed experimental_memory grows
-// the reservation to 6 MiB by taking 4 MiB more from the stock application heap,
-// which shrinks from 18 MiB to 14 MiB. Only the module base and the immediates of
+// the reservation to 4 MiB by taking 2 MiB more from the stock application heap,
+// which shrinks from 18 MiB to 16 MiB. Only the module base and the immediates of
 // the two heap edits change; the relocated tables, hooks and every other edit stay
 // where the reviewed profile puts them (tests/test_experimental_memory.py).
 // Less heap for the stock OS is untested under heavy use, so this is opt-in.

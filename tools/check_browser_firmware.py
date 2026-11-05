@@ -39,7 +39,7 @@ def check_fallbacks(module, symbols, base):
 
 
 def expanded_profile(profile):
-    """The reviewed experimental 6 MiB layout (builder/core.mjs expandedProfile), applied independently."""
+    """The reviewed experimental 4 MiB layout (builder/core.mjs expandedProfile), applied independently."""
     x = profile['experimental_memory']
     require(isinstance(x, dict) and set(x) == {'module_base', 'reserved_bytes', 'heap_after'} and
             isinstance(x['heap_after'], str) and len(x['heap_after']) == 16, 'Experimental memory layout is inconsistent')
@@ -88,7 +88,7 @@ def assembled(stock, module, symbols, reviewed, services, profiling):
 
 
 def check_expanded(directory, kit, stock, boot_label):
-    """GNU-linked 6 MiB modules: their symbols and sizes, and Python's LDR equal to the browser's."""
+    """GNU-linked 4 MiB modules: their symbols and sizes, and Python's LDR equal to the browser's."""
     results = directory / 'reference/selections-expanded.json'
     # A profile with the layout must pass its checks here (named errors) before its results are required.
     reviewed = expanded_profile(kit['profile']) if 'experimental_memory' in kit['profile'] else None
@@ -264,7 +264,7 @@ def main():
                 require(archive.read(name) == data, 'ZIP payload differs')
     expanded = check_expanded(directory, kit, stock, boot_label)
     print('Independent GNU/Python verification passed for the checked selections (module, symbols, BSS, LDR, assets, ZIP)'
-          + (f', and {expanded} at the experimental 6 MiB layout (module, symbols, BSS, LDR).' if expanded else '.'))
+          + (f', and {expanded} at the experimental 4 MiB layout (module, symbols, BSS, LDR).' if expanded else '.'))
 
 
 if __name__ == '__main__':

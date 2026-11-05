@@ -446,7 +446,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
     // A layout whose memory is 'unoffered' stands for one from a site with experimental memory this one lacks.
     readLayout:(kit, saved) => ({...Core.readLayout(kit, {...saved, memory:undefined}),
       ...(saved.memory === 'unoffered' ? {memoryUnavailable:true} : saved.memory ? {expanded:true} : {})}),
-    memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:6 * 1024 ** 2}} : kit,
+    memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:4 * 1024 ** 2}} : kit,
     recoverFirmware:async () => recoverResult ?? ({stock:Uint8Array.of(1)}),
     linkKit:kit => { linkedKits.push(kit); if (linkError) throw linkError; return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
     patchFirmware:async kit => { patchedKits.push(kit);
@@ -479,7 +479,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   await $('build').onclick();
   const defaultFiles = wizardOptions.getFiles();
   assert.deepEqual(JSON.parse(new TextDecoder().decode(defaultFiles['build.json'])).settings, {graphics:'colorful'});
-  // Standard memory unless the experimental 6 MiB option is chosen on the machines page.
+  // Standard memory unless the experimental 4 MiB option is chosen on the machines page.
   const memoryInput = $('expanded-memory'), buildJson = () => JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['build.json']));
   assert.equal(memoryInput.checked, false);
   assert.equal(memoryInput.disabled, false);  // this collection's profile offers it
@@ -487,14 +487,14 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.equal(patchedKits.at(-1).profile.reserved_bytes, undefined);
   assert.equal(buildJson().reserved_bytes, undefined);
   memoryInput.checked = true; memoryInput.onchange();
-  assert.equal(linkedKits.at(-1).profile.reserved_bytes, 6 * 1024 ** 2);
-  assert.match($('capacity-foot').textContent, /^6144\.0 KiB for machines \(experimental\)/);
-  assert.deepEqual($('build-selection').children.slice(-4, -2).map(e => e.textContent), ['Memory', '6 MiB (experimental)']);
+  assert.equal(linkedKits.at(-1).profile.reserved_bytes, 4 * 1024 ** 2);
+  assert.match($('capacity-foot').textContent, /^4096\.0 KiB for machines \(experimental\)/);
+  assert.deepEqual($('build-selection').children.slice(-4, -2).map(e => e.textContent), ['Memory', '4 MiB (experimental)']);
   assert.equal($('download').href, undefined);  // choosing it invalidates the previous build
   await $('build').onclick();
-  assert.equal(patchedKits.at(-1).profile.reserved_bytes, 6 * 1024 ** 2);
-  assert.equal(buildJson().reserved_bytes, 6 * 1024 ** 2);
-  assert.match($('download-summary').textContent, / \+ 6 MiB experimental memory \(may be unstable\)$/);
+  assert.equal(patchedKits.at(-1).profile.reserved_bytes, 4 * 1024 ** 2);
+  assert.equal(buildJson().reserved_bytes, 4 * 1024 ** 2);
+  assert.match($('download-summary').textContent, / \+ 4 MiB experimental memory \(may be unstable\)$/);
   const expandedLayout = JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['layout.json']));
   assert.equal(expandedLayout.memory, 'expanded');
   memoryInput.checked = false; memoryInput.onchange();
@@ -503,16 +503,16 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.equal(buildJson().reserved_bytes, undefined);
   assert.deepEqual($('build-selection').children.slice(-4, -2).map(e => e.textContent), ['Memory', 'Standard']);
   assert.equal(JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['layout.json'])).memory, undefined);
-  // Restoring the 6 MiB build's layout checks it against 6 MiB and turns the option back on.
+  // Restoring the 4 MiB build's layout checks it against 4 MiB and turns the option back on.
   const restoreLayout = async value => $('restore').onchange({target:{files:[{size:1,
     arrayBuffer:async () => new TextEncoder().encode(JSON.stringify(value)).buffer}]}});
   const linksBefore = linkedKits.length;
   await restoreLayout(expandedLayout);
   assert.equal(memoryInput.checked, true);
-  assert.equal(linkedKits[linksBefore].profile.reserved_bytes, 6 * 1024 ** 2);
+  assert.equal(linkedKits[linksBefore].profile.reserved_bytes, 4 * 1024 ** 2);
   await restoreLayout({...expandedLayout, memory:undefined});
   assert.equal(memoryInput.checked, false);
-  assert.match($('status').textContent, /It uses standard memory, so 6 MiB is turned off\./);
+  assert.match($('status').textContent, /It uses standard memory, so 4 MiB is turned off\./);
   // A numbers-only layout keeps the current memory choice.
   memoryInput.checked = true; memoryInput.onchange();
   await restoreLayout({...expandedLayout, memory:undefined, selected:undefined});
@@ -545,11 +545,11 @@ test('Extensions graphics defaults to original designs without firmware extensio
   recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true, memory:'standard'};  // a standard build of other machines
   assert.equal(await loadOs(), true);
   assert.equal(memoryInput.checked, false);
-  assert.match($('firmware-result').textContent, / · it uses standard memory, so 6 MiB is turned off$/);
+  assert.match($('firmware-result').textContent, / · it uses standard memory, so 4 MiB is turned off$/);
   recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true, memory:'expanded'};
   assert.equal(await loadOs(), true);
   assert.equal(memoryInput.checked, true);
-  assert.match($('firmware-result').textContent, / · it uses 6 MiB experimental memory, now turned on$/);
+  assert.match($('firmware-result').textContent, / · it uses 4 MiB experimental memory, now turned on$/);
   recoverResult = null;
   memoryInput.checked = false; memoryInput.onchange();
   // A collection without the option loads cleanly while it was on, and hides it.

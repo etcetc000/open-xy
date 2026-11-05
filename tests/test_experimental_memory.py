@@ -1,4 +1,4 @@
-"""The reviewed experimental 6 MiB layout the builder offers as an opt-in.
+"""The reviewed experimental 4 MiB layout the builder offers as an opt-in.
 
 profiles/opxy-1.2.1.json `experimental_memory` moves only the module base and the
 two heap immediates (builder/core.mjs expandedProfile). These checks hold it to
@@ -38,12 +38,12 @@ class ExperimentalMemory(unittest.TestCase):
     def test_six_mib_ends_where_the_reviewed_reservation_ends(self):
         p, x = self.profile, self.layout
         self.assertEqual(set(x), {'module_base', 'reserved_bytes', 'heap_after'})
-        self.assertEqual(x['reserved_bytes'], 6 * 1024 * 1024)
+        self.assertEqual(x['reserved_bytes'], 4 * 1024 * 1024)
         self.assertEqual(x['module_base'] + x['reserved_bytes'], stock_tables.RESERVATION_END)
         self.assertEqual(p['module_base'] + p['reserved_bytes'], stock_tables.RESERVATION_END)
         self.assertLessEqual(x['module_base'] + x['reserved_bytes'] - p['table_bytes'], stock_tables.TABLES_START)
-        # Still inside the unchanged stock zero-fill, leaving 14 MiB of heap below it.
-        self.assertEqual(x['module_base'] - p['heap_fill_base'], 14 * 1024 * 1024)
+        # Still inside the unchanged stock zero-fill, leaving 16 MiB of heap below it.
+        self.assertEqual(x['module_base'] - p['heap_fill_base'], 16 * 1024 * 1024)
 
     def test_heap_edits_change_only_the_immediate(self):
         heaps = [e for e in self.profile['patches'] if e['kind'] == 'heap']
@@ -70,15 +70,15 @@ class ExperimentalMemory(unittest.TestCase):
             self.assertEqual(changed, {'after', 'name'} if reviewed['kind'] == 'heap' else set())
             if reviewed['kind'] == 'heap':
                 self.assertEqual(edit['after'], self.layout['heap_after'])
-                self.assertEqual(edit['name'], 'IN-MEMORY application heap 0x1400000 -> 0xe00000 '
-                                               '(6 MiB module reservation, experimental)')
+                self.assertEqual(edit['name'], 'IN-MEMORY application heap 0x1400000 -> 0x1000000 '
+                                               '(4 MiB module reservation, experimental)')
         derived = ('module_base', 'reserved_bytes', 'patches', 'experimental_memory')
         self.assertNotIn('experimental_memory', expanded)  # it offers no further layout
         self.assertEqual({k: v for k, v in expanded.items() if k not in derived},
                          {k: v for k, v in self.profile.items() if k not in derived})
 
     def test_release_check_applies_the_same_layout_as_the_browser(self):
-        # tools/check_browser_firmware.py assembles 6 MiB LDRs from its own copy of the layout.
+        # tools/check_browser_firmware.py assembles 4 MiB LDRs from its own copy of the layout.
         spec = importlib.util.spec_from_file_location('check_browser_firmware', ROOT / 'tools/check_browser_firmware.py')
         release = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(release)

@@ -63,7 +63,7 @@ if (layouts.length > 1) {
   const standard = fit(kit), larger = fit(layouts[1].kit);
   if (standard === 'unlinkable' || larger === 'unlinkable') console.log('Experimental memory: the whole collection does not link together; no beyond-standard check.');
   else if (standard !== 'needs more' || larger !== 'fits')
-    console.log('Experimental memory: the whole collection', standard === 'fits' ? 'fits standard memory' : 'does not fit 6 MiB either',
+    console.log('Experimental memory: the whole collection', standard === 'fits' ? 'fits standard memory' : 'does not fit 4 MiB either',
       '- no module beyond standard memory is checked.');
   if (standard === 'needs more' && larger === 'fits') {
     const mask = kit.machines.reduce((m, _, i) => m | selectionBit(i), 0n);

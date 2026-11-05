@@ -200,10 +200,10 @@ selected machine shares for code, data and state, and 16 KiB for relocated stock
 tables. The memory meter shows each machine's share; see
 [memory and limits](api.md#memory-and-limits). CPU headroom is not measured.
 
-Below the meter, **Use 6 MiB for machines** is an experimental option, off by
-default. It grows the reservation to 6 MiB (6128 KiB for machines) by
-shortening the application heap from 18 MiB to 14 MiB, using the profile's
-reviewed `experimental_memory` layout: the module starts 4 MiB lower and the two
+Below the meter, **Use 4 MiB for machines** is an experimental option, off by
+default. It grows the reservation to 4 MiB (4080 KiB for machines) by
+shortening the application heap from 18 MiB to 16 MiB, using the profile's
+reviewed `experimental_memory` layout: the module starts 2 MiB lower and the two
 heap edits write the smaller size, while the tables, hooks and every other edit
 are unchanged. The stock OS needs that heap for its interface, projects,
 presets, file browsing and MTP, and running out of it is fatal, so this build
@@ -213,7 +213,7 @@ may be unstable under heavy use. The selection summary shows the choice,
 used (a stock OS keeps the current choice), and so does restoring a `layout.json`
 that lists machines; a site without the option restores such a layout with
 standard memory when its machines fit, and otherwise says why it cannot.
-`sdk.py build` uses only the standard layout and refuses a 6 MiB `layout.json`;
+`sdk.py build` uses only the standard layout and refuses a 4 MiB `layout.json`;
 `sdk.py project write` accepts it.
 
 Projects save each track's machine by number, so a machine keeps its numbers

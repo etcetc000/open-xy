@@ -16,9 +16,9 @@
   "linker_sha256": "5f1e26c9d592459035519a905e2305c92165600e6626ba0ddd5bc360d4effd69",
   "table_bytes": 16384,
   "experimental_memory": {
-    "module_base": 2364343168,
-    "reserved_bytes": 6291456,
-    "heap_after": "01dae00000000000"
+    "module_base": 2366440320,
+    "reserved_bytes": 4194304,
+    "heap_after": "01da000100000000"
   },
   "identities": {
     "engines": 256,

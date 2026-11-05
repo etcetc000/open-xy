@@ -26,8 +26,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
   const kib = n => (n / 1024).toFixed(1) + ' KiB', mib = n => n / 1024 ** 2 + ' MiB';
   const graphicsConfiguration = createGraphicsConfiguration();
-  // Experimental 6 MiB module memory (core.memoryKit), chosen on the machines page.
-  // Off for every collection until chosen; restoring a 6 MiB build or its layout
+  // Experimental 4 MiB module memory (core.memoryKit), chosen on the machines page.
+  // Off for every collection until chosen; restoring a 4 MiB build or its layout
   // turns it on. The checkbox is the state; expandedKit is derived once per
   // collection, null when not offered.
   let expandedKit = null;
