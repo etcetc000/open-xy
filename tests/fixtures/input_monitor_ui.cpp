@@ -26,7 +26,7 @@ void advance(Popup* p,i32) {
     // The native presenter owns its easing. Return its first eased position,
     // then its rest state, so the adapter must preserve the supplied motion.
     p->motion[0]=p->motion[0]==0xc1c00000u?0xc1666667u:0;
-    for(u32 i=0;i<4;++i){p->rows[i]->matrix[0]=p->rows[i]->matrix[4]=p->rows[i]->matrix[8]=1024;}
+    for(u32 i=0;i<4;++i){p->rows[i]->visible=1;p->icons[i]->visible=1;p->rows[i]->matrix[0]=p->rows[i]->matrix[4]=p->rows[i]->matrix[8]=1024;}
 }
 void matrix(void* raw,const i32* m) { std::memcpy(static_cast<Node*>(raw)->matrix,m,9*sizeof(i32)); }
 void text(void* node,const char* value) {
@@ -35,8 +35,8 @@ void text(void* node,const char* value) {
 }
 void draw(Popup* p,u32 flags) {
     require(p->svg==reinterpret_cast<void*>(1) && !flags,"restore the document before drawing");++draws;
-    require(!p->rows[0]->hidden,"first stock container remains visible");
-    for(u32 i=0;i<4;++i){require(p->icons[i]->hidden,"hide send-specific icons");if(i)require(p->rows[i]->hidden,"unused rows stay hidden");}
+    require(p->rows[0]->visible,"first stock container remains visible");
+    for(u32 i=0;i<4;++i){require(!p->icons[i]->visible,"hide send-specific icons");if(i)require(!p->rows[i]->visible,"unused rows stay hidden");}
 }
 }
 bool sdk_input_monitor_shift_visible() { return held; }

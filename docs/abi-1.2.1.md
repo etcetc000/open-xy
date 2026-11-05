@@ -220,7 +220,8 @@ selects Off counterclockwise and Auto clockwise. Other turns delegate unchanged.
 The existing compositor traversal draws a private instance of stock's send
 popup immediately after input page 63, before later stock dialogs. Its 96-byte
 layout has value leaves at +24, row groups at +40, palette IDs at +56, icons at
-+64 and binary32 motion states at +80. Base construction with page zero leaves
++64 and binary32 motion states at +80. A node's byte +92 is visible when nonzero;
+the renderer at `8d5f0df6` skips a node when it is zero. Base construction with page zero leaves
 stock's registered page 22 alone. The adapter loads `fx_send.svg`, binds with
 `8d53b04c`, resets with `8d53adc4`, and advances with `8d53ae00`. This retains
 the stock easing and dimmed background. It defers the presenter's SVG draw,

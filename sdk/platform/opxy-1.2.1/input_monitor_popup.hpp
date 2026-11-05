@@ -8,7 +8,7 @@ struct Node {
     u32 vtable;
     i32 matrix[9];
     u8 stock40[52];
-    u8 hidden, stock93[3];
+    u8 visible, stock93[3]; // zero skips drawing in the stock node renderer
 };
 struct Popup {
     const void* vtable;
@@ -23,7 +23,7 @@ struct Popup {
     Node* icons[4];
     u32 motion[4];
 };
-static_assert(__builtin_offsetof(Node, hidden) == 92 && sizeof(Node) == 96, "Stock SVG node visibility");
+static_assert(__builtin_offsetof(Node, visible) == 92 && sizeof(Node) == 96, "Stock SVG node visibility");
 static_assert(sizeof(void*) != 4 || (sizeof(Popup) == 96 &&
               __builtin_offsetof(Popup, values) == 24 && __builtin_offsetof(Popup, rows) == 40 &&
               __builtin_offsetof(Popup, palette) == 56 && __builtin_offsetof(Popup, icons) == 64 &&
