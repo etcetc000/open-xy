@@ -19,7 +19,7 @@ from machine_fixtures import FOLDER, fixture
 from test_divide import blackfin_compiler
 from test_sample_services import HOST_CXX
 
-KERNELS = ('blep_square', 'fold_pair')
+KERNELS = ('additive', 'blep_square', 'fold_pair', 'square_sync', 'wave_quad')
 
 PROGRAM = r'''
 #include <opxy/kernels/blep_square.hpp>
