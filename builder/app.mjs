@@ -218,18 +218,23 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
-      stock = recovered.stock;
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
-        renderMachines(); renderExtensions(); recalculate();
+        stock = recovered.stock; renderMachines(); renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ');
-      } else if (recovered.earlier) {
-        // The settings extensions selected are exactly those this image holds; machines and
-        // code extensions are chosen again.
-        selectedExtensions = core.extensionSelection(kit, recovered.extensions ?? []); renderExtensions(); recalculate();
-        $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again';
-      } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
+      } else {
+        // Without a full selection: settings extensions follow what this OS holds; the code
+        // extensions already chosen stay. A conflicting choice leaves the selection alone.
+        const held = recovered.extensions ?? [];
+        const code = selectedExtensions.filter(id => kit.extensions?.find(e => e.id === id)?.linked !== false);
+        try { selectedExtensions = core.extensionSelection(kit, [...code, ...held]); }
+        catch { selectedExtensions = core.extensionSelection(kit, held); }
+        stock = recovered.stock; renderExtensions(); recalculate();
+        $('firmware-result').textContent = recovered.earlier
+          ? '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again'
+          : '✓ OP–XY OS 1.2.1 verified · ' + file.name;
+      }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
       status(); ready();

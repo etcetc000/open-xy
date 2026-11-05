@@ -17,6 +17,11 @@ SERVICE = 'long_samples'
 STOCK_FRAMES = 882000
 RAISED_FRAMES = (1 << 20) - 1
 
+# Stock code the edits rely on, one range per function holding a site (from LINK to the
+# next function's LINK): the region parser, the region setter and the sample loader.
+# An image from another SDK must leave them stock (tooling/settings.compare_with_stock).
+DEPENDS = ((0x8d4fbd48, 0x157c), (0x8d507112, 0x2c), (0x8d50831c, 0x1f8))
+
 # (address, what reads the constant)
 EDITS = (
     (0x8d4fc00e, 'project/preset region parser: start and end clamp'),

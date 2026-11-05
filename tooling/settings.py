@@ -20,12 +20,12 @@ from pathlib import Path
 from .extensions import capabilities, extension_at
 from .firmware import hook_target
 from .formats import header, ldr, mapped_offset, require, sha
-from . import release_floor, startup_label
+from . import release_floor, startup_label, stock_limits
 from .pipeline import add_overwrite_argument, config, fresh_output, read
 from .release import outside_checkouts
 
 # Stock ranges each capability's edits rely on beyond their sites: (address, bytes).
-DEPENDS = {release_floor.SERVICE: release_floor.DEPENDS}
+DEPENDS = {release_floor.SERVICE: release_floor.DEPENDS, stock_limits.SERVICE: stock_limits.DEPENDS}
 
 UNSUPPORTED = 'Not OP-XY OS 1.2.1 or an open-xy OS made from it'
 
@@ -92,15 +92,16 @@ def authenticate(image, blocks, profile):
 
 
 def compare_with_stock(image, blocks, profile, stock):
-    """An open-xy OS from another SDK: the verified stock OS's loader records unchanged and in
-    place, records of its own only before FINAL, and no edit of its own beside a capability
-    site. The sites themselves may hold only stock or reviewed bytes, which state() checks;
+    """An open-xy OS from another SDK: the verified stock OS's loader record headers unchanged
+    and in place, records of its own only before FINAL, FIRST holding the image size, and no
+    edit of its own near a capability site or in the stock code a capability relies on. The sites themselves may hold only stock or reviewed bytes, which state() checks;
     the rest of that build is its own SDK's to verify."""
     require(len(stock) == profile['stock_bytes'] and sha(stock) == profile['stock_sha256'],
             '--stock-os is not the exact stock OS 1.2.1')
     reference = ldr(stock)
     key = lambda b: (b['code'], b['target'], b['count'], b['argument'], b['offset'])
     require(len(blocks) > len(reference) and blocks[0]['code'] & 0xffff == 0x5004 and
+            blocks[0]['argument'] == len(image) - 16 and
             [key(b) for b in blocks[1:len(reference) - 1]] == [key(b) for b in reference[1:-1]] and
             image[-16:] == stock[-16:], UNSUPPORTED + ': its stock loader records moved or changed')
     names, window = set(capabilities()), 32
@@ -196,11 +197,12 @@ def main(argv=None):
             return 0
         require(outside_checkouts(args.out), f'Firmware stays outside every checkout: choose --out elsewhere ({args.out})')
         extensions = [extension_at(folder) for folder in args.extension]
+        before = state(image, stock=stock)
         result, declared = apply(image, extensions, stock=stock)
         inputs = [args.image, *args.extension, *([args.stock_os] if args.stock_os else [])]
         out = fresh_output(args.out, args.overwrite, keep=inputs)  # --overwrite never deletes an input
         (out / 'os.ldr').write_bytes(result)
-        on = [name for name, applied in state(result, stock=stock).items() if applied]
+        on = [name for name, applied in before.items() if applied or name in declared]
         report = dict(format='opxy-settings/1', source=str(Path(args.image).resolve()),
                       source_sha256=sha(image), sha256=sha(result),
                       extensions=[e.id for e in extensions], capabilities=on,

@@ -181,7 +181,7 @@ class Image(unittest.TestCase):
 
     def test_an_image_from_another_sdk_needs_the_stock_os(self):
         # In the synthetic image, the capability relies on the first 64 bytes of the other record.
-        patcher = mock.patch.dict(image_settings.DEPENDS, {floor.SERVICE: ((0x80000000, 64),)})
+        patcher = mock.patch.dict(image_settings.DEPENDS, {floor.SERVICE: ((0x80000000, 64),), 'long_samples': ()}, clear=True)
         patcher.start()
         self.addCleanup(patcher.stop)
         data, profile = self.image()

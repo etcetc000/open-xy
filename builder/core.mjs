@@ -440,11 +440,13 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
 }
 
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
+// Capabilities share sharedClaim's keys under this prefix (claim names never hold ':').
+const CAPABILITY = 'capability:';
 export function sharedClaim(extensions) {
   // A capability is held like a claim: two extensions turning on the same edits would
   // build identical images, so an image could not say which was chosen.
   const seen = new Set();
-  for (const e of extensions) for (const claim of [...(e.claims ?? []), ...(e.capabilities ?? []).map(c => 'capability:' + c)]) {
+  for (const e of extensions) for (const claim of [...(e.claims ?? []), ...(e.capabilities ?? []).map(c => CAPABILITY + c)]) {
     if (seen.has(claim)) return claim;
     seen.add(claim);
   }
@@ -452,8 +454,8 @@ export function sharedClaim(extensions) {
 }
 
 // The registry's label for a claim, as the kit carries it with each extension.
-export const claimLabel = (extensions, claim) => claim.startsWith('capability:')
-  ? 'the ' + claim.slice(11).replaceAll('_', ' ') + ' capability'
+export const claimLabel = (extensions, claim) => claim.startsWith(CAPABILITY)
+  ? 'the ' + claim.slice(CAPABILITY.length).replaceAll('_', ' ') + ' capability'
   : extensions.map(e => e.claim_labels?.[claim]).find(Boolean) ?? claim.replaceAll('_', ' ');
 
 // Every extension choice a build can make, in collection order: each subset
@@ -844,6 +846,9 @@ function holdsCode(objects, payload) {
 }
 const presentMachines = (kit, payload) =>
   kit.machines.filter(m => holdsCode(kit.objects.filter(o => o.owner === m.id), payload)).map(m => m.id);
+// The settings extensions whose capability edits an image holds.
+const settingsPresent = (kit, input) => (kit.extensions ?? [])
+  .filter(e => e.linked === false && e.capabilities.every(c => capabilityApplied(kit.profile, c, input))).map(e => e.id);
 // A settings extension counts only for capabilities no present code extension declares,
 // so recovery never adds one whose bytes another extension already writes.
 const presentExtensions = (kit, payload, input) => {
@@ -884,7 +889,7 @@ export async function recoverFirmware(kit, input, layout = null) {
     for (const edit of p.patches) restored.set(unhex(edit.before), Number(edit.file_offset));
     if (await sha256(restored) === p.stock_sha256) {
       readLdr(input);
-      const held = presentExtensions(kit, new Uint8Array(0), input);  // no module: settings extensions only
+      const held = settingsPresent(kit, input);
       return {stock: restored, selected: null, earlier: true, ...(held.length ? {extensions: held} : {})};
     }
   }
@@ -926,7 +931,7 @@ export async function recoverFirmware(kit, input, layout = null) {
     const joined = ids => entries.filter(e => ids.includes(e.id) || settingsHeld.includes(e.id));
     const choices = coded.length <= RECOVERABLE_EXTENSIONS
       ? extensionChoices(kit, coded).map(joined).filter(chosen => !sharedClaim(chosen)).map(chosen => chosen.map(e => e.id))
-      : guess.length ? [guess, settingsHeld] : [settingsHeld];
+      : [settingsHeld];  // the guess is tried first below
     for (const extensions of present.length ? [guess, ...choices] : []) {
       try {
         if (await rebuilds(present, extensions)) return {stock, selected: present, extensions};
@@ -948,7 +953,7 @@ export async function recoverFirmware(kit, input, layout = null) {
   // Another open-xy OS: an earlier release, other machines or another build.
   // Its stock OS is verified above; its machines and code extensions are chosen again,
   // and the settings extensions whose edits it holds are reported.
-  const settingsHeld = presentExtensions(kit, new Uint8Array(0), input);
+  const settingsHeld = settingsPresent(kit, input);
   return {stock, selected: null, earlier: true, ...(settingsHeld.length ? {extensions: settingsHeld} : {})};
 }
 
