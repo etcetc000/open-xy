@@ -3,7 +3,10 @@
 // through the adapter's own start and render entries, with a private pitch and
 // amplitude rather than stock's, every key stored and read back as a saved key is:
 // one voice of each model at each level; the kit's own keys at full polyphony; retriggers on one
-// key, which the same-key choke fades; and full polyphony of the heaviest model.
+// key, which the same-key choke fades; and full polyphony of the heaviest model. Every
+// voice goes through the track filter at its costliest type, the ladder, as with M3 on
+// (drum_filter.hpp), built in a filter slot of its own: pool slots 127 down, which stock
+// rebuilds for a synth voice's next note (8d51b0d0).
 // A note's start is timed with its block. Run with playback stopped, on handles
 // stock has no note on, and freed afterwards.
 #include "benchmark.hpp"
@@ -51,11 +54,17 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
     }
     u32 pitch[block_frames];
     i32 gain[block_frames];
-    i32 parameters[8];
+    // The track's record: the eight offsets neutral, M3's cutoff, resonance, envelope
+    // amount and key tracking (words 16..19) at a resonant middle, the rest as a preset loads them.
+    i32 parameters[58] = {};
     for (u32 i = 0; i < block_frames; ++i) { pitch[i] = 25480118u >> 16; gain[i] = 0x7fffffff; }   // C4, full
     for (u32 i = 0; i < 8; ++i) parameters[i] = 0x40000000;
+    parameters[16] = 0x40000000; parameters[17] = 0x60000000; parameters[18] = 0x40000000; parameters[19] = 0x20000000;
     void* voices_of[kBenchmarkVoices];
-    for (u32 v = 0; v < sounding; ++v) voices_of[v] = @PREFIX@_factory(kVoiceIndices - 1 - v, 0);
+    for (u32 v = 0; v < sounding; ++v) {
+        voices_of[v] = @PREFIX@_factory(kVoiceIndices - 1 - v, 0);
+        static_cast<Handle*>(voices_of[v])->pool = platform::kDrumFilterPool - 1 - v;
+    }
     Stats stats{};
     i32 output[block_frames];
     for (u32 block = 0; block < blocks; ++block) {
@@ -71,7 +80,8 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
         spent = cycles() - spent;
         for (u32 v = 0; v < sounding; ++v) {
             const u32 begin = cycles();
-            render_voice(voices_of[v], output, payloads[run == 0 ? v % 24u : 0], parameters, pitch, gain);
+            render_voice(voices_of[v], output, payloads[run == 0 ? v % 24u : 0], parameters, pitch, gain,
+                         platform::kDrumFilterLadder, 0x40000000);
             spent += cycles() - begin;
             stats.observe(output, block_frames);
         }

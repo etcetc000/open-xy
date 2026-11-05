@@ -14,6 +14,7 @@
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
 #include "drum_send.hpp"
+#include "drum_filter.hpp"
 #include "keyboard_octaves.hpp"
 #include "stock_sample.hpp"
 #include "sample_machines.hpp"
@@ -29,7 +30,14 @@ using Voice = @NAMESPACE@::Voice;
 using Shared = @NAMESPACE@::Shared;
 // Stock's voice indices; every one gets a handle.
 const opxy::u32 kVoiceIndices = 256;
-struct Handle { const void* const* vtable; opxy::u32 slot, key, track; };  // slot: its voice plus one, or 0
+// slot: its voice plus one, or 0. note: the note's own key, as stock passes it
+// (B[voice+0x50]). The track filter (drum_filter.hpp): pool, the filter slot
+// (the voice index, if it has one); filter, its object, built for filter_type.
+struct Handle {
+    const void* const* vtable;
+    opxy::u32 slot, key, track, note, pool, filter_type;
+    void* filter;
+};
 // owner: a voice ID, or 0 when free. pad: the note's track and key plus one, or
 // 0 for a note without them. fade: frames left of a same-key choke, or 0.
 // send: with padMix, the playing key's FX I and FX II codes (drum_send.hpp), from the
@@ -67,6 +75,12 @@ static const opxy::u32* const stock_increments = reinterpret_cast<const opxy::u3
 // The alternate stock renderer prepares this gain/envelope vector but leaves
 // its application to the drum DSP (stock Drumline consumes it at 11a0743e).
 static const opxy::i32* const stock_amplitude = reinterpret_cast<const opxy::i32*>(0x11903400);
+// The track filter (drum_filter.hpp): each track's M3 on/off and type, the
+// voice's filter envelope this block, and stock's filter factory.
+static const volatile opxy::u8* const stock_filter_on = reinterpret_cast<const volatile opxy::u8*>(0x11b01dc8);
+static const volatile opxy::u32* const stock_filter_type = reinterpret_cast<const volatile opxy::u32*>(0x84042700);
+static const volatile opxy::i32* const stock_filter_envelope = reinterpret_cast<const volatile opxy::i32*>(0x11903500);
+static const opxy::platform::DrumFilterFactory stock_filter_factory = reinterpret_cast<opxy::platform::DrumFilterFactory>(0x8d505220);
 // A stable nonzero voice ID: the stock voice index plus one.
 static opxy::u32 owner(const Handle* handle) { return static_cast<opxy::u32>(handle - handles) + 1; }
 // How the kit's keys are stored, from its models' control counts: built on the
@@ -124,6 +138,10 @@ int @PREFIX@_start(void* self, opxy::u32 key) {
     Handle* handle = static_cast<Handle*>(self);
     const bool keyed = key < 128 && handle->track < 8;
     handle->key = keyed ? opxy::platform::sample_drum_key(key, sdk_track_octaves[handle->track]) : 53;
+    handle->note = key;
+    // The note's first filtered block builds and resets its filter, as stock's
+    // constructor does for a synth voice's note.
+    handle->filter_type = opxy::platform::kDrumFilterNone;
     const opxy::u32 id = owner(handle);
     Slot* slot = held(handle);
     if (!slot) {
@@ -175,14 +193,21 @@ void* @PREFIX@_factory(opxy::u32 index, opxy::u32 track) {
     handle->key = 53;
     handle->track = track;
     handle->slot = 0;
+    handle->note = 0;
+    handle->pool = index < opxy::platform::kDrumFilterPool ? index : opxy::platform::kDrumFilterNone;
+    handle->filter_type = opxy::platform::kDrumFilterNone;
+    handle->filter = nullptr;
     return handle;
 }
 // The drum classifier sets voice+0x4e, selecting 8d51b274. Its call at
 // 8d51b55a uses +12 with the payload in R2 and track parameters on the stack.
+// filter: the track filter's type, or kDrumFilterNone with M3 off; envelope: the
+// voice's filter envelope this block.
 static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* region, const opxy::i32* parameters,
-                                const opxy::u32* increments, const opxy::i32* amplitude) {
+                                const opxy::u32* increments, const opxy::i32* amplitude,
+                                opxy::u32 filter, opxy::i32 envelope) {
     if (Slot* slot = held(static_cast<Handle*>(self))) {
-        const Handle* handle = static_cast<const Handle*>(self);
+        Handle* handle = static_cast<Handle*>(self);
         opxy::u8 model, stored[8];
         @NAMESPACE@::drum_defaults(handle->key, &model, stored);
         // The payload's first word carries stock's reading of the pad's model
@@ -217,6 +242,12 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
             drum_pad(slot->voice, shared, slot->owner, static_cast<const opxy::i32*>(pads));
         }
         @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
+        // The track filter, where stock's normal renderer runs a synth voice's:
+        // after the render, before the amplitude envelope and pan.
+        if (filter != opxy::platform::kDrumFilterNone && handle->pool < opxy::platform::kDrumFilterPool)
+            if (void* object = opxy::platform::drum_filter_object(stock_filter_factory, handle->filter, handle->filter_type,
+                                                                  filter, handle->pool, handle->track))
+                opxy::platform::drum_filter_run(object, output, parameters, opxy::platform::drum_filter_key(handle->note), envelope);
         for (unsigned i = 0; i < opxy::block_frames; ++i)
             output[i] = opxy::q31::multiply(output[i], amplitude[i]);
         // A stored boost plays at 0 dB, so a voice keeps its declared peak; a
@@ -246,7 +277,11 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
 }
 int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* region,
                    const opxy::i32* parameters) {
-    render_voice(self, output, region, parameters, stock_increments, stock_amplitude);
+    const opxy::u32 track = static_cast<const Handle*>(self)->track;
+    const opxy::u32 filter = track < opxy::platform::kDrumFilterTracks && stock_filter_on[track]
+        ? stock_filter_type[track] : opxy::platform::kDrumFilterNone;
+    render_voice(self, output, region, parameters, stock_increments, stock_amplitude, filter,
+                 filter != opxy::platform::kDrumFilterNone ? stock_filter_envelope[opxy::block_frames - 1] : 0);
     return 0;
 }
 // +8 belongs to stock's other renderer. Never leave its output scratch stale

@@ -57,6 +57,8 @@ which is shared with players and drum kits): a build applies those edits, and li
 the SDK code behind them, only when it includes a sample engine or synthesis drum
 kit. Synthesis drum transport is the `drums` service, used only by drum kits, and
 per-key sends the `drum_sends` service, used only by a kit declaring `padMix`.
+The [track filter](#the-track-filter-on-kit-voices) on kit voices needs no hook: it
+is in every kit's adapter.
 Otherwise their sites stay stock. The track control rows (and the project read of the
 project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
@@ -1061,6 +1063,54 @@ sum. A send every voice follows, every stock track and every block of a kit
 whose keys all follow are mixed bit for bit as stock mixes them. The source
 dry reduction (`1 - s(1 - d)`) stays the track's and takes no account of
 own amounts.
+
+### The track filter on kit voices
+
+Stock builds a filter object for each voice index and runs it on every synth
+voice, but never on a kit voice. The renderer chooser `8d51bbaa` sends a kit
+voice (byte `+0x4e`) to the drum renderer `8d51b274`, which never calls a filter;
+the voice constructor's kit path (`8d51aee2`..`8d51b06e`) writes neither the
+object (`+0x44`) nor its type (`+0x48`). The normal renderer `11a09308` runs it
+after the machine's render and before the amplitude envelope:
+
+- the track record `8d518d94(0x84eab39c, B[voice + 0x55])` in R4 (`11a0933e`);
+- the machine's output shifted right by 3 (`11a097a0`);
+- if the track's byte at `0x11b01dc8` is set (M3 on) and its word at `0x84042700`
+  (M3's type) is the voice's `+0x48` (`11a097d0`..`11a09804`), the object's
+  `+0x8` (mono) or `+0xc` (stereo) with the block `0x11b01948`, the record, the
+  key `B[voice + 0x50] * 0xffffff + 0x7fffff` (saturated, `11a0980a`..`11a09836`)
+  and the filter envelope's last value this block, `[0x11903500 + 0xfc]`
+  (`11a09612`);
+- on a type change, `8d505220(type, &voice + 0x44, B[voice], track)` and the
+  object's `+0x14` with R1 = 0 (`11a09e44`..`11a09e78`), as the constructor does
+  for every note (`8d51b0d0`..`8d51b180`).
+
+The factory `8d505220` takes types 0..18, calls the registration at
+`0x08039b2c + type * 0x30` with (index, track) and stores the object, or 0 for a
+type with none (18, dynamic). The registrations (`8d506bd4`..`8d506c3e`) include
+svf (10), the ladder (16), z lowpass (9) and z hipass (17); each factory
+constructs in place at `0x84c6239c + index * 0x90` and refuses an index of 128
+or more. The process methods read words 16..19 of the record (cutoff, resonance,
+envelope amount, key amount; z lowpass's `8d51bc44` at `+0x40`..`+0x4c`). The drum
+renderer already computes a kit voice's filter envelope from words 32..35 with
+`8d50e358` (`8d51b36e`..`8d51b38a`) into the same buffer at `0x11903500`
+(`8d51b3a6`), before it calls the machine's `+0xc` render.
+
+The kit adapter ([`drum_filter.hpp`](../sdk/platform/opxy-1.2.1/drum_filter.hpp),
+[`drum_voice.cpp.in`](../sdk/platform/opxy-1.2.1/drum_voice.cpp.in)) does the
+same inside its `+0xc` render, with no stock hook. With the track's M3 on it
+builds the object in its voice index's slot (the handle's index, below 128) and
+resets it at a note's first filtered block and whenever the track's type
+differs from the one built; shifts the engine's output down by 3, runs the
+object's `+0x8` with the track record stock passes the render, the note's key
+and `[0x11903500 + 0xfc]`, and shifts it back up by 3, saturating. Then come the
+amplitude envelope, the pad's level and the choke fade, as before. With M3 off
+the voice's samples are exactly as before. A slot belongs to its voice index: the
+normal renderer never runs for an index that plays a kit note, and stock's
+constructor rebuilds the slot when the index next plays a synth note. Unlike a
+synth voice, whose output stock keeps 3 bits down from here to the mix, a kit
+voice is full scale after the adapter, so a resonant peak more than 6 dB above
+a kit's half-scale ceiling clips at full scale.
 
 ## Note players
 

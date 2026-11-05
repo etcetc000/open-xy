@@ -534,6 +534,23 @@ header (without it, or when it returns false, the number shows). The display's
 `pad` holds the selected key's pad fields. A kit's own header captions them
 itself.
 
+Every kit's track runs stock's own track filter on its voices, as a synth
+track does (SDK 1.10). M3 is the filter, with stock's types (svf, ladder, z
+lowpass, z hipass and the rest), cutoff, resonance, envelope amount and key
+tracking, and its second row the track's level terms and FX I and FX II. Each
+voice gets its own filter and its own filter envelope (M2 with Shift: attack,
+decay, sustain, release), from the moment it starts, after the engine and
+before the track's amplitude envelope and pan, so a key's own tone (a FILTER pad
+control, say) and the track's filter act in series. M3's controls lock per step
+through stock's editor, as on a synth, and act on every voice the track is
+sounding during the step. With M3 switched off, as a kit's init preset has it
+(stock's `fx`, `active: false`), the kit sounds exactly as without the filter
+and costs one test a voice; switched on it costs about 1,300 to 2,600
+instructions a voice a block depending on the type (the ladder and svf most),
+and a kit's profiling workload runs the ladder on every voice so its catalog
+figure includes it ([firmware](abi-1.2.1.md#the-track-filter-on-kit-voices)).
+A resonant peak more than 6 dB above a kit's half-scale ceiling clips.
+
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
 
