@@ -274,8 +274,25 @@ bool shape_ok(const ModuleSynth& d) {
         d.display_alignment && d.display_alignment <= 8 && !(d.display_alignment & (d.display_alignment - 1));
 }
 
+// A module built before ModuleSynth grew its presets ends at preset_count.
+const u32 synth_v2_bytes = __builtin_offsetof(ModuleSynth, preset_count);
+const u32 presets_max = 16, preset_name_max = 24;  // tooling/machines.py PRESET_COUNT, PRESET_NAME
+
+bool presets_ok(const ModuleSynth& d) {
+    if (d.size < sizeof(ModuleSynth) || !d.preset_count) return true;
+    if (d.preset_count > presets_max || !d.preset_names || !d.preset_texts) return false;
+    for (u32 i = 0; i < d.preset_count; ++i) {
+        const char* name = d.preset_names[i];
+        u32 n = 0;
+        while (name && name[n] && n <= preset_name_max) ++n;
+        if (!n || n > preset_name_max || !d.preset_texts[i]) return false;
+    }
+    return true;
+}
+
 bool description_ok(const ModuleSynth* d) {
-    return d && d->size >= sizeof(ModuleSynth) && name_ok(d->name) && d->factory && d->parameter_name && shape_ok(*d);
+    return d && d->size >= synth_v2_bytes && name_ok(d->name) && d->factory && d->parameter_name && shape_ok(*d) &&
+        presets_ok(*d);
 }
 
 // ---- numbers
@@ -482,6 +499,178 @@ void* sdk_module_asset_load(const char* path) {
     return document;
 }
 
+namespace {
+// Stock's JSON parser over text, the result copy-assigned into out, as
+// collection_resource_stock.cpp parses: a Json value, a reader, the parse.
+bool parse_json(const unsigned char* text, u32 bytes, void* out) {
+    unsigned char* value = sdk_module_allocate(12);
+    bool parsed = false;
+    if (value) {
+        alignas(4) unsigned char reader[120];
+        stock<void(void*, u32)>(0x8c0555c0)(value, 0);
+        stock<void(void*)>(0x8c050de8)(reader);
+        parsed = stock<bool(void*, const char*, const char*, void*, bool)>(0x8c052230)(
+            reader, reinterpret_cast<const char*>(text), reinterpret_cast<const char*>(text + bytes), value, false);
+        stock<void(void*)>(0x8c042420)(reader);
+        if (parsed) stock<void*(void*, const void*)>(0x8c054098)(out, value);
+        stock<void(void*)>(0x8c053fc0)(value);
+        sdk_module_release(value);
+    }
+    return parsed;
+}
+
+// ---- presets: content/presets/<machine ID>/<name>.json, from the module, while it is loaded
+const char presets_root[] = "content/presets";
+
+u32 preset_count(const Entry& e) { return e.d->size >= sizeof(ModuleSynth) ? e.d->preset_count : 0; }
+bool any_presets() {
+    for (u32 i = 0; i < count; ++i) if (preset_count(entries[i])) return true;
+    return false;
+}
+
+// The rest of path after prefix, or null.
+const char* after(const char* path, const char* prefix) {
+    if (!path) return nullptr;
+    while (*prefix) if (*path++ != *prefix++) return nullptr;
+    return path;
+}
+// The entry with presets whose machine ID path starts with, followed by end
+// ('/' or 0); the rest after the ID in rest.
+Entry* preset_owner(const char* path, char end, const char*& rest) {
+    for (u32 i = 0; i < count; ++i) {
+        if (!preset_count(entries[i])) continue;
+        const char* p = after(path, entries[i].id);
+        if (p && *p == end) { rest = p; return &entries[i]; }
+    }
+    return nullptr;
+}
+// content/presets/<id>/<name>.json, with or without stock's /yaffs2/ in front:
+// its module and preset, or null.
+Entry* virtual_preset(const char* path, u32& preset) {
+    if (const char* p = after(path, "/yaffs2/")) path = p;
+    const char* p = after(path, presets_root);
+    if (!p || *p++ != '/') return nullptr;
+    const char* rest;
+    Entry* e = preset_owner(p, '/', rest);
+    if (!e) return nullptr;
+    ++rest;
+    for (preset = 0; preset < preset_count(*e); ++preset) {
+        const char* q = after(rest, e->d->preset_names[preset]);
+        if (q && equal(q, ".json")) return e;
+    }
+    return nullptr;
+}
+
+// The preset walk's folders (8d4eb928). content/presets lists stock's folders,
+// then one per module with presets, its own name taking a stock folder's place;
+// content/presets/<id> lists only the module's presets, never files left there.
+// An entry holds its type at +0xa (4 folder, 8 file) and its name at +0xb.
+struct Folder {
+    bool used, root;
+    void* real;                  // stock's folder for content/presets
+    Entry* module;               // whose presets, for content/presets/<id>
+    u32 next;
+    unsigned char entry[64];
+};
+Folder folders[4];               // the walk nests: the root and one module folder
+const u32 entry_type = 0xa, entry_name = 0xb, type_folder = 4, type_file = 8;
+
+void* dir_open(const char* path) { return stock<void*(const char*)>(0x8c0be54a)(path); }
+const unsigned char* dir_next(void* dir) { return stock<const unsigned char*(void*)>(0x8c0be6a4)(dir); }
+void dir_close(void* dir) { stock<void(void*)>(0x8c0be7b2)(dir); }
+
+Folder* ours(void* handle) {
+    for (Folder& f : folders) if (handle == &f && f.used) return &f;
+    return nullptr;
+}
+const unsigned char* entry_of(Folder& f, u32 type, const char* name, const char* suffix) {
+    for (unsigned char& b : f.entry) b = 0;
+    f.entry[entry_type] = static_cast<unsigned char>(type);
+    u32 n = entry_name;
+    for (const char* c = name; *c && n + 1 < sizeof f.entry; ++c) f.entry[n++] = static_cast<unsigned char>(*c);
+    for (const char* c = suffix; *c && n + 1 < sizeof f.entry; ++c) f.entry[n++] = static_cast<unsigned char>(*c);
+    return f.entry;
+}
+}
+
+void* sdk_module_preset_dir_open(const char* path) {
+    sdk_module_load();
+    if (!any_presets()) return dir_open(path);
+    const char* p = after(path, presets_root);
+    const char* rest = nullptr;
+    Entry* module = p && *p == '/' ? preset_owner(p + 1, 0, rest) : nullptr;
+    if (!p || (*p && !module)) return dir_open(path);
+    for (Folder& f : folders) {
+        if (f.used) continue;
+        f = Folder{};
+        f.used = true;
+        f.root = !*p;
+        f.real = f.root ? dir_open(path) : nullptr;
+        f.module = module;
+        return &f;
+    }
+    return dir_open(path);  // nested deeper than ever seen: stock's alone
+}
+
+const unsigned char* sdk_module_preset_dir_next(void* handle) {
+    Folder* f = ours(handle);
+    if (!f) return dir_next(handle);
+    if (f->root) {
+        while (f->real) {
+            const unsigned char* e = dir_next(f->real);
+            if (!e) break;
+            const char* rest;
+            if (e[entry_type] == type_folder && preset_owner(reinterpret_cast<const char*>(e + entry_name), 0, rest))
+                continue;  // a module's folder replaces a stock one of its name
+            return e;
+        }
+        while (f->next < count)
+            if (preset_count(entries[f->next++])) return entry_of(*f, type_folder, entries[f->next - 1].id, "");
+        return nullptr;
+    }
+    if (f->next >= preset_count(*f->module)) return nullptr;
+    return entry_of(*f, type_file, f->module->d->preset_names[f->next++], ".json");
+}
+
+void sdk_module_preset_dir_close(void* handle) {
+    Folder* f = ours(handle);
+    if (!f) { dir_close(handle); return; }
+    if (f->real) dir_close(f->real);
+    f->used = false;
+}
+
+// A module preset's type, which stock's reader (8d4eead6) cannot open: the
+// synth's native name, written into the type stock left empty (presets.cpp).
+// A stock string holds its text inline while capacity < 16, else on the heap.
+namespace {
+char* text_of(registry::StockString& s) { return s.capacity >= 16 ? *reinterpret_cast<char**>(s.text) : s.text; }
+const char* text_of(const registry::StockString& s) {
+    return s.capacity >= 16 ? *reinterpret_cast<char* const*>(s.text) : s.text;
+}
+}
+int sdk_module_preset_type(registry::StockString* type, const registry::StockString* path) {
+    u32 preset;
+    const Entry* e = type && path ? virtual_preset(text_of(*path), preset) : nullptr;
+    if (!e) return 0;
+    const u32 n = length(e->d->name);
+    if (n > type->capacity) return 0;
+    char* text = text_of(*type);
+    for (u32 i = 0; i <= n; ++i) text[i] = e->d->name[i];
+    type->length = n;
+    return 1;
+}
+
+// Stock's JSON-from-file read (0x8c042490(path, json)) at 8d4e5726, where a
+// chosen preset is read: a module preset from its module's text.
+bool sdk_module_preset_load(const char* path, void* out) {
+    u32 preset;
+    if (const Entry* e = virtual_preset(path, preset)) {
+        const char* text = e->d->preset_texts[preset];
+        return parse_json(reinterpret_cast<const unsigned char*>(text), length(text), out);
+    }
+    return stock<bool(const char*, void*)>(0x8c042490)(path, out);
+}
+
 // Stock's factory catalog read (0x8c042490(path, json)) at 8d4e06e4. With
 // module synths, the file's text gets their entries at the end of
 // "engine_types" (as the build appends built-in machines'), and stock's JSON
@@ -509,20 +698,7 @@ bool sdk_module_catalog_load(const char* path, void* out) {
     for (u32 i = at; i < bytes; ++i) text[n++] = file[i];
     text[n] = 0;
     sdk_module_release(file);
-    // collection_resource_stock.cpp's parse: a Json value, a reader, the parse, then copy-assign into out.
-    unsigned char* value = sdk_module_allocate(12);
-    bool parsed = false;
-    if (value) {
-        alignas(4) unsigned char reader[120];
-        stock<void(void*, u32)>(0x8c0555c0)(value, 0);
-        stock<void(void*)>(0x8c050de8)(reader);
-        parsed = stock<bool(void*, const char*, const char*, void*, bool)>(0x8c052230)(
-            reader, reinterpret_cast<const char*>(text), reinterpret_cast<const char*>(text + n), value, false);
-        stock<void(void*)>(0x8c042420)(reader);
-        if (parsed) stock<void*(void*, const void*)>(0x8c054098)(out, value);
-        stock<void(void*)>(0x8c053fc0)(value);
-        sdk_module_release(value);
-    }
+    const bool parsed = parse_json(text, n, out);
     sdk_module_release(text);
     return parsed ? true : original(path, out);
 }

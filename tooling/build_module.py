@@ -304,6 +304,8 @@ void display_render(void* s, const opxy::draw::Input* in, void* f) {{
 unsigned display_validate(const void* f) {{ return {prefix}_display_validate(static_cast<const Frame*>(f)); }}
 // The page's artwork, exactly as a build would install it as content/display/{asset}.
 const char svg[] = {{{svg}}};
+// The presets a build would install as content/presets/{id}/<name>.json.
+{presets}
 const opxy::ModuleSynth synth = {{
     sizeof(opxy::ModuleSynth), "{name}", 0, 0, factory, parameter_name,
     sizeof(Voice), alignof(Voice), {shared_bytes}, {capacity}, initialize, start, destroy, render,
@@ -312,6 +314,7 @@ const opxy::ModuleSynth synth = {{
     __builtin_offsetof(Frame, nodes), __builtin_offsetof(Frame, texts), __builtin_offsetof(Frame, header),
     ids, "{asset}", display_reset, display_render, display_validate,
     svg, sizeof(svg), {catalog},
+    {preset_fields},
 }};
 static_assert(sizeof(ids) / sizeof(ids[0]) == Frame::node_count + Frame::text_count + Frame::palette_count,
               "Artwork IDs");
@@ -345,13 +348,24 @@ def build_machine(folder, out, version, toolchain=None, compiler=None):
     artwork = native.screen.compose(native.validate_panel(m))
     entry = catalog_entry(m).strip().lstrip(',').strip()
     require(_json.loads(entry)['type'] == m.native_name and entry.isascii(), 'Unexpected catalog entry')
+    from .adapters import preset_files
+    presets = {Path(path).stem: _json.dumps(preset, indent=2) + '\n' for path, preset in preset_files(m).items()}
+    require(all(text.isascii() for text in presets.values()), 'Presets are ASCII JSON')
+    if presets:
+        preset_source = ('const char* const preset_names[] = {' + ', '.join(_json.dumps(n) for n in presets) + '};\n'
+                         'const char* const preset_texts[] = {' +
+                         ', '.join(_json.dumps(t) for t in presets.values()) + '};')
+        preset_fields = 'sizeof(preset_names) / sizeof(preset_names[0]), preset_names, preset_texts'
+    else:
+        preset_source, preset_fields = '// none', '0, nullptr, nullptr'
     values = dict(name=m.native_name, namespace=m.definition['id'], prefix=m.prefix,
                   shared_bytes='sizeof(Shared)' if m.definition['resources']['sharedBytes'] else '0',
                   capacity=m.definition['resources']['voiceCapacity'],
                   labels=', '.join(_json.dumps(p['label'].lower()) for p in m.definition['parameters']),
                   # Its own name: never one a build installs, so module artwork shadows no file.
                   ids=', '.join(_json.dumps(i) for i in ids), asset='module-' + m.native_name + '.svg',
-                  svg=', '.join(str(b) for b in artwork), catalog=_json.dumps(' '.join(entry.split())))
+                  svg=', '.join(str(b) for b in artwork), catalog=_json.dumps(' '.join(entry.split())),
+                  id=m.id, presets=preset_source, preset_fields=preset_fields)
     with tempfile.TemporaryDirectory(prefix='opxy-machine-module-') as temp:
         work = Path(temp)
         generate_display(work, machine=m)

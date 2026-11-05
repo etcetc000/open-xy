@@ -52,6 +52,13 @@ struct ModuleSynth {
     const char* svg;
     u32 svg_bytes;
     const char* catalog_entry;
+    // The machine's presets, shown as content/presets/<machine ID>/<name>.json
+    // while the module is loaded and gone with it: preset_count names (as
+    // tooling/machines.py PRESET_NAME, without .json) and their JSON texts.
+    // Only when size covers them; a module built before they existed has none.
+    u32 preset_count;
+    const char* const* preset_names;
+    const char* const* preset_texts;
 };
 
 struct ModuleApi {

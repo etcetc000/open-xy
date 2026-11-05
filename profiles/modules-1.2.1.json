@@ -44,6 +44,46 @@
     },
     {
       "kind": "hook",
+      "name": "Module presets: the preset walk opens content/presets and module folders through the module runtime",
+      "address": "0x8d4eb948",
+      "file_offset": "0x122ba4",
+      "length": 8,
+      "before": "00de0b8c4ae50000",
+      "symbol": "sdk_module_preset_dir_open",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module presets: the preset walk's next entry, module folders and presets after stock's",
+      "address": "0x8d4eb97c",
+      "file_offset": "0x122bd8",
+      "length": 8,
+      "before": "00de0b8ca4e60000",
+      "symbol": "sdk_module_preset_dir_next",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module presets: the preset walk closes its folders through the module runtime",
+      "address": "0x8d4ebbf4",
+      "file_offset": "0x122e50",
+      "length": 8,
+      "before": "00de0b8cb2e70000",
+      "symbol": "sdk_module_preset_dir_close",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Module presets: a chosen module preset is read from its module file, every other file from stock",
+      "address": "0x8d4e5726",
+      "file_offset": "0x11c982",
+      "length": 8,
+      "before": "00de048c90240000",
+      "symbol": "sdk_module_preset_load",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "Board messages of the module runtime before stock's handler for every other type",
       "address": "0x8d5b18c4",
       "file_offset": "0x1e8b1c",

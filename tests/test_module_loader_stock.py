@@ -30,7 +30,8 @@ class ModuleLoaderStock(unittest.TestCase):
         added = module_runtime.profile(base)['patches'][len(base['patches']):]
         self.assertEqual([p['symbol'] for p in added],
                          ['sdk_module_mtp_folder_match', 'sdk_module_mtp_match', 'sdk_module_asset_load',
-                          'sdk_module_catalog_load', 'sdk_module_board_receive'])
+                          'sdk_module_catalog_load', 'sdk_module_preset_dir_open', 'sdk_module_preset_dir_next',
+                          'sdk_module_preset_dir_close', 'sdk_module_preset_load', 'sdk_module_board_receive'])
 
     def test_native_mtp_matcher_admits_module_files_only_in_the_module_folder(self):
         compiler = os.environ.get('OPXY_TEST_HOST_CXX') or shutil.which('g++') or shutil.which('clang++')

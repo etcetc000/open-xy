@@ -3,6 +3,7 @@
 // (module_synths.cpp). GUI and startup paths only, except the voice table.
 #pragma once
 #include <opxy/module.hpp>
+namespace opxy { namespace platform { namespace registry { struct StockString; } } }
 
 extern "C" {
 // Heap and files for module machines (module_loader_stock.cpp): zeroing is the caller's.
@@ -13,6 +14,14 @@ unsigned char* sdk_module_read_file(const char* path, opxy::u32& bytes) __asm__(
 void sdk_module_load() __asm__("sdk_module_load");
 void* sdk_module_asset_load(const char* path) __asm__("sdk_module_asset_load");
 bool sdk_module_catalog_load(const char* path, void* out) __asm__("sdk_module_catalog_load");
+// Module presets (module_synths.cpp): the preset walk's folder calls (8d4eb928),
+// the chosen preset's read (8d4e5726), and presets.cpp's type for a module preset.
+void* sdk_module_preset_dir_open(const char* path) __asm__("sdk_module_preset_dir_open");
+const unsigned char* sdk_module_preset_dir_next(void* folder) __asm__("sdk_module_preset_dir_next");
+void sdk_module_preset_dir_close(void* folder) __asm__("sdk_module_preset_dir_close");
+bool sdk_module_preset_load(const char* path, void* out) __asm__("sdk_module_preset_load");
+int sdk_module_preset_type(opxy::platform::registry::StockString* type,
+                           const opxy::platform::registry::StockString* path) __asm__("sdk_module_preset_type");
 opxy::u32 stock_gui_role() __asm__("stock_gui_role");
 opxy::u32 stock_catalog_insert(void*, const void*, opxy::u32) __asm__("stock_catalog_insert");
 

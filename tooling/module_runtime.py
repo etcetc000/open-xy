@@ -8,10 +8,12 @@ from .formats import require, sha
 from .pipeline import ROOT, check_patch_boundaries, read
 
 OVERLAY = 'profiles/modules-1.2.1.json'
-OVERLAY_SHA256 = '1de7a390e66629c05443a222efff5541b66d6055b38d2eec7b362e3d2272ba63'
+OVERLAY_SHA256 = 'f8465a3e13fdd31681c5b798077d47b5261ca6c55bad8952abd2172d675073da'
 TARGETS = {'sdk_module_mtp_folder_match': 0x8d5c1bb0, 'sdk_module_mtp_match': 0x8d5c1bb0,
            'sdk_module_asset_load': 0x8d5f2400, 'sdk_module_catalog_load': 0x8c042490,
-           'sdk_module_board_receive': 0x8d5aeb58}
+           'sdk_module_board_receive': 0x8d5aeb58,
+           'sdk_module_preset_dir_open': 0x8c0be54a, 'sdk_module_preset_dir_next': 0x8c0be6a4,
+           'sdk_module_preset_dir_close': 0x8c0be7b2, 'sdk_module_preset_load': 0x8c042490}
 
 
 def profile(base):

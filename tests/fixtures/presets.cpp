@@ -34,6 +34,9 @@ static const char* text(const StockString* s) {
     return storage;
 }
 
+// A build without modules: no module presets.
+extern "C" int sdk_module_preset_type(StockString*, const StockString*) { return 0; }
+
 extern "C" int sdk_engine_installed(const void* name) {
     ++asked;
     const char* type = text(static_cast<const StockString*>(name));
