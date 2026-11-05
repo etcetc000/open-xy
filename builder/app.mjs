@@ -238,19 +238,19 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const memoryNote = memoryChange && ' · ' + memoryChange;
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
-        renderMachines(); renderExtensions(); recalculate();
+        renderMachines(); renderExtensions();
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ') + memoryNote;
       } else {
-        if (memoryNote) recalculate();
         $('firmware-result').textContent = (recovered.earlier
           ? '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again'
           : '✓ OP–XY OS 1.2.1 verified · ' + file.name) + memoryNote;
       }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
-      // Show again why a selection cannot be built, e.g. when this OS used less memory.
-      status(); if (!linked && selected.length) recalculate();
+      // One link for the selection or memory this OS set, after clearing the status
+      // so a selection that cannot be built says why.
+      status(); if (recovered.selected || memoryNote || (!linked && selected.length)) recalculate();
       ready();
       return true;
     } catch (error) {
@@ -804,8 +804,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   $('restore').onchange = async e => {
     try {
-      core.requireThat(!checkingOs, 'Wait until your OS file has been checked, then load the layout.');
+      const wait = 'Wait until your OS file has been checked, then load the layout.';
+      core.requireThat(!checkingOs, wait);
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
+      core.requireThat(!checkingOs, wait);  // an OS check may have started during the read
       const loaded = core.readLayout(kit, saved);
       // A layout keeps its machine numbers even when an extension it names is no
       // longer offered; that extension is left out and named.
@@ -834,7 +836,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         (memoryChange && ' ' + memoryChange[0].toUpperCase() + memoryChange.slice(1) + '.') +
         (loaded.memoryUnavailable && loaded.selected ? ' Its experimental memory isn’t offered here; it builds with standard memory.' : '') +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
-    } catch (error) { fail(error); }
+    } catch (error) { fail(error); } finally { e.target.value = ''; }  // the same file can be chosen again
   };
   $('save-layout').onclick = () => {
     if (!layout) return;
@@ -844,6 +846,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   async function loadCollectionData(data) {
     const next = await core.openKit(data);
     invalidate(); stock = null; kit = next;
+    // An OS check against the previous collection no longer applies.
+    if (checkingOs) {
+      ticket++; checkingOs = false;
+      wizard.setFirmwareState('empty'); $('firmware-result').textContent = 'OS not loaded';
+    }
     // A tap opens the memory breakdown on screens without hover.
     $('builder-version').textContent = 'v' + kit.version;
     expandedKit = core.offersExpandedMemory(kit.profile) ? core.memoryKit(kit, true) : null;
