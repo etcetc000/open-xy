@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220">
-  <rect x="3" y="28" width="114" height="67" rx="4" fill="#191919" stroke="#cdcdcd" stroke-width="1"/>
-  <text x="11" y="50" fill="#cdcdcd" font-family="UniversNextPro-Light" font-size="18">tilt mic</text>
-  <text id="mode" x="11" y="81" fill="#ffffff" font-family="UniversNextPro-Light" font-size="26">off</text>
+  <!-- First encoder of the shared screen.svg header; other columns stay stock. -->
+  <rect width="60" height="20" fill="#000000"/>
+  <rect x="60" width="60" height="20" fill="#323232"/>
+  <text id="title" transform="matrix(1 0 0 1 5 10)" fill="#CBCBCB" font-family="UniversNextPro-Light" font-size="10px">tilt mic</text>
+  <text id="mode" transform="matrix(1 0 0 1 65 17.44)" fill="#CBCBCB" font-family="UniversNextPro-Light" font-size="20px">off</text>
 </svg>
