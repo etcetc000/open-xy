@@ -156,6 +156,26 @@ class DrumLocks(unittest.TestCase):
             self.assertEqual(w[0] & 0xff00, 0xda00, hex(address))
             return w[0] & 0xff, w[1] << 16 | w[2]
 
+        # The key a turn edits (stock.hpp drum_edit_key), which the Shift row shows and
+        # locks: the controller's held key 0x8400dfc8 (read at 8c0b1344 and 8c0b1448,
+        # latched from the last played key 8d4d6cb0 by the first turn, 8c0b167a..8c0b168a;
+        # Shift and a pad set it, 8c0b29ce), handed to the per-key editor; not the track's
+        # selected key 8d4d6c98, another byte.
+        self.assertEqual(load(0x8c0b1344), (9, 0x8400dfc8))
+        self.assertEqual(at(0x8c0b1448, 8).hex(), '03c800180891eca0')
+        self.assertEqual(at(0x8c0b167a, 6).hex(), '00de4d8db06c')
+        self.assertEqual(load(0x8c0b1682), (9, 0x8400dfc8))
+        self.assertEqual(at(0x8c0b168a, 2).hex(), '08b0')
+        self.assertEqual(at(0x8c0b29ce, 6).hex(), '00d80084c8df')
+        self.assertEqual(load(0x8d4d6cb0), (1, 0x080379f0))
+        self.assertEqual(load(0x8d4d6c98), (1, 0x08037a00))
+        self.assertIn('0x8400dfc8', (PLATFORM / 'stock.hpp').read_text(encoding='utf-8'))
+        # The turn event (8d5ad2e8): word 1 its detents ([P5 + 0x4], 8d5ad346), word 2 its
+        # speed ([P5 + 0x8], 8d5ad31a); word 0, the continuous motion (8d5ad28e: R0 = [P1]),
+        # is added to a Q31 word.
+        self.assertEqual(at(0x8d5ad31a, 2).hex(), 'a8a0')
+        self.assertEqual(at(0x8d5ad28e, 2).hex(), '0891')
+
         # The builder's Drumline path, whose words drum_locks.hpp recomputes: the model
         # byte's bin (8d5ad6ee, 8d5ad6fa), pan (8d5ad71e, 8d5ad72a) into word 5 (+0x14,
         # 8d5ad736), the pad word into word 6 (+0x18, 8d5ad73e) and level into word 7
