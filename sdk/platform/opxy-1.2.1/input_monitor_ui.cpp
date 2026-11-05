@@ -28,8 +28,8 @@ void sdk_input_monitor_frame(u32 painted, u32 selected) {
     stock<void(Popup*,i32)>(0x8d53ae00)(&popup, 0);
     popup.svg = document;
     for (u32 i = 0; i < 4; ++i) {
-        if (popup.rows[i]) popup.rows[i]->hidden = i != 0;
-        if (popup.icons[i]) popup.icons[i]->hidden = 1;
+        if (popup.rows[i]) popup.rows[i]->visible = i == 0;
+        if (popup.icons[i]) popup.icons[i]->visible = 0;
     }
     if (popup.rows[0]) {
         i32 matrix[9];
