@@ -136,11 +136,19 @@ Rebuild old preview modules to use the new fields.
 
 `amp` holds the track's stock amplitude envelope, the one its envelope page
 edits, on a synth's page or a sample engine's own screen: `attack`, `decay`, `sustain` and `release`, each a Q31 word from 0 to
-`0x7fffffff` on the same scale as `slots`. A larger attack, decay or release
-is a longer stage, as stock's envelope page draws it; these are control
-positions, not times, and stock maps them to times along its own curves. The
-values are the ones stock's envelope page draws, read once per frame on the
-GUI side: a snapshot for drawing, not a measurement of a voice's envelope.
+`0x7fffffff` on the same scale as `slots`. Stock uses only each word's top
+seven bits (`word >> 24`). A larger attack or decay is a longer stage, and a
+larger sustain a higher level, as a linear gain. Release runs the other way: a
+larger release is a shorter release. Stock reads it through decay's table,
+mirrored, and its envelope page draws a larger release as a later start to a
+shorter slope, so a preset's `release: 32767` is stock's shortest release.
+These are control positions, not times, and stock maps them to times along its
+own curves. The values are the ones stock's envelope page draws, read once per
+frame on the GUI side: a snapshot for drawing, not a measurement of a voice's
+envelope. A drum kit's voices play no amp envelope: stock's drum renderer
+ignores these words, so a kit's voice plays until `finished`, a choke or a
+steal, whatever its envelope page shows, and a kit's screen shouldn't follow
+`amp`.
 
 When the envelope cannot be read, every word is `envelope_unavailable` (-1);
 `envelope_known(input.amp)` tests for it. Treat an unknown envelope as the
