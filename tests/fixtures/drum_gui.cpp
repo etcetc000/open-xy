@@ -375,6 +375,16 @@ int main() {
         before = publications;
         sdk_drum_edit(56, 7, slow, 0);
         require(pad[0x1d] == 12 && publications == before);
+        // Every other edit of the key keeps it: its pan, and a control.
+        sdk_drum_edit(56, 6, slow, 0);
+        require(sdk_drum_pan(0) == 1 && pad[0x1d] == 12 && publications == before + 1);
+        sdk_drum_edit(56, 6, down, 0);
+        require(sdk_drum_pan(0) == 0 && pad[0x1d] == 12 && publications == before + 2);
+        shifted = false;
+        sdk_drum_edit(56, 0, slow, 0);
+        sdk_drum_edit(56, 0, down, 0);
+        require(pad[0x1d] == 12 && publications == before + 4);
+        shifted = true;
         sdk_drum_edit(56, 7, down, 0);
         require(static_cast<signed char>(pad[0x1d]) == -1);
         require(!std::memcmp(words, regions[3], sizeof(words)) && pad[24] == mark);

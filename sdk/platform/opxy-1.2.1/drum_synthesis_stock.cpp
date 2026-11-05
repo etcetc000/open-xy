@@ -106,10 +106,13 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, drum_codec(machine->model_count, machine->count))) return 0;
     record[24] = mark;
     *pad_word = pad;
-    if (machine->pad_mix) {
+    // Pan and level only when they are the edit, or the level as the key is
+    // set up: drum_level reads a stored boost as 0 dB, so writing it back on
+    // any other edit would replace the boost stock saved.
+    if (choice == DrumMachine::kShiftPan)
         record[kDrumPan] = static_cast<unsigned char>(static_cast<signed char>(pan));
+    if (machine->pad_mix && (choice == DrumMachine::kShiftLevel || setup))
         record[kDrumLevel] = static_cast<unsigned char>(static_cast<signed char>(level));
-    }
     stock<void()>(0x8d585ee8)();
     stock<void(u32)>(0x8d4d5f18)(key);
     return 0;

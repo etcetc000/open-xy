@@ -484,7 +484,8 @@ and level (LEVEL), as on stock Drumline: pan -100..100 with 0 centred, moving
 faster on a fast turn as stock's does, and level in whole dB, -30..0, one a
 detent, shown as `-6dB`. Pan and level are stock's own pad fields. Stock pans
 every voice of a kit already; the SDK applies the level, as a cut, so a voice
-stays within its declared `outputPeakQ31`. On the encoders' second row Shift
+stays within its declared `outputPeakQ31`. A boost stock saved (up to +20 dB)
+plays and shows as 0 dB and stays stored until the level itself is turned down. On the encoders' second row Shift
 edits the key's pad fields: the kit's own pad controls on the first two
 encoders, then its FX I and FX II sends. Every key of such a kit has the
 second row, a model with four or fewer controls too, whose encoders there are
