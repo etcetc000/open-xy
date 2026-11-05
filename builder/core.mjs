@@ -478,24 +478,28 @@ export const moduleBytes = profile => profile.reserved_bytes - profile.table_byt
 // where the reviewed profile puts them (tests/test_experimental_memory.py).
 // Less heap for the stock OS is untested under heavy use, so this is opt-in.
 const HEAP_LOAD = /^01da[0-9a-f]{8}0000$/;  // Blackfin+ Dreg = imm32 (tooling.stock_tables.decode)
+// The size a heap edit loads, or NaN for any other instruction (never equal).
 const heapImmediate = hex => {
-  check(typeof hex === 'string' && HEAP_LOAD.test(hex), 'Unexpected heap edit');
+  if (typeof hex !== 'string' || !HEAP_LOAD.test(hex)) return NaN;
   const d = view(unhex(hex));
   return d.getUint16(2, true) * 65536 + d.getUint16(4, true);
 };
-export const offersExpandedMemory = profile => profile.experimental_memory !== undefined;
-export function expandedProfile(profile) {
-  const x = profile.experimental_memory, heaps = profile.patches.filter(p => p.kind === 'heap');
+// Whether the profile carries a reviewed larger layout consistent with its heap
+// edits. Without one the builder simply does not offer the option.
+export function offersExpandedMemory(profile) {
+  const x = profile.experimental_memory, heaps = (profile.patches ?? []).filter(p => p.kind === 'heap');
   const end = profile.module_base + profile.reserved_bytes;
-  check(x && typeof x === 'object' && Object.keys(x).sort().join() === 'heap_after,module_base,reserved_bytes' &&
+  return Boolean(x && typeof x === 'object' && Object.keys(x).sort().join() === 'heap_after,module_base,reserved_bytes' &&
     Number.isInteger(x.module_base) && Number.isInteger(x.reserved_bytes) &&
     x.reserved_bytes > profile.reserved_bytes && x.module_base + x.reserved_bytes === end &&
     x.module_base > profile.heap_fill_base && heapImmediate(x.heap_after) === x.module_base - profile.heap_fill_base &&
     profile.heap_fill_base + profile.heap_fill_bytes === end && heaps.length === 2 &&
     heaps.every(p => heapImmediate(p.before) === profile.heap_fill_bytes &&
-      heapImmediate(p.after) === profile.module_base - profile.heap_fill_base),
-    'This firmware profile cannot offer more memory');
-  const heap = x.module_base - profile.heap_fill_base, mib = x.reserved_bytes / 1024 ** 2;
+      heapImmediate(p.after) === profile.module_base - profile.heap_fill_base));
+}
+export function expandedProfile(profile) {
+  check(offersExpandedMemory(profile), 'This firmware profile cannot offer more memory');
+  const x = profile.experimental_memory, heap = x.module_base - profile.heap_fill_base, mib = x.reserved_bytes / 1024 ** 2;
   const name = `IN-MEMORY application heap 0x${profile.heap_fill_bytes.toString(16)} -> 0x${heap.toString(16)} (${mib} MiB module reservation, experimental)`;
   return {...profile, module_base: x.module_base, reserved_bytes: x.reserved_bytes,
     patches: profile.patches.map(p => p.kind === 'heap' ? {...p, name, after: x.heap_after} : p)};

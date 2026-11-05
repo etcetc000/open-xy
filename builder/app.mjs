@@ -228,18 +228,24 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
       stock = recovered.stock;
+      // Every OS sets the memory choice to what it used: 6 MiB builds turn it on,
+      // stock and standard builds off. A change is said, never silent.
+      const wasExpanded = expandedMemory;
+      setExpandedMemory(recovered.expanded === true);
+      const memoryNote = expandedMemory === wasExpanded ? '' : expandedMemory
+        ? ' · it used ' + expandedSize() + ' experimental memory, which is turned on'
+        : ' · it uses standard memory, so ' + expandedSize() + ' is turned off';
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
-        setExpandedMemory(recovered.expanded === true);
         renderMachines(); renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ open-xy OS with ' +
-          selectionNames().join(' + ');
-      } else if (recovered.earlier) {
-        // A 6 MiB build whose selection this collection cannot rebuild keeps its memory choice.
-        if (recovered.expanded) { setExpandedMemory(true); recalculate(); }
-        $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again' +
-          (recovered.expanded ? ' · it used ' + expandedSize() + ' experimental memory, which is turned on' : '');
-      } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
+          selectionNames().join(' + ') + memoryNote;
+      } else {
+        if (memoryNote) recalculate();
+        $('firmware-result').textContent = (recovered.earlier
+          ? '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again'
+          : '✓ OP–XY OS 1.2.1 verified · ' + file.name) + memoryNote;
+      }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
       status(); ready();
@@ -795,19 +801,26 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const offered = new Set((kit.extensions ?? []).map(e => e.id));
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
-      // A layout with a selection records its build's memory (readLayout checks it is
-      // offered); a numbers-only layout leaves the current choice alone.
+      // A layout with a selection records its build's memory; a numbers-only layout
+      // leaves the current choice alone. When this site lacks the layout's
+      // experimental memory, its numbers are still kept, and its selection too if
+      // it fits standard memory.
       const wanted = loaded.selected ? loaded.expanded === true : expandedMemory, changed = wanted !== expandedMemory;
-      if (loaded.selected) core.linkKit(kitFor(wanted), loaded.selected, loaded.machines, extensions);
+      let fits = true;
+      if (loaded.selected) {
+        try { core.linkKit(kitFor(wanted), loaded.selected, loaded.machines, extensions); }
+        catch (error) { if (!loaded.memoryUnavailable) throw error; fits = false; }
+      }
       setExpandedMemory(wanted);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
-      if (loaded.selected) selected = [...loaded.selected];
+      if (loaded.selected && fits) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
       status('Layout loaded: your machines keep their numbers.' +
         (changed ? (wanted ? ' It uses ' + expandedSize() + ' experimental memory, now turned on.'
           : ' It uses standard memory; ' + expandedSize() + ' is turned off.') : '') +
-        (loaded.memoryUnavailable ? ' Its experimental memory isn’t offered here; it builds with standard memory.' : '') +
+        (loaded.memoryUnavailable && loaded.selected ? fits ? ' Its experimental memory isn’t offered here; it builds with standard memory.'
+          : ' Its machines need experimental memory, which isn’t offered here; choose machines again.' : '') +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
     } catch (error) { fail(error); }
   };
@@ -824,6 +837,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     expandedKit = core.offersExpandedMemory(kit.profile) ? core.memoryKit(kit, true) : null;
     memoryInput.disabled = !expandedKit;
     $('expanded-memory-option').hidden = !expandedKit;
+    if (expandedKit) {
+      const mib = n => n / 1024 ** 2 + ' MiB', heap = p => mib(p.module_base - p.heap_fill_base);
+      $('expanded-memory-size').textContent = expandedSize();
+      $('expanded-memory-heap').textContent = mib(expandedKit.profile.reserved_bytes - kit.profile.reserved_bytes) +
+        ' more from the OP–XY’s own working memory (' + heap(kit.profile) + ' to ' + heap(expandedKit.profile) + ')';
+    }
     setExpandedMemory(false);
     selected = kit.machines.filter(core.chosenByDefault).map(machine => machine.id);
     try {

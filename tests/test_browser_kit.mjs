@@ -197,7 +197,7 @@ test('a 6 MiB build loads its module lower, shrinks the heap and restores its se
   assert.ok(big.sizes.allocated > kit.profile.reserved_bytes);
   await assert.rejects(patchFirmware(kit, big, stock), /Module exceeds its profile/);
   assert.equal(readLdr(await patchFirmware(memoryKit(large, true), big, stock)).at(-2).target, module.target);
-  // Layouts record the choice; a site without it refuses such a layout.
+  // Layouts record the choice; readLayout reports whether this site offers it.
   assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'expanded'}),
     {machines:{}, selected:null, expanded:true});
   assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}}), {machines:{}, selected:null});

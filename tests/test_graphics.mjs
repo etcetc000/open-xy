@@ -441,6 +441,8 @@ test('Extensions graphics defaults to original designs without firmware extensio
     chosenByDefault:machine => (currentFixture.selected ?? ['probe']).includes(machine.id),
     decode64:value => value ? Core.decode64(value) : currentFixture.catalog,
     moduleBytes:profile => profile.reserved_bytes ?? 2048,
+    offersExpandedMemory:profile => profile.experimental_memory !== undefined,
+    readLayout:(kit, saved) => ({...Core.readLayout(kit, {...saved, memory:undefined}), ...(saved.memory ? {expanded:true} : {})}),
     memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:6 * 1024 ** 2}} : kit,
     recoverFirmware:async () => ({stock:Uint8Array.of(1)}),
     linkKit:kit => { linkedKits.push(kit); return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
@@ -513,7 +515,12 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.equal(memoryInput.checked, true);
   await restoreLayout(expandedLayout);
   assert.doesNotMatch($('status').textContent, /turned/);
-  memoryInput.checked = false; memoryInput.onchange();
+  // Loading an OS sets the choice to what it used; stock used standard memory.
+  assert.equal(await wizardOptions.onFirmware({name:'stock', size:1, arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.equal(memoryInput.checked, false);
+  assert.match($('firmware-result').textContent, /standard memory, so 6 MiB is turned off$/);
+  assert.equal(await wizardOptions.onFirmware({name:'stock', size:1, arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.doesNotMatch($('firmware-result').textContent, /turned/);
   const originalKit = (await fixture()).kit;
   assert.equal(new TextDecoder().decode(defaultFiles['content/display/probe.svg']),
     originalKit.screenTemplate.replace('</svg>', originalKit.machines[0].artwork + '</svg>'));

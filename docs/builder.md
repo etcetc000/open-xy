@@ -209,8 +209,11 @@ are unchanged. The stock OS needs that heap for its interface, projects,
 presets, file browsing and MTP, and running out of it is fatal, so this build
 may be unstable under heavy use. The selection summary shows the choice,
 `build.json` records `reserved_bytes` and `layout.json` records
-`"memory": "expanded"`. Loading a 6 MiB build as your OS, or its `layout.json`,
-turns the option back on. `sdk.py build` always uses the standard layout.
+`"memory": "expanded"`. Loading an OS sets the option to what that OS used
+(stock and standard builds turn it off), and so does restoring a `layout.json`
+that lists machines; a site without the option keeps the layout's numbers.
+`sdk.py build` uses only the standard layout and refuses a 6 MiB `layout.json`;
+`sdk.py project write` accepts it.
 
 Projects save each track's machine by number, so a machine keeps its numbers
 in your firmware for good ([layouts](api.md#identity)). The builder remembers

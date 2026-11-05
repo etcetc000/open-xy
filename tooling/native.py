@@ -1070,7 +1070,7 @@ def main(argv=None, command=None):
                     f'(a copy of the device\'s /content): {args.stock_content}')
         # A package records the collection it was built from.
         entries = package_collection(args.package) if command == 'verify' else selected_collection(args)
-        layout = read_layout(args.layout) if command != 'verify' and args.layout else None
+        layout = read_layout(args.layout, build=True) if command != 'verify' and args.layout else None
         profile, machines, definitions = configuration(entries, layout)
         tools = resolve_toolchain(args.toolchain, args.compiler)
         tool_paths(tools[0])

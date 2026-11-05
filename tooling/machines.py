@@ -599,8 +599,11 @@ def occupied(rules, identity):
     return keys
 
 
-def read_layout(path):
-    """A layout file's numbers by machine ID. The builder's saved selection is a layout too."""
+def read_layout(path, build=False):
+    """A layout file's numbers by machine ID. The builder's saved selection is a layout too.
+
+    A build refuses a layout from the builder's experimental memory, which SDK
+    builds do not offer; companions need only the numbers."""
     value = json.loads(Path(path).read_text(encoding='utf-8'))
     profile = config()
     require(isinstance(value, dict) and value.get('format') == LAYOUT_FORMAT and isinstance(value.get('machines'), dict),
@@ -610,7 +613,8 @@ def read_layout(path):
             f"{path} is a layout for {value.get('profile')}, not {profile['id']}")
     # The builder's experimental 6 MiB memory (profile experimental_memory) is
     # builder-only; an SDK build from its layout would quietly use 2 MiB.
-    require(value.get('memory') is None, f"{path} is from a build with the builder's experimental memory; "
+    require(value.get('memory', 'expanded') == 'expanded', f'{path} has an invalid memory choice')
+    require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "
             'sdk.py builds use standard memory. Remove "memory" from a copy to build with standard memory.')
     return check_layout_numbers(value['machines'], 'the layout')
 

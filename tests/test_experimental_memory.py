@@ -75,9 +75,14 @@ class ExperimentalMemory(unittest.TestCase):
             path = Path(directory) / 'layout.json'
             path.write_text(json.dumps(dict(layout_document({}), memory='expanded')), encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'experimental memory'):
-                read_layout(path)
+                read_layout(path, build=True)
+            self.assertEqual(read_layout(path), {})  # project companions need only the numbers
+            for memory in (None, 'large'):
+                path.write_text(json.dumps(dict(layout_document({}), memory=memory)), encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'invalid memory'):
+                    read_layout(path)
             path.write_text(json.dumps(layout_document({})), encoding='utf-8')
-            self.assertEqual(read_layout(path), {})
+            self.assertEqual(read_layout(path, build=True), {})
 
 
 if __name__ == '__main__':
