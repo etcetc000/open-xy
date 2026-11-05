@@ -283,8 +283,8 @@ export function readLayout(kit, saved) {
   const selected = saved.selected ?? null;
   check(selected === null || Array.isArray(selected) && selected.every(id => kit.machines.some(m => m.id === id)),
     'This layout lists a machine this site doesn’t have.');
-  // Like an extension no longer offered, a memory choice this site lacks is left
-  // out and reported; the layout's numbers are kept.
+  // A memory choice this site lacks is reported, not refused: the builder restores
+  // such a layout with standard memory when its selection fits (app.mjs restore).
   check(saved.memory === undefined || saved.memory === 'expanded', 'Invalid memory in this layout.');
   const memory = saved.memory === undefined ? {} : offersExpandedMemory(kit.profile) ? {expanded: true} : {memoryUnavailable: true};
   return {machines: numbers, selected, ...memory};

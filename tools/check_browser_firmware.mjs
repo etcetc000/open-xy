@@ -1,8 +1,7 @@
 // Private input check. Emits only into the maintainer's ignored output directory.
-import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
+import {existsSync, readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
 import assert from 'node:assert/strict';
-import {existsSync} from 'node:fs';
 import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections, memoryKit, offersExpandedMemory, sha256} from '../builder/core.mjs';
 const [directory, stockFile, content] = process.argv.slice(2);
 const kit = await openKit(JSON.parse(readFileSync(resolve(directory, 'kit.json'))));

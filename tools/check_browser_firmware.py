@@ -9,7 +9,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tooling.formats import elf32, ldr, mapped_offset, require, sha
-from tooling import extensions, screen, startup_label
+from tooling import extensions, screen, startup_label, stock_tables
 from tooling.adapters import catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
 from tooling.machines import number_layout
@@ -41,6 +41,12 @@ def check_fallbacks(module, symbols, base):
 def expanded_profile(profile):
     """The reviewed experimental 6 MiB layout (builder/core.mjs expandedProfile), applied independently."""
     x = profile['experimental_memory']
+    # Checked here too, with the stock instruction decoder, rather than trusted.
+    opcode, heap = stock_tables.decode('imm32', bytes.fromhex(x['heap_after']))
+    require(x['module_base'] + x['reserved_bytes'] == profile['module_base'] + profile['reserved_bytes'] and
+            heap == x['module_base'] - profile['heap_fill_base'] and all(
+                stock_tables.decode('imm32', bytes.fromhex(p['before']))[0] == opcode
+                for p in profile['patches'] if p['kind'] == 'heap'), 'Experimental memory layout is inconsistent')
     expanded = copy.deepcopy(profile)
     expanded.update(module_base=x['module_base'], reserved_bytes=x['reserved_bytes'])
     for patch in expanded['patches']:

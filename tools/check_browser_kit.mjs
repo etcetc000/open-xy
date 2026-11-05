@@ -25,28 +25,43 @@ if (offersExpandedMemory(kit.profile)) {
   writeFileSync(script, reviewed.replace(memoryLine(kit.profile), memoryLine(expanded.profile)));
   layouts.push({suffix: '-expanded', kit: expanded, script, results: [], file: 'selections-expanded.json'});
 }
+// Links one selection in the browser and with GNU ld and requires identical modules.
+async function parity(memory, mask, selected, extensions, numbering, name) {
+  const linked = linkKit(memory.kit, selected, numbering, extensions), prefix = resolve(destination, name);
+  const definitions = [...Object.entries(linked.definitions), ...linked.aliases.entries()]
+    .map(([key, value]) => `--defsym=${key}=0x${value.toString(16)}`);
+  execFileSync(ld, ['-T', memory.script, '-e', 'extensions_synth_exit', '-o', prefix + '.elf', ...definitions,
+    ...linked.objects.map(o => resolve(objectDir, o.name))], {stdio: 'pipe', windowsHide: true});
+  execFileSync(objcopy, ['-O', 'binary', prefix + '.elf', prefix + '.bin'], {stdio: 'pipe', windowsHide: true});
+  const actual = readFileSync(prefix + '.bin');
+  assert.deepEqual(Buffer.from(linked.module), actual, 'GNU linker mismatch: ' + selected.join(', '));
+  // Export exact symbol addresses for independent Python LDR assembly too.
+  const result = {name, mask: mask.toString(), selected, extensions, layout: numbering, sizes: linked.sizes, globals: Object.fromEntries(linked.globals),
+    module_sha256: await sha256(linked.module)};
+  writeFileSync(prefix + '.json', JSON.stringify(result)); memory.results.push(result);
+  console.log('GNU link parity' + (memory.suffix && ' (experimental memory)') + ':', selected.join(' + '),
+    'extensions:', extensions.join(',') || 'none', linked.sizes.allocated, 'bytes');
+}
 for (const mask of checkedSelections(kit.machines, kit.linked)) {
   const selected = kit.machines.filter((_, i) => mask & selectionBit(i)).map(m => m.id);
   // A mask runs to 78 digits: a short digest names the selection stably and keeps paths short.
   const digest = (await sha256(new TextEncoder().encode(mask.toString()))).slice(0, 16);
   for (const [choice, extensions] of extensionChoices(kit).entries())
   for (const numbering of mask === linkedMask ? [null, native] : [null])
-  for (const memory of layouts) {
-    const name = `${digest}-${choice}` + (numbering ? '-native' : '') + memory.suffix;
-    const linked = linkKit(memory.kit, selected, numbering, extensions), prefix = resolve(destination, name);
-    const definitions = [...Object.entries(linked.definitions), ...linked.aliases.entries()]
-      .map(([key, value]) => `--defsym=${key}=0x${value.toString(16)}`);
-    execFileSync(ld, ['-T', memory.script, '-e', 'extensions_synth_exit', '-o', prefix + '.elf', ...definitions,
-      ...linked.objects.map(o => resolve(objectDir, o.name))], {stdio: 'pipe', windowsHide: true});
-    execFileSync(objcopy, ['-O', 'binary', prefix + '.elf', prefix + '.bin'], {stdio: 'pipe', windowsHide: true});
-    const actual = readFileSync(prefix + '.bin');
-    assert.deepEqual(Buffer.from(linked.module), actual, 'GNU linker mismatch: ' + selected.join(', '));
-    // Export exact symbol addresses for independent Python LDR assembly too.
-    const result = {name, mask: mask.toString(), selected, extensions, layout: numbering, sizes: linked.sizes, globals: Object.fromEntries(linked.globals),
-      module_sha256: await sha256(linked.module)};
-    writeFileSync(prefix + '.json', JSON.stringify(result)); memory.results.push(result);
-    console.log('GNU link parity' + (memory.suffix && ' (experimental memory)') + ':', selected.join(' + '),
-      'extensions:', extensions.join(',') || 'none', linked.sizes.allocated, 'bytes');
+  for (const memory of layouts) await parity(memory, mask, selected, extensions, numbering,
+    `${digest}-${choice}` + (numbering ? '-native' : '') + memory.suffix);
+}
+// The checked selections all fit standard memory. The reason to choose the larger
+// one is a selection that does not: the whole collection, with the largest valid
+// extension choice, is checked at it whenever it needs more than standard memory
+// and fits the larger.
+if (layouts.length > 1) {
+  const all = kit.machines.map(m => m.id);
+  const every = extensionChoices(kit).reduce((a, b) => b.length > a.length ? b : a, []);
+  const fits = k => { try { linkKit(k, all, null, every); return true; } catch (error) { if (error.capacity) return false; throw error; } };
+  if (!fits(kit) && fits(layouts[1].kit)) {
+    const mask = kit.machines.reduce((m, _, i) => m | selectionBit(i), 0n);
+    await parity(layouts[1], mask, all, every, null, 'collection-expanded');
   }
 }
 for (const memory of layouts) writeFileSync(resolve(destination, memory.file), JSON.stringify(memory.results, null, 2));

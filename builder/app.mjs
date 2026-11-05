@@ -232,10 +232,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
       stock = recovered.stock;
-      // An open-xy OS sets the memory choice to what it used: 6 MiB builds turn it on,
-      // standard builds off. Stock OS records no choice, so it keeps the current one,
-      // e.g. a layout's. A change is said, never silent.
-      const memoryChange = recovered.selected || recovered.earlier ? setExpandedMemory(recovered.expanded === true) : '';
+      // An OS whose memory is known sets the choice: a recognized 6 MiB build turns it
+      // on, an exactly rebuilt standard build off. Stock OS, or an open-xy OS of an
+      // unknown layout, keeps the current one. A change is said, never silent.
+      const memoryChange = recovered.selected || recovered.expanded ? setExpandedMemory(recovered.expanded === true) : '';
       const memoryNote = memoryChange && ' · ' + memoryChange;
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
