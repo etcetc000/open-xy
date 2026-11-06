@@ -183,13 +183,16 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | Field | Meaning |
 | --- | --- |
 | `shift` | 1 while Shift is held on a page with Shift controls (a drum kit's), else 0. |
-| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. They hold whether or not Shift is held, so a screen can show them in its header either way. |
+| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. A [`padMix`](api.md#synthesis-drum-kits) kit gives the same, by whether it has groups, though its Shift row is the model, the choke group, pan and level: read `model`, `pan` and `level` for those. They hold whether or not Shift is held, so a screen can show them in its header either way. |
 | `model` | A drum kit's selected key's model. |
+| `pan`, `level` | A `padMix` kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10; 0 dB on a key the kit has not set up); 0 for other machines. |
+| `line` | The row the encoders edit, 0 the first and 1 the second; on a drum kit, also the Shift row (SDK 1.10). |
+| `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0..7, 0 following the track's send); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls in its edited row while `shift` is 1, as the stock header does. The
-previews used drawing ABI 4, an 88-byte input, until ABI 5 added the amp envelope; ABI 3 (84 bytes) ends after
-`choices`.
+previews use drawing ABI 6, a 112-byte input: ABI 5 (104 bytes) ends after the
+amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
 
 ## Frame
 

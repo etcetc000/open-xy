@@ -6,6 +6,14 @@ static void host_barrier() {}
 #include <keyboard_octaves.cpp>
 // This fixture has no synthesis drum kits.
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
+// A kit's second Shift row (synth_controls.cpp), as the press hook asks it:
+// whether it takes a Shift press, and what it was asked.
+static bool shift_press_takes;
+static unsigned shift_press_calls, shift_press_track, shift_press_encoder;
+bool sdk_drum_shift_press(opxy::u32 track, opxy::u32 encoder) {
+    ++shift_press_calls; shift_press_track = track; shift_press_encoder = encoder;
+    return shift_press_takes;
+}
 
 using namespace opxy::platform;
 static void check(bool value) { if (!value) std::abort(); }
@@ -188,7 +196,10 @@ static unsigned machine_edit(unsigned project, unsigned track, unsigned index, u
 }
 // Stock's sample predicate after its entry hook: an owned engine through its alias.
 static unsigned sample_predicate(unsigned id) { unsigned alias = sdk_sample_alias(id); return alias == 2 || alias == 3 || alias == 30; }
+// Stock's selected key on the drum page (8d4d6c98).
+static unsigned selected_key(unsigned track) { check(track == selected_track_value); return 60; }
 Address opxy::platform::host_stock_address(Address address) {
+    if (address == 0x8d4d6c98) return reinterpret_cast<Address>(&selected_key);
     if (address == 0x8d5b79c0) return reinterpret_cast<Address>(&sample_predicate);
     if (address == 0x11a00ec0) return reinterpret_cast<Address>(&queue_packet);
     if (address == 0x8d4dc490) return reinterpret_cast<Address>(&plain_note);
@@ -518,4 +529,37 @@ int main() {
     check(sdk_sample_page_shift() == 1);
     shifted = false;
     check(sdk_sample_page_shift() == 0);
+
+    // Encoder presses (8c0b2730, button 4..7): a Shift press that a kit's
+    // second Shift row takes ends there; every other press, and a Shift press
+    // the row declines (a kit without padMix, any other machine), takes the
+    // drum page's own path. Engine 35's drum controls: Shift + 5 and 6, and
+    // 4 and 7 unshifted.
+    engine = 35; selected_track_value = 0; octave = 0;
+    const unsigned key_pad = sample_drum_key(60, 0) - 53;
+    for (bool takes : {false, true}) {
+        shift_press_takes = takes; shift_press_calls = 0;
+        const unsigned before = edits[key_pad];
+        shifted = true;
+        check(sdk_sample_press_engine_owned(0, 5) == 35);
+        check(shift_press_calls == 1 && shift_press_track == 0 && shift_press_encoder == 1);
+        check(edits[key_pad] == before + (takes ? 0 : 1) && (takes || last_index == 13));
+        // Not encoders 4..7: never offered to the row.
+        check(sdk_sample_press_engine_owned(0, 3) == 35 && shift_press_calls == 1);
+        // Unshifted: never offered to the row; the machine's own press.
+        shifted = false;
+        check(sdk_sample_press_engine_owned(0, 4) == 35);
+        check(shift_press_calls == 1 && edits[key_pad] == before + (takes ? 1 : 2) && last_index == 8);
+        // Other engines keep their answers: stock's own, an owned screen's,
+        // a sample engine's alias.
+        shifted = true;
+        for (unsigned id : {4u, 36u, 38u, 62u}) {
+            engine = id;
+            check(sdk_sample_press_engine_owned(0, 6) == (takes ? id : id == 36 ? 2u : id));
+        }
+        engine = 35;
+    }
+    shift_press_takes = false;
+    shifted = false;
+    check(sdk_sample_press_engine_owned(8, 5) == kNoEngine);
 }

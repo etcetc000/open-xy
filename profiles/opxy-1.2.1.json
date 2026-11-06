@@ -147,6 +147,9 @@
       "sample",
       "player",
       "drum"
+    ],
+    "drum_sends": [
+      "padMix"
     ]
   },
   "patches": [
@@ -1458,6 +1461,39 @@
     },
     {
       "kind": "hook",
+      "name": "Preset load, its first call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
+      "address": "0x8d4dda96",
+      "file_offset": "0x114cf2",
+      "length": 4,
+      "before": "00e3892d",
+      "symbol": "sdk_drum_preset_load",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset load, its second call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
+      "address": "0x8d4ddb84",
+      "file_offset": "0x114de0",
+      "length": 4,
+      "before": "00e3122d",
+      "symbol": "sdk_drum_preset_load",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset load, its third call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
+      "address": "0x8d4dde44",
+      "file_offset": "0x1150a0",
+      "length": 4,
+      "before": "00e3b22b",
+      "symbol": "sdk_drum_preset_load",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "LFO Value effective destination label",
       "address": "0x8d543970",
       "file_offset": "0x17abcc",
@@ -2063,6 +2099,61 @@
       "symbol": "sdk_project_new",
       "call": false,
       "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "Mixer: a track's voice loop starts, per-key send state reset",
+      "address": "0x8d510bea",
+      "file_offset": "0x147e46",
+      "length": 4,
+      "before": "00e38f5d",
+      "symbol": "sdk_drum_send_track",
+      "call": true,
+      "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
+      "name": "Mixer voice loop: before a rendered voice is added into the track sum, its key's send share",
+      "address": "0x8d51c7b2",
+      "file_offset": "0x153a0e",
+      "length": 8,
+      "before": "0adab01148150000",
+      "symbol": "sdk_drum_send_voice_hook",
+      "call": true,
+      "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
+      "name": "Mixer: FX I bus reads the track sum, or the per-key sum of FX I's shares",
+      "address": "0x8d511088",
+      "file_offset": "0x1482e4",
+      "length": 8,
+      "before": "09da901100360000",
+      "symbol": "sdk_drum_send_source_1",
+      "call": true,
+      "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
+      "name": "Mixer: FX II bus reads the track sum, or the per-key sum of FX II's shares",
+      "address": "0x8d5110ca",
+      "file_offset": "0x148326",
+      "length": 8,
+      "before": "09da901100360000",
+      "symbol": "sdk_drum_send_source_2",
+      "call": true,
+      "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
+      "name": "Mixer: after FX II's loop, each key's own send amounts into FX I and FX II at the track's level",
+      "address": "0x8d511116",
+      "file_offset": "0x148372",
+      "length": 4,
+      "before": "30e51200",
+      "symbol": "sdk_drum_send_own",
+      "call": true,
+      "service": "drum_sends"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

@@ -28,13 +28,25 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
     // Every run reads its keys as saved in a project, as each block of a saved key does. The
     // kit's own run saves each key at its defaults, so it plays what the kit starts with.
     const u32 saved = run == 0 ? 24 : 1;
-    i32 payloads[24][1 + platform::kDrumStorageWords] = {};
+    // Stock's eight payload words: the mark, the four stored words, pan (word 5,
+    // applied by stock's renderer, not here), the pad controls (word 6) and the
+    // pad's level (word 7, Q27). The kit's own run plays its keys as they start,
+    // neutral at 0 dB; every other run its heaviest pad settings on keys the kit
+    // has set up: each pad control at its top and, with padMix, a cut, which
+    // the adapter applies.
+    i32 pad_word = static_cast<i32>(platform::kDrumPadReady);
+    for (u32 f = 0; f < kPadCount && f < platform::kDrumKitPadFields; ++f)
+        pad_word = platform::drum_field_set(pad_word, platform::drum_pad_low(f, pad_bits), pad_bits[f],
+                                            platform::drum_field_max(pad_bits[f], (kPadSigns >> f & 1u) != 0));
+    i32 payloads[24][8] = {};
     for (u32 k = 0; k < saved; ++k) {
         u8 stored[8];
         u8 chosen = static_cast<u8>(model);
         if (run == 0) @NAMESPACE@::drum_defaults(53 + k, &chosen, stored);
         else for (u32 i = 0; i < 8; ++i) stored[i] = kBenchmarkLevels[level];
         payloads[k][0] = benchmark_marked();
+        payloads[k][platform::kDrumPadPayload] = run == 0 ? 0 : pad_word;
+        payloads[k][platform::kDrumGainWord] = run == 0 || !kPadMix ? platform::kDrumUnityGain : platform::kDrumUnityGain / 2;
         platform::drum_pack(chosen, stored, payloads[k] + 1, storage());
     }
     u32 pitch[block_frames];
