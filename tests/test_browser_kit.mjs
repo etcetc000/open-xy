@@ -219,7 +219,7 @@ test('a 4 MiB build loads its module lower, shrinks the heap and restores its se
   const size = FOUR_MIB, layoutOf = extra => ({format:'opxy-layout/1', profile:kit.profile.id, machines:{}, ...extra});
   assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:size})), {machines:{}, selected:null, expanded:true});
   // A layout from another experimental size is not taken for this one.
-  assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:6 * 1024 ** 2})), {machines:{}, selected:null, memoryUnavailable:true});
+  assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:6 * 1024 ** 2})), {machines:{}, selected:null, memoryUnavailable:6 * 1024 ** 2});
   for (const bad of [{memory:'expanded'}, {reserved_bytes:size}, {memory:'expanded', reserved_bytes:'4'}])
     assert.throws(() => readLayout(kit, layoutOf(bad)), /Invalid memory/);
   assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}}), {machines:{}, selected:null});
@@ -227,7 +227,7 @@ test('a 4 MiB build loads its module lower, shrinks the heap and restores its se
   // A site without the option keeps the layout's numbers and reports the choice it left out.
   const plain = fixture(); delete plain.profile.experimental_memory;
   assert.deepEqual(readLayout(plain, {format:'opxy-layout/1', profile:plain.profile.id, machines:{a:{engine:34,page:82}}, memory:'expanded', reserved_bytes:FOUR_MIB}),
-    {machines:{a:{engine:34,page:82}}, selected:null, memoryUnavailable:true});
+    {machines:{a:{engine:34,page:82}}, selected:null, memoryUnavailable:FOUR_MIB});
   assert.throws(() => memoryKit(plain, true), /cannot offer more memory/);
 });
 

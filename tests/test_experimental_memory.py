@@ -93,12 +93,13 @@ class ExperimentalMemory(unittest.TestCase):
     def test_sdk_builds_refuse_a_layout_that_asks_for_it(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'layout.json'
-            path.write_text(json.dumps(dict(layout_document({}), memory='expanded')), encoding='utf-8')
+            path.write_text(json.dumps(dict(layout_document({}), memory='expanded', reserved_bytes=4 * 1024 * 1024)), encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'experimental memory'):
                 read_layout(path, build=True)
             self.assertEqual(read_layout(path), {})  # project companions need only the numbers
-            for memory in (None, 'large'):
-                path.write_text(json.dumps(dict(layout_document({}), memory=memory)), encoding='utf-8')
+            for extra in ({'memory': None}, {'memory': 'large', 'reserved_bytes': 1}, {'memory': 'expanded'},
+                          {'reserved_bytes': 4 * 1024 * 1024}, {'memory': 'expanded', 'reserved_bytes': '4'}):
+                path.write_text(json.dumps(dict(layout_document({}), **extra)), encoding='utf-8')
                 with self.assertRaisesRegex(ValueError, 'invalid memory'):
                     read_layout(path)
             path.write_text(json.dumps(layout_document({})), encoding='utf-8')

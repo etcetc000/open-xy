@@ -289,7 +289,8 @@ export function readLayout(kit, saved) {
   check(saved.memory === undefined ? saved.reserved_bytes === undefined
     : saved.memory === 'expanded' && Number.isInteger(saved.reserved_bytes), 'Invalid memory in this layout.');
   const offered = offersExpandedMemory(kit.profile) && saved.reserved_bytes === kit.profile.experimental_memory.reserved_bytes;
-  const memory = saved.memory === undefined ? {} : offered ? {expanded: true} : {memoryUnavailable: true};
+  // memoryUnavailable names the size the layout asked for.
+  const memory = saved.memory === undefined ? {} : offered ? {expanded: true} : {memoryUnavailable: saved.reserved_bytes};
   return {machines: numbers, selected, ...memory};
 }
 // The kit's machines numbered for this selection, in kit order, and the layout after.

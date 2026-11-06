@@ -57,19 +57,18 @@ for (const mask of checkedSelections(kit.machines, kit.linked)) {
 // and fits the larger.
 if (layouts.length > 1) {
   const all = kit.machines.map(m => m.id);
-  // 'fits', 'needs more' or 'unlinkable' for another reason (then no such check applies).
-  const fit = (k, extensions) => { try { linkKit(k, all, null, extensions); return 'fits'; }
+  // How the whole collection links with an extension choice: its allocated bytes, or
+  // 'needs more' / 'unlinkable' (any other reason, when no such check applies).
+  const link = (k, extensions) => { try { return linkKit(k, all, null, extensions).sizes.allocated; }
     catch (error) { return error.capacity ? 'needs more' : 'unlinkable'; } };
-  // The extension choice with the most code that still fits the larger memory, if any
-  // needs more than standard memory with the whole collection.
-  const choices = extensionChoices(kit).sort((a, b) => b.length - a.length);
-  const every = choices.find(c => fit(kit, c) === 'needs more' && fit(layouts[1].kit, c) === 'fits') ?? choices[0];
-  const standard = fit(kit, every), larger = fit(layouts[1].kit, every);
-  if (standard === 'unlinkable' || larger === 'unlinkable') console.log('Experimental memory: the whole collection does not link together; no beyond-standard check.');
-  else if (standard !== 'needs more' || larger !== 'fits')
-    console.log('Experimental memory: the whole collection', standard === 'fits' ? 'fits standard memory' : 'does not fit 4 MiB either',
-      '- no module beyond standard memory is checked.');
+  const tried = extensionChoices(kit).map(c => ({c, standard: link(kit, c), larger: link(layouts[1].kit, c)}));
+  // The choice with the most code that needs more than standard memory and fits the larger.
+  const beyond = tried.filter(t => t.standard === 'needs more' && typeof t.larger === 'number')
+    .sort((x, y) => y.larger - x.larger)[0];
+  if (!beyond) console.log('Experimental memory: no extension choice with the whole collection needs more than standard memory',
+    'and fits the larger - no module beyond standard memory is checked.');
   else {
+    const every = beyond.c;
     const mask = kit.machines.reduce((m, _, i) => m | selectionBit(i), 0n);
     await parity(layouts[1], mask, all, every, null, 'collection-expanded');
   }

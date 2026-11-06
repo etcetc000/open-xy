@@ -445,7 +445,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
     offersExpandedMemory:profile => profile.experimental_memory !== undefined,
     // A layout whose memory is 'unoffered' stands for one from a site with experimental memory this one lacks.
     readLayout:(kit, saved) => ({...Core.readLayout(kit, {...saved, memory:undefined, reserved_bytes:undefined}),
-      ...(saved.memory === 'unoffered' ? {memoryUnavailable:true} : saved.memory ? {expanded:true} : {})}),
+      ...(saved.memory === 'unoffered' ? {memoryUnavailable:6 * 1024 ** 2} : saved.memory ? {expanded:true} : {})}),
     memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:4 * 1024 ** 2}} : kit,
     recoverFirmware:async () => recoverResult ?? ({stock:Uint8Array.of(1)}),
     linkKit:kit => { linkedKits.push(kit); if (linkError) throw linkError; return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
@@ -525,18 +525,20 @@ test('Extensions graphics defaults to original designs without firmware extensio
   linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
   await restoreLayout({...expandedLayout, memory:'unoffered', machines:{probe:{engine:99, page:99}}});
   linkError = null;
-  assert.match($('status').textContent, /^This layout used experimental memory this site doesn’t offer\. These machines need more/);
+  assert.equal($('status').textContent, 'This layout used 6 MiB experimental memory, which this site doesn’t offer. ' +
+    'These machines need more than the 2032 KiB available. Turning on “Use 4 MiB for machines” (experimental) may make room.');
   assert.equal(memoryInput.checked, before.checked);
   // A standard layout that no longer fits points to the larger memory this site offers.
   linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
   await restoreLayout({...expandedLayout, memory:undefined, reserved_bytes:undefined});
-  assert.match($('status').textContent, /Turning on “Use 4 MiB for machines” \(experimental\) may make room\.$/);
+  assert.equal($('status').textContent, 'These machines need more than the 2032 KiB available. Turning on “Use 4 MiB for machines” (experimental) may make room.');
   linkError = new Error('Machine numbers overlap');  // not a memory problem: no memory hint
   await restoreLayout({...expandedLayout, memory:'unoffered'});
   linkError = null;
   assert.equal($('status').textContent, 'Machine numbers overlap');
   await restoreLayout({...expandedLayout, memory:'unoffered'});
-  assert.match($('status').textContent, /isn’t offered here; it builds with standard memory\./);
+  assert.match($('status').textContent, /It used 6 MiB experimental memory, which this site doesn’t offer; it builds with standard memory\.$/);
+  assert.doesNotMatch($('status').textContent, /turned off/);  // one message, not two
   assert.equal(memoryInput.checked, false);
   memoryInput.checked = true; memoryInput.onchange();
   // Stock OS records no memory choice and keeps the current one; an open-xy OS sets it.

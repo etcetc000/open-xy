@@ -827,10 +827,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       if (loaded.selected) {
         try { core.linkKit(kitFor(wanted), loaded.selected, loaded.machines, extensions); }
         catch (error) {
+          const sentence = m => /[.!?]$/.test(m) ? m : m + '.';
+          const hint = expandedKit ? ` Turning on “Use ${expandedSize()} for machines” (experimental) may make room.` : '';
           if (loaded.memoryUnavailable && error.capacity === true)
-            error.message = 'This layout used experimental memory this site doesn’t offer. ' + error.message;
-          else if (!wanted && expandedKit && error.capacity === true)
-            error.message += ` Turning on “Use ${expandedSize()} for machines” (experimental) may make room.`;
+            error.message = `This layout used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer. ` +
+              sentence(error.message) + hint;
+          else if (!wanted && expandedKit && error.capacity === true) error.message = sentence(error.message) + hint;
           throw error;
         }
       }
@@ -839,9 +841,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
+      // A layout from an experimental size this site lacks gets one message, not two.
+      const unavailable = loaded.memoryUnavailable && loaded.selected;
       status('Layout loaded: your machines keep their numbers.' +
-        (memoryChange && ' ' + memoryChange[0].toUpperCase() + memoryChange.slice(1) + '.') +
-        (loaded.memoryUnavailable && loaded.selected ? ' Its experimental memory isn’t offered here; it builds with standard memory.' : '') +
+        (unavailable ? ` It used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer; it builds with standard memory.`
+          : memoryChange && ' ' + memoryChange[0].toUpperCase() + memoryChange.slice(1) + '.') +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
     } catch (error) { fail(error); } finally { e.target.value = ''; }  // the same file can be chosen again
   };
