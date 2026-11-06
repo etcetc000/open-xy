@@ -285,8 +285,11 @@ export function readLayout(kit, saved) {
     'This layout lists a machine this site doesn’t have.');
   // A memory choice this site lacks is reported, not refused: the builder restores
   // such a layout with standard memory when its selection fits (app.mjs restore).
-  check(saved.memory === undefined || saved.memory === 'expanded', 'Invalid memory in this layout.');
-  const memory = saved.memory === undefined ? {} : offersExpandedMemory(kit.profile) ? {expanded: true} : {memoryUnavailable: true};
+  // The layout names its experimental size, so one from another size is not taken for this one.
+  check(saved.memory === undefined ? saved.reserved_bytes === undefined
+    : saved.memory === 'expanded' && Number.isInteger(saved.reserved_bytes), 'Invalid memory in this layout.');
+  const offered = offersExpandedMemory(kit.profile) && saved.reserved_bytes === kit.profile.experimental_memory.reserved_bytes;
+  const memory = saved.memory === undefined ? {} : offered ? {expanded: true} : {memoryUnavailable: true};
   return {machines: numbers, selected, ...memory};
 }
 // The kit's machines numbered for this selection, in kit order, and the layout after.

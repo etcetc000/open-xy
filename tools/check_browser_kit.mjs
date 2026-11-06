@@ -57,10 +57,14 @@ for (const mask of checkedSelections(kit.machines, kit.linked)) {
 // and fits the larger.
 if (layouts.length > 1) {
   const all = kit.machines.map(m => m.id);
-  const every = extensionChoices(kit).reduce((a, b) => b.length > a.length ? b : a, []);
   // 'fits', 'needs more' or 'unlinkable' for another reason (then no such check applies).
-  const fit = k => { try { linkKit(k, all, null, every); return 'fits'; } catch (error) { return error.capacity ? 'needs more' : 'unlinkable'; } };
-  const standard = fit(kit), larger = fit(layouts[1].kit);
+  const fit = (k, extensions) => { try { linkKit(k, all, null, extensions); return 'fits'; }
+    catch (error) { return error.capacity ? 'needs more' : 'unlinkable'; } };
+  // The extension choice with the most code that still fits the larger memory, if any
+  // needs more than standard memory with the whole collection.
+  const choices = extensionChoices(kit).sort((a, b) => b.length - a.length);
+  const every = choices.find(c => fit(kit, c) === 'needs more' && fit(layouts[1].kit, c) === 'fits') ?? choices[0];
+  const standard = fit(kit, every), larger = fit(layouts[1].kit, every);
   if (standard === 'unlinkable' || larger === 'unlinkable') console.log('Experimental memory: the whole collection does not link together; no beyond-standard check.');
   else if (standard !== 'needs more' || larger !== 'fits')
     console.log('Experimental memory: the whole collection', standard === 'fits' ? 'fits standard memory' : 'does not fit 4 MiB either',

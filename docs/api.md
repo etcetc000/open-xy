@@ -41,7 +41,7 @@ firmware reserves from its heap, minus 16 KiB of relocated stock tables (4080 Ki
 with the builder's [experimental 4 MiB option](builder.md#capacity-and-machine-numbers)). There
 is no per-machine allowance: a build that does not fit names each machine's
 share, and `sdk.py compile` and the builder's memory meter report the same
-figures. State usually dominates, since a synth's voice pool is
+figures for standard memory. State usually dominates, since a synth's voice pool is
 `voiceBytes × (min(voiceCapacity, 27) + 1)`: stock never sounds more than 27
 notes, and one spare voice serves a note that ended as another starts. The SDK
 adds 12 bytes per stock voice index (3 KiB) and 16 per voice.

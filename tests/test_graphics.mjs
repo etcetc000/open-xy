@@ -444,7 +444,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
     moduleBytes:profile => profile.reserved_bytes ?? 2048,
     offersExpandedMemory:profile => profile.experimental_memory !== undefined,
     // A layout whose memory is 'unoffered' stands for one from a site with experimental memory this one lacks.
-    readLayout:(kit, saved) => ({...Core.readLayout(kit, {...saved, memory:undefined}),
+    readLayout:(kit, saved) => ({...Core.readLayout(kit, {...saved, memory:undefined, reserved_bytes:undefined}),
       ...(saved.memory === 'unoffered' ? {memoryUnavailable:true} : saved.memory ? {expanded:true} : {})}),
     memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:4 * 1024 ** 2}} : kit,
     recoverFirmware:async () => recoverResult ?? ({stock:Uint8Array.of(1)}),
@@ -497,6 +497,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.match($('download-summary').textContent, / \+ 4 MiB experimental memory \(may be unstable\)$/);
   const expandedLayout = JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['layout.json']));
   assert.equal(expandedLayout.memory, 'expanded');
+  assert.equal(expandedLayout.reserved_bytes, 4 * 1024 ** 2);
   memoryInput.checked = false; memoryInput.onchange();
   assert.equal(linkedKits.at(-1).profile.reserved_bytes, undefined);
   await $('build').onclick();
@@ -526,6 +527,10 @@ test('Extensions graphics defaults to original designs without firmware extensio
   linkError = null;
   assert.match($('status').textContent, /^This layout used experimental memory this site doesn’t offer\. These machines need more/);
   assert.equal(memoryInput.checked, before.checked);
+  // A standard layout that no longer fits points to the larger memory this site offers.
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
+  await restoreLayout({...expandedLayout, memory:undefined, reserved_bytes:undefined});
+  assert.match($('status').textContent, /Turning on “Use 4 MiB for machines” \(experimental\) may make room\.$/);
   linkError = new Error('Machine numbers overlap');  // not a memory problem: no memory hint
   await restoreLayout({...expandedLayout, memory:'unoffered'});
   linkError = null;

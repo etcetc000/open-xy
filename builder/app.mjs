@@ -676,11 +676,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
       const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers,
-        ...(expanded ? {memory: 'expanded'} : {})};
+        ...(expanded ? {memory: 'expanded', reserved_bytes: memory.profile.reserved_bytes} : {})};
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
-        settings, sizes: result.sizes, reserved_bytes: memory.profile.reserved_bytes, files: hashes, hardware_qualified: false, cpu_measured: false});
+        settings, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
       if (ticket !== revision) return;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));
@@ -829,6 +829,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         catch (error) {
           if (loaded.memoryUnavailable && error.capacity === true)
             error.message = 'This layout used experimental memory this site doesn’t offer. ' + error.message;
+          else if (!wanted && expandedKit && error.capacity === true)
+            error.message += ` Turning on “Use ${expandedSize()} for machines” (experimental) may make room.`;
           throw error;
         }
       }

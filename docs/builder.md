@@ -208,8 +208,8 @@ heap edits write the smaller size, while the tables, hooks and every other edit
 are unchanged. The stock OS needs that heap for its interface, projects,
 presets, file browsing and MTP, and running out of it is fatal, so this build
 may be unstable under heavy use. The selection summary shows the choice,
-`build.json` records `reserved_bytes` and `layout.json` records
-`"memory": "expanded"`. Loading an open-xy OS sets the option to what that OS
+`build.json` and `layout.json` record it (`reserved_bytes`, and
+`"memory": "expanded"` in the layout). Loading an open-xy OS sets the option to what that OS
 used (a stock OS keeps the current choice), and so does restoring a `layout.json`
 that lists machines; a site without the option restores such a layout with
 standard memory when its machines fit, and otherwise says why it cannot.
