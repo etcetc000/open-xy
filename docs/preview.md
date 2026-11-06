@@ -90,8 +90,9 @@ The SDK-owned AudioWorklet transport accepts `{type: 'parameters', value}`
 C++ callbacks; they do not implement this transport themselves.
 
 Preview modules expose ABI version 1, compiled state/buffer sizes, static voice
-addresses and lifecycle/render exports. The runner rejects imports, invalid
-layout and a sample-rate mismatch. The manifest binds the WASM, artwork and
+addresses, lifecycle/render exports and the optional velocity export `opxy_note`,
+which the runner probes for before calling it. The runner rejects imports,
+invalid layout and a sample-rate mismatch. The manifest binds the WASM, artwork and
 source hashes and carries the definition and `machine.json` description that
 the workbench page shows. These are host interfaces, not a device upload protocol.
 

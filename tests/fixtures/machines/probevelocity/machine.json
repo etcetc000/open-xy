@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "sdk": "1.1",
+  "kind": "synth",
+  "description": "Test fixture: a synth whose voices render their note velocity.",
+  "identity": {
+    "engine": 46,
+    "page": 94
+  }
+}

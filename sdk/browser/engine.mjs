@@ -80,6 +80,8 @@ export class PreviewEngine {
       this.api.opxy_destroy(voice.state);
       this.api.opxy_initialize(voice.state);
     }
+    // Prime the machine's note hook; opxy_start fires it between initialize and start.
+    if (this.api.opxy_note) this.api.opxy_note(voice.state, Math.max(1, Math.round(velocity * 127)));
     this.api.opxy_start(voice.state);
     voice.pitch.fill(Math.round(440 * 2 ** ((note - 69) / 12) / this.sampleRate * 0x100000000));
     voice.active = true; voice.note = note; voice.age = ++this.clock;

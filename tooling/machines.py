@@ -43,7 +43,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # sample engine's own screen give any encoder to one of the stock sampler page's own
 # controls (resources.stockShift), and lets a sample engine ship its own samples
 # (machine.json `samples`), installed in the content folder, and its presets point at them.
-SDK_VERSION = (1, 10)
+# 1.11 lets a synth declare an optional note(voice, shared, velocity) hook, dispatched
+# by one SDK header on every harness that starts a voice.
+SDK_VERSION = (1, 11)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}

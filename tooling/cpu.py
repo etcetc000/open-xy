@@ -76,6 +76,7 @@ template <class Setup, class Block> double worst_block(Setup setup, Block block)
 
 SYNTH = r'''
 #include "engine.cpp"
+#include <opxy/voice_note.hpp>
 ''' + HARNESS + r'''
 // One voice at 440 Hz, its note started again before each run.
 int main() {
@@ -86,7 +87,7 @@ int main() {
     static opxy::i32 output[opxy::block_frames];
     volatile opxy::i32 sink = 0;
     @NS@::initialize(voice, shared, 1);
-    std::printf("%.1f\n", worst_block([&] { @NS@::start(voice, shared, 1); }, [&](const opxy::i32* parameters, int b) {
+    std::printf("%.1f\n", worst_block([&] { sdk_voice_note::call(voice, shared, 127u); @NS@::start(voice, shared, 1); }, [&](const opxy::i32* parameters, int b) {
         @NS@::render(voice, shared, 1, output, parameters, pitch);
         sink = sink + output[b & (opxy::block_frames - 1)];
     }));

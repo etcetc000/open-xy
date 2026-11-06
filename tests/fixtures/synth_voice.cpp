@@ -23,6 +23,12 @@ int call(unsigned index, unsigned entry) {
     const void* const* table = *static_cast<const void* const* const*>(handle[index]);
     return reinterpret_cast<Method>(const_cast<void*>(table[entry]))(handle[index]);
 }
+// Stock starts a note through entry 4 with the note and its velocity.
+int start(unsigned index) {
+    const void* const* table = *static_cast<const void* const* const*>(handle[index]);
+    typedef int (*Start)(void*, opxy::u32, opxy::u32);
+    return reinterpret_cast<Start>(const_cast<void*>(table[4]))(handle[index], 60u, 100u);
+}
 // The owner a voice index renders as, 0 for silence; -1 when output changes
 // within the block, as in a fade.
 opxy::i32 rendered(unsigned index) {
@@ -55,7 +61,7 @@ bool sound(std::initializer_list<unsigned> indices, unsigned count) {
 // A note as stock starts it: a fresh object for the index, then start.
 void note(unsigned index) {
     handle[index] = probe_factory(index);
-    call(index, 4);
+    start(index);
 }
 unsigned initialized() {
     unsigned total = 0;
@@ -88,7 +94,7 @@ int main() {
     if (destroyed[1] || !block({{0, 1}, {1, 2}, {200, 201}})) return 5;
     // A note that still holds its voice keeps it: no new initialize.
     const unsigned before = initialized();
-    call(1, 4);
+    start(1);
     if (initialized() != before || !block({{0, 1}, {1, 2}, {200, 201}})) return 6;
     // A fourth note while all sound takes a voice past its first 8 blocks, the
     // one whose note started first: that note fades out over its next block and
@@ -119,7 +125,7 @@ int main() {
     // and takes the next one in turn.
     if (!sound({11, 12, 13}, 10)) return 23;
     note(14);  // takes 11's voice
-    call(11, 4);  // 11 restarts without a fresh object: 14 starts, 11 takes 12's voice
+    start(11);  // 11 restarts without a fresh object: 14 starts, 11 takes 12's voice
     if (!block({{11, 0}, {12, -1}, {13, 14}, {14, 15}}) || destroyed[12] != 1 || destroyed[13] != 1) return 24;
     if (!block({{11, 12}, {13, 14}, {14, 15}})) return 25;
     // A fresh object for an index ends the note its voice held.
