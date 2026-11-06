@@ -26,7 +26,8 @@ def build_and_run(test, source, folder, includes=()):
     built = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
     test.assertEqual(built.returncode, 0, built.stdout + built.stderr)
     ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
-    test.assertEqual(ran.returncode, 0, f'{source.name}: check failed at line {ran.returncode}')
+    test.assertEqual(ran.returncode, 0,
+                     f'{source.name}: check failed at line {ran.returncode}\n{ran.stdout}{ran.stderr}')
 
 
 class KeyQueueHook(unittest.TestCase):

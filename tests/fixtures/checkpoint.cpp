@@ -78,7 +78,7 @@ void initialize() {
 namespace opxy { namespace platform {
 Address host_stock_address(Address address) {
     if (address >= project_address && address < project_address + sizeof project)
-        return reinterpret_cast<Address>(project + address - project_address);
+        return reinterpret_cast<Address>(project + (address - project_address));
     switch (address) {
         case 0x840a0524: return reinterpret_cast<Address>(&project_id);
         case 0x840a0528: return reinterpret_cast<Address>(&loading);
@@ -166,5 +166,29 @@ int main() {
     require(cp::command(Command::store) == Result::unavailable, "scene outside stored table refused");
     project[6] = 99;
     require(cp::command(Command::restore) == Result::success, "invalid scene store preserved last checkpoint");
+
+    // Thirty-two incompressible active/source records exceed a snapshot's
+    // capacity. Refusing either store or recovery capture must be atomic.
+    project[0xc] = project[0xd] = 255;
+    for (u32 t = 0; t < 16; ++t) {
+        project[0xe + t] = 1;
+        for (u32 p = 0; p < 2; ++p) {
+            for (u32 offset = 0; offset < 0x396c; offset += 4)
+                value(t, offset, p) = 1 + t * 0x10000 + p * 0x1000 + offset;
+            value(t, 0x18, p) = 18;
+        }
+    }
+    const u32 live_value = value(15, 0x258), prior_refs = references(), prior_refreshes = refreshes;
+    require(cp::command(Command::store) == Result::unavailable && references() == prior_refs &&
+            value(15, 0x258) == live_value && refreshes == prior_refreshes,
+            "snapshot exhaustion preserves baseline and live state");
+    require(cp::command(Command::restore) == Result::unavailable && references() == prior_refs &&
+            value(15, 0x258) == live_value && refreshes == prior_refreshes,
+            "recovery exhaustion refuses before applying baseline");
+    std::memset(project, 0, sizeof project);
+    initialize();
+    project[6] = 99;
+    require(cp::command(Command::restore) == Result::success && value(15, 0x258) == 115,
+            "baseline remains recallable after capacity failures");
     return 0;
 }
