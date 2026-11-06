@@ -38,6 +38,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const expandedSize = () => mib(expandedKit.profile.reserved_bytes);
   // A does-not-fit message, pointing to the larger option when this site offers it and
   // the selection would fit it (any failure there means no hint).
+  // Only after a selection fails to fit: one more in-browser link, under a millisecond.
   const fitsLarger = (selection, layoutNumbers, extensions) => {
     try { return Boolean(expandedKit && core.linkKit(expandedKit, selection, layoutNumbers, extensions)); } catch { return false; }
   };

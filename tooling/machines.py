@@ -613,12 +613,16 @@ def read_layout(path, build=False):
             f"{path} is a layout for {value.get('profile')}, not {profile['id']}")
     # The builder's experimental 4 MiB memory (profile experimental_memory) is
     # builder-only; an SDK build from its layout would quietly use 2 MiB.
-    # The same shape the builder accepts (builder/core.mjs readLayout): neither member, or both.
+    # The same shape the builder accepts (builder/core.mjs readLayout): neither member, or both,
+    # reserved_bytes read as JavaScript's JSON.parse reads it (a double, e.g. 4194304.0).
+    reserved = value.get('reserved_bytes')
+    try:
+        reserved = float(reserved) if type(reserved) in (int, float) else None
+    except OverflowError:
+        reserved = None  # JavaScript reads it as Infinity
     require(('memory' not in value and 'reserved_bytes' not in value) or
-            # Any integral JSON number, as the builder (JavaScript) reads it, e.g. 4194304.0.
-            (value.get('memory') == 'expanded' and type(value.get('reserved_bytes')) in (int, float) and
-             (type(value['reserved_bytes']) is int or value['reserved_bytes'].is_integer()) and
-             value['reserved_bytes'] > profile['reserved_bytes'] and value['reserved_bytes'] % (1024 * 1024) == 0),
+            (value.get('memory') == 'expanded' and reserved is not None and reserved.is_integer() and
+             reserved > profile['reserved_bytes'] and reserved % (1024 * 1024) == 0),
             f'{path} has an invalid memory choice')
     require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "
             'sdk.py builds use standard memory. Remove "memory" and "reserved_bytes" from a copy to build with standard memory.')

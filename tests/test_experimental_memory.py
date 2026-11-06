@@ -98,7 +98,8 @@ class ExperimentalMemory(unittest.TestCase):
                 read_layout(path, build=True)
             self.assertEqual(read_layout(path), {})  # project companions need only the numbers
             # An integral float reads as the builder reads it; Infinity and NaN do not.
-            for reserved, ok in ((4194304.0, True), (float('inf'), False), (float('nan'), False), (4194304.5, False), (10 ** 400 + 1, False)):  # huge, but no crash
+            for reserved, ok in ((4194304.0, True), (float('inf'), False), (float('nan'), False), (4194304.5, False), (10 ** 400, False),  # Infinity in JavaScript
+                                 (2 ** 60 + 1, True)):  # rounds to 2**60, as in JavaScript
                 path.write_text(json.dumps(dict(layout_document({}), memory='expanded', reserved_bytes=reserved)), encoding='utf-8')
                 if ok:
                     self.assertEqual(read_layout(path), {})

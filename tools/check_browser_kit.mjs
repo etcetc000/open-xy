@@ -3,7 +3,7 @@ import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
-import {openKit, linkKit, readLayout, sha256, checkedSelections, extensionChoices, selectionBit, memoryKit, offersExpandedMemory} from '../builder/core.mjs';
+import {openKit, linkKit, readLayout, sha256, checkedSelections, extensionChoices, selectionBit, memoryKit, offersExpandedMemory, moduleBytes} from '../builder/core.mjs';
 
 const [kitFile, objectDir, ld, objcopy, packageLayout] = process.argv.slice(2);
 const kit = await openKit(JSON.parse(readFileSync(kitFile, 'utf8')));
@@ -61,9 +61,11 @@ if (layouts.length > 1) {
   // 'needs more' / 'unlinkable' (any other reason, when no such check applies).
   const link = (k, extensions) => { try { return linkKit(k, all, null, extensions).sizes.allocated; }
     catch (error) { return error.capacity ? 'needs more' : 'unlinkable'; } };
-  const tried = extensionChoices(kit).map(c => ({c, standard: link(kit, c), larger: link(layouts[1].kit, c)}));
+  // One link per choice, at the larger memory: it needs more than standard memory when
+  // its allocation exceeds the standard module region.
+  const tried = extensionChoices(kit).map(c => ({c, larger: link(layouts[1].kit, c)}));
   // The choice with the most code that needs more than standard memory and fits the larger.
-  const beyond = tried.filter(t => t.standard === 'needs more' && typeof t.larger === 'number')
+  const beyond = tried.filter(t => typeof t.larger === 'number' && t.larger > moduleBytes(kit.profile))
     .sort((x, y) => y.larger - x.larger)[0];
   if (!beyond) console.log('Experimental memory: no extension choice with the whole collection needs more than standard memory',
     'and fits the larger - no module beyond standard memory is checked.');
