@@ -26,10 +26,10 @@
       "kind": "extension",
       "maintainer": "kristapskristaps",
       "status": "draft",
-      "repository": "https://github.com/kristapskristaps/open-xy-checkpoint",
-      "tag": "v0.1.0",
-      "commit": "fa7c6adf1516d67a31cd8b798d63f5448bf957a0",
-      "path": "."
+      "repository": "https://github.com/kristapskristaps/xy-machines",
+      "tag": "checkpoint-v0.1.0",
+      "commit": "5fedd9903d7dace1657863b0c0ffcd6d843b1b05",
+      "path": "extensions/checkpoint"
     }
   ]
 }
