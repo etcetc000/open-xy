@@ -128,7 +128,7 @@ routine must compute exactly what it does, sample for sample, for every input
 the manifest's `range` admits. Check that on a simulator or the device before
 publishing; the SDK checks only the routine's shape. Macro Osc's `native/` in
 the [core machines](https://github.com/etcetc000/open-xy-core-machines) holds
-five routines and its tests of their references.
+six routines and its tests of their references.
 
 ```text
 mymachine/
@@ -234,7 +234,7 @@ Before compiling, `sdk.py test` and the firmware build refuse:
   returns other than `RTS`, `TESTSET`, cache flushes), the system registers
   (`SYSCFG`, `SEQSTAT`, `RETI` and the other return registers, `USP`), writes to
   the cycle counters, which profiling owns, and a memory-mapped register's
-  address loaded into a pointer or index register;
+  address set as a constant high half of a pointer or index register;
 - an indirect `CALL`, whose callee the stack analysis cannot follow (an indirect
   `JUMP` stays inside the routine), any other way of moving SP, and an L
   register set and never cleared.

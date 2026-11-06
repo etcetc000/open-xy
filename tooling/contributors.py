@@ -87,16 +87,20 @@ def validate_native_assembly(source, name, prefix, symbol, state=False):
                 f'{name}: an indirect CALL hides its callee from the stack analysis')
         # The stack moves only in the forms the stack analysis measures.
         require(not re.search(r'\bSP\s*(?:[-*]=|=(?!=)|\+=(?!\s*' + _CONSTANT + r'\s*$))', statement, re.I) and
-                not re.search(r'SP\s*--|\+\+\s*SP|SP\s*\+\+\s*[A-Z]', statement, re.I),
+                not re.search(r'SP\s*--|\+\+\s*SP|SP\s*\+\+\s*[A-Z]|\bSP\.[HL]\b', statement, re.I),
                 f'{name}: change SP only by push, pop, LINK/UNLINK or SP += constant: {statement}')
         # Pointer and index registers never take a memory-mapped register's address
         # (0xFFC00000 up) by halves: system and core registers are the firmware's.
-        if mmr := re.match(r'(?:P[0-5]|I[0-3]|SP|FP)\.H\s*=\s*(' + _CONSTANT + r')\s*(?:\(\s*[XZ]\s*\))?$', statement, re.I):
-            value = _integer(mmr.group(1))
+        # The high half is a constant, or a constant's HI(), which takes its upper 16 bits.
+        if mmr := re.match(r'(?:P[0-5]|I[0-3]|SP|FP)\.H\s*=\s*(?:HI\s*\(\s*(' + _CONSTANT + r')\s*\)|(' + _CONSTANT +
+                           r'))\s*(?:\(\s*[XZ]\s*\))?$', statement, re.I):
+            value = _integer(mmr.group(2)) if mmr.group(1) is None else (_integer(mmr.group(1)) or 0) >> 16
             require(value is None or value & 0xffff < 0xffc0,
                     f'{name}: memory-mapped registers are the firmware\'s: {statement}')
-        if circular := re.match(r'L([0-3])\s*=\s*(.+)$', statement, re.I):
-            (zeroed if _integer(circular.group(2)) == 0 else loaded).add(circular.group(1))
+        # A write to one half keeps the other: only a whole-register 0 clears an L register.
+        if circular := re.match(r'L([0-3])(\.[HL])?\s*=\s*(.+)$', statement, re.I):
+            cleared = circular.group(2) is None and _integer(circular.group(3)) == 0
+            (zeroed if cleared else loaded).add(circular.group(1))
     require(re.fullmatch(re.escape(prefix) + r'_native_[a-z0-9_]+', symbol) is not None,
             f'{name}: its symbol starts with {prefix}_native_, the machine\'s own prefix')
     require(exported == ['_' + symbol], f'{name}: a native unit exports exactly its manifest\'s symbol, '

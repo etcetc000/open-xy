@@ -122,7 +122,10 @@ class NativeUnits(unittest.TestCase):
             'stack post-decrement': mutated('    RTS;', '    R0 = [SP--];\n    RTS;'),
             'memory-mapped register': mutated('    RTS;', '    P1.H = 0xFFC0;\n    RTS;'),
             'memory-mapped, negative': mutated('    RTS;', '    I0.H = -32;\n    RTS;'),
+            'memory-mapped, high part': mutated('    RTS;', '    P1.H = HI(0xFFC01000);\n    RTS;'),
+            'stack by halves': mutated('    RTS;', '    SP.L = 0;\n    RTS;'),
             'circular buffer left on': mutated('    RTS;', '    L1 = R0;\n    RTS;'),
+            'circular buffer by halves': mutated('    RTS;', '    L3.L = 24;\n    RTS;'),
         }
         messages = {'second export': 'exports exactly', 'unprefixed export': 'exports exactly',
                     'writable data': 'stateBytes', 'section flags': 'without flags', 'other section': 'sections',
@@ -130,7 +133,8 @@ class NativeUnits(unittest.TestCase):
                     'macro substitution': 'substitution', 'repeat over a list': 'directive',
                     'cycle counter': 'cycle counters', 'indirect call': 'indirect CALL',
                     'memory-mapped register': 'memory-mapped', 'memory-mapped, negative': 'memory-mapped',
-                    'circular buffer left on': 'L1 must be 0'}
+                    'memory-mapped, high part': 'memory-mapped',
+                    'circular buffer left on': 'L1 must be 0', 'circular buffer by halves': 'L3 must be 0'}
         for label, files in cases.items():
             message = messages.get(label, 'change SP only' if label.startswith('stack') else 'supervisor or system')
             with self.subTest(label), tempfile.TemporaryDirectory() as directory:
@@ -147,7 +151,8 @@ class NativeUnits(unittest.TestCase):
             'constants': mutated('.section .text', '.section .rodata\n.align 4\ntable: .long 1, 2, -3\n.section .text'),
             'explanatory comments': mutated('    RTS;', '    /* never RAISE, IDLE or SP = P0 here */\n'
                                             '    # nor CALL (P0)\n    RTS;'),
-            'data address halves': mutated('    P0 = R0;', '    P0 = R0;\n    P2.H = 0x1234;\n    R1.H = -64;'),
+            'data address halves': mutated('    P0 = R0;', '    P0 = R0;\n    P2.H = 0x1234;\n    R1.H = -64;\n'
+                                           '    P2.H = HI(0x11800000);'),
         }
         for label, files in allowed.items():
             with self.subTest(label), tempfile.TemporaryDirectory() as directory:
