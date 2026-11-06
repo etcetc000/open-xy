@@ -280,12 +280,6 @@ voice renders silence. One adapter serves every synth.
 Render receives 64 output words and 8 parameter words. The SDK adds the stock
 per-sample pitch increments. Output is mono Q31 peaking at most at half scale. Stock
 velocity, envelope, filter and mixing run afterwards.
-Stock's note-start entry at vtable `+16` passes the note in the second argument
-word and the velocity in the third, the same order its drum constructor takes
-at vtable `+20` (`8d51af48`) with `(self, key, velocity, region,
-track_parameters)`. The sample adapter's start documents the note word,
-receiving the parent note in the second word. The adapter stores the velocity
-in its handle and forwards it through the machine's optional `note` hook.
 
 ## Screens
 
