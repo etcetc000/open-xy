@@ -104,6 +104,7 @@ template <class Machine> struct Drawing {
         // A sample engine's own screen reads its sample (opxy_sample_overview).
         if (Machine::sample) sdk_sample_overview_update(controls.track);
         platform::amp_envelope(controls.track, display_input.amp);
+        display_input.bpm_x10 = platform::project_bpm_x10();
         display_input.reduced_motion = 0;
         binding::display_render(&display_state, &display_input, &display_frame);
         if (!binding::display_valid(&display_frame)) return;

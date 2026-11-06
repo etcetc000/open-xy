@@ -68,6 +68,7 @@ void frame(i32 elapsed) {
     input.elapsed = elapsed;
     input.track = 0xffffffffu;
     input.held_notes = draw::notes_unavailable;
+    input.bpm_x10 = project_bpm_x10();
     for (u32 i = 0; i < parameter_slots; ++i)
         input.slots[i] = menu.values[i];
     for (u32 i = 0; i < page_controls; ++i) {

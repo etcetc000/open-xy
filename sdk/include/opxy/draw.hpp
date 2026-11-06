@@ -88,13 +88,16 @@ struct Input {
     // 0, then FX I and FX II, 0..7 (0 follows the track's send); 0 when
     // neutral, not declared, and for other machines.
     i8 pad[4];
+    // The project tempo (SDK 1.10), in tenths of a BPM as Transport::bpm_x10, so a
+    // page can move in time with the music; 0 when there is none.
+    u32 bpm_x10;
 };
 const u32 notes_unavailable = 0xffffffffu;
 const i32 envelope_unavailable = -1;
 inline bool envelope_known(const Envelope& envelope) {
     return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
 }
-static_assert(sizeof(Input) == 112 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
+static_assert(sizeof(Input) == 116 && __builtin_offsetof(Input, bpm_x10) == 112 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
               __builtin_offsetof(Input, line) == 106 && __builtin_offsetof(Input, pad) == 108 &&
               __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&

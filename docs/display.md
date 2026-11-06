@@ -67,8 +67,8 @@ Input holds the Q31 value each of the four control positions shows, Q10 elapsed
 seconds, track identity, a uint32 note-start serial, the reduced-motion
 preference, `shown`, the declared parameter index each position shows (its own,
 or an [alternate](api.md#alternate-controls)), `slots`, the Q31 value of
-every declared parameter by index (0 beyond the declared ones), note activity
-and the track's amp envelope. A serial is a
+every declared parameter by index (0 beyond the declared ones), note activity,
+the track's amp envelope and the project tempo. A serial is a
 snapshot, not a queue: several note starts between frames can coalesce.
 Initializing or changing track must not fabricate a note. It counts per track,
 not per key: where keys play different sounds, as a drum kit's do, an
@@ -191,8 +191,21 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls in its edited row while `shift` is 1, as the stock header does. The
-previews use drawing ABI 6, a 112-byte input: ABI 5 (104 bytes) ends after the
-amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
+previews use drawing ABI 7, a 116-byte input: ABI 6 (112 bytes) ends after
+`pad`, ABI 5 (104 bytes) after the amp envelope, ABI 4 (88 bytes) after `model`,
+ABI 3 (84 bytes) after `choices`.
+
+### Tempo (SDK 1.10)
+
+`bpm_x10` is the project tempo in tenths of a BPM, as an effect's and a sample
+engine's [`Transport::bpm_x10`](api.md), so a page can move in time with the
+music: a delay's echoes, a sequence, a pulse. It is 0 when there is no tempo,
+so draw at a default then. On the device it is the project's stored tempo, read
+on the GUI side the way stock's tempo display reads it (the audio clock is a
+separate value and may lag an edit by a moment). Previews have no tempo and
+pass 0; browser hosts may pass tenths of a BPM, 200..3000, as the optional
+thirteenth argument to `PreviewDisplay.tick`, after `line`. Machines reading
+`bpm_x10` declare `"sdk": "1.10"`.
 
 ## Frame
 
