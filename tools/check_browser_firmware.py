@@ -113,6 +113,17 @@ def check_expanded(directory, kit, stock, boot_label):
                 sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs (experimental memory)')
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs (experimental memory): ' + name)
+        # Machine numbers do not depend on the base: each equals its standard twin's,
+        # which main() checked against the Python numbering.
+        twin = directory / 'reference' / result['name'].removesuffix('-expanded')
+        if result['name'] != 'collection-expanded':
+            twin_symbols = elf32(twin.with_suffix('.elf').read_bytes())[1]
+            for machine in kit['machines']:
+                own_screen = machine['kind'] == 'sample' and machine['identity']['page'] is None
+                for suffix in number_suffixes(machine['kind'], own_screen):
+                    name = machine['prefix'] + suffix
+                    require(symbols.get(name, {}).get('value') == twin_symbols.get(name, {}).get('value'),
+                            'Selection numbers differ (experimental memory): ' + machine['id'])
         services = selection_services(kit, result)
         for profiling, suffix in ((True, '.ldr'), (False, '.profiling-off.ldr')):
             require(assembled(stock, module, symbols, reviewed, services, profiling) == prefix.with_suffix(suffix).read_bytes(),

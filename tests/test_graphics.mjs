@@ -448,7 +448,8 @@ test('Extensions graphics defaults to original designs without firmware extensio
       ...(saved.memory === 'unoffered' ? {memoryUnavailable:6 * 1024 ** 2} : saved.memory ? {expanded:true} : {})}),
     memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:4 * 1024 ** 2}} : kit,
     recoverFirmware:async () => recoverResult ?? ({stock:Uint8Array.of(1)}),
-    linkKit:kit => { linkedKits.push(kit); if (linkError) throw linkError; return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
+    // A linkError marked standardOnly fits the experimental memory (its profile has reserved_bytes).
+    linkKit:kit => { linkedKits.push(kit); if (linkError && !(linkError.standardOnly && kit.profile.reserved_bytes)) throw linkError; return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
     patchFirmware:async kit => { patchedKits.push(kit);
       return blockPatch ? new Promise(resolve => { finishPatch = resolve; }) : Uint8Array.of(1, 2, 3); },
   };
@@ -528,22 +529,39 @@ test('Extensions graphics defaults to original designs without firmware extensio
   memoryInput.checked = false; memoryInput.onchange();
   linkError = null;
   assert.equal($('extension-memory').textContent,
-    'These machines need more than the 2032 KiB available. Turning on “Use 4 MiB for machines” (experimental) may make room.');
+    'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) to make room.');
   memoryInput.checked = true; memoryInput.onchange();
   await restoreLayout(expandedLayout);
   assert.doesNotMatch($('status').textContent, /turned/);
   // A layout whose memory this site lacks applies nothing unless it links, and says why.
+  memoryInput.checked = false; memoryInput.onchange();
   const before = {checked:memoryInput.checked};
   linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
   await restoreLayout({...expandedLayout, memory:'unoffered', machines:{probe:{engine:99, page:99}}});
   linkError = null;
   assert.equal($('status').textContent, 'This layout used 6 MiB experimental memory, which this site doesn’t offer. ' +
-    'These machines need more than the 2032 KiB available. Turning on “Use 4 MiB for machines” (experimental) may make room.');
+    'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) and load the layout again.');
   assert.equal(memoryInput.checked, before.checked);
+  // With the option on, it is tried at this site's larger memory, and says why when that is not enough either.
+  memoryInput.checked = true; memoryInput.onchange();
+  linkError = Object.assign(new Error('These machines need more than the 4080 KiB available'), {capacity:true});
+  await restoreLayout({...expandedLayout, memory:'unoffered'});
+  linkError = null;
+  assert.equal($('status').textContent, 'This layout used 6 MiB experimental memory, which this site doesn’t offer. ' +
+    'These machines need more than the 4080 KiB available');
+  memoryInput.checked = false; memoryInput.onchange();
   // A standard layout that no longer fits points to the larger memory this site offers.
   linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
   await restoreLayout({...expandedLayout, memory:undefined, reserved_bytes:undefined});
-  assert.equal($('status').textContent, 'These machines need more than the 2032 KiB available. Turning on “Use 4 MiB for machines” (experimental) may make room.');
+  assert.equal($('status').textContent, 'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) and load the layout again.');
+  // With the option turned on, a standard layout that only fits the larger memory restores with it.
+  memoryInput.checked = true; memoryInput.onchange();
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
+  await restoreLayout({...expandedLayout, memory:undefined, reserved_bytes:undefined});
+  linkError = null;
+  assert.equal(memoryInput.checked, true);
+  assert.match($('status').textContent, /Its machines need more than the standard memory it used, so they use the experimental 4 MiB you turned on\.$/);
+  memoryInput.checked = false; memoryInput.onchange();
   linkError = new Error('Machine numbers overlap');  // not a memory problem: no memory hint
   await restoreLayout({...expandedLayout, memory:'unoffered'});
   linkError = null;
