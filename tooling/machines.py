@@ -615,7 +615,9 @@ def read_layout(path, build=False):
     # builder-only; an SDK build from its layout would quietly use 2 MiB.
     # The same shape the builder accepts (builder/core.mjs readLayout): neither member, or both.
     require(('memory' not in value and 'reserved_bytes' not in value) or
-            (value.get('memory') == 'expanded' and type(value.get('reserved_bytes')) is int), f'{path} has an invalid memory choice')
+            (value.get('memory') == 'expanded' and type(value.get('reserved_bytes')) is int and
+             value['reserved_bytes'] > profile['reserved_bytes'] and value['reserved_bytes'] % (1024 * 1024) == 0),
+            f'{path} has an invalid memory choice')
     require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "
             'sdk.py builds use standard memory. Remove "memory" and "reserved_bytes" from a copy to build with standard memory.')
     return check_layout_numbers(value['machines'], 'the layout')

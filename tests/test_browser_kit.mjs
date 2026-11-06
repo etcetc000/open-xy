@@ -220,7 +220,8 @@ test('a 4 MiB build loads its module lower, shrinks the heap and restores its se
   assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:size})), {machines:{}, selected:null, expanded:true});
   // A layout from another experimental size is not taken for this one.
   assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:6 * 1024 ** 2})), {machines:{}, selected:null, memoryUnavailable:6 * 1024 ** 2});
-  for (const bad of [{memory:'expanded'}, {reserved_bytes:size}, {memory:'expanded', reserved_bytes:'4'}])
+  for (const bad of [{memory:'expanded'}, {reserved_bytes:size}, {memory:'expanded', reserved_bytes:'4'},
+    {memory:'expanded', reserved_bytes:5}, {memory:'expanded', reserved_bytes:2 * 1024 ** 2}, {memory:'expanded', reserved_bytes:size + 4}])
     assert.throws(() => readLayout(kit, layoutOf(bad)), /Invalid memory/);
   assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}}), {machines:{}, selected:null});
   assert.throws(() => readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'large'}), /Invalid memory/);

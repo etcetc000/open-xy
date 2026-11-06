@@ -661,7 +661,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         'Working memory': kib(linked.sizes.bss),
         'Available': kib(linked.sizes.available)});
       status();
-    } catch (error) { $('room-value').textContent = 'Selection cannot be built'; $('extension-memory').textContent = error.message; fail(error); }
+    } catch (error) {
+      // A selection that does not fit standard memory points to the larger option this site offers.
+      if (error.capacity === true && !expandedMemory() && expandedKit && !/may make room\.$/.test(error.message))
+        error.message = (/[.!?]$/.test(error.message) ? error.message : error.message + '.') +
+          ` Turning on “Use ${expandedSize()} for machines” (experimental) may make room.`;
+      $('room-value').textContent = 'Selection cannot be built'; $('extension-memory').textContent = error.message; fail(error);
+    }
     ready();
   }
   async function build() {
@@ -846,6 +852,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       status('Layout loaded: your machines keep their numbers.' +
         (unavailable ? ` It used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer; it builds with standard memory.`
           : memoryChange && ' ' + memoryChange[0].toUpperCase() + memoryChange.slice(1) + '.') +
+        // A numbers-only layout keeps the current memory choice; its own is named, not applied.
+        (!loaded.selected && (loaded.expanded || loaded.memoryUnavailable)
+          ? ' It lists no machines, so its experimental memory choice is not applied; the current one stays.' : '') +
         (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
     } catch (error) { fail(error); } finally { e.target.value = ''; }  // the same file can be chosen again
   };

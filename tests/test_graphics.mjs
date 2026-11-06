@@ -518,6 +518,18 @@ test('Extensions graphics defaults to original designs without firmware extensio
   memoryInput.checked = true; memoryInput.onchange();
   await restoreLayout({...expandedLayout, memory:undefined, selected:undefined});
   assert.equal(memoryInput.checked, true);
+  // One that records experimental memory says its choice is not applied.
+  memoryInput.checked = false; memoryInput.onchange();
+  await restoreLayout({...expandedLayout, selected:undefined});
+  assert.equal(memoryInput.checked, false);
+  assert.match($('status').textContent, /It lists no machines, so its experimental memory choice is not applied; the current one stays\.$/);
+  // The meter's capacity error points to the larger option too.
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
+  memoryInput.checked = false; memoryInput.onchange();
+  linkError = null;
+  assert.equal($('extension-memory').textContent,
+    'These machines need more than the 2032 KiB available. Turning on “Use 4 MiB for machines” (experimental) may make room.');
+  memoryInput.checked = true; memoryInput.onchange();
   await restoreLayout(expandedLayout);
   assert.doesNotMatch($('status').textContent, /turned/);
   // A layout whose memory this site lacks applies nothing unless it links, and says why.
