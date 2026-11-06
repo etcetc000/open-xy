@@ -902,12 +902,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     expandedKit = core.offersExpandedMemory(kit.profile) ? core.memoryKit(kit, true) : null;
     memoryInput.disabled = !expandedKit;
     $('expanded-memory-option').hidden = !expandedKit;
-    if (expandedKit) {
-      const heap = p => mib(core.heapBytes(p));
-      $('expanded-memory-size').textContent = expandedSize();
-      $('expanded-memory-heap').textContent = mib(expandedKit.profile.reserved_bytes - kit.profile.reserved_bytes) +
-        ' more from the OP–XY’s own working memory (' + heap(kit.profile) + ' to ' + heap(expandedKit.profile) + ')';
-    }
+    if (expandedKit) $('expanded-memory-size').textContent = expandedSize();
     setExpandedMemory(false);
     selected = kit.machines.filter(core.chosenByDefault).map(machine => machine.id);
     try {
