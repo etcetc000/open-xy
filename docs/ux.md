@@ -3,8 +3,8 @@
 How a machine looks and behaves on the OP-XY, so every machine plays like part
 of one instrument. Catalog review checks machines against these conventions.
 [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/tree/main/machines/macroosc)
-is the reference for controls, pages and motion, and [synth screens](synth-screens.md)
-for what a screen draws.
+is a functional reference for controls and pages, not a visual one;
+[synth screens](synth-screens.md) is the reference for how a screen looks.
 
 ## Principles
 
@@ -63,8 +63,8 @@ for what a screen draws.
 - **Use the shared header.** New synths with five to eight controls use
   [`opxy/page_header.hpp`](display.md#two-page-header), already wired up by
   `sdk.py new` when `--controls` is 5, 6, 7 or 8. Choose the actual parameter
-  count; the default is four controls with the stock header. Macro Osc remains
-  the two-page visual reference.
+  count; the default is four controls with the stock header. Macro Osc shows
+  the two pages wired up.
 - **Show both pages in place.** Page 1 stays on top and page 2 under it; a
   press does not swap them. The page the encoders edit is the stock header's
   size and sits on the stepped bar; the other is smaller and grey. Cover the
@@ -118,8 +118,8 @@ things everywhere.
 - **Short and decelerating.** A press or a turn eases out exponentially and
   settles within 0.15 to 0.2 s. On a page switch each row grows or shrinks
   where it is: the edited page's values from 13 to 20 px, the other's from 20
-  to 13, and the bar moves to the edited row
-  ([Macro Osc's display](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/display.cpp)).
+  to 13, and the bar moves to the edited row, as the
+  [shared header](display.md#two-page-header) does.
 - **Reduced motion jumps.** With `reduced_motion` set, or on a track change,
   show the end state at once.
 - **Grey is inactive, bright is active** for interface state: the page row,

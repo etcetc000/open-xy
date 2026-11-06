@@ -8,7 +8,7 @@ Adjust that path if the user already has the SDK elsewhere.
 1. Read the [machine API](https://github.com/etcetc000/open-xy/blob/staging/docs/api.md),
    follow the [UX conventions](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md)
    for controls, pages, screens and motion, and read the relevant [core machines](https://github.com/etcetc000/open-xy-core-machines):
-   Macro Osc for two-page synths, Karplus or 2op FM for four-control synths,
+   Macro Osc for two-page controls (its code, not its look), Karplus or 2op FM for four-control synths,
    Ring Mod or Ping Pong for effects, Timestretch
    for sample engines. They are the worked examples; this repository holds the
    user's implementation. Use the actual parameter count: four controls keep
