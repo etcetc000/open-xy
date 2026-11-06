@@ -280,8 +280,18 @@ private:
         const u16* block = has(h) ? arena_ + head_[h] - 1 : nullptr;
         const u32 count = block ? block[1] : 0;
         u32 at = 2;
+        // The key's new entry, where it has none: only `field`, when it is set.
+        auto put_new = [&]() {
+            if (!present) return;
+            scratch_[out] = static_cast<u16>(1u << field);
+            scratch_[out + 1] = static_cast<u16>(key);
+            scratch_[out + 2] = static_cast<u16>(value);
+            out += 3;
+            ++entries;
+        };
+        // An entry of the block, `e`, with `field` set or removed when it is the key's.
         auto put_entry = [&](const u16* e, u32 entry_key) {
-            u32 mask = e ? e[0] : 0;
+            u32 mask = e[0];
             const u32 old_mask = mask;
             if (entry_key == key) {
                 if (present) mask |= 1u << field;
@@ -307,14 +317,14 @@ private:
             const u16* e = block + at;
             const u32 entry_key = e[1];
             if (!placed && key < entry_key) {
-                put_entry(nullptr, key);
+                put_new();
                 placed = true;
             }
             if (entry_key == key) placed = true;
             put_entry(e, entry_key);
             at += 2 + popcount16(e[0]);
         }
-        if (!placed) put_entry(nullptr, key);
+        if (!placed) put_new();
         if (entries > kEntries) return false;
         if (!entries) {
             free(h);
