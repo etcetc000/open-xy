@@ -402,21 +402,25 @@ the stock engines remain the better reference for animation.
 
 ![CD player](images/synth-screens/cd-player.svg)
 
-**Sample player.** A shiny disc and the wave it's read as.
+**Sample player.** A shiny disc, and the wave it plays in a pair of headphones.
 
-- **Drawing:** isometric and graph, side by side. A thin deck with very round corners and
-  a light strip along its front sides; a silver disc raised on a spindle, with a clear
-  ring round the hole and a bow of light across it. Beside it, the wave on a dark plate,
-  with a handle at each end.
+- **Drawing:** isometric with a flat companion. A thin deck with very round corners and a
+  light strip along its front sides; a silver disc on a short spindle, with a clear ring
+  round the hole and a bow of light across it, a dimmer smear trailing each wedge. Beside
+  it, a pair of wire-band headphones head on, with the wave they play running from the
+  middle of one pad to the other. A cord leaves a plug on the deck's side, drops off the
+  bottom of the screen and comes back up into the left cup.
 - **Grey code:** four flush pills along the deck's front edge.
-- **Controls:** pitch sets how many cycles cross the plate, and past halfway swaps the
-  disc from a mini 8 cm to a full 12 cm, two fixed sizes rather than a scaled one. Drive
-  clips the wave toward a square. Scrub turns the bow of light and slides the wave along.
-  Tone adds harmonics, so the wave's sides steepen.
-- **Notes:** the bow of light spins and the wave scrolls while a note is held, and both
-  coast to a stop after the release.
-- **To borrow:** a swap between fixed sizes in place of scaling a 3D part; a flat
-  highlight turning on a 3D object that never turns; an object paired with a graph.
+- **Controls:** pitch sets how many cycles cross between the pads, and past halfway swaps
+  the disc from a mini 8 cm to a full 12 cm, two fixed sizes rather than a scaled one.
+  Drive clips the wave toward a square. Scrub turns the bow of light and slides the wave
+  along. Tone adds a harmonic, so the wave's sides steepen.
+- **Notes:** the bow of light spins fast, its smear trailing it, and the wave scrolls while
+  a note is held; both coast to a stop after the release.
+- **To borrow:** a swap between fixed sizes in place of scaling a 3D part; a flat highlight
+  with a dim smear for speed, on a 3D object that never turns; the graph set inside the
+  scene, between the pads, rather than on a plate; a cord that leaves the frame to join
+  two things.
 
 ### Office blinds
 
@@ -541,7 +545,7 @@ average while notes sound.
 | Example | Way of drawing | Grey code | Nodes | Most changed |
 | --- | --- | --- | --- | --- |
 | Washing line | Line and flat shapes | Along the line | 21 | 20 |
-| CD player | Isometric and graph | Pills | 20 | 5 |
+| CD player | Isometric and flat shapes | Pills | 30 | 5 |
 | Office blinds | Flat shapes | Slat pairs | 11 | 2 |
 | Sliding slabs | Isometric | Whole slabs | 12 | 3 |
 | Wave and ball | Isometric | Ramp, then the ball | 24 | 22 |
