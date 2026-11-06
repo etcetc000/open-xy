@@ -573,6 +573,8 @@ def stack_usage(directory):
 _FUNCTION = re.compile(r'^([0-9a-f]{8}) <([^>]+)>:$')
 _INSTRUCTION = re.compile(r'^\s*([0-9a-f]+):\s+(?:[0-9a-f]{2} )+\s*(.*)$')
 _DIRECT = re.compile(r'(?:CALL|JUMP)(?:\.[LSXA])?\s+0x([0-9a-f]+)')
+_REGISTER_TRANSFER = re.compile(r'(CALL|JUMP) \((P\d|FP)\)')
+_IMMEDIATE_HALF = re.compile(r'(\w+)\.([LH]) = 0x([0-9a-f]+);')
 
 
 def _frame_delta(text):
@@ -594,14 +596,39 @@ def _frame_delta(text):
     return 0
 
 
+def _built_addresses(instructions):
+    """The addresses a function builds in its registers from immediate halves.
+
+    One register's halves pair in every combination: the compiler loads a shared
+    high half once and each low half in a later block, so their order says nothing.
+    """
+    halves = {}
+    for text in instructions:
+        if m := _IMMEDIATE_HALF.match(text):
+            halves.setdefault(m.group(1), {'L': set(), 'H': set()})[m.group(2)].add(int(m.group(3), 16))
+    return {high << 16 | low for pair in halves.values() for high in pair['H'] for low in pair['L']}
+
+
+def _holds_built_address(instructions, register):
+    """Whether the nearest write to a register, in these instructions, loads an immediate half."""
+    write = re.compile(rf'(?<![\[\w]){register}(\.[LH])? (?:[-+*]|<<|>>>?)?= ')
+    for text in reversed(instructions):
+        if m := write.search(text):
+            return m.group(1) is not None and _IMMEDIATE_HALF.search(text) is not None
+    return False
+
+
 def audio_stack_bounds(disassembly, module, base, symbols, machines):
     """Worst-case stack bytes of each machine's audio entry; recursion fails the build.
 
     Frames are the deepest SP excursion along each function (LINK counts its
-    saved RETS/FP). Edges are direct calls and tail jumps; an indirect call may
-    reach any function whose address is stored in module data (except the SDK
-    method tables, which only stock calls). Indirect calls are expanded one
-    level: the bound covers a dispatch through a table, not a chain of them.
+    saved RETS/FP). Edges are direct calls and tail jumps, and the register calls
+    and jumps the compiler uses for most calls: those reach every function whose
+    address the caller builds from immediates, like a direct call. A register last
+    written any other way may also hold any function whose address is stored in
+    module data (except the SDK method tables, which only stock calls). Those are
+    expanded one level: the bound covers a dispatch through a table, not a chain of
+    them. An address handed to another function as an argument is not followed.
     """
     starts, body, current = [], {}, None
     for line in disassembly.splitlines():
@@ -627,11 +654,13 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
         active.add(key)
         frame = deepest = 0
         callees = set()
-        for text in body[function]:
+        built = _built_addresses(body[function]) & body.keys()
+        for index, text in enumerate(body[function]):
             frame += _frame_delta(text)
             deepest = max(deepest, frame)
-            if re.search(r'(?:CALL|JUMP) \(P\d\)', text):
-                if indirect:
+            if m := _REGISTER_TRANSFER.search(text):
+                callees |= {(target, indirect) for target in built if target != function or m.group(1) == 'CALL'}
+                if indirect and not _holds_built_address(body[function][:index], m.group(2)):
                     callees |= {(target, False) for target in taken}
             elif (m := _DIRECT.search(text)) and (target := owner(int(m.group(1), 16))) is not None:
                 if target != function or text.startswith('CALL'):
