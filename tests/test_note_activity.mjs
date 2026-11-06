@@ -21,7 +21,7 @@ function signed(value) {
 const vector = items => [...unsigned(items.length), ...items.flat()];
 const section = (id, bytes) => [id, ...unsigned(bytes.length), ...bytes];
 const name = value => [...unsigned(value.length), ...new TextEncoder().encode(value)];
-function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:84, 4:88, 5:104}[abi]) {
+function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:84, 4:88, 5:104, 6:112}[abi]) {
   const constants = {opxy_display_abi:abi, opxy_display_state_bytes:16,
     opxy_display_input_bytes:inputBytes, opxy_display_frame_bytes:100,
     opxy_display_state:1024, opxy_display_input:2048, opxy_display_frame:4096, opxy_display_valid:1};
@@ -151,4 +151,29 @@ test('ABI 3 publishes Shift and its choices, and ABI 4 a drum kit\'s model after
   assert.throws(() => kit.tick(input(), 17, 3, 2, false, null, 0, 2), /Invalid shift/);
   assert.throws(() => kit.tick(input(), 17, 3, 2, false, null, 0, 0, [256, 0, 0, 0]), /Invalid shift choice/);
   assert.throws(() => new PreviewDisplay(fixture(4, 80)), /Unsupported drawing ABI/);
+});
+
+test('ABI 6 publishes a padMix kit key\'s pan, level, pad fields and the encoders\' row after the amp envelope', () => {
+  const display = new PreviewDisplay(fixture(6));
+  const amp = {attack: 1, decay: 2, sustain: 3, release: 4};
+  display.tick(input(), 17, 1, 0, false, null, 3, 1, [1, 2, 3, 0], amp, {pan: -40, level: -6, pad: [-9, 7, 5, 0]}, 1);
+  assert.equal(display.input.length, 28);
+  assert.equal(display.input[21], 3);
+  assert.deepEqual([...display.input.slice(22, 26)], [1, 2, 3, 4], 'The envelope keeps its place');
+  const bytes = new Int8Array(display.memory, 2048 + 104, 8);
+  assert.deepEqual([...bytes], [-40, -6, 1, 0, -9, 7, 5, 0]);
+  display.tick(input(), 17, 1, 0, false, null);
+  assert.deepEqual([...bytes], [0, 0, 0, 0, 0, 0, 0, 0], 'Omission is a centred key at 0 dB, neutral, on the first row');
+  const before = new Uint8Array(display.memory).slice();
+  for (const [mix, line] of [[{pan: 101, level: 0}, 0], [{pan: 0, level: 1}, 0], [{pan: 0, level: -31}, 0],
+    [{pan: 0.5, level: 0}, 0], [null, 0], [{pan: 0, level: 0}, 2], [{pan: 0, level: 0, pad: [128]}, 0],
+    [{pan: 0, level: 0, pad: [0, 0, 0, 0, 0]}, 0]]) {
+    assert.throws(() => display.tick(input(), 17, 1, 0, false, null, 0, 0, [0, 0, 0, 0], null, mix, line));
+    assert.deepEqual(new Uint8Array(display.memory), before);
+  }
+  assert.throws(() => new PreviewDisplay(fixture(6, 104)), /ABI/);
+  // An ABI 5 preview keeps its 104 bytes and never receives a key's mix.
+  const five = new PreviewDisplay(fixture(5));
+  five.tick(input(), 17, 1, 0, false, null, 0, 0, [0, 0, 0, 0], null, {pan: 50, level: -3}, 1);
+  assert.equal(five.input.length, 26);
 });
