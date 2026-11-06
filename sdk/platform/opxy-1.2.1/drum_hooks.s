@@ -6,6 +6,7 @@
 .section .text
 .align 2
 .extern sdk_drum_alias
+.extern sdk_drum_load_engine
 .extern stock_drum_classify_tail
 
 .macro DRUM_ALIAS_R0
@@ -78,12 +79,18 @@ extensions_drum_export_gain:
 
 /* 8d588ec8: project load's track check, R1 is already the constant 4. Stock
  * resets a Drumline track's eight parameters to neutral offsets there; a kit
- * that missed it kept whatever load left, zero, so every value lost 64. */
+ * that missed it kept whatever load left, zero, so every value lost 64. P1 is
+ * the pattern's track object: sdk_drum_load_engine also gives a padMix kit's
+ * lock words (drum_locks.hpp) their neutral base there, and answers the alias. */
 .global extensions_drum_load_parameters
 .type extensions_drum_load_parameters, STT_FUNC
 extensions_drum_load_parameters:
     R0 = [P1 + 0x18];
-    DRUM_ALIAS_R0
+    HOOK_SAVE
+    R1 = P1;
+    CALL sdk_drum_load_engine;
+    HOOK_RESULT R0
+    HOOK_RESTORE
     CC = R0 == R1;
     RTS;
 .size extensions_drum_load_parameters, .-extensions_drum_load_parameters

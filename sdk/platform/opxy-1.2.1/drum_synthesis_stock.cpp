@@ -141,3 +141,24 @@ opxy::u32 sdk_drum_preset_load(opxy::u32 preset, opxy::u32 flag) {
         drum_setup_loaded(at<unsigned char>(pattern + kDrumPatternPadsAt + k * kDrumPatternPadBytes));
     return result;
 }
+
+// 8c0b14b4 and 8c0b167a: the instrument controller's turn handler (8c0b12e4)
+// asks for the track's last played key (8d4d6cb0) when it holds no key for
+// editing (-1 at 0x8400dfc8, stock.hpp): at 8c0b1678 to latch it there, then
+// at 8c0b14b2 for the per-key editor's key. On an owned kit's track the latch
+// keeps -1 and the editor gets the selected key, so a turn edits the key the
+// screen shows, as it moves, never one the sequencer just played; a pad held
+// or Shift-selected stays stock's. Any other track keeps stock's answer. Here,
+// in a unit of the drums service, which alone patches those calls.
+static bool owned_kit(opxy::u32 track) {
+    using namespace opxy::platform;
+    return track < kTracks && sdk_drum_machine(track_engine(track));
+}
+opxy::u32 sdk_drum_unheld_key(opxy::u32 track) {
+    using namespace opxy::platform;
+    return owned_kit(track) ? drum_selected_key(track) : drum_played_key(track);
+}
+opxy::u32 sdk_drum_latch_key(opxy::u32 track) {
+    using namespace opxy::platform;
+    return owned_kit(track) ? 0xffffffffu : drum_played_key(track);
+}

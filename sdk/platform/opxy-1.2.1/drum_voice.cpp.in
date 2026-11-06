@@ -14,6 +14,7 @@
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
 #include "drum_send.hpp"
+#include "drum_filter.hpp"
 #include "keyboard_octaves.hpp"
 #include "stock_sample.hpp"
 #include "sample_machines.hpp"
@@ -29,14 +30,22 @@ using Voice = @NAMESPACE@::Voice;
 using Shared = @NAMESPACE@::Shared;
 // Stock's voice indices; every one gets a handle.
 const opxy::u32 kVoiceIndices = 256;
-struct Handle { const void* const* vtable; opxy::u32 slot, key, track; };  // slot: its voice plus one, or 0
+// slot: its voice plus one, or 0. note: the note's own key, as stock passes it
+// (B[voice+0x50]). The track filter (drum_filter.hpp): pool, the filter slot
+// (the voice index, if it has one); filter, its object, built for filter_type.
+struct Handle {
+    const void* const* vtable;
+    opxy::u32 slot, key, track, note, pool, filter_type;
+    void* filter;
+};
 // owner: a voice ID, or 0 when free. pad: the note's track and key plus one, or
 // 0 for a note without them. fade: frames left of a same-key choke, or 0.
-// send: with padMix, the playing key's FX I and FX II codes (drum_send.hpp), from the
-// payload of the block it last rendered. faded: the voice ID whose own choke fade
-// ended in the block just rendered and freed the voice, whose sends that block
-// still has; else 0.
-struct Slot { Voice voice; opxy::u32 owner, started, pad, fade, send, faded; };
+// send: with padMix, the playing key's FX I and FX II codes (drum_send.hpp), from
+// its note's first block's payload. latched: whether the note has kept its send
+// codes and, with padMix, its pad's level (gain) and pad controls (pads) from it.
+// faded: the voice ID whose own choke fade ended in the block just rendered and
+// freed the voice, whose sends that block still has; else 0.
+struct Slot { Voice voice; opxy::u32 owner, started, pad, fade, send, latched, faded; opxy::i32 gain, pads[2]; };
 static Handle handles[kVoiceIndices];
 static Slot voices[@CAPACITY@];
 static opxy::u32 notes;  // counts note starts, to find the oldest
@@ -51,7 +60,10 @@ const bool kChoke = @CHOKE@;
 // (drum_send.cpp) ask each voice for. Stock's drum renderer already applies
 // its pan (word 5) to every voice. Only a key the kit has set up plays its
 // level, pad controls and sends (drum_storage.hpp); any other plays at 0 dB
-// with every field neutral, as before SDK 1.10.
+// with every field neutral, as before SDK 1.10. A note keeps the level, pad
+// controls and sends of its first block's payload: the payload is the pad's,
+// which a later note on the pad (with a step's locks, drum_locks.hpp, or none)
+// replaces, as stock keeps each voice's pan.
 const bool kPadMix = @PAD_MIX@;
 // padControls: the kit's fields in the pad word (payload word 6), decoded for
 // a key the kit set up and passed to the engine's drum_pad before every
@@ -69,6 +81,12 @@ static const opxy::u32* const stock_increments = reinterpret_cast<const opxy::u3
 // The alternate stock renderer prepares this gain/envelope vector but leaves
 // its application to the drum DSP (stock Drumline consumes it at 11a0743e).
 static const opxy::i32* const stock_amplitude = reinterpret_cast<const opxy::i32*>(0x11903400);
+// The track filter (drum_filter.hpp): each track's M3 on/off and type, the
+// voice's filter envelope this block, and stock's filter factory.
+static const volatile opxy::u8* const stock_filter_on = reinterpret_cast<const volatile opxy::u8*>(0x11b01dc8);
+static const volatile opxy::u32* const stock_filter_type = reinterpret_cast<const volatile opxy::u32*>(0x84042700);
+static const volatile opxy::i32* const stock_filter_envelope = reinterpret_cast<const volatile opxy::i32*>(0x11903500);
+static const opxy::platform::DrumFilterFactory stock_filter_factory = reinterpret_cast<opxy::platform::DrumFilterFactory>(0x8d505220);
 // A stable nonzero voice ID: the stock voice index plus one.
 static opxy::u32 owner(const Handle* handle) { return static_cast<opxy::u32>(handle - handles) + 1; }
 // How the kit's keys are stored, from its models' control counts: built on the
@@ -127,6 +145,10 @@ int @PREFIX@_start(void* self, opxy::u32 key) {
     Handle* handle = static_cast<Handle*>(self);
     const bool keyed = key < 128 && handle->track < 8;
     handle->key = keyed ? opxy::platform::sample_drum_key(key, sdk_track_octaves[handle->track]) : 53;
+    handle->note = key;
+    // The note's first filtered block builds and resets its filter, as stock's
+    // constructor does for a synth voice's note.
+    handle->filter_type = opxy::platform::kDrumFilterNone;
     const opxy::u32 id = owner(handle);
     Slot* slot = held(handle);
     if (!slot) {
@@ -147,6 +169,7 @@ int @PREFIX@_start(void* self, opxy::u32 key) {
     slot->pad = keyed ? (handle->track << 8 | (handle->key + 1)) : 0;
     slot->fade = 0;
     slot->send = 0;
+    slot->latched = 0;
     slot->faded = 0;
     // A note on a pad cuts every other voice still sounding it on the track.
     if (kChoke && slot->pad)
@@ -179,14 +202,21 @@ void* @PREFIX@_factory(opxy::u32 index, opxy::u32 track) {
     handle->key = 53;
     handle->track = track;
     handle->slot = 0;
+    handle->note = 0;
+    handle->pool = index < opxy::platform::kDrumFilterPool ? index : opxy::platform::kDrumFilterNone;
+    handle->filter_type = opxy::platform::kDrumFilterNone;
+    handle->filter = nullptr;
     return handle;
 }
 // The drum classifier sets voice+0x4e, selecting 8d51b274. Its call at
 // 8d51b55a uses +12 with the payload in R2 and track parameters on the stack.
+// filter: the track filter's type, or kDrumFilterNone with M3 off; envelope: the
+// voice's filter envelope this block.
 static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* region, const opxy::i32* parameters,
-                                const opxy::u32* increments, const opxy::i32* amplitude) {
+                                const opxy::u32* increments, const opxy::i32* amplitude,
+                                opxy::u32 filter, opxy::i32 envelope) {
     if (Slot* slot = held(static_cast<Handle*>(self))) {
-        const Handle* handle = static_cast<const Handle*>(self);
+        Handle* handle = static_cast<Handle*>(self);
         opxy::u8 model, stored[8];
         @NAMESPACE@::drum_defaults(handle->key, &model, stored);
         // The payload's first word carries stock's reading of the pad's model
@@ -194,11 +224,6 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
         if (region && opxy::platform::drum_marked_q31(region[0]))
             opxy::platform::drum_unpack(region + 1, &model, stored, storage());
         if (model >= @MODEL_COUNT@) @NAMESPACE@::drum_defaults(handle->key, &model, stored);
-        // Kept for the mixer, which adds this block into the sends after the render.
-        slot->send = kPadMix ? opxy::platform::drum_send_codes(region) : 0;
-        // A key the kit set up: marked, with the mark in its pad word.
-        const bool ready = region && opxy::platform::drum_marked_q31(region[0]) &&
-                           opxy::platform::drum_pad_ready(region[opxy::platform::kDrumPadPayload]);
         // The track's eight parameters offset the eight controls after
         // unpacking, never the persisted words; the model has no offset.
         opxy::u8 played[8];
@@ -211,22 +236,38 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
         opxy::u32 pitch[opxy::block_frames];
         for (unsigned i = 0; i < opxy::block_frames; ++i) pitch[i] = increments[i] << 16;
         @NAMESPACE@::drum_select(slot->voice, shared, slot->owner, model);
+        if (!slot->latched) {
+            if (kPadMix) {
+                // A key the kit set up: marked, with the mark in its pad word. Any
+                // other is neutral, whatever stock left in the word and the level.
+                const bool ready = region && opxy::platform::drum_marked_q31(region[0]) &&
+                                   opxy::platform::drum_pad_ready(region[opxy::platform::kDrumPadPayload]);
+                for (opxy::u32 i = 0; i < opxy::platform::kDrumKitPadFields; ++i)
+                    slot->pads[i] = ready && i < kPadCount
+                        ? opxy::platform::drum_pad_get(region[opxy::platform::kDrumPadPayload], i, pad_bits, kPadSigns) : 0;
+                slot->gain = ready ? region[opxy::platform::kDrumGainWord] : 0;
+            }
+            // For the mixer, which adds each block into the sends after the render.
+            slot->send = kPadMix ? opxy::platform::drum_send_codes(region) : 0;
+            slot->latched = 1;
+        }
         if (kPadCount) {
-            // A key not set up is neutral, whatever stock left in the word.
-            opxy::i32 pads[opxy::platform::kDrumKitPadFields];
-            for (opxy::u32 i = 0; i < opxy::platform::kDrumKitPadFields; ++i)
-                pads[i] = ready && i < kPadCount
-                    ? opxy::platform::drum_pad_get(region[opxy::platform::kDrumPadPayload], i, pad_bits, kPadSigns) : 0;
             using namespace sdk_drum_pads;
-            drum_pad(slot->voice, shared, slot->owner, static_cast<const opxy::i32*>(pads));
+            drum_pad(slot->voice, shared, slot->owner, static_cast<const opxy::i32*>(slot->pads));
         }
         @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
+        // The track filter, where stock's normal renderer runs a synth voice's:
+        // after the render, before the amplitude envelope and pan.
+        if (filter != opxy::platform::kDrumFilterNone && handle->pool < opxy::platform::kDrumFilterPool)
+            if (void* object = opxy::platform::drum_filter_object(stock_filter_factory, handle->filter, handle->filter_type,
+                                                                  filter, handle->pool, handle->track))
+                opxy::platform::drum_filter_run(object, output, parameters, opxy::platform::drum_filter_key(handle->note), envelope);
         for (unsigned i = 0; i < opxy::block_frames; ++i)
             output[i] = opxy::q31::multiply(output[i], amplitude[i]);
         // A stored boost plays at 0 dB, so a voice keeps its declared peak; a
         // key not set up, whatever its level byte holds, plays at unity.
         // Stock's levels reach -30 dB, far above zero.
-        const opxy::i32 gain = kPadMix && ready ? region[opxy::platform::kDrumGainWord] : 0;
+        const opxy::i32 gain = kPadMix ? slot->gain : 0;
         if (gain > 0 && gain < opxy::platform::kDrumUnityGain) {
             const opxy::i32 scale = gain << 4;   // Q27 below unity, as Q31
             for (unsigned i = 0; i < opxy::block_frames; ++i) output[i] = opxy::q31::multiply(output[i], scale);
@@ -257,7 +298,11 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
 }
 int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* region,
                    const opxy::i32* parameters) {
-    render_voice(self, output, region, parameters, stock_increments, stock_amplitude);
+    const opxy::u32 track = static_cast<const Handle*>(self)->track;
+    const opxy::u32 filter = track < opxy::platform::kDrumFilterTracks && stock_filter_on[track]
+        ? stock_filter_type[track] : opxy::platform::kDrumFilterNone;
+    render_voice(self, output, region, parameters, stock_increments, stock_amplitude, filter,
+                 filter != opxy::platform::kDrumFilterNone ? stock_filter_envelope[opxy::block_frames - 1] : 0);
     return 0;
 }
 // +8 belongs to stock's other renderer. Never leave its output scratch stale
@@ -301,10 +346,10 @@ bool @PREFIX@_drum_pad_text(opxy::u32 field, opxy::i32 value, char* text) {
     using namespace @NAMESPACE@;
     return pad_control_text(field, value, text);
 }
-// padMix (drum_send.cpp): the send codes of the block a handle's voice just
-// rendered, read as stock adds that block into the track. Only the handle
-// still holding the voice has them, or one whose voice its own choke fade
-// freed in that block; a handle whose voice went to another note, or that
+// padMix (drum_send.cpp): the send codes of the note a handle's voice just
+// rendered a block of, read as stock adds that block into the track. Only the
+// handle still holding the voice has them, or one whose voice its own choke
+// fade freed in that block; a handle whose voice went to another note, or that
 // has none, rendered silence and follows the track.
 opxy::u32 @PREFIX@_drum_send(const void* self) __asm__("@PREFIX@_drum_send");
 opxy::u32 @PREFIX@_drum_send(const void* self) {

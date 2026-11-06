@@ -62,7 +62,8 @@ class DrumServices(unittest.TestCase):
                                       'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
             (folder / 'stock.hpp').write_text(stock)
             # Keep the shared inline decoder beside the mocked stock header.
-            (folder / 'drum_values.hpp').write_text((platform / 'drum_values.hpp').read_text())
+            for header in ('drum_values.hpp', 'drum_lock_store.hpp'):
+                (folder / header).write_text((platform / header).read_text())
             sources = []
             for name in ('synth_controls.cpp', 'drum_synthesis_stock.cpp', 'drum_values_stock.cpp', 'drum_machines.cpp'):
                 target = folder / name

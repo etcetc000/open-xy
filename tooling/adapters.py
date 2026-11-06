@@ -81,6 +81,12 @@ def generate_voice(directory, m, sweep=False):
     return append_callback(path, m) if m.kind == 'drum' else path
 
 
+def pad_mix(m):
+    """Whether a drum kit's Shift row is each key's mixer channel (resources.padMix), whose
+    pan, level, pad controls and sends also lock per hit (drum_locks.hpp)."""
+    return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
+
+
 def sends_per_key(m):
     """Whether a drum kit's keys keep their own share of the track's sends: padMix, whose
     Shift row edits FX I and FX II."""

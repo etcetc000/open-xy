@@ -16,6 +16,7 @@ from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
 from .definitions import control_positions, paged
 from .formats import require, sha
+from .startup import LOCK_CALLS
 from .machines import FIXED_NUMBERS, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
                        resolve_toolchain, tool_paths)
@@ -159,13 +160,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
-    services = native.active_services(profile, native.service_users(machines))
-    # Track control: startup's calls into the saved data, while a selection does not use the service.
-    if 'control' in services:
-        kit['serviceFallbacks'] = {'control': dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'),
-                                                            'kit_absent')}
-    if 'aux' in services:
-        kit.setdefault('serviceFallbacks', {})['aux'] = {'sdk_aux_startup': 'kit_absent'}
+    fallbacks = service_fallbacks(native.active_services(profile, native.service_users(machines)))
+    if fallbacks:
+        kit['serviceFallbacks'] = fallbacks
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves
@@ -178,6 +175,21 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                    cwd=ROOT, check=True)
     write_builder(kit, output)
     return kit
+
+
+def service_fallbacks(services):
+    """What a selection that does not use a service gets for the service's entry points
+    that shared objects (startup's included) import: kit_absent, which answers 0. Track
+    control's saved data, the aux service's start, and every call into the step-lock
+    handles (startup.LOCK_CALLS)."""
+    fallbacks = {}
+    if 'control' in services:
+        fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
+    if 'aux' in services:
+        fallbacks['aux'] = {'sdk_aux_startup': 'kit_absent'}
+    if 'drum_locks' in services:
+        fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
+    return fallbacks
 
 
 def write_builder(kit, output):
