@@ -9,7 +9,8 @@ reshapes, recolours and relabels them. It is not executable SVG animation. The
 same C++ computes the browser preview and the device frames; fonts, framing and
 rasterization can differ.
 
-The [UX conventions](ux.md) say how machine screens look and move.
+The [UX conventions](ux.md) say how machine screens behave, and
+[synth screens](synth-screens.md) gives their default look.
 
 There is one display contract. Characters, dials, keyboards, meters and other
 patterns are the machine's own code filling nodes; see

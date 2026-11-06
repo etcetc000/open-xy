@@ -18,6 +18,10 @@ Adjust that path if the user already has the SDK elsewhere.
    same saved parameter in columns without alternates; never invent filler
    parameters. Format captions in real units and keep artwork below y=38.
    Preserve licences and attribution when reusing code.
+   Design the screen with [synth screens](https://github.com/etcetc000/open-xy/blob/staging/docs/synth-screens.md):
+   write it down first (subject, way of drawing, grey code, what each control
+   moves, what a note does), check it against that page's list, then author
+   the artwork and display code.
    When the user wants colorful artwork, consider the optional
    [color design guidance](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md#color-design-guidance).
    Adapt it to the user's visual intent; palette size, metaphors and contrast

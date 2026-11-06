@@ -85,6 +85,7 @@ previews, firmware builds and packaging.
 - [Firmware extensions](docs/extensions.md): shared controller events, callback order and exclusive commands.
 - [Display API](docs/display.md): retained drawing frames and asset constraints.
 - [Machine UX](docs/ux.md): the conventions machines share for controls, pages, screens and motion.
+- [Synth screens](docs/synth-screens.md): the default look for a screen, from stock's own, with examples.
 - [Build your own firmware](docs/build.md): toolchain, stock files, adding a machine, build and install.
 - [Open-XY builder](docs/builder.md): using the builder, web development and kit export.
 - [Hardware CPU profiling](docs/profiling.md): measure your machine and publish the required catalog readout.

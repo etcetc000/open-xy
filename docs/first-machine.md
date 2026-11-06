@@ -138,7 +138,8 @@ when building, with no separate JavaScript definition generator. Parameter
 order determines the C++ control indices. See the [engine API](api.md) for
 buffer ownership and the [display API](display.md#two-page-header) for the shared
 header. Keep parameter captions in real units and artwork below the header at
-y=38. The [UX conventions](ux.md) and Macro Osc are the layout reference.
+y=38. The [UX conventions](ux.md) and Macro Osc are the layout reference, and
+[synth screens](synth-screens.md) the reference for what the screen draws.
 
 Keep callbacks bounded: no allocation, blocking, logging, I/O, OS headers or
 platform conditionals. The SDK supplies the adapters and memory. A custom
