@@ -598,6 +598,12 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.match($('firmware-result').textContent, / · it uses 4 MiB experimental memory, now turned on$/);
   recoverResult = null;
   memoryInput.checked = false; memoryInput.onchange();
+  // Right after an OS loads, a selection over standard memory points to the option.
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
+  assert.equal(await loadOs(), true);
+  linkError = null;
+  assert.equal($('status').textContent, 'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) to make room.');
+  assert.equal(memoryInput.disabled, false);
   // A collection without the option loads cleanly while it was on, and hides it.
   memoryInput.checked = true; memoryInput.onchange();
   const without = await fixture(); delete without.kit.profile.experimental_memory;

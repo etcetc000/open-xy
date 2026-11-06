@@ -42,9 +42,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const fitsLarger = (selection, layoutNumbers, extensions) => {
     try { return Boolean(expandedKit && core.linkKit(expandedKit, selection, layoutNumbers, extensions)); } catch { return false; }
   };
-  // No hint while the option cannot be changed (an OS is being checked).
+  // No hint while an OS is being checked: it sets the option itself.
   const roomHint = (message, then, ...selection) => (/[.!?]$/.test(message) ? message : message + '.') +
-    (!memoryInput.disabled && fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
+    (!checkingOs && fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
   let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
@@ -262,6 +262,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('files-title').focus();
       // One link for what this OS set, after clearing the status so a selection
       // that cannot be built says why.
+      // The check is over: the option can change again, and the link below may suggest it.
+      checkingOs = false; memoryInput.disabled = !expandedKit; $('restore').disabled = false;
       status(); recalculate();
       ready();
       return true;
@@ -835,9 +837,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
       // Nothing is applied unless the selection links. A numbers-only layout leaves the
-      // current memory choice alone. The memory a layout with a selection restores with, decided once: the one it records, or, for an
-      // experimental size this site lacks, the current choice. A selection that needs
-      // more uses this site's larger option when it is on, and otherwise says to turn it on.
+      // current memory choice alone. A layout with a selection restores with the memory
+      // it records, or, for an experimental size this site lacks, the current choice. A
+      // selection that needs more uses this site's larger option when it is on, and
+      // otherwise the error says to turn it on.
       const context = loaded.memoryUnavailable
         ? `This layout used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer. ` : '';
       let wanted = loaded.selected && !loaded.memoryUnavailable ? loaded.expanded === true : expandedMemory(), grown = false;
@@ -860,6 +863,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
+      // A selection that cannot be built keeps the reason recalculate gave.
+      if (!linked && selected.length) return;
       // A layout from an experimental size this site lacks gets one message, not two.
       const unavailable = loaded.memoryUnavailable && loaded.selected;
       status('Layout loaded: your machines keep their numbers.' +
