@@ -89,6 +89,25 @@ def assembled(stock, module, symbols, reviewed, services, profiling):
     return assemble(stock, module, profile, reviewed, len(profile['patches']), services, profiling)
 
 
+def check_module(prefix, result, profile, boot_label):
+    """A GNU-linked module for the profile it was linked for: digest, fallbacks, label,
+    reserved region, allocation and globals. Returns its bytes and symbols."""
+    sections, symbols = elf32(prefix.with_suffix('.elf').read_bytes())
+    module = prefix.with_suffix('.bin').read_bytes()
+    require(sha(module) == result['module_sha256'], 'GNU module digest differs: ' + result['name'])
+    low = profile['module_base']
+    check_fallbacks(module, symbols, low)
+    check_startup_label(module, symbols, low, boot_label)
+    require(symbols['__extensions_reserved_start']['value'] == low and
+            symbols['__extensions_reserved_end']['value'] - low == profile['reserved_bytes'] - profile['table_bytes'] and
+            symbols['__extensions_initialized_end']['value'] - low == result['sizes']['initialized'] and
+            symbols['__extensions_module_end']['value'] - low == result['sizes']['allocated'] and
+            sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs: ' + result['name'])
+    for name, value in result['globals'].items():
+        require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
+    return module, symbols
+
+
 def check_numbers(kit, result, symbols):
     """The selection's numbers, worked out again by the Python numbering the native build
     uses: each selected machine's number symbols must carry them; returns them."""
@@ -124,22 +143,10 @@ def check_expanded(directory, kit, stock, boot_label):
     require(results.is_file() == (reviewed is not None), 'Experimental memory checks missing or unexpected')
     if reviewed is None:
         return 0
-    low = reviewed['module_base']
     selections = json.loads(results.read_text())
     for result in selections:
         prefix = directory / 'reference' / result['name']
-        sections, symbols = elf32(prefix.with_suffix('.elf').read_bytes())
-        module = prefix.with_suffix('.bin').read_bytes()
-        require(sha(module) == result['module_sha256'], 'GNU module digest differs (experimental memory)')
-        check_fallbacks(module, symbols, low)
-        check_startup_label(module, symbols, low, boot_label)
-        require(symbols['__extensions_reserved_start']['value'] == low and
-                symbols['__extensions_reserved_end']['value'] - low == reviewed['reserved_bytes'] - reviewed['table_bytes'] and
-                symbols['__extensions_initialized_end']['value'] - low == result['sizes']['initialized'] and
-                symbols['__extensions_module_end']['value'] - low == result['sizes']['allocated'] and
-                sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs (experimental memory)')
-        for name, value in result['globals'].items():
-            require(symbols[name]['value'] == value, 'GNU symbol differs (experimental memory): ' + name)
+        module, symbols = check_module(prefix, result, reviewed, boot_label)
         check_numbers(kit, result, symbols)  # every 4 MiB build, the whole collection included
         services = selection_services(kit, result)
         for profiling, suffix in ((True, '.ldr'), (False, '.profiling-off.ldr')):
@@ -187,17 +194,7 @@ def main():
             'Browser firmware for the linked machines differs from the native package')
     for result in selections:
         prefix = directory / 'reference' / result['name']
-        sections, symbols = elf32(prefix.with_suffix('.elf').read_bytes())
-        module = prefix.with_suffix('.bin').read_bytes()
-        require(sha(module) == result['module_sha256'], 'GNU module digest differs')
-        low = kit['profile']['module_base']
-        check_fallbacks(module, symbols, low)
-        check_startup_label(module, symbols, low, boot_label)
-        require(symbols['__extensions_initialized_end']['value'] - low == result['sizes']['initialized'] and
-                symbols['__extensions_module_end']['value'] - low == result['sizes']['allocated'] and
-                sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs')
-        for name, value in result['globals'].items():
-            require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
+        module, symbols = check_module(prefix, result, kit['profile'], boot_label)
         numbers = check_numbers(kit, result, symbols)
         services = selection_services(kit, result)
         modes = {}

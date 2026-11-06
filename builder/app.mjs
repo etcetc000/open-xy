@@ -241,7 +241,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       // no known layout, keeps the current one. A change is said, never silent.
       const memoryChange = recovered.memory ? setExpandedMemory(recovered.memory === 'expanded') : '';
       const memoryNote = memoryChange && ' · ' + memoryChange;
-      if (recovered.selected || memoryChange) osApplied++;  // a layout read meanwhile would undo it
+      if (recovered.selected) osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
       if (recovered.selected) {
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
         renderMachines(); renderExtensions();
