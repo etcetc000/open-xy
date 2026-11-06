@@ -1072,8 +1072,8 @@ the dry gain `L (1 - t (1 - d1)) - L k (1 - d2)` (`[FP - 0x50]`,
 finds silent (`8d51237a`) skips every bus.
 
 A `padMix` kit keeps each key's two send codes in bits 25..30 of its pad
-word `+0x14` (payload word 6), and the adapter keeps the codes of the block a
-voice last rendered, 0 on a key it has not set up. Only the handle holding the
+word `+0x14` (payload word 6), and the adapter keeps the codes of the first
+block a voice's note rendered, 0 on a key it has not set up. Only the handle holding the
 voice reports them (or one whose voice its own choke fade freed in that
 block); a handle whose voice went to another note rendered silence and reports
 0. Code 0 (`TRK`) follows the
