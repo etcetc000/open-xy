@@ -24,7 +24,7 @@ def validate_source_boundary(source, name='<engine>'):
 # the C reference beside each routine defines what it must compute.
 NATIVE_DIRECTIVES = {'section', 'text', 'data', 'bss', 'align', 'p2align', 'balign', 'global', 'globl', 'type', 'size',
                      'long', 'int', 'short', 'hword', 'byte', '2byte', '4byte', 'zero', 'space', 'skip', 'fill',
-                     'ascii', 'asciz', 'string', 'equ', 'set', 'rept', 'endr'}
+                     'ascii', 'asciz', 'string', 'equ', 'set', 'rept', 'endr', 'macro', 'endm'}
 NATIVE_CODE_SECTIONS = {'.text', '.rodata'}
 NATIVE_STATE_SECTIONS = {'.data', '.bss'}
 # Supervisor, exception, interrupt and cache control, and the system registers:
@@ -62,10 +62,15 @@ def validate_native_assembly(source, name, prefix, symbol, state=False):
     it may use. `state` admits .data and .bss, which its manifest declares (stateBytes)."""
     sections = NATIVE_CODE_SECTIONS | (NATIVE_STATE_SECTIONS if state else set())
     exported, zeroed, loaded = [], set(), set()
+    require(not any('\\' in statement for statement in assembly_statements(source)),
+            f'{name}: no macro argument substitution (\\)')
     for statement in assembly_statements(source):
         if directive := re.match(r'\.(\S+)\s*(.*)$', statement):
             kind, operands = directive.group(1).lower(), directive.group(2).strip()
             require(kind in NATIVE_DIRECTIVES, f'{name}: the .{kind} directive is not allowed in a native unit')
+            # A macro repeats the statements checked here; arguments would let it build others.
+            require(kind != 'macro' or re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', operands) is not None,
+                    f'{name}: a native unit\'s macros take no arguments')
             if kind == 'section':
                 require(operands in sections, f'{name}: a native unit has only {", ".join(sorted(sections))} sections, '
                         'named without flags' + ('' if state else ' (.data and .bss need stateBytes in its manifest)'))

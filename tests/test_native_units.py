@@ -105,7 +105,10 @@ class NativeUnits(unittest.TestCase):
             'include': mutated('.section .text', '.include "other.s"\n.section .text'),
             'weak': mutated('.section .text', '.weak _probesources_native_gain\n.section .text'),
             'common': mutated('.section .text', '.comm _buffer, 64\n.section .text'),
-            'macro': mutated('.section .text', '.macro twice\n.endm\n.section .text'),
+            'macro arguments': mutated('.section .text', '.macro twice x\n.endm\n.section .text'),
+            'macro substitution': mutated('.section .text', '.macro twice\n    R0 = \@;\n.endm\n.section .text'),
+            'repeat over a list': mutated('.section .text', '.irp r, R0\n.endr\n.section .text'),
+            'privileged macro': mutated('.section .text', '.macro stop\n    IDLE;\n.endm\n.section .text'),
             'raise': mutated('    RTS;', '    RAISE 2;\n    RTS;'),
             'idle': mutated('    RTS;', '    IDLE;\n    RTS;'),
             'interrupts': mutated('    RTS;', '    CLI R3;\n    RTS;'),
@@ -123,7 +126,8 @@ class NativeUnits(unittest.TestCase):
         }
         messages = {'second export': 'exports exactly', 'unprefixed export': 'exports exactly',
                     'writable data': 'stateBytes', 'section flags': 'without flags', 'other section': 'sections',
-                    'include': 'directive', 'weak': 'directive', 'common': 'directive', 'macro': 'directive',
+                    'include': 'directive', 'weak': 'directive', 'common': 'directive', 'macro arguments': 'take no arguments',
+                    'macro substitution': 'substitution', 'repeat over a list': 'directive',
                     'cycle counter': 'cycle counters', 'indirect call': 'indirect CALL',
                     'memory-mapped register': 'memory-mapped', 'memory-mapped, negative': 'memory-mapped',
                     'circular buffer left on': 'L1 must be 0'}
@@ -139,6 +143,7 @@ class NativeUnits(unittest.TestCase):
                                    '    SP += 8;\n    UNLINK;\n    (R7:4, P5:3) = [SP++];\n    CC = R1 == 0;'),
             'circular buffer reset': mutated('    RTS;', '    L2 = 24;\n    L2 = 0;\n    RTS;'),
             'computed jump': mutated('    RTS;', '    JUMP (P1);\n    RTS;'),
+            'plain macro': mutated('.section .text', '.macro twice\n    R0 = R0 + R0;\n.endm\n.section .text'),
             'constants': mutated('.section .text', '.section .rodata\n.align 4\ntable: .long 1, 2, -3\n.section .text'),
             'explanatory comments': mutated('    RTS;', '    /* never RAISE, IDLE or SP = P0 here */\n'
                                             '    # nor CALL (P0)\n    RTS;'),

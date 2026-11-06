@@ -227,8 +227,9 @@ Before compiling, `sdk.py test` and the firmware build refuse:
   a unit without its manifest, or a manifest without its unit;
 - sections other than `.text` and `.rodata` (and `.data` and `.bss` with
   `stateBytes`), section flags, directives that pull in or generate text
-  (`.include`, `.incbin`, `.macro`) or change linkage (`.weak`, `.comm`), and
-  exports other than the manifest's symbol;
+  (`.include`, `.incbin`, `.irp`, macros with arguments; a macro without
+  arguments only repeats statements the checks see) or change linkage (`.weak`,
+  `.comm`), and exports other than the manifest's symbol;
 - supervisor and system instructions (`RAISE`, `EXCPT`, `IDLE`, `CLI`, `STI`,
   returns other than `RTS`, `TESTSET`, cache flushes), the system registers
   (`SYSCFG`, `SEQSTAT`, `RETI` and the other return registers, `USP`), writes to
