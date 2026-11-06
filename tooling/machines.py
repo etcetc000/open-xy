@@ -39,7 +39,6 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (dryLevel), and adds a saturating Q31 add and up to 32 display text slots.
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
-# 1.8 also lets a synth declare an optional note(voice, shared, velocity) hook.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
 # 1.10 gives display code the track's amp envelope (draw::Input amp); lets Shift on a
 # sample engine's own screen give any encoder to one of the stock sampler page's own
@@ -49,7 +48,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # level, small controls and sends, which lock per hit (resources.padMix and
 # resources.padControls); runs every kit's voices through stock's track filter (M3);
 # and calls a kit's drum_transport with the tempo before every render.
-SDK_VERSION = (1, 10)
+# 1.11 lets a synth declare an optional note(voice, shared, velocity) hook, dispatched
+# by one SDK header on every harness that starts a voice.
+SDK_VERSION = (1, 11)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
