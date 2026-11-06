@@ -509,6 +509,9 @@ export function offersExpandedMemory(profile) {
     x.reserved_bytes > profile.reserved_bytes && x.module_base + x.reserved_bytes === end &&
     x.module_base > profile.heap_fill_base && heapImmediate(x.heap_after) === x.module_base - profile.heap_fill_base &&
     profile.heap_fill_base + profile.heap_fill_bytes === end && heaps.length === 2 &&
+    // Every relative hook (a 24-bit halfword branch) still reaches the whole larger module.
+    profile.patches.every(p => p.kind !== 'hook' || ![4, 6].includes(p.length) ||
+      [x.module_base, end].every(t => Math.abs(t - Number(p.address)) < 2 ** 24)) &&
     heaps.every(p => heapImmediate(p.before) === profile.heap_fill_bytes && sameLoad(p.after, p.before) &&
       sameLoad(x.heap_after, p.before) && heapImmediate(p.after) === profile.module_base - profile.heap_fill_base));
 }

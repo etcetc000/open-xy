@@ -57,8 +57,10 @@ for (const mask of checkedSelections(kit.machines, kit.linked)) {
 // and fits the larger.
 if (layouts.length > 1) {
   const all = kit.machines.map(m => m.id);
-  // The whole collection's allocated bytes with an extension choice, or null when it does not link.
-  const link = (k, extensions) => { try { return linkKit(k, all, null, extensions).sizes.allocated; } catch { return null; } };
+  // The whole collection's allocated bytes with an extension choice, or null when it does
+  // not fit; any other link error is a real defect and fails the check.
+  const link = (k, extensions) => { try { return linkKit(k, all, null, extensions).sizes.allocated; }
+    catch (error) { if (error.capacity === true) return null; throw error; } };
   // One link per choice, at the larger memory: it needs more than standard memory when
   // its allocation exceeds the standard module region.
   const tried = extensionChoices(kit).map(c => ({c, larger: link(layouts[1].kit, c)}));

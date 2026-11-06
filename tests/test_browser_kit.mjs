@@ -136,6 +136,10 @@ test('the experimental 4 MiB layout moves only the module base and the heap imme
     p => { p.experimental_memory.extra = 1; }, p => { delete p.experimental_memory; },
     // The larger heap must be loaded into the same register as the stock edit.
     p => { p.experimental_memory.heap_after = '02da000100000000'; },
+    // A relative hook that cannot reach the lower module base.
+    p => { p.experimental_memory.module_base -= 0x1000000; p.experimental_memory.reserved_bytes += 0x1000000;
+      p.heap_fill_base -= 0x1000000; p.heap_fill_bytes += 0x1000000;
+      p.patches.filter(e => e.kind === 'heap').forEach(e => Object.assign(e, {before:'01da400200000000', after:'01da200200000000'})); },
     // Lowercase hex only, as patching decodes it.
     p => { p.experimental_memory.heap_after = '01DA000100000000'; },
     // Sizes are whole MiB, as the builder names them.

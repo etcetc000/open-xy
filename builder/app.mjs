@@ -42,8 +42,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const fitsLarger = (selection, layoutNumbers, extensions) => {
     try { return Boolean(expandedKit && core.linkKit(expandedKit, selection, layoutNumbers, extensions)); } catch { return false; }
   };
+  // No hint while the option cannot be changed (an OS is being checked).
   const roomHint = (message, then, ...selection) => (/[.!?]$/.test(message) ? message : message + '.') +
-    (fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
+    (!memoryInput.disabled && fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
   let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
@@ -211,7 +212,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     facts($('build-selection'), {
       Machines: selectedMachines().map(m => m.name).join(', ') || 'None',
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
-      Memory: expandedMemory() ? expandedSize() + ' (experimental)' : 'Standard',
+      ...(expandedKit ? {Memory: expandedMemory() ? expandedSize() + ' (experimental)' : 'Standard'} : {}),
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
     });
   }
