@@ -519,6 +519,13 @@ test('Extensions graphics defaults to original designs without firmware extensio
   memoryInput.checked = true; memoryInput.onchange();
   await restoreLayout({...expandedLayout, memory:undefined, selected:undefined});
   assert.equal(memoryInput.checked, true);
+  // When the current selection then cannot be built, both the layout's message and the reason show.
+  linkError = Object.assign(new Error('These machines need more than the 4080 KiB available'), {capacity:true});
+  await restoreLayout({...expandedLayout, memory:undefined, reserved_bytes:undefined, selected:undefined});
+  linkError = null;
+  assert.match($('status').textContent, /^Layout loaded: your machines keep their numbers\. These machines need more than the 4080 KiB available\.?$/);
+  assert.equal($('status').dataset.error, 'true');
+  memoryInput.onchange();
   // One that records experimental memory says its choice is not applied.
   memoryInput.checked = false; memoryInput.onchange();
   await restoreLayout({...expandedLayout, selected:undefined});

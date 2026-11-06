@@ -622,7 +622,7 @@ def read_layout(path, build=False):
         reserved = None  # JavaScript reads it as Infinity
     require(('memory' not in value and 'reserved_bytes' not in value) or
             (value.get('memory') == 'expanded' and reserved is not None and reserved.is_integer() and
-             reserved > profile['reserved_bytes'] and reserved % (1024 * 1024) == 0),
+             reserved > 0 and reserved % (1024 * 1024) == 0),
             f'{path} has an invalid memory choice')
     require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "
             'sdk.py builds use standard memory. Remove "memory" and "reserved_bytes" from a copy to build with standard memory.')

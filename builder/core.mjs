@@ -287,7 +287,7 @@ export function readLayout(kit, saved) {
   // such a layout with standard memory when its selection fits (app.mjs restore).
   // The layout names its experimental size, so one from another size is not taken for this one.
   check(saved.memory === undefined ? saved.reserved_bytes === undefined
-    : saved.memory === 'expanded' && Number.isInteger(saved.reserved_bytes) && saved.reserved_bytes > kit.profile.reserved_bytes &&
+    : saved.memory === 'expanded' && Number.isInteger(saved.reserved_bytes) && saved.reserved_bytes > 0 &&
       saved.reserved_bytes % 1024 ** 2 === 0, 'Invalid memory in this layout.');
   const offered = offersExpandedMemory(kit.profile) && saved.reserved_bytes === kit.profile.experimental_memory.reserved_bytes;
   // memoryUnavailable names the size the layout asked for.

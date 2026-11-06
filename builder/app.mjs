@@ -229,6 +229,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('preview-selected').onclick = () => graphicsDialog.open({machines:selectedMachines(), screenTemplate:kit?.screenTemplate});
   // osApplied counts OS loads that set the memory and selection (layout restores wait for them).
   let ticket = 0, checkingOs = false, osApplied = 0;
+  // An OS check is over (or abandoned): the option and layouts can change memory again.
+  const endOsCheck = () => { checkingOs = false; memoryInput.disabled = !expandedKit; $('restore').disabled = false; };
   async function acceptFirmware(file, isCurrent = () => true) {
     if (!file || !kit || !isCurrent()) return false;
     wizard.clearSourceBackup();
@@ -263,7 +265,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       // One link for what this OS set, after clearing the status so a selection
       // that cannot be built says why.
       // The check is over: the option can change again, and the link below may suggest it.
-      checkingOs = false; memoryInput.disabled = !expandedKit; $('restore').disabled = false;
+      endOsCheck();
       status(); recalculate();
       ready();
       return true;
@@ -273,7 +275,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       fail(error); ready();
       return false;
     } finally {
-      if (current === ticket) { memoryInput.disabled = !expandedKit; $('restore').disabled = checkingOs = false; }
+      if (current === ticket) endOsCheck();
       if (current === ticket && !stock) {
         wizard.setFirmwareState('empty');
         $('firmware-result').textContent = 'OS not loaded';
@@ -863,8 +865,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
-      // A selection that cannot be built keeps the reason recalculate gave.
-      if (!linked && selected.length) return;
+      // A selection that cannot be built (a numbers-only layout is not linked first) says
+      // why after the layout's own message.
+      const unbuildable = !linked && selected.length ? ' ' + $('extension-memory').textContent : '';
       // A layout from an experimental size this site lacks gets one message, not two.
       const unavailable = loaded.memoryUnavailable && loaded.selected;
       status('Layout loaded: your machines keep their numbers.' +
@@ -875,7 +878,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         // A numbers-only layout keeps the current memory choice; its own is named, not applied.
         (!loaded.selected && (loaded.expanded || loaded.memoryUnavailable)
           ? ' It lists no machines, so its experimental memory choice is not applied; the current one stays.' : '') +
-        (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
+        (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : '') + unbuildable,
+        Boolean(unbuildable));
     } catch (error) { fail(error); } finally { e.target.value = ''; }  // the same file can be chosen again
   };
   $('save-layout').onclick = () => {
@@ -889,7 +893,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     invalidate(); stock = null; kit = next;
     // A loaded or still-checking OS was for the previous collection: it is loaded again.
     if (hadOs) {
-      ticket++; $('restore').disabled = checkingOs = false;
+      ticket++; endOsCheck();
       wizard.setFirmwareState('empty'); $('firmware-result').textContent = 'OS not loaded';
       $('firmware').value = '';  // the same os.ldr can be chosen again
     }

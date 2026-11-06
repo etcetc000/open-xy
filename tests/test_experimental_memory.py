@@ -108,7 +108,7 @@ class ExperimentalMemory(unittest.TestCase):
                         read_layout(path)
             for extra in ({'memory': None}, {'memory': 'large', 'reserved_bytes': 1}, {'memory': 'expanded'},
                           {'reserved_bytes': 4 * 1024 * 1024}, {'memory': 'expanded', 'reserved_bytes': '4'},
-                          {'memory': 'expanded', 'reserved_bytes': 5}, {'memory': 'expanded', 'reserved_bytes': 2 * 1024 * 1024}):
+                          {'memory': 'expanded', 'reserved_bytes': 5}, {'memory': 'expanded', 'reserved_bytes': 0}):
                 path.write_text(json.dumps(dict(layout_document({}), **extra)), encoding='utf-8')
                 with self.assertRaisesRegex(ValueError, 'invalid memory'):
                     read_layout(path)
