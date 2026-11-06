@@ -411,7 +411,7 @@ def require_sdk(version, minimum, feature):
 NATIVE = 'native'
 NATIVE_NAME = re.compile(r'[a-z][a-z0-9_]{0,31}')
 NATIVE_FIELDS = {'symbol', 'stackBytes', 'stateBytes', 'range', 'reference'}
-NATIVE_UNITS = 16
+NATIVE_UNITS = 32
 NATIVE_SOURCE_BYTES = 256 * 1024
 # The most stack one routine may declare: an audio callback runs on stock's stack.
 NATIVE_STACK_BYTES = 2048
