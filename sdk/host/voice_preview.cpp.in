@@ -37,7 +37,7 @@ void opxy_start(Voice* voice) {
 // opxy_note only primes the stored velocity; the hook fires in the following
 // opxy_start, between initialize and start, as on the device.
 void opxy_note(Voice* voice, opxy::u32 velocity) {
-    note_velocity[voice - voices] = static_cast<opxy::u8>(velocity & 0x7fu);
+    note_velocity[voice - voices] = static_cast<opxy::u8>(velocity < 1u ? 1u : velocity > 127u ? 127u : velocity);
 }
 void opxy_destroy(Voice* voice) { @NAMESPACE@::destroy(*voice, shared, owner(voice)); }
 void opxy_preview_model(opxy::u32 model) { drum_model = model; }

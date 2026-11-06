@@ -186,7 +186,7 @@ extern const void* const @PREFIX@_vtable[];
 // drum constructor at 8d51af48 does.
 int @PREFIX@_start(void* self, opxy::u32 note, opxy::u32 velocity) {
     Handle* handle = static_cast<Handle*>(self);
-    handle->velocity = static_cast<opxy::u8>(velocity & 0x7fu);  // a waiting note's velocity must survive until begin() runs
+    handle->velocity = static_cast<opxy::u8>(velocity < 1u ? 1u : velocity > 127u ? 127u : velocity);  // a waiting note's velocity must survive until begin() runs
     (void)note;  // an ABI position; the adapter does not read it
     const opxy::u32 now = sdk_voice_ticks();
     // Once the machine has stopped rendering, no block counts and sweep has not
