@@ -386,9 +386,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
           renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity));
-          // The machine's header text, or the stock percentage of the shown parameter.
+          // The machine's header text, or the shown parameter's value: 00..99 as the stock
+          // pages count it, or a rounded percentage for a machine targeting an earlier SDK.
           header.innerHTML = retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
-            shown.map((slot, i) => renderer.header[i] || String(Math.round(parameters[slot] / 0x7fffffff * 100))));
+            shown.map((slot, i) => renderer.header[i] || (m.stockCount
+              ? String((Math.max(parameters[slot], 0) >>> 8) * 100 >>> 23).padStart(2, '0')
+              : String(Math.round(parameters[slot] / 0x7fffffff * 100)))));
         }
         const controls = m.controls.map((name, i) => {
           const label = node('label', undefined, 'preview-control'), input = node('input');

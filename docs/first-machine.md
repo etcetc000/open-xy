@@ -56,7 +56,14 @@ checklist (QA.md), LICENSE, .gitignore and a GitHub Actions workflow beside the 
 `git init`, committing or contacting GitHub. Initialize Git in that folder when
 ready. Omit the flag to create just a machine folder in an existing repository.
 The workflow checks the root-level machine against SDK `staging`; pin a compatible
-SDK commit when releasing. Read the
+SDK commit when releasing.
+`--from <folder>` copies an existing machine under your `--id` and `--name`
+instead, renaming its namespace, artwork IDs and tests: the
+[machine template](https://github.com/etcetc000/open-xy-machine-template)'s starters, such as
+`machines/myeffect8`, an eight-control effect on the SDK's
+[effect page](display.md#effect-page). It copies the machine's folder only, so
+take a device checklist from a new `sdk.py new --repository` folder.
+Read the
 [core machines](https://github.com/etcetc000/open-xy-core-machines) as the worked
 examples: Macro Osc for two-page synths, Karplus and 2op FM for four-control
 synths, Ring Mod and Ping Pong for effects, and
@@ -137,8 +144,9 @@ Change labels and presets directly in `definition.json`; custom previews read it
 when building, with no separate JavaScript definition generator. Parameter
 order determines the C++ control indices. See the [engine API](api.md) for
 buffer ownership and the [display API](display.md#two-page-header) for the shared
-header. Keep parameter captions in real units and artwork below the header at
-y=38. The [UX conventions](ux.md) and Macro Osc are the layout reference.
+header. Caption values 00 to 99, with significant values on the quarters
+([controls](ux.md#controls)), and keep artwork below the header at y=38. The
+[UX conventions](ux.md) and Macro Osc are the layout reference.
 
 Keep callbacks bounded: no allocation, blocking, logging, I/O, OS headers or
 platform conditionals. The SDK supplies the adapters and memory. A custom

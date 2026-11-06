@@ -8,6 +8,7 @@ import shutil
 import sys
 from types import SimpleNamespace
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape
 
 from .contributors import validate_source_boundary
 from .definitions import ROOT, label, stock_name, validate_definition
@@ -173,7 +174,7 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None,
     require(kind in STARTERS, 'sdk.py new starts a ' + ' or '.join(STARTERS))
     controls = 4 if controls is None else controls
     require(type(controls) is int and 4 <= controls <= 8 and (kind == 'synth' or controls == 4),
-            'Use 4 to 8 controls for a synth; effects use 4')
+            'Use 4 to 8 controls for a synth; effects use 4, or copy one with eight with --from')
     custom_identity(identity); label(name)
     out = fresh_output(out, overwrite)
     starters = [ROOT / 'sdk/templates' / kind]
@@ -263,6 +264,41 @@ def page_header_artwork(identity, first_node):
     return text.replace('@ID@', identity)
 
 
+def copy_machine(source, out, identity, name, overwrite=False):
+    """A copy of a machine folder, such as one of the machine template's starters, under a new
+    ID and name: its sources, artwork and tests."""
+    from .machines import machine_at, tree
+    original = machine_at(source)
+    custom_identity(identity); label(name)
+    source = original.root
+    out = fresh_output(out, overwrite, keep=(source,))
+    # The ID names the C++ namespace and prefixes the artwork's IDs (<id>_node_N).
+    own = re.compile(r'(?<![A-Za-z0-9_])' + re.escape(original.id) + r'(?![A-Za-z0-9])')
+    before = original.definition['name']
+    for path in tree(source):
+        relative = path.relative_to(source)
+        destination = out / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if path.suffix not in SUFFIXES:
+            shutil.copyfile(path, destination)
+            continue
+        text = own.sub(identity, path.read_text(encoding='utf-8'))
+        if relative.as_posix() == 'definition.json':
+            text = re.sub(r'("name"\s*:\s*)' + re.escape(json.dumps(before)), lambda m: m[1] + json.dumps(name), text, 1)
+        elif relative.as_posix() == 'panel.svg.fragment':
+            for old, new in ((before, name), (before.lower(), name.lower())):
+                text = text.replace(f'>{escape(old)}</text>', f'>{escape(new)}</text>')
+        destination.write_text(text, encoding='utf-8', newline='\n')
+    record = json.loads((out / 'machine.json').read_text(encoding='utf-8'))
+    record['description'] = name
+    (out / 'machine.json').write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')
+    copy = machine_at(out)
+    require((copy.id, copy.definition['name']) == (identity, name), 'The copy keeps its original ID or name')
+    if copy.kind == 'synth':
+        metadata(source_files(out))
+    print(f'Created {copy.kind} {identity} from {source}: ' + str(out))
+
+
 def square_outline(points, half=32):
     """A square traced through exactly `points` vertices, as drawing paths require."""
     corners = [(-half, -half), (half, -half), (half, half), (-half, half)]
@@ -278,16 +314,23 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='Start a machine, optionally with repository instructions and CI')
     parser.add_argument('--id', required=True, help='lower-case machine ID, also its stock name and artwork prefix')
     parser.add_argument('--name', required=True, help='name shown on the OP-XY')
-    parser.add_argument('--kind', choices=STARTERS, default='synth', help='machine kind to start (default: synth)')
+    parser.add_argument('--kind', choices=STARTERS, help='machine kind to start (default: synth)')
     parser.add_argument('--controls', type=int, choices=range(4, 9),
                         help='control count (default: 4); synths with 5..8 use two pages; effects use 4')
+    parser.add_argument('--from', dest='source', type=Path,
+                        help="copy this machine folder instead, such as the machine template's machines/myeffect8")
     parser.add_argument('--out', required=True, type=Path, help='new source folder, such as ../mymachine')
     add_overwrite_argument(parser)
     parser.add_argument('--repository', action='store_true', help='include README, agent instructions, licence and CI for a standalone repository')
     args = parser.parse_args(argv)
     try:
-        scaffold(args.out, args.id, args.name, args.kind, repository=args.repository, controls=args.controls,
-                 overwrite=args.overwrite)
+        if args.source:
+            require(not (args.kind or args.controls or args.repository),
+                    '--from copies a machine as it is: drop --kind, --controls and --repository')
+            copy_machine(args.source, args.out, args.id, args.name, overwrite=args.overwrite)
+        else:
+            scaffold(args.out, args.id, args.name, args.kind or 'synth', repository=args.repository,
+                     controls=args.controls, overwrite=args.overwrite)
         return 0
     except (ValueError, OSError, ET.ParseError) as error:
         print('FAIL: ' + str(error), file=sys.stderr)
