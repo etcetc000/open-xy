@@ -20,6 +20,16 @@
       "tag": "v1.1.5",
       "commit": "79f6375acb80044a52a1179e5dd01c4377736f52",
       "path": "."
+    },
+    {
+      "id": "checkpoint",
+      "kind": "extension",
+      "maintainer": "kristapskristaps",
+      "status": "draft",
+      "repository": "https://github.com/kristapskristaps/open-xy-checkpoint",
+      "tag": "v0.1.0",
+      "commit": "fa7c6adf1516d67a31cd8b798d63f5448bf957a0",
+      "path": "."
     }
   ]
 }
