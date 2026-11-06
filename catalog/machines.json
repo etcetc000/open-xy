@@ -1357,6 +1357,30 @@
           "value": 268435455
         }
       }
+    },
+    {
+      "id": "thunder",
+      "kind": "drum",
+      "maintainer": "mmockett",
+      "status": "reserved"
+    },
+    {
+      "id": "curio",
+      "kind": "drum",
+      "maintainer": "mmockett",
+      "status": "reserved"
+    },
+    {
+      "id": "syahi",
+      "kind": "drum",
+      "maintainer": "mmockett",
+      "status": "reserved"
+    },
+    {
+      "id": "galileo",
+      "kind": "drum",
+      "maintainer": "mmockett",
+      "status": "reserved"
     }
   ]
 }
