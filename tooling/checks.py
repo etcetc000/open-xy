@@ -21,10 +21,6 @@ def fixture_environment(options, inherited):
     # Public CI and a developer's public check must mean the same thing, even
     # when the calling shell retains fixture paths from an earlier experiment.
     env = {k: v for k, v in inherited.items() if not k.startswith('OPXY_TEST_')}
-    # A chosen WASM compiler configures the preview tests; it is not a private
-    # fixture path, so an explicit OPXY_TEST_PREVIEW_CXX survives the sanitizing.
-    if inherited.get('OPXY_TEST_PREVIEW_CXX'):
-        env['OPXY_TEST_PREVIEW_CXX'] = inherited['OPXY_TEST_PREVIEW_CXX']
     supplied = [getattr(options, key) for key in (*FIXTURES, 'toolchain')]
     if not any(supplied):
         return env, False
