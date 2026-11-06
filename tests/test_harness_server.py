@@ -25,7 +25,7 @@ class HarnessServerTests(unittest.TestCase):
         module = b'\0asm\x01\0\0\0'
         definition = json.loads((SOURCE / 'definition.json').read_text(encoding='utf-8'))
         manifest = dict(schema=1, kind='cpp-browser-preview', engine=FM.id, root=str(SOURCE),
-                        description=FM.description, definition=definition, sample_rate=44100,
+                        description=FM.description, sdk='%d.%d' % FM.sdk, definition=definition, sample_rate=44100,
                         wasm_sha256=sha(module), sources=source_hashes(), compiler={}, graphics=graphics_metadata())
         (directory / 'engine.wasm').write_bytes(module)
         (directory / 'panel.svg').write_bytes((SOURCE / 'panel.svg.fragment').read_bytes())

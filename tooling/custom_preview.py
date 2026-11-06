@@ -101,6 +101,14 @@ def metadata(files):
     return definition, result
 
 
+def declared_sdk(files):
+    """The SDK version the folder's machine.json declares (the current one without it), which
+    picks the preview's captions as on the device."""
+    from .machines import SDK_VERSION, sdk_version
+    record = json.loads(files['machine.json']) if 'machine.json' in files else {}
+    return '%d.%d' % sdk_version(record.get('sdk', '%d.%d' % SDK_VERSION))
+
+
 def grayscale_source(files):
     from .machines import graphics_path
     record = json.loads(files['machine.json']) if 'machine.json' in files else {}
@@ -136,7 +144,7 @@ def build(compiler, source, out, overwrite=False):
     variant = grayscale_source(files)
     if variant:
         (out / 'panel.grayscale.svg').write_bytes(files[variant])
-    manifest = dict(schema=1, kind=KIND, engine=definition['id'], sample_rate=44100, definition=definition,
+    manifest = dict(schema=1, kind=KIND, engine=definition['id'], sample_rate=44100, definition=definition, sdk=declared_sdk(files),
                     source_root=str(source), sources=before, graphics=graphics,
                     wasm_sha256=sha((out / 'engine.wasm').read_bytes()), compiler={'sha256': sha(compiler.read_bytes())})
     (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
@@ -146,7 +154,7 @@ def build(compiler, source, out, overwrite=False):
 
 
 def authenticate(manifest, artifacts):
-    require(set(manifest) == {'schema', 'kind', 'engine', 'sample_rate', 'definition', 'source_root',
+    require(set(manifest) == {'schema', 'kind', 'engine', 'sample_rate', 'definition', 'sdk', 'source_root',
                               'sources', 'graphics', 'wasm_sha256', 'compiler'} and
             type(manifest['schema']) is int and manifest['schema'] == 1 and manifest['kind'] == KIND and
             type(manifest['sample_rate']) is int and manifest['sample_rate'] == 44100, 'Invalid custom preview manifest')
@@ -155,7 +163,8 @@ def authenticate(manifest, artifacts):
     definition, graphics = metadata(files)
     require(manifest['sources'] == source_hashes(files), 'Preview is stale; rebuild from current source')
     require(manifest['definition'] == definition and manifest['engine'] == definition['id'] and
-            manifest['graphics'] == graphics, 'Custom preview metadata differs from source')
+            manifest['sdk'] == declared_sdk(files) and manifest['graphics'] == graphics,
+            'Custom preview metadata differs from source')
     variant = grayscale_source(files)
     if variant:
         require(artifacts.get('panel.grayscale.svg') == files[variant], 'Grayscale preview differs from source')

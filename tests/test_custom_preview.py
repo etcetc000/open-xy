@@ -31,7 +31,7 @@ class CustomPreviewTests(unittest.TestCase):
         out.mkdir()
         module = b'\0asm\x01\0\0\0'
         manifest = dict(schema=1, kind=custom.KIND, engine=definition['id'], sample_rate=44100,
-                        source_root=str(self.source), definition=definition, graphics=graphics,
+                        source_root=str(self.source), definition=definition, sdk=custom.declared_sdk(files), graphics=graphics,
                         sources=custom.source_hashes(files), wasm_sha256=sha(module), compiler={})
         (out / 'manifest.json').write_text(json.dumps(manifest))
         (out / 'engine.wasm').write_bytes(module)
@@ -47,6 +47,23 @@ class CustomPreviewTests(unittest.TestCase):
         (out / 'manifest.json').write_text(json.dumps(manifest))
         with self.assertRaisesRegex(ValueError, 'metadata differs'):
             preview_bundle(out)
+
+    def test_snapshot_carries_the_declared_sdk_for_its_captions(self):
+        # The browser counts numbers 00..99 from SDK 1.15 (controls.mjs countsLikeStock), so the
+        # manifest names the version machine.json declares and is refused if it differs.
+        out, manifest = self.fixture()
+        self.assertEqual(manifest['sdk'], '%d.%d' % SDK_VERSION)
+        record = json.loads((self.source / 'machine.json').read_text())
+        record['sdk'] = '1.10'
+        (self.source / 'machine.json').write_text(json.dumps(record))
+        self.assertEqual(custom.declared_sdk(custom.source_files(self.source)), '1.10')
+        manifest['sources'] = custom.source_hashes(custom.source_files(self.source))
+        (out / 'manifest.json').write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'metadata differs'):
+            preview_bundle(out)
+        manifest['sdk'] = '1.10'
+        (out / 'manifest.json').write_text(json.dumps(manifest))
+        preview_bundle(out)
 
     def test_source_edits_invalidate_the_snapshot(self):
         out, _ = self.fixture()
