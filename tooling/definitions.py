@@ -93,7 +93,8 @@ STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
 EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
-# A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose;
+# A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
+# (with padMix, which takes Shift's first row, they only title the models);
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
 # padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level and its own FX I
 # and FX II sends; and padControls (SDK 1.10, with padMix), up to two small fields of

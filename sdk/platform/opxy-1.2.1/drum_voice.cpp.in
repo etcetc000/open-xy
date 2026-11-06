@@ -43,7 +43,9 @@ struct Handle {
 // send: with padMix, the playing key's FX I and FX II codes (drum_send.hpp), from
 // its note's first block's payload. latched: whether the note has kept its send
 // codes and, with padMix, its pad's level (gain) and pad controls (pads) from it.
-struct Slot { Voice voice; opxy::u32 owner, started, pad, fade, send, latched; opxy::i32 gain, pads[2]; };
+// faded: the voice ID whose own choke fade ended in the block just rendered and
+// freed the voice, whose sends that block still has; else 0.
+struct Slot { Voice voice; opxy::u32 owner, started, pad, fade, send, latched, faded; opxy::i32 gain, pads[2]; };
 static Handle handles[kVoiceIndices];
 static Slot voices[@CAPACITY@];
 static opxy::u32 notes;  // counts note starts, to find the oldest
@@ -103,6 +105,7 @@ static void release(Slot* slot) {
     @NAMESPACE@::destroy(slot->voice, shared, slot->owner);
     slot->owner = 0;
     slot->fade = 0;
+    slot->faded = 0;
 }
 // Whether a held voice should go to a new note before another: the one whose
 // note started longest ago, except that with chokeSameKey a voice already
@@ -167,6 +170,7 @@ int @PREFIX@_start(void* self, opxy::u32 key) {
     slot->fade = 0;
     slot->send = 0;
     slot->latched = 0;
+    slot->faded = 0;
     // A note on a pad cuts every other voice still sounding it on the track.
     if (kChoke && slot->pad)
         for (opxy::u32 i = 0; i < @CAPACITY@; ++i)
@@ -279,10 +283,17 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
                 if (left) --left;
             }
             slot->fade = left;
-            if (!left) release(slot);
+            if (!left) {
+                const opxy::u32 id = slot->owner;
+                release(slot);
+                slot->faded = id;
+            }
         }
     } else {
         for (unsigned i = 0; i < opxy::block_frames; ++i) output[i] = 0;
+        // A block after the one its fade ended in: silence, with no sends of its own.
+        const Handle* handle = static_cast<const Handle*>(self);
+        if (handle->slot && voices[handle->slot - 1].faded == owner(handle)) voices[handle->slot - 1].faded = 0;
     }
 }
 int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* region,
@@ -336,13 +347,16 @@ bool @PREFIX@_drum_pad_text(opxy::u32 field, opxy::i32 value, char* text) {
     return pad_control_text(field, value, text);
 }
 // padMix (drum_send.cpp): the send codes of the note a handle's voice just
-// rendered a block of, read as stock adds that block into the track. A voice the block's
-// choke fade or finished freed keeps its slot's code until another note renders
-// there; a handle without a voice rendered silence.
+// rendered a block of, read as stock adds that block into the track. Only the
+// handle still holding the voice has them, or one whose voice its own choke
+// fade freed in that block; a handle whose voice went to another note, or that
+// has none, rendered silence and follows the track.
 opxy::u32 @PREFIX@_drum_send(const void* self) __asm__("@PREFIX@_drum_send");
 opxy::u32 @PREFIX@_drum_send(const void* self) {
     const Handle* handle = static_cast<const Handle*>(self);
-    return kPadMix && handle->slot && handle->slot <= @CAPACITY@ ? voices[handle->slot - 1].send : 0;
+    if (!kPadMix) return 0;
+    if (const Slot* slot = held(handle)) return slot->send;
+    return handle->slot && voices[handle->slot - 1].faded == owner(handle) ? voices[handle->slot - 1].send : 0;
 }
 const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&@PREFIX@_destroy), reinterpret_cast<const void*>(&@PREFIX@_destroy),

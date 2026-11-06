@@ -70,7 +70,8 @@ A drum preview auditions one parameter set across its voices; the device provide
 The OP-XY renders every voice and effect in 64-sample blocks, 1.45 ms each, on
 one Blackfin core that also runs its own engines, sequencer and effects. A
 machine's cost adds up per sounding voice and per track that uses it. The SDK
-sets no hard limit and does not yet measure device cycles.
+reports a host estimate during development; catalog submissions require the
+separate [hardware measurement](profiling.md) of average and peak CPU.
 
 `python sdk.py test` prints an estimate for synths and effects in **Blackfin
 instructions per 64-sample block**, at the machine's heaviest control setting.
@@ -105,7 +106,9 @@ host does fast and the Blackfin does not:
   increments, belongs outside the sample loop.
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
-submitting a catalog entry. Host estimates do not satisfy that requirement.
+submitting a catalog entry: add both average cost (`block_percent`) and worst
+observed block (`peak_percent`) from the generated report. A low average can
+hide a short spike; host estimates do not satisfy either measurement requirement.
 
 ## Definition
 
@@ -475,7 +478,9 @@ and at least one model, whose counts add up
 to `modelCount`. Shift's first encoder then chooses the group (KIT), keeping
 the model's place in it, so a kit's first model stays first; the second the
 model within the group (MACHINE); the third the choke group (CHOKE); and the
-fourth turns nothing.
+fourth turns nothing. A kit with `padMix` (below) may name groups too, but its
+Shift row has no KIT: MACHINE scrolls every model through the groups, and a
+group only titles its models.
 
 With `"padMix": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), Shift
 gives each key the settings of a mixer channel. On the encoders' first row it
@@ -485,7 +490,8 @@ and level (LEVEL), as on stock Drumline: pan -100..100 with 0 centred, moving
 faster on a fast turn as stock's does, and level in whole dB, -30..0, one a
 detent, shown as `-6dB`. Pan and level are stock's own pad fields. Stock pans
 every voice of a kit already; the SDK applies the level, as a cut, so a voice
-stays within its declared `outputPeakQ31`. On the encoders' second row Shift
+stays within its declared `outputPeakQ31`. A boost stock saved (up to +20 dB)
+plays and shows as 0 dB and stays stored until the level itself is turned down. On the encoders' second row Shift
 edits the key's pad fields: the kit's own pad controls on the first two
 encoders, then its FX I and FX II sends. Every key of such a kit has the
 second row, a model with four or fewer controls too, whose encoders there are
@@ -514,7 +520,10 @@ preset keeps all of a key's settings too: loading one on a `padMix` kit sets
 up every key the preset stores (its regions marked `fm slap`), with the level,
 pad controls and sends the preset holds (a region's `gain`, and its `random`,
 the pad word's top half: pad controls from bit 0, FX I's code at bits 9..11 and
-FX II's at 12..14) ([firmware](abi-1.2.1.md#synthesis-drum-kits)).
+FX II's at 12..14) ([firmware](abi-1.2.1.md#synthesis-drum-kits)). A region
+without `random` loads every pad field at 0; the OP-XY's own preset writer
+names it on every key the kit has set up, and a kit preset written by other
+tools should name it on every region, `"random": 0` included.
 
 A `padMix` kit may declare up to two small settings of each key's own in
 `resources.padControls` (SDK 1.10), such as a filter and a sample-rate

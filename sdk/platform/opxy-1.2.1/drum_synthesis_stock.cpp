@@ -106,10 +106,13 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, drum_codec(machine->model_count, machine->count))) return 0;
     record[24] = mark;
     *pad_word = pad;
-    if (machine->pad_mix) {
+    // Pan and level only when they are the edit, or the level as the key is
+    // set up: drum_level reads a stored boost as 0 dB, so writing it back on
+    // any other edit would replace the boost stock saved.
+    if (choice == DrumMachine::kShiftPan)
         record[kDrumPan] = static_cast<unsigned char>(static_cast<signed char>(pan));
+    if (machine->pad_mix && (choice == DrumMachine::kShiftLevel || setup))
         record[kDrumLevel] = static_cast<unsigned char>(static_cast<signed char>(level));
-    }
     stock<void()>(0x8d585ee8)();
     stock<void(u32)>(0x8d4d5f18)(key);
     return 0;
@@ -119,7 +122,8 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
 // 8d4e35a8(preset, flag), which writes the pads of the track at the preset's
 // +4 (8d4e22d4) in that track's current pattern (8d587708): the 24 entries at
 // +0x394c, 0x80 apart, each region's params, model byte, `random` (as
-// max(random << 16, 0), 8d4e3558), hikey, and level and pan. Once it returns,
+// max(random << 16, 0), 8d4e3558; 0 for a region without one,
+// drum_storage.hpp), hikey, and level and pan. Once it returns,
 // for a padMix kit (the pattern's machine at +0x18), every key the preset marked
 // is set up as loaded (drum_storage.hpp drum_setup_loaded), so it plays the
 // level, pad controls and sends the preset was saved with. Projects load

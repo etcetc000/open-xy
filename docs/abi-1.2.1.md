@@ -987,7 +987,8 @@ stock's Shift-press action `8c0b270e`. That action acts only for the samplers
 `8c0b2730` is already the drum page's hook (`sdk_sample_press_engine`, button
 4..7 in `R5`); for an owned kit with a second Shift row it now switches the
 encoders' row as an unshifted press does (`sdk_drum_shift_press`), and stock
-still sees the kit's own engine, for which it does nothing.
+still sees the kit's own engine, for which it does nothing. Every other press,
+and a Shift press no such row takes, gets the hook's answer as before.
 
 A `padMix` kit's pad fields live in bits 16..30 of the pad word at `+0x14`:
 its `padControls` packed from bit 16 in declaration order (at most 9 bits),
@@ -999,11 +1000,21 @@ its run-length writer `8d5914bc`, and pad copy and paste copy the whole
 record, so projects keep the word and the level byte exactly.
 
 Stock fills the word itself. Preset import (`8d4e35a8`) clears the 24
-entries, copies a template over them and, for a Drumline-classified track,
-writes each region's `random` as `max(random << 16, 0)` (`8d4e3558`, stored
-at `8d4e3b9e`), or its default kit's value (`8d4e3958`, from the table at
-`8403a7b4`: 0 on every key but the last, `0x26660000`). The default kit's
-gains (`8403a79c`) run -5..+8 dB. Stock's Drumline editor writes
+entries and copies the preset object's own 24 (`+0x184`, `8d4e3690`) over
+them. Stock's preset reader (`8d4e4074`) cleared those (`8d4e47b2`) and gave
+each region's word 0 unless the region holds a sample's `framecount` or
+fades (`8d4e49f0`..`8d4e4a04`, `8d4e4cba`). Then, for a Drumline-classified
+track, import parses each region: its `params`, model and `playmode`, its
+`random` as `max(random << 16, 0)` (`8d4e3558`, stored at `8d4e3b9e`) only
+when the region names one (`8d4e38b4`), and its `hikey`. A kit's region
+without `random` therefore keeps a word of 0. A key with no region, or with
+one import rejects (no `model` or `params`), takes its default kit's whole
+entry instead (`8d4e391c`..`8d4e3960`): the word (from the table at
+`8403a7b4`: 0 on every key but the last, `0x26660000`), a stock model byte
+whose type is never 7, so the key is never marked, and a gain from
+`8403a79c`, -5..+8 dB. Stock's preset writer names a region's `random`, the
+word shifted right 16, whenever the word is nonzero (`8d4e7322`), so on every
+key the SDK has set up. Stock's Drumline editor writes
 `b * 10737418 + 5368709` for one of 200 steps `b` (`8d4d6098`, `8d4d6cc8`).
 Kits before SDK 1.10 never wrote the word and ignored word 7, so their keys,
 marked or not, can hold any of those values in the word and the level byte.
@@ -1029,12 +1040,12 @@ pattern it wrote (the current pattern `8d587708` of the track at the preset's
 of its 24 pad entries that is not set up gets the mark in its word's low half,
 the preset's fields, level and pan kept. So a preset plays the per-key settings
 it was saved with. Projects load through `deserialize`, never the preset import,
-so an old project's keys still read as they were saved. Stock's import takes a
-region's `params`, model, `playmode`, `random` and `hikey` itself; a key's level
-and pan come with the pad entries it first copies from the preset object
-(`+0x184`, `8d4e3690`). What a region that names no `gain`, `random` or `pan`
-gets there is not traced, and a preset an SDK 1.9 kit saved names none it held
-at 0; whatever it gets now plays.
+so an old project's keys still read as they were saved. A region without
+`random` sets the key up with every pad field 0, as above. A key's level and
+pan come with the pad entries import first copies from the preset object;
+what a region that names no `gain` or `pan` gets there is not traced, and a
+preset an SDK 1.9 kit saved names neither when it held 0; whatever it gets
+now plays.
 
 ### Per-key sends
 
@@ -1044,15 +1055,28 @@ into `0x11b01548` (64 interleaved stereo frames, after stock's per-voice pan
 and gain) and adds it with a saturating add into the track's stereo sum at
 `0x11903600` (`8d51c7b0`..`8d51c7d8`). The engine then scales that sum into
 the main mix at a constant gain (`8d511038`), into FX I's bus `0x84caa140` at a
-gain stepped every word (`8d511088`..`8d5110c8`) and into FX II's bus
-`0x84caa340` at a constant gain (`8d5110ca`..`8d51110e`); `8d50f594` then runs
-send slots 14 and 15 on those buses. The gains come from the track's mixer
-record (`0x84eab39c + 0xe8 * track`) and the sends' dry queries. A track stock
+gain stepped every word by a step of 0 (`8d511088`..`8d5110c8`) and into FX
+II's bus `0x84caa340` at a constant gain (`8d5110ca`..`8d51110e`); `8d50f594`
+then runs send slots 14 and 15 on those buses. The gains come from the track's
+mixer record (`0x84eab39c + 0xe8 * track`, 58 Q31 words written by
+`8d518d78(record, track, index, value)`; a pattern saves the same 58 words at
+`+0x3864`) and the sends' dry queries. FX I's knob is word 22 (`+0x58`) and FX
+II's word 23 (`+0x5c`), each the knob's position in Q31 as the project stores
+it (50 is `0x40002e00`). With `L` the track's level (`[FP - 0x68]`,
+`(1 - w20 (1 - m)) (1 - w21 (1 - g))`, `8d510ce2`..`8d510d38`), FX I's gain is
+`L (0.8 k² + 0.2 k)` (`8d510d7a`..`8d510daa`), FX II's `L k` (`8d510e0a`), and
+the dry gain `L (1 - t (1 - d1)) - L k (1 - d2)` (`[FP - 0x50]`,
+`8d510da2`..`8d510e44`, applied from `8d511122`),
+`t` FX I's taper and `d1`, `d2` the dry queries of slots 14 and 15 (method
+`+0x1c`, given the effect track's record; `0x7fffffff` for an empty slot). A track stock
 finds silent (`8d51237a`) skips every bus.
 
 A `padMix` kit keeps each key's two send codes in bits 25..30 of its pad
 word `+0x14` (payload word 6), and the adapter keeps the codes of the block a
-voice last rendered, 0 on a key it has not set up. Code 0 (`TRK`) follows the
+voice last rendered, 0 on a key it has not set up. Only the handle holding the
+voice reports them (or one whose voice its own choke fade freed in that
+block); a handle whose voice went to another note rendered silence and reports
+0. Code 0 (`TRK`) follows the
 track's send; codes 1..7 send the key's own amount, 0..100 percent of a full
 send, whatever the track's send knob. Five hooks, each replacing one whole
 instruction outside every hardware
@@ -1074,10 +1098,11 @@ loop body and replaying it:
   into its bus at the engine's level for the track (`[FP - 0x68]`, written at
   `8d510d38`), which both send gains are built from (FX I's as
   level × (0.8x² + 0.2x) of its knob x, FX II's as level × x). A key's amount N
-  goes through the same curve as its send's knob at N (`drum_send_curve`), so it
+  goes through the same curve as its send's knob at N (`kDrumSendGains`), so it
   sends what the track's knob at N sends, and the track's mute and level still
-  apply. The level ramps over the block from the
-  previous block's, as stock steps FX I's gain.
+  apply. The level is this block's, as stock's own send gains are: FX I's loop
+  adds a step to its gain each word (`8d5110aa`), but the step is always 0
+  (`R4`, cleared at `8d5107a8`, stored at `8d510d74`).
 
 Stock's loops do the followers' mixing, and the main mix always reads stock's
 sum. A send every voice follows, every stock track and every block of a kit

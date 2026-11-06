@@ -3,14 +3,15 @@
 // stock instructions: the voice loop's saturating add of each rendered voice
 // into the track's 128-word stereo sum (8d51c7b0..8d51c7d8), then the main mix
 // at a constant gain (8d511038..8d511084), FX I at a gain stepped every word
-// (8d511088..8d5110c8) and FX II at a constant gain (8d5110ca..8d51110e), then
-// the own-amount hook (8d511116). A skipped track (8d51237a) mixes nothing.
+// (8d511088..8d5110c8; on the device the step is 0, 8d510d74) and FX II at a
+// constant gain (8d5110ca..8d51110e), then the own-amount hook (8d511116). A skipped track (8d51237a) mixes nothing.
 // The test substitutes host buffers for stock's 0x11903600, 0x11b01548 and the
 // send buses 0x84caa140 and 0x84caa340.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <initializer_list>
 #include <opxy/q31.hpp>
 // The stock buffers drum_send.cpp names, as the test substitutes them.
 extern opxy::i32 host_sum[], host_voice[], host_fx1[], host_fx2[];
@@ -35,6 +36,15 @@ const DrumSendKit sdk_drum_send_kits[] = {{kit_table, kit_codes}};
 const u32 sdk_drum_send_kit_count = 1;
 
 namespace {
+// Each code's knob position, (c - 1) / 6 for codes 1..7, in Q31, and stock's
+// curve for a send's knob position as its engine computes it (FX I
+// 8d510d7a..8d510daa, FX II 8d510e0a): kDrumSendGains is these, worked out.
+const i32 kDrumSendPositions[kDrumSendCodes] = {
+    0, 0, 357913941, 715827883, 1073741824, 1431655765, 1789569707, q31::maximum};
+i32 drum_send_curve(u32 send, i32 position) {
+    if (send) return position;
+    return q31::add(q31::multiply(q31::multiply(position, position), 1717986918), q31::multiply(position, 429496729));
+}
 // FX I's code in bits 0..2, FX II's in 3..5, as drum_send_codes gives them.
 // 0 follows the track (TRK); 1 is dry; 7 is a full send of the key's own.
 u32 pair(u32 fx1, u32 fx2) { return fx1 | fx2 << kDrumSendCodeBits; }
@@ -150,7 +160,6 @@ void own_amounts_ignore_the_track_knob() {
     static Buses buses;
     std::memset(start, 0, sizeof start);
     std::memset(&buses, 0, sizeof buses);
-    sdk_drum_send_state.level_known = 0;
     for (u32 v = 0; v < 3; ++v) fill(voices[v].audio, 1 << 3);
     bind(voices[0], true, pair(7, 7));   // snare: 100 on both
     bind(voices[1], true, pair(1, 1));   // kick: dry on both
@@ -166,9 +175,8 @@ void own_amounts_ignore_the_track_knob() {
     for (u32 i = 0; i < kDrumSendWords; ++i)
         CHECK(buses.main[i] == q31::multiply(off.main,
               q31::add(q31::add(voices[0].audio[i], voices[1].audio[i]), voices[2].audio[i])));
-    // Muted (level 0): after one block ramping down, nothing of the snare reaches the sends.
+    // Muted (level 0): from that block on, nothing of the snare reaches the sends.
     const Gains muted = {0, 0, 0, 0, 0};
-    mix(buses, 3, voices, 3, start, muted, true, false);
     std::memset(&buses, 0, sizeof buses);
     mix(buses, 3, voices, 3, start, muted, true, false);
     for (u32 i = 0; i < kDrumSendWords; ++i) CHECK(!buses.fx1[i] && !buses.fx2[i]);
@@ -186,7 +194,6 @@ void mixed_settings_route_each_voice() {
     for (u32 v = 0; v < 5; ++v) { fill(voices[v].audio, 1 << 4); bind(voices[v], true, codes[v]); }
     fill(start, 1 << 6);
     std::memset(&buses, 0, sizeof buses);
-    sdk_drum_send_state.level_known = 0;
     mix(buses, 2, voices, 5, start, g, true, false);
     static i32 follow1[kDrumSendWords], own1[kDrumSendWords], follow2[kDrumSendWords], own2[kDrumSendWords];
     expected(follow1, own1, start, voices, 5, 0);
@@ -237,8 +244,7 @@ void own_amount_matches_the_knob() {
                                        q31::multiply(position, 429496729));
             const Gains at_n = {0, q31::multiply(level, taper), 0, q31::multiply(level, position), level};
             const Gains at_0 = {0, 0, 0, 0, level};
-            sdk_drum_send_state.level_known = 0;
-            std::memset(&knob, 0, sizeof knob);
+                    std::memset(&knob, 0, sizeof knob);
             std::memset(&own, 0, sizeof own);
             bind(voice, true, 0);
             mix(knob, 5, &voice, 1, start, at_n, true, false);
@@ -251,24 +257,24 @@ void own_amount_matches_the_knob() {
         }
 }
 
-// The level ramps from one block's to the next, as stock steps FX I's gain.
-void level_ramps() {
+// Each block's own-amount sums go in at that block's level, every frame alike,
+// as stock's send loops hold their gains for the block (FX I's step is 0 on the
+// device, 8d510d74): a level change takes effect at the block it arrives in.
+void level_is_each_blocks() {
     static StockVoice voice;
     static i32 start[kDrumSendWords];
     static Buses buses;
     std::memset(start, 0, sizeof start);
     for (u32 i = 0; i < kDrumSendWords; ++i) voice.audio[i] = 1 << 28;
-    bind(voice, true, pair(7, 0));
-    sdk_drum_send_state.level_known = 0;
-    const Gains low = {0, 0, 0, 0, 0x10000000}, high = {0, 0, 0, 0, 0x50000000};
-    std::memset(&buses, 0, sizeof buses);
-    mix(buses, 0, &voice, 1, start, low, true, false);
-    std::memset(&buses, 0, sizeof buses);
-    mix(buses, 0, &voice, 1, start, high, true, false);
-    for (u32 i = 1; i < kDrumSendWords; ++i) CHECK(buses.fx1[i] > buses.fx1[i - 1]);
-    CHECK(buses.fx1[0] > q31::multiply(low.level, 1 << 28));
-    CHECK(buses.fx1[kDrumSendWords - 1] <= q31::multiply(high.level, 1 << 28));
-    CHECK(buses.fx1[kDrumSendWords - 1] > q31::multiply(high.level - (1 << 20), 1 << 28));
+    bind(voice, true, pair(7, 7));
+    const i32 own1 = q31::multiply(kDrumSendGains[0][7], 1 << 28), own2 = q31::multiply(kDrumSendGains[1][7], 1 << 28);
+    for (i32 level : {0x10000000, 0x50000000, 0, 0x7fffffff}) {
+        const Gains g = {0, 0, 0, 0, level};
+        std::memset(&buses, 0, sizeof buses);
+        mix(buses, 0, &voice, 1, start, g, true, false);
+        for (u32 i = 0; i < kDrumSendWords; ++i)
+            CHECK(buses.fx1[i] == q31::multiply(level, own1) && buses.fx2[i] == q31::multiply(level, own2));
+    }
 }
 
 // The sums belong to one track of one block: the next track, or the same
@@ -341,7 +347,7 @@ int main() {
     own_amounts_ignore_the_track_knob();
     mixed_settings_route_each_voice();
     own_amount_matches_the_knob();
-    level_ramps();
+    level_is_each_blocks();
     state_ends_with_its_track();
     std::puts("drum sends ok");
     return 0;

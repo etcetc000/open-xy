@@ -77,11 +77,21 @@ inline i32 drum_level(const void* record) {
 // Stock saves the pad record in projects byte for byte (8d598ce8 writes the
 // pattern's 24 pad entries, +0x394c, as one block) and delivers the word as the
 // note payload's word 6, max(word, 0) on a kit (8d5ad738), which an owned kit
-// otherwise ignores. Stock fills the word itself: preset import writes a
-// region's `random` as max(random << 16, 0) (8d4e3558, stored at 8d4e3b9e) or
-// its default kit's (8d4e3958, table 8403a7b4: 0x26660000 on the last key),
-// and its Drumline editor a Q31 of 200 steps, b * 10737418 + 5368709
-// (8d4d6098, 8d4d6cc8). Kits before SDK 1.10 never wrote the word and ignored
+// otherwise ignores. Stock fills the word itself. Preset import (8d4e35a8)
+// first copies the preset object's 24 entries over the pattern's (8d4e3690):
+// stock's preset reader (8d4e4074) cleared them (8d4e47b2) and gave each
+// region's word 0 unless the region holds a sample's framecount or fades
+// (8d4e49f0..8d4e4a04, 8d4e4cba). For each region it then parses, import
+// writes `random` as max(random << 16, 0) (8d4e3558, stored at 8d4e3b9e) only
+// when the region names it (8d4e38b4), so a kit's region without one keeps 0.
+// A key with no region, or with one import rejects (no `model` or `params`),
+// takes its default kit's whole entry instead (8d4e391c..8d4e3960): the word
+// (table 8403a7b4: 0x26660000 on the last key, 0 on the rest) and a stock
+// model byte, never type 7, so such a key is never marked. Stock's preset
+// writer names `random`, the word >> 16, whenever the word is nonzero
+// (8d4e7322), so on every key the SDK has set up. Its Drumline editor writes
+// a Q31 of 200 steps, b * 10737418 + 5368709 (8d4d6098, 8d4d6cc8). Kits
+// before SDK 1.10 never wrote the word and ignored
 // the level byte, so their keys hold whatever stock left in both. The SDK
 // marks a key it has set up with kDrumPadReady in the word's low half and bit
 // 31 clear. No stock writer gives that: each leaves a low half of 0 or one of
@@ -108,8 +118,9 @@ inline bool drum_ready(const void* record) {
     return record && drum_marked(bytes[24]) && drum_pad_ready(static_cast<const i32*>(record)[kDrumPadWord / 4]);
 }
 // A key a padMix kit's preset has just loaded: set up as the preset holds it.
-// Preset import writes `random` as max(random << 16, 0), so bits 16..30 are the
-// preset's fields and bit 31 is clear; the mark goes in the low half. Level and
+// Preset import writes `random` as max(random << 16, 0), or leaves 0 for a
+// region without one, so bits 16..30 are the preset's fields (0 for none) and
+// bit 31 is clear; the mark goes in the low half. Level and
 // pan stay as imported. An unmarked key (not the kit's) or one set up stays.
 inline bool drum_setup_loaded(void* record) {
     unsigned char* bytes = static_cast<unsigned char*>(record);

@@ -40,18 +40,12 @@ inline i32 drum_send_store(i32 word, u32 send, u32 code) {
 // shown as 0, 17, 33, 50, 67, 83 and 100, through the same curve stock gives
 // that send's knob, so a key at N sends what the track's knob at N sends. Stock
 // builds FX I's gain as level x (0.8 k^2 + 0.2 k) of its knob k (8d510d7a..8d510daa)
-// and FX II's as level x k (8d510e0a). The positions in Q31:
-const i32 kDrumSendPositions[kDrumSendCodes] = {
-    0, 0, 357913941, 715827883, 1073741824, 1431655765, 1789569707, q31::maximum};
-// Each send's gain per code, worked with stock's arithmetic (drum_send_curve).
+// and FX II's as level x k (8d510e0a). Each send's gain per code, worked with
+// stock's arithmetic from those positions (tests/fixtures/drum_send_mixer.cpp
+// checks them):
 const i32 kDrumSendGains[kDrumSends][kDrumSendCodes] = {
     {0, 0, 119304646, 334053011, 644245093, 1049880892, 1550960410, 2147483644},
     {0, 0, 357913941, 715827883, 1073741824, 1431655765, 1789569707, q31::maximum}};
-// Stock's curve for send `send`'s knob position, as its engine computes it.
-inline i32 drum_send_curve(u32 send, i32 position) {
-    if (send) return position;
-    return q31::add(q31::multiply(q31::multiply(position, position), 1717986918), q31::multiply(position, 429496729));
-}
 inline i32 drum_send_gain(u32 send, u32 code) { return kDrumSendGains[send ? 1 : 0][code & (kDrumSendCodes - 1)]; }
 // The amount a code shows, in percent: 0..100 for codes 1..7 (code 0 shows TRK).
 inline i32 drum_send_percent(u32 code) {
@@ -72,8 +66,6 @@ struct DrumSendBus {
 struct DrumSendState {
     DrumSendBus bus[kDrumSends];      // FX I's, then FX II's
     u32 own[kDrumSends];              // the track plus one while it has an own-amount sum for that send
-    i32 level[kDrumSendTracks];       // each track's level the block before, for a smooth ramp
-    u32 level_known;                  // which tracks' level is known
 };
 // Each track's mix starts with no voices of its own.
 inline void drum_send_begin(DrumSendState& state) {
@@ -94,16 +86,6 @@ static inline __attribute__((noinline)) void drum_send_add(i32* __restrict to, c
 }
 static inline __attribute__((noinline)) void drum_send_scale(i32* __restrict to, const i32* __restrict from, i32 gain) {
     for (u32 n = kDrumSendWords; n; --n, ++to) *to = q31::add(*to, q31::multiply(gain, *from++));
-}
-// Into a send bus, `from` at a gain ramped linearly from `start` towards `end`
-// over the block, as stock steps FX I's gain (8d5110aa).
-static inline __attribute__((noinline)) void drum_send_ramp(i32* __restrict to, const i32* __restrict from, i32 start, i32 end) {
-    const i32 step = (end >> 7) - (start >> 7);
-    i32 gain = start;
-    for (u32 n = kDrumSendWords; n; --n, ++to) {
-        gain = q31::add(gain, step);
-        *to = q31::add(*to, q31::multiply(gain, *from++));
-    }
 }
 // Before stock adds a voice into the track's sum, for one send. While every
 // voice so far has followed the track, nothing is kept and stock's sum feeds
@@ -140,15 +122,13 @@ inline const i32* drum_send_source(const DrumSendState& state, u32 s, u32 track,
     return state.bus[s].track == track + 1 ? state.bus[s].source : sum;
 }
 // After stock's send loops for `track`: each own-amount sum into its bus at the
-// track's `level`, ramped from the level the block before.
+// track's `level` for this block. Stock's loops hold their gains for the block
+// too: FX I's adds a step to its gain each word (8d5110aa), and that step is 0
+// (R4, cleared at 8d5107a8, stored at 8d510d74); FX II's gain is constant.
 inline void drum_send_own(DrumSendState& state, i32 (*own)[kDrumSendWords], i32* const* buses, u32 track, i32 level) {
     if (track >= kDrumSendTracks) return;
-    const u32 bit = 1u << track;
-    const i32 start = state.level_known & bit ? state.level[track] : level;
     for (u32 s = 0; s < kDrumSends; ++s)
-        if (state.own[s] == track + 1) drum_send_ramp(buses[s], own[s], start, level);
-    state.level[track] = level;
-    state.level_known |= bit;
+        if (state.own[s] == track + 1) drum_send_scale(buses[s], own[s], level);
 }
 
 // A padMix kit, for the voice hook to recognize its voices: its

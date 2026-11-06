@@ -91,7 +91,10 @@ is tagged `v<milestone>` with generated release notes, and closes its milestone.
 In a PR, explain the behavior, how to try it, compatibility changes and checks
 run. For a device observation, include the exact image/asset hashes and what you
 actually exercised. Build success is not a hardware timing measurement. New or changed catalog
-submissions require the revision-bound [hardware CPU readout](docs/profiling.md).
+submissions require the revision-bound [hardware CPU readout](docs/profiling.md),
+including both average and worst observed block CPU. Run `sdk.py profile report`
+and add its complete `cpu` record to the catalog entry before calling it ready
+for submission. Host estimates and an average alone do not satisfy this check.
 
 ## Documentation
 
