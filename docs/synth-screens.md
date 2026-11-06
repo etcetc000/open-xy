@@ -16,12 +16,16 @@ within them. A machine that wants colour follows the
 
 Whether a person or an agent draws it, design the screen in words before drawing it:
 
-1. Read the principles and the stock engines, then pick an idea and one
-   [way of drawing](#the-ways-of-drawing).
-2. Write the screen down in the fields the examples use: subject, drawing, grey code,
-   what each control moves, what a note does. Check it against the list below.
-3. Plan the cost: which parts reshape (four at most), how many nodes, and how many
-   change when a control turns or a note plays.
+1. Read the principles and the stock engines.
+2. **Offer at least three options.** Write down three or more different screens for the
+   sound, each a different idea and preferably a different
+   [way of drawing](#the-ways-of-drawing): one an ordinary thing, one the instrument's
+   own mechanism, one a rule field, for example. Give each in the fields the examples
+   use: subject, drawing, grey code, what each control moves, what a note does. Check
+   them against the list below, and let the person making the machine choose before
+   anything is drawn.
+3. Plan the chosen screen's cost: which parts reshape (four at most), how many nodes,
+   and how many change when a control turns or a note plays.
 4. Author `panel.svg.fragment` and `display.cpp`, run `sdk.py test --machine`, and look
    at every control at 0, 50 and 100 at 1:1.
 5. Check it on a device: at rest, playing, and at the heaviest setting.
