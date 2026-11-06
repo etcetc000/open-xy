@@ -15,7 +15,7 @@ from tooling.machines import machine_at, read_collection
 
 FOLDER = Path(__file__).resolve().parent / 'fixtures/machines'
 # Firmware order for a collection holding every kind.
-NAMES = ('probesynth', 'probesources', 'probevelocity', 'probefx', 'probesample')
+NAMES = ('probesynth', 'probesources', 'probefx', 'probesample')
 
 
 def fixture(name):

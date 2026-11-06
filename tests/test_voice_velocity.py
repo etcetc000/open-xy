@@ -11,58 +11,33 @@ import unittest
 
 from tooling.adapters import generate_voice, generate_voice_preview
 from tooling.preview import VOICE_EXPORTS, FLAGS, MEMORY
+from tooling.preview_doctor import probe as preview_probe
 from machine_fixtures import fixture
 from test_sample_services import HOST_CXX
 
 ROOT = Path(__file__).resolve().parents[1]
 HIDDEN = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
 
-
-def preview_compiler():
-    """A WASM compiler that builds a preview module, or None. The repo's wasm steps
-    read OPXY_TEST_PREVIEW_CXX; the default 'clang++' must target wasm32, as the
-    doctor's probe requires."""
-    compiler = os.environ.get('OPXY_TEST_PREVIEW_CXX', 'clang++')
-    if not (shutil.which(compiler) and shutil.which('node')):
-        return None
-    with tempfile.TemporaryDirectory(prefix='preview-cxx-') as folder:
-        source, module = Path(folder) / 'probe.cpp', Path(folder) / 'probe.wasm'
-        source.write_text('extern "C" int opxy_probe() { return 42; }\n')
-        try:
-            built = subprocess.run([compiler, '--target=wasm32', '-nostdlib', str(source), '-o', str(module),
-                                    '-Wl,--no-entry', '-Wl,--export=opxy_probe'],
-                                   capture_output=True, timeout=60, **HIDDEN)
-            return compiler if built.returncode == 0 else None
-        except (OSError, subprocess.SubprocessError):
-            return None
+_WASM = {}
 
 
-WASM_CXX = preview_compiler()
-# The fixture's one word of voice state: the note's velocity, 0 until the adapter's
-# note hook stores the onset's.
-CORE = '''#pragma once
-#include <opxy/audio.hpp>
-namespace probevelocity {
-struct Voice { opxy::u32 velocity; };
-struct Shared {};
-}
-'''
-# The fixture engine: the optional note hook stores the onset's velocity, and the
-# render echoes it into every sample, so a test reads the level directly.
-ENGINE = '''#include "core.h"
-namespace probevelocity {
-inline void initialize(Voice& voice, Shared&, opxy::u32) { voice.velocity = 0; }
-inline void start(Voice&, Shared&, opxy::u32) {}
-inline void destroy(Voice&, Shared&, opxy::u32) {}
-// The optional note hook: the adapter calls it between initialize and start.
-inline void note(Voice& voice, Shared&, opxy::u32 velocity) { voice.velocity = velocity; }
-inline void render(Voice& voice, Shared&, opxy::u32, opxy::Output output,
-                   opxy::Parameters, opxy::Pitch) {
-    for (unsigned i = 0; i < opxy::block_frames; ++i)
-        output[i] = static_cast<opxy::i32>(voice.velocity << 16);
-}
-}
-'''
+def wasm_compiler():
+    """A WASM compiler that builds and runs a module, or None; probed once,
+    lazily, through the preview doctor (OPXY_TEST_PREVIEW_CXX, default clang++)."""
+    if 'cxx' not in _WASM:
+        node = shutil.which('node')
+        if node is None:
+            _WASM['cxx'] = None
+        else:
+            compiler = os.environ.get('OPXY_TEST_PREVIEW_CXX', 'clang++')
+            try:
+                preview_probe(compiler, node)
+                _WASM['cxx'] = compiler
+            except (ValueError, OSError):
+                _WASM['cxx'] = None
+    return _WASM['cxx']
+
+
 # The same engine without the hook: its render writes a fixed level, so the
 # adapter's fallback leaves a machine without one behaving as before.
 PLAIN = '''#include "core.h"
@@ -212,15 +187,22 @@ int main() {
 
 
 class VoiceVelocity(unittest.TestCase):
-    def run_engine(self, engine, driver=DRIVER):
+    def run_engine(self, engine=None, driver=DRIVER):
+        """Compiles and runs a driver against the fixture's engine (engine None)
+        or a test-local variant of it, and returns the printed tuple."""
         m = SimpleNamespace(kind='synth', definition=copy.deepcopy(fixture('probevelocity').definition),
                             prefix='probevelocity', native_name='probevelocity',
                             identity=fixture('probevelocity').identity)
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             generate_voice(folder, m)
-            (folder / 'core.h').write_text(CORE, encoding='utf-8')
-            (folder / 'engine.cpp').write_text(engine, encoding='utf-8')
+            (folder / 'core.h').write_text((fixture('probevelocity').root / 'core.h').read_text(encoding='utf-8'),
+                                           encoding='utf-8')
+            if engine is None:
+                (folder / 'engine.cpp').write_text((fixture('probevelocity').root / 'engine.cpp').read_text(encoding='utf-8'),
+                                                   encoding='utf-8')
+            else:
+                (folder / 'engine.cpp').write_text(engine, encoding='utf-8')
             (folder / 'test.cpp').write_text(driver, encoding='utf-8')
             binary = folder / ('test.exe' if os.name == 'nt' else 'test')
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-Wno-unused-function',
@@ -236,7 +218,7 @@ class VoiceVelocity(unittest.TestCase):
     def test_velocity_reaches_the_hook(self):
         # The hook fires on the begin path and on the in-place restart, and the
         # level follows the note's velocity.
-        self.assertEqual(self.run_engine(ENGINE), (100, 40))
+        self.assertEqual(self.run_engine(), (100, 40))
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_without_the_hook_behaviour_is_unchanged(self):
@@ -251,8 +233,10 @@ class VoiceVelocity(unittest.TestCase):
         # follows its hook.
         self.assertEqual(self.run_engine(COUNTED, WAITING), (40, 13, 13, 0))
 
-    @unittest.skipUnless(WASM_CXX, 'No working preview WASM compiler and Node (set OPXY_TEST_PREVIEW_CXX)')
     def test_preview_note_velocity_end_to_end(self):
+        compiler = wasm_compiler()
+        if compiler is None:
+            self.skipTest('No working preview WASM compiler and Node (set OPXY_TEST_PREVIEW_CXX)')
         m = fixture('probevelocity')
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
@@ -260,7 +244,7 @@ class VoiceVelocity(unittest.TestCase):
             (folder / 'engine.cpp').write_text((m.root / 'engine.cpp').read_text(encoding='utf-8'), encoding='utf-8')
             shim = generate_voice_preview(folder, copy.deepcopy(m.definition))
             binary = folder / 'engine.wasm'
-            command = [WASM_CXX, *FLAGS, '-I' + str(ROOT / 'sdk/include'), shim,
+            command = [compiler, *FLAGS, '-I' + str(ROOT / 'sdk/include'), shim,
                        ROOT / 'sdk/platform/blackfin/memory.cpp', '-o', str(binary),
                        '-Wl,--no-entry', '-Wl,-z,stack-size=16384',
                        f'-Wl,--initial-memory={MEMORY}', f'-Wl,--max-memory={MEMORY}',
