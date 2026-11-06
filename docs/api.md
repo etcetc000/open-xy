@@ -282,12 +282,14 @@ void render(Voice& voice, Shared& shared, opxy::u32 owner,
 ```
 
 ```cpp
-void note(Voice& voice, Shared& shared, opxy::u32 velocity);   // optional; in the machine namespace
+void note(Voice& voice, Shared& shared, opxy::u32 velocity);   // optional (SDK 1.11); in the machine namespace
 ```
 
 The adapter calls it once per note onset, between `initialize` and `start`, on
-every begin path, including a same-index restart; `velocity` is the note's raw
-1..127 value as stock's dispatcher received it. The function must be in the
+every begin path (SDK 1.11); `velocity` is the note's raw
+1..127 value as stock's dispatcher received it. A note restarting on the voice
+index it already holds reaches the hook without a fresh `initialize`. The
+function must be in the
 namespace that defines `Voice`, where argument-dependent lookup finds it; one
 elsewhere or with other arguments is never called, and a machine without it
 behaves exactly as before. Stock still applies its own velocity-derived gain,
@@ -926,7 +928,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.10 and builds 1.0 to 1.10 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.11 and builds 1.0 to 1.11 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
