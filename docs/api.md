@@ -56,7 +56,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
 | Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
-| Control labels | 8 characters | The stock parameter page |
+| Control labels | 8 characters; from SDK 1.11, all lower case and about 49 px on a synth or send effect ([names](ux.md#controls)) | The stock parameter page |
 | Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
@@ -128,19 +128,30 @@ Every machine kind keeps its controls in `definition.json` (for example
 Controls are finite numbers in [0, 1]. Mappings support `linear`
 (`minimum + (maximum - minimum) * value`), three or more increasing `anchors`
 interpolated evenly, `power` (`maximum * value^exponent`, exponent other than 1),
-`exponential` (`minimum * (maximum/minimum)^value`) and `enum`. Display formats
-are `ratio`, `percent` (the normalized value scaled to 0.0–100.0, without a suffix), `bipolar` (a -1..1 value as a signed
-percentage), `duration`, `semitones`, `enum` and `division` (SDK 1.2: one of
-stock delay's eight note lengths, below). Mappings describe
+`exponential` (`minimum * (maximum/minimum)^value`) and `enum`. Five anchors
+fall on the quarters, where stock captions read 00, 25, 50, 75 and 99;
+`opxy::q31::anchored` (`opxy/q31.hpp`) applies the same mapping to integer
+values in C++. Display formats
+are `ratio`, `percent`, `bipolar`, `duration`, `semitones`, `enum` and `division`
+(SDK 1.2: one of stock delay's eight note lengths, below). An `enum` or `division`
+shows its name. Every other format only says what the control means: the device shows its place
+in its travel, [00 to 99](ux.md#controls). A stepped control whose steps land exactly on its values is
+an `enum` with labels such as `1:3` or `+7st`. A machine targeting an earlier SDK keeps a `percent`'s
+0.0–100.0 without a suffix and a `ratio`'s `2.0:1` where its anchors allow it.
+Mappings describe
 the control for previews and the builder; the C++ applies its own mapping. Enum quantization matches the native Q31-to-Q15 path.
-On the device, a synth's or send effect's enum of up to 255 choices moves one
-choice per encoder detent (two when turned fast), in plain and locked edits
-alike, and stores the middle of the choice's range; a larger enum keeps stock's
+On the device, a synth's or send effect's enum turns as stock's Prism ratio does, one number of
+00 to 99 per encoder detent, so each of its `n` choices takes about `100 / n` detents (seen on a
+device: four per semitone across 25 choices), and it has at most 100 choices
+([clicks per choice](ux.md#controls)). An effect's shift row still moves one choice per detent. A machine targeting an earlier SDK, or a
+drum kit, moves an enum of up to 255 choices one choice per detent (two when turned fast), in plain
+and locked edits alike, and stores the middle of the choice's range; a larger enum keeps stock's
 0..99 stepping. Its value text on the engine or send page is the selected
 choice's label.
 Parameter order and mapping changes affect saved sounds; the
 [UX conventions](ux.md) cover direction, defaults and adding parameters. The stock parameter
-page shows labels in lower case.
+page shows labels in lower case, whatever a machine declares, but from SDK 1.11 a synth or send
+effect declares them that way too.
 
 ### Alternate controls
 
@@ -148,7 +159,7 @@ A synth's first four parameters belong to the four encoder positions of its
 page. Up to four more are alternates: each also names its position with
 `"control": 0..3`. Pressing that encoder cycles the position through its own
 parameter, then its alternates in parameter order; turning it edits the one
-shown, whose title and stock percentage the page shows. Every parameter keeps
+shown, whose title and value the page shows. Every parameter keeps
 its own slot in the eight-word vector, so `render` receives all of them and
 presets, projects and the catalog's defaults store each one. The selection is
 per track, starts on the position's own parameter and is not saved. The track
@@ -220,7 +231,8 @@ machines with more than four parameters: their saved selector values now
 address eight slots instead of four.
 
 On custom synth engine pages, Shift + turn edits the same visible parameter
-at one tenth of the normal rate. Enum choices keep their one-choice stepping.
+at one tenth of the normal rate. The SDK's fine turn leaves an enum alone: from SDK 1.11 it turns
+one number per detent, and on an earlier machine one choice per detent.
 Synth amounts and bounded positive anchor-ratio captions show one decimal
 place; amounts omit the percent suffix. A machine's display can replace them with
 its own [header text](display.md#frame). Custom send effects also
@@ -817,7 +829,7 @@ control's chosen word, read as any enum control:
 
 ```json
 "shift": [
-  {"id": "order", "label": "Order", "default": 0, "display": "enum",
+  {"id": "order", "label": "order", "default": 0, "display": "enum",
    "mapping": {"kind": "enum", "labels": ["TPES", "TEPS", "PTES"]}}
 ]
 ```
@@ -842,6 +854,8 @@ Shift is held, and the display reads them all, the shift row too
 ([input](display.md#effect-pages-sdk-17)). Effects have no browser preview
 yet. An effect that comes to draw its own page keeps its effect number and is
 given a page in its firmware's layout.
+An effect with eight controls can start from the SDK's
+[effect page](display.md#effect-page).
 
 ### Effect buffers
 
@@ -910,7 +924,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.10 and builds 1.0 to 1.10 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.11 and builds 1.0 to 1.11 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

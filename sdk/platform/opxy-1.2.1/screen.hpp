@@ -145,6 +145,7 @@ struct Controls {
     bool choosing;   // a drum kit's Shift page: the cells name the model and choke group
     u32 shift;       // an effect's page: Shift held on its shift row
     u8 choices[4];   // that row's choices, or a drum kit's Shift controls' (draw::Input::choices)
+    i32 level_in, level_out;  // an effect's page: its send's meters; 0 otherwise
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -180,6 +181,8 @@ inline bool send_controls(Base* o, Controls& controls) {
     }
     controls.shift = view.shift;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = view.choices[i];
+    controls.level_in = view.level_in;
+    controls.level_out = view.level_out;
     controls.valid = true;
     return true;
 }
@@ -196,6 +199,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     controls.choosing = false;
     controls.model = controls.pad = 0;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = 0;
+    controls.level_in = controls.level_out = 0;
     if (send_controls(o, controls)) return true;
     sdk_synth_shown(controls.track, controls.shown);
     for (u32 i = 0; i < page_controls; ++i) controls.values[i] = 0;

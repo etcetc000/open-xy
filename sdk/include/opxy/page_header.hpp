@@ -13,7 +13,17 @@ struct PageHeader {
 const u32 page_header_nodes = 8, page_header_texts = 16;
 const u8 page_header_slots[2][4] = {{0, 1, 2, 3}, {4, 5, 6, 7}};
 
-// Rounded 0..100 caption without a percent sign. The underlying Q31 is unchanged.
+// A control's place in its travel as two digits, 00..99, exactly as the stock
+// pages caption it: floor(100 * value / 2^31). A quarter of travel reads 25,
+// full scale 99. The underlying Q31 is unchanged.
+static inline void header_number(char* out, u32 capacity, i32 value) {
+    const u32 n = value < 0 ? 0 : ((static_cast<u32>(value) >> 8) * 100) >> 23;
+    const char number[3] = {static_cast<char>('0' + n / 10), static_cast<char>('0' + n % 10), 0};
+    copy(out, capacity, number);
+}
+
+// Rounded 0..100 caption without a percent sign, for machines that already use
+// it; new ones count with header_number. The underlying Q31 is unchanged.
 static inline void header_amount(char* out, u32 capacity, i32 value) {
     const u32 n = value < 0 ? 0 : ((static_cast<u32>(value) >> 10) * 100 + (1u << 20)) >> 21;
     char number[4];
@@ -41,16 +51,9 @@ static inline void lowercase(char* out, const char* title) {
 }
 }
 
-// titles and values are indexed by saved parameter slot, never by the current
-// encoder selection. Supply real-unit captions; use header_amount for amounts.
-// slots maps page/column to parameter slot when alternates are not in column order.
-// Other artwork belongs below y=38. No audio state or drawing ABI changes.
-template <class F>
-static inline void page_header(PageHeader& state, const Input& input, F& frame,
-                        const char* const (&titles)[8], const char (&values)[8][header_capacity],
-                        u32 first_node, const u8 (&slots)[2][4] = page_header_slots) {
-    static_assert(F::text_count >= page_header_texts, "Two-page header needs 16 text slots");
-    static_assert(F::node_count >= page_header_nodes, "Two-page header needs eight bar nodes");
+// The page the encoders edit, and state.position easing toward it: 0 on page
+// 1, unit on page 2. Shared by every two-page layout (also effect_page.hpp).
+static inline u32 page_motion(PageHeader& state, const Input& input, const u8 (&slots)[2][4]) {
     u32 page = 0;
     for (u32 col = 0; col < 4; ++col)
         if (slots[1][col] != slots[0][col] && input.shown[col] == slots[1][col]) page = 1;
@@ -71,6 +74,20 @@ static inline void page_header(PageHeader& state, const Input& input, F& frame,
     state.initialized = 1;
     state.track = input.track;
     state.page = page;
+    return page;
+}
+
+// titles and values are indexed by saved parameter slot, never by the current
+// encoder selection. Use header_number for numbers and a name for a choice.
+// slots maps page/column to parameter slot when alternates are not in column order.
+// Other artwork belongs below y=38. No audio state or drawing ABI changes.
+template <class F>
+static inline void page_header(PageHeader& state, const Input& input, F& frame,
+                        const char* const (&titles)[8], const char (&values)[8][header_capacity],
+                        u32 first_node, const u8 (&slots)[2][4] = page_header_slots) {
+    static_assert(F::text_count >= page_header_texts, "Two-page header needs 16 text slots");
+    static_assert(F::node_count >= page_header_nodes, "Two-page header needs eight bar nodes");
+    const u32 page = page_motion(state, input, slots);
     const i32 p = state.position;
     const u32 bright = p >= unit / 2 ? 1 : 0;
     for (u32 i = 0; i < page_header_nodes; ++i)

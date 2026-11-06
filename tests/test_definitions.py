@@ -3,6 +3,7 @@ import dataclasses
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 from types import SimpleNamespace
 import tempfile
@@ -11,7 +12,8 @@ import unittest
 
 from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, default_preset, generate_display,
                                generate_screen, generate_synth_controls, preset_files, preset_path, screen_bytes)
-from tooling.definitions import ROOT, control_positions, paged, validate_definition
+from tooling.definitions import ROOT, control_name, control_positions, paged, validate_definition
+from tooling.machines import machine_at
 from machine_fixtures import FOLDER, fixture
 from tooling.native import display_ids
 
@@ -244,7 +246,7 @@ class Definitions(unittest.TestCase):
         effect = copy.deepcopy(fixture('probefx').definition)
         effect['parameters'].append(self.absent('none'))
         with self.assertRaisesRegex(ValueError, 'Only a synth'): validate_definition(effect, 'effect')
-        machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
+        machines = [SimpleNamespace(sdk=(1, 11), kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         # The row's last field: the absent slots' mask (slots 3 and 4), which are not continuous either;
@@ -306,8 +308,8 @@ class Definitions(unittest.TestCase):
         sample['press'] = 'page'
         with self.assertRaisesRegex(ValueError, 'press'): validate_definition(sample, 'sample')
         # The control table marks the paged synth's row.
-        machines = [SimpleNamespace(kind='synth', prefix='paged', identity=dict(engine=9), definition=value),
-                    SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
+        machines = [SimpleNamespace(sdk=(1, 11), kind='synth', prefix='paged', identity=dict(engine=9), definition=value),
+                    SimpleNamespace(sdk=(1, 11), kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false), \d+, \d+\},$', text, re.M),
@@ -345,7 +347,7 @@ class Definitions(unittest.TestCase):
         effect['parameters'][7]['control'] = 0
         validate_definition(effect, 'effect')
         self.assertEqual(control_cycles(effect), [4, 5, 6, 3, 7, 1, 2, 0])
-        machines = [SimpleNamespace(kind='effect', prefix='alts', identity=dict(effect=23), definition=effect)]
+        machines = [SimpleNamespace(sdk=(1, 11), kind='effect', prefix='alts', identity=dict(effect=23), definition=effect)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         self.assertEqual(re.findall(r'^    \{alts_fx_id, alts_ready, \{([\d, ]+)\},', text, re.M), ['4, 5, 6, 3, 7, 1, 2, 0'])
@@ -353,8 +355,8 @@ class Definitions(unittest.TestCase):
     def test_control_table_owns_all_synths_and_preserves_alternates(self):
         alternates = copy.deepcopy(self.engine)
         alternates['parameters'].append(self.alternate(2))
-        machines = [SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine),
-                    SimpleNamespace(kind='synth', prefix='alt', identity=dict(engine=9), definition=alternates),
+        machines = [SimpleNamespace(sdk=(1, 11), kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine),
+                    SimpleNamespace(sdk=(1, 11), kind='synth', prefix='alt', identity=dict(engine=9), definition=alternates),
                     fixture('probesample'), fixture('probefx')]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
@@ -391,6 +393,54 @@ class Definitions(unittest.TestCase):
                                                          FOLDER / 'probesynth')), source.name],
                         cwd=directory, capture_output=True, text=True, timeout=120, **hidden)
                     self.assertEqual(result.returncode, 0, result.stderr)
+
+class ControlNames(unittest.TestCase):
+    def machine(self, directory, sdk, label):
+        root = Path(directory).resolve() / 'probesynth'
+        shutil.copytree(FOLDER / 'probesynth', root)
+        record = json.loads((root / 'machine.json').read_text())
+        record.pop('identity', None)
+        (root / 'machine.json').write_text(json.dumps(dict(record, sdk=sdk)))
+        definition = json.loads((root / 'definition.json').read_text())
+        for parameter in definition['parameters']:
+            parameter['label'] = parameter['label'].lower()
+        definition['parameters'][0]['label'] = label
+        (root / 'definition.json').write_text(json.dumps(definition))
+        return root
+
+    def test_new_machines_refuse_capitals_and_names_too_wide(self):
+        for label in ('Blend', 'bLend', 'FM', 'mmmmmm', 'wwwwwwww'):
+            with tempfile.TemporaryDirectory() as directory:
+                with self.assertRaisesRegex(ValueError, 'lower case|too wide'):
+                    machine_at(self.machine(directory, '1.11', label))
+
+    def test_stock_names_pass(self):
+        for label in ('feedback', 'position', 'lo cut', 'fm', 'mmmmm'):
+            control_name(label)
+
+    def enum_machine(self, directory, sdk, count):
+        root = self.machine(directory, sdk, 'mode')
+        definition = json.loads((root / 'definition.json').read_text())
+        definition['parameters'][0].update(display='enum', default=0,
+                                           mapping=dict(kind='enum', labels=['c%d' % i for i in range(count)]))
+        definition['presets'] = {}
+        (root / 'definition.json').write_text(json.dumps(definition))
+        return root
+
+    def test_new_machines_keep_enums_to_a_hundred_choices(self):
+        # A turn moves one number of 00 to 99, so a hundred choices is the most a click reaches.
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(len(machine_at(self.enum_machine(directory, '1.11', 100)).definition['parameters'][0]['mapping']['labels']), 100)
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, 'at most 100'):
+                machine_at(self.enum_machine(directory, '1.11', 101))
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(len(machine_at(self.enum_machine(directory, '1.10', 101)).definition['parameters'][0]['mapping']['labels']), 101)
+
+    def test_earlier_machines_keep_their_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(machine_at(self.machine(directory, '1.10', 'Blend')).definition['parameters'][0]['label'], 'Blend')
+
 
 if __name__ == '__main__':
     unittest.main()

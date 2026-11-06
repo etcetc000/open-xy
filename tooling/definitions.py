@@ -58,6 +58,42 @@ def control_label(value):
             'Control labels are at most eight letters, digits or spaces')
 
 
+# A header title has about this many pixels before its value box, in the device's 10 px font.
+# On a device, `mmmmmm` (54 px) runs about 4 px into the box.
+CONTROL_NAME_WIDTH = 49
+
+# Each letter's advance at 10 px in Univers Next Pro Light, rounded up to half a pixel.
+NAME_WIDTHS = {**dict(zip('abcdefghijklmnopqrstuvwxyz', (5.5, 6, 5.5, 6, 5.5, 3.5, 6, 6, 2.5, 2.5, 5.5, 2.5, 9,
+                                                          6, 6, 6, 6, 3.5, 5, 3.5, 6, 5.5, 8.5, 5.5, 5.5, 4.5))),
+               **dict(zip('0123456789', (6, 4.5, 5.5, 5.5, 6, 6, 6, 5.5, 6, 6))),
+               ' ': 3, '-': 3.5, '+': 7, '.': 3, ':': 3, '/': 3, '%': 9.5, '&': 7, "'": 2.5}
+
+
+def control_name_width(name):
+    """A name's width in pixels in the header's font, counting an unlisted character as 9."""
+    return sum(NAME_WIDTHS.get(c, 9) for c in name)
+
+
+# From SDK 1.11 an enum turns one number of 00 to 99 per click, so more choices than this would
+# leave some that no click lands on.
+ENUM_CHOICES = 100
+
+
+def control_choices(parameter):
+    mapping = parameter['mapping']
+    if mapping['kind'] == 'enum':
+        require(len(mapping['labels']) <= ENUM_CHOICES,
+                f'Control "{parameter["label"]}" has {len(mapping["labels"])} choices, but a turn moves one '
+                f'number of 00 to 99, so at most {ENUM_CHOICES} can each be reached (docs/ux.md#controls)')
+
+
+def control_name(name):
+    # New machines name controls as stock's pages do: all lower case, fitting the column.
+    require(name == name.lower(), f'Control name "{name}" must be all lower case, as stock names are')
+    require(control_name_width(name) <= CONTROL_NAME_WIDTH,
+            f'Control name "{name}" is too wide for its header column (docs/ux.md#controls)')
+
+
 # Resources each kind declares; the SDK owns everything else about its storage.
 RESOURCES = {
     'synth': ('voiceBytes', 'voiceAlignment', 'voiceCapacity', 'sharedBytes', 'outputPeakQ31', 'display'),

@@ -99,6 +99,8 @@ template <class Machine> struct Drawing {
         if (Machine::sample) sdk_sample_overview_update(controls.track);
         platform::amp_envelope(controls.track, display_input.amp);
         display_input.reduced_motion = 0;
+        display_input.level_in = controls.level_in;
+        display_input.level_out = controls.level_out;
         binding::display_render(&display_state, &display_input, &display_frame);
         if (!binding::display_valid(&display_frame)) return;
         Renderer::apply(o,display_frame);
