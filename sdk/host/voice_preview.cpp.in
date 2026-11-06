@@ -1,6 +1,7 @@
 // SDK preview voices and storage for any synth. Never linked into firmware.
 #include "core.h"
 #include "engine.cpp"
+#include <opxy/voice_note.hpp>
 using Voice = @NAMESPACE@::Voice;
 using Shared = @NAMESPACE@::Shared;
 static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
@@ -16,15 +17,6 @@ static opxy::u32 drum_model;
 // untouched. Unprimed slots hold a full onset, so a runner without opxy_note
 // (an older workbench) still gives the hook a valid 1..127 value.
 static opxy::u8 note_velocity[8];
-// The machine's optional note hook, dispatched as the firmware adapter does: an
-// engine may define note(Voice&, Shared&, opxy::u32) in its namespace, and an
-// exact non-template match wins over this fallback; an engine without one is unchanged.
-namespace sdk_voice_note {
-template <class V, class S> void note(V&, S&, opxy::u32) {}
-template <class V, class S> void call(V& voice, S& shared, opxy::u32 velocity) {
-    note(voice, shared, velocity);
-}
-}
 extern "C" {
 opxy::u32 opxy_preview_abi() { return 1; }
 opxy::u32 opxy_state_bytes() { return sizeof(Voice); }
@@ -40,8 +32,7 @@ void opxy_initialize(Voice* voice) {
     @NAMESPACE@::initialize(*voice, shared, owner(voice));
 }
 void opxy_start(Voice* voice) {
-    sdk_voice_note::call(*voice, shared, note_velocity[voice - voices]);
-    @NAMESPACE@::start(*voice, shared, owner(voice));
+    @NOTE_CALL@@NAMESPACE@::start(*voice, shared, owner(voice));
 }
 // opxy_note only primes the stored velocity; the hook fires in the following
 // opxy_start, between initialize and start, as on the device.

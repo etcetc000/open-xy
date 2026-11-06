@@ -21,6 +21,7 @@
 #include "stock.hpp"
 #include "synth_controls.hpp"
 #include <opxy/q31.hpp>
+#include <opxy/voice_note.hpp>
 // Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
 extern "C" {
 void* @PREFIX@_factory(opxy::u32) __asm__("@PREFIX@_factory");
@@ -85,17 +86,6 @@ static Slot* held(const Handle* handle) {
 static bool sounding(const Slot& slot, opxy::u32 now) {
     if (now - counted > kSilent && now - slot.since > kSilent) return false;
     return age(handles[slot.owner - 1].seen) <= 2 || age(slot.born) <= 2;
-}
-// An engine may define `void note(Voice&, Shared&, opxy::u32 velocity)` in its
-// namespace: called once per note onset, after initialize, before start, with
-// the note's raw 1..127 velocity. Argument-dependent lookup finds it, and an
-// exact non-template match wins over this fallback; an engine without one
-// gets no call, so its voices behave as before.
-namespace sdk_voice_note {
-template <class V, class S> void note(V&, S&, opxy::u32) {}
-template <class V, class S> void call(V& voice, S& shared, opxy::u32 velocity) {
-    note(voice, shared, velocity);
-}
 }
 // Gives a voice to a note: zeroed, initialized and started.
 static void begin(Slot& slot, Handle* handle, opxy::u32 now) {

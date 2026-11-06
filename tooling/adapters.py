@@ -111,6 +111,8 @@ def generate_voice_preview(directory, definition, *, kind='synth'):
     count = definition['resources'].get('modelCount', 0)
     values['DRUM_SELECT'] = (f"{values['NAMESPACE']}::drum_select(*voice, shared, owner(voice), drum_model < {count} ? drum_model : 0);\n    "
                              if kind == 'drum' else '')
+    values['NOTE_CALL'] = ('sdk_voice_note::call(*voice, shared, note_velocity[voice - voices]);\n    '
+                           if kind == 'synth' else '')
     return expand('voice_preview.cpp.in', values, Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
 
 
