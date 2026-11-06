@@ -57,10 +57,8 @@ for (const mask of checkedSelections(kit.machines, kit.linked)) {
 // and fits the larger.
 if (layouts.length > 1) {
   const all = kit.machines.map(m => m.id);
-  // How the whole collection links with an extension choice: its allocated bytes, or
-  // 'needs more' / 'unlinkable' (any other reason, when no such check applies).
-  const link = (k, extensions) => { try { return linkKit(k, all, null, extensions).sizes.allocated; }
-    catch (error) { return error.capacity ? 'needs more' : 'unlinkable'; } };
+  // The whole collection's allocated bytes with an extension choice, or null when it does not link.
+  const link = (k, extensions) => { try { return linkKit(k, all, null, extensions).sizes.allocated; } catch { return null; } };
   // One link per choice, at the larger memory: it needs more than standard memory when
   // its allocation exceeds the standard module region.
   const tried = extensionChoices(kit).map(c => ({c, larger: link(layouts[1].kit, c)}));
@@ -70,9 +68,8 @@ if (layouts.length > 1) {
   if (!beyond) console.log('Experimental memory: no extension choice with the whole collection needs more than standard memory',
     'and fits the larger - no module beyond standard memory is checked.');
   else {
-    const every = beyond.c;
     const mask = kit.machines.reduce((m, _, i) => m | selectionBit(i), 0n);
-    await parity(layouts[1], mask, all, every, null, 'collection-expanded');
+    await parity(layouts[1], mask, all, beyond.c, null, 'collection-expanded');
   }
 }
 for (const memory of layouts) writeFileSync(resolve(destination, memory.file), JSON.stringify(memory.results, null, 2));
