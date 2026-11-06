@@ -549,6 +549,10 @@ test('Extensions graphics defaults to original designs without firmware extensio
   linkError = null;
   assert.equal($('status').textContent, 'This layout used 6 MiB experimental memory, which this site doesn’t offer. ' +
     'These machines need more than the 4080 KiB available');
+  // When it fits, it keeps the 4 MiB choice and says so, rather than turning it off.
+  await restoreLayout({...expandedLayout, memory:'unoffered'});
+  assert.equal(memoryInput.checked, true);
+  assert.match($('status').textContent, /It used 6 MiB experimental memory, which this site doesn’t offer; it uses this site’s experimental 4 MiB\.$/);
   memoryInput.checked = false; memoryInput.onchange();
   // A standard layout that no longer fits points to the larger memory this site offers.
   linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});

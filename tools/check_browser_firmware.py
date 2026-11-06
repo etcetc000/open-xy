@@ -89,6 +89,33 @@ def assembled(stock, module, symbols, reviewed, services, profiling):
     return assemble(stock, module, profile, reviewed, len(profile['patches']), services, profiling)
 
 
+def check_numbers(kit, result, symbols):
+    """The selection's numbers, worked out again by the Python numbering the native build
+    uses: each selected machine's number symbols must carry them; returns them."""
+    numbers = number_layout(kit['profile']['identities'], [(i, None, n) for i, n in kit['fixed'].items()],
+                            result['layout'], [(m['id'], m['kind'], m['identity']) for m in kit['machines']
+                                               if m['id'] in result['selected']])
+    for machine in kit['machines']:
+        # A sample engine asking for no page draws its own screen (builder/core.mjs numberSymbols).
+        own_screen = machine['kind'] == 'sample' and machine['identity']['page'] is None
+        value = lambda suffix: symbols.get(machine['prefix'] + suffix, {}).get('value')
+        if machine['id'] not in result['selected']:
+            # An unselected machine has no numbers: no startup, catalog or control lookup matches it.
+            require(all(value(s) == 0 for s in number_suffixes(machine['kind'], own_screen)),
+                    'Unselected machine has numbers: ' + machine['id'])
+            continue
+        own = numbers[machine['id']]
+        # A sample engine drawing its own screen numbers that screen's page; its page
+        # symbol stays its stock page.
+        pairs = {'player': (('_player_id', 'player'), ('_page_id', 'page')),
+                 'effect': (('_fx_id', 'effect'), ('_fx_page_id', 'page')),
+                 'sample': (('_engine_id', 'engine'), ('_screen_page_id' if own_screen else '_page_id', 'page'))
+                 }.get(machine['kind'], (('_engine_id', 'engine'), ('_page_id', 'page')))
+        require(all(value(suffix) == own[key] for suffix, key in pairs),
+                'Selection numbers differ: ' + machine['id'])
+    return numbers
+
+
 def check_expanded(directory, kit, stock, boot_label):
     """GNU-linked 4 MiB modules: their symbols and sizes, and Python's LDR equal to the browser's."""
     results = directory / 'reference/selections-expanded.json'
@@ -113,17 +140,7 @@ def check_expanded(directory, kit, stock, boot_label):
                 sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs (experimental memory)')
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs (experimental memory): ' + name)
-        # Machine numbers do not depend on the base: each equals its standard twin's,
-        # which main() checked against the Python numbering.
-        twin = directory / 'reference' / result['name'].removesuffix('-expanded')
-        if result['name'] != 'collection-expanded':
-            twin_symbols = elf32(twin.with_suffix('.elf').read_bytes())[1]
-            for machine in kit['machines']:
-                own_screen = machine['kind'] == 'sample' and machine['identity']['page'] is None
-                for suffix in number_suffixes(machine['kind'], own_screen):
-                    name = machine['prefix'] + suffix
-                    require(symbols.get(name, {}).get('value') == twin_symbols.get(name, {}).get('value'),
-                            'Selection numbers differ (experimental memory): ' + machine['id'])
+        check_numbers(kit, result, symbols)  # every 4 MiB build, the whole collection included
         services = selection_services(kit, result)
         for profiling, suffix in ((True, '.ldr'), (False, '.profiling-off.ldr')):
             require(assembled(stock, module, symbols, reviewed, services, profiling) == prefix.with_suffix(suffix).read_bytes(),
@@ -181,29 +198,7 @@ def main():
                 sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs')
         for name, value in result['globals'].items():
             require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
-        # The selection's numbers, worked out again by the Python numbering the native build
-        # uses: each selected machine's number symbols and menu entry must carry them.
-        numbers = number_layout(kit['profile']['identities'], [(i, None, n) for i, n in kit['fixed'].items()],
-                                result['layout'], [(m['id'], m['kind'], m['identity']) for m in kit['machines']
-                                                   if m['id'] in result['selected']])
-        for machine in kit['machines']:
-            # A sample engine asking for no page draws its own screen (builder/core.mjs numberSymbols).
-            own_screen = machine['kind'] == 'sample' and machine['identity']['page'] is None
-            value = lambda suffix: symbols.get(machine['prefix'] + suffix, {}).get('value')
-            if machine['id'] not in result['selected']:
-                # An unselected machine has no numbers: no startup, catalog or control lookup matches it.
-                require(all(value(s) == 0 for s in number_suffixes(machine['kind'], own_screen)),
-                        'Unselected machine has numbers: ' + machine['id'])
-                continue
-            own = numbers[machine['id']]
-            # A sample engine drawing its own screen numbers that screen's page; its page
-            # symbol stays its stock page.
-            pairs = {'player': (('_player_id', 'player'), ('_page_id', 'page')),
-                     'effect': (('_fx_id', 'effect'), ('_fx_page_id', 'page')),
-                     'sample': (('_engine_id', 'engine'), ('_screen_page_id' if own_screen else '_page_id', 'page'))
-                     }.get(machine['kind'], (('_engine_id', 'engine'), ('_page_id', 'page')))
-            require(all(value(suffix) == own[key] for suffix, key in pairs),
-                    'Selection numbers differ: ' + machine['id'])
+        numbers = check_numbers(kit, result, symbols)
         services = selection_services(kit, result)
         modes = {}
         for profiling in (True, False):

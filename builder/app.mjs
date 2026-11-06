@@ -830,18 +830,22 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       // A layout with a selection records its build's memory; a numbers-only layout
       // leaves the current choice alone. Nothing is applied unless the selection
       // links; when this site lacks the layout's experimental memory, the error says so.
-      // A selection that needs more than its layout's memory here uses this site's larger
-      // option when the user has turned it on, and otherwise says to turn it on first.
-      let wanted = loaded.selected ? loaded.expanded === true : expandedMemory(), grown = false;
+      // The memory a layout restores with, decided once: the one it records, or, for an
+      // experimental size this site lacks, the current choice. A selection that needs
+      // more uses this site's larger option when it is on, and otherwise says to turn it on.
+      const context = loaded.memoryUnavailable
+        ? `This layout used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer. ` : '';
+      let wanted = loaded.selected && !loaded.memoryUnavailable ? loaded.expanded === true : expandedMemory(), grown = false;
       if (loaded.selected) {
-        try { core.linkKit(kitFor(wanted), loaded.selected, loaded.machines, extensions); }
+        const link = memory => core.linkKit(kitFor(memory), loaded.selected, loaded.machines, extensions);
+        try { link(wanted); }
         catch (error) {
-          if (error.capacity !== true || wanted || !expandedKit) throw error;
-          const context = loaded.memoryUnavailable
-            ? `This layout used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer. ` : '';
-          if (!expandedMemory()) { error.message = context + roomHint(error.message, 'and load the layout again'); throw error; }
-          try { core.linkKit(expandedKit, loaded.selected, loaded.machines, extensions); }
-          catch (larger) { if (larger.capacity === true) larger.message = context + larger.message; throw larger; }
+          if (error.capacity !== true) throw error;
+          if (wanted || !expandedKit || !expandedMemory()) {
+            error.message = context + (wanted ? error.message : roomHint(error.message, 'and load the layout again'));
+            throw error;
+          }
+          try { link(true); } catch (larger) { if (larger.capacity === true) larger.message = context + larger.message; throw larger; }
           wanted = grown = true;
         }
       }
@@ -853,8 +857,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       // A layout from an experimental size this site lacks gets one message, not two.
       const unavailable = loaded.memoryUnavailable && loaded.selected;
       status('Layout loaded: your machines keep their numbers.' +
-        (grown ? ` Its machines need more than ${unavailable ? 'standard memory here' : 'the standard memory it used'}, so they use the experimental ${expandedSize()} you turned on.`
-          : unavailable ? ` It used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer; it builds with standard memory.`
+        (unavailable ? ` It used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer; it ${
+            wanted ? `uses this site’s experimental ${expandedSize()}` : 'builds with standard memory'}.`
+          : grown ? ` Its machines need more than the standard memory it used, so they use the experimental ${expandedSize()} you turned on.`
           : memoryChange && ' ' + memoryChange[0].toUpperCase() + memoryChange.slice(1) + '.') +
         // A numbers-only layout keeps the current memory choice; its own is named, not applied.
         (!loaded.selected && (loaded.expanded || loaded.memoryUnavailable)
