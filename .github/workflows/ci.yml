@@ -51,6 +51,14 @@ jobs:
           python tools/check_private_files.py --tree HEAD
           python tools/check_private_files.py --history
       - run: python -m pip install numpy==2.3.5
+      - name: C++ and WebAssembly compilers
+        # The runner image may already carry Clang and wasm-ld. Source checks
+        # need them too: the preview velocity test builds and runs a module.
+        run: |
+          if ! command -v clang++ >/dev/null || ! command -v wasm-ld >/dev/null; then
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y clang lld
+          fi
       - name: Source checks
         run: python sdk.py check
       - name: First machine
