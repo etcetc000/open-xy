@@ -532,8 +532,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Hexagon",
-      "tag": "v1.1.0",
-      "commit": "0c7e216b1e2f44f98b81ce2426468ced265c3a7e",
+      "tag": "v1.7.0",
+      "commit": "58a56619fb11e016b34fc8dd8bc11197d6011c2f",
       "path": "wane",
       "keywords": [
         "analog",
@@ -541,11 +541,19 @@
         "lofi"
       ],
       "cpu": {
-        "benchmark": "opxy-synth-c8-v1",
-        "commit": "cde0abdfdd15f64389134157942237608ff39cf6",
-        "firmware_sha256": "cf1a369f5ad63ce6e1d6e2abec3e08eb1ef546acd0331141f01801d2e5e85207",
-        "runs": 3,
-        "block_percent": 4.104677
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "58a56619fb11e016b34fc8dd8bc11197d6011c2f",
+        "firmware_sha256": "d7836c33bab32ed3b87e43ea8b166f9dce6c9d79a346a3db22e0746b33ea2c82",
+        "runs": 2,
+        "block_percent": 3.692683,
+        "peak_percent": 6.314183,
+        "midpoint_percent": 3.68658,
+        "combined_percent": 3.66598,
+        "worst_setting": {
+          "control": 0,
+          "label": "Shape",
+          "value": 268435455
+        }
       }
     },
     {
@@ -583,8 +591,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Hexagon",
-      "tag": "v1.3.0",
-      "commit": "db2970f657a294b16fa9847359e1c455a9ea5c05",
+      "tag": "v1.7.0",
+      "commit": "58a56619fb11e016b34fc8dd8bc11197d6011c2f",
       "path": "hollow",
       "keywords": [
         "physical",
@@ -593,16 +601,17 @@
       ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
-        "commit": "db2970f657a294b16fa9847359e1c455a9ea5c05",
-        "firmware_sha256": "4ccdd168d2e9d8a53f95bc5fb8304358dbb8a8c0d37935b79944384275d06be2",
-        "runs": 1,
-        "block_percent": 4.528878,
-        "midpoint_percent": 4.093996,
-        "combined_percent": 4.188602,
+        "commit": "58a56619fb11e016b34fc8dd8bc11197d6011c2f",
+        "firmware_sha256": "d7836c33bab32ed3b87e43ea8b166f9dce6c9d79a346a3db22e0746b33ea2c82",
+        "runs": 2,
+        "block_percent": 4.785229,
+        "peak_percent": 5.743496,
+        "midpoint_percent": 4.469368,
+        "combined_percent": 4.495308,
         "worst_setting": {
           "control": 4,
           "label": "Air",
-          "value": 2147483647
+          "value": 536870911
         }
       }
     },
@@ -802,8 +811,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Nonagon",
-      "tag": "v0.7.2",
-      "commit": "05e7bb62d05d8f8eeada2d09228308ef34547550",
+      "tag": "v0.9.0",
+      "commit": "aca55181a3230c1d0d58510dfb87ff505f53a264",
       "path": "mach",
       "keywords": [
         "experimental",
@@ -811,16 +820,17 @@
       ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
-        "commit": "9f19d4aad32f98ed2e4a155c16e4c754ebbceb09",
-        "firmware_sha256": "4ccdd168d2e9d8a53f95bc5fb8304358dbb8a8c0d37935b79944384275d06be2",
-        "runs": 1,
-        "block_percent": 5.909819,
-        "midpoint_percent": 3.802548,
-        "combined_percent": 1.287861,
+        "commit": "aca55181a3230c1d0d58510dfb87ff505f53a264",
+        "firmware_sha256": "d7836c33bab32ed3b87e43ea8b166f9dce6c9d79a346a3db22e0746b33ea2c82",
+        "runs": 2,
+        "block_percent": 6.619364,
+        "peak_percent": 11.677729,
+        "midpoint_percent": 4.124514,
+        "combined_percent": 1.434348,
         "worst_setting": {
           "control": 7,
           "label": "Echo",
-          "value": 1879048191
+          "value": 1073741823
         }
       }
     },
@@ -830,8 +840,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Nonagon",
-      "tag": "v0.6.0",
-      "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
+      "tag": "v0.9.0",
+      "commit": "aca55181a3230c1d0d58510dfb87ff505f53a264",
       "path": "butterfly",
       "keywords": [
         "experimental",
@@ -840,16 +850,17 @@
       ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
-        "commit": "0844ea96e0fb91e623726bda34debc8ea864e54e",
-        "firmware_sha256": "22d618232a8537b36224940bd1a0f6fad6d8f47a18629409cb8a6aabd8632e1a",
-        "runs": 1,
-        "block_percent": 7.980468,
-        "midpoint_percent": 4.986648,
-        "combined_percent": 6.002899,
+        "commit": "aca55181a3230c1d0d58510dfb87ff505f53a264",
+        "firmware_sha256": "d7836c33bab32ed3b87e43ea8b166f9dce6c9d79a346a3db22e0746b33ea2c82",
+        "runs": 2,
+        "block_percent": 8.075074,
+        "peak_percent": 8.419928,
+        "midpoint_percent": 5.335317,
+        "combined_percent": 6.154726,
         "worst_setting": {
           "control": 1,
           "label": "Coupling",
-          "value": 536870911
+          "value": 268435455
         }
       }
     },
@@ -932,8 +943,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.2.2",
-      "commit": "3a55a14c52ca8688e3b86aee6f13c728da8aa927",
+      "tag": "v1.3.0",
+      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
       "path": "machines/mdkit",
       "keywords": [
         "emulation",
@@ -941,18 +952,19 @@
       ],
       "cpu": {
         "benchmark": "opxy-drum-callback-v1",
-        "commit": "3a55a14c52ca8688e3b86aee6f13c728da8aa927",
-        "firmware_sha256": "b7f664bcbf78aa61799cb60e508b50c7642e97ec1c252a19d398bcd15063d279",
-        "runs": 1,
-        "block_percent": 3.085374,
-        "midpoint_percent": 3.085374,
-        "kit_percent": 24.661631,
-        "choke_percent": 4.136721,
-        "ceiling_percent": 48.990616,
+        "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+        "firmware_sha256": "d7836c33bab32ed3b87e43ea8b166f9dce6c9d79a346a3db22e0746b33ea2c82",
+        "runs": 2,
+        "block_percent": 2.690929,
+        "peak_percent": 48.163577,
+        "midpoint_percent": 2.690929,
+        "kit_percent": 23.672847,
+        "choke_percent": 4.030671,
+        "ceiling_percent": 41.872282,
         "worst_model": {
           "run": "voice",
           "voices": 1,
-          "model": 29,
+          "model": 28,
           "level": 64
         }
       }
