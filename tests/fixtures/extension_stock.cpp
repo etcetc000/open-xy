@@ -4,6 +4,8 @@
 #include <extension_probe.cpp>
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
+#include <extension_loop.cpp>
+#include <extension_label.cpp>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 using namespace opxy;
@@ -25,8 +27,11 @@ bool failed, consume_record, reject_note, step_entry;
 // Any instrument track has a pattern; writes may target another than the selected one.
 u32 last_track, last_delta;
 u32 get_pattern(u32 t) { failed |= t >= 8; last_track = t; return pattern_id; }
-u32 get_length(u32 t) { failed |= t >= 8; return track_length; }
-u32 get_scale(u32 t) { failed |= t >= 8; return scale; }
+// The sequencer view reads all 16 tracks; writes stay on instrument tracks (get_pattern).
+u32 get_length(u32 t) { failed |= t >= 16; return track_length; }
+u32 get_scale(u32 t) { failed |= t >= 16; return scale; }
+u32 get_shown(u32 t) { failed |= t >= 16; return 0; }
+alignas(4) unsigned char track_objects[16][0x290];
 u32 get_quantization(u32 t) { failed |= t != selected; return quantization; }
 i32 get_position(u32 controller, u32 t) {
     failed |= controller != 0x860c6adc || t != selected;
@@ -151,7 +156,13 @@ Address host_stock_address(Address address) {
         case 0x8d58f24c: return reinterpret_cast<Address>(&insert);
         case 0x8d587668: return reinterpret_cast<Address>(&publish);
         case 0x8d549168: return reinterpret_cast<Address>(&popup);
+        case 0x8d585fb4: return reinterpret_cast<Address>(&get_shown);
     }
+    const Address objects = 0x860c6adc + 0x108;
+    if (address >= objects && address < objects + sizeof(track_objects))
+        return reinterpret_cast<Address>(&track_objects[0][0]) + (address - objects);
+    static const u32 factors[16] = {5040, 3360, 2240, 1680, 1260, 840, 560, 420, 336, 280, 240, 210, 210, 140, 105, 105};
+    if (address >= 0x840aa47c && address < 0x840aa4bc) return reinterpret_cast<Address>(factors) + (address - 0x840aa47c);
     static const u32 ratios[32]={3,1,2,1,4,3,1,1,3,4,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,12,1,16,1,32};
     if (address>=0x840a36e0 && address<0x840a3760) return reinterpret_cast<Address>(ratios)+(address-0x840a36e0);
     __builtin_trap();
@@ -205,8 +216,13 @@ int main() {
     record(); CHECK(seen.control.key==50 && !seen.control.pressed && seen.control.accepted);
     CHECK(seen.control.unmodified && seen.control.time==clock_time && event_calls==4);
     key(10,true); CHECK(seen.control.key==10 && seen.control.accepted);
-    other_held=55; key(50,true); CHECK(!seen.control.unmodified); key(50,false); other_held=0;
-    shift=1; key(50,true); CHECK(!seen.control.unmodified && !seen.control.accepted); key(50,false); shift=0;
+    CHECK(seen.control.held==extensions::keys::none && !seen.control.shift && !seen.context.shift && seen.control.screen == 0);
+    screen=0x23; key(8,true); CHECK(seen.control.screen==extensions::screens::bar_menu); key(8,false); screen=0;
+    other_held=55; key(50,true); CHECK(!seen.control.unmodified && seen.control.held==55); key(50,false); other_held=0;
+    // The sequencer view reaches the context: one bar of 16 steps at scale 3 (1680).
+    CHECK(seen.context.sequencer.track[0].bars==1 && seen.context.sequencer.track[15].bar_ticks==7680);
+    CHECK(seen.context.sequencer.track[0].loop==extensions::no_bar);
+    shift=1; other_held=25; key(50,true); CHECK(!seen.control.unmodified && !seen.control.accepted && seen.control.held==extensions::keys::none && seen.control.shift && seen.context.shift); key(50,false); shift=0; other_held=0;
     consume_record=true; key(50,true); CHECK(!seen.control.accepted); key(50,false); consume_record=false;
     input_enabled=0; key(10,true); CHECK(!seen.control.accepted); input_enabled=1;
     CHECK(!writes && !undos && !popups);

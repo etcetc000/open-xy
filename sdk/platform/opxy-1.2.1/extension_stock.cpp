@@ -41,7 +41,20 @@ bool unmodified(u32 key) {
         if (other != key && stock<u32(u32)>(0x8d5b7d7c)(other)) return false;
     return true;
 }
+// The one other key held, without Shift (a hold-menu such as the bar menu).
+u32 held_with(u32 key) {
+    if (shift_held()) return extensions::keys::none;
+    u32 found = extensions::keys::none;
+    for (u32 other = 0; other < 56; ++other) {
+        if (other == key || !stock<u32(u32)>(0x8d5b7d7c)(other)) continue;
+        if (found != extensions::keys::none) return extensions::keys::none;
+        found = other;
+    }
+    return found;
 }
+}
+
+bool extension_shift() { return shift_held(); }
 
 TrackPattern extension_pattern(u32 track) {
     TrackPattern p = {};
@@ -165,7 +178,8 @@ void sdk_extensions_live_note_off(u32 controller, u32 track, u32 note, u32 a3, u
 }
 void sdk_extensions_key(const u32* event) {
     extensions_sync();
-    extensions::Control control = {event[0], event[1] != 0, false, unmodified(event[0]), 0};
+    extensions::Control control = {event[0], event[1] != 0, false, unmodified(event[0]), 0, held_with(event[0]),
+                                   shift_held(), word(kScreen)};
     const bool was_held = extension_record_held();
     const bool enabled = byte(kInputEnabled) != 0;
     // The clock writes a full 64-bit microsecond value through its argument.

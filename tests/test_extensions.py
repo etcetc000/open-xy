@@ -93,14 +93,27 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control',
+                                               'key_label', 'sequencer_change'])
+        self.assertEqual({x['address'] for x in profile['patches'] if 'key_label' in x.get('events', [])},
+                         {'0x8c0baaf0', '0x8d547004'})
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
+        served = lambda p: next(x for x in p['patches'] if x.get('actions'))
+        self.assertEqual({x['address'] for x in profile['patches'] if x.get('actions') == ['loop_bars']},
+                         {'0x8d5ab84c', '0x8d5ab7d0', '0x8d5ac000', '0x8d5ac76e', '0x8d598038',
+                          '0x8d5474ee'})
+        self.assertEqual({x['address'] for x in profile['patches'] if x.get('actions') == ['play_from']},
+                         {'0x8d597ffc', '0x11a0aa80'})
         for mutate in (
             lambda p: hook(p).pop('events'),
             lambda p: hook(p).update(events=['note_on']),
             lambda p: hook(p).update(events=[]),
             lambda p: next(x for x in p['patches'] if not x.get('service')).update(events=['context']),
             lambda p: [x.update(events=['context']) for x in p['patches'] if x.get('events')],
+            lambda p: served(p).update(actions=['loop']),
+            lambda p: served(p).update(actions=[]),
+            lambda p: served(p).update(actions=['loop_bars', 'loop_bars']),
+            lambda p: next(x for x in p['patches'] if not x.get('service')).update(actions=['loop_bars']),
         ):
             changed = copy.deepcopy(profile)
             mutate(changed)

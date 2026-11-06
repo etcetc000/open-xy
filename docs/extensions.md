@@ -35,7 +35,7 @@ Three layers, kept apart:
 | Stage | Happens when | Event |
 | --- | --- | --- |
 | Input | A key or MIDI note arrives, before recording and the sequencer | `recordable_note_on` and `selected_note_off` (selected track only); `input_activity` (any track, but without the note) |
-| Sequencer | A pattern step plays | Not exposed |
+| Sequencer | A pattern step plays | Not exposed as an event; each track's bars, playing bar and shown bar are in `context` |
 | Track | Live and sequenced notes reach a track, before its instrument | Not exposed |
 | Voice | The instrument starts a voice | A machine's voice callbacks |
 
@@ -71,7 +71,7 @@ filters to that track for it.
 | Kind | What | Here |
 | --- | --- | --- |
 | Events | Something happened | The `Hooks` callbacks |
-| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify` |
+| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify`, `Actions::loop_bars`, `Actions::play_from` |
 | Surfaces | Add to the screen | None for extensions yet: menu rows, pages, overlays |
 | Saved state | Data kept with a project | None for extensions yet |
 
@@ -89,12 +89,14 @@ only for the callback. The SDK does not sandbox native code.
 
 | Event | Delivers | Sites |
 | --- | --- | --- |
-| `context` | Project, pattern, selected track, length, scale, quantization and play state, and whether its pattern is `editable` and its live notes `recordable` (not while the recorder is in a step or sample workflow); before every other event | Controller update, Stop |
+| `context` | Project, pattern, selected track, length, scale, quantization and play state, and whether its pattern is `editable` and its live notes `recordable` (not while the recorder is in a step or sample workflow); `sequencer`: each of the 16 tracks' bars, playing bar, shown bar, looped bar and bar length in song ticks; `shift`: Shift held; before every other event | Controller update, Stop |
 | `recordable_note_on` | A live onset stock accepted for recording, on the selected recordable instrument track, while playing; with stock's pickup position and collision radius | Live onset, accepted-note bookkeeping |
 | `selected_note_off` | A live release on the selected track, playing or not; may have no preceding onset | Live release |
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
-| `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
+| `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held; `held`: the one other key held without Shift (`keys::none` otherwise); `screen`: stock's screen (`screens::bar_menu` for BAR's menu, held or kept open by pressing Shift first); `shift`: Shift held. Key numbers are in `keys` | Key queue |
+| `key_label` | Asks a claim's holder for the text stock shows over the claimed key in its menu: 1–15 printable characters, or `nullptr` for stock's own. Asked after every `context`; the SDK redraws the slot when the text changes. Only `bar_menu_m3` has a slot (the bar menu's M3) | Controller update, bar menu labels |
+| `sequencer_change` | A track's bar count or step scale changed while bars loop or are armed, after `context`. With `Actions`: an extension declaring `loop_bars` may move those loops here (for example to keep tracks lined up), but not start one | Controller update |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
 scale 1 has 480 ticks per step. Stock's pickup gives negative positions near
@@ -113,7 +115,11 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   recognizes its gesture itself; the shared
   [`DoubleTap`](../sdk/include/opxy/double_tap.hpp) helper handles taps, holds,
   repeats and timeouts on any key without delaying stock controls.
-  `record_double_tap` is capture's.
+  `record_double_tap` is capture's. `bar_menu_m3` is M3 (key 8), which stock
+  leaves unused while its bar menu (BAR, 25) is open; its owner checks
+  `screen == screens::bar_menu` (and `shift` for a Shift variant) and may label it through
+  `key_label`, which sees `Context::shift` to follow Shift. `shift_play` is
+  Play (51) with Shift held, which stock ignores; its owner checks `shift`.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
@@ -127,9 +133,41 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
+  - `loop_bars` unlocks `Actions::loop_bars` (granted by any claim its holder
+    owns, such as `bar_menu_m3`): hold
+    each track in one bar of its playing pattern (`BarLoop`, `no_bar` for the
+    tracks stock keeps). Every playhead move stays in that bar: play start
+    lands on its first step and shows that bar's steps (other bars can still
+    be shown and edited; the bar menu draws the looped one grey and puts a
+    dot after the number of the bar playing), a step component's
+    jump on the same step of the
+    bar, each pass restarts parameter locks as a pattern loop does, and a song
+    (one with scenes) stays in the current scene. Bars
+    are checked against the playing patterns of a current context. Ending
+    every loop (all `no_bar`) needs no claim: its holder may do it in any
+    `queued_control` callback, and may move loops that hold in
+    `sequencer_change`. The SDK ends loops itself when a looped track's
+    pattern changes (including by a scene change), another song is selected
+    or the project changes; `context.sequencer` shows
+    what holds.
+  - `play_from` unlocks `Actions::play_from` (granted by any claim its holder
+    owns, such as `shift_play`): start
+    playback from a point of the scene, in song ticks (a track's bar is its
+    `bar_ticks`), as if it had played from the top. Each track begins where
+    stock's song clock puts it, as at its own pattern ends: bar N of the
+    longest pattern lines up with bar N mod its length of the others, on any
+    step scale. Its step keys show that bar. Playing, it restarts from there,
+    as Play restarts from the top. It counts in as Play would (with
+    recording armed) and starts from the place when the count-in ends; playing
+    with the count-in on, where Play does something else, it is refused. With
+    Record held, stopped, it arms recording as Record + Play does and moves the
+    tracks there; the start that follows (Play, counting in, or the first
+    note) is from the place. The
+    metronome and the SDK's machine clock start as on any play. Loops hold as
+    usual.
 
-  Calls outside the callback, with a stale context, or a second write or
-  popup in one callback are refused.
+  Calls outside the callback, with a stale context, or a second write,
+  popup, loop change or start in one callback are refused.
 
 Observers cannot transform notes or suppress stock input.
 

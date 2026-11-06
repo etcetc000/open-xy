@@ -63,9 +63,16 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
     ++writes; replaced = replace; written_track = track; return count;
 }
 void extension_notify(const char*) { ++notices; }
+bool shift_down;
+bool extension_shift() { return shift_down; }
+void extension_sequencer(extensions::Sequencer& s) { s = extensions::Sequencer(); }
+bool extension_loop(const extensions::BarLoop&) { return false; }
+bool extension_labels(u32) { return false; }
+void extension_key_label(u32, const char*) {}
+bool extension_play_from(u32) { return false; }
 }}
 void control(u32 key, bool accepted) {
-    const extensions::Control event = {key, false, accepted, true, 100};
+    const extensions::Control event = {key, false, accepted, true, 100, extensions::keys::none, false, 0};
     extensions_queued_control(event);
 }
 int main() {

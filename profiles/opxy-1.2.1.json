@@ -1623,7 +1623,9 @@
       "call": true,
       "service": "extensions",
       "events": [
-        "context"
+        "context",
+        "key_label",
+        "sequencer_change"
       ]
     },
     {
@@ -1703,6 +1705,123 @@
       "service": "extensions",
       "events": [
         "recordable_note_on"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5ab84c",
+      "file_offset": "0x1e2aa4",
+      "length": 4,
+      "before": "00e34606",
+      "symbol": "sdk_extensions_loop_advance",
+      "call": true,
+      "service": "extensions",
+      "actions": [
+        "loop_bars"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5ab7d0",
+      "file_offset": "0x1e2a28",
+      "length": 4,
+      "before": "00e38406",
+      "symbol": "sdk_extensions_loop_position",
+      "call": true,
+      "service": "extensions",
+      "actions": [
+        "loop_bars"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5ac000",
+      "file_offset": "0x1e3258",
+      "length": 4,
+      "before": "00e36c02",
+      "symbol": "sdk_extensions_loop_position",
+      "call": true,
+      "service": "extensions",
+      "actions": [
+        "loop_bars"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5ac76e",
+      "file_offset": "0x1e39c6",
+      "length": 4,
+      "before": "fee36bbb",
+      "symbol": "sdk_extensions_loop_step_target",
+      "call": true,
+      "service": "extensions",
+      "actions": [
+        "loop_bars"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d598038",
+      "file_offset": "0x1cf294",
+      "length": 4,
+      "before": "ffe3107a",
+      "symbol": "sdk_extensions_loop_shown",
+      "call": true,
+      "service": "extensions",
+      "actions": [
+        "loop_bars"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d5474ee",
+      "file_offset": "0x17e74a",
+      "length": 4,
+      "before": "fee38dc8",
+      "symbol": "sdk_extensions_bar_color",
+      "call": true,
+      "service": "extensions",
+      "actions": [
+        "loop_bars"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d597ffc",
+      "file_offset": "0x1cf258",
+      "length": 4,
+      "before": "00e31e95",
+      "symbol": "sdk_extensions_play_reset",
+      "call": true,
+      "service": "extensions",
+      "actions": [
+        "play_from"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x11a0aa80",
+      "file_offset": "0xe110",
+      "length": 8,
+      "before": "00de5a8d38aa0000",
+      "symbol": "sdk_extensions_count_in_end",
+      "call": true,
+      "service": "extensions",
+      "actions": [
+        "play_from"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d547004",
+      "file_offset": "0x17e260",
+      "length": 4,
+      "before": "01e3aa1b",
+      "symbol": "sdk_extensions_bar_label",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "key_label"
       ]
     },
     {

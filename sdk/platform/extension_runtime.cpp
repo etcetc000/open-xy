@@ -8,11 +8,33 @@ const ExtensionRegistry* registry;
 u32 entry_count;
 bool initialized, dispatching;
 char notification[32];
+// The label each claim's holder last gave its key ("" for stock's own).
+char labels[32][16];
 
 // The actions one callback may take, and what it has done with them: one stock
 // undo transaction and at most one notification per callback.
-struct Transaction { u32 granted; bool attempted, notified; };
+// moving: a sequencer_change callback, where loops that hold may move.
+struct Transaction { u32 granted, declared; bool attempted, notified, looped, started, moving; };
 Transaction transaction;
+// Each track's bar count and song-time bar length at the last sync.
+struct Shape { u8 bars[extensions::sequencer_tracks]; u32 ticks[extensions::sequencer_tracks]; };
+Shape shape;
+
+bool any_loop(const extensions::Sequencer& s) {
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t)
+        if (s.track[t].loop != extensions::no_bar) return true;
+    return false;
+}
+// Whether any track's bar count or scale changed since the last sync.
+bool reshaped(const extensions::Sequencer& s) {
+    bool changed = false;
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
+        changed |= shape.bars[t] != s.track[t].bars || shape.ticks[t] != s.track[t].bar_ticks;
+        shape.bars[t] = s.track[t].bars;
+        shape.ticks[t] = s.track[t].bar_ticks;
+    }
+    return changed;
+}
 
 bool same_text(const char* a, const char* b) {
     if (!a || !b) return false;
@@ -99,15 +121,89 @@ u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedN
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes};
+// Ending a loop only gives playback back to stock, so a holder of the action
+// may do it in any queued_control callback; holding bars needs the grant, or
+// a sequencer_change callback while bars already loop (moving them, never
+// starting a loop). Bars must exist in the playing pattern of a context that
+// is still current.
+bool loop_bars(const extensions::Context& expected, const extensions::BarLoop& loop) {
+    if (!(transaction.declared & action_loop_bars) || transaction.looped) return false;
+    bool any = false;
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) any |= loop.bar[t] != extensions::no_bar;
+    bool playing = false;
+    const RecordingContext now = extension_context(playing);
+    if (!(now == expected.recording) || playing != expected.playing ||
+        !(now == current.recording) || playing != current.playing) return false;
+    extensions::Sequencer sequencer;
+    extension_sequencer(sequencer);
+    if (any && !(transaction.granted & action_loop_bars) && !(transaction.moving && any_loop(sequencer)))
+        return false;
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
+        const u8 bar = loop.bar[t];
+        if (bar != extensions::no_bar && (bar >= sequencer.track[t].bars ||
+            sequencer.track[t].bars != expected.sequencer.track[t].bars)) return false;
+    }
+    transaction.looped = true;  // One loop change per callback, including failures.
+    return extension_loop(loop);
+}
+// Starting (or, playing, restarting) playback needs the grant, once per
+// callback, from a current context.
+bool play_from(const extensions::Context& expected, u32 song_tick) {
+    if (!(transaction.granted & action_play_from) || transaction.started) return false;
+    bool playing = false;
+    const RecordingContext now = extension_context(playing);
+    if (playing != expected.playing || !(now == expected.recording) || !(now == current.recording) ||
+        playing != current.playing) return false;
+    transaction.started = true;
+    return extension_play_from(song_tick);
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, loop_bars, play_from};
+
+// A label is 1-15 printable characters; anything else gives the key back to stock.
+void take_label(char* label, const char* text) {
+    u32 length = 0;
+    while (text && length < 16 && text[length] >= ' ' && text[length] <= '~') ++length;
+    if (!text || length == 16 || text[length]) length = 0;
+    for (u32 i = 0; i < length; ++i) label[i] = text[i];
+    label[length] = 0;
+}
+// Only a claim's holder labels its key, and only where the adapter has a slot.
+void update_labels() {
+    for (u32 i = 0; i < entry_count; ++i) {
+        const ExtensionEntry& entry = entries[i];
+        for (u32 c = 0; c < registry->claim_count; ++c) {
+            if (!(entry.claims & (1u << c))) continue;
+            const u32 key = registry->claim_keys[c];
+            if (!extension_labels(key)) continue;
+            char label[16];
+            take_label(label, entry.hooks->key_label ? entry.hooks->key_label(current, key) : nullptr);
+            if (same_text(label, labels[c])) continue;
+            for (u32 k = 0; k < 16; ++k) labels[c][k] = label[k];
+            extension_key_label(key, labels[c]);
+        }
+    }
+}
 }
 
 void extensions_sync() {
     if (dispatching || !ready()) return;
     current.recording = extension_context(current.playing);
+    extension_sequencer(current.sequencer);
+    current.shift = extension_shift();
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
         if (entries[i].hooks->context) entries[i].hooks->context(current);
+    if (reshaped(current.sequencer) && any_loop(current.sequencer)) {
+        for (u32 i = 0; i < entry_count; ++i) {
+            if (!entries[i].hooks->sequencer_change) continue;
+            transaction = {0, entries[i].actions, false, false, false, false, true};
+            entries[i].hooks->sequencer_change(current, actions);
+            transaction = {0, 0, false, false, false, false, false};
+        }
+        current.recording = extension_context(current.playing);
+        extension_sequencer(current.sequencer);
+    }
+    update_labels();
     dispatching = false;
 }
 void extensions_input_activity() {
@@ -160,9 +256,9 @@ void extensions_queued_control(const extensions::Control& control) {
     if (!entries) return;
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i) {
-        transaction = {granted(entries[i], control), false, false};
+        transaction = {granted(entries[i], control), entries[i].actions, false, false, false, false, false};
         if (entries[i].hooks->queued_control) entries[i].hooks->queued_control(current, control, actions);
-        transaction = {0, false, false};
+        transaction = {0, 0, false, false, false, false, false};
     }
     dispatching = false;
 }

@@ -148,17 +148,22 @@ def events():
 
 
 def check_profile(profile):
-    """Every extension hook names the events it feeds, and every event has a site."""
+    """Every extension hook names the events it feeds or the actions it serves,
+    and every event has a site."""
     known, fed = set(events()), set()
+    _claims, actions = registry()
     for patch in profile['patches']:
         if patch.get('service') == 'extensions':
-            listed = patch.get('events')
-            require(patch['kind'] == 'hook' and isinstance(listed, list) and listed and
-                    len(set(listed)) == len(listed) and set(listed) <= known,
-                    'An extension hook names the events it feeds: ' + str(patch.get('symbol')))
+            listed, served = patch.get('events', []), patch.get('actions', [])
+            require(patch['kind'] == 'hook' and isinstance(listed, list) and isinstance(served, list) and
+                    (listed or served) and len(set(listed)) == len(listed) and set(listed) <= known and
+                    len(set(served)) == len(served) and set(served) <= set(actions),
+                    'An extension hook names the events it feeds or the actions it serves: ' +
+                    str(patch.get('symbol')))
             fed |= set(listed)
         else:
-            require('events' not in patch, 'Only extension hooks name events')
+            require('events' not in patch and 'actions' not in patch,
+                    'Only extension hooks name events or actions')
     require(fed == known, 'Events without a firmware site: ' + ', '.join(sorted(known - fed)))
 
 
