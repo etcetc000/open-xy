@@ -135,7 +135,7 @@ values in C++. Display formats
 are `ratio`, `percent`, `bipolar`, `duration`, `semitones`, `enum` and `division`
 (SDK 1.2: one of stock delay's eight note lengths, below). An `enum` or `division`
 shows its name. Every other format only says what the control means: the device shows its place
-in its travel, [00 to 99](ux.md#controls). A stepped control whose steps land exactly on its values is
+in its travel, [00 to 99](ux.md#controls), and `sdk.py preview` shows the same. A stepped control whose steps land exactly on its values is
 an `enum` with labels such as `1:3` or `+7st`. A machine targeting an earlier SDK keeps a `percent`'s
 0.0–100.0 without a suffix and a `ratio`'s `2.0:1` where its anchors allow it.
 Mappings describe

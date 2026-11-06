@@ -5,7 +5,7 @@ import * as Core from './core.mjs';
 import * as Wizard from './wizard.mjs';
 import * as Retained from '../sdk/browser/display.mjs';
 import * as Visuals from './visuals.mjs';
-import {editedShown, shownControls} from '../sdk/browser/controls.mjs';
+import {editedShown, shownControls, stockNumber} from '../sdk/browser/controls.mjs';
 import {supportsDeviceApis} from './browser.mjs';
 
 // The entry point supplies audition's bundled worker sources; the controller
@@ -390,7 +390,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           // pages count it, or a rounded percentage for a machine targeting an earlier SDK.
           header.innerHTML = retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
             shown.map((slot, i) => renderer.header[i] || (m.stockCount
-              ? String((Math.max(parameters[slot], 0) >>> 8) * 100 >>> 23).padStart(2, '0')
+              ? stockNumber(parameters[slot])
               : String(Math.round(parameters[slot] / 0x7fffffff * 100)))));
         }
         const controls = m.controls.map((name, i) => {

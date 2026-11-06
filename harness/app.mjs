@@ -15,7 +15,7 @@ if (customPreview) {
   document.getElementById('preview-mode').textContent = 'Local authoring preview. This audition does not qualify a firmware build.';
 }
 import { createControls, editedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
-const controls = createControls(previewManifest.definition);
+const controls = createControls(previewManifest.definition, previewManifest.sdk);
 const { definition, parameters, positions, defaults, presets, displayValue, makePatch, readPatch, validateParameters, q31 } = controls;
 import { renderScreen as renderBase } from './screen.mjs';
 import { bindKnob } from './knobs.mjs';

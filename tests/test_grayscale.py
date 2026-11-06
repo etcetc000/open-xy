@@ -84,7 +84,7 @@ class GrayscaleTests(unittest.TestCase):
         out = self.root / 'preview'; out.mkdir()
         wasm = b'\0asm\x01\0\0\0'
         manifest = dict(schema=1, kind='cpp-browser-preview', engine=m.id, root=str(m.root),
-                        description=m.description, definition=m.definition, sample_rate=44100,
+                        description=m.description, sdk='%d.%d' % m.sdk, definition=m.definition, sample_rate=44100,
                         wasm_sha256=sha(wasm), sources=preview.source_hashes(m), compiler={},
                         graphics=preview.graphics_metadata(m))
         (out / 'manifest.json').write_text(json.dumps(manifest))

@@ -201,7 +201,7 @@ def write_builder(kit, output):
                "import * as Core from './core.mjs';\nimport * as Wizard from './wizard.mjs';\n"
                "import * as Retained from '../sdk/browser/display.mjs';\n"
                "import * as Visuals from './visuals.mjs';\n"
-               "import {editedShown, shownControls} from '../sdk/browser/controls.mjs';\n"
+               "import {editedShown, shownControls, stockNumber} from '../sdk/browser/controls.mjs';\n"
                "import {supportsDeviceApis} from './browser.mjs';\n")
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
@@ -211,8 +211,8 @@ def write_builder(kit, output):
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
     bundled += 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
-    bundled += 'const {editedShown, shownControls, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
-        'utf-8').replace('export ', '') + '\nreturn {editedShown, shownControls, inputWords};\n})();\n'
+    bundled += 'const {editedShown, shownControls, stockNumber, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
+        'utf-8').replace('export ', '') + '\nreturn {editedShown, shownControls, stockNumber, inputWords};\n})();\n'
     controls_import = "import { inputWords } from './controls.mjs';\n"
     for namespace, file, classes in (('Retained', 'display.mjs', 'PreviewDisplay,SvgDisplay,headerSvg,NoteActivity'),):
         source = read(ROOT / 'sdk/browser' / file).decode('utf-8')

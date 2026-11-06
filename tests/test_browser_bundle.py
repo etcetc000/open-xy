@@ -48,7 +48,7 @@ if (typeof createSnapshotService !== 'function' || typeof createGraphicsDialog !
             # The file:// installer must expose the same converter its app and
             # previews call, rather than only including it inside Core's closure.
             core = html.split('const Graphics = (() => {', 1)[1].split(
-                'const {editedShown, shownControls, inputWords}', 1)[0]
+                'const {editedShown, shownControls, stockNumber, inputWords}', 1)[0]
             core = 'const Graphics = (() => {' + core
             check = '''
 const svg = '<circle fill="#ff0000" stroke="#0000ff"/>';
