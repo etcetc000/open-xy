@@ -84,8 +84,12 @@ Unmute it everywhere.
 ## CPU
 
 - [ ] Follow [hardware profiling](https://github.com/etcetc000/open-xy/blob/staging/docs/profiling.md):
-      a profiling build from the committed source, a run collected at the machine's heaviest setting, and
-      the readout kept with the commit it measured
+      a profiling build from committed source, every required workload collected, and the readout
+      kept with the commit it measured
+- [ ] Run `sdk.py profile report`: inspect both average CPU (`block_percent`) and worst observed block
+      CPU (`peak_percent`), and the workload that produced the spike; a heaviest-setting average is not a peak
+- [ ] Before submitting, copy the complete generated `cpu` member into the catalog entry; resolve clipped
+      or invalid peaks rather than omitting them. Hardware evidence still pending means submission is not ready
 
 ## In the builder
 

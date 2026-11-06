@@ -19,7 +19,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
-from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
+from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
@@ -29,7 +29,7 @@ from .adapters import (aux_preset_files, catalog_entry, check_aux_presets, gener
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
-from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, tree
+from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
 from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
                        fresh_output, host_pins, host_platform,
                        hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
@@ -219,7 +219,8 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
-             'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks')
+             'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks',
+             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -231,6 +232,12 @@ UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection',
                                    'extension_label'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
+# Per-key sends hook stock's mixer, so only a build with a padMix kit links them.
+UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
+# A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
+UNIT_SERVICES['drum_locks'] = 'drum_locks'
+# Their values by handle (lock_handles.cpp): the pool, the step hook and open-xy.locks.
+UNIT_SERVICES['lock_handles'] = 'drum_locks'
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.
 UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
@@ -244,12 +251,13 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
-    they declare ('trackControl', 'auxTrack', 'hidePages'), and 'extension' when it
-    links extensions (native builds link all of the collection's)."""
+    they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix'), and
+    'extension' when it links extensions (native builds link all of the collection's)."""
     users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
+            ['padMix' for m in machines if pad_mix(m)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
 
 
@@ -317,6 +325,9 @@ def absent_symbols(m):
             # The shared drum table names these.
             absent.update({m.prefix + suffix: 'kit_absent' for suffix in
                            ('_drum_defaults', '_drum_label', '_drum_model_name', '_drum_count')})
+            if sends_per_key(m):
+                # The send table names these; no voice's method table is kit_absent.
+                absent.update({m.prefix + suffix: 'kit_absent' for suffix in ('_vtable', '_drum_send')})
         if m.kind == 'sample':
             # The shared sample table names these; unselected, its ready check declines first.
             absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
@@ -485,7 +496,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 [x.prefix for x in sample_engines if x.display != 'stock'],
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
-                                                control='control' in services, aux='aux' in services)), obj)
+                                                control='control' in services, aux='aux' in services,
+                                                locks='drum_locks' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -649,6 +661,11 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
         entry = symbols['sdk_master_process']['value']
         require(entry in body, 'Master audio entry is not a function start')
         bounds['sdk:master_filter'] = depth(entry)
+    if 'sdk_drum_send_voice_hook' in symbols:
+        # Entered from stock's voice loop after the voice has rendered (8d51c7b2).
+        entry = symbols['sdk_drum_send_voice_hook']['value']
+        require(entry in body, 'Per-key send entry is not a function start')
+        bounds['sdk:drum_sends'] = depth(entry)
     return bounds
 
 
@@ -880,6 +897,9 @@ def prepare_assets(catalog, profile, machines):
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
+        # A sample engine's own samples (SDK 1.10), installed as they are.
+        for name, sample in (m.samples or {}).items():
+            outputs[sample_path(m.id, name)] = sample.path.read_bytes()
     check_aux_presets(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))
