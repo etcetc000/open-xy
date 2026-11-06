@@ -617,7 +617,7 @@ def read_layout(path, build=False):
     require(('memory' not in value and 'reserved_bytes' not in value) or
             # Any integral JSON number, as the builder (JavaScript) reads it, e.g. 4194304.0.
             (value.get('memory') == 'expanded' and type(value.get('reserved_bytes')) in (int, float) and
-             float(value['reserved_bytes']).is_integer() and
+             (type(value['reserved_bytes']) is int or value['reserved_bytes'].is_integer()) and
              value['reserved_bytes'] > profile['reserved_bytes'] and value['reserved_bytes'] % (1024 * 1024) == 0),
             f'{path} has an invalid memory choice')
     require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "

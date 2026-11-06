@@ -36,9 +36,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const expandedMemory = () => memoryInput.checked;
   const kitFor = expanded => expanded ? expandedKit : kit, chosenKit = () => kitFor(expandedMemory());
   const expandedSize = () => mib(expandedKit.profile.reserved_bytes);
-  // A does-not-fit message, pointing to the larger option when this site offers it.
-  const roomHint = (message, then) => (/[.!?]$/.test(message) ? message : message + '.') +
-    (expandedKit ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
+  // A does-not-fit message, pointing to the larger option when this site offers it and
+  // the selection would fit it (any failure there means no hint).
+  const fitsLarger = (selection, layoutNumbers, extensions) => {
+    try { return Boolean(expandedKit && core.linkKit(expandedKit, selection, layoutNumbers, extensions)); } catch { return false; }
+  };
+  const roomHint = (message, then, ...selection) => (/[.!?]$/.test(message) ? message : message + '.') +
+    (fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
   let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
@@ -241,8 +245,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       // no known layout, keeps the current one. A change is said, never silent.
       const memoryChange = recovered.memory ? setExpandedMemory(recovered.memory === 'expanded') : '';
       const memoryNote = memoryChange && ' · ' + memoryChange;
-      if (recovered.selected) osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
       if (recovered.selected) {
+        osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
         renderMachines(); renderExtensions();
         $('firmware-result').textContent = '✓ open-xy OS with ' +
@@ -666,7 +670,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       status();
     } catch (error) {
       // A selection that does not fit standard memory points to the larger option this site offers.
-      if (error.capacity === true && !expandedMemory()) error.message = roomHint(error.message, 'to make room');
+      if (error.capacity === true && !expandedMemory())
+        error.message = roomHint(error.message, 'to make room', selected, numbers, selectedExtensions);
       $('room-value').textContent = 'Selection cannot be built'; $('extension-memory').textContent = error.message; fail(error);
     }
     ready();
@@ -827,10 +832,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const offered = new Set((kit.extensions ?? []).map(e => e.id));
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
-      // A layout with a selection records its build's memory; a numbers-only layout
-      // leaves the current choice alone. Nothing is applied unless the selection
-      // links; when this site lacks the layout's experimental memory, the error says so.
-      // The memory a layout restores with, decided once: the one it records, or, for an
+      // Nothing is applied unless the selection links. A numbers-only layout leaves the
+      // current memory choice alone. The memory a layout with a selection restores with, decided once: the one it records, or, for an
       // experimental size this site lacks, the current choice. A selection that needs
       // more uses this site's larger option when it is on, and otherwise says to turn it on.
       const context = loaded.memoryUnavailable
@@ -842,7 +845,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         catch (error) {
           if (error.capacity !== true) throw error;
           if (wanted || !expandedKit || !expandedMemory()) {
-            error.message = context + (wanted ? error.message : roomHint(error.message, 'and load the layout again'));
+            error.message = context + (wanted ? error.message
+              : roomHint(error.message, 'and load the layout again', loaded.selected, loaded.machines, extensions));
             throw error;
           }
           try { link(true); } catch (larger) { if (larger.capacity === true) larger.message = context + larger.message; throw larger; }

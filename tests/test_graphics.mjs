@@ -525,18 +525,23 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.equal(memoryInput.checked, false);
   assert.match($('status').textContent, /It lists no machines, so its experimental memory choice is not applied; the current one stays\.$/);
   // The meter's capacity error points to the larger option too.
-  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
   memoryInput.checked = false; memoryInput.onchange();
   linkError = null;
   assert.equal($('extension-memory').textContent,
     'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) to make room.');
+  // No hint when the selection would not fit the larger memory either.
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
+  memoryInput.checked = true; memoryInput.onchange(); memoryInput.checked = false; memoryInput.onchange();
+  linkError = null;
+  assert.equal($('extension-memory').textContent, 'These machines need more than the 2032 KiB available.');
   memoryInput.checked = true; memoryInput.onchange();
   await restoreLayout(expandedLayout);
   assert.doesNotMatch($('status').textContent, /turned/);
   // A layout whose memory this site lacks applies nothing unless it links, and says why.
   memoryInput.checked = false; memoryInput.onchange();
   const before = {checked:memoryInput.checked};
-  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
   await restoreLayout({...expandedLayout, memory:'unoffered', machines:{probe:{engine:99, page:99}}});
   linkError = null;
   assert.equal($('status').textContent, 'This layout used 6 MiB experimental memory, which this site doesn’t offer. ' +
@@ -555,7 +560,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.match($('status').textContent, /It used 6 MiB experimental memory, which this site doesn’t offer; it uses this site’s experimental 4 MiB\.$/);
   memoryInput.checked = false; memoryInput.onchange();
   // A standard layout that no longer fits points to the larger memory this site offers.
-  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
   await restoreLayout({...expandedLayout, memory:undefined, reserved_bytes:undefined});
   assert.equal($('status').textContent, 'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) and load the layout again.');
   // With the option turned on, a standard layout that only fits the larger memory restores with it.
