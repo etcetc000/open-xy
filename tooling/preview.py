@@ -109,7 +109,7 @@ def build(compiler, m, out, overwrite=False):
     require(source_hashes(m) == before, 'Source changed during preview build')
     version = subprocess.check_output([str(compiler), '--version'], text=True, timeout=30).splitlines()[0]
     manifest = dict(schema=1, kind='cpp-browser-preview', engine=m.id, root=str(m.root),
-                    description=m.description,
+                    description=m.description, sdk='%d.%d' % m.sdk,
                     definition=m.definition, sample_rate=44100,
                     wasm_sha256=sha((out / 'engine.wasm').read_bytes()), sources=before,
                     graphics=graphics_metadata(m), compiler=dict(version=version, sha256=sha(compiler.read_bytes())))
@@ -144,7 +144,7 @@ def preview_bundle(directory, *, require_reference=False):
         from .custom_preview import authenticate
         authenticate(manifest, files)
         return artifact_bundle(files)
-    require(set(manifest) == {'schema', 'kind', 'engine', 'root', 'description', 'definition', 'sample_rate', 'wasm_sha256',
+    require(set(manifest) == {'schema', 'kind', 'engine', 'root', 'description', 'sdk', 'definition', 'sample_rate', 'wasm_sha256',
                               'sources', 'compiler', 'graphics'}, 'Unexpected preview manifest fields')
     require(type(manifest['schema']) is int and manifest['schema'] == 1 and
             manifest['kind'] == 'cpp-browser-preview' and type(manifest['sample_rate']) is int and
@@ -154,8 +154,8 @@ def preview_bundle(directory, *, require_reference=False):
     m = machine_at(root)
     require(m.id == manifest['engine'] and m.kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
     require(manifest['sources'] == source_hashes(m), 'Preview is stale; rebuild from current source')
-    require(manifest['definition'] == m.definition and manifest['description'] == m.description,
-            'Preview controls or description differ from the machine')
+    require(manifest['definition'] == m.definition and manifest['description'] == m.description and
+            manifest['sdk'] == '%d.%d' % m.sdk, 'Preview controls, description or SDK version differ from the machine')
     require(manifest['graphics'] == graphics_metadata(m), 'Preview graphics identity mismatch')
     require(sha(files['panel.svg']) == manifest['graphics']['asset_sha256'], 'Preview artwork identity mismatch')
     if m.grayscale:

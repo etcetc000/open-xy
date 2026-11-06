@@ -16,7 +16,7 @@ const preview = `http://127.0.0.1:${port('OPXY_PREVIEW_PORT', 8917)}`;
 const manifest = await (await fetch(preview + '/preview/manifest.json')).json();
 // Expectations come from the served definition; nothing here names a machine.
 const engineId = manifest.engine;
-const controls = createControls(structuredClone(manifest.definition));
+const controls = createControls(structuredClone(manifest.definition), manifest.sdk);
 const custom = manifest.kind === 'cpp-browser-custom-preview';
 const controlId = (id, i) => custom ? `custom-control-${i}` : id;
 const first = controls.parameters[0];

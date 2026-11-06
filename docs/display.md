@@ -165,9 +165,9 @@ and its choices; omission reports the envelope as unknown, as the builder's
 preview and the SDK workbench do.
 
 Machines reading `amp` declare `"sdk": "1.10"`. New previews use drawing ABI 5,
-a 104-byte input with `amp` after a drum kit's `model`; the browser host also
-accepts the earlier ABIs, which keep their inputs and do not receive the
-envelope.
+a 112-byte input with `amp` after a drum kit's `model`, then an
+[effect's send levels](#effect-pages-sdk-17); the browser host also accepts the
+earlier ABIs, which keep their inputs and do not receive either.
 
 ### Effect pages (SDK 1.7)
 
@@ -177,6 +177,10 @@ eight of its controls, `track` is the send (14 or 15), and two fields follow
 the note activity: `shift`, 1 while Shift is held on an effect with a
 [shift row](api.md#effect-pages-and-shift-rows), and `choices`, each shift
 control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
+From SDK 1.11, `level_in` and `level_out` hold the send's input and its return
+as signed Q31 levels, the words stock's FX page moves its meters by;
+other pages read 0. A preview reads silence unless the host passes `{in, out}`
+levels as the last argument to `PreviewDisplay.tick`.
 
 ### Shift and a drum kit's machine (SDK 1.8)
 
@@ -188,7 +192,7 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls in its edited row while `shift` is 1, as the stock header does. The
-previews used drawing ABI 4, an 88-byte input, until ABI 5 added the amp envelope; ABI 3 (84 bytes) ends after
+previews used drawing ABI 4, an 88-byte input, until ABI 5 added the amp envelope and an effect's send levels; ABI 3 (84 bytes) ends after
 `choices`.
 
 ## Frame
@@ -210,8 +214,8 @@ contract by authoring text leaves named `<prefix>_header_value_0` through
 paint; they do not consume or alias animated text slots. The shared platform
 header adapter binds them and applies `Frame.header`. A standalone host restores
 the shown parameter's declared label and normalized 0..100 value each frame;
-nonempty `Frame.header[i]` overrides that value. Supply mapped units and enum
-captions in the display callback. Missing leaves are supported and add no visual
+nonempty `Frame.header[i]` overrides that value. Supply enum captions in the
+display callback. Missing leaves are supported and add no visual
 header. Synths retain their stock template and stock mapped-value formatting.
 
 | Field | Bounds |
@@ -259,14 +263,14 @@ const char* const titles[8] = {"wave", "shape", "level", "tone",
 const opxy::u8 pages[2][4] = {{0, 1, 2, 3}, {4, 5, 2, 3}};
 char values[8][opxy::draw::header_capacity] = {};
 for (opxy::u32 i = 0; i < 6; ++i)
-    opxy::draw::header_amount(values[i], sizeof(values[i]), input.slots[i]);
+    opxy::draw::header_number(values[i], sizeof(values[i]), input.slots[i]);
 opxy::draw::page_header(state.header, input, frame, titles, values, first_node, pages);
 ```
 
-Titles and captions are indexed by saved parameter slot. Supply lowercase
-real-unit captions for enums, frequencies, ratios and other mapped controls;
-`header_amount` rounds Q31 amounts to 0..100 without a percent sign. Titles
-are lowercased by the helper. The page map must match each alternate's
+Titles and captions are indexed by saved parameter slot. Caption numbers with
+`header_number`, 00 to 99 as [the stock pages count](ux.md#controls), and a
+choice with its lowercase name.
+`header_amount`, which rounds to 0..100, stays for machines that already use it. Titles are lowercased by the helper. The page map must match each alternate's
 `control` assignment; omit it only for slots 4..7 in column order. Shared
 columns repeat the original slot index, so labels, values and edits agree.
 
@@ -298,6 +302,61 @@ result, so a long sample never stalls a frame, and the overview follows the samp
 through replacement, eviction and reload. Audio callbacks never call it.
 In the browser preview it stays empty unless the host writes one through the
 `opxy_display_sample` export.
+
+## Effect page
+
+SDK 1.11 also supplies `<opxy/effect_page.hpp>`, the recommended page for a
+[send effect that draws its own](api.md#effect-pages) with eight controls on
+two pages. The [machine template](https://github.com/etcetc000/open-xy-machine-template)'s
+[`machines/myeffect8`](https://github.com/etcetc000/open-xy-machine-template/tree/main/machines/myeffect8) draws it over a stereo chorus;
+copy it to start an effect (`sdk.py new --from`, [first machine](first-machine.md#create-and-play)).
+It follows stock's FX page:
+
+- stock's badge naming the send, `FX I` or `FX II` from `input.track` (14 or
+  15), beside the effect's name, both at stock's size and place (20 px text);
+- both pages in place as rows of four 100 × 43 px columns from x = 40, each a
+  title above, a box with a level bar and a caption below. The first row's
+  titles sit on stock's baseline (y = 75), and each row's boxes 5 px below its
+  titles, as stock's; the rows are stock's 65 px row scaled to two-thirds, the
+  10 px text excepted;
+- one white band, the full width of the screen, behind the row the encoders
+  edit, which a press slides to the other row. Its ends, left and right of
+  the columns, carry the send's input and return meters from `level_in` and
+  `level_out`: as stock's, a thin black line from the band's middle row that
+  moves with the signed level, down when it is positive and up when it is
+  negative, stock's 70 px at this band's scale (`trunc(46 × level)`, 23 px at
+  ±0.5), past the band's edge when the send is loud.
+
+The boxes stay put. On the edited row they are stock's: black, `#323232` and
+`#969696`, the fourth column being the band itself. The bars are drawn as
+stock 1.2.1 draws them over its own page, scaled to the box: 5 px tall at
+`floor(38 × (1 − value))` below the box's top (stock's 8 px at `floor(57 ×
+(1 − value))` in 65 px), `#CDCDCD` in the first column and black in the
+others. The other row shows the same boxes and bars, and its titles and
+captions, at the dim text's brightness (`#0F0F0F`, `#2D2D2D`, `#3C3C3C`). A
+press moves the bright and dim sets between the rows at the middle of the
+slide, as the text swaps. Every bound shape keeps its authored fill, with no
+stroke, on whole pixels, so the device draws them sharp as it draws stock's.
+
+Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
+`display_reset`. The page takes 18 consecutive nodes from `first_node`, text
+slots 0..16 (16 is the badge's numeral), no paths and no palette entries; frames declare at least one
+palette entry, which the template's artwork leaves to the effect. Slots 17 to
+31 are the effect's own: declare up to 32 `texts` for text of its own. Keep the
+authored block from `myeffect8`'s `panel.svg.fragment` and draw the effect's
+own artwork after it, with its own nodes beyond those.
+Titles and the page map work as for the [two-page header](#two-page-header).
+Captions count as the stock pages do: `header_number` writes a control's place
+in its travel as two digits, `floor(100 × value)` from 00 to 99, whatever it
+maps to, so a quarter of travel reads 25; a choice shows its name.
+
+```cpp
+effect_page(state.page, input, frame, titles, values, first_node);
+```
+
+A bar reads its control's Q31 value from 0 to full scale; an enum or a
+mapped control shows where it sits in its travel. Draw over the boxes with
+the effect's own artwork where it can say more.
 
 ## Artwork
 

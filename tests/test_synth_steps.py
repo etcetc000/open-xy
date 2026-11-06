@@ -1,4 +1,4 @@
-"""Enum controls step one choice per detent and show their label."""
+"""Enum controls step as their SDK version says and show their label."""
 import copy
 import os
 from pathlib import Path
@@ -34,7 +34,7 @@ class SynthSteps(unittest.TestCase):
         definition = self.synth(enum('mode', 3), *fixture('probesynth').definition['parameters'][1:2],
                                 enum('scene', 17), enum('wide', 256))
         validate_definition(definition, 'synth')
-        machines = [SimpleNamespace(kind='synth', prefix='steps', identity=dict(engine=40), definition=definition)]
+        machines = [SimpleNamespace(sdk=(1, 10), kind='synth', prefix='steps', identity=dict(engine=40), definition=definition)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
         row = re.search(r'^    \{steps_engine_id, steps_ready, \{[\d, ]+\}, (\d+), \{([\d, ]+)\},', text, re.M)
@@ -45,6 +45,28 @@ class SynthSteps(unittest.TestCase):
         self.assertIn('control_label(text, value, labels, 3);', text)
         self.assertIn('control_label(text, value, labels, 17);', text)
         self.assertIn('control_label(text, value, labels, 256);', text)
+
+    def test_new_machines_turn_enums_as_stock_does(self):
+        # From SDK 1.11 an enum moves one number of 00 to 99 per detent, as Prism's ratio does.
+        definition = self.synth(enum('mode', 3), *fixture('probesynth').definition['parameters'][1:2], enum('scene', 17))
+        validate_definition(definition, 'synth')
+        for kind in ('synth', 'effect'):
+            machines = [SimpleNamespace(sdk=(1, 11), kind=kind, prefix='steps', identity=dict(engine=40, effect=40),
+                                        definition=definition)]
+            with tempfile.TemporaryDirectory() as directory:
+                text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+            self.assertRegex(text, r'\{0, 0, 0, 0, 0, 0, 0, 0\}')
+            self.assertIn('control_label(text, value, labels, 17);', text)
+
+    def test_drum_kits_and_sample_engines_keep_one_choice_per_detent(self):
+        definition = self.synth(enum('mode', 3))
+        validate_definition(definition, 'synth')
+        for kind in ('drum', 'sample'):
+            machines = [SimpleNamespace(sdk=(1, 11), kind=kind, prefix='steps', identity=dict(engine=40), display='own',
+                                        definition=definition)]
+            with tempfile.TemporaryDirectory() as directory:
+                text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
+            self.assertRegex(text, r'\{3, 0, 0, 0, 0, 0, 0, 0\}')
 
     def test_hook_replaces_the_step_count_call(self):
         hooks = [p for p in config()['patches'] if p.get('symbol') == 'sdk_param_steps']

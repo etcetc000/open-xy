@@ -16,7 +16,7 @@ from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
 from .definitions import control_positions, paged
 from .formats import require, sha
-from .machines import FIXED_NUMBERS, check_request
+from .machines import FIXED_NUMBERS, STOCK_COUNT_SDK, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
                        resolve_toolchain, tool_paths)
 from . import extensions, native, preview, screen
@@ -76,7 +76,8 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     requested = check_request(profile['identities'], m.kind, m.requested or m.identity)
     entry = dict(id=m.id, name=m.name, kind=m.kind, prefix=m.prefix, description=m.description,
                  identity=requested, controls=[p['label'] for p in m.definition['parameters']],
-                 positions=control_positions(m.definition), pages=paged(m.definition))
+                 positions=control_positions(m.definition), pages=paged(m.definition),
+                 stockCount=m.sdk >= STOCK_COUNT_SDK and m.kind != 'sample')
     entry['catalog'] = catalog_entry(m)
     # Where the machine comes from, for the builder to show (core.mjs validOrigin): a
     # catalog machine is Open-XY's own only when maintainers list it (catalog.OFFICIAL).
@@ -200,7 +201,7 @@ def write_builder(kit, output):
                "import * as Core from './core.mjs';\nimport * as Wizard from './wizard.mjs';\n"
                "import * as Retained from '../sdk/browser/display.mjs';\n"
                "import * as Visuals from './visuals.mjs';\n"
-               "import {editedShown, shownControls} from '../sdk/browser/controls.mjs';\n"
+               "import {editedShown, shownControls, stockNumber} from '../sdk/browser/controls.mjs';\n"
                "import {supportsDeviceApis} from './browser.mjs';\n")
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
@@ -210,8 +211,8 @@ def write_builder(kit, output):
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
     bundled += 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
-    bundled += 'const {editedShown, shownControls, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
-        'utf-8').replace('export ', '') + '\nreturn {editedShown, shownControls, inputWords};\n})();\n'
+    bundled += 'const {editedShown, shownControls, stockNumber, inputWords} = (() => {\n' + read(ROOT / 'sdk/browser/controls.mjs').decode(
+        'utf-8').replace('export ', '') + '\nreturn {editedShown, shownControls, stockNumber, inputWords};\n})();\n'
     controls_import = "import { inputWords } from './controls.mjs';\n"
     for namespace, file, classes in (('Retained', 'display.mjs', 'PreviewDisplay,SvgDisplay,headerSvg,NoteActivity'),):
         source = read(ROOT / 'sdk/browser' / file).decode('utf-8')

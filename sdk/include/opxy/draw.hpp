@@ -75,18 +75,22 @@ struct Input {
     u8 choices[4];
     u32 model;               // A drum kit's selected key's model (its machine); 0 for other kinds.
     Envelope amp;            // The track's amp envelope (SDK 1.10); every word envelope_unavailable if unknown.
+    // An effect's page (SDK 1.11): the send's input and its return, as the
+    // signed Q31 levels stock's FX page moves its meters by. Other kinds read 0.
+    i32 level_in, level_out;
 };
 const u32 notes_unavailable = 0xffffffffu;
 const i32 envelope_unavailable = -1;
 inline bool envelope_known(const Envelope& envelope) {
     return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
 }
-static_assert(sizeof(Input) == 104 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
+static_assert(sizeof(Input) == 112 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
               __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72 &&
               __builtin_offsetof(Input, shift) == 76 && __builtin_offsetof(Input, choices) == 80 &&
-              __builtin_offsetof(Input, model) == 84 && __builtin_offsetof(Input, amp) == 88,
+              __builtin_offsetof(Input, model) == 84 && __builtin_offsetof(Input, amp) == 88 &&
+              __builtin_offsetof(Input, level_in) == 104 && __builtin_offsetof(Input, level_out) == 108,
               "Drawing input layout (display.mjs)");
 static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (display.mjs)");
 

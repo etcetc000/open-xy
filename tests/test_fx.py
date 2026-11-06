@@ -185,6 +185,48 @@ int main() {
             self.assertNotIn('case 1', body)
             self.assertNotIn('control_tenths', body)
 
+    def synth_captions(self, sdk):
+        definition = fixture('probesynth').definition
+        parameters = [dict(p) for p in definition['parameters']]
+        parameters[0] = dict(parameters[0], display='ratio', mapping={'kind': 'anchors', 'values': [1, 2, 4]})
+        synth = replace(fixture('probesynth'), definition=dict(definition, parameters=parameters), sdk=sdk)
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_synth_controls(Path(directory), [synth]).read_text()
+        return text[text.index('static bool probesynth_format'):text.index('const SynthControls')]
+
+    def test_new_synth_numbers_count_as_stock_does_without_decimals(self):
+        body = self.synth_captions((1, 11))
+        self.assertIn('case 0:\n        opxy::draw::header_number(text, 16, value);', body)
+        self.assertNotIn('control_tenths', body)
+        self.assertNotIn('control_ratio', body)
+
+    def test_only_stepped_semitones_show_their_unit(self):
+        definition = fixture('probesynth').definition
+        parameters = [dict(p) for p in definition['parameters']]
+        parameters[0] = dict(parameters[0], display='semitones', mapping={'kind': 'linear', 'minimum': -12, 'maximum': 12})
+        parameters[1] = dict(parameters[1], display='enum', mapping={'kind': 'enum', 'labels': ['-1st', '0st', '+1st']})
+        synth = replace(fixture('probesynth'), definition=dict(definition, parameters=parameters), sdk=(1, 11))
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_synth_controls(Path(directory), [synth]).read_text()
+        body = text[text.index('static bool probesynth_format'):text.index('const SynthControls')]
+        self.assertIn('case 0:\n        opxy::draw::header_number(text, 16, value);', body)
+        self.assertIn('"+1st"', body)
+
+    def test_sample_engines_keep_their_captions(self):
+        sample = replace(fixture('probesynth'), kind='sample', display='custom', sdk=(1, 11))
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_synth_controls(Path(directory), [sample]).read_text()
+        body = text[text.index('static bool probesynth_format'):text.index('const SynthControls')]
+        self.assertIn('control_tenths', body)
+        self.assertNotIn('header_number', body)
+
+    def test_published_synths_keep_their_captions(self):
+        for sdk in ((1, 1), (1, 10)):
+            body = self.synth_captions(sdk)
+            self.assertIn('control_ratio(value, anchors, 3), ":1"', body)
+            self.assertIn('control_tenths(text, value < 0', body)
+            self.assertNotIn('header_number', body)
+
     def test_device_and_browser_name_divisions_alike(self):
         native = (ROOT / 'sdk/platform/opxy-1.2.1/synth_controls.cpp').read_text()
         browser = (ROOT / 'sdk/browser/controls.mjs').read_text()

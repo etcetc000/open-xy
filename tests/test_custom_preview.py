@@ -1,5 +1,5 @@
 """Public source and artifact boundaries for local custom-machine previews."""
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import shutil
@@ -31,7 +31,7 @@ class CustomPreviewTests(unittest.TestCase):
         out.mkdir()
         module = b'\0asm\x01\0\0\0'
         manifest = dict(schema=1, kind=custom.KIND, engine=definition['id'], sample_rate=44100,
-                        source_root=str(self.source), definition=definition, graphics=graphics,
+                        source_root=str(self.source), definition=definition, sdk=custom.declared_sdk(files), graphics=graphics,
                         sources=custom.source_hashes(files), wasm_sha256=sha(module), compiler={})
         (out / 'manifest.json').write_text(json.dumps(manifest))
         (out / 'engine.wasm').write_bytes(module)
@@ -47,6 +47,23 @@ class CustomPreviewTests(unittest.TestCase):
         (out / 'manifest.json').write_text(json.dumps(manifest))
         with self.assertRaisesRegex(ValueError, 'metadata differs'):
             preview_bundle(out)
+
+    def test_snapshot_carries_the_declared_sdk_for_its_captions(self):
+        # The browser counts numbers 00..99 from SDK 1.11 (controls.mjs countsLikeStock), so the
+        # manifest names the version machine.json declares and is refused if it differs.
+        out, manifest = self.fixture()
+        self.assertEqual(manifest['sdk'], '%d.%d' % SDK_VERSION)
+        record = json.loads((self.source / 'machine.json').read_text())
+        record['sdk'] = '1.10'
+        (self.source / 'machine.json').write_text(json.dumps(record))
+        self.assertEqual(custom.declared_sdk(custom.source_files(self.source)), '1.10')
+        manifest['sources'] = custom.source_hashes(custom.source_files(self.source))
+        (out / 'manifest.json').write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'metadata differs'):
+            preview_bundle(out)
+        manifest['sdk'] = '1.10'
+        (out / 'manifest.json').write_text(json.dumps(manifest))
+        preview_bundle(out)
 
     def test_source_edits_invalidate_the_snapshot(self):
         out, _ = self.fixture()
@@ -103,6 +120,51 @@ class CustomPreviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'effects use 4'):
             custom.scaffold(self.root / 'bad-effect', 'badfx', 'Bad FX', 'effect', controls=8)
         self.assertFalse((self.root / 'bad-effect').exists())
+
+    def test_from_copies_a_machine_under_a_new_id_and_name(self):
+        # As a contributor copies one of the machine template's starters.
+        effect = self.root / 'starter-effect'
+        with redirect_stdout(io.StringIO()):
+            custom.scaffold(effect, 'starterfx', 'Starter FX', 'effect')
+        (effect / 'panel.svg.fragment').write_text(
+            '<g id="starterfx_panel">\n<text fill="#CDCDCD">starter fx</text>\n</g>\n')
+        # Only the whole ID, or one starting an artwork ID, is renamed; other files are copied as they are.
+        (effect / 'tests/notes.txt').write_text('starterfx\n')
+        (effect / 'tests/names.h').write_text('// starterfx_x starterfxx\n')
+        for source, identity, name in ((self.source, 'copied', 'Copied Synth'), (effect, 'copiedfx', 'Copied FX')):
+            with self.subTest(identity=identity), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                out = self.root / identity
+                self.assertEqual(custom.main(['--from', str(source), '--id', identity, '--name', name,
+                                              '--out', str(out)]), 0)
+                original, m = machine_at(source), machine_at(out)
+                self.assertEqual((m.id, m.kind, m.definition['name']), (identity, original.kind, name))
+                self.assertEqual(m.definition['parameters'], original.definition['parameters'])
+                self.assertEqual(json.loads((out / 'machine.json').read_text())['description'], name)
+                for path in out.rglob('*'):
+                    if path.is_file() and path.suffix != '.txt':
+                        self.assertNotRegex(path.read_text(), original.id + '(?![a-z0-9])', path.name)
+                self.assertIn(f'namespace {identity} {{', (out / 'core.h').read_text())
+                self.assertEqual(custom.main(['--from', str(source), '--id', identity, '--name', name,
+                                              '--out', str(out)]), 1)
+        self.assertEqual((self.root / 'copiedfx/tests/notes.txt').read_text(), 'starterfx\n')
+        self.assertEqual((self.root / 'copiedfx/tests/names.h').read_text(), '// copiedfx_x starterfxx\n')
+        artwork = (self.root / 'copiedfx/panel.svg.fragment').read_text()
+        self.assertIn('id="copiedfx_panel"', artwork)
+        self.assertIn('>copied fx</text>', artwork)
+        with redirect_stdout(io.StringIO()):
+            custom.copy_machine(effect, self.root / 'unchanged', 'copiedfy', 'Starter FX')
+        with self.assertRaisesRegex(ValueError, 'Refusing to overwrite'):
+            custom.copy_machine(effect, effect, 'copiedfz', 'Copied FZ', overwrite=True)
+        self.assertTrue((effect / 'fx.cpp').is_file())
+        with self.assertRaisesRegex(ValueError, 'Choose a distinct local machine ID'):
+            custom.copy_machine(effect, self.root / 'core', 'pingpong', 'Ping Pong')
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(custom.main(['--from', str(effect), '--kind', 'effect', '--id', 'copiedfw',
+                                          '--name', 'Copied FW', '--out', str(self.root / 'flagged')]), 1)
+        if not HOST_CXX:
+            self.skipTest('No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+        from tooling.machine_test import host_tests
+        self.assertEqual(host_tests(machine_at(self.root / 'copiedfx'), HOST_CXX, self.root), 1)
 
     def test_repository_cli_keeps_machine_at_root_and_adds_agent_and_ci_entry_points(self):
         for kind in custom.STARTERS:
