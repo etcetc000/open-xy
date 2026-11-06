@@ -21,7 +21,7 @@ fails the build or, for the artwork rule, halts the device's SVG parser.
 
 | Area | Rule |
 | --- | --- |
-| Machine folder | C++ source, metadata, artwork, engine-specific generators and sound tests |
+| Machine folder | C++ source, metadata, artwork, engine-specific generators and sound tests; Blackfin assembly only as [native routines](#native-routines) in `native/` |
 | C++ | Freestanding C++11: no exceptions, RTTI, static constructors, allocation, OS headers, `#if`, inline assembly or platform macros |
 | Callbacks | Bounded work per 64-sample block; no blocking, logging, file access or graphics from audio callbacks |
 | Synth controls | Four control positions, plus up to four alternates; values arrive as Q31 and the stock menu stores Q15 defaults |
@@ -107,21 +107,141 @@ host does fast and the Blackfin does not:
   members; their code counts toward module memory.
 - **Per-sample work that changes only per block**, such as coefficients and
   increments, belongs outside the sample loop.
-- **Kernels.** `<opxy/kernels/*.hpp>` hold hand-scheduled device loops for
-  specific, widely ported algorithms, each with the portable reference it
-  matches sample for sample (used on the host and for calls outside the
-  kernel's stated range). Including one links its device unit
-  (`sdk/platform/blackfin/kernels/`) into that machine alone, counted in its
-  memory; one machine per kernel in a collection. `fold_pair.hpp` is the
-  Braids sine/triangle folder pair; `blep_square.hpp` the Braids
-  band-limited square (one to four oscillators per call); `wave_quad.hpp` four
-  crossfaded wave streams, `additive.hpp` twelve gliding harmonics and
-  `square_sync.hpp` a hard-synced square pair with its crossfade.
+- **A hot loop the compiler schedules poorly** can become a machine's own
+  hand-written [native routine](#native-routines), once the C++ is as lean as
+  it gets.
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
 submitting a catalog entry: add both average cost (`block_percent`) and worst
 observed block (`peak_percent`) from the generated report. A low average can
 hide a short spike; host estimates do not satisfy either measurement requirement.
+
+## Native routines
+
+A machine can carry its own Blackfin assembly for a few hot loops. Each routine
+lives in `native/<name>.s` beside a C++ header holding its declaration and a
+portable C reference, and `native/<name>.json` describes it. A firmware build
+assembles the routine and links it into that machine alone, counted in its
+memory; host tests, CPU estimates and browser previews run the reference.
+Write the reference first: **the C reference defines the behaviour.** The
+routine must compute exactly what it does, sample for sample, for every input
+the manifest's `range` admits. Check that on a simulator or the device before
+publishing; the SDK checks only the routine's shape. Macro Osc's `native/` in
+the [core machines](https://github.com/etcetc000/open-xy-core-machines) holds
+five routines and its tests of their references.
+
+```text
+mymachine/
+  native/gain.s      the device routine
+  native/gain.json   its manifest
+  native/gain.hpp    its declaration and C reference, included by the machine's C++
+```
+
+The header names both with `OPXY_NATIVE` from
+[`native.hpp`](../sdk/include/opxy/native.hpp), which picks the routine in a
+firmware build and the reference everywhere else, so machine C++ still needs no
+`#if`. The two must have the same type, which the macro checks:
+
+```cpp
+#pragma once
+#include <opxy/native.hpp>
+#include <opxy/types.hpp>
+
+extern "C" void mymachine_native_gain(opxy::i32* samples, unsigned count, opxy::i32 gain);
+
+namespace mymachine {
+// The definition: each sample's high half times gain (0..32767), doubled.
+inline void gain_reference(opxy::i32* samples, unsigned count, opxy::i32 gain) {
+    for (unsigned i = 0; i < count; ++i) samples[i] = (samples[i] >> 16) * gain * 2;
+}
+inline void apply_gain(opxy::i32* samples, unsigned count, opxy::i32 gain) {
+    OPXY_NATIVE(mymachine_native_gain, gain_reference)(samples, count, gain);
+}
+}
+```
+
+```asm
+/* mymachine_native_gain: native/gain.hpp's gain_reference on the device. */
+.section .text
+.align 4
+.global _mymachine_native_gain
+.type _mymachine_native_gain, STT_FUNC
+_mymachine_native_gain:
+    CC = R1 == 0;
+    IF CC JUMP .Ldone;                /* a loop count of 0 would still run once */
+    P0 = R0;
+    P1 = R1;
+    LSETUP (.Lstart, .Lend) LC0 = P1;
+.Lstart:
+    R0 = [P0];
+    R0 = R0.H * R2.L (IS);
+    R0 <<= 1;
+.Lend:
+    [P0++] = R0;
+.Ldone:
+    RTS;
+.size _mymachine_native_gain, .-_mymachine_native_gain
+```
+
+```json
+{
+  "symbol": "mymachine_native_gain",
+  "stackBytes": 0,
+  "range": "gain 0..32767, any count",
+  "reference": "mymachine::gain_reference (native/gain.hpp)"
+}
+```
+
+| Manifest field | Meaning |
+| --- | --- |
+| `symbol` | The routine's C name, `<id>_native_<name>`: the machine's own prefix, so routines of different machines never collide. The unit exports this one symbol |
+| `stackBytes` | The most stack the routine takes below its caller's SP, pushed registers and `LINK` frame included, the functions it calls aside; a multiple of 4, at most 2048. The build's audio stack bound counts it, and the build fails if the routine's measured frame is larger |
+| `range` | The inputs the routine supports, for its readers. The header sends calls outside it to the reference |
+| `reference` | Optional: the C reference that defines it |
+| `stateBytes` | Optional: writable `.data` and `.bss` bytes the routine keeps between calls, such as a cache; 0 (none) by default |
+
+A routine follows the compiler's calling convention, which the C++ calling it
+relies on:
+
+- **Arguments** arrive in R0, R1 and R2. The caller reserves 12 bytes for them
+  at the top of its frame, so a fourth argument is at `[SP + 12]` on entry and a
+  fifth at `[SP + 16]`. A result returns in R0.
+- **R4 to R7 and P3 to P5 are preserved**: push the ones the routine uses
+  (`[--SP] = (R7:4, P5:3);`) and pop them before `RTS`. FP and SP are preserved
+  too, and RETS when the routine calls anything. R0 to R3, P0 to P2, I0 to I3,
+  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use.
+- **L0 to L3 are zero on entry and must be zero on return**: compiled code
+  addresses through I0 to I3 assuming no circular buffer. A routine that sets an
+  L register for a circular buffer clears it again before it returns.
+- **Hardware loops** (LC0/LT0/LB0 and LC1/LT1/LB1) are free to use: compiled
+  code never keeps a loop running across a call. Leave each loop through its
+  bottom, or clear its LC before jumping out early, so no loop stays armed. The
+  usual Blackfin rules apply: a loop count of 0 still runs the body once, and a
+  loop body does not end in a jump, call or return.
+- **The stack** moves only by push, pop, `LINK`/`UNLINK` and `SP += constant`,
+  the forms the build's stack analysis measures.
+
+Before compiling, `sdk.py test` and the firmware build refuse:
+
+- assembly anywhere but `native/<name>.s` (vendored code, never built, aside),
+  a unit without its manifest, or a manifest without its unit;
+- sections other than `.text` and `.rodata` (and `.data` and `.bss` with
+  `stateBytes`), section flags, directives that pull in or generate text
+  (`.include`, `.incbin`, `.macro`) or change linkage (`.weak`, `.comm`), and
+  exports other than the manifest's symbol;
+- supervisor and system instructions (`RAISE`, `EXCPT`, `IDLE`, `CLI`, `STI`,
+  returns other than `RTS`, `TESTSET`, cache flushes), the system registers
+  (`SYSCFG`, `SEQSTAT`, `RETI` and the other return registers, `USP`), writes to
+  the cycle counters, which profiling owns, and a memory-mapped register's
+  address loaded into a pointer or index register;
+- an indirect `CALL`, whose callee the stack analysis cannot follow (an indirect
+  `JUMP` stays inside the routine), any other way of moving SP, and an L
+  register set and never cleared.
+
+The firmware build checks the assembled object again: its sections, and one
+global function in `.text`, the manifest's symbol. These are cheap checks of a
+routine's shape, not proof of what it computes: that is the reference's, and
+the machine's tests'.
 
 ## Definition
 

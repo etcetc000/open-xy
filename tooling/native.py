@@ -46,9 +46,6 @@ DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, s
                    stock_player_name_tail=0x8d5bdddc, stock_player_id_tail=0x8d5bde64, stock_sample_slice_receive_tail=0x8d5b1264)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
-# Hand-scheduled device kernels: sdk/include/opxy/kernels/<name>.hpp declares one
-# (with its portable reference) and KERNELS/<name>.s implements it.
-KERNELS = 'sdk/platform/blackfin/kernels/'
 ALLOWED_SECTIONS = {'.text', '.rodata', '.data', '.bss'}
 MAX_COMPILER_FILE = 64 << 20
 ANALYSIS = ['analysis/compile-report.json']
@@ -199,9 +196,8 @@ def plan(machines, profile=None):
         else:
             steps = ('registration', 'sample_voice', *(('display', 'screen') if m.display != 'stock' else ()))
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
-        units += [(f'{m.id}/kernel_{name}.o', m, 'kernel:' + name) for name in kernels(m)]
-    users = [name for m in machines for name in kernels(m)]
-    require(len(users) == len(set(users)), 'An SDK kernel is included by more than one machine')
+        # A machine's own routines (native/<name>.s), assembled into it alone.
+        units += [(f'{m.id}/native_{unit.name}.o', m, 'native:' + unit.name) for unit in m.native]
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
@@ -209,19 +205,6 @@ def plan(machines, profile=None):
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
-
-
-_KERNEL_INCLUDE = re.compile(r'#\s*include\s*[<"]opxy/kernels/(\w+)\.hpp[>"]')
-
-
-def kernels(m):
-    """The SDK kernels a machine's C++ files include, in name order: each is linked
-    into that machine alone, owned by it, so a build without it carries none."""
-    found = set()
-    for path in tree(Path(m.source())):
-        if path.suffix in ('.cpp', '.cc', '.h', '.hpp'):
-            found.update(_KERNEL_INCLUDE.findall(path.read_text(encoding='utf-8', errors='replace')))
-    return sorted(name for name in found if (ROOT / KERNELS / (name + '.s')).is_file())
 
 
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
@@ -508,8 +491,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
         if step.startswith('source:'):
             return cxx(m.source(step.removeprefix('source:')), obj, m)
-        if step.startswith('kernel:'):
-            return assemble_unit(ROOT / KERNELS / (step.removeprefix('kernel:') + '.s'), obj)
+        if step.startswith('native:'):
+            unit = next(u for u in m.native if u.name == step.removeprefix('native:'))
+            assemble_unit(unit.path, obj)
+            return check_native_object(execute([tools['objdump'], '-h', '-t', obj]), unit, f'{m.id}/native/{unit.name}.s')
         source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
@@ -573,6 +558,28 @@ def normalize_object(data):
     return bytes(out)
 
 
+def check_native_object(listing, unit, name):
+    """A machine's assembled native unit (objdump -h -t): code and constants, writable
+    data only up to its manifest's stateBytes, and one global, its routine in .text."""
+    sections = re.findall(r'^\s*\d+\s+(\S+)\s+([0-9a-f]{8})\s+[0-9a-f]{8}\s+[0-9a-f]{8}\s+[0-9a-f]{8}\s+\S+\s*\n\s*([^\n]*)',
+                          listing, re.M)
+    placed = {section: int(size, 16) for section, size, flags in sections if 'ALLOC' in flags and int(size, 16)}
+    allowed = {'.text', '.rodata'} | ({'.data', '.bss'} if unit.state_bytes else set())
+    require(set(placed) <= allowed, f'{name}: unexpected sections ' + ', '.join(sorted(set(placed) - allowed)))
+    state = placed.get('.data', 0) + placed.get('.bss', 0)
+    require(state <= unit.state_bytes, f'{name}: {state} bytes of .data and .bss, more than its stateBytes {unit.state_bytes}')
+    exported = [line.split() for line in listing.splitlines()
+                if re.match(r'[0-9a-f]{8} (?:[gu!]| w)', line) and '*UND*' not in line]
+    require([(fields[-1], fields[-3], 'F' in fields[1:-3]) for fields in exported] == [('_' + unit.symbol, '.text', True)],
+            f'{name}: exports one function in .text, _{unit.symbol}')
+
+
+def native_entries(machines, symbols):
+    """Each linked native routine's address -> (its name, its manifest's stackBytes)."""
+    return {symbols['_' + unit.symbol]['value']: (f'{m.id}/native/{unit.name}', unit.stack_bytes)
+            for m in machines for unit in m.native if '_' + unit.symbol in symbols}
+
+
 def stack_usage(directory):
     worst = {}
     for path in Path(directory).rglob('*.su'):
@@ -608,7 +615,7 @@ def _frame_delta(text):
     return 0
 
 
-def audio_stack_bounds(disassembly, module, base, symbols, machines):
+def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None):
     """Worst-case stack bytes of each machine's audio entry; recursion fails the build.
 
     Frames are the deepest SP excursion along each function (LINK counts its
@@ -616,7 +623,14 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
     reach any function whose address is stored in module data (except the SDK
     method tables, which only stock calls). Indirect calls are expanded one
     level: the bound covers a dispatch through a table, not a chain of them.
+
+    A machine's native routine (`native`: address -> (name, declared stackBytes))
+    counts the stack its manifest declares, which must cover the frame measured
+    here (its lint admits only the SP forms measured). Its indirect jumps stay
+    within the routine (a computed branch, such as into a loop), and it makes no
+    indirect calls; its direct calls are followed as any function's.
     """
+    native = native or {}
     starts, body, current = [], {}, None
     for line in disassembly.splitlines():
         if m := _FUNCTION.match(line):
@@ -644,12 +658,18 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
         for text in body[function]:
             frame += _frame_delta(text)
             deepest = max(deepest, frame)
-            if re.search(r'(?:CALL|JUMP) \(P\d\)', text):
+            if function in native and re.search(r'(?:CALL|JUMP) \(P\d\)', text):
+                require(text.startswith('JUMP'), native[function][0] + ': an indirect CALL in a native routine')
+            elif re.search(r'(?:CALL|JUMP) \(P\d\)', text):
                 if indirect:
                     callees |= {(target, False) for target in taken}
             elif (m := _DIRECT.search(text)) and (target := owner(int(m.group(1), 16))) is not None:
                 if target != function or text.startswith('CALL'):
                     callees.add((target, indirect))
+        if function in native:
+            label, declared = native[function]
+            require(deepest <= declared, f'{label}: takes {deepest} bytes of stack, more than its stackBytes {declared}')
+            deepest = declared
         result = deepest + max((depth(*callee) for callee in callees), default=0)
         active.discard(key)
         memo[key] = result
@@ -708,7 +728,7 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
                                    label['size'], symbols['kit_startup_label_text']['value']),
             'Unexpected startup label thunk')
     (directory / 'disassembly.txt').write_text(disassembly, encoding='utf-8')
-    stack = audio_stack_bounds(disassembly, module, low, symbols, machines)
+    stack = audio_stack_bounds(disassembly, module, low, symbols, machines, native_entries(machines, symbols))
     sizes = dict(initialized_bytes=len(module), bss_bytes=allocated['.bss']['size'],
                  allocated_span_bytes=intervals[-1][1] - low)
     limit = module_bytes(profile)
