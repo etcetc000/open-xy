@@ -78,6 +78,7 @@ def generate_voice(directory, m, sweep=False):
         values['PAD_BITS'] = ', '.join(str(f['bits']) for f in pads) or '1'
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
         values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
+        values['PARAMETER_EDIT'] = m.definition['resources'].get('parameterEdit', 0)
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
 
@@ -118,6 +119,9 @@ def generate_drum_callbacks(directory, machines):
             declarations += [f'bool {p}_drum_pad_text(opxy::u32, opxy::i32, char*) __asm__("{p}_drum_pad_text");',
                              f'static const opxy::u8 {p}_pad_bits[] = {{{", ".join(str(f["bits"]) for f in pads)}}};',
                              f'static const char* const {p}_pad_labels[] = {{{", ".join(json.dumps(f["label"]) for f in pads)}}};']
+        edit = m.definition['resources'].get('parameterEdit', 0)
+        if edit:
+            declarations.append(f'opxy::u32 {p}_drum_edit_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("{p}_drum_edit_value");')
         if groups:
             declarations += [f'static const opxy::u8 {p}_group_sizes[] = {{{", ".join(str(g["count"]) for g in groups)}}};',
                              f'static const char* const {p}_group_names[] = {{{", ".join(json.dumps(g["label"]) for g in groups)}}};']
@@ -127,7 +131,8 @@ def generate_drum_callbacks(directory, machines):
                     f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}, '
                     f'{1 if m.definition["resources"].get("padMix", 0) else 0}, {len(pads)}, '
                     f'{p + "_pad_bits" if pads else "nullptr"}, {sum(1 << i for i, f in enumerate(pads) if f.get("signed"))}, '
-                    f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}}},')
+                    f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}, '
+                    f'{p + "_drum_edit_value" if edit else "nullptr"}}},')
         if sends_per_key(m):
             # The mixer's send hooks (drum_send.cpp) know a kit's voices by its method table.
             declarations += [f'extern const void* const {p}_vtable[];',
@@ -320,6 +325,7 @@ def generate_screen(directory, m):
 namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
+    static const bool drum = {'true' if getattr(m, 'kind', 'synth') == 'drum' else 'false'};
     static const bool sample = {'true' if getattr(m, 'kind', 'synth') == 'sample' else 'false'};   // reads its sample's overview
 }};
 const char* const Machine::ids[{len(ids)}] = {{

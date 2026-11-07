@@ -32,6 +32,73 @@ def identity(kind, **changes):
     return dict(value, **changes)
 
 
+class DrumPresets(unittest.TestCase):
+    def preset(self):
+        return {'version': 4, 'platform': 'OP-XY', 'type': 'kit', 'engine': {'params': [16384]*8},
+                'regions': [{'model': 'fm slap', 'params': [0, 1, 16384, 32767],
+                             'playmode': 'oneshot', 'hikey': 53+i} for i in range(24)]}
+
+    def test_sample_free_drum_regions_are_retained_without_mutation(self):
+        value = self.preset()
+        expected = copy.deepcopy(value)
+        self.assertIs(machines.check_preset(value, 'kit', kind='drum'), value)
+        self.assertEqual(value, expected)
+        from tooling.browser_kit import kit_presets
+        self.assertEqual(kit_presets(replace(fixture('probesynth'), kind='drum', presets={'kit': value})), {'kit': expected})
+        for kind in ('synth', 'sample'):
+            with self.assertRaisesRegex(ValueError, 'sample regions'):
+                machines.check_preset(value, 'kit', kind=kind)
+
+    def test_drum_features_require_sdk_1_11(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / 'probesynth'
+            shutil.copytree(FOLDER / 'probesynth', root)
+            record_path, definition_path = root / 'machine.json', root / 'definition.json'
+            record = json.loads(record_path.read_text())
+            record.update(kind='drum', sdk='1.11')
+            record.pop('identity', None)
+            definition = json.loads(definition_path.read_text())
+            definition['presets'] = {}
+            for control, parameter in enumerate(copy.deepcopy(definition['parameters'])):
+                parameter.update(id=parameter['id'] + '_alt', label='Alt ' + str(control), control=control)
+                definition['parameters'].append(parameter)
+            definition['resources']['modelCount'] = 2
+            for feature in ('parameterEdit', 'presets'):
+                with self.subTest(feature=feature):
+                    current = copy.deepcopy(record)
+                    settings = copy.deepcopy(definition)
+                    if feature == 'parameterEdit':
+                        settings['resources']['parameterEdit'] = 1
+                    else:
+                        current['presets'] = 'presets'
+                        (root / 'presets').mkdir(exist_ok=True)
+                        value = self.preset(); value['type'] = 'probesynth'
+                        (root / 'presets/default.json').write_text(json.dumps(value))
+                    definition_path.write_text(json.dumps(settings))
+                    record_path.write_text(json.dumps(current))
+                    loaded = machines.machine_at(root)
+                    if feature == 'presets':
+                        self.assertEqual(loaded.presets['default']['regions'], value['regions'])
+                    current['sdk'] = '1.10'
+                    record_path.write_text(json.dumps(current))
+                    with self.assertRaisesRegex(ValueError, '1.11'):
+                        machines.machine_at(root)
+
+    def test_drum_region_bounds_and_sample_exclusion(self):
+        bad_regions = [[], [0]*3, [0, 1, 2, 32768], [0, 1, 2, -1], [True, 1, 2, 3], [1.5, 1, 2, 3]]
+        cases = [{'params': params} for params in bad_regions]
+        cases += [{'sample': 'private.wav'}, {'path': '/user/samples/kick.wav'}, {'model': 'kick'},
+                  {'playmode': 'unknown'}, {'playmode': None}, {'hikey': 54}, {'hikey': True}]
+        for change in cases:
+            value = self.preset(); value['regions'][0].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                machines.check_preset(value, 'kit', kind='drum')
+        for size in (1, 23, 25):
+            value = self.preset(); value['regions'] = (value['regions']*2)[:size]
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                machines.check_preset(value, 'kit', kind='drum')
+
+
 class Identity(unittest.TestCase):
     def test_fixed_numbers_are_valid_and_distinct(self):
         # Open-XY's first machines keep the numbers its first firmware gave them, in every layout.

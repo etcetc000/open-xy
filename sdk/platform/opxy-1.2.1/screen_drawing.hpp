@@ -19,44 +19,14 @@ u32 display_activation;
 draw::Input display_input;
 binding::Frame display_frame;
 
-// A drum kit's display is struck only by its selected pad's notes. Audio and
-// GUI are separate roles, so this reads only GUI state: when stock's note
-// counter moves, the pitches that started since the last frame (newly held,
-// or released since) are mapped to their pads. A start no pitch accounts for
-// strikes as before, so the screen never misses a hit it cannot place.
-struct PadNotes { u32 track, valid, notes, serial; u8 held[128], released[128], now[128], now_released[128]; };
-PadNotes pad_notes;
+// Stock counts both live and sequenced note starts. Selection stays in the
+// control snapshot; the latest played drum is supplied independently below.
 u32 display_note_serial(const Controls& controls) {
-    if (controls.track >= 8) return 0;
-    const u32 notes = note_serial(controls.track);
-    if (!controls.pad) {
-        pad_notes.valid = 0;
-        return notes;
-    }
-    PadNotes& s = pad_notes;
-    sdk_note_pitches(controls.track, s.now, s.now_released);
-    if (s.valid && s.track == controls.track && notes != s.notes) {
-        bool placed = false, struck = false;
-        for (u32 p = 0; p < 128 && !struck; ++p) {
-            const bool released = s.now_released[p] != s.released[p];
-            if (!(s.now[p] && !s.held[p]) && !(released && (s.now[p] || !s.held[p]))) continue;
-            placed = true;
-            struck = sdk_drum_pad(controls.track, p) == controls.pad;
-        }
-        if (struck || !placed) ++s.serial;
-    }
-    for (u32 p = 0; p < 128; ++p) {
-        s.held[p] = s.now[p];
-        s.released[p] = s.now_released[p];
-    }
-    s.track = controls.track;
-    s.notes = notes;
-    s.valid = 1;
-    return s.serial;
+    return controls.track < 8 ? note_serial(controls.track) : 0;
 }
+extern "C" void sdk_drum_trigger(u32, draw::Input*) __asm__("sdk_drum_trigger");
 
-// Machine: ids[] names the artwork's nodes (the first are the mutable paths),
-// then its text slots, then its palette entries.
+// Machine: ids[] names mutable paths, other nodes, text slots, then palette entries.
 template <class Machine> struct Drawing {
     typedef binding::Frame Frame;
     enum { path_count = Frame::path_count, point_count = Frame::point_count, node_count = Frame::node_count,
@@ -100,6 +70,9 @@ template <class Machine> struct Drawing {
         display_input.elapsed = o->delta;
         display_input.track = controls.track;
         display_input.note_serial = display_note_serial(controls);
+        display_input.trigger_key = display_input.trigger_model = 0;
+        for (u32 i = 0; i < parameter_slots; ++i) display_input.trigger_controls[i] = 0;
+        if (Machine::drum) sdk_drum_trigger(controls.track, &display_input);
         sdk_display_note_activity(controls.track, &display_input);
         // A sample engine's own screen reads its sample (opxy_sample_overview).
         if (Machine::sample) sdk_sample_overview_update(controls.track);

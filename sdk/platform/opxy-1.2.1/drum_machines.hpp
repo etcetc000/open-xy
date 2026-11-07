@@ -29,6 +29,9 @@ struct DrumMachine {
     u32 pad_signs;
     const char* const* pad_labels;
     bool (*pad_text)(u32 field, i32 value, char* text);
+    // Optional GUI-side value editor. Input and output use stored 7-bit raw
+    // values; delta is bounded to -127..127. Not called for Shift or gaps.
+    u32 (*edit)(u32 model, u32 slot, u32 value, i32 delta);
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
     // A model's group (0 without groups) and the group's first model.
     u32 group(u32 model) const {

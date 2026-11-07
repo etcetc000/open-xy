@@ -8,8 +8,8 @@ import { inputWords } from './controls.mjs';
 // reserved byte and pad[4 bytes]. ABI 1 ends after slots, ABI 2 after
 // note_off_serial, ABI 3 after choices; ABI 4 adds a drum kit's model, ABI 5 the
 // track's amp envelope, and ABI 6 a padMix kit key's pan, level and pad fields
-// and the row the encoders edit.
-const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88, 5: 104, 6: 112};
+// and the row the encoders edit. ABI 7 adds the played drum snapshot.
+const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88, 5: 104, 6: 112, 7: 152};
 const ENVELOPE = ['attack', 'decay', 'sustain', 'release'];
 const integer = (value, low, high, name) => {
   if (!Number.isInteger(value) || value < low || value > high) throw new Error(`Invalid ${name}`);
@@ -91,6 +91,7 @@ export class PreviewDisplay {
     this.hasModel = abi >= 4;
     this.envelope = abi >= 5;
     this.hasMix = abi >= 6;
+    this.hasTrigger = abi >= 7;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
     // Largest declared frame: 4 paths of 64 points, 512 nodes, 32 texts and the header.
     const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 512 * 28 + 32 * 36 + 32, 'drawing frame size');
@@ -118,7 +119,7 @@ export class PreviewDisplay {
   // mix: a padMix kit's key, {pan: -100..100, level: -30..0 dB, pad: up to four
   // pad fields, -128..127}, and line, the row the encoders edit (0 or 1).
   tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0],
-       amp = null, mix = {pan: 0, level: 0}, line = 0) {
+       amp = null, mix = {pan: 0, level: 0}, line = 0, trigger = null) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -138,6 +139,13 @@ export class PreviewDisplay {
     const pads = mix.pad ?? [];
     if (!Array.isArray(pads) || pads.length > 4) throw new Error('Invalid pad controls');
     const padded = pads.reduce((word, v, i) => (word | (integer(v, -128, 127, 'pad control') & 255) << 8 * i) >>> 0, 0);
+    const triggerWords = [0, 0, ...Array(8).fill(0)];
+    if (trigger !== null) {
+      if (!trigger || !Array.isArray(trigger.controls) || trigger.controls.length !== 8) throw new Error('Invalid drum trigger');
+      triggerWords[0] = integer(trigger.key, 53, 76, 'trigger key');
+      triggerWords[1] = integer(trigger.model, 0, 127, 'trigger model');
+      trigger.controls.forEach((value, i) => { triggerWords[2+i] = integer(value, -0x80000000, 0x7fffffff, 'trigger control'); });
+    }
     if (this.api.memory.buffer !== this.memory) throw new Error('Display memory changed');
     this.input.set([p0, p1, p2, p3, elapsed >>> 0, track, serial, Number(reducedMotion), shown, ...slots]);
     if (this.noteActivity) this.input.set([held, released], 17);
@@ -145,6 +153,7 @@ export class PreviewDisplay {
     if (this.hasModel) this.input[21] = model;
     if (this.envelope) this.input.set(envelope, 22);
     if (this.hasMix) this.input.set([mixed, padded], 26);
+    if (this.hasTrigger) this.input.set(triggerWords, 28);
     this.api.opxy_display_render();
     if (this.api.opxy_display_valid() !== 1) throw new Error('Display emitted an invalid drawing frame');
     return this.frame;
