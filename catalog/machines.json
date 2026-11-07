@@ -193,8 +193,8 @@
       "maintainer": "V714",
       "status": "published",
       "repository": "https://github.com/V714/open-xy-nightdrive",
-      "tag": "v1.0.1",
-      "commit": "c28339571117094548767fd1873556bff80ef15e",
+      "tag": "v1.0.3",
+      "commit": "ce25181f80b2a42d414a9e21918b404150858b77",
       "path": ".",
       "keywords": [
         "fm",
@@ -202,12 +202,19 @@
         "pluck"
       ],
       "cpu": {
-        "benchmark": "opxy-synth-c8-v1",
-        "commit": "c28339571117094548767fd1873556bff80ef15e",
-        "firmware_sha256": "e66ab954b2b7282e2d693c42e1198be2c72725277f052d3160a655eb29398d6e",
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "ce25181f80b2a42d414a9e21918b404150858b77",
+        "firmware_sha256": "c6a420852d38e7b79d1231cb987a38bf7607988224201df1a2ad30cff7158254",
         "runs": 3,
-        "block_percent": 3.503471,
-        "report": "https://github.com/etcetc000/open-xy/pull/112#issuecomment-6433839213"
+        "block_percent": 3.916991,
+        "peak_percent": 6.192111,
+        "midpoint_percent": 3.495842,
+        "combined_percent": 2.664225,
+        "worst_setting": {
+          "control": 0,
+          "label": "Speed",
+          "value": 1879048191
+        }
       }
     },
     {
