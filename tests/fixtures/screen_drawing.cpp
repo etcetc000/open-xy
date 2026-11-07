@@ -35,7 +35,7 @@ int main() {
     require(binding::resets == 1 && binding::renders == 1 && object.keys[0] == 0);
     require(screen::display_state.ticks == 1);
     // The selected track's amp envelope reaches the drawing input.
-    require(screen::display_input.amp.attack == 1 && screen::display_input.amp.release == 4);
+    require(binding::last_input.amp.attack == 1 && binding::last_input.amp.release == 4);
     // Same page/track must preserve state and the applied geometry key.
     object.keys[0] = 77;
     Renderer::animate(&object, controls);
