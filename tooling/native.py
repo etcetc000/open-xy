@@ -410,9 +410,13 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     as the builder does; None, or how they overflow the shared module memory."""
     absent = [m for m in machines if m not in selected]
     aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
+    for e in extensions_of(machines):
+        if e not in extensions_of(selected):
+            suffixes = ('hooks', 'processor', 'panel') if e.master_processor is not None else ('hooks',)
+            aliases.update({f'sdk_extension_{e.id}_{suffix}': 'kit_absent' for suffix in suffixes})
     # Entry points of services the whole collection's shared objects (startup's
     # included) call into but this selection doesn't link, as the builder resolves them.
-    used = active_services(profile, service_users(subset(machines, selected)))
+    used = active_services(profile, service_users(selected))
     for service, fallbacks in service_fallbacks(active_services(profile, service_users(machines))).items():
         if service not in used:
             aliases.update(fallbacks)
@@ -422,7 +426,7 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',
                *(f'--defsym={key}={value:#x}' for key, value in definitions.items()),
                *(f'--defsym={key}={value}' for key, value in aliases.items()),
-               *(object_name for object_name, _m, _step in plan(subset(machines, selected), profile)),
+               *(object_name for object_name, _m, _step in plan(selected, profile)),
                *(runtime.object_name(member) for member in runtime_members)]
     try:
         subprocess.check_output([str(arg) for arg in command], cwd=directory, stderr=subprocess.STDOUT, text=True, timeout=120)
@@ -430,16 +434,17 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
         overflow = re.search(r"region `MODULE' overflowed by (\d+) bytes", error.output or '')
         if not overflow and 'Module overlaps the relocated tables' not in (error.output or ''):
             raise
-        usage, limit = memory_by_owner(directory, subset(machines, selected), profile, runtime_members), module_bytes(profile)
+        usage, limit = memory_by_owner(directory, selected, profile, runtime_members), module_bytes(profile)
         total = limit + int(overflow.group(1)) if overflow else sum(sum(share.values()) for share in usage.values())
         return memory_summary(usage, total, limit)
     return None
 
 
-def linked_machines(directory, tools, profile, machines, definitions, runtime_members=()):
+def linked_machines(directory, tools, profile, machines, definitions, runtime_members=(), *, optional_extensions=False):
     """The machines the module links: all of them when they fit. Otherwise, a collection
     holding Open-XY's own machines links those, and each other machine must fit beside
-    them, as the builder offers each one; people choose which they install."""
+    them. A catalog or kit checks that fit without optional extensions, while
+    its reference module still links the requested extensions."""
     from .catalog import OFFICIAL
     overflow = link(directory, tools, profile, definitions, machines, machines, runtime_members=runtime_members)
     if overflow is None:
@@ -448,18 +453,20 @@ def linked_machines(directory, tools, profile, machines, definitions, runtime_me
     require(core and len(core) < len(machines), 'Machines exceed the shared module memory, ' + overflow)
     for m in machines:
         if m not in core:
-            beside = link(directory, tools, profile, definitions, machines,
-                          [x for x in machines if x in core or x is m], 'fit', runtime_members)
+            choice = [x for x in machines if x in core or x is m]
+            selected = Collection(choice) if optional_extensions else subset(machines, choice)
+            beside = link(directory, tools, profile, definitions, machines, selected, 'fit', runtime_members)
             require(beside is None, f'{m.id} does not fit beside the official machines, ' + str(beside))
     for leftover in ('fit.elf', 'fit.map'):
         (directory / leftover).unlink(missing_ok=True)
-    overflow = link(directory, tools, profile, definitions, machines, core, runtime_members=runtime_members)
+    reference = subset(machines, core)
+    overflow = link(directory, tools, profile, definitions, machines, reference, runtime_members=runtime_members)
     require(overflow is None, 'The official machines exceed the shared module memory, ' + str(overflow))
-    return subset(machines, core)
+    return reference
 
 
 def compile_collection(directory, toolchain, compiler, profile, machines, definitions, version, profiling=True,
-                       sweep=False):
+                       sweep=False, *, optional_extensions=False):
     """Compile every machine and link those that fit (linked_machines), labelled with the
     release version; return the module bytes, report and patched profile."""
     require(type(profiling) is bool and type(sweep) is bool, 'Profiling and sweep must be booleans')
@@ -561,7 +568,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
     stack_usage(directory)
     runtime_members = runtime_objects(directory, gcc, plan(machines, profile), definitions)
-    linked = linked_machines(directory, tools, profile, machines, definitions, runtime_members)
+    linked = linked_machines(directory, tools, profile, machines, definitions, runtime_members,
+                             optional_extensions=optional_extensions)
     module, sizes, patch_profile, hooks, stack, usage = check_module(directory, tools, profile, linked, profiling,
                                                                    runtime_members)
     require(provenance(machines) == before, 'Sources changed during compilation')
@@ -569,6 +577,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   host=host_platform(), tools=host_pins('tools')[0], compiler=host_pins('compiler')[0],
                   cxx_flags=CXX_FLAGS, profiling=profiling, benchmark_cases=benchmark.cases(linked, sweep),
                   **({'benchmark_sweep': True} if sweep else {}),
+                  **({'optional_extensions': True} if optional_extensions else {}),
                   sizes=sizes, memory=usage, module_bytes=module_bytes(profile), audio_stack_bytes=stack,
                   reserved_bytes=profile['reserved_bytes'],
                   module_sha256=sha(module), elf_sha256=sha(read(directory / 'module.elf')), hooks=hooks,
@@ -1029,12 +1038,18 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
     require(type(profiling) is bool, 'Manifest profiling must be a boolean')
     sweep = manifest.get('benchmark_sweep', False)
     require(sweep is True or 'benchmark_sweep' not in manifest, 'Manifest benchmark_sweep must be true when present')
+    optional_extensions = manifest.get('optional_extensions', False)
+    require(optional_extensions is True or 'optional_extensions' not in manifest,
+            'Manifest optional_extensions must be true when present')
     profile, machines, definitions = configuration(package_collection(package), package_layout(package))
     with tempfile.TemporaryDirectory(prefix='opxy-verify-') as temporary:
         temporary = Path(temporary)
         module, report, patch_profile = compile_collection(temporary, toolchain, compiler, profile, machines,
-                                                           definitions, package_version(package), profiling, sweep)
+                                                           definitions, package_version(package), profiling, sweep,
+                                                           optional_extensions=optional_extensions)
         require(report['profiling'] is profiling, 'Compile profiling differs from manifest')
+        require(report.get('optional_extensions', False) is optional_extensions,
+                'Compile extension policy differs from manifest')
         expected_assets = prepare_assets(catalog, profile, linked_in(machines, report))
         expected_assets['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
                                                set(report['services']), profiling)
@@ -1066,7 +1081,7 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
 
 
 def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True, sweep=False,
-          overwrite=False):
+          overwrite=False, *, optional_extensions=False):
     """A firmware package. Its machines take their numbers from `layout` (by machine ID);
     the package's layout.json is that layout after this build, for the next one. Only a
     package for hardware profiling sweeps synth controls: `sdk.py build` turns it on with
@@ -1085,7 +1100,8 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     analysis.mkdir()
     version = startup_label.release_version()
     module, report, patch_profile = compile_collection(analysis, toolchain, compiler, profile, machines,
-                                                       definitions, version, profiling, sweep)
+                                                       definitions, version, profiling, sweep,
+                                                       optional_extensions=optional_extensions)
     prepared = prepare_assets(catalog, profile, linked_in(machines, report))
     prepared['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
                                   set(report['services']), profiling)
@@ -1099,6 +1115,7 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
         tracked.append('runtime.LICENSE')
     save_json(output / 'manifest.json', dict(schema=1, target=TARGET, version=version, collection=entries, profiling=profiling,
                                              **({'benchmark_sweep': True} if sweep else {}),
+                                             **({'optional_extensions': True} if optional_extensions else {}),
                                              **({'layout': layout} if layout else {}),
                                              files={name: sha(read(output / name)) for name in tracked}))
     save_json(output / 'layout.json', layout_document(numbers_after(layout, machines)))
@@ -1151,6 +1168,9 @@ def main(argv=None, command=None):
         add_collection_arguments(parser)
         parser.add_argument('--layout', type=Path,
                             help="the machine numbers your OP-XY's projects use: the layout.json of your last build")
+    if command == 'compile':
+        parser.add_argument('--catalog', action='store_true',
+                            help='check that each catalog machine fits beside the core without optional extensions')
     args = parser.parse_args(argv)
     # A failed command removes only the --out folder it created itself.
     created = command != 'verify' and not args.out.exists()
@@ -1176,13 +1196,14 @@ def main(argv=None, command=None):
             output = fresh_output(args.out, args.overwrite, [*tools, *(m.root for m in machines)])
             _module, report, _patches = compile_collection(output, *tools, profile, machines, definitions,
                                                            startup_label.release_version(), args.profiling == 'on',
-                                                           sweep)
+                                                           sweep, optional_extensions=args.catalog)
             print(json.dumps(report['sizes'], indent=2))
             print('Memory ' + memory_summary(report['memory'], report['sizes']['allocated_span_bytes'],
                                             report['module_bytes']))
             if len(report['linked']) < len(machines):
+                mode = ' without optional extensions' if args.catalog else ''
                 print('Not every machine fits at once: linked the official machines; '
-                      'each other machine fits beside them.')
+                      f'each other machine fits beside them{mode}.')
             print('Non-bootable development module; not an OS image.')
         elif command == 'verify':
             stock, catalog = read(args.stock_os), read(args.stock_content / 'op1_factory.json')

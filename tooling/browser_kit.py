@@ -297,7 +297,8 @@ def main(argv=None):
     try:
         package = out / 'source'
         native.build(package, Path(args.toolchain), Path(args.compiler),
-                     Path(args.stock_os), Path(args.stock_content), native.selected_collection(args))
+                     Path(args.stock_os), Path(args.stock_content), native.selected_collection(args),
+                     optional_extensions=True)
         options = []
         for name in ('toolchain', 'compiler', 'stock_os', 'stock_content'):
             options += ['--' + name.replace('_', '-'), str(Path(getattr(args, name)).resolve())]
