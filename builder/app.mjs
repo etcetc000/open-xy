@@ -25,6 +25,34 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('risk-continue').disabled = true;
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
   const kib = n => (n / 1024).toFixed(1) + ' KiB';
+  const cpuWarning = 'Uses more CPU than usual. This may reduce the total number of voices you can play at once.';
+  let cpuTooltip;
+  function cpuBadge(badge, high) {
+    badge.removeAttribute('title');
+    badge.replaceChildren('CPU-high', ...(high ? [node('span', ': ' + cpuWarning, 'sr-only')] : []));
+    const show = () => {
+      if (!high) return;
+      if (!cpuTooltip) {
+        cpuTooltip = document.createElement('div');
+        cpuTooltip.className = 'cpu-high-tooltip';
+        cpuTooltip.setAttribute('role', 'tooltip');
+        cpuTooltip.textContent = cpuWarning; document.body.append(cpuTooltip);
+      }
+      cpuTooltip.hidden = false;
+      const box = badge.getBoundingClientRect(), tip = cpuTooltip.getBoundingClientRect();
+      cpuTooltip.style.left = Math.max(8, Math.min(box.left, window.innerWidth - tip.width - 8)) + 'px';
+      cpuTooltip.style.top = (box.bottom + tip.height + 8 < window.innerHeight
+        ? box.bottom + 6 : Math.max(8, box.top - tip.height - 6)) + 'px';
+    };
+    const hide = () => { if (cpuTooltip) cpuTooltip.hidden = true; };
+    badge.onmouseenter = show; badge.onmouseleave = hide;
+    const focusTarget = badge.closest('button') ?? badge;
+    if (focusTarget === badge) badge.tabIndex = high ? 0 : -1;
+    focusTarget.onfocus = show; focusTarget.onblur = hide;
+    focusTarget.onkeydown = event => { if (event.key === 'Escape') hide(); };
+  }
+  document.addEventListener('scroll', () => { if (cpuTooltip) cpuTooltip.hidden = true; }, true);
+
   const graphicsConfiguration = createGraphicsConfiguration();
   let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
@@ -275,12 +303,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       };
       return button;
     }));
-    // Its reported CPU worst case, when above core.CPU_HIGH_PERCENT, with the figure.
-    // The tooltip's words are also read out, as text: a plain span takes no aria-label.
+    // Explain the practical voice-count tradeoff immediately on hover or focus.
     const high = core.cpuHigh(m);
     field('detail-cpu-high').hidden = !high;
-    field('detail-cpu-high').title = high?.text ?? '';
-    field('detail-cpu-high').replaceChildren('CPU-high', ...(high ? [node('span', ': ' + high.detail, 'sr-only')] : []));
+    cpuBadge(field('detail-cpu-high'), high);
     field('community-notice').hidden = m.origin !== 'catalog';
     // Credit the catalog's maintainer and repository, with the exact release source;
     // Open-XY's own catalog machines (core.ORIGINS) name the project instead.
@@ -541,10 +567,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const high = core.cpuHigh(m);
       if (high) {
         const badge = node('span', 'CPU-high', 'machine-cpu-high');
-        badge.title = high.text; badge.append(node('span', ': ' + high.detail, 'sr-only'));
         meta.append(badge);
       }
-      button.append(meta); button.onclick = () => inspect(m.id);
+      button.append(meta);
+      const cpuMark = meta.querySelector('.machine-cpu-high');
+      if (cpuMark) cpuBadge(cpuMark, high);
+      button.onclick = () => inspect(m.id);
       input.onchange = () => {
         selected = input.checked ? [...selected, m.id] : selected.filter(id => id !== m.id);
         row.classList.toggle('selected', input.checked); invalidate(); recalculate();
