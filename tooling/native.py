@@ -530,7 +530,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
 
     def cxx(source, obj, m=None, *, gui=False):
         compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m),
-                    gui=gui or (m is None and obj.stem in GUI_UNITS))
+                    gui=loader and (gui or (m is None and obj.stem in GUI_UNITS)))
 
     def display_unit(folder, m):
         generate_display(folder, machine=m)
@@ -649,7 +649,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   host=host_platform(), tools=host_pins('tools')[0], compiler=host_pins('compiler')[0],
                   cxx_flags=CXX_FLAGS, gui_cxx_flags=GUI_CXX_FLAGS, profiling=profiling,
                   gui_units=[name for name, m, step in plan(machines, profile)
-                             if (m is None and step in GUI_UNITS) or (m is not None and step in ('display', 'screen'))],
+                             if loader and ((m is None and step in GUI_UNITS) or (m is not None and step in ('display', 'screen')))],
                   benchmark_cases=benchmark.cases(linked, sweep),
                   **({'benchmark_sweep': True} if sweep else {}),
                   **({'collection_probe': True} if getattr(machines, 'collection_probe', False) else {}),
