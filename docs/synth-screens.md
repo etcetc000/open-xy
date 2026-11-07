@@ -457,7 +457,8 @@ the stock engines remain the better reference for animation.
 
 - **Drawing:** isometric: four thin slabs with rounded corners and even gaps, and no
   subject at all.
-- **Grey code:** top to bottom, dark to light.
+- **Grey code:** top to bottom, dark to light. The top slab is `191919` with a light
+  outline, a deliberate exception to the black outline: it reads better here.
 - **Controls:** each control slides its slab along one axis.
 - **Notes:** a note lifts the gaps open a little, and they close as it fades.
 - **To borrow:** no subject, just layers shifted against each other.
