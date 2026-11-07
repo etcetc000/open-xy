@@ -1508,8 +1508,8 @@
       "maintainer": "kristapskristaps",
       "status": "published",
       "repository": "https://github.com/kristapskristaps/xy-machines",
-      "tag": "acidline-v1.1.0",
-      "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
+      "tag": "acidline-v1.2.0",
+      "commit": "71045781d5b70cae3cf936a7ba676cd91a80efb8",
       "path": "machines/acidline",
       "keywords": [
         "analog",
@@ -1517,20 +1517,20 @@
       ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
-        "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
-        "firmware_sha256": "b0a3ba8ed706badd68df9ab2f6ca918106d4984e2e8ce7896a5dc0f4a0c74350",
+        "commit": "71045781d5b70cae3cf936a7ba676cd91a80efb8",
+        "firmware_sha256": "64221a20921b9dba408448c618b0eda3d2dd9fd3d89fab5923ad418b251a841a",
         "runs": 1,
-        "block_percent": 3.974975,
-        "peak_percent": 4.7776,
-        "midpoint_percent": 3.671321,
-        "combined_percent": 2.74815,
+        "block_percent": 4.011597,
+        "peak_percent": 4.768444,
+        "midpoint_percent": 3.727779,
+        "combined_percent": 2.751202,
         "worst_setting": {
           "control": 5,
           "label": "Shape",
           "value": 1789569705,
           "option": "Square"
         },
-        "report": "https://github.com/kristapskristaps/xy-machines/blob/main/docs/profiling/2026-11-07/staging-batch/acidline/report.md"
+        "report": "https://github.com/kristapskristaps/xy-machines/releases/tag/acidline-v1.2.0"
       }
     },
     {
