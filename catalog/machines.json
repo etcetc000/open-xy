@@ -1108,7 +1108,7 @@
       "id": "omnifilter",
       "kind": "synth",
       "maintainer": "mmockett",
-      "status": "draft",
+      "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-ModFX",
       "tag": "v1.9.2",
       "commit": "327c321a1bb04d29c34eccea534b1d1dc90beb06",
