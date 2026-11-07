@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <cstring>
 #include <project_companion.cpp>
 #include "project_master.hpp"
 #include <track_control_project.cpp>
@@ -127,6 +128,25 @@ Address opxy::platform::host_stock_address(Address address) {
 // is loading (busy), and prints what the keeping machine got back as hex, or "none".
 int main(int argc, char** argv) {
     if (argc != 3 && argc != 4 && argc != 5) return 2;
+    if (argc == 3 && std::strcmp(argv[2], "numbers") == 0) {
+        std::FILE* file = std::fopen(argv[1], "wb");
+        if (!file) return 1;
+        Writer writer(file);
+        for (unsigned v = 0; v < 1000; ++v) { writer.number(v); writer.byte('\n'); }
+        for (unsigned place = 1; place <= 1000000000; place *= 10) {
+            writer.number(place - 1); writer.byte('\n');
+            writer.number(place); writer.byte('\n');
+            writer.number(place + 1); writer.byte('\n');
+        }
+        unsigned random = 0xffffffffu;
+        writer.number(random); writer.byte('\n');
+        for (unsigned i = 0; i < 1000; ++i) {
+            random = random * 1664525u + 1013904223u;
+            writer.number(random); writer.byte('\n');
+        }
+        writer.flush(); std::fclose(file);
+        return 0;
+    }
     char* packet_end=nullptr;
     const unsigned packet=argc>=4 ? static_cast<unsigned>(std::strtoul(argv[3],&packet_end,10)) : 0;
     const bool master=argc>=4 && argv[3][0] && packet_end && !*packet_end;

@@ -88,20 +88,26 @@ struct Input {
     // 0, then FX I and FX II, 0..7 (0 follows the track's send); 0 when
     // neutral, not declared, and for other machines.
     i8 pad[4];
+    // Latest played drum pad; zero when unavailable. Read when note_serial changes.
+    // Controls reflect the GUI snapshot and current offsets, not past step locks.
+    u32 trigger_key, trigger_model;
+    i32 trigger_controls[parameter_slots];
 };
 const u32 notes_unavailable = 0xffffffffu;
 const i32 envelope_unavailable = -1;
 inline bool envelope_known(const Envelope& envelope) {
     return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
 }
-static_assert(sizeof(Input) == 112 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
+static_assert(sizeof(Input) == 152 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
               __builtin_offsetof(Input, line) == 106 && __builtin_offsetof(Input, pad) == 108 &&
               __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
               __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72 &&
               __builtin_offsetof(Input, shift) == 76 && __builtin_offsetof(Input, choices) == 80 &&
-              __builtin_offsetof(Input, model) == 84 && __builtin_offsetof(Input, amp) == 88,
+              __builtin_offsetof(Input, model) == 84 && __builtin_offsetof(Input, amp) == 88 &&
+              __builtin_offsetof(Input, trigger_key) == 112 && __builtin_offsetof(Input, trigger_model) == 116 &&
+              __builtin_offsetof(Input, trigger_controls) == 120,
               "Drawing input layout (display.mjs)");
 static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (display.mjs)");
 

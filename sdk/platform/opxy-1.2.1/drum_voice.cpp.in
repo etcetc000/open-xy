@@ -148,6 +148,13 @@ namespace sdk_drum_transport {
 struct Absent {};
 template <class V, class S> Absent drum_transport(V&, S&, opxy::u32, const opxy::Transport&) { return Absent(); }
 }
+// One DSP body serves normal rendering and the isolated diagnostic workload.
+// Keeping this SDK wrapper out of line avoids duplicating author DSP code.
+static __attribute__((noinline)) void sdk_drum_render(Voice& voice, Shared& state, opxy::u32 id,
+                                                     opxy::Output output, opxy::Parameters controls,
+                                                     opxy::Pitch pitch) {
+    @NAMESPACE@::render(voice, state, id, output, controls, pitch);
+}
 extern "C" {
 extern const void* const @PREFIX@_vtable[];
 // A note keeps its handle's voice or takes one: a free voice, else the one
@@ -271,7 +278,7 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
             using namespace sdk_drum_transport;
             drum_transport(slot->voice, shared, slot->owner, transport);
         }
-        @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
+        sdk_drum_render(slot->voice, shared, slot->owner, output, live, pitch);
         // The track filter, where stock's normal renderer runs a synth voice's:
         // after the render, before the amplitude envelope and pan.
         if (filter != opxy::platform::kDrumFilterNone && handle->pool < opxy::platform::kDrumFilterPool)
@@ -376,6 +383,12 @@ opxy::u32 @PREFIX@_drum_send(const void* self) {
     if (const Slot* slot = held(handle)) return slot->send;
     return handle->slot && voices[handle->slot - 1].faded == owner(handle) ? voices[handle->slot - 1].send : 0;
 }
+#if @PARAMETER_EDIT@
+opxy::u32 @PREFIX@_drum_edit_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("@PREFIX@_drum_edit_value");
+opxy::u32 @PREFIX@_drum_edit_value(opxy::u32 model, opxy::u32 slot, opxy::u32 value, opxy::i32 delta) {
+    return @NAMESPACE@::edit_parameter(model, slot, value, delta);
+}
+#endif
 const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&@PREFIX@_destroy), reinterpret_cast<const void*>(&@PREFIX@_destroy),
     reinterpret_cast<const void*>(&render_normal), reinterpret_cast<const void*>(&@PREFIX@_render),

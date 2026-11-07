@@ -180,6 +180,154 @@ explicit diagnostic commands but does not install firmware. To select machines a
 install through the browser builder's guide instead, export a
 [personal kit](builder.md#export-a-kit) of your collection.
 
+### Collection-file inspection prototype
+
+`build --collection-probe` keeps machines statically linked and adds a startup
+file inspector. It **does not load or execute external machines**. It reads
+`/projects/openxy/collection.oxc` once per processor role, validates its format,
+platform fingerprint, sizes and SHA-256, and writes `gui-status.oxc` and
+`audio-status.oxc` in the same folder. These are JSON reports with
+`"execution": false`; a successful report on one role establishes nothing about
+the other. Missing, incompatible, truncated or corrupt files do not register
+machines or change callback destinations. No executable RAM or cache settings
+are changed by the inspector. Native file calls use the storage mount
+`/fat32/projects/openxy`; MTP exposes that same folder as `/projects/openxy`.
+
+Before **each** hardware run, remove both status files over MTP and verify they
+are absent with `python sdk.py device clear-probe-status --record <private>/clear-001`.
+This backs up and removes only SDK inspection and RPC JSON reports; it refuses other content.
+After restarting, require two newly created reports whose platform
+and digest match the packed file's `inspection.json`. A report left from an
+earlier boot is not evidence that either role ran on the current boot; a failed
+report write may leave an earlier file in place.
+
+Build a static package with `--collection-probe`, then create its inspection file:
+
+```sh
+python sdk.py build --collection-probe --machine <folder> --stock-os <stock-1.2.1>/os.ldr --out <builds>/probe-001
+python sdk.py collection pack --package <builds>/probe-001 --out <builds>/inspection-001
+```
+
+The latter's `candidate/projects/openxy/collection.oxc` is a development artifact,
+not an installable machine. Keep both outputs outside every checkout. Probe
+packages cannot be exported as browser kits.
+
+The opt-in profile redirects one authenticated file-matcher call to an SDK
+wrapper. It tries the original stock rule first and, at the two-level project
+rule only, also accepts `/projects/openxy/` followed by a name made of word
+characters or hyphens and ending in `.oxc`. Every existing rule stays unchanged.
+Stock's small regex matcher treats groups and alternation as literal characters;
+the added expression uses its supported syntax. After an
+authorized, fully verified probe firmware installation, normal COM → M4 MTP
+can transfer files in `/projects/openxy`; create that folder before testing a
+missing collection. On Windows or macOS `sdk.py device push <builds>/inspection-001/candidate`
+uses the existing backup, readback and rollback path. SDK collection files have
+their own allowlist under `projects/openxy`; project documents cannot be pushed.
+
+Complete [local native verification](#local-native-verification), or
+[release verification](#release-verification) for a published package, before a
+hardware test. Passing host checks does not establish startup filesystem
+availability, timing or recovery. These diagnostic options never execute an
+external collection.
+
+`--collection-rpc-probe` includes collection inspection and holds both processor
+roles at engine-initializer entry. GUI claims a boot-bound lease, checks all
+identity words, freezes audio, verifies that copy and publish requests are
+refused, then cancels. This diagnostic always resumes the embedded collection;
+it has no executable-memory copy or publication backend.
+
+Requests use stock's known close wire format with a negative invalid descriptor,
+an epoch and a ticketed SDK marker. Ordinary requests keep their stock dispatcher.
+The handler only exchanges mailbox data; the held startup task owns transitions.
+A dedicated static GUI helper owns the transport notification and request for
+the entire boot. Each initializer waits at most 10,000 delay ticks. Late replies
+cannot change the latched result or activate code.
+
+Clear old reports before each run and require fresh `gui-rpc-status.oxc` and
+`audio-rpc-status.oxc` files with matching platform fingerprints and epochs.
+Success is `hold-roundtrip-ok` on GUI and `hold-cancelled` on audio, with
+`freeze-seen: true`, two destructive requests refused and `released-to: embedded`.
+This measures initializer overlap; callback quiescence, cache synchronization
+and durable rollback still require separate qualification.
+
+### Resident RAM collections
+
+`build --collection-loader` creates an opt-in resident kernel and embeds the
+selected machines as its fallback. After native verification, enter dev Mac MTP
+and copy only its OS and protected fallback artwork:
+
+```sh
+python sdk.py device push <builds>/kernel-001/candidate --kernel-boot --record <private>/kernel-boot-001
+```
+
+Use the dev menu to write that verified OS to boot, then restart. In regular
+COM → M4 MTP, install its information record in the user filesystem:
+
+```sh
+python sdk.py device push <builds>/kernel-001/candidate --kernel-record --record <private>/kernel-record-001
+```
+
+These scopes preserve the existing machine catalog and artwork. Subsequent collections use regular
+COM → M4 MTP and a reboot; they do not write the boot partition. This mode
+cannot be exported as a browser kit.
+
+Keep the kernel package and its SDK source snapshot. Build a RAM collection
+with exactly that SDK and the pinned tools:
+
+```sh
+python sdk.py collection executable --kernel <builds>/kernel-001 --out <builds>/collection-001
+python sdk.py device install-collection <builds>/collection-001 --verify-only --skip-presets --record <private>/verify-transfer-001
+```
+
+Without a selection argument, the collection includes the embedded machines
+and extensions. `--machine <folder>` adds a machine. `--previous <collection>`
+starts from a previous RAM collection and retains its ID ledger;
+`--remove <machine-id>` omits that machine. `--collection <file>` supplies a full
+replacement selection. Removed IDs remain reserved in `layout.json`. Keep
+extensions such as Capture in that selection.
+
+Regular MTP collection installs preserve existing presets. Generated factory
+presets remain in the build output, but their regular-MTP destination is not
+qualified. A bundle containing them requires `--skip-presets`; no bundled
+preset is transferred. The web manager uses the same omission and displays it
+before applying changes.
+
+The builder recompiles the complete collection, requires identical resident
+bytes and exported addresses, and extracts only the fixed payload. Its immutable
+artwork and catalog files use their full SHA-256 names. The installer backs up,
+copies and reads back the inactive slot and its resources first, then writes
+`activate.oxc` in a second transaction. A failed second transaction restores
+the old selector. Existing content files and the active slot are preserved.
+
+`--verify-only` requests file, parser and cache preflight at the next boot,
+then resumes the embedded machines without copying external code. For an
+activation run, reinstall without that flag to create a new generation:
+
+```sh
+python sdk.py device install-collection <builds>/collection-001 --skip-presets --record <private>/activate-transfer-001
+python sdk.py device disable-collection --record <private>/disable-transfer-001
+python sdk.py device collection-status
+```
+
+Reboot after either command. Disabling returns to the embedded selection;
+removing one machine requires building and installing the replacement selection.
+Files remain on storage so an interrupted transfer cannot remove rollback data.
+Do not combine a selector and slot/resources in a generic `device push` folder:
+activation must be its own final verified transaction.
+
+Both processor initializers agree on one boot epoch and collection identity.
+A pending attempt is flushed and read back before large allocations, native
+parsing or executable writes. Failed preparation cleans its buffers before
+resuming the embedded set. Once a copy is authorized, uncertainty keeps startup
+held until a physical reset; it never returns through overwritten code. A
+pending or corrupt attempt selects the embedded set on the next boot.
+Confirmation requires completed registration, live audio readiness and fresh
+GUI rendering after a 20-second startup window. This covers early startup,
+not arbitrary later machine faults or every power-loss/storage failure. COM
+at power-on still enters the stock dev boot menu for recovery. Qualify the
+complete kernel and collection on hardware before treating this workflow as
+accepted; the inspection and hold probes alone do not qualify activation.
+
 ## On the device
 
 Each of these cost someone a round of installing:
@@ -217,6 +365,26 @@ Each of these cost someone a round of installing:
 
 Host checks do not model device scheduling, interrupts, caches, stock graphics
 or recovery, and do not guarantee a recoverable device.
+
+## Local native verification
+
+For development on any [pinned host](toolchain.md#hosts), use `--local` with a
+package built on that same host:
+
+```sh
+python sdk.py check --local --native-package <builds>/mine-001 --stock-os <stock-1.2.1>/os.ldr --stock-content profiles/opxy-1.2.1/content
+```
+
+This authenticates the host's tools, independently rebuilds and compares the
+package, and runs the complete browser and Python suites with every firmware
+fixture required. Missing inputs, failed tests or any skipped test fail the
+command. Set `--host-cxx` if the host C++ compiler is not `g++`.
+`sdk.py verify --local` runs only the independent rebuild and comparison; it
+does not run the fixture suites. Neither command changes the package's recorded
+hashes or treats a package from another host as equivalent.
+
+Local verification does not qualify published releases or establish device
+timing, startup scheduling or recovery. Source changes require a fresh build.
 
 ## Release verification
 

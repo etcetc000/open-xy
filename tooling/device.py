@@ -4,7 +4,8 @@
     python sdk.py device list [content/display]
     python sdk.py device pull content/op1_factory.json --out <file>
 
-`push` mirrors a folder holding only os.ldr and content/ onto the device root:
+`push` mirrors a folder holding os.ldr, content/, or the inspection-only
+projects/openxy/collection.oxc onto the device root:
 <folder>/os.ldr goes to /os.ldr,
 <folder>/content/... to /content/..., creating missing folders. Before writing
 it backs up every file it will replace, then writes only changed files, reads
@@ -35,7 +36,7 @@ from .release import outside_checkouts
 # Explorer and Finder leave these beside copied files; they never belong on the device.
 JUNK = {'thumbs.db', 'desktop.ini', '.ds_store'}
 # What a build or kit installs; anything else at the top is the wrong folder.
-TOP = {'os.ldr', 'content'}
+TOP = {'os.ldr', 'content', 'projects'}
 IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003  # A directory junction; cloud and dedup reparse points are ordinary files.
 
 
@@ -58,13 +59,14 @@ def private_root():
     return Path(os.environ.get('LOCALAPPDATA') or Path.home() / '.local/share') / 'OPXY-SDK/private'
 
 
-def source_files(folder):
+def source_files(folder, *, allow_attempt=False):
     """({device path parts: bytes}, [skipped junk paths]) for every file below folder."""
     folder = Path(folder)
     require(folder.is_dir(), f'Not a folder: {folder}')
     require(not (folder / 'candidate').is_dir(), f'{folder} holds a build; push its candidate folder: {folder / "candidate"}')
     unexpected = sorted(x.name for x in folder.iterdir() if x.name.lower() not in TOP and not junk(x.name))
-    require(not unexpected, f'{folder} is not laid out like the device (only os.ldr and content/ at the top): '
+    require(not unexpected, f'{folder} is not laid out like the device '
+            '(only os.ldr, content/ and projects/openxy/collection.oxc): '
             + ', '.join(unexpected))
     files, skipped = {}, []
     for directory, folders, names in os.walk(folder, onerror=unreadable):  # Never push part of a source.
@@ -79,8 +81,54 @@ def source_files(folder):
                 files[path.relative_to(folder).parts] = path.read_bytes()
         folders[:] = sorted(x for x in folders if not junk(x))  # Junk folders are skipped with their contents.
     require(files, f'No files below {folder}')
+    for parts, data in files.items():
+        if parts[0].lower() == 'projects':
+            require(parts[:2]==('projects','openxy') and len(parts)==3,
+                    'Only SDK collection files may be pushed under projects/openxy/')
+            from . import collection_probe
+            from .pipeline import config
+            profile = config()
+            name=parts[-1]
+            if name=='collection.oxc':
+                collection_probe.inspect(data, base=profile['module_base'],
+                                         capacity=profile['reserved_bytes'] - profile['table_bytes'],
+                                         platform=data[40:72])
+            else:
+                require(name!='attempt.oxc' or allow_attempt,
+                        'Attempt history is managed by install-collection; do not replay a seed or overwrite a failed attempt')
+                validate_collection_file(name,data,files)
+    activation=('projects','openxy','activate.oxc')
+    require(activation not in files or len(files)==1,
+            'Push immutable collection files first, then activate.oxc alone in a separate verified transaction')
     distinct_without_case(files)
     return dict(sorted(files.items())), sorted(skipped)
+
+
+def validate_collection_file(name,data,files):
+    import hashlib
+    import re
+    import struct
+    from . import collection_activation as activation,collection_kernel as kernel
+    from .pipeline import config
+    if name=='kernel.oxc':
+        info=kernel.read_information(data)
+        require(('os.ldr',) not in files or sha(files[('os.ldr',)])==info['os_sha256'],
+                'Kernel information differs from the supplied OS')
+    elif name in ('activate.oxc','attempt.oxc'):
+        control=activation.read_control(data,platform=data[32:64],abi=data[64:96])
+        require(control['phase'] in ((0,1,4) if name=='activate.oxc' else (2,3)), 'Wrong collection control role')
+    elif name in ('slot0.oxc','slot1.oxc'):
+        require(len(data)>=activation.HEADER_BYTES, 'Truncated collection slot')
+        activation.inspect(data,geometry=activation.geometry(config(),kernel.RESIDENT_BYTES),
+                           entries=struct.unpack_from('<I',data,36)[0],platform=data[48:80],abi=data[80:112])
+    elif re.fullmatch(r'manifest-[0-9a-f]{64}\.oxc',name):
+        from .collection_manifest import decode
+        decode(data,digest=name[9:-4])
+    else:
+        match=re.fullmatch(r'(asset|catalog)-([0-9a-f]{64})\.oxc',name)
+        require(match is not None,'Unknown SDK collection file: '+name)
+        require(data and len(data)<=(activation.MAX_SVG_BYTES if match[1]=='asset' else activation.MAX_CATALOG_BYTES)
+                and b'\0' not in data and hashlib.sha256(data).hexdigest()==match[2], 'Invalid content-addressed resource: '+name)
 
 
 def distinct_without_case(paths):
@@ -183,7 +231,7 @@ def plan(device, root, files, record, report, tasks):
         tasks.append((parts, data, old, before, entry))
 
 
-def push(device, files, record):
+def push(device, files, record, *, expected_before=None):
     """Mirror files ({device path parts: bytes}) onto the device; returns the transfer report."""
     check_record(record)
     record = fresh_output(record)
@@ -199,7 +247,11 @@ def push(device, files, record):
         root = device.device.root()
         require(not any((x.name or '').lower().endswith('.tfw') for x in device.list(root)),
                 'A firmware update (.tfw) is waiting in the device root; finish or remove it first')
+        guard_attempt_seed(device,root,files)
         plan(device, root, files, record, report, tasks)
+        for parts,_data,_old,before,_entry in tasks:
+            if expected_before is not None and parts in expected_before:
+                require(before==expected_before[parts],f'/{"/".join(parts)} changed after collection planning')
     except BaseException as error:
         report['error'] = str(error) or type(error).__name__
         error.device_state = 'nothing was written to the device'
@@ -214,6 +266,8 @@ def push(device, files, record):
                 live = device.child(parent, parts[-1])
                 unchanged = live is None or (old is not None and live.id == old.id and live.size == len(before))
                 require((live is None) == (old is None) and unchanged, f'{entry["path"]} changed on the device after the backup')
+                if expected_before is not None and parts in expected_before and live is not None:
+                    require(device.read(live)==expected_before[parts],f'{entry["path"]} changed before activation')
                 done.append((parts, old, before, entry))
                 entry['written'] = True
                 save()  # Recorded before the device changes, so an interruption still shows it.
@@ -283,6 +337,19 @@ def push(device, files, record):
     return report
 
 
+def guard_attempt_seed(listings,root,files):
+    attempt=files.get(('projects','openxy','attempt.oxc'))
+    if attempt is None:return
+    from . import collection_activation as activation
+    activation.read_control(attempt,platform=attempt[32:64],abi=attempt[64:96])
+    parent=listings.resolve(root,('projects','openxy'))
+    selector=listings.child(parent,'activate.oxc') if parent is not None else None
+    if selector is None:return
+    require(not selector.folder and selector.size==160,'Cannot seed history below an invalid selector; disable first')
+    control=activation.read_control(listings.read(selector),platform=attempt[32:64],abi=attempt[64:96])
+    require(control['phase']==0,'Cannot overwrite attempt history below an active selector; disable first')
+
+
 def restored(report):
     folders = report['created_folders']
     return 'every file is as it was before this push' + (
@@ -306,6 +373,7 @@ def push_unchecked(device, files, record):
         root = device.device.root()
         require(not any((x.name or '').lower().endswith('.tfw') for x in device.list(root)),
                 'A firmware update (.tfw) is waiting in the device root; finish or remove it first')
+        require(('projects','openxy','attempt.oxc') not in files,'Attempt history requires the checked collection installer')
         for parts, data in files.items():
             parent = device.resolve(root, parts[:-1])
             old = device.child(parent, parts[-1]) if parent else None
@@ -363,6 +431,156 @@ def open_device():
     return Device()
 
 
+def clear_probe_status(device, record):
+    """Back up and remove only SDK probe reports, so a reboot cannot pass on stale files."""
+    check_record(record)
+    record = fresh_output(record)
+    report = dict(files=[], complete=False)
+    listings = Listings(device)
+    parent = listings.resolve(device.root(), ('projects', 'openxy'))
+    pending = []
+    names = {role + suffix: formats for role in ('gui', 'audio') for suffix, formats in (
+        ('-status.oxc', ('openxy-collection-probe/1',)),
+        ('-rpc-status.oxc', ('openxy-collection-rpc-probe/1','openxy-collection-rpc-probe/2')))}
+    def save():
+        (record / 'clear-status.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+    try:
+        for name, formats in names.items():
+            entry = listings.child(parent, name) if parent is not None else None
+            if entry is None:
+                continue
+            require(not entry.folder and entry.size <= 4096, f'Not an SDK probe report: {name}')
+            data = listings.read(entry)
+            value = json.loads(data)
+            require(value.get('format') in formats and value.get('execution') is False,
+                    f'Not an SDK probe report: {name}')
+            backup = record / 'before' / name
+            backup.parent.mkdir(exist_ok=True)
+            backup.write_bytes(data)
+            item = dict(path='/projects/openxy/' + name, sha256=sha(data), removed=False)
+            report['files'].append(item)
+            pending.append((entry, item))
+        save()  # Validate and back up every report before deleting any.
+        for entry, item in pending:
+            listings.delete(parent, entry)
+            item['removed'] = True
+            save()
+        listings.cache.clear()
+        require(parent is None or all(listings.child(parent, name) is None
+                for name in names), 'Probe reports are still present')
+        report['complete'] = True
+        save()
+        return report
+    except BaseException as error:
+        report['error'] = str(error) or type(error).__name__
+        save()
+        raise
+
+
+def collection_records(device):
+    from . import collection_kernel as kernel,collection_activation as activation
+    listings=Listings(device);parent=listings.resolve(device.root(),('projects','openxy'))
+    require(parent is not None,'No resident collection kernel information on this device')
+    def read_record(name,limit,tolerate=False):
+        entry=listings.child(parent,name)
+        if entry is None:return None
+        if tolerate and (entry.folder or entry.size>limit):return b''
+        require(not entry.folder and entry.size<=limit,'Invalid collection record: '+name)
+        return listings.read(entry)
+    raw=read_record('kernel.oxc',65536)
+    require(raw is not None,'Install the verified resident kernel before using RAM collections')
+    info=kernel.read_information(raw);identity=dict(platform=bytes.fromhex(info['platform']),abi=bytes.fromhex(info['abi']))
+    selector_raw=read_record('activate.oxc',160,True);attempt_raw=read_record('attempt.oxc',160,True)
+    def decode(data):
+        if data is None:return None
+        try:return activation.read_control(data,**identity)
+        except (ValueError,TypeError):return None
+    return raw,info,selector_raw,decode(selector_raw),attempt_raw,decode(attempt_raw)
+
+
+def install_collection(device,bundle,record,verify_only=False,inventory=None,skip_presets=False):
+    """Two existing push transactions: inactive bytes first, selector last."""
+    from . import collection_bundle,collection_activation as activation
+    description,info,image,resources=collection_bundle.read_bundle(bundle)
+    require(skip_presets or not description.get('presets'),
+            'Regular MTP preset installation is not qualified. Use --skip-presets to preserve existing presets and install only the collection.')
+    raw,live,selector_raw,selector,attempt_raw,attempt=collection_records(device)
+    require(sha(raw)==description['kernel'] and live==info,'The device is running a different resident kernel')
+    require(selector_raw is None or selector is not None,'Corrupt activation record; disable the external collection first')
+    require(selector is None or selector['phase'] in (0,1,4),'Invalid selection phase')
+    require(attempt is None or attempt['phase'] in (2,3),'Invalid attempt phase')
+    active=selector is not None and selector['phase']!=0
+    require(not active or attempt is not None,'Active selection has no valid attempt history; disable it before reinstalling')
+    generation=max([1]+[r['generation'] for r in (selector,attempt) if r is not None])+1
+    require(generation<=0xffffffff,'Collection generation exhausted')
+    slot=1-selector['slot'] if active else 0
+    identity=dict(platform=bytes.fromhex(info['platform']),abi=bytes.fromhex(info['abi']))
+    selected=activation.control(phase=4 if verify_only else 1,generation=generation,slot=slot,
+                                digest=bytes.fromhex(description['digest']),**identity)
+    stage={('projects','openxy',name):data for name,data in resources.items()}
+    stage[('projects','openxy',f'slot{slot}.oxc')]=image
+    if inventory is not None:
+        from .collection_manifest import decode,filename
+        metadata=decode(inventory,digest=description['digest'],kernel=description['kernel'])
+        require([m['id'] for m in metadata['machines']]==description['linked'],'Inventory differs from linked collection')
+        stage[('projects','openxy',filename(description['digest']))]=inventory
+    if attempt is None:
+        # No active selector can observe this seed. It merely provides valid
+        # older history for the explicit new generation, never confirmation of it.
+        stage[('projects','openxy','attempt.oxc')]=activation.control(phase=3,generation=generation-1,slot=slot,
+            digest=bytes.fromhex(description['digest']),**identity)
+    check_record(record);record=fresh_output(record)
+    expected_attempt=stage.get(('projects','openxy','attempt.oxc'),attempt_raw)
+    for label,files in (('stage',stage),('activate',{('projects','openxy','activate.oxc'):selected})):
+        folder=record/(label+'-input')
+        for parts,data in files.items():
+            path=folder.joinpath(*parts);path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data)
+        checked,_=source_files(folder,allow_attempt=label=='stage' and attempt is None)
+        current,_,current_selector,_,current_attempt,_=collection_records(device)
+        require(current==raw and current_selector==selector_raw and current_attempt==
+                (attempt_raw if label=='stage' else expected_attempt),'Collection records changed during installation; selector left unchanged')
+        expected={('projects','openxy','activate.oxc'):selector_raw} if label=='activate' else None
+        push(device,checked,record/label,expected_before=expected)
+    result=dict(complete=True,generation=generation,slot=slot,digest=description['digest'],
+                mode='verify-only' if verify_only else 'armed',applies='next boot',boot_partition_written=False,
+                presets_transferred=False)
+    try:
+        (record/'collection-install.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
+    except OSError as error:
+        error.device_state='collection selected and verified; local summary save failed; see activate/transfer.json'
+        raise
+    return result
+
+
+def disable_collection(device,record):
+    from . import collection_activation as activation
+    _,info,_,selector,_,attempt=collection_records(device)
+    generation=max([0]+[r['generation'] for r in (selector,attempt) if r is not None])+1
+    # Disabled never executes a slot or reads attempt history. It also provides
+    # the recovery path for a corrupt record or an exhausted generation.
+    if generation>0xffffffff:generation=1
+    data=activation.control(phase=0,generation=generation,slot=0,digest=bytes(32),
+        platform=bytes.fromhex(info['platform']),abi=bytes.fromhex(info['abi']))
+    return push(device,{('projects','openxy','activate.oxc'):data},record)
+
+
+def collection_status(device):
+    _,info,selection_raw,selection,attempt_raw,attempt=collection_records(device)
+    phases=('disabled','armed','pending','confirmed','verify-only')
+    def describe(raw,control):
+        if control is None:return {'state':'missing' if raw is None else 'invalid'}
+        return dict(state=phases[control['phase']],generation=control['generation'],slot=control['slot'],digest=control['digest'].hex())
+    next_boot='embedded'
+    if selection is not None and selection['phase'] in (1,4) and attempt is not None and attempt['phase'] in (2,3):
+        older=attempt['generation']<selection['generation']
+        healthy=(attempt['generation']==selection['generation'] and attempt['phase']==3 and
+                 attempt['slot']==selection['slot'] and attempt['digest']==selection['digest'])
+        if older or healthy and selection['phase']==1:
+            next_boot='verify-only' if selection['phase']==4 else 'external'
+    return dict(kernel=info['platform'],embedded=info['embedded'],selection=describe(selection_raw,selection),
+                attempt=describe(attempt_raw,attempt),next_boot=next_boot)
+
+
 def main(argv=None, connect=open_device):
     parser = argparse.ArgumentParser(prog='sdk.py device', description=__doc__.split('\n\n')[0])
     commands = parser.add_subparsers(dest='command', required=True)
@@ -371,16 +589,36 @@ def main(argv=None, connect=open_device):
     p.add_argument('--record', type=Path, help='New folder outside every checkout for the record and backups')
     p.add_argument('--no-backup', action='store_true', help='No backups or rollback; requires --no-verify')
     p.add_argument('--no-verify', action='store_true', help='No device file readback; requires --no-backup')
+    kernel_scope=p.add_mutually_exclusive_group()
+    kernel_scope.add_argument('--kernel-boot',action='store_true',help='Dev MTP: copy only the resident OS and its protected fallback SVG')
+    kernel_scope.add_argument('--kernel-record',action='store_true',help='Normal MTP: copy only the resident kernel information record')
     p = commands.add_parser('list', help='List a device folder')
     p.add_argument('path', nargs='?', default='/')
     p = commands.add_parser('pull', help='Read one device file')
     p.add_argument('path')
     p.add_argument('--out', type=Path, required=True, help='New file outside every checkout')
+    p = commands.add_parser('clear-probe-status', help='Back up and remove SDK inspection and RPC reports')
+    p.add_argument('--record', type=Path, required=True, help='New folder outside every checkout for report backups')
+    p=commands.add_parser('install-collection',help='Install a RAM collection, with activation written last')
+    p.add_argument('bundle',type=Path)
+    p.add_argument('--verify-only',action='store_true',help='Preflight at next boot without copying or executing code')
+    p.add_argument('--skip-presets',action='store_true',help='Keep existing presets; do not transfer bundled factory presets')
+    p.add_argument('--record',type=Path,required=True)
+    p=commands.add_parser('disable-collection',help='Return to the embedded collection at next boot')
+    p.add_argument('--record',type=Path,required=True)
+    commands.add_parser('collection-status',help='Read selection/attempt records and the next-boot decision')
     args = parser.parse_args(argv)
     try:
         if args.command == 'push':
             require(args.no_backup == args.no_verify, 'Use --no-backup and --no-verify together')
             files, skipped = source_files(args.folder)  # A bad source fails before the device is touched.
+            if args.kernel_boot or args.kernel_record:
+                require(not args.no_backup,'Kernel installation requires backups and readback')
+                information=('projects','openxy','kernel.oxc')
+                require(information in files,'The folder has no resident kernel information')
+                wanted={information} if args.kernel_record else {('os.ldr',),('content','display','_openxy_loader_1.svg')}
+                require(wanted<=set(files),'Incomplete resident kernel installation files')
+                files={parts:data for parts,data in files.items() if parts in wanted}
             for path in skipped:
                 print('skipped ' + path, flush=True)
             record = args.record or private_root() / 'transfers' / datetime.now().strftime('%Y%m%d-%H%M%S-%f')
@@ -398,6 +636,24 @@ def main(argv=None, connect=open_device):
                 changed = sum(x['changed'] for x in report['files'])
                 print(f'PASS: {len(files)} files on the device ({changed} copied and read back, the rest already matched). '
                       'Firmware not written to the boot partition.')
+        elif args.command=='install-collection':
+            from .collection_bundle import read_bundle
+            read_bundle(args.bundle);check_record(args.record)
+            with connect() as device:
+                result=install_collection(device,args.bundle,args.record,args.verify_only,skip_presets=args.skip_presets)
+            print(json.dumps(result,indent=2));print('Reboot to apply. Transfer records: '+str(args.record))
+        elif args.command=='collection-status':
+            with connect() as device:result=collection_status(device)
+            print(json.dumps(result,indent=2))
+        elif args.command=='disable-collection':
+            check_record(args.record)
+            with connect() as device:disable_collection(device,args.record)
+            print('External collection disabled. Reboot to use the embedded machines. Record: '+str(args.record))
+        elif args.command == 'clear-probe-status':
+            check_record(args.record)
+            with connect() as device:
+                result = clear_probe_status(device, args.record)
+            print(f'PASS: all probe reports absent ({len(result["files"])} backed up and removed). Record: {args.record}')
         elif args.command == 'list':
             with connect() as device:
                 folder, entry = entry_at(device, args.path)

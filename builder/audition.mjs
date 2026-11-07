@@ -1,18 +1,22 @@
 import engineSource from '../sdk/browser/engine.mjs?raw';
+import effectSource from '../sdk/browser/effect.mjs?raw';
 import processorSource from '../sdk/browser/processor.mjs?raw';
 
 // Reuse the SDK audition runner with the same authenticated C++ module as the
 // display. Inline the worklet so the standalone HTML also works without a server.
 const workletSource = engineSource.replace('export class ', 'class ') + '\n' +
-  processorSource.replace("import { PreviewEngine } from './engine.mjs';", '').replace('export class ', 'class ') +
+  effectSource.replace('export class ', 'class ') + '\n' +
+  processorSource.replace("import { PreviewEngine } from './engine.mjs';", '')
+    .replace("import { EffectPreviewEngine } from './effect.mjs';", '').replace('export class ', 'class ') +
   "\nregisterProcessor('opxy-audition', PreviewProcessor);";
 
 export class Audition {
-  constructor(module, parameters, onState) {
+  constructor(module, parameters, onState, kind = 'synth') {
     this.module = module; this.parameters = [...parameters]; this.onState = onState;
     this.volume = 0.5; this.revision = 0; this.disposed = false; this.playing = false;
     // The note a key holds, from its press: a release during audio setup still ends it.
     this.held = null;
+    this.kind = kind; this.model = 0; this.bypass = false; this.wet = 0.5;
   }
   async start() {
     const context = this.context = new AudioContext({sampleRate:44100, latencyHint:'interactive'});
@@ -26,8 +30,8 @@ export class Audition {
     finally { if (!offline) URL.revokeObjectURL(url); }
     if (this.disposed) return;
     const processor = this.processor = new AudioWorkletNode(context, 'opxy-audition', {
-      numberOfInputs:0, numberOfOutputs:1, outputChannelCount:[1],
-      processorOptions:{module:this.module, parameters:this.parameters},
+      numberOfInputs:0, numberOfOutputs:1, outputChannelCount:[this.kind === 'effect' ? 2 : 1],
+      processorOptions:{module:this.module, parameters:this.parameters, kind:this.kind},
     });
     const gain = this.gain = context.createGain(); gain.gain.value = 0;
     processor.connect(gain).connect(context.destination);
@@ -54,6 +58,11 @@ export class Audition {
       if (this.disposed || revision !== this.revision) return;
       this.processor.port.postMessage({type:'panic'});
       this.processor.port.postMessage({type:'parameters', value:this.parameters});
+      this.processor.port.postMessage({type:'model', value:this.model});
+      if (this.kind === 'effect') {
+        this.processor.port.postMessage({type:'bypass', value:this.bypass});
+        this.processor.port.postMessage({type:'wet', value:this.wet});
+      }
       this.gain.gain.value = this.volume;
       this.processor.port.postMessage({type:'on', note, velocity:0.8});
       this.playing = true; this.onState(true);
@@ -82,6 +91,9 @@ export class Audition {
     this.parameters = [...values];
     this.processor?.port.postMessage({type:'parameters', value:this.parameters});
   }
+  setModel(value) { this.model = value; this.processor?.port.postMessage({type:'model', value}); }
+  setBypass(value) { this.bypass = value; this.processor?.port.postMessage({type:'bypass', value}); }
+  setWet(value) { this.wet = value; this.processor?.port.postMessage({type:'wet', value}); }
   setVolume(value) {
     this.volume = value;
     if (this.gain && this.playing) this.gain.gain.value = value;

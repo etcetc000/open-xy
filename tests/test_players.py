@@ -89,6 +89,17 @@ class PlayerContracts(unittest.TestCase):
         self.assertEqual(after['seq_types'][-1]['id'], self.machine.identity['player'] + 4)
         self.assertEqual(after['seq_types'][-1]['type'], 'probeplayer')
 
+    def test_page_size_optimization_keeps_machine_and_sequencer_code_outside_its_scope(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = adapters.generate_player_object(folder, self.machine).read_text()
+        begin = source.index('#pragma GCC push_options')
+        end = source.index('#pragma GCC pop_options')
+        self.assertLess(source.index('#include "player.cpp"'), begin)
+        self.assertLess(source.index('static u32 press('), begin)
+        self.assertLess(source.index('static void step_player('), begin)
+        self.assertLess(begin, source.index('struct Page'))
+        self.assertLess(source.index('struct Page'), end)
+
     def test_player_panel_can_omit_the_entire_output_keyboard(self):
         nodes = [f'<circle id="probeplayer_dot_{i}" transform="matrix(1 0 0 1 20 80)" '
                  'r="4" fill="#000000" stroke="#000000" stroke-width="1"/>' for i in range(24)]

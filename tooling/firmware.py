@@ -49,10 +49,16 @@ def absolute_call(target):
     return struct.pack('<4H', 0xde00, target >> 16, target & 65535, 0)
 
 
-def absolute_target(data):
+def absolute_jump(target):
+    require(0 <= target <= 0xffffffff and target % 2 == 0, 'Invalid absolute jump target')
+    return struct.pack('<4H', 0xdc00, target >> 16, target & 65535, 0)
+
+
+def absolute_target(data, call=True):
     require(len(data) == 8, 'Absolute call must occupy eight bytes')
     opcode, high, low, zero = struct.unpack('<4H', data)
-    require(opcode == 0xde00 and zero == 0 and low % 2 == 0, 'Invalid absolute call encoding')
+    require(opcode == (0xde00 if call else 0xdc00) and zero == 0 and low % 2 == 0,
+            'Invalid absolute branch encoding')
     return high << 16 | low
 
 
@@ -69,6 +75,8 @@ def hook_instruction(patch, target):
 def hook_target(patch, instruction):
     """(destination, call) of hook bytes produced by hook_instruction."""
     if patch['length'] in (8, 12):
+        require(type(patch['call']) is bool and (patch['call'] or patch['length'] == 8),
+                'Invalid absolute hook policy')
         require(len(instruction) == patch['length'] and instruction[8:] == bytes(patch['length'] - 8),
                 'Changed absolute-hook padding')
         if patch['call']: return absolute_target(instruction[:8]), True
@@ -90,7 +98,7 @@ def assemble(stock, module, profile, original_profile, edits, services, profilin
         require(all(patch[k] == original[k] for k in ('kind', 'address', 'before', 'file_offset', 'length')),
                 'Changed patch boundary')
         after = bytes.fromhex(patch['after'])
-        require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'call')),
+        require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'call', 'absolute_jump')),
                 'Changed patch policy')
         if not patch_active(original, services, profiling):
             require(patch['after'] == original['before'], 'An inactive hook changed stock')

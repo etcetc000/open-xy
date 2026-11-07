@@ -48,7 +48,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # level, small controls and sends, which lock per hit (resources.padMix and
 # resources.padControls); runs every kit's voices through stock's track filter (M3);
 # and calls a kit's drum_transport with the tempo before every render.
-SDK_VERSION = (1, 10)
+# 1.11 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
+SDK_VERSION = (1, 11)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -257,7 +258,19 @@ def check_region(region, identity, samples):
     return region
 
 
-def check_preset(value, identity, samples=None):
+def drum_preset_regions(regions):
+    """Sample-free Drumline records carrying the public kit's packed pad words."""
+    return isinstance(regions, list) and len(regions) == 24 and all(
+        isinstance(region, dict) and {'model', 'params'} <= set(region) and
+        set(region) <= {'model', 'params', 'playmode', 'hikey'} and region['model'] == 'fm slap' and
+        isinstance(region['params'], list) and len(region['params']) == 4 and
+        all(type(n) is int and 0 <= n <= 32767 for n in region['params']) and
+        region.get('playmode', 'oneshot') in ('gate', 'oneshot', 'mute1', 'loop', 'mute2', 'mute3') and
+        ('hikey' not in region or type(region['hikey']) is int and region['hikey'] == 53 + index)
+        for index, region in enumerate(regions))
+
+
+def check_preset(value, identity, samples=None, kind='synth'):
     """A preset as the device saves it (version 4), for this machine, pointing at no samples
     or, for a sample engine shipping its own (SDK 1.10), at one of them."""
     engine = value.get('engine') if isinstance(value, dict) else None
@@ -267,7 +280,9 @@ def check_preset(value, identity, samples=None):
             value.get('type') == identity and isinstance(found, list) and isinstance(params, list) and
             len(params) == 8 and all(type(n) is int and 0 <= n <= 32767 for n in params),
             f'A preset is a version 4 OP-XY preset of {identity}, with eight engine params')
-    if samples:
+    if kind == 'drum' and found:
+        require(drum_preset_regions(found), f'A drum preset of {identity} holds 24 sample-free packed pad records')
+    elif samples:
         require(len(found) <= 1, f'A preset of {identity} has at most 1 sample region')
         for region in found:
             check_region(region, identity, samples)
@@ -281,7 +296,7 @@ def reject_constant(name):
     raise ValueError(f'{name} is not JSON')
 
 
-def read_presets(root, folder, identity, samples=None):
+def read_presets(root, folder, identity, samples=None, kind='synth'):
     """Each <name>.json in the machine's presets folder, by name."""
     path = root / _relative(root, folder)
     require(path.is_dir(), 'presets names a folder: ' + folder)
@@ -299,7 +314,7 @@ def read_presets(root, folder, identity, samples=None):
             value = json.loads(data.decode('utf-8'), parse_constant=reject_constant)
         except ValueError as error:
             raise ValueError(f'{file.name}: invalid JSON: {error}') from error
-        presets[file.stem] = check_preset(value, identity, samples)
+        presets[file.stem] = check_preset(value, identity, samples, kind)
     return presets
 
 
@@ -516,6 +531,8 @@ def machine_at(root, identity=None):
     if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
+    if definition['resources'].get('parameterEdit'):
+        require_sdk(version, (1, 11), 'Per-model drum value editing (parameterEdit)')
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:
@@ -604,7 +621,9 @@ def machine_at(root, identity=None):
     if 'presets' in value:
         require_sdk(version, (1, 3), "A machine's own presets")
         require(kind in ('synth', 'drum', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
-        presets = read_presets(root, value['presets'], identity, samples)
+        presets = read_presets(root, value['presets'], identity, samples, kind)
+        if kind == 'drum' and any(preset['regions'] for preset in presets.values()):
+            require_sdk(version, (1, 11), 'Sample-free drum-kit preset records')
     if samples:
         # Every sample is there for a preset: one no preset loads only takes up the player's storage.
         loaded = {region['sample'] for preset in (presets or {}).values() for region in preset['regions']}

@@ -19,10 +19,11 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
+from . import collection_activation, collection_kernel, collection_probe, collection_resident, collection_rpc
 from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
-                       generate_sample_callbacks, generate_screen, generate_screen_order,
+                       generate_sample_callbacks, generate_sample_slice_bridge, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_track_controls,
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
@@ -56,15 +57,23 @@ CXX_FLAGS = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-excep
              '-fomit-frame-pointer', '-nostdinc++', '-Wall', '-Werror', '-Wno-unused-variable']
 from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes, validate_xml
 
+GUI_CXX_FLAGS = ['-Os' if flag == '-O2' else flag for flag in CXX_FLAGS]
+GUI_UNITS = frozenset(('synth_control_table', 'drum_values_stock', 'drum_display_stock',
+                       'screen_order', 'sample_slice_clock', 'presets', 'stock_browser', 'startup'))
 
 
 class Collection(list):
     """A build's machines, in firmware order, and the extensions it links, in
     callback order (`extensions`). A subset of its machines keeps its extensions."""
 
-    def __init__(self, machines=(), extensions_=()):
+    def __init__(self, machines=(), extensions_=(), *, probe=False, rpc_probe=False, loader=False, external=False):
         super().__init__(machines)
         self.extensions = tuple(extensions_)
+        self.collection_probe = probe
+        self.collection_rpc_probe = rpc_probe
+        self.collection_loader = loader
+        self.collection_external = external
+        self.collection_profiling = True
 
 
 def extensions_of(machines):
@@ -74,19 +83,31 @@ def extensions_of(machines):
 
 def subset(machines, chosen):
     """Some of a collection's machines, with all of its extensions."""
-    return Collection(chosen, extensions_of(machines))
+    result=Collection(chosen, extensions_of(machines), probe=getattr(machines, 'collection_probe', False),
+                      rpc_probe=getattr(machines, 'collection_rpc_probe', False),
+                      loader=getattr(machines,'collection_loader',False),external=getattr(machines,'collection_external',False))
+    result.collection_profiling=getattr(machines,'collection_profiling',True)
+    return result
 
 
-def configuration(entries=None, layout=None):
+def configuration(entries=None, layout=None, probe=False, rpc_probe=False, loader=False):
     """The profile, the collection's machines numbered by the layout (a Collection,
     carrying its extensions), and their link-time IDs. Entries are
     machines.read_collection's."""
-    profile = config()
+    require(type(probe) is bool, 'Collection probe flag must be a boolean')
+    require(type(rpc_probe) is bool and (not rpc_probe or probe), 'RPC probe requires collection inspection')
+    require(type(loader) is bool and not (loader and (probe or rpc_probe)), 'Loader cannot run startup diagnostics')
+    profile = collection_probe.profile(config()) if probe else config()
+    if rpc_probe:
+        profile = collection_rpc.profile(profile)
+    if loader:
+        profile=collection_kernel.profile(profile)
     stock_tables.check_profile(profile)
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
-        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
+        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]),
+        probe=probe, rpc_probe=rpc_probe,loader=loader)
     definitions = dict(DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
@@ -106,7 +127,7 @@ def configuration(entries=None, layout=None):
 def provenance(machines):
     """Every authored, SDK and compiler-profile input; private artifacts never enter.
     The collection is its machines, in order: their IDs and sources below."""
-    paths = {PROFILE, LINKER, extensions.PROFILE}
+    paths = {PROFILE, LINKER, extensions.PROFILE, collection_probe.OVERLAY, collection_rpc.OVERLAY,collection_kernel.OVERLAY}
     for folder in ('sdk/include', 'sdk/platform', 'tooling'):
         paths |= {p.relative_to(ROOT).as_posix() for p in (ROOT / folder).rglob('*')
                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md'}
@@ -148,7 +169,7 @@ def check_sources(machines):
                 validate_source_boundary(path.read_text(encoding='utf-8'), m.source(path.relative_to(m.root).as_posix()))
 
 
-def compile_cxx(cxx, assembler, source, obj, includes=()):
+def compile_cxx(cxx, assembler, source, obj, includes=(), *, gui=False):
     """cc1plus via the driver to assembly, then the pinned assembler.
 
     The driver never chooses an assembler, so object bytes depend only on the
@@ -158,7 +179,8 @@ def compile_cxx(cxx, assembler, source, obj, includes=()):
     obj = Path(obj).resolve()
     assembly = obj.with_suffix('.s')
     generated = Path(source).is_absolute()
-    flags = [*CXX_FLAGS, *('-I' + str((ROOT / path).resolve()) for path in includes), '-fstack-usage']
+    flags = [*(GUI_CXX_FLAGS if gui else CXX_FLAGS),
+             *('-I' + str((ROOT / path).resolve()) for path in includes), '-fstack-usage']
     subprocess.run([str(cxx), *flags, '-S', Path(source).name if generated else source, '-o', str(assembly)],
                    cwd=Path(source).parent if generated else ROOT, check=True, capture_output=True, text=True,
                    timeout=300, **hidden_process())
@@ -198,10 +220,24 @@ def plan(machines, profile=None):
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
         # A machine's own routines (native/<name>.s), assembled into it alone.
         units += [(f'{m.id}/native_{unit.name}.o', m, 'native:' + unit.name) for unit in m.native]
-    services = active_services(profile or config(), service_users(machines))
+    services = collection_services(profile or config(),machines)
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
+    if getattr(machines, 'collection_probe', False):
+        units += [('sdk/collection_inspector.o', None, 'collection_inspector'),
+                  ('sdk/collection_probe.o', None, 'collection_probe')]
+    if getattr(machines, 'collection_rpc_probe', False):
+        units += [('sdk/collection_rpc.o', None, 'collection_rpc'),
+                  ('sdk/collection_rpc_stock.o', None, 'collection_rpc_stock'),
+                  ('sdk/collection_gate.o', None, 'collection_gate'),
+                  ('sdk/collection_rpc_entry.o', None, 'collection_rpc_entry')]
+    if getattr(machines,'collection_loader',False):
+        units += [(f'sdk/{step}.o',None,step) for step in (
+            'collection_inspector','collection_kernel','collection_mtp','collection_rpc_stock','collection_rpc_entry',
+            'collection_gate','collection_activation','collection_resources','collection_io','collection_cache',
+            'collection_cache_core','collection_handoff','collection_resource_stock','collection_resident',
+            'collection_entries','collection_descriptors')]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
@@ -259,6 +295,17 @@ def service_users(machines):
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
+
+
+def collection_services(profile,machines):
+    # A resident kernel retains its complete profile's service ABI even when a
+    # replacement collection removes the last user of one of those services.
+    return set(profile.get('services',{})) if getattr(machines,'collection_loader',False) else active_services(profile,service_users(machines))
+
+
+def collection_interface(profile,machines):
+    return collection_activation.interface(profile,collection_services(profile,machines),
+        machines.collection_profiling,collection_kernel.RESIDENT_BYTES)
 
 
 def module_bytes(profile):
@@ -331,6 +378,8 @@ def absent_symbols(m):
                 # The send table names these; no voice's method table is kit_absent. The
                 # table is declared without an assembler name, so it carries C's underscore.
                 absent.update({'_' + m.prefix + '_vtable': 'kit_absent', m.prefix + '_drum_send': 'kit_absent'})
+            if m.definition['resources'].get('parameterEdit', 0):
+                absent[m.prefix + '_drum_edit_value'] = 'kit_absent'
         if m.kind == 'sample':
             # The shared sample table names these; unselected, its ready check declines first.
             absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
@@ -407,7 +456,12 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     definitions = {**definitions, **absent_numbers(absent)}
     # GNU ld synthesizes FILE symbols from object arguments; relative names keep
     # independent rebuilds byte-identical.
-    command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',
+    script=ROOT/LINKER
+    if getattr(machines,'collection_loader',False):
+        script=Path(directory).resolve()/'collection.ld'
+        script.write_text(collection_resident.linker(read(ROOT/LINKER).decode(),profile,
+            collection_kernel.RESIDENT_BYTES,kernel=True),encoding='utf-8',newline='\n')
+    command = [tools['ld'], '-T', script, f'-Map={name}.map', '-o', f'{name}.elf',
                *(f'--defsym={key}={value:#x}' for key, value in definitions.items()),
                *(f'--defsym={key}={value}' for key, value in aliases.items()),
                *(object_name for object_name, _m, _step in plan(subset(machines, selected), profile)),
@@ -432,6 +486,8 @@ def linked_machines(directory, tools, profile, machines, definitions, runtime_me
     overflow = link(directory, tools, profile, definitions, machines, machines, runtime_members=runtime_members)
     if overflow is None:
         return machines
+    require(not (getattr(machines, 'collection_probe', False) or getattr(machines,'collection_loader',False)),
+            'Collection startup builds require every selected machine to fit; '+overflow)
     core = [m for m in machines if m.id in OFFICIAL]
     require(core and len(core) < len(machines), 'Machines exceed the shared module memory, ' + overflow)
     for m in machines:
@@ -461,17 +517,27 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     gcc = compiler_paths(compiler)
     require(sha(read(ROOT / LINKER)) == profile['linker_sha256'], 'Unreviewed memory layout')
     before = provenance(machines)
+    loader=getattr(machines,'collection_loader',False)
+    if loader:
+        machines.collection_profiling=profiling
+        interface=collection_interface(profile,machines)
+        platform=collection_probe.platform_id(before,collection_services(profile,machines),profiling,host_pins('compiler')[0])
+        assets=prepare_assets(read(STOCK_CONTENT/'op1_factory.json'),profile,machines)
     effects, sample_engines = by_kind(machines, 'effect'), by_kind(machines, 'sample')
 
     def assemble_unit(source, obj):
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
     def cxx(source, obj, m=None):
-        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m))
+        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m),
+                    gui=loader and m is None and obj.stem in GUI_UNITS)
 
     def display_unit(folder, m):
         generate_display(folder, machine=m)
         return folder / 'display_binding.cpp'
+
+    def artwork(m):
+        return ('openxy-'+sha(assets[f'content/display/{m.native_name}.svg'])+'.svg') if loader and getattr(machines,'collection_external',False) else None
 
     def build_unit(obj, m, step):
         folder = obj.parent
@@ -479,6 +545,29 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         if m is None:
             if step == 'drum_callbacks':
                 return cxx(str(generate_drum_callbacks(folder, machines)), obj)
+            if step == 'collection_inspector':
+                return cxx('sdk/platform/collection_probe.cpp', obj)
+            if step == 'collection_gate':
+                return cxx('sdk/platform/collection_gate.cpp', obj)
+            if loader and step=='collection_kernel':
+                return cxx(str(collection_kernel.generate(folder,interface,platform,collection_activation.fingerprint(interface))),obj)
+            if loader and step in ('collection_activation','collection_resources','collection_handoff'):
+                return cxx('sdk/platform/'+step+'.cpp',obj)
+            if loader and step=='collection_cache_core':
+                return cxx('sdk/platform/collection_cache.cpp',obj)
+            if loader and step in ('collection_resident','collection_entries'):
+                path=folder/(step+'.s')
+                path.write_text((collection_resident.guarded_dispatch if step=='collection_resident' else collection_activation.payload_entries)(interface),encoding='utf-8',newline='\n')
+                return assemble_unit(path,obj)
+            if loader and step=='collection_descriptors':
+                return cxx(str(collection_kernel.descriptors(folder,assets)),obj)
+            if step == 'collection_probe':
+                return cxx(str(collection_probe.generate(folder, before,
+                    active_services(profile, service_users(machines)), profiling, host_pins('compiler')[0],
+                    profile['module_base'], module_bytes(profile))), obj)
+            if step == 'collection_rpc':
+                return cxx(str(collection_rpc.generate(folder, before,
+                    active_services(profile, service_users(machines)), profiling, host_pins('compiler')[0])), obj)
             if step == 'benchmark':
                 return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
             if step.startswith('extension:'):
@@ -496,6 +585,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_screen_order(folder)), obj)
             if step == 'sample_callbacks':
                 return cxx(str(generate_sample_callbacks(folder, machines)), obj)
+            if step == 'drum_controls_stock':
+                return cxx(str(generate_sample_slice_bridge(folder, machines)), obj)
             if step == 'synth_control_table':
                 return cxx(str(generate_synth_controls(folder, machines)), obj)
             if step == 'player_table':
@@ -514,14 +605,17 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
                 prefixes = [x.prefix for x in by_kind(machines, 'synth', 'drum', 'sample')]
-                services = active_services(profile, service_users(machines))
+                services = collection_services(profile, machines)
                 return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
                                                 [x.prefix for x in sample_engines],
                                                 [x.prefix for x in sample_engines if x.display != 'stock'],
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
-                                                locks='drum_locks' in services)), obj)
+                                                locks='drum_locks' in services,
+                                                probe=getattr(machines, 'collection_probe', False),
+                                                rpc_probe=getattr(machines, 'collection_rpc_probe', False),
+                                                collection_loader=loader)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -531,12 +625,12 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             unit = next(u for u in m.native if u.name == step.removeprefix('native:'))
             assemble_unit(unit.path, obj)
             return check_native_object(execute([tools['objdump'], '-h', '-t', obj]), unit, f'{m.id}/native/{unit.name}.s')
-        source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
-                  'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
+        source = {'voice': lambda: generate_voice(folder, m, sweep, benchmark=True), 'display': lambda: display_unit(folder, m),
+                  'screen': lambda: generate_screen(folder,m,artwork=artwork(m)), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
                   'control': lambda: generate_control(folder, m),
                   'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
-                  'player_object': lambda: generate_player_object(folder, m)}[step]
+                  'player_object': lambda: generate_player_object(folder,m,artwork=artwork(m))}[step]
         return cxx(str(source()), obj, m)
 
     for name, m, step in plan(machines, profile):
@@ -553,14 +647,21 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     require(provenance(machines) == before, 'Sources changed during compilation')
     report = dict(schema=1, target=TARGET, status='experimental-unqualified', sources=before,
                   host=host_platform(), tools=host_pins('tools')[0], compiler=host_pins('compiler')[0],
-                  cxx_flags=CXX_FLAGS, profiling=profiling, benchmark_cases=benchmark.cases(linked, sweep),
+                  cxx_flags=CXX_FLAGS, gui_cxx_flags=GUI_CXX_FLAGS, profiling=profiling,
+                  gui_units=[name for name, m, step in plan(machines, profile)
+                             if loader and m is None and step in GUI_UNITS],
+                  benchmark_cases=benchmark.cases(linked, sweep),
                   **({'benchmark_sweep': True} if sweep else {}),
+                  **({'collection_probe': True} if getattr(machines, 'collection_probe', False) else {}),
+                  **({'collection_rpc_probe': True} if getattr(machines, 'collection_rpc_probe', False) else {}),
+                  **({'collection_loader': True,'collection_external':getattr(machines,'collection_external',False),
+                      'collection_interface':interface,'collection_platform':platform.hex()} if loader else {}),
                   sizes=sizes, memory=usage, module_bytes=module_bytes(profile), audio_stack_bytes=stack,
                   reserved_bytes=profile['reserved_bytes'],
                   module_sha256=sha(module), elf_sha256=sha(read(directory / 'module.elf')), hooks=hooks,
                   objects=object_owners(linked, profile, runtime_members), patches=patch_profile['patches'],
                   linked=[m.id for m in linked],
-                  services=sorted(active_services(profile, service_users(linked))), device_operations=False,
+                  services=sorted(collection_services(profile,linked)), device_operations=False,
                   hardware_tested=False, cpu_timing_measured=False)
     if runtime_members:
         report['runtime'] = runtime_members
@@ -651,7 +752,7 @@ def _frame_delta(text):
     return 0
 
 
-def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None):
+def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None, *, data_ranges=None):
     """Worst-case stack bytes of each machine's audio entry; recursion fails the build.
 
     Frames are the deepest SP excursion along each function (LINK counts its
@@ -665,6 +766,8 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
     here (its lint admits only the SP forms measured). Its indirect jumps stay
     within the routine (a computed branch, such as into a loop), and it makes no
     indirect calls; its direct calls are followed as any function's.
+
+    Dispatch words come from ELF data sections, never instruction encodings.
     """
     native = native or {}
     starts, body, current = [], {}, None
@@ -679,7 +782,11 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
     owner = lambda address: max((s for s in starts if s <= address), default=None)
     tables = [(v['value'], v['value'] + v['size']) for name, v in symbols.items() if name.endswith('vtable')]
     word = lambda at: int.from_bytes(module[at - base:at - base + 4], 'little')
-    taken = {w for at in range(base, base + len(module) - 3, 4)
+    if data_ranges is None:
+        data_ranges = ((base, base + len(module)),)
+    require(all(base <= lo <= hi <= base + len(module) for lo, hi in data_ranges),
+            'Call-graph data outside the initialized module')
+    taken = {w for start, end in data_ranges for at in range((start + 3) & ~3, end - 3, 4)
              if not any(lo <= at < hi for lo, hi in tables) and (w := word(at)) in body}
     memo, active = {}, set()
 
@@ -736,8 +843,10 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
     require(type(profiling) is bool, 'Profiling must be a boolean')
     elf = directory / 'module.elf'
     sections, symbols = elf32(read(elf))
+    loader=getattr(machines,'collection_loader',False)
+    extra={'.resident_text','.resident_rodata','.resident_data','.resident_bss','.collection_resources'} if loader else set()
     allocated = {name: s for name, s in sections.items() if s['flags'] & 2 and s['size']}
-    require(set(allocated) <= ALLOWED_SECTIONS and {'.text', '.rodata', '.bss'} <= set(allocated),
+    require(set(allocated) <= ALLOWED_SECTIONS|extra and {'.text', '.rodata', '.bss'}|extra <= set(allocated),
             'Unexpected allocated sections: ' + ', '.join(sorted(allocated)))
     require(not any(name.startswith(('.init_array', '.fini_array', '.ctors', '.dtors')) and s['size']
                     for name, s in sections.items()), 'Static constructors are not supported')
@@ -749,7 +858,7 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
             intervals[-1][1] <= low + profile['reserved_bytes'] and allocated['.bss']['type'] == 8,
             'Module or BSS outside single shared reservation')
     module = bytearray(end - low)
-    for name in ('.text', '.rodata', '.data'):
+    for name in ('.text', '.rodata', '.data',*(sorted(extra-{'.resident_bss'}))):
         if name in allocated:
             s = allocated[name]
             at = s['address'] - low
@@ -761,16 +870,32 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
     # The startup label thunk uses Blackfin+ absolute CALL/JUMP forms objdump
     # cannot decode; its exact bytes are checked against the stock targets.
     label = symbols[startup_label.SYMBOL]
+    verified_thunks = [(label['value'], label['value']+label['size'])]
+    if getattr(machines, 'collection_rpc_probe', False) or loader:
+        thunk = symbols['sdk_collection_rpc_stock']
+        require(collection_rpc.thunk_ok(module, thunk['value']-low, thunk['size']),
+                'Unexpected collection RPC stock continuation')
+        verified_thunks.append((thunk['value'], thunk['value']+thunk['size']))
+        entry = symbols['sdk_collection_rpc_entry_hook']
+        require(collection_rpc.entry_ok(module,low,symbols), 'Unexpected collection initializer entry hook')
+        verified_thunks.append((entry['value'], entry['value']+entry['size']))
+    if loader:
+        collection_resident.check_kernel_layout(read(elf),collection_interface(profile,machines))
+        for i in range(len(collection_interface(profile,machines)['entries'])):
+            for name in (f'sdk_collection_resident_{i}',f'sdk_collection_stock_{i}'):
+                s=symbols[name];verified_thunks.append((s['value'],s['value']+s['size']))
     undecoded = [int(line.split(':')[0], 16) for line in disassembly.splitlines()
                  if 'ILLEGAL' in line and re.match(r'\s*[0-9a-f]+:', line)]
-    require(all(label['value'] <= at < label['value'] + label['size'] for at in undecoded) and
+    require(all(any(lo <= at < hi for lo,hi in verified_thunks) for at in undecoded) and
             'R_BFIN_' not in disassembly, 'Invalid or unresolved instructions')
     require(startup_label.thunk_ok(read(directory / 'module.bin'), label['value'] - profile['module_base'],
                                    label['size'], symbols['kit_startup_label_text']['value']),
             'Unexpected startup label thunk')
     (directory / 'disassembly.txt').write_text(disassembly, encoding='utf-8')
-    stack = audio_stack_bounds(disassembly, module, low, symbols, machines, native_entries(machines, symbols))
-    sizes = dict(initialized_bytes=len(module), bss_bytes=allocated['.bss']['size'],
+    data_ranges = [(s['address'], s['address'] + s['size']) for name, s in allocated.items()
+                   if name in ('.rodata', '.data')]
+    stack = audio_stack_bounds(disassembly, module, low, symbols, machines, native_entries(machines, symbols), data_ranges=data_ranges)
+    sizes = dict(initialized_bytes=len(module), bss_bytes=allocated['.bss']['size']+(allocated['.resident_bss']['size'] if loader else 0),
                  allocated_span_bytes=intervals[-1][1] - low)
     limit = module_bytes(profile)
     require(all(sizes.values()), 'Empty module section')
@@ -787,16 +912,18 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
     patch_profile = copy.deepcopy(profile)
     hooks = {}
     text = allocated['.text']
-    services = active_services(profile, service_users(machines))
+    services = collection_services(profile,machines)
+    guards={int(e['site'],16):f'sdk_collection_resident_{i}' for i,e in enumerate(collection_interface(profile,machines)['entries'])} if loader else {}
     for patch in patch_profile['patches']:
         if not patch_active(patch, services, profiling):
             patch['after'] = patch['before']  # inactive hooks retain stock code
         elif patch['kind'] == 'startup':
             patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
         elif patch['kind'] == 'hook':
-            symbol = symbols[patch['symbol']]
-            require(symbol['type'] == 2 and symbol['size'] > 0 and text['address'] <= symbol['value'] and
-                    symbol['value'] + symbol['size'] <= text['address'] + text['size'],
+            symbol = symbols[guards.get(int(patch['address'],16),patch['symbol'])]
+            code=allocated['.resident_text'] if loader else text
+            require(symbol['type'] == 2 and symbol['size'] > 0 and code['address'] <= symbol['value'] and
+                    symbol['value'] + symbol['size'] <= code['address'] + code['size'],
                     'Hook must resolve to a bounded module function')
             patch['after'] = hook_instruction(patch, symbol['value']).hex()
             require(hook_target(patch, bytes.fromhex(patch['after'])) == (symbol['value'], patch['call']),
@@ -1015,15 +1142,25 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
     require(type(profiling) is bool, 'Manifest profiling must be a boolean')
     sweep = manifest.get('benchmark_sweep', False)
     require(sweep is True or 'benchmark_sweep' not in manifest, 'Manifest benchmark_sweep must be true when present')
-    profile, machines, definitions = configuration(package_collection(package), package_layout(package))
+    probe = manifest.get('collection_probe', False)
+    require(type(probe) is bool, 'Manifest collection_probe must be a boolean')
+    rpc_probe = manifest.get('collection_rpc_probe', False)
+    require(type(rpc_probe) is bool, 'Manifest collection_rpc_probe must be a boolean')
+    loader=manifest.get('collection_loader',False)
+    require(type(loader) is bool, 'Manifest collection_loader must be a boolean')
+    profile, machines, definitions = configuration(package_collection(package), package_layout(package), probe, rpc_probe,loader)
     with tempfile.TemporaryDirectory(prefix='opxy-verify-') as temporary:
         temporary = Path(temporary)
         module, report, patch_profile = compile_collection(temporary, toolchain, compiler, profile, machines,
                                                            definitions, package_version(package), profiling, sweep)
         require(report['profiling'] is profiling, 'Compile profiling differs from manifest')
         expected_assets = prepare_assets(catalog, profile, linked_in(machines, report))
+        if loader:
+            expected_assets['content/display/_openxy_loader_1.svg']=collection_kernel.fallback(profile)
         expected_assets['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
                                                set(report['services']), profiling)
+        if loader:
+            expected_assets['projects/openxy/kernel.oxc']=collection_kernel.information(report,sha(expected_assets['os.ldr']))
         expected = {'candidate/' + name: data for name, data in expected_assets.items()}
         if report.get('runtime'):
             expected['runtime.LICENSE'] = read(ROOT / 'sdk/platform/blackfin/runtime.LICENSE')
@@ -1052,7 +1189,7 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
 
 
 def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True, sweep=False,
-          overwrite=False):
+          probe=False, rpc_probe=False, loader=False, *, overwrite=False):
     """A firmware package. Its machines take their numbers from `layout` (by machine ID);
     the package's layout.json is that layout after this build, for the next one. Only a
     package for hardware profiling sweeps synth controls: `sdk.py build` turns it on with
@@ -1060,7 +1197,7 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     never check the sweep override."""
     require(type(profiling) is bool, 'Profiling must be a boolean')
     entries = [] if entries is None else entries
-    profile, machines, definitions = configuration(entries, layout)
+    profile, machines, definitions = configuration(entries, layout, probe, rpc_probe,loader)
     require(not any(m.contains(out) for m in machines), 'Keep build output outside every machine folder')
     stock = read(stock_os)
     require(sha(stock) == profile['stock_sha256'], 'Stock OS hash mismatch')
@@ -1073,8 +1210,12 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     module, report, patch_profile = compile_collection(analysis, toolchain, compiler, profile, machines,
                                                        definitions, version, profiling, sweep)
     prepared = prepare_assets(catalog, profile, linked_in(machines, report))
+    if loader:
+        prepared['content/display/_openxy_loader_1.svg']=collection_kernel.fallback(profile)
     prepared['os.ldr'] = assemble(stock, module, patch_profile, profile, len(profile['patches']),
                                   set(report['services']), profiling)
+    if loader:
+        prepared['projects/openxy/kernel.oxc']=collection_kernel.information(report,sha(prepared['os.ldr']))
     for name, data in prepared.items():
         path = child(output / 'candidate', name)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1084,6 +1225,9 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
         (output / 'runtime.LICENSE').write_bytes(read(ROOT / 'sdk/platform/blackfin/runtime.LICENSE'))
         tracked.append('runtime.LICENSE')
     save_json(output / 'manifest.json', dict(schema=1, target=TARGET, version=version, collection=entries, profiling=profiling,
+                                             **({'collection_probe': True} if probe else {}),
+                                             **({'collection_rpc_probe': True} if rpc_probe else {}),
+                                             **({'collection_loader':True} if loader else {}),
                                              **({'benchmark_sweep': True} if sweep else {}),
                                              **({'layout': layout} if layout else {}),
                                              files={name: sha(read(output / name)) for name in tracked}))
@@ -1110,7 +1254,7 @@ def selected_collection(args):
 COMMANDS = {
     'compile': 'Compile and link the collection into the native module alone; needs no stock files.',
     'build': 'Build firmware: link the collection into stock OP-XY 1.2.1 and check the result.',
-    'verify': 'Rebuild an existing package independently and compare it (release host only).',
+    'verify': 'Rebuild an existing package independently and compare it (release host, or --local).',
 }
 
 
@@ -1121,6 +1265,9 @@ def main(argv=None, command=None):
     parser.add_argument('--compiler', type=Path, help='pinned Blackfin GCC bundle root (default: local/toolchain)')
     if command == 'verify':
         parser.add_argument('--package', type=Path, required=True)
+        parser.add_argument('--local', action='store_true',
+                            help='verify a same-host development package with pinned tools; '
+                                 'does not qualify a release')
     else:
         parser.add_argument('--out', type=Path, required=True)
         add_overwrite_argument(parser)
@@ -1129,6 +1276,12 @@ def main(argv=None, command=None):
         parser.add_argument('--stock-content', type=Path, default=STOCK_CONTENT,
                             help="the folder holding op1_factory.json (default: this repository's copy)")
     if command != 'verify':  # a package records its own collection
+        parser.add_argument('--collection-probe', action='store_true',
+                            help='inspect an external collection at startup; never execute its code')
+        parser.add_argument('--collection-rpc-probe', action='store_true',
+                            help='also test a bounded initializer hold and identity exchange; no activation')
+        parser.add_argument('--collection-loader', action='store_true',
+                            help='build a resident whole-collection loader with the embedded set as fallback')
         parser.add_argument('--profiling', choices=('on', 'off'), default='on',
                             help='per-voice diagnostic timing (default: on for SDK development builds)')
         parser.add_argument('--sweep', choices=('on', 'off'),
@@ -1145,7 +1298,11 @@ def main(argv=None, command=None):
             sweep = (args.sweep or args.profiling) == 'on'
             require(args.profiling == 'on' or not sweep, 'A control sweep needs --profiling on')
         if command == 'verify':
-            require_release_host()  # only its tools reproduce published package bytes
+            if args.local:
+                require(document(args.package / 'analysis/compile-report.json').get('host') == host_platform(),
+                        'Local verification requires a package built on ' + host_platform())
+            else:
+                require_release_host()  # only its tools reproduce published package bytes
         if command != 'compile':
             require((args.stock_content / 'op1_factory.json').is_file(),
                     f'--stock-content must be the folder holding op1_factory.json '
@@ -1153,7 +1310,10 @@ def main(argv=None, command=None):
         # A package records the collection it was built from.
         entries = package_collection(args.package) if command == 'verify' else selected_collection(args)
         layout = read_layout(args.layout) if command != 'verify' and args.layout else None
-        profile, machines, definitions = configuration(entries, layout)
+        probe = document(args.package / 'manifest.json').get('collection_probe', False) if command == 'verify' else (args.collection_probe or args.collection_rpc_probe)
+        rpc_probe = document(args.package / 'manifest.json').get('collection_rpc_probe', False) if command == 'verify' else args.collection_rpc_probe
+        loader=document(args.package/'manifest.json').get('collection_loader',False) if command=='verify' else args.collection_loader
+        profile, machines, definitions = configuration(entries, layout, probe, rpc_probe,loader)
         tools = resolve_toolchain(args.toolchain, args.compiler)
         tool_paths(tools[0])
         compiler_paths(tools[1])
@@ -1173,10 +1333,13 @@ def main(argv=None, command=None):
         elif command == 'verify':
             stock, catalog = read(args.stock_os), read(args.stock_content / 'op1_factory.json')
             require(sha(stock) == profile['stock_sha256'], 'Stock OS hash mismatch')
-            print(json.dumps(verification(stock, catalog, args.package.resolve(), *tools), indent=2))
+            result = verification(stock, catalog, args.package.resolve(), *tools)
+            if args.local:
+                result = dict(result, verification_scope='local', verified_host=host_platform())
+            print(json.dumps(result, indent=2))
         else:
             output, result = build(args.out, *tools, args.stock_os, args.stock_content, entries, layout,
-                                   args.profiling == 'on', sweep, args.overwrite)
+                                   args.profiling == 'on', sweep, probe, rpc_probe, loader, overwrite=args.overwrite)
             print(json.dumps(result, indent=2))
             print('Local experimental package: ' + str(output))
             candidate = output / 'candidate'

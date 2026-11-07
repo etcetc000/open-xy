@@ -2,6 +2,7 @@ import {createGraphicsConfiguration} from './graphics-configuration.mjs';
 import {createSnapshotService} from './machine-snapshots.mjs';
 import {createGraphicsDialog} from './graphics-dialog.mjs';
 import * as Core from './core.mjs';
+import * as Manager from './manager.mjs';
 import * as Wizard from './wizard.mjs';
 import * as Retained from '../sdk/browser/display.mjs';
 import * as Visuals from './visuals.mjs';
@@ -16,7 +17,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   document.querySelectorAll('[data-icon]').forEach(el => el.append(visuals.icon(el.dataset.icon)));
   document.querySelectorAll('[data-device-art]').forEach(el => el.append(visuals.device()));
   // Preview links can show the guide immediately; using the builder still needs acknowledgement.
-  let acknowledged = false;
+  let acknowledged = false, managing = false;
   let builderPreview = false, loadCollection;
   const browserAllowed = supportsBrowser();
   $('browser-blocked').hidden = browserAllowed;
@@ -77,6 +78,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     document.querySelector('[data-step="4"]').disabled = true;
   }
   function navigate(step) {
+    if (managing) {
+      managing = false;
+      $('manager-workspace').hidden = true;
+      $('open-manager').hidden = location.protocol === 'file:';
+      $('phase-nav').hidden = false;
+      $('status').hidden = false;
+    }
     stopAudio();
     if ($('selected-previews').open) $('selected-previews').close();
     if (builderPreview && ![2, 3].includes(step)) {
@@ -169,6 +177,24 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       resolve();
     };
   });
+
+  function showManager(show) {
+    managing = show;
+    stopPreview();
+    $('manager-workspace').hidden = !show;
+    $('open-manager').hidden = show;
+    $('phase-nav').hidden = show;
+    $('status').hidden = show;
+    if (show) {
+      document.querySelectorAll('[data-page]').forEach(page => page.hidden = true);
+      $('manager-workspace').querySelector('h1').focus();
+    } else navigate(1);
+  }
+  Manager.mount($('manager-workspace'), {canWrite:() => acknowledged, back:() => showManager(false),
+    createAudition:(...args) => new audition(...args)});
+  $('open-manager').onclick = () => showManager(true);
+  $('open-manager').hidden = location.protocol === 'file:';
+  if (/^#manage(?:=|$)/.test(location.hash)) showManager(true);
 
   async function readBounded(file, limit) {
     core.requireThat(file && file.size > 0 && file.size <= limit, 'Missing or oversized file');
@@ -806,6 +832,6 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     core.requireThat(data, 'The machines couldn’t load. Reload this page.');
     await loadCollectionData(JSON.parse(data));
   } catch (error) { fail(error); }
-  openPreviewLink();
+  if (!managing) openPreviewLink();
   return {loadCollection:loadCollectionData};
 }

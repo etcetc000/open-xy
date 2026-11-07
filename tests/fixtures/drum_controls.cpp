@@ -42,9 +42,9 @@ opxy::u32 sdk_sample_alias(opxy::u32) __asm__("sdk_sample_alias");
 opxy::u32 sdk_sample_neutral_engine(opxy::u32) __asm__("sdk_sample_neutral_engine");
 opxy::u32 sdk_screen_sample_page() { return 0; }
 const SampleMachine sdk_sample_machines[] = {
-    {reinterpret_cast<const char*>(35), 7, owned, defaults, assign, control, nullptr, 0, nullptr, nullptr, nullptr, nullptr, slice_clock},
+    {reinterpret_cast<const char*>(35), 7, owned, defaults, assign, control, nullptr, 0, nullptr, nullptr, nullptr, nullptr, OPXY_SAMPLE_SLICE_TIMING ? slice_clock : nullptr},
     {reinterpret_cast<const char*>(36), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr},
-    {reinterpret_cast<const char*>(37), 7, owned, defaults, assign, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, slice_clock},
+    {reinterpret_cast<const char*>(37), 7, owned, defaults, assign, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, OPXY_SAMPLE_SLICE_TIMING ? slice_clock : nullptr},
     {reinterpret_cast<const char*>(38), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr}
 };
 const opxy::u32 sdk_sample_machine_count = 4;
@@ -57,12 +57,14 @@ const opxy::u32 sdk_synth_control_count = 1;
 void sdk_synth_shown(opxy::u32, opxy::u8* shown) { for (opxy::u32 i = 0; i < 4; ++i) shown[i] = opxy::u8(i); }
 void sdk_sample_slice_config(SamplePreviewRange* range, unsigned id, unsigned track, const void*) {
     check((id == 35 || id == 37) && track == 0);
+    if (!OPXY_SAMPLE_SLICE_TIMING) return;
     range->processed = 1; range->bpm_x10 = 500; range->settings = 0x12345678;
     range->level = 0x08000000; range->pitch_cents = -37; range->track_transpose = -12;
     for (unsigned i = 0; i < 8; ++i) range->parameters[i] = i & 1 ? int(i * 17000) : -int(i * 19000);
 }
 unsigned sdk_sample_slice_clock_rate(unsigned id, const SamplePreviewRange* range, unsigned rate) {
-    check((id == 35 || id == 37) && range->bpm_x10 == 500 && range->processed == 1);
+    check((id == 35 || id == 37) && range->bpm_x10 == (OPXY_SAMPLE_SLICE_TIMING ? 500u : 0u) &&
+          range->processed == OPXY_SAMPLE_SLICE_TIMING);
     return rate;
 }
 opxy::u32 sdk_sample_edit(void* raw, opxy::u32 index, opxy::i32 direction, opxy::u32 engine) {
@@ -358,10 +360,13 @@ int main() {
     check(sdk_sample_create_voice(35, output, 23, 0) == 1 && preview_seen);
     check(*output == &audition_context);
     check(captured_range.begin == 100 && captured_range.end == 440000 && captured_range.frames == 441000);
-    check(captured_range.processed == 1 && captured_range.bpm_x10 == 500 && captured_range.settings == 0x12345678);
-    check(captured_range.level == 0x08000000 && captured_range.pitch_cents == -37 && captured_range.track_transpose == -12);
+    check(captured_range.processed == OPXY_SAMPLE_SLICE_TIMING && captured_range.bpm_x10 == (OPXY_SAMPLE_SLICE_TIMING ? 500u : 0u) &&
+          captured_range.settings == (OPXY_SAMPLE_SLICE_TIMING ? 0x12345678u : 0u));
+    check(captured_range.level == (OPXY_SAMPLE_SLICE_TIMING ? 0x08000000u : 0u) &&
+          captured_range.pitch_cents == (OPXY_SAMPLE_SLICE_TIMING ? -37 : 0) &&
+          captured_range.track_transpose == (OPXY_SAMPLE_SLICE_TIMING ? -12 : 0));
     for (unsigned i = 0; i < 8; ++i)
-        check(captured_range.parameters[i] == (i & 1 ? int(i * 17000) : -int(i * 19000)));
+        check(captured_range.parameters[i] == (OPXY_SAMPLE_SLICE_TIMING ? (i & 1 ? int(i * 17000) : -int(i * 19000)) : 0));
     check(sdk_sample_slice_preview(35, 0) == nullptr);
     parent[0x56] = 0; // Sequencer note on the same pad keeps authored DSP.
     check(sdk_sample_create_voice(35, output, 23, 0) == 1 && !preview_seen);
@@ -423,7 +428,9 @@ int main() {
     sdk_sample_slice_receive(&audition_context, last_packet);
     check(sdk_sample_create_voice(35, output, 23, 0) == 1 && preview_seen);
     check(captured_range.begin == get_word(valid_packet + 28) && captured_range.end == get_word(valid_packet + 32));
-    check(captured_range.bpm_x10 == 500 && captured_range.settings == 0x12345678 && captured_range.pitch_cents == -37);
+    check(captured_range.bpm_x10 == (OPXY_SAMPLE_SLICE_TIMING ? 500u : 0u) &&
+          captured_range.settings == (OPXY_SAMPLE_SLICE_TIMING ? 0x12345678u : 0u) &&
+          captured_range.pitch_cents == (OPXY_SAMPLE_SLICE_TIMING ? -37 : 0));
     deliver_packets = true;
     plain_note(0, 60, 127, 0, 0); // Sequencer provenance does not cancel manual audition.
     check(sdk_sample_create_voice(35, output, 23, 0) == 1 && preview_seen);
@@ -464,7 +471,7 @@ int main() {
 
     // Reject malformed or unowned extensions without reading an incomplete
     // tail or leaving the preceding matching audition active.
-    for (unsigned bad = 0; bad < 10; ++bad) {
+    for (unsigned bad = 0; bad < 11+!OPXY_SAMPLE_SLICE_TIMING; ++bad) {
         sdk_sample_slice_receive(&audition_context, valid_packet);
         unsigned char broken[256]; std::memcpy(broken, valid_packet, sizeof(broken));
         switch (bad) {
@@ -478,6 +485,8 @@ int main() {
         case 7: put_word(broken + 40, 2); break;
         case 8: ready = false; break;
         case 9: put_word(broken + 16, 36); break;
+        case 10: put_word(broken + 16, 35+256); break; // Never truncate an unowned full-width ID.
+        case 11: put_word(broken + 40, 1); break; // Processed snapshots were not compiled.
         }
         sdk_sample_slice_receive(&audition_context, broken);
         check(sdk_sample_create_voice(35, output, 23, 0) == 1 && !preview_seen);
