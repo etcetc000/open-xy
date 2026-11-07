@@ -1382,6 +1382,38 @@
         "block_percent": 2.473487,
         "report": "https://github.com/kristapskristaps/xy-machines/blob/2eb1e97/docs/profiling/2026-11-04/standard-release/rebound/report.md"
       }
+    },
+    {
+      "id": "weave",
+      "kind": "synth",
+      "maintainer": "Onat-H",
+      "status": "published",
+      "repository": "https://github.com/Onat-H/open-xy-weave",
+      "tag": "v1.0.1",
+      "commit": "9715663b8de14dc8e46e497cf9ffc504a5a61c90",
+      "path": "machines/weave",
+      "keywords": [
+        "emulation",
+        "fm",
+        "granular",
+        "physical",
+        "percussion"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "9715663b8de14dc8e46e497cf9ffc504a5a61c90",
+        "firmware_sha256": "f8954b4cf5dff03cedcecf135c686cf3d3bb0fcfcab3247d30352f191640bbc8",
+        "runs": 3,
+        "block_percent": 6.250095,
+        "midpoint_percent": 4.568551,
+        "combined_percent": 4.577707,
+        "worst_setting": {
+          "control": 0,
+          "label": "Model",
+          "value": 1923787433,
+          "option": "terrain"
+        }
+      }
     }
   ]
 }
