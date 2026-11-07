@@ -464,11 +464,14 @@ test('the CPU-high label follows the reported peak, or the average when no peak 
   const average = cpuHigh({cpu:{block_percent:8.54963}});
   assert.equal(average.metric, 'average');
   assert.equal(average.text, 'CPU-high: average 8.55% of an audio block, above 4.5% (no peak reported)');
-  // A drum kit's peak covers its whole-kit runs, and its average is one voice; both say so.
-  assert.equal(cpuHigh({kind:'drum', cpu:{block_percent:2.7, peak_percent:48.163577}}).text,
-    'CPU-high: worst observed block peak 48.16% of an audio block (whole-kit runs included), above 4.5%');
-  assert.equal(cpuHigh({kind:'drum', cpu:{block_percent:5}}).text,
-    'CPU-high: heaviest single voice average 5% of an audio block, above 4.5% (no peak reported)');
+  // A drum kit, by its worst single sound: its peak includes whole-kit runs and is ignored,
+  // so a heavy kit of light sounds is not labelled; its heaviest voice's average decides.
+  const kit = {kind:'drum', cpu:{block_percent:2.7, peak_percent:48.163577, kit_percent:23.7, ceiling_percent:41.9}};
+  assert.deepEqual(cpuWorstCase(kit), {percent:2.7, metric:'average'});
+  assert.equal(cpuHigh(kit), null);
+  for (const cpu of [{block_percent:5, peak_percent:48}, {block_percent:5}])
+    assert.equal(cpuHigh({kind:'drum', cpu}).text,
+      'CPU-high: worst single sound average 5% of an audio block, above 4.5% (no single-sound peak recorded)');
   // Strictly above the threshold; no record, or no usable figure, is no label.
   assert.equal(cpuHigh({cpu:{block_percent:4.5}}), null);
   assert.equal(cpuHigh({cpu:{block_percent:3, peak_percent:4.5}}), null);
@@ -477,7 +480,8 @@ test('the CPU-high label follows the reported peak, or the average when no peak 
   // Derived from every catalog entry's record, so it changes only when a report does.
   const catalog = JSON.parse(readFileSync(new URL('../catalog/machines.json', import.meta.url), 'utf8')).machines;
   for (const entry of catalog.filter(e => e.cpu)) {
-    const worst = entry.cpu.peak_percent ?? entry.cpu.block_percent;
+    // A kit's block_percent is its heaviest single voice; anything else, its peak or else its average.
+    const worst = entry.kind === 'drum' ? entry.cpu.block_percent : entry.cpu.peak_percent ?? entry.cpu.block_percent;
     assert.equal(Boolean(cpuHigh(entry)), worst > CPU_HIGH_PERCENT, entry.id);
   }
 });

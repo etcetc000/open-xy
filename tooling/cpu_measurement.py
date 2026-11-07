@@ -30,20 +30,21 @@ HIGH_PERCENT = 4.5
 
 
 def worst_case(value):
-    """The reported worst case: (percent, 'peak') when the record has a peak, else (percent, 'average')."""
-    return (value['peak_percent'], 'peak') if 'peak_percent' in value else (value['block_percent'], 'average')
+    """The reported worst case: (percent, 'peak') when the record has a peak, else (percent, 'average').
+    A drum kit is judged by its worst single sound: its peak includes whole-kit runs and its
+    record has no single-voice peak, so it is its heaviest single voice's average."""
+    if 'peak_percent' in value and value.get('benchmark') != BENCHMARKS['drum']:
+        return value['peak_percent'], 'peak'
+    return value['block_percent'], 'average'
 
 
 def high(value):
-    """The builder's CPU-high note for a record whose worst case exceeds HIGH_PERCENT, else None.
-    A drum kit's peak includes its whole-kit runs, and its average is its heaviest single voice."""
+    """The builder's CPU-high note for a record whose worst case exceeds HIGH_PERCENT, else None."""
     percent, metric = worst_case(value)
     if percent <= HIGH_PERCENT:
         return None
-    drum = value.get('benchmark') == BENCHMARKS['drum']
-    what = (('worst observed block peak (whole-kit runs included)' if drum else 'worst observed block peak')
-            if metric == 'peak' else
-            'heaviest single voice average (no peak reported)' if drum else 'average (no peak reported)')
+    what = ('worst single sound average (no single-sound peak recorded)' if value.get('benchmark') == BENCHMARKS['drum']
+            else 'worst observed block peak' if metric == 'peak' else 'average (no peak reported)')
     return f"the builder labels it CPU-high: {what} {percent:.3f}% is above {HIGH_PERCENT}%"
 
 

@@ -346,25 +346,27 @@ export const machineAuthor = m => m.source?.maintainer ?? '';
 export const CPU_HIGH_PERCENT = 4.5;
 // A catalog machine's reported CPU worst case: its worst observed block peak, or its
 // average per block when its record reports no peak; null without a cpu record.
+// A drum kit is judged by its worst single sound: its record's peak includes whole-kit
+// runs and it records no single-voice peak, so it is the heaviest single voice's average.
 export function cpuWorstCase(m) {
   const usable = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
   const cpu = m.cpu && typeof m.cpu === 'object' ? m.cpu : {};
-  if (usable(cpu.peak_percent)) return {percent: cpu.peak_percent, metric: 'peak'};
+  if (m.kind !== 'drum' && usable(cpu.peak_percent)) return {percent: cpu.peak_percent, metric: 'peak'};
   if (usable(cpu.block_percent)) return {percent: cpu.block_percent, metric: 'average'};
   return null;
 }
 // The CPU-high label, derived from the cpu record so it follows the catalog: the worst
 // case with the words that explain it (`detail`, and `text` with the label), or null for
-// a machine at or under the threshold. A drum kit's peak includes its whole-kit runs at
-// full polyphony, and its average is its heaviest single voice (docs/profiling.md).
+// a machine at or under the threshold (docs/catalog.md).
 export function cpuHigh(m) {
   const worst = cpuWorstCase(m);
   if (!worst || worst.percent <= CPU_HIGH_PERCENT) return null;
-  const drum = m.kind === 'drum';
   const figure = Number(worst.percent.toFixed(2)) + '% of an audio block';
-  const detail = worst.metric === 'peak'
-    ? 'worst observed block peak ' + figure + (drum ? ' (whole-kit runs included)' : '') + ', above ' + CPU_HIGH_PERCENT + '%'
-    : (drum ? 'heaviest single voice average ' : 'average ') + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)';
+  const detail = m.kind === 'drum'
+    ? 'worst single sound average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no single-sound peak recorded)'
+    : worst.metric === 'peak'
+    ? 'worst observed block peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
+    : 'average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)';
   return {...worst, detail, text: 'CPU-high: ' + detail};
 }
 // The keywords the machines use, with how many use each, most used first, then by name: the

@@ -81,9 +81,11 @@ The builder labels a machine **CPU-high** when its reported worst case is above
 [`tooling/cpu_measurement.py`](../tooling/cpu_measurement.py), which
 `builder/core.mjs` repeats as `CPU_HIGH_PERCENT`). The worst case is the record's
 `peak_percent`, or its `block_percent` average when it reports no peak; the
-label's tooltip gives the figure and says which it is. A drum kit's peak includes
-its whole-kit runs at full polyphony, and its average is its heaviest single
-voice ([profiling](profiling.md)), so its tooltip says so. The label is derived from
+label's tooltip gives the figure and says which it is. A drum kit is judged by its
+worst single sound: its `peak_percent` includes whole-kit runs at full polyphony
+and its record has no single-voice peak, so the label uses its `block_percent`,
+the heaviest single voice's average ([profiling](profiling.md)), and ignores the
+peak and the whole-kit and ceiling runs. The label is derived from
 the `cpu` record, never written in an entry, and `catalog check` notes it for the
 entries it reviews.
 
