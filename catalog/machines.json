@@ -1701,6 +1701,29 @@
         },
         "report": "https://github.com/kristapskristaps/xy-machines/releases/tag/collection-v1.0.0"
       }
+    },
+    {
+      "id": "lustre",
+      "kind": "effect",
+      "maintainer": "kristapskristaps",
+      "status": "draft",
+      "repository": "https://github.com/kristapskristaps/xy-machines",
+      "tag": "lustre-v1.0.0",
+      "commit": "0be9209c559c2322cb472e35b5582e46e7c74056",
+      "path": ".",
+      "keywords": [
+        "granular",
+        "reverb",
+        "ambient"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "0be9209c559c2322cb472e35b5582e46e7c74056",
+        "firmware_sha256": "1297f92cb78427b8723922807ba3f6e94bc4239d33e4a5fdc667ecbdad7f8f80",
+        "runs": 1,
+        "block_percent": 3.605707,
+        "report": "https://github.com/kristapskristaps/xy-machines/releases/tag/lustre-v1.0.0"
+      }
     }
   ]
 }
