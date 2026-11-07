@@ -41,11 +41,11 @@ class DrumPresets(unittest.TestCase):
     def test_sample_free_drum_regions_are_retained_without_mutation(self):
         value = self.preset()
         expected = copy.deepcopy(value)
-        self.assertIs(machines.check_preset(value, 'kit', 'drum'), value)
+        self.assertIs(machines.check_preset(value, 'kit', kind='drum'), value)
         self.assertEqual(value, expected)
         for kind in ('synth', 'sample'):
             with self.assertRaisesRegex(ValueError, 'sample regions'):
-                machines.check_preset(value, 'kit', kind)
+                machines.check_preset(value, 'kit', kind=kind)
 
     def test_drum_region_bounds_and_sample_exclusion(self):
         bad_regions = [[], [0]*3, [0, 1, 2, 32768], [0, 1, 2, -1], [True, 1, 2, 3], [1.5, 1, 2, 3]]
@@ -55,11 +55,11 @@ class DrumPresets(unittest.TestCase):
         for change in cases:
             value = self.preset(); value['regions'][0].update(change)
             with self.subTest(change=change), self.assertRaises(ValueError):
-                machines.check_preset(value, 'kit', 'drum')
+                machines.check_preset(value, 'kit', kind='drum')
         for size in (1, 23, 25):
             value = self.preset(); value['regions'] = (value['regions']*2)[:size]
             with self.subTest(size=size), self.assertRaises(ValueError):
-                machines.check_preset(value, 'kit', 'drum')
+                machines.check_preset(value, 'kit', kind='drum')
 
 
 class Identity(unittest.TestCase):
