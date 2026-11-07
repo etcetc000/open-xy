@@ -29,6 +29,7 @@ in the layer that owns the behavior:
 | A new machine | Its own repository, created with `sdk.py new --repository`; learn from the core machines |
 | Oscillator, controls, artwork, presets or lookup tables | The machine's folder |
 | Sound tests | The machine's `tests/`, run by `sdk.py test` |
+| A hand-written Blackfin routine for a hot loop | The machine's `native/`, beside its C reference ([native routines](docs/api.md#native-routines)) |
 | Controller behavior, capture history and extension gestures | The extension's own repository; see [extensions](docs/extensions.md) |
 | Callback contract, adapter, build, preview or packaging | SDK |
 | Firmware address map, shared memory reservation or compiler profile | Shared platform integration |
@@ -91,7 +92,10 @@ is tagged `v<milestone>` with generated release notes, and closes its milestone.
 In a PR, explain the behavior, how to try it, compatibility changes and checks
 run. For a device observation, include the exact image/asset hashes and what you
 actually exercised. Build success is not a hardware timing measurement. New or changed catalog
-submissions require the revision-bound [hardware CPU readout](docs/profiling.md).
+submissions require the revision-bound [hardware CPU readout](docs/profiling.md),
+including both average and worst observed block CPU. Run `sdk.py profile report`
+and add its complete `cpu` record to the catalog entry before calling it ready
+for submission. Host estimates and an average alone do not satisfy this check.
 
 ## Documentation
 

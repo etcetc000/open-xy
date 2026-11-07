@@ -179,6 +179,7 @@ def decode(capture, expected):
             maximum, average, accumulated = struct.unpack_from('>HHH', payload, index * 6)
             metrics.append(dict(index=index, encoded_maximum=maximum, encoded_average=average,
                                 encoded_accumulated=accumulated, maximum_clipped=maximum == 65535,
+                                maximum_budget_percent=100 * maximum / 65535,
                                 average_budget_percent=100 * average / 65535,
                                 approximate_average_cycles=average / scale))
         result.append(dict(machine=case, metrics=metrics,

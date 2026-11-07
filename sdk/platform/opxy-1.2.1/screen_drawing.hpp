@@ -6,6 +6,7 @@
 #include "retained_drawing.hpp"
 #include "screen_header.hpp"
 #include "note_activity.hpp"
+#include "amp_envelope.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 // Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
@@ -88,6 +89,12 @@ template <class Machine> struct Drawing {
         }
         for (u32 i = 0; i < parameter_slots; ++i) display_input.slots[i] = controls.slots[i];
         display_input.model = controls.model;
+        display_input.pan = static_cast<i8>(controls.pan);
+        display_input.level = static_cast<i8>(controls.level);
+        display_input.line = static_cast<u8>(controls.line);
+        display_input.reserved = 0;
+        const u32 pads = sizeof(controls.pads) / sizeof(controls.pads[0]);
+        for (u32 i = 0; i < 4; ++i) display_input.pad[i] = static_cast<i8>(i < pads ? controls.pads[i] : 0);
         display_input.shift = controls.choosing ? 1 : controls.shift;
         for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         display_input.elapsed = o->delta;
@@ -96,6 +103,7 @@ template <class Machine> struct Drawing {
         sdk_display_note_activity(controls.track, &display_input);
         // A sample engine's own screen reads its sample (opxy_sample_overview).
         if (Machine::sample) sdk_sample_overview_update(controls.track);
+        platform::amp_envelope(controls.track, display_input.amp);
         display_input.reduced_motion = 0;
         binding::display_render(&display_state, &display_input, &display_frame);
         if (!binding::display_valid(&display_frame)) return;

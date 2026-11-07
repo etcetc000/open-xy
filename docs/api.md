@@ -21,7 +21,7 @@ fails the build or, for the artwork rule, halts the device's SVG parser.
 
 | Area | Rule |
 | --- | --- |
-| Machine folder | C++ source, metadata, artwork, engine-specific generators and sound tests |
+| Machine folder | C++ source, metadata, artwork, engine-specific generators and sound tests; Blackfin assembly only as [native routines](#native-routines) in `native/` |
 | C++ | Freestanding C++11: no exceptions, RTTI, static constructors, allocation, OS headers, `#if`, inline assembly or platform macros |
 | Callbacks | Bounded work per 64-sample block; no blocking, logging, file access or graphics from audio callbacks |
 | Synth controls | Four control positions, plus up to four alternates; values arrive as Q31 and the stock menu stores Q15 defaults |
@@ -70,7 +70,8 @@ A drum preview auditions one parameter set across its voices; the device provide
 The OP-XY renders every voice and effect in 64-sample blocks, 1.45 ms each, on
 one Blackfin core that also runs its own engines, sequencer and effects. A
 machine's cost adds up per sounding voice and per track that uses it. The SDK
-sets no hard limit and does not yet measure device cycles.
+reports a host estimate during development; catalog submissions require the
+separate [hardware measurement](profiling.md) of average and peak CPU.
 
 `python sdk.py test` prints an estimate for synths and effects in **Blackfin
 instructions per 64-sample block**, at the machine's heaviest control setting.
@@ -94,7 +95,10 @@ not cycles: pipeline stalls add some. And the estimate understates what the
 host does fast and the Blackfin does not:
 
 - **Division** has no hardware instruction and costs tens of cycles on the
-  device. Divide once per block, or use a table or a reciprocal.
+  device. Divide once per block, or use a table or a reciprocal. For a 16-bit
+  quotient by a divisor below 32768, such as a sub-sample edge position,
+  [`divide.hpp`](../sdk/include/opxy/divide.hpp)'s `quotient16` is exact and
+  inline: 17 single-cycle divide steps on the device.
 - **Floating point** has no hardware either. Keep audio in integers;
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
   saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
@@ -103,9 +107,156 @@ host does fast and the Blackfin does not:
   members; their code counts toward module memory.
 - **Per-sample work that changes only per block**, such as coefficients and
   increments, belongs outside the sample loop.
+- **Loops inside a large render** often aren't compiled as hardware loops: GCC
+  then tests and branches on every sample. Give each hot sample loop a small
+  function of its own (`__attribute__((noinline))`), with the state it needs
+  copied into locals and written back after.
+- **Rare branches** in a sample loop, such as a wrap or a discontinuity, can
+  cost several cycles on every sample if GCC makes the common path the taken
+  one. Mark them `__builtin_expect(condition, 0)` so the common path falls
+  through, or make them branch-free.
+- **16 x 16 products** that GCC widens into 32-bit multiplies cost more:
+  [`q15.hpp`](../sdk/include/opxy/q15.hpp)'s `product` is always the one
+  16-bit multiply.
+- **Dispatch per sample** through a chain of sections or modes (`switch` on
+  an order, an on/off test) costs branches on every sample. Run each section
+  over the whole block in turn instead.
+- **A hot loop the compiler schedules poorly** can become a machine's own
+  hand-written [native routine](#native-routines), once the C++ is as lean as
+  it gets.
 
 Measure and publish the required [hardware CPU readout](profiling.md) before
-submitting a catalog entry. Host estimates do not satisfy that requirement.
+submitting a catalog entry: add both average cost (`block_percent`) and worst
+observed block (`peak_percent`) from the generated report. A low average can
+hide a short spike; host estimates do not satisfy either measurement requirement.
+
+## Native routines
+
+A machine can carry its own Blackfin assembly for a few hot loops. Each routine
+lives in `native/<name>.s` beside a C++ header holding its declaration and a
+portable C reference, and `native/<name>.json` describes it. A firmware build
+assembles the routine and links it into that machine alone, counted in its
+memory; host tests, CPU estimates and browser previews run the reference.
+Write the reference first: **the C reference defines the behaviour.** The
+routine must compute exactly what it does, sample for sample, for every input
+the manifest's `range` admits. Check that on a simulator or the device before
+publishing; the SDK checks only the routine's shape. Macro Osc's `native/` in
+the [core machines](https://github.com/etcetc000/open-xy-core-machines) holds
+six routines and its tests of their references.
+
+```text
+mymachine/
+  native/gain.s      the device routine
+  native/gain.json   its manifest
+  native/gain.hpp    its declaration and C reference, included by the machine's C++
+```
+
+The header names both with `OPXY_NATIVE` from
+[`native.hpp`](../sdk/include/opxy/native.hpp), which picks the routine in a
+firmware build and the reference everywhere else, so machine C++ still needs no
+`#if`. The two must have the same type, which the macro checks:
+
+```cpp
+#pragma once
+#include <opxy/native.hpp>
+#include <opxy/types.hpp>
+
+extern "C" void mymachine_native_gain(opxy::i32* samples, unsigned count, opxy::i32 gain);
+
+namespace mymachine {
+// The definition: each sample's high half times gain (0..32767), doubled.
+inline void gain_reference(opxy::i32* samples, unsigned count, opxy::i32 gain) {
+    for (unsigned i = 0; i < count; ++i) samples[i] = (samples[i] >> 16) * gain * 2;
+}
+inline void apply_gain(opxy::i32* samples, unsigned count, opxy::i32 gain) {
+    OPXY_NATIVE(mymachine_native_gain, gain_reference)(samples, count, gain);
+}
+}
+```
+
+```asm
+/* mymachine_native_gain: native/gain.hpp's gain_reference on the device. */
+.section .text
+.align 4
+.global _mymachine_native_gain
+.type _mymachine_native_gain, STT_FUNC
+_mymachine_native_gain:
+    CC = R1 == 0;
+    IF CC JUMP .Ldone;                /* a loop count of 0 would still run once */
+    P0 = R0;
+    P1 = R1;
+    LSETUP (.Lstart, .Lend) LC0 = P1;
+.Lstart:
+    R0 = [P0];
+    R0 = R0.H * R2.L (IS);
+    R0 <<= 1;
+.Lend:
+    [P0++] = R0;
+.Ldone:
+    RTS;
+.size _mymachine_native_gain, .-_mymachine_native_gain
+```
+
+```json
+{
+  "symbol": "mymachine_native_gain",
+  "stackBytes": 0,
+  "range": "gain 0..32767, any count",
+  "reference": "mymachine::gain_reference (native/gain.hpp)"
+}
+```
+
+| Manifest field | Meaning |
+| --- | --- |
+| `symbol` | The routine's C name, `<id>_native_<name>`: the machine's own prefix, so routines of different machines never collide. The unit exports this one symbol |
+| `stackBytes` | The most stack the routine takes below its caller's SP, pushed registers and `LINK` frame included, the functions it calls aside; a multiple of 4, at most 2048. The build's audio stack bound counts it, and the build fails if the routine's measured frame is larger |
+| `range` | The inputs the routine supports, for its readers. The header sends calls outside it to the reference |
+| `reference` | Optional: the C reference that defines it |
+| `stateBytes` | Optional: writable `.data` and `.bss` bytes the routine keeps between calls, such as a cache; 0 (none) by default |
+
+A routine follows the compiler's calling convention, which the C++ calling it
+relies on:
+
+- **Arguments** arrive in R0, R1 and R2. The caller reserves 12 bytes for them
+  at the top of its frame, so a fourth argument is at `[SP + 12]` on entry and a
+  fifth at `[SP + 16]`. A result returns in R0.
+- **R4 to R7 and P3 to P5 are preserved**: push the ones the routine uses
+  (`[--SP] = (R7:4, P5:3);`) and pop them before `RTS`. FP and SP are preserved
+  too, and RETS when the routine calls anything. R0 to R3, P0 to P2, I0 to I3,
+  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use.
+- **L0 to L3 are zero on entry and must be zero on return**: compiled code
+  addresses through I0 to I3 assuming no circular buffer. A routine that sets an
+  L register for a circular buffer clears it again before it returns.
+- **Hardware loops** (LC0/LT0/LB0 and LC1/LT1/LB1) are free to use: compiled
+  code never keeps a loop running across a call. Leave each loop through its
+  bottom, or clear its LC before jumping out early, so no loop stays armed. The
+  usual Blackfin rules apply: a loop count of 0 still runs the body once, and a
+  loop body does not end in a jump, call or return.
+- **The stack** moves only by push, pop, `LINK`/`UNLINK` and `SP += constant`,
+  the forms the build's stack analysis measures.
+
+Before compiling, `sdk.py test` and the firmware build refuse:
+
+- assembly anywhere but `native/<name>.s` (vendored code, never built, aside),
+  a unit without its manifest, or a manifest without its unit;
+- sections other than `.text` and `.rodata` (and `.data` and `.bss` with
+  `stateBytes`), section flags, directives that pull in or generate text
+  (`.include`, `.incbin`, `.irp`, macros with arguments; a macro without
+  arguments only repeats statements the checks see) or change linkage (`.weak`,
+  `.comm`), and exports other than the manifest's symbol;
+- supervisor and system instructions (`RAISE`, `EXCPT`, `IDLE`, `CLI`, `STI`,
+  returns other than `RTS`, `TESTSET`, cache flushes), the system registers
+  (`SYSCFG`, `SEQSTAT`, `RETI` and the other return registers, `USP`), writes to
+  the cycle counters, which profiling owns, and a memory-mapped register's
+  address set as a constant high half of a pointer or index register;
+- an indirect `CALL`, whose callee the stack analysis cannot follow (an indirect
+  `JUMP` stays inside the routine), any other way of moving SP, and an L
+  register set and never cleared.
+
+The firmware build checks the assembled object again: its sections, and one
+global function in `.text`, the manifest's symbol. These are cheap checks of a
+routine's shape, not proof of what it computes: that is the reference's, and
+the machine's tests'.
 
 ## Definition
 
@@ -180,9 +331,10 @@ editing a shared control keeps the current page. Use the SDK's
 emphasis and motion. `sdk.py new` supplies it by default. Macro Osc is the
 [worked reference](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/definition.json).
 
-A synth for which a stock instrument page means nothing (one that makes no
+A synth or drum kit for which a stock instrument page means nothing (one that makes no
 sound of its own, say) may declare `"hidePages"` at the top of
-`definition.json` (SDK 1.9), listing `"envelope"` (M2), `"filter"` (M3) or both. On its
+`definition.json` (SDK 1.9), listing `"envelope"` (M2), `"filter"` (M3) or both. A
+drum kit's M3 is its [track filter](#synthesis-drum-kits), shown unless hidden. On its
 track, those keys then leave the page shown as it was, and selecting the track
 while another track shows a hidden page shows the engine page. The SDK
 corrects the page once per GUI tick, so the hidden page may flash for a frame.
@@ -474,7 +626,132 @@ and at least one model, whose counts add up
 to `modelCount`. Shift's first encoder then chooses the group (KIT), keeping
 the model's place in it, so a kit's first model stays first; the second the
 model within the group (MACHINE); the third the choke group (CHOKE); and the
-fourth turns nothing.
+fourth turns nothing. A kit with `padMix` (below) may name groups too, but its
+Shift row has no KIT: MACHINE scrolls every model through the groups, and a
+group only titles its models.
+
+With `"padMix": 1` in `resources` (SDK 1.10; 0 or 1, omitted means 0), Shift
+gives each key the settings of a mixer channel. On the encoders' first row it
+chooses the model (MACHINE: every model in turn; in a kit with groups the
+cell's title is the model's group, `TRX` over `BD`), the choke group (CHOKE), and the key's own pan (PAN)
+and level (LEVEL), as on stock Drumline: pan -100..100 with 0 centred, moving
+faster on a fast turn as stock's does, and level in whole dB, -30..0, one a
+detent, shown as `-6dB`. Pan and level are stock's own pad fields. Stock pans
+every voice of a kit already; the SDK applies the level, as a cut, so a voice
+stays within its declared `outputPeakQ31`. A boost stock saved (up to +20 dB)
+plays and shows as 0 dB and stays stored until the level itself is turned down. On the encoders' second row Shift
+edits the key's pad fields: the kit's own pad controls on the first two
+encoders, then its FX I and FX II sends. Every key of such a kit has the
+second row, a model with four or fewer controls too, whose encoders there are
+blank. Shift always edits the row the encoders are on; the display's `line`
+says which. A press of any encoder switches the row with Shift held too, so
+Shift and a press reach the second row without letting go.
+
+Each key of a `padMix` kit has its own FX I and FX II sends, as a Machinedrum
+track has its own delay and reverb sends: a kick can stay dry while the snare
+is wet, even with the track's send knobs at 0. A send at 0 (`TRK`) follows the
+track's send exactly; 1..7 send the key's own amount, shown as 0, 17, 33, 50,
+67, 83 or 100, whatever the track's send knob says: a key at N sends what the
+track's knob at N would, through the same curve stock gives that send's knob.
+An amount scales the voice after stock's pan, level and envelope, and the
+track's level and mute still apply to it. The track's own mix is unchanged,
+and so is the source dry reduction of a send effect with a Dry control. The
+kit's DSP never sees the sends ([firmware](abi-1.2.1.md#per-key-sends)).
+
+A key plays its level, pad controls and sends once the kit has set it up: the
+kit's first edit of a key does that, with its level at 0 dB and every pad field
+at 0, so the key sounds as it did. Until then a key plays at 0 dB with every
+pad field neutral, whatever stock or an earlier SDK build left in its pad
+record, so projects saved before SDK 1.10, and keys a stock kit filled, play as
+before. Projects keep a key's settings, and copying a pad copies them. A
+preset keeps all of a key's settings too: loading one on a `padMix` kit sets
+up every key the preset stores (its regions marked `fm slap`), with the level,
+pad controls and sends the preset holds (a region's `gain`, and its `random`,
+the pad word's top half: pad controls from bit 0, FX I's code at bits 9..11 and
+FX II's at 12..14) ([firmware](abi-1.2.1.md#synthesis-drum-kits)). A region
+without `random` loads every pad field at 0; the OP-XY's own preset writer
+names it on every key the kit has set up, and a kit preset written by other
+tools should name it on every region, `"random": 0` included.
+
+A `padMix` kit may declare up to two small settings of each key's own in
+`resources.padControls` (SDK 1.10), such as a filter and a sample-rate
+reduction: a list of `{"label": "FILTER", "bits": 5, "signed": true}`, each with
+a label of at most eight letters, digits, spaces or hyphens, and 1..7 bits, or
+2..8 when `signed` (two's complement, so the field runs -16..15 in five bits),
+together at most 9 bits. A value always fits the display's signed byte. They
+step one a detent. 0 is neutral in every field, and a key the kit has not set
+up reads 0. The pad fields are kept in a stock pad word that stock saves with
+the project and copies with a pad. Before every render the adapter passes the
+played key's pad controls to
+
+```cpp
+void drum_pad(Voice&, Shared&, opxy::u32 owner, const opxy::i32* values);   // optional; one per declared field
+bool pad_control_text(opxy::u32 field, opxy::i32 value, char* text);        // optional; at most 15 characters
+```
+
+in the machine namespace; `pad_control_text` captions a value for the stock
+header (without it, or when it returns false, the number shows). The display's
+`pad` holds the selected key's pad fields. A kit's own header captions them
+itself.
+
+Every kit's track runs stock's own track filter on its voices, as a synth
+track does (SDK 1.10). M3 is the filter, with stock's types (svf, ladder, z
+lowpass, z hipass and the rest), cutoff, resonance, envelope amount and key
+tracking, and its second row the track's level terms and FX I and FX II. Each
+voice gets its own filter and its own filter envelope (M2 with Shift: attack,
+decay, sustain, release), from the moment it starts, after the engine and
+before the track's amplitude envelope and pan, so a key's own tone (a FILTER pad
+control, say) and the track's filter act in series. M3's controls lock per step
+through stock's editor, as on a synth, and act on every voice the track is
+sounding during the step. With M3 switched off, as a kit's init preset has it
+(stock's `fx`, `active: false`), the kit sounds exactly as without the filter
+and costs one test a voice; switched on it costs about 1,300 to 2,600
+instructions a voice a block depending on the type (the ladder and svf most),
+and a kit's profiling workload runs the ladder on every voice so its catalog
+figure includes it ([firmware](abi-1.2.1.md#the-track-filter-on-kit-voices)).
+A resonant peak more than 6 dB above a kit's half-scale ceiling clips.
+
+A `padMix` kit's steps lock its keys' PAN, LEVEL, pad controls, FX I and FX II
+per hit and **per key**, as stock's steps lock a track's parameters. Hold a step
+and Shift and turn one of them: the step gets a lock of that field for the key
+the Shift row shows (the key the encoders edit: one held or selected with
+Shift, else the selected key), one unit a detent (PAN faster when turned fast,
+as without a step held). PAN (-100..100),
+LEVEL (-30..30 dB) and a pad control (as far as its whole span, at most 127)
+lock an offset to the key's own value, clamped to the field (LEVEL stays a cut,
+-30..0); FX I and FX II lock the send itself, TRK or 0..100, starting from what
+the key sends. A field turned back to 0 is unlocked. Each note the step plays
+gets its own key's locks from the moment it starts: it keeps them for as long as
+it sounds, and voices still sounding from earlier hits keep theirs. Other keys
+on the same step play their own locks, or none: select each key to lock it.
+While a step is held, the Shift row (and the display's `pan`, `level` and `pad`)
+shows what that step plays for the selected key; released, the key's own values.
+MACHINE and CHOKE turn nothing while a step is held: the model and the choke
+group belong to the key. Without a held step Shift edits the key's own values as
+above. A note played live gets no step's locks, only the key's own values.
+
+The locks behave as stock's: copying and pasting a step or a pattern, page
+duplication, nudge, clearing a step or its locks and the take's undo all carry
+them, and they are saved with the project. A step keeps a handle to them in a
+lock word of its own (37); the values live in an SDK pool kept in the project's
+companion, `open-xy.locks` ([projects](projects.md#open-xylocks)), behind a
+storage interface (`drum_lock_store.hpp`). A pasted copy is a copy: editing it
+leaves the original. Limits and what is not kept:
+
+- A project holds 2,457 locked steps with one field for one key (24 KiB of
+  values; a step with four fields takes 16 bytes). Once the pool is full a turn
+  locks nothing more; unlocking makes room again.
+- The values are saved in the companion, before track control's state, which
+  gets the room the locks leave.
+- Saved on firmware without these locks (stock, or a build without a `padMix`
+  kit), a project keeps its steps' handles but not their values, which play
+  nothing from then on. Opened there and not saved, it keeps both.
+- Turning these fields while recording records nothing; lock them by hand.
+- With slide on, these locks don't slide: each hit plays its step's own.
+- Synths have no such locks.
+
+The engine's eight controls lock as before
+([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
 
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
@@ -540,6 +817,23 @@ argument-dependent lookup finds it, and take the voice and the shared state;
 one elsewhere or with other arguments is never called. A kit without it behaves exactly as
 before. The browser preview models neither the choke nor `finished`.
 
+A kit declaring `"sdk": "1.10"` or later may also take the tempo:
+
+```cpp
+void drum_transport(Voice&, Shared&, opxy::u32 owner, const opxy::Transport&);   // optional; in the machine namespace
+```
+
+The adapter calls it before every `render`, after `drum_select` and
+`drum_pad`, with the audio clock's advisory tempo, 96-PPQN ticks and play
+state, the same [`opxy::Transport`](../sdk/include/opxy/transport.hpp) sample
+engines get. `bpm_x10` is 0 when there is no tempo. As with `finished`,
+argument-dependent lookup finds it in the namespace that defines `Voice`; include
+`<opxy/transport.hpp>` in the kit's source. It needs no resource: an SDK
+without it builds the same source and never calls it, nor does this SDK for a
+kit declaring an older version. Keep a fallback for when it is not called or
+`bpm_x10` is 0, such as a tempo of the kit's own. The profiling workload passes
+120 BPM, playing. The browser preview has no tempo and never calls it.
+
 Kits use the same fixed shared-state and voice-pool rules as synths. Their
 code and state are linked once per machine, shared across tracks; voices
 still require independent state. Machine code and model data need no file loading when notes or patterns change.
@@ -584,12 +878,55 @@ Display code can draw the sample from its
 [overview](display.md#sample-overview).
 
 **What this gives up.** The own screen takes over the sampler page's encoders, so
-stock's trim controls are gone on it: a player can't set the sample's start and end,
-its loop markers, or the other things that page's encoders edit, from there.
-`SampleBlock.region` still reports the markers already in the region: the whole
-sample when one is newly assigned, or whatever a preset or the same track on the
-stock sampler left. If your instrument needs trimming, give it your own controls for
-it and read them in `render_sample`. The stock sample browser and recorder are unaffected.
+the stock sampler's own controls are gone from it: a player can't set the sample's
+start and end, its loop, its gain or the other things that page's encoders edit, from
+there. `SampleBlock.region` still reports what the region holds: the whole sample when
+one is newly assigned, or whatever a preset or the same track on the stock sampler
+left. An instrument can give itself its own controls for these and read them in
+`render_sample`, or hand some of them back to the stock page with `stockShift`.
+
+**Stock controls on Shift (`stockShift`, SDK 1.10).** `resources.stockShift` lists, for
+encoders 1 to 4 in order, which of the stock sampler page's controls Shift and that
+encoder edit. Stock then edits, steps and saves the setting with the track, as on its
+own page, and the engine reads it from `SampleBlock.region`:
+
+| Name | Edits | On the stock page | Read from |
+| --- | --- | --- | --- |
+| `start` | Sample start | Encoder 1 | `region.begin` |
+| `loopStart` | Loop start | Encoder 2 | `region.loop_begin` |
+| `loopEnd` | Loop end | Encoder 3 | `region.loop_end` |
+| `end` | Sample end | Encoder 4 | `region.end` |
+| `direction` | Forwards or backwards | Shift + encoder 1 | `region.reverse` |
+| `tune` | Tuning | Shift + encoder 2 | `region.pitch_cents` |
+| `gain` | Sample gain | Shift + encoder 4 | `region.level` |
+| `window` | The start and end together | Encoders 1 and 4 | `region.begin`, `region.end` |
+| `loopWindow` | The loop start and end together | Encoders 2 and 3 | `region.loop_begin`, `region.loop_end` |
+| `""` | The machine's own control, in fine steps, as without `stockShift` | | |
+
+A window moves its two markers by the same turn, keeping its length, and stops at
+the sample's ends. Each name may appear once; a list shorter than four leaves the
+remaining encoders on fine steps. For example, a granular engine might choose:
+
+```json
+"stockShift": ["start", "end", "window", "gain"]
+```
+
+and a looping one `["loopStart", "loopEnd", "loopWindow", "tune"]`. Only Shift turns
+on the engine's own page change; everything else stays as it was:
+
+- Turns without Shift edit the machine's own controls, and a press still switches
+  between its first four and second four.
+- An encoder the list leaves empty keeps Shift's fine turn of the machine's control.
+- The track's envelope, filter and LFO pages are stock's, with or without Shift.
+
+The engine plays begin..end as before. The loop markers are reported for the engine
+to use as it chooses; stock's own loop does not apply to it. Stock's loop crossfade
+(Shift + encoder 3) and loop mode (Shift + encoder 3 press) aren't offered:
+`SampleBlock` doesn't carry them. `stockShift` needs an own screen and SDK 1.10.
+While Shift is held, the screen's input `shift` is 1, so it can show what Shift
+edits; the [overview](display.md#sample-overview) gives the start, the end and the
+gain. The
+stock sample browser and recorder are unaffected.
 
 ### Services
 
@@ -600,9 +937,12 @@ means 0. Callbacks are functions in the machine's namespace.
 | --- | --- | --- | --- |
 | `stereoOutput` | 0 or 1 | Output is 64 interleaved left/right frames | |
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
+| `padControls` | Up to two `{label, bits, signed}` fields, 1..7 bits each (2..8 signed), 9 in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
+| `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad controls and its own FX I and FX II sends; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
+| `stockShift` | Up to four names, one per encoder; needs an [own screen](#own-screen) and SDK 1.10 | Shift and those encoders edit the stock sampler page's controls ([own screen](#own-screen)) | |
 | `sampleAnalysis` | Budget in bytes, 4096..2 MiB, whole words | Prepared per-sample data | `analysis_words`, `prepare_begin`, `prepare_step`, `prepared` |
 
 ### Audio block
@@ -617,6 +957,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `region.level` | Unsigned Q27 gain; `opxy::sample_unity_level` is unity |
 | `region.reverse` | The pad's saved direction |
 | `region.pitch_cents` | The pad's saved tuning, in cents |
+| `region.loop_begin`, `region.loop_end` | SDK 1.10: the pad's loop markers, within the sample. No loop when `loop_begin` is at or past `end`; both are `end` where nothing sets a loop, as in a lazy-chop audition |
 | `analysis` | This machine's completed analysis of the sample, or null while pending, declined or over budget |
 | `settings` | The pad's saved settings, or `sample_defaults()` when it has none; 0 without `padSettings` |
 | `output_channels` | 1, or 2 with `stereoOutput` |
@@ -829,7 +1170,9 @@ void process(State& state, opxy::Buffer buffer, const opxy::Transport& transport
 ```
 
 `transport.bpm_x10` is the tempo in tenths of BPM, or 0 when there is none
-(see [`opxy/transport.hpp`](../sdk/include/opxy/transport.hpp)). A control with
+(see [`opxy/transport.hpp`](../sdk/include/opxy/transport.hpp)). Sample
+engines get the same transport in their `SampleBlock`, and drum kits through
+[`drum_transport`](#synthesis-drum-kits). A control with
 `"display": "division"` and a linear 0..1 mapping picks one of stock delay's
 note lengths, an eighth of its travel each: 1/32, 1/32 dotted, 1/16, 1/16
 dotted, 1/8, 1/8 dotted, 1/4 and 1/2. `opxy::division(control)` gives the index
@@ -862,7 +1205,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.9 and builds 1.0 to 1.9 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.10 and builds 1.0 to 1.10 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -870,6 +1213,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
+| `samples` | Optional folder inside the machine folder holding a sample engine's own [samples](#own-samples), which its presets load; `sdk` 1.10, sample engines forking the sampler |
 | `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
 
 An effect's optional `dryParameter` field names the control used by the stock
@@ -891,8 +1235,62 @@ firmware that holds it.
 - At most 16 presets, each at most 16 KiB.
 - Each is a version 4 OP-XY preset whose `type` is the machine's ID, with
   eight engine `params` from 0 to 32767 and no sample `regions`, since a
-  preset never points into a user's sample library. Other fields stay as the
-  device saved them.
+  preset never points into a user's sample library. A sample engine shipping
+  its [own samples](#own-samples) may point at those instead. Other fields stay
+  as the device saved them.
+
+#### Own samples
+
+From SDK 1.10 a sample engine forking the sampler (`"base": "sampler"`) can ship
+samples of its own, so its init preset and its other presets open with a sound
+loaded instead of an empty track. `machine.json` `samples` names a folder of
+`<name>.wav` files, and `sdk.py build` installs each as
+`content/samples/<id>/<name>.wav`. They live in the OP-XY's content storage, not
+in the module memory: stock loads one into its sample memory when a preset
+pointing at it is loaded, as it loads any other sample, and the player can still
+load another sample over it.
+
+Ship only audio you made yourself or may redistribute under the machine's
+licence: never the OP-XY's own content, and no commercial, library or other
+third-party sounds you can't relicense. Say in a `README.md` in the samples
+folder where each sample comes from, how it was made and under which licence it
+ships. Catalog review checks it.
+
+- A name is lowercase letters, digits, `-` and `_`, at most 24. Other files in
+  the folder, except `.md` and hidden files, are refused.
+- At most 4 samples, each at most 2 MiB: a WAV file of plain 16-bit PCM
+  (format 1, not `WAVE_FORMAT_EXTENSIBLE`) at 44.1 kHz, mono or stereo.
+- Every sample is loaded by at least one of the machine's [presets](#presets), so
+  `samples` needs `presets`.
+- A preset points at one in its single sampler region, as stock saves a sample
+  engine's preset. Its `sample` is the installed path,
+  `content/samples/<id>/<name>.wav`; its `framecount` is the sample's frame
+  count; `sample.start` (0 if absent) and `sample.end` lie inside it, and the
+  loop markers inside them. `pitch.keycenter` and `hikey` are 0..127, `gain`
+  is -30..20 dB, and `reverse` and the loop flags are true or false. `tune`,
+  `pan`, `fade.in`, `fade.out` and `loop.crossfade` stay 0: the SDK doesn't
+  record their saved ranges yet.
+- Presets name the file, so it is installed once however many presets use it.
+  A machine without `samples` keeps empty `regions`.
+- Projects and presets name a sample by its path. Treat a shipped sample as
+  fixed: replacing or removing it under the same name changes or silences every
+  project and preset that loads it, and builds never delete files an earlier
+  build installed. Give new or changed audio a new name.
+- The files share `content/samples/` with whatever else is on the OP-XY. The SDK
+  doesn't record the names of stock's own sample folders, so it can't refuse a
+  machine ID that matches one: check the device's `/content/samples/` before
+  choosing a sample engine's ID.
+- The browser builder doesn't install samples yet. Its kit still offers the
+  machine and its presets, but not the samples: there each preset opens with no
+  sample loaded, as a sample engine's presets did before. `sdk.py build`
+  installs the samples and the presets as they are.
+
+```json
+"regions": [{"sample": "content/samples/mysampler/pad.wav", "framecount": 264600,
+  "sample.start": 0, "sample.end": 264600, "pitch.keycenter": 48, "hikey": 127,
+  "gain": 0, "tune": 0, "reverse": false, "loop.start": 0, "loop.end": 264600,
+  "loop.crossfade": 0, "loop.onrelease": false}]
+```
 
 ### Identity
 

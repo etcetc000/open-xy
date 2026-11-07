@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '387eba1070299f301c2295064facbcd3b43228982c3fca2e4ebe85e253b9593c';
+export const PROFILE_SHA256 = 'ea072fcb981d6d7560054256f4e70dfd17bbd1e0194f33297bbc5c9c9db8ab71';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -904,8 +904,9 @@ export function presetPath(machine) {
 }
 
 // The machine's init preset, then its own presets (tooling.machines.read_presets):
-// each a version 4 preset of this machine, pointing at no samples. Its own
-// default replaces the generated init preset.
+// each a version 4 preset of this machine, pointing at no samples: a kit empties the
+// regions of those loading a sample engine's own samples, which the builder doesn't
+// install (tooling.browser_kit.kit_presets). Its own default replaces the generated init preset.
 export function presetFiles(machine) {
   // An aux machine's presets: the files the kit generated (tooling.adapters.aux_preset_files).
   if (machine.catalog === '') {
