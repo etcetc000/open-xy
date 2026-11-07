@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -88,6 +88,23 @@ test('only an exact build restores its selection; others recover verified stock 
     const foreign = image.slice(); foreign[60] ^= 1;
     await assert.rejects(recoverFirmware(kit, foreign), /not made from OS 1\.2\.1/);
   }
+});
+
+test('machines whose code lies within another present machine are tried without', () => {
+  const text = (owner, bytes) => ({owner, relocations:[], sections:[{group:'text', index:1, size:bytes.length, data:Uint8Array.from(bytes)}]});
+  const shared = Array.from({length:32}, (_, i) => i * 7 + 1);
+  const kit = {objects:[text('big', shared), text('inside', shared.slice(8, 24)), text('other', shared.map(b => b ^ 0x55))]};
+  // Only the machine whose largest code lies within another's is a lookalike.
+  assert.deepEqual(presentSelections(kit, ['big', 'inside', 'other']), [['big', 'inside', 'other'], ['big', 'other']]);
+  assert.deepEqual(presentSelections(kit, ['big', 'other']), [['big', 'other']]);
+  // Identical code: each could be the one built, or both; the selection never empties.
+  const twins = {objects:[text('a', shared), text('b', shared)]};
+  assert.deepEqual(presentSelections(twins, ['a', 'b']), [['a', 'b'], ['b'], ['a']]);
+  // Many lookalikes: fewest dropped first, up to the limit.
+  const many = Array.from({length:9}, (_, i) => 'm' + i), tried = presentSelections({objects:many.map(id => text(id, shared))}, many);
+  assert.equal(tried.length, RECOVERABLE_ALTERNATIVES);
+  assert.deepEqual(tried.slice(0, 3), [many, many.slice(1), [many[0], ...many.slice(2)]]);
+  assert.ok(tried.every((selection, i) => i === 0 || selection.length <= tried[i - 1].length));
 });
 
 test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', async () => {
