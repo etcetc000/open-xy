@@ -77,7 +77,7 @@ class PlayerContracts(unittest.TestCase):
         self.assertLess(source.index('refresh_keyboard_octaves()'), source.index('if (selected != kMaestroPage)'))
         self.assertEqual(len(vtable()), 16)
         for i, entry in enumerate(vtable()):
-            self.assertEqual('0x' not in entry, i in {2, 3, 5, 6, 7, 10, 13})
+            self.assertEqual('0x' not in entry, i in {2, 3, 5, 6, 7, 10, 11, 13})
 
     def test_catalog_player_is_not_an_instrument(self):
         profile = config()
@@ -161,8 +161,8 @@ template<class Function> Function* stock(u32 address) { return reinterpret_cast<
                        check=True, capture_output=True, timeout=120)
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
 
-    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
-    def test_owned_turns_never_enter_stock_hold_mode(self):
+    def run_bridge_fixture(self, name):
+        """Compiles the actual players.cpp beside stock fakes and runs a fixture against it."""
         (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
         (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
 #include <opxy/types.hpp>
@@ -177,20 +177,42 @@ inline void refresh_keyboard_octaves() {}
         (self.root / 'registration.hpp').write_text('''#pragma once
 #include "players.hpp"
 const void* stock_address(opxy::u32);
+extern opxy::Transport fake_transport;
 namespace opxy { namespace platform {
 using Address=__UINTPTR_TYPE__;
 template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+inline Transport audio_transport() { return fake_transport; }
 struct Record {}; struct Screen {};
 inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
 }}
 ''', encoding='utf-8')
-        binary = self.root / ('turn.exe' if os.name == 'nt' else 'turn')
+        binary = self.root / (name + ('.exe' if os.name == 'nt' else ''))
         subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',
                         '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
-                        str(ROOT/'tests/fixtures/player_turn.cpp'), '-o', str(binary)],
+                        str(ROOT/'tests/fixtures'/(name + '.cpp')), '-o', str(binary)],
                        check=True, capture_output=True, timeout=120)
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_owned_turns_never_enter_stock_hold_mode(self):
+        self.run_bridge_fixture('player_turn')
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_steps_transport_and_silent_held_roots(self):
+        self.run_bridge_fixture('player_runtime')
+        # The runtime words follow the machine's state inside the stock slot,
+        # and the generated methods count steps and release held keys.
+        source = (PLATFORM / 'players.cpp').read_text(encoding='utf-8')
+        self.assertIn('kRuntimeOffset = kStateOffset + opxy::player::state_bytes', source)
+        methods = (PLATFORM / 'player_object.cpp.in').read_text(encoding='utf-8')
+        step = methods[methods.index('static void step_player'):]
+        self.assertLess(step.index('player_step(object)'), step.index('apply_updates(object)'))
+        release = methods[methods.index('static void release'):methods.index('static void reset_player')]
+        self.assertLess(release.index('player_release(object, note)'), release.index('apply_updates(object)'))
+        for method in ('static void reset_player', 'static void all_off'):
+            body = methods[methods.index(method):]
+            self.assertIn('player_reset(object)', body[:body.index('}')])
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_optional_update_and_reset_callbacks(self):
@@ -305,6 +327,29 @@ class StockPlayer(unittest.TestCase):
         instruction(0x8d57d758, 0xe428, held // 4)  # release: R0 = [P5 + held]
         instruction(0x8d57d754, 0xe124, 72)  # release: chord stride
 
+    def test_stock_steps_a_player_only_while_it_answers_active(self):
+        from tooling.formats import sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        blocks = ldr(data)
+
+        def half(address):
+            at = mapped_offset(blocks, address, 2)
+            return struct.unpack('<H', data[at:at+2])[0]
+        held = int(re.search(r'kHeld = (0x[0-9a-f]+)', (PLATFORM / 'players.cpp').read_text(encoding='utf-8'))[1], 16)
+        # Maestro's activity query answers whether it holds chord records...
+        at = mapped_offset(blocks, 0x8d57d46a, 4)
+        self.assertEqual(data[at:at+4], struct.pack('<HH', 0xe408, held // 4))  # R0 = [P1 + held]
+        # ...and stock's player clock asks it first, leaving without a step on
+        # zero; the step it calls later is the method at +0x34.
+        self.assertEqual(half(0x8d57ea1e), 0xaec9)  # P1 = [P1 + 0x2c]
+        self.assertEqual(half(0x8d57ea24), 0x0c05)  # CC = R5 == 0
+        self.assertEqual(half(0x8d57ec50), 0xaf49)  # P1 = [P1 + 0x34]
+        self.assertEqual(half(0x8d57ec6a), 0xaf49)  # P1 = [P1 + 0x34]
+        # Stock's step returns at once without records, so stepping a player
+        # that only holds a key sounds nothing of stock's.
+        self.assertEqual(half(0x8d57d8e8), 0x0806)  # CC = R6 == R0 (no records)
+
     def test_kept_methods_are_authenticated_stock_maestro(self):
         from tooling.formats import sha
         data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
@@ -312,9 +357,9 @@ class StockPlayer(unittest.TestCase):
         at = mapped_offset(ldr(data), 0x8409f6d0, 64)
         words = struct.unpack('<16I', data[at:at+64])
         for i, entry in enumerate(vtable()):
-            if i not in {2, 3, 5, 6, 7, 10, 13}:
+            if i not in {2, 3, 5, 6, 7, 10, 11, 13}:
                 self.assertEqual(int(entry.split('(')[1].rstrip(')'), 16), words[i])
         header = (PLATFORM / 'players.hpp').read_text(encoding='utf-8')
-        for index, name in ((6, 'Release'), (7, 'Reset'), (10, 'AllOff'), (13, 'Step')):
+        for index, name in ((6, 'Release'), (7, 'Reset'), (10, 'AllOff'), (11, 'Active'), (13, 'Step')):
             address = int(re.search(r'kMaestro'+name+r' = (0x[0-9a-f]+)', header)[1], 16)
             self.assertEqual(address, words[index])

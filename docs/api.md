@@ -1377,12 +1377,14 @@ For live changes to held chords, optionally implement
 release, and before every stock player step, the SDK drains at most eight
 updates, stopping when it returns false. Calls run on the sequencer role,
 so held chords can follow control changes without GUI-side note operations.
-An update names an existing `root`, a `plan`, and mode `Replace` or `Add`.
+An update names a `root`, a `plan`, and mode `Replace` or `Add`.
 `Replace` releases the old tones and schedules the new plan; an empty plan
 silences that root. `Add` keeps sounding and queued tones and appends only
-new pitches, up to eight total. A change never starts a root with no current
-record. Invalid MIDI values or counts discard the update without changing
-the chord. Cleared records are immediately reusable, including at capacity.
+new pitches, up to eight total. An update applies to a root that is sounding
+or whose key `press` took and is still down, even if that press or an earlier
+empty `Replace` left it silent; it never starts a released root. Invalid MIDI
+values or counts discard the update without changing the chord. Cleared
+records are immediately reusable, including at capacity.
 
 Optional `void reset(State&)` clears held inputs after stock reset or
 all-notes-off; it can preserve machine settings. Without it, the SDK zeroes
@@ -1395,6 +1397,8 @@ Other mappings retain the Maestro controller's editing: 64 steps, four choices,
 continuous, and off/on, respectively.
 `lowest_key` is the track keyboard's lowest F at its current octave. Stock's
 octave setter publishes this independently of sample-engine selection.
+`steps` and `transport` are described under [generating notes](#generating-notes);
+`display` reads them too, advisorily.
 
 The page keeps the stock header and uses the four definition labels.
 `Display.values` supplies their text; `lit` shows the 24 `<id>_dot_0..23`
@@ -1418,3 +1422,29 @@ Player types remain stable when a subsequent build uses the saved layout.
 Stock firmware replaces an unknown saved player with Arpeggio. Project
 companions currently describe engine/effect identities only: preserve the
 firmware's `layout.json` for player identities.
+
+### Generating notes
+
+A player can sound its own line of notes for as long as a key is held, as an
+arpeggiator or a generative sequencer does. `Controls.steps` counts the stock
+player steps since the player was created on its track, wrapping at 2^32. It
+moves once before each step's updates and never on a press or release, so
+`update` knows a step has passed when the count differs from the last one it
+saw. `Controls.transport` holds the sequencer's tempo (`bpm_x10`, 0 when
+unknown) and song position (`ticks96`, 96 per quarter note, moving only while
+`playing`). A generator:
+
+- takes the key in `press`, with the first note or an empty plan (stock steps
+  the player for as long as a key it took is down, sounding or not);
+- in `update`, when `steps` differs from the count it kept, keeps the new
+  count and works out which held roots change on this step; then, call by
+  call within the same drain, returns one `Replace` per changing root, a
+  one-note plan for the next note or an empty plan for a rest, and false
+  when none is left; eight updates per step cover eight roots;
+- forgets a root in `release` and everything in `reset`.
+
+Each note sounds until the root's next `Replace` or its release, so a note's
+gate is the time to the next change. A tone's delay sounds it that many steps later.
+How often stock steps a player, and whether it follows the tempo, is not yet
+measured on hardware: count steps against `transport.ticks96` while playing
+before relying on a rate.
