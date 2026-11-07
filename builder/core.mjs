@@ -346,12 +346,13 @@ export const machineAuthor = m => m.source?.maintainer ?? '';
 export const CPU_HIGH_PERCENT = 4.5;
 // A catalog machine's reported CPU worst case: its worst observed block peak, or its
 // average per block when its record reports no peak; null without a cpu record.
-// A drum kit is judged by its worst single sound: its record's peak includes whole-kit
-// runs and it records no single-voice peak, so it is the heaviest single voice's average.
+// A drum kit is judged by its worst single sound, never its whole-kit runs: its
+// single-voice peak (voice_peak_percent), else its heaviest single voice's average.
 export function cpuWorstCase(m) {
   const usable = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
   const cpu = m.cpu && typeof m.cpu === 'object' ? m.cpu : {};
-  if (m.kind !== 'drum' && usable(cpu.peak_percent)) return {percent: cpu.peak_percent, metric: 'peak'};
+  const peak = m.kind === 'drum' ? cpu.voice_peak_percent : cpu.peak_percent;
+  if (usable(peak)) return {percent: peak, metric: 'peak'};
   if (usable(cpu.block_percent)) return {percent: cpu.block_percent, metric: 'average'};
   return null;
 }
@@ -363,7 +364,8 @@ export function cpuHigh(m) {
   if (!worst || worst.percent <= CPU_HIGH_PERCENT) return null;
   const figure = Number(worst.percent.toFixed(2)) + '% of an audio block';
   const detail = m.kind === 'drum'
-    ? 'worst single sound average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no single-sound peak recorded)'
+    ? (worst.metric === 'peak' ? 'worst single sound peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
+      : 'worst single sound average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no single-sound peak recorded)')
     : worst.metric === 'peak'
     ? 'worst observed block peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
     : 'average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)';
