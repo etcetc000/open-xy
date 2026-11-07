@@ -12,6 +12,12 @@
 // What startup.cpp gives a build without the control service.
 extern "C" opxy::u32 sdk_project_kept(void*) { return 0; }
 extern "C" void sdk_project_loaded(const char*) {}
+// What startup.cpp gives a build without the step-lock handles.
+extern "C" opxy::u32 sdk_project_locks_size(void*, opxy::u32) { return 0; }
+extern "C" void sdk_project_locks_write(void*) {}
+extern "C" void sdk_project_locks_begin() {}
+extern "C" void sdk_project_locks_byte(opxy::u32) {}
+extern "C" void sdk_project_locks_loaded(void*, opxy::u32) {}
 
 using opxy::platform::Address;
 

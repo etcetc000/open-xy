@@ -44,8 +44,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # controls (resources.stockShift); lets a sample engine ship its own samples
 # (machine.json `samples`), installed in the content folder, and its presets point at
 # them; gives each key of a drum kit a mixer channel of its own on Shift: pan,
-# level, small controls and sends (resources.padMix and resources.padControls); and
-# calls a kit's drum_transport with the tempo before every render.
+# level, small controls and sends, which lock per hit (resources.padMix and
+# resources.padControls); runs every kit's voices through stock's track filter (M3);
+# and calls a kit's drum_transport with the tempo before every render.
 SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.

@@ -109,8 +109,16 @@ int main() {
     CHECK(probe_drum_send(objects[4]) == 0);
     end(3);
     end(4);
+    // A note keeps the codes of its first block's payload: the payload is the
+    // pad's, which a later note on the pad replaces.
+    render(1, nullptr);
+    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? 5u + (3u << 3) : 0u));
+    note(1, 53);
     render(1, nullptr);
     CHECK(probe_drum_send(objects[1]) == 0);
+    render(1, marked);
+    CHECK(probe_drum_send(objects[1]) == 0);
+    note(1, 53);
     render(1, marked);
     // A destroyed handle has no voice: whatever it renders is silence.
     end(1);

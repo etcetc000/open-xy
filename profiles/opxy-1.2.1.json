@@ -150,6 +150,9 @@
     ],
     "drum_sends": [
       "padMix"
+    ],
+    "drum_locks": [
+      "padMix"
     ]
   },
   "patches": [
@@ -1494,6 +1497,28 @@
     },
     {
       "kind": "hook",
+      "name": "Instrument turn: the key the per-key editor gets when none is held, an owned kit's selected key",
+      "address": "0x8c0b14b4",
+      "file_offset": "0xe86f0",
+      "length": 8,
+      "before": "00de4d8db06c0000",
+      "symbol": "sdk_drum_unheld_key",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Instrument turn: the key it latches when none is held, none on an owned kit",
+      "address": "0x8c0b167a",
+      "file_offset": "0xe88b6",
+      "length": 8,
+      "before": "00de4d8db06c0000",
+      "symbol": "sdk_drum_latch_key",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "LFO Value effective destination label",
       "address": "0x8d543970",
       "file_offset": "0x17abcc",
@@ -2154,6 +2179,39 @@
       "symbol": "sdk_drum_send_own",
       "call": true,
       "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
+      "name": "Note start: the pad payload builder's call, noting the note's track and key for its step locks",
+      "address": "0x8d595b50",
+      "file_offset": "0x1ccdac",
+      "length": 4,
+      "before": "00e388bd",
+      "symbol": "sdk_drum_lock_note",
+      "call": true,
+      "service": "drum_locks"
+    },
+    {
+      "kind": "hook",
+      "name": "Pad payload builder: a note's step-lock offsets into its pan, pad and level words before publication",
+      "address": "0x8d5ad776",
+      "file_offset": "0x1e49ce",
+      "length": 4,
+      "before": "ffe30ffd",
+      "symbol": "sdk_drum_lock_publish",
+      "call": true,
+      "service": "drum_locks"
+    },
+    {
+      "kind": "hook",
+      "name": "Sequencer: a step's lock pass before its note starts, noting the step-lock handle it applied",
+      "address": "0x8d5939aa",
+      "file_offset": "0x1cac06",
+      "length": 4,
+      "before": "ffe38bfe",
+      "symbol": "sdk_lock_step",
+      "call": true,
+      "service": "drum_locks"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

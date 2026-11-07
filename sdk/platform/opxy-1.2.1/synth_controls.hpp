@@ -100,6 +100,8 @@ opxy::u32 sdk_param_steps(opxy::u32 track, opxy::u32 index, opxy::u32* scale) __
 // gets its controls 5..8 stored and sent to the audio side as stock's current
 // values hold them. Stock stores and sends only the first four of an effect's
 // defaults when it is put on a send; every later edit it stores and sends itself.
+// It also keeps the selected padMix kit's lock words' stored base neutral
+// (drum_locks.hpp).
 void sdk_send_refresh() __asm__("sdk_send_refresh");
 // The machine holding an aux track, as its engine, or 0: set by track control's
 // aux tracks (aux_tracks.cpp) in builds that link them, null in others.

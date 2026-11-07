@@ -101,6 +101,9 @@ extern const opxy::platform::DrumMachine sdk_drum_machines[] __asm__("sdk_drum_m
 extern const opxy::u32 sdk_drum_machine_count __asm__("sdk_drum_machine_count");
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32 engine) __asm__("sdk_drum_machine");
 opxy::u32 sdk_drum_alias(opxy::u32 engine) __asm__("sdk_drum_alias");
+// Project load's check of a pattern's track object: the alias, after a padMix
+// kit's per-hit lock words get their base with no lock there.
+opxy::u32 sdk_drum_load_engine(opxy::u32 engine, opxy::u32 object) __asm__("sdk_drum_load_engine");
 // GUI projection: the selected key's model and stored controls; track offsets
 // (step locks, modulation) remain separate.
 bool sdk_drum_values(opxy::u32 track, opxy::u8* model, opxy::u8* controls) __asm__("sdk_drum_values");
@@ -123,6 +126,11 @@ opxy::i32 sdk_drum_level(opxy::u32 track) __asm__("sdk_drum_level");
 void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) __asm__("sdk_drum_pad_values");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
+// The instrument turn's key when it holds none (8c0b14b4) and the key it latches
+// then (8c0b167a): on an owned kit's track the selected key and none (-1), so
+// the SDK never holds a key itself (stock.hpp drum_edit_key); else stock's.
+opxy::u32 sdk_drum_unheld_key(opxy::u32 track) __asm__("sdk_drum_unheld_key");
+opxy::u32 sdk_drum_latch_key(opxy::u32 track) __asm__("sdk_drum_latch_key");
 // Stock's preset import (8d4e35a8, its three calls hooked), then a padMix kit's
 // loaded keys set up as the preset holds them (drum_synthesis_stock.cpp).
 opxy::u32 sdk_drum_preset_load(opxy::u32 preset, opxy::u32 flag) __asm__("sdk_drum_preset_load");

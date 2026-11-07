@@ -88,6 +88,12 @@ def drum_transport(m):
     return m.kind == 'drum' and getattr(m, 'sdk', (1, 0)) >= (1, 10)
 
 
+def pad_mix(m):
+    """Whether a drum kit's Shift row is each key's mixer channel (resources.padMix), whose
+    pan, level, pad controls and sends also lock per hit (drum_locks.hpp)."""
+    return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
+
+
 def sends_per_key(m):
     """Whether a drum kit's keys keep their own share of the track's sends: padMix, whose
     Shift row edits FX I and FX II."""
