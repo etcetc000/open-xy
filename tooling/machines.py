@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 
 from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, paged, shift_parameters, stock_name, validate_definition
+from .contributors import validate_native_assembly
 from .formats import require
 from .pipeline import config
 
@@ -43,9 +44,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # sample engine's own screen give any encoder to one of the stock sampler page's own
 # controls (resources.stockShift); lets a sample engine ship its own samples
 # (machine.json `samples`), installed in the content folder, and its presets point at
-# them; and gives each key of a drum kit a mixer channel of its own on Shift: pan,
+# them; gives each key of a drum kit a mixer channel of its own on Shift: pan,
 # level, small controls and sends, which lock per hit (resources.padMix and
-# resources.padControls). Every kit's voices run stock's track filter (M3).
+# resources.padControls); runs every kit's voices through stock's track filter (M3);
+# and calls a kit's drum_transport with the tempo before every render.
 SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -111,6 +113,8 @@ class Machine:
     dry_level: int | None = None  # a fixed source dry, Q31 (SDK 1.7)
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
     grayscale: str | None = None
+    native: tuple = ()  # its NativeUnits (native/<name>.s), in name order
+    sdk: tuple = (1, 0)  # the SDK version machine.json declares, (major, minor)
 
     @property
     def sample_page(self):
@@ -406,6 +410,75 @@ def require_sdk(version, minimum, feature):
     require(version >= minimum, f'{feature} needs "sdk": "%d.%d" in machine.json' % minimum)
 
 
+# A machine's own Blackfin routines (docs/api.md, "Native routines"): native/<name>.s,
+# described by native/<name>.json. A firmware build assembles each into the machine;
+# every other build runs the C reference its header pairs with it (opxy/native.hpp).
+NATIVE = 'native'
+NATIVE_NAME = re.compile(r'[a-z][a-z0-9_]{0,31}')
+NATIVE_FIELDS = {'symbol', 'stackBytes', 'stateBytes', 'range', 'reference'}
+NATIVE_UNITS = 32
+NATIVE_SOURCE_BYTES = 256 * 1024
+# The most stack one routine may declare: an audio callback runs on stock's stack.
+NATIVE_STACK_BYTES = 2048
+NATIVE_STATE_BYTES = 64 * 1024
+ASSEMBLY_SUFFIXES = ('.s', '.asm', '.sx')
+
+
+@dataclass(frozen=True)
+class NativeUnit:
+    name: str          # native/<name>.s
+    path: Path
+    symbol: str        # its one exported routine, as C names it: <id>_native_...
+    stack_bytes: int   # the most stack it takes below its caller's SP, callees aside
+    state_bytes: int   # writable .data and .bss it may hold (0: none)
+    range: str         # the inputs it supports, for its readers
+    reference: str     # the C reference that defines it, for its readers
+
+
+def read_native(root, identity):
+    """A machine's native units, each checked against its manifest. Assembly lives only
+    in native/ (vendored code, never built, aside)."""
+    folder = root / NATIVE
+    for path in tree(root):
+        parts = path.relative_to(root).parts
+        if path.suffix.lower() in ASSEMBLY_SUFFIXES and parts[0] != 'vendor':
+            require(len(parts) == 2 and parts[0] == NATIVE and path.suffix == '.s',
+                    f'{identity}: assembly lives in native/<name>.s, not {"/".join(parts)}')
+    if not folder.exists():
+        return ()
+    require(folder.is_dir() and folder.resolve() == folder, f'{identity}: native/ is a folder')
+    names = sorted(p.stem for p in folder.iterdir() if p.suffix == '.s')
+    manifests = sorted(p.stem for p in folder.iterdir() if p.suffix == '.json')
+    require(names == manifests, f'{identity}: each native/<name>.s has its manifest native/<name>.json, and only those')
+    require(len(names) <= NATIVE_UNITS, f'{identity}: at most {NATIVE_UNITS} native units')
+    units = []
+    for name in names:
+        source, manifest = folder / (name + '.s'), folder / (name + '.json')
+        where = f'{identity}/native/{name}'
+        require(NATIVE_NAME.fullmatch(name) is not None, where + ': native unit names are lowercase C identifiers')
+        require(source.resolve() == source and manifest.resolve() == manifest and
+                0 < source.stat().st_size <= NATIVE_SOURCE_BYTES, where + ': missing, redirected or oversized')
+        record = json.loads(manifest.read_text(encoding='utf-8'))
+        require(isinstance(record, dict) and {'symbol', 'stackBytes', 'range'} <= set(record) <= NATIVE_FIELDS,
+                where + '.json: symbol, stackBytes and range, and optionally stateBytes and reference')
+        symbol, stack, state = record['symbol'], record['stackBytes'], record.get('stateBytes', 0)
+        require(isinstance(symbol, str) and re.fullmatch(identity + r'_native_[a-z0-9_]+', symbol) and len(symbol) <= 64,
+                where + f'.json: symbol starts with {identity}_native_, its machine\'s own prefix')
+        require(type(stack) is int and 0 <= stack <= NATIVE_STACK_BYTES and stack % 4 == 0,
+                where + f'.json: stackBytes is a multiple of 4 from 0 to {NATIVE_STACK_BYTES}')
+        require(type(state) is int and 0 <= state <= NATIVE_STATE_BYTES,
+                where + f'.json: stateBytes is 0 to {NATIVE_STATE_BYTES}')
+        for field in ('range', 'reference'):
+            require(isinstance(record.get(field, ''), str) and len(record.get(field, '')) <= 400,
+                    where + f'.json: {field} is text of at most 400 characters')
+        require(record['range'].strip(), where + '.json: range says which inputs the routine supports')
+        validate_native_assembly(source.read_text(encoding='utf-8'), where + '.s', identity, symbol, state > 0)
+        units.append(NativeUnit(name=name, path=source, symbol=symbol, stack_bytes=stack, state_bytes=state,
+                                range=record['range'], reference=record.get('reference', '')))
+    require(len({u.symbol for u in units}) == len(units), f'{identity}: each native unit exports its own symbol')
+    return tuple(units)
+
+
 def reads_sample_overview(root):
     """Whether a machine's own C++, its tests and tools aside, includes the overview header."""
     include = re.compile(r'^\s*#\s*include\s*[<"]opxy/sample_overview\.hpp[>"]', re.M)
@@ -502,6 +575,7 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root):
         require_sdk(version, (1, 8), 'A sample overview (opxy/sample_overview.hpp)')
         require(kind == 'sample' and display == 'drawing', "Only a sample engine's own screen reads a sample overview")
+    native = read_native(root, identity)
     # The native plan compiles extra translation units only into synths.
     if kind not in ('synth', 'drum'):
         require(not sources and not includes,
@@ -546,7 +620,7 @@ def machine_at(root, identity=None):
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
                    root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, samples=samples,
-                   grayscale=grayscale)
+                   grayscale=grayscale, native=native, sdk=version)
     if grayscale:
         from .native import validate_panel
         validate_panel(result)
@@ -605,8 +679,11 @@ def occupied(rules, identity):
     return keys
 
 
-def read_layout(path):
-    """A layout file's numbers by machine ID. The builder's saved selection is a layout too."""
+def read_layout(path, build=False):
+    """A layout file's numbers by machine ID. The builder's saved selection is a layout too.
+
+    A build refuses a layout from the builder's experimental memory, which SDK
+    builds do not offer; companions need only the numbers."""
     value = json.loads(Path(path).read_text(encoding='utf-8'))
     profile = config()
     require(isinstance(value, dict) and value.get('format') == LAYOUT_FORMAT and isinstance(value.get('machines'), dict),
@@ -614,6 +691,21 @@ def read_layout(path):
     # Earlier profiles with the same identity rules number machines the same way.
     require(value.get('profile') in (profile['id'], *profile.get('layout_profiles', ())),
             f"{path} is a layout for {value.get('profile')}, not {profile['id']}")
+    # The builder's experimental 4 MiB memory (profile experimental_memory) is
+    # builder-only; an SDK build from its layout would quietly use 2 MiB.
+    # The same shape the builder accepts (builder/core.mjs readLayout): neither member, or both,
+    # reserved_bytes read as JavaScript's JSON.parse reads it (a double, e.g. 4194304.0).
+    reserved = value.get('reserved_bytes')
+    try:
+        reserved = float(reserved) if type(reserved) in (int, float) else None
+    except OverflowError:
+        reserved = None  # JavaScript reads it as Infinity
+    require(('memory' not in value and 'reserved_bytes' not in value) or
+            (value.get('memory') == 'expanded' and reserved is not None and reserved.is_integer() and
+             reserved > 0 and reserved % (1024 * 1024) == 0),
+            f'{path} has an invalid memory choice')
+    require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "
+            'sdk.py builds use standard memory. Remove "memory" and "reserved_bytes" from a copy to build with standard memory.')
     return check_layout_numbers(value['machines'], 'the layout')
 
 

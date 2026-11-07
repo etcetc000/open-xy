@@ -23,7 +23,7 @@ version is rejected. The output differs from stock in exactly these places:
 
 | Change | Edits | Purpose |
 | --- | --- | --- |
-| Reservation | 2 | Shrinks the application heap by 2 MiB (20 MiB to 18 MiB); the module lives in the freed tail |
+| Reservation | 2 | Shrinks the application heap by 2 MiB (20 MiB to 18 MiB); the module lives in the freed tail. The builder's experimental 4 MiB option writes 16 MiB instead (profile `experimental_memory`, [builder](builder.md#capacity-and-machine-numbers)) |
 | Hooks | 5 | Branches from the synth initializer, both screen factories and both catalog-insertion calls into SDK startup code |
 | Sample dispatch | 2 | Recognizes owned SDK sample registrations and selects the stock sampler's (page 2) or multisampler's (page 7) audio payload |
 | Preset serialization | 1 | Includes owned sample engines in sample-file and slice-region export while preserving the saved engine identity |
@@ -926,6 +926,9 @@ The drum renderer writes the pitch buffer at `11902c00` with each phase
 increment shifted right by 16 (`8d51b440`–`8d51b444`). The SDK expands those
 64 values back to the public `Pitch` units before the contributor callback;
 the lower 16 bits are zero because stock has already quantized them.
+For a kit declaring SDK 1.10 or later, the `+12` adapter also reads the audio
+clock's tempo, ticks and play state, as a sample engine's renderer does, and
+passes them to the kit's `drum_transport` before its `render`.
 
 Each key's four parameter words store 60 bits that stock exports as positive
 Q15 integers and restores with a left shift of 16. The SDK packs the key's

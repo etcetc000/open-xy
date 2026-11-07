@@ -304,8 +304,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.0",
-      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+      "tag": "v1.3.1",
+      "commit": "b717ea4cfbce3e372c3bd661b14d7c3aa9408aff",
       "path": "machines/mmdyn",
       "keywords": [
         "emulation",
@@ -354,8 +354,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.0",
-      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+      "tag": "v1.3.1",
+      "commit": "b717ea4cfbce3e372c3bd661b14d7c3aa9408aff",
       "path": "machines/mmpar",
       "keywords": [
         "emulation",
@@ -382,8 +382,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.0",
-      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+      "tag": "v1.3.1",
+      "commit": "b717ea4cfbce3e372c3bd661b14d7c3aa9408aff",
       "path": "machines/mmpulse",
       "keywords": [
         "emulation",
@@ -404,8 +404,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.0",
-      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+      "tag": "v1.3.1",
+      "commit": "b717ea4cfbce3e372c3bd661b14d7c3aa9408aff",
       "path": "machines/mmsid",
       "keywords": [
         "emulation",
@@ -425,8 +425,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.0",
-      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+      "tag": "v1.3.1",
+      "commit": "b717ea4cfbce3e372c3bd661b14d7c3aa9408aff",
       "path": "machines/mmstat",
       "keywords": [
         "emulation",
@@ -562,8 +562,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Hexagon",
-      "tag": "v1.7.0",
-      "commit": "58a56619fb11e016b34fc8dd8bc11197d6011c2f",
+      "tag": "v1.7.1",
+      "commit": "d731519527418b82362b2a07fa68f9e097250d88",
       "path": "bloom",
       "keywords": [
         "additive",
@@ -782,8 +782,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Nonagon",
-      "tag": "v0.9.0",
-      "commit": "aca55181a3230c1d0d58510dfb87ff505f53a264",
+      "tag": "v0.9.1",
+      "commit": "f9a65784f9be7d7297af04dfa207755df2273764",
       "path": "fermi",
       "keywords": [
         "physical",
@@ -943,8 +943,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.0",
-      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+      "tag": "v1.3.1",
+      "commit": "b717ea4cfbce3e372c3bd661b14d7c3aa9408aff",
       "path": "machines/mdkit",
       "keywords": [
         "emulation",
@@ -975,8 +975,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.0",
-      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+      "tag": "v1.3.1",
+      "commit": "b717ea4cfbce3e372c3bd661b14d7c3aa9408aff",
       "path": "machines/mmsaw",
       "keywords": [
         "emulation",
@@ -1004,8 +1004,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.0",
-      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+      "tag": "v1.3.1",
+      "commit": "b717ea4cfbce3e372c3bd661b14d7c3aa9408aff",
       "path": "machines/mmsin",
       "keywords": [
         "emulation"
@@ -1031,8 +1031,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.0",
-      "commit": "41537f549d7be0e10a1699401bae3aeed631bc52",
+      "tag": "v1.3.1",
+      "commit": "b717ea4cfbce3e372c3bd661b14d7c3aa9408aff",
       "path": "machines/mmnois",
       "keywords": [
         "emulation",
@@ -1060,8 +1060,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-ModFX",
-      "tag": "v1.9.1",
-      "commit": "a77c04cd637dc3147a57d6a8806fc4b4f1632dc4",
+      "tag": "v1.9.2",
+      "commit": "327c321a1bb04d29c34eccea534b1d1dc90beb06",
       "path": "lint",
       "keywords": [
         "emulation",
@@ -1085,8 +1085,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-ModFX",
-      "tag": "v1.9.1",
-      "commit": "a77c04cd637dc3147a57d6a8806fc4b4f1632dc4",
+      "tag": "v1.9.2",
+      "commit": "327c321a1bb04d29c34eccea534b1d1dc90beb06",
       "path": "chroma",
       "keywords": [
         "emulation",
@@ -1108,10 +1108,10 @@
       "id": "omnifilter",
       "kind": "synth",
       "maintainer": "mmockett",
-      "status": "draft",
+      "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-ModFX",
-      "tag": "v1.9.0",
-      "commit": "4e2b9c87f0027e7356163ba0adb650033df5b036",
+      "tag": "v1.9.2",
+      "commit": "327c321a1bb04d29c34eccea534b1d1dc90beb06",
       "path": "omnifilter",
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
@@ -1126,7 +1126,11 @@
           "label": "Cutoff",
           "value": 805306367
         }
-      }
+      },
+      "keywords": [
+        "modulation",
+        "experimental"
+      ]
     },
     {
       "id": "daath",
@@ -1398,6 +1402,105 @@
       "kind": "drum",
       "maintainer": "mmockett",
       "status": "reserved"
+    },
+    {
+      "id": "felt",
+      "kind": "drum",
+      "maintainer": "mmockett",
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Trigon",
+      "tag": "v1.1.0",
+      "commit": "3965292bd0300ca37057ac63fbdbb7c22f5b3692",
+      "path": "felt",
+      "keywords": [
+        "physical",
+        "percussion",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-drum-callback-v1",
+        "commit": "3965292bd0300ca37057ac63fbdbb7c22f5b3692",
+        "firmware_sha256": "572dd579afa2124edc3f1a7e13d264cd5900a11e5a5aed3855a0c6dab10f5263",
+        "runs": 3,
+        "block_percent": 3.402762,
+        "peak_percent": 61.423667,
+        "midpoint_percent": 3.402762,
+        "kit_percent": 32.359808,
+        "choke_percent": 4.432746,
+        "ceiling_percent": 53.936065,
+        "worst_model": {
+          "run": "voice",
+          "voices": 1,
+          "model": 11,
+          "level": 64
+        }
+      }
+    },
+    {
+      "id": "flicker",
+      "kind": "drum",
+      "maintainer": "mmockett",
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Trigon",
+      "tag": "v1.1.0",
+      "commit": "3965292bd0300ca37057ac63fbdbb7c22f5b3692",
+      "path": "flicker",
+      "keywords": [
+        "percussion",
+        "experimental",
+        "noise"
+      ],
+      "cpu": {
+        "benchmark": "opxy-drum-callback-v1",
+        "commit": "3965292bd0300ca37057ac63fbdbb7c22f5b3692",
+        "firmware_sha256": "572dd579afa2124edc3f1a7e13d264cd5900a11e5a5aed3855a0c6dab10f5263",
+        "runs": 3,
+        "block_percent": 3.018235,
+        "peak_percent": 53.441672,
+        "midpoint_percent": 2.949569,
+        "kit_percent": 30.954452,
+        "choke_percent": 3.915465,
+        "ceiling_percent": 47.075608,
+        "worst_model": {
+          "run": "voice",
+          "voices": 1,
+          "model": 7,
+          "level": 127
+        }
+      }
+    },
+    {
+      "id": "dust",
+      "kind": "drum",
+      "maintainer": "mmockett",
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Trigon",
+      "tag": "v1.1.0",
+      "commit": "3965292bd0300ca37057ac63fbdbb7c22f5b3692",
+      "path": "dust",
+      "keywords": [
+        "percussion",
+        "lofi",
+        "emulation"
+      ],
+      "cpu": {
+        "benchmark": "opxy-drum-callback-v1",
+        "commit": "3965292bd0300ca37057ac63fbdbb7c22f5b3692",
+        "firmware_sha256": "572dd579afa2124edc3f1a7e13d264cd5900a11e5a5aed3855a0c6dab10f5263",
+        "runs": 3,
+        "block_percent": 4.164187,
+        "peak_percent": 73.853666,
+        "midpoint_percent": 3.685054,
+        "kit_percent": 36.031128,
+        "choke_percent": 5.275044,
+        "ceiling_percent": 66.36759,
+        "worst_model": {
+          "run": "voice",
+          "voices": 1,
+          "model": 4,
+          "level": 127
+        }
+      }
     }
   ]
 }
