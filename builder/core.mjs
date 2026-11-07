@@ -870,20 +870,26 @@ export const RECOVERABLE_MACHINES = 10;
 // try the extensions whose code the module holds.
 const RECOVERABLE_EXTENSIONS = 4;
 
-// Whether an uploaded module appears to hold the given objects' code: their
-// largest code section, byte for byte outside its relocated fields. Only a
-// guess; recoverFirmware accepts it only by rebuilding it exactly.
-function holdsCode(objects, payload) {
+// The objects' largest code section and which of its bytes the link leaves as
+// they are (outside relocated fields), or null when it is too small to tell.
+function largestCode(objects) {
   let best = null;
   for (const o of objects) for (const s of o.sections)
     if (s.group === 'text' && (!best || s.size > best.s.size)) best = {o, s};
-  if (!best || best.s.size < 16) return false;
+  if (!best || best.s.size < 16) return null;
   const {o, s} = best, fixed = new Uint8Array(s.size).fill(1);
   for (const r of o.relocations) if (r.section === s.index) {
     fixed.fill(0, [10, 13].includes(r.type) ? r.offset - 2 : r.offset, r.offset + (r.type === 18 ? 4 : 2));
   }
-  const anchor = fixed.indexOf(1);
-  if (anchor < 0) return false;
+  return fixed.includes(1) ? {s, fixed} : null;
+}
+// Whether an uploaded module appears to hold the given objects' code: their
+// largest code section, byte for byte outside its relocated fields. Only a
+// guess; recoverFirmware accepts it only by rebuilding it exactly.
+function holdsCode(objects, payload) {
+  const code = largestCode(objects);
+  if (!code) return false;
+  const {s, fixed} = code, anchor = fixed.indexOf(1);
   for (let at = 0; at + s.size <= payload.length; at += 2) {
     if (payload[at + anchor] !== s.data[anchor]) continue;
     let i = anchor;
@@ -894,6 +900,25 @@ function holdsCode(objects, payload) {
 }
 const presentMachines = (kit, payload) =>
   kit.machines.filter(m => holdsCode(kit.objects.filter(o => o.owner === m.id), payload)).map(m => m.id);
+// Machines built from the same source can share code, so one of them in a module
+// makes another look present when its largest code section lies within the
+// first's code. The selections to try for the machines that look present: all of
+// them, then without each nonempty set of such lookalikes, largest first. At most
+// RECOVERABLE_ALTERNATIVES of these; past that, only all of them.
+export const RECOVERABLE_ALTERNATIVES = 64;
+export function presentSelections(kit, present) {
+  const code = id => kit.objects.filter(o => o.owner === id);
+  const text = id => join(code(id).flatMap(o => o.sections.filter(s => s.group === 'text').map(s => s.data)));
+  const lookalikes = present.filter(id => present.some(other => other !== id && holdsCode(code(id), text(other))));
+  if (!lookalikes.length || 2 ** lookalikes.length - 1 > RECOVERABLE_ALTERNATIVES) return [present];
+  const selections = [];
+  for (let mask = 1; mask < 2 ** lookalikes.length; mask++) {
+    const dropped = lookalikes.filter((_, i) => mask & 2 ** i);
+    const selection = present.filter(id => !dropped.includes(id));
+    if (selection.length) selections.push(selection);
+  }
+  return [present, ...selections.sort((a, b) => b.length - a.length)];
+}
 const presentExtensions = (kit, payload) => (kit.extensions ?? [])
   .filter(e => holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
 const UPDATE = 'Update your OP–XY to OS 1.2.1 with teenage engineering’s updater, then copy its OS file (os.ldr) again; a .tfw update file will not work.';
@@ -949,10 +974,12 @@ export async function recoverFirmware(kit, input, layout = null) {
     const guess = sharedClaim((kit.extensions ?? []).filter(e => held.includes(e.id))) ? [] : held;
     const choices = (kit.extensions ?? []).length <= RECOVERABLE_EXTENSIONS ? extensionChoices(kit)
       : guess.length ? [guess, []] : [[]];
-    for (const extensions of present.length ? [guess, ...choices] : []) {
-      try {
-        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions, ...found};
-      } catch {}  // a guess that cannot link is not this kit's build
+    for (const selected of present.length ? presentSelections(kit, present) : []) {
+      for (const extensions of [guess, ...choices]) {
+        try {
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
+        } catch {}  // a guess that cannot link is not this kit's build
+      }
     }
     // Small kits also try every selection: at most 1,023 deterministic links per
     // extension choice, each under a millisecond. Yield between candidates so file
