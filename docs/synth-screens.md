@@ -40,7 +40,8 @@ Whether a person or an agent draws it, design the screen in words before drawing
 - Something moves while a note is held and settles after it; at rest, nothing moves.
 - Flat shapes are rounded with one fill, edges are black cuts, and the drawing carries no
   letters, numerals, gradients, shadows or perspective.
-- 3D parts only move or repeat; they never turn or change size.
+- 3D parts only move or repeat, never turn or change size, and carry a 0.5 px black
+  outline.
 - At most four outlines reshape, and about 20 nodes change a frame on average while
   notes sound.
 
@@ -131,8 +132,13 @@ Simple, epiano, axis, the arpeggio's bars, the master EQ's floor.
   stands in for anything that would swing, spin or grow. Flat shapes lying on a 3D
   object, like a highlight, may still turn.
 - Top and left faces share the base grey; the right face is one ramp step darker, as
-  simple's steps go from `CDCDCD` to `AFAFAF`. A 0.5 px black seam separates parts of
-  similar grey.
+  simple's steps go from `CDCDCD` to `AFAFAF`.
+- **Outline every 3D part in black.** Every face of every 3D part, curved or flat, gets a
+  0.5 px `000000` outline, as simple's steps, the arpeggio's bars and the EQ's floor have.
+  Inside the drawing it cuts faces and parts apart; at the silhouette it vanishes into the
+  stage and leaves a crisp edge. The one exception is epiano's keys, whose edges are thin
+  light lines. Flat marks lying on a 3D part, such as a highlight, and lines such as a
+  cable or a graph, are not outlined.
 - Explode layers with even gaps: epiano's plates sit exactly 20 px apart. Fade depth
   into black, as axis's cubes dim as they go back.
 - Lay hairlines over solids: simple's spring is thin hollow ellipses on solid steps.
@@ -195,8 +201,8 @@ Sampler and drumline: the sound's own material, laid out as a page.
 - **Flat shapes are rounded and have one fill.** No sharp corners on a flat solid, and no
   second colour inside it except black cuts. Pattern-field blocks tile, so they stay
   square.
-- **Outlines are negative.** Parts are separated and detailed by black gaps and cuts,
-  never by a light or grey line around a filled shape. A light line is only ever a shape
+- **Outlines are negative.** Parts are separated and detailed by black gaps, cuts and the
+  black outline 3D parts carry, never by a light or grey line around a filled shape. A light line is only ever a shape
   of its own: a hollow part, a hairline, a graph.
 - **Abstract means a system.** Axis is one cube repeated along three lines. Pick one
   small unit and one rule, and let the controls change the rule.
@@ -408,12 +414,13 @@ the stock engines remain the better reference for animation.
 
 **Sample player.** A shiny disc, and the wave it plays in a pair of headphones.
 
-- **Drawing:** isometric with a flat companion. A thin deck with very round corners and a
-  light strip along its front sides; a silver disc on a short spindle, with a clear ring
-  round the hole and a bow of light across it, a dimmer smear trailing each wedge. Beside
-  it, a pair of wire-band headphones head on, with the wave they play running from the
-  middle of one pad to the other. A cord leaves a plug on the deck's side, drops off the
-  bottom of the screen and comes back up into the left cup.
+- **Drawing:** isometric throughout. A thin deck with very round corners and a silver disc
+  lying on it, with a clear ring round the hole and a bow of light across it, a dimmer
+  smear trailing each wedge. Beside it, a pair of headphones standing in the same
+  projection, cups facing each other under the band, with the wave they play running
+  from the middle of one pad to the other. A cord leaves a plug on the deck's side, drops
+  off the bottom of the screen and comes back up into the near cup. Every 3D part has a
+  black outline.
 - **Grey code:** four flush pills along the deck's front edge.
 - **Controls:** pitch sets how many cycles cross between the pads, and past halfway swaps
   the disc from a mini 8 cm to a full 12 cm, two fixed sizes rather than a scaled one.
@@ -422,9 +429,9 @@ the stock engines remain the better reference for animation.
 - **Notes:** the bow of light spins fast, its smear trailing it, and the wave scrolls while
   a note is held; both coast to a stop after the release.
 - **To borrow:** a swap between fixed sizes in place of scaling a 3D part; a flat highlight
-  with a dim smear for speed, on a 3D object that never turns; the graph set inside the
-  scene, between the pads, rather than on a plate; a cord that leaves the frame to join
-  two things.
+  with a dim smear for speed, on a 3D object that never turns; a graph set inside the
+  scene, between the pads, and drawn in the scene's own projection; a cord that leaves the
+  frame to join two things.
 
 ### Office blinds
 
@@ -549,7 +556,7 @@ average while notes sound.
 | Example | Way of drawing | Grey code | Nodes | Most changed |
 | --- | --- | --- | --- | --- |
 | Washing line | Line and flat shapes | Along the line | 21 | 20 |
-| CD player | Isometric and flat shapes | Pills | 30 | 5 |
+| CD player | Isometric | Pills | 26 | 5 |
 | Office blinds | Flat shapes | Slat pairs | 11 | 2 |
 | Sliding slabs | Isometric | Whole slabs | 12 | 3 |
 | Wave and ball | Isometric | Ramp, then the ball | 24 | 22 |
