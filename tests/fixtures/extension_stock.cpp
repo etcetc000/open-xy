@@ -4,12 +4,17 @@
 #include <extension_probe.cpp>
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
+#include <input_monitor_stock.cpp>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
+opxy::u32 stock_gui_role() { return 1; }
 using namespace opxy;
 using namespace opxy::platform;
 namespace {
 u32 project_id = 1, selected = 0, input_enabled = 1, screen = 0;
+u32 project_loading, input_source, monitor_active, monitor_writes, monitoring_disabled;
+u32 live_monitor_word;
+i16 motion_axes[3] = {100, -200, 300};
 u32 pattern_id = 2, track_length = 16, scale = 3, quantization = 0;
 i32 position = 0;
 u32 playing = 0, counting = 0, held_record = 0, recorder_mode = 0, recorder_alt = 0;
@@ -36,6 +41,16 @@ u32 scaled_delta(u32 t, u32 delta) { failed |= t != selected; return scale == 5 
 u32 shift_down() { return shift; }
 u32 key_down(u32 key) { return other_held && key == other_held; }
 void get_clock(extensions::Time* out) { *out = clock_time; }
+u32 get_input(u32 project,u32 track,u32 index) {
+    failed |= project != 0x86bd027c || track != 12 || index != 0;
+    return input_source;
+}
+u32 get_monitor() { return monitor_active; }
+void set_monitor(u32 value) { monitor_active = value; ++monitor_writes; }
+u32 monitor_disabled(u32 source) { failed |= source != 0; return monitoring_disabled; }
+void live_monitor_set(u32 base,u32 track,u32 index,i32 value) {
+    failed |= base != 0x86bd027c || track != 12 || index != 57; live_monitor_word = static_cast<u32>(value);
+}
 void forward_loop(u32 controller, u32 elapsed) {
     failed |= controller != 0x860c6adc || elapsed != 17; ++loop_calls;
 }
@@ -120,6 +135,14 @@ namespace opxy { namespace platform {
 Address host_stock_address(Address address) {
     switch (address) {
         case 0x840a0524: return reinterpret_cast<Address>(&project_id);
+        case 0x840a0528: return reinterpret_cast<Address>(&project_loading);
+        case 0x86bd4ec0: return reinterpret_cast<Address>(&live_monitor_word);
+        case 0x8d5acea8: return reinterpret_cast<Address>(&live_monitor_set);
+        case 0x08037ba0: return reinterpret_cast<Address>(motion_axes);
+        case 0x8d4db490: return reinterpret_cast<Address>(&get_monitor);
+        case 0x8d4db4a4: return reinterpret_cast<Address>(&set_monitor);
+        case 0x8d4dc450: return reinterpret_cast<Address>(&monitor_disabled);
+        case 0x8d5ac910: return reinterpret_cast<Address>(&get_input);
         case 0x840a0534: return reinterpret_cast<Address>(&selected);
         case 0x08023c48: return reinterpret_cast<Address>(&input_enabled);
         case 0x8400b9d0: return reinterpret_cast<Address>(&screen);
@@ -158,17 +181,24 @@ Address host_stock_address(Address address) {
 }
 }}
 
+namespace opxy { namespace platform { namespace stock_browser { namespace detail {
+bool open(Session&, Row*, u32, const char*, const char* const*, u32, Callbacks, i32) { return false; }
+}}}}
+
 using extensions::probe::seen;
 using extensions::probe::command;
 using extensions::probe::written;
 
 int main() {
+    input_monitor::automatic = 1;
     fill_pattern(0);
     // The controller update forwards and refreshes the context.
     sdk_extensions_controller_update(0x860c6adc,17); CHECK(loop_calls==1 && seen.contexts>=1);
     const extensions::RecordingContext& c = seen.context.recording;
     CHECK(c.project==1 && c.pattern==2 && c.track==0 && c.length==16*480 && c.scale==3);
     CHECK(c.editable && c.recordable && !seen.context.playing);
+    CHECK(seen.motions == 1 && seen.motion.x == 100 && seen.motion.y == -200 && seen.motion.z == 300);
+    CHECK(seen.motion.valid && seen.motion.time == clock_time && seen.monitor.available && !monitor_writes);
 
     // Live input is forwarded unchanged; while stopped it is only activity.
     note(64,91);
@@ -230,6 +260,38 @@ int main() {
     // Not accepted, nothing is granted.
     command=1; consume_record=true; key(50,true); key(50,false); consume_record=false;
     CHECK(writes==6 && undos==3);
+
+    // The adapter leases only monitoring it enabled, and never edits routing.
+    CHECK(extension_monitor_input(true) && monitor_active && monitor_writes == 1);
+    CHECK(extension_input_monitor().owned && extension_monitor_input(true) && monitor_writes == 1);
+    CHECK(extension_monitor_input(false) && monitor_active);
+    clock_time += input_monitor::release_us;
+    CHECK(extension_monitor_input(false) && !monitor_active && monitor_writes == 2);
+    monitor_active = 1;
+    CHECK(!extension_monitor_input(true) && !extension_input_monitor().owned);
+    CHECK(extension_monitor_input(false) && monitor_active && monitor_writes == 2);
+    monitor_active = 0;
+    CHECK(extension_monitor_input(true));
+    monitor_active = 0;  // A manual stop wins until the request is released.
+    CHECK(!extension_monitor_input(true) && !extension_monitor_input(true) && !monitor_active);
+    CHECK(extension_monitor_input(false) && extension_monitor_input(true));
+    ++project_id;
+    CHECK(!extension_monitor_input(true) && !monitor_active);
+    CHECK(extension_monitor_input(false));
+    input_source = 0x40000000u;
+    CHECK(!extension_input_monitor().available && !extension_monitor_input(true));
+    input_source = 0;
+    u32* blockers[] = {&project_loading, &recorder_mode, &recorder_alt, &monitoring_disabled};
+    for (u32* blocker : blockers) {
+        *blocker = 1;
+        CHECK(!extension_input_monitor().available && !extension_monitor_input(true));
+        *blocker = 0;
+    }
+    CHECK(extension_monitor_input(true));
+    recorder_mode = 1;
+    CHECK(!extension_monitor_input(true) && !monitor_active);
+    recorder_mode = 0;
+    CHECK(extension_monitor_input(false));
 
     CHECK(!failed);
     return 0;

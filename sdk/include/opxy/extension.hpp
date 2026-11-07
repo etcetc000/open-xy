@@ -26,6 +26,14 @@ struct LiveNote { u32 track, pitch, velocity; i32 position; u32 collision_radius
 struct NoteOff { u32 track, pitch; };
 struct Tick { u32 delta_q8; bool discontinuity; };
 using Time = __UINT64_TYPE__;
+// Stock's signed motion channels, before LFO smoothing. Axis orientation and
+// physical scale are platform-specific; time is a monotonic microsecond clock.
+struct Motion { i16 x, y, z; Time time; bool valid; };
+struct InputMonitor {
+    bool active, owned;
+    // Auto enabled, internal mic selected, no sample workflow, and stock permits monitoring.
+    bool available;
+};
 // Key numbers as stock reports them in queued controls.
 namespace keys { const u32 record = 50; }
 struct Control {
@@ -39,10 +47,10 @@ struct Control {
     Time time;
 };
 
-// Each action needs its permission (profiles/extensions.json) and works only in
-// a queued_control callback for a key the extension claims, once stock accepted
-// it. The SDK validates the context again and owns undo/publication: one stock
-// undo transaction per callback. Append new actions at the end.
+// Each action needs its permission and callback scope (profiles/extensions.json).
+// Note edits and popups work only for accepted keys the extension claims;
+// monitoring works only during motion. The SDK owns validation/publication.
+// Append new actions at the end.
 struct Actions {
     // Add notes to an instrument track's pattern (0-7) beside its existing
     // notes. Returns the inserted prefix length. Needs edit_notes.
@@ -52,6 +60,10 @@ struct Actions {
     // Replace an instrument track's pattern notes with these. Refused, changing
     // nothing, while stock is still recording a held note there. Needs edit_notes.
     u32 (*replace_notes)(const Context&, u32 track, const Note*, u32 count);
+    // Renew a temporary input-monitoring request for this motion callback.
+    // false fades out and releases it. Requires monitor_input and user opt-in;
+    // never changes project routing. Manual/safety cancellation is immediate.
+    bool (*monitor_input)(bool enabled);
 };
 
 using OnContext = void (*)(const Context&);
@@ -60,6 +72,7 @@ using OnSelectedNoteOff = void (*)(const Context&, const NoteOff&);
 using OnRecordingTick = void (*)(const Context&, const Tick&);
 using OnInputActivity = void (*)();
 using OnQueuedControl = void (*)(const Context&, const Control&, const Actions&);
+using OnMotion = void (*)(const Motion&, const InputMonitor&, const Actions&);
 
 // One callback per event, named for what it delivers. Each event lists its
 // firmware sites in the profile ("events"); docs/extensions.md says how to
@@ -87,31 +100,36 @@ struct Hooks {
     // A queued control (Record and other queued keys; not keyboard keys
     // 26-49) after stock handled it. Actions act only for their claim owner.
     OnQueuedControl queued_control;
+    // Once after each stock controller update, including while stopped.
+    OnMotion motion;
 
     constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f)
+                    OnInputActivity e, OnQueuedControl f, OnMotion g = nullptr)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f) {}
+          input_activity(e), queued_control(f), motion(g) {}
 
     constexpr Hooks with_context(OnContext f) const {
-        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, motion);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, motion);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, motion);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, motion);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, motion);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, motion);
+    }
+    constexpr Hooks with_motion(OnMotion f) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f);
     }
 };
 }}

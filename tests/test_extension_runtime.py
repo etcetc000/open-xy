@@ -26,7 +26,7 @@ def build_and_run(test, source, folder, includes=()):
     built = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
     test.assertEqual(built.returncode, 0, built.stdout + built.stderr)
     ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
-    test.assertEqual(ran.returncode, 0, f'{source.name}: check failed at line {ran.returncode}')
+    test.assertEqual(ran.returncode, 0, f'{source.name}: check failed at line {ran.returncode}\n{ran.stdout}{ran.stderr}')
 
 
 class KeyQueueHook(unittest.TestCase):
@@ -59,6 +59,44 @@ class Runtime(unittest.TestCase):
     def test_extension_observers_order_and_write_ownership(self):
         self.run_fixture('extension_runtime')
 
+    def test_input_monitor_envelope_and_audio_scratch(self):
+        def prepare(folder):
+            stock = (PLATFORM / 'stock.hpp').read_text().replace(
+                'typedef __UINTPTR_TYPE__ Address;',
+                'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+            for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
+                stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                                      'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
+            (folder / 'stock.hpp').write_text(stock)
+            (folder / 'input_monitor_audio.cpp').write_text((PLATFORM / 'input_monitor_audio.cpp').read_text())
+        self.run_fixture('input_monitor_audio', prepare)
+
+    def test_input_monitor_reuses_stock_send_popup_and_animation(self):
+        def prepare(folder):
+            stock = (PLATFORM / 'stock.hpp').read_text().replace(
+                'typedef __UINTPTR_TYPE__ Address;',
+                'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+            stock = stock.replace('reinterpret_cast<T*>(address)',
+                                  'reinterpret_cast<T*>(host_stock_address(address))')
+            (folder / 'stock.hpp').write_text(stock)
+            for name in ('input_monitor_ui.cpp', 'input_monitor_popup.hpp'):
+                (folder / name).write_text((PLATFORM / name).read_text())
+        self.run_fixture('input_monitor_ui', prepare)
+
+    def test_input_monitor_opt_in_persistence_and_lease(self):
+        def prepare(folder):
+            stock = (PLATFORM / 'stock.hpp').read_text().replace(
+                'typedef __UINTPTR_TYPE__ Address;',
+                'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+            for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
+                stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                                      'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
+            (folder / 'stock.hpp').write_text(stock)
+            (folder / 'stock_browser.hpp').write_text((PLATFORM / 'stock_browser.hpp').read_text())
+            (folder / 'input_monitor_stock.cpp').write_text((PLATFORM / 'input_monitor_stock.cpp').read_text().replace(
+                '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
+        self.run_fixture('input_monitor_controls', prepare)
+
     def test_generated_registry_omits_disabled_extensions_and_preserves_order(self):
         from tooling.extensions import Extension, generate_collection
         def prepare(folder):
@@ -78,6 +116,9 @@ class Runtime(unittest.TestCase):
                 stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                       'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
             (folder / 'stock.hpp').write_text(stock)
+            (folder / 'stock_browser.hpp').write_text((PLATFORM / 'stock_browser.hpp').read_text())
+            (folder / 'input_monitor_stock.cpp').write_text((PLATFORM / 'input_monitor_stock.cpp').read_text().replace(
+                '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
             (folder / 'extension_stock.cpp').write_text((PLATFORM / 'extension_stock.cpp').read_text().replace(
                 '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
             probe = extension_at(PROBE)

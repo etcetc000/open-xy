@@ -25,6 +25,7 @@ const u32 kRecorder = 0x860c072c;
 const u32 kProject = 0x840a0524;
 const u32 kRecordHeld = kPlaying + 3;  // byte: Record held
 const u32 kInputEnabled = 0x08023c48;
+const u32 kMotion = 0x08037ba0;
 using Wide = __UINT64_TYPE__;
 // Only the normal live-input call establishes this scope. Sequencer playback
 // calls the broad dispatcher directly and cannot become a history event.
@@ -41,6 +42,15 @@ bool unmodified(u32 key) {
         if (other != key && stock<u32(u32)>(0x8d5b7d7c)(other)) return false;
     return true;
 }
+}
+
+extensions::Motion extension_motion() {
+    extensions::Motion motion = {};
+    const volatile i16* axes = at<const volatile i16>(kMotion);
+    motion.x = axes[0]; motion.y = axes[1]; motion.z = axes[2];
+    stock<void(extensions::Time*)>(0x8d5be3a0)(&motion.time);
+    motion.valid = (motion.x || motion.y || motion.z) && byte(kInputEnabled);
+    return motion;
 }
 
 TrackPattern extension_pattern(u32 track) {
@@ -128,7 +138,7 @@ using namespace opxy::platform;
 void sdk_extensions_controller_update(u32 controller, u32 elapsed) {
     extensions_sync();
     stock<void(u32, u32)>(0x8d5986b8)(controller, elapsed);
-    extensions_sync();
+    extensions_motion();
 }
 void sdk_extensions_recorder_tick(u32 state, u32 delta) {
     extensions_recording_tick(delta);

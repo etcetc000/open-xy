@@ -159,7 +159,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
-    fallbacks = native.service_fallbacks(native.active_services(profile, native.service_users(machines)))
+    services = native.active_services(profile, native.service_users(machines))
+    fallbacks = native.service_fallbacks(services)
     if fallbacks:
         kit['serviceFallbacks'] = fallbacks
     kit_path = output / 'kit.json'

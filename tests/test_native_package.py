@@ -118,6 +118,10 @@ class PackageVerification(unittest.TestCase):
         for name, (owner, undefined) in needs.items():
             for symbol in undefined:
                 service = services.get(owner_of.get(symbol))
+                if (name, symbol, service) == ('sdk/screen_order.o', 'sdk_input_monitor_frame', 'input_monitor'):
+                    # Screen order is shared. Selections without monitoring link its no-op fallback.
+                    self.assertEqual(native.service_fallbacks({service})[service][symbol], 'kit_absent')
+                    continue
                 if service and name not in services:
                     # The startup, generated per selection, starts a service it links.
                     user = (set(native.service_users(self.machines)) if name == 'sdk/startup.o' else
