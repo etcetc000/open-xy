@@ -341,8 +341,9 @@ used (a stock OS keeps the current choice), and so does restoring a `layout.json
 that lists machines. A layout from an experimental size this site doesn't offer
 keeps the current choice; machines that need more than the memory chosen use
 this site's option when it is on, and otherwise the builder says to turn it on.
-`sdk.py build` uses only the standard layout and refuses a 4 MiB `layout.json`;
-`sdk.py project write` accepts it.
+`sdk.py build` uses standard memory by default. With
+[`--collection-loader --expanded-memory`](build.md#resident-ram-collections),
+it accepts a matching 4 MiB `layout.json`. `sdk.py project write` also accepts it.
 
 Projects save each track's machine by number, so a machine keeps its numbers
 in your firmware for good ([layouts](api.md#identity)). The builder remembers

@@ -53,10 +53,7 @@ class PackageVerification(unittest.TestCase):
         cls.module = read(cls.package / 'analysis/module.bin')
         cls.report = document(cls.package / 'analysis/compile-report.json')
         cls.elf = read(cls.package / 'analysis/module.elf')
-        manifest=document(cls.package/'manifest.json')
-        cls.patch_profile, cls.machines, _definitions = native.configuration(native.package_collection(cls.package),
-            native.package_layout(cls.package),manifest.get('collection_probe',False),manifest.get('collection_rpc_probe',False),
-            manifest.get('collection_loader',False))
+        cls.patch_profile, cls.machines, _definitions = native.package_configuration(cls.package)
         # A collection larger than the module links only what fits (native.linked_machines).
         cls.linked = native.linked_in(cls.machines, cls.report)
         cls.patch_profile['patches'] = cls.report['patches']

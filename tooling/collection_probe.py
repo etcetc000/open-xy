@@ -151,7 +151,9 @@ def main(argv=None):
             layout=read_layout(args.layout) if args.layout else read_layout(
                 (args.previous if args.previous else args.kernel)/'layout.json')
             if args.remove:
-                _,selected,_=native.configuration(entries,layout,loader=True)
+                manifest = document(args.kernel / 'manifest.json')
+                _, selected, _ = native.configuration(entries, layout, loader=True,
+                                                      expanded_memory=manifest.get('expanded_memory', False))
                 require(set(args.remove)<=set(m.id for m in selected),'Cannot remove a machine absent from this collection')
                 removed={m.source() for m in selected if m.id in args.remove}
                 entries=[e for e in entries if e.get('path') not in removed]

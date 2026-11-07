@@ -28,7 +28,7 @@ from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, 
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
-from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
+from .firmware import active_services, assemble, expanded_profile, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
 from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
@@ -90,14 +90,20 @@ def subset(machines, chosen):
     return result
 
 
-def configuration(entries=None, layout=None, probe=False, rpc_probe=False, loader=False):
+def configuration(entries=None, layout=None, probe=False, rpc_probe=False, loader=False, *, expanded_memory=False):
     """The profile, the collection's machines numbered by the layout (a Collection,
     carrying its extensions), and their link-time IDs. Entries are
     machines.read_collection's."""
     require(type(probe) is bool, 'Collection probe flag must be a boolean')
     require(type(rpc_probe) is bool and (not rpc_probe or probe), 'RPC probe requires collection inspection')
     require(type(loader) is bool and not (loader and (probe or rpc_probe)), 'Loader cannot run startup diagnostics')
-    profile = collection_probe.profile(config()) if probe else config()
+    require(type(expanded_memory) is bool and (not expanded_memory or loader),
+            'Expanded memory requires --collection-loader')
+    profile = config()
+    if expanded_memory:
+        profile = expanded_profile(profile)
+    if probe:
+        profile = collection_probe.profile(profile)
     if rpc_probe:
         profile = collection_rpc.profile(profile)
     if loader:
@@ -1126,6 +1132,15 @@ def package_layout(package):
     return layout
 
 
+def package_configuration(package):
+    """Reconstruct the native selection and memory layout recorded by a package."""
+    manifest = document(Path(package) / 'manifest.json')
+    return configuration(package_collection(package), package_layout(package),
+                         manifest.get('collection_probe', False), manifest.get('collection_rpc_probe', False),
+                         manifest.get('collection_loader', False),
+                         expanded_memory=manifest.get('expanded_memory', False))
+
+
 def numbers_after(layout, machines):
     """Every number a layout holds once these machines are built: its own, the fixed
     numbers and the machines'."""
@@ -1142,13 +1157,11 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
     require(type(profiling) is bool, 'Manifest profiling must be a boolean')
     sweep = manifest.get('benchmark_sweep', False)
     require(sweep is True or 'benchmark_sweep' not in manifest, 'Manifest benchmark_sweep must be true when present')
-    probe = manifest.get('collection_probe', False)
-    require(type(probe) is bool, 'Manifest collection_probe must be a boolean')
-    rpc_probe = manifest.get('collection_rpc_probe', False)
-    require(type(rpc_probe) is bool, 'Manifest collection_rpc_probe must be a boolean')
-    loader=manifest.get('collection_loader',False)
-    require(type(loader) is bool, 'Manifest collection_loader must be a boolean')
-    profile, machines, definitions = configuration(package_collection(package), package_layout(package), probe, rpc_probe,loader)
+    profile, machines, definitions = package_configuration(package)
+    loader = machines.collection_loader
+    if manifest.get('expanded_memory', False):
+        expected_layout = layout_document(numbers_after(package_layout(package), machines), expanded_memory=True)
+        require(document(package / 'layout.json') == expected_layout, 'Package layout differs from the expanded build')
     with tempfile.TemporaryDirectory(prefix='opxy-verify-') as temporary:
         temporary = Path(temporary)
         module, report, patch_profile = compile_collection(temporary, toolchain, compiler, profile, machines,
@@ -1189,7 +1202,7 @@ def verification(stock, catalog, package, toolchain, compiler, *, require_record
 
 
 def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layout=None, profiling=True, sweep=False,
-          probe=False, rpc_probe=False, loader=False, *, overwrite=False):
+          probe=False, rpc_probe=False, loader=False, *, expanded_memory=False, overwrite=False):
     """A firmware package. Its machines take their numbers from `layout` (by machine ID);
     the package's layout.json is that layout after this build, for the next one. Only a
     package for hardware profiling sweeps synth controls: `sdk.py build` turns it on with
@@ -1197,7 +1210,8 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     never check the sweep override."""
     require(type(profiling) is bool, 'Profiling must be a boolean')
     entries = [] if entries is None else entries
-    profile, machines, definitions = configuration(entries, layout, probe, rpc_probe,loader)
+    profile, machines, definitions = configuration(entries, layout, probe, rpc_probe, loader,
+                                                    expanded_memory=expanded_memory)
     require(not any(m.contains(out) for m in machines), 'Keep build output outside every machine folder')
     stock = read(stock_os)
     require(sha(stock) == profile['stock_sha256'], 'Stock OS hash mismatch')
@@ -1227,11 +1241,12 @@ def build(out, toolchain, compiler, stock_os, stock_content, entries=None, layou
     save_json(output / 'manifest.json', dict(schema=1, target=TARGET, version=version, collection=entries, profiling=profiling,
                                              **({'collection_probe': True} if probe else {}),
                                              **({'collection_rpc_probe': True} if rpc_probe else {}),
-                                             **({'collection_loader':True} if loader else {}),
+                                             **({'collection_loader': True} if loader else {}),
+                                             **({'expanded_memory': True} if expanded_memory else {}),
                                              **({'benchmark_sweep': True} if sweep else {}),
                                              **({'layout': layout} if layout else {}),
                                              files={name: sha(read(output / name)) for name in tracked}))
-    save_json(output / 'layout.json', layout_document(numbers_after(layout, machines)))
+    save_json(output / 'layout.json', layout_document(numbers_after(layout, machines), expanded_memory=expanded_memory))
     result = verification(stock, catalog, output, toolchain, compiler, require_record=False)
     save_json(output / 'verification.json', result)
     return output, result
@@ -1282,6 +1297,8 @@ def main(argv=None, command=None):
                             help='also test a bounded initializer hold and identity exchange; no activation')
         parser.add_argument('--collection-loader', action='store_true',
                             help='build a resident whole-collection loader with the embedded set as fallback')
+        parser.add_argument('--expanded-memory', action='store_true',
+                            help='use the experimental 4 MiB reservation with --collection-loader')
         parser.add_argument('--profiling', choices=('on', 'off'), default='on',
                             help='per-voice diagnostic timing (default: on for SDK development builds)')
         parser.add_argument('--sweep', choices=('on', 'off'),
@@ -1307,13 +1324,15 @@ def main(argv=None, command=None):
             require((args.stock_content / 'op1_factory.json').is_file(),
                     f'--stock-content must be the folder holding op1_factory.json '
                     f'(a copy of the device\'s /content): {args.stock_content}')
-        # A package records the collection it was built from.
-        entries = package_collection(args.package) if command == 'verify' else selected_collection(args)
-        layout = read_layout(args.layout, build=command == 'build') if command != 'verify' and args.layout else None
-        probe = document(args.package / 'manifest.json').get('collection_probe', False) if command == 'verify' else (args.collection_probe or args.collection_rpc_probe)
-        rpc_probe = document(args.package / 'manifest.json').get('collection_rpc_probe', False) if command == 'verify' else args.collection_rpc_probe
-        loader=document(args.package/'manifest.json').get('collection_loader',False) if command=='verify' else args.collection_loader
-        profile, machines, definitions = configuration(entries, layout, probe, rpc_probe,loader)
+        if command == 'verify':
+            profile, machines, definitions = package_configuration(args.package)
+        else:
+            entries = selected_collection(args)
+            layout = (read_layout(args.layout, build=command == 'build' or args.expanded_memory,
+                                  expanded_memory=args.expanded_memory) if args.layout else None)
+            probe = args.collection_probe or args.collection_rpc_probe
+            profile, machines, definitions = configuration(entries, layout, probe, args.collection_rpc_probe,
+                                                            args.collection_loader, expanded_memory=args.expanded_memory)
         tools = resolve_toolchain(args.toolchain, args.compiler)
         tool_paths(tools[0])
         compiler_paths(tools[1])
@@ -1339,7 +1358,8 @@ def main(argv=None, command=None):
             print(json.dumps(result, indent=2))
         else:
             output, result = build(args.out, *tools, args.stock_os, args.stock_content, entries, layout,
-                                   args.profiling == 'on', sweep, probe, rpc_probe, loader, overwrite=args.overwrite)
+                                   args.profiling == 'on', sweep, probe, args.collection_rpc_probe, args.collection_loader,
+                                   expanded_memory=args.expanded_memory, overwrite=args.overwrite)
             print(json.dumps(result, indent=2))
             print('Local experimental package: ' + str(output))
             candidate = output / 'candidate'

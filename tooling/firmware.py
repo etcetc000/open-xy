@@ -1,8 +1,40 @@
 """Version-bound OS container assembly shared by curated engine builds."""
+import copy
+import re
 import struct
 from .formats import header, ldr, mapped_offset, require, sha
 from .pipeline import check_patch_boundaries
-from . import startup_label
+from . import startup_label, stock_tables
+
+
+def expanded_profile(profile):
+    """Derive the reviewed expanded layout using the stock instruction decoder."""
+    x = profile.get('experimental_memory')
+    require(isinstance(x, dict) and set(x) == {'module_base', 'reserved_bytes', 'heap_after'} and
+            isinstance(x['heap_after'], str) and re.fullmatch('[0-9a-f]{16}', x['heap_after']) is not None,
+            'Experimental memory layout is inconsistent')
+    # Checked here too, with the stock instruction decoder, rather than trusted.
+    opcode, heap = stock_tables.decode('imm32', bytes.fromhex(x['heap_after']))
+    heaps = [p for p in profile['patches'] if p['kind'] == 'heap']
+    end = profile['module_base'] + profile['reserved_bytes']
+    mib = 1024 * 1024
+    require(len(heaps) == 2 and
+            all(type(x[k]) is int for k in ('module_base', 'reserved_bytes')) and
+            (profile['module_base'] - profile['heap_fill_base']) % mib == 0 and
+            x['reserved_bytes'] > profile['reserved_bytes'] and x['reserved_bytes'] % mib == 0 and
+            x['module_base'] + x['reserved_bytes'] == end == profile['heap_fill_base'] + profile['heap_fill_bytes'] and
+            profile['heap_fill_base'] < x['module_base'] and heap == x['module_base'] - profile['heap_fill_base'] and
+            heap % mib == 0 and profile['reserved_bytes'] % mib == 0 and
+            all(stock_tables.decode('imm32', bytes.fromhex(p['before'])) == (opcode, profile['heap_fill_bytes']) and
+                stock_tables.decode('imm32', bytes.fromhex(p['after'])) == (opcode, profile['module_base'] - profile['heap_fill_base'])
+                for p in heaps), 'Experimental memory layout is inconsistent')
+    expanded = copy.deepcopy(profile)
+    del expanded['experimental_memory']  # the derived profile is the layout itself
+    expanded.update(module_base=x['module_base'], reserved_bytes=x['reserved_bytes'])
+    for patch in expanded['patches']:
+        if patch['kind'] == 'heap':
+            patch['after'] = x['heap_after']
+    return expanded
 
 
 def active_services(profile, uses):

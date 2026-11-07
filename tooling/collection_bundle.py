@@ -39,8 +39,11 @@ def pack(package,out,toolchain,compiler,entries=None,layout=None):
     layout=old if layout is None else layout
     require(all(layout.get(name)==identity for name,identity in old.items()),'Collection layout changed an embedded machine ID')
     entries=native.package_collection(package) if entries is None else entries
-    profile,machines,definitions=native.configuration(entries,layout,loader=True)
-    _,embedded,_=native.configuration(native.package_collection(package),native.package_layout(package),loader=True)
+    expanded = manifest.get('expanded_memory', False)
+    profile, machines, definitions = native.configuration(entries, layout, loader=True, expanded_memory=expanded)
+    require(activation.geometry(profile, kernel.RESIDENT_BYTES) == info['interface']['geometry'],
+            'Package memory choice differs from its resident kernel')
+    _, embedded, _ = native.package_configuration(package)
     require(native.provenance(embedded)==baseline['sources'],'Kernel SDK sources changed; use its source snapshot or rebuild the kernel')
     machines.collection_external=True
     output=fresh_output(out);analysis=output/'analysis';analysis.mkdir()
@@ -78,7 +81,7 @@ def pack(package,out,toolchain,compiler,entries=None,layout=None):
         platform=info['platform'],abi=info['abi'],image_sha256=sha(data),digest=data[112:144].hex(),
         resources=resources,presets=presets,linked=report['linked'],interface=info['interface'],collection=entries)
     save_json(output/'collection.json',description)
-    save_json(output/'layout.json',native.layout_document(native.numbers_after(layout,machines)))
+    save_json(output/'layout.json', native.layout_document(native.numbers_after(layout, machines), expanded_memory=expanded))
     (output/'kernel.oxc').write_bytes(read(package/'candidate/projects/openxy/kernel.oxc'))
     read_bundle(output)
     return output,description

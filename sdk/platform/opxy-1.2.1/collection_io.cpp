@@ -4,7 +4,7 @@ namespace opxy { namespace collection { namespace io {
 using platform::stock;
 using platform::word;
 namespace {
-const u32 maximum_request=2u*1024u*1024u;
+const u32 maximum_read=2u*1024u*1024u;
 bool valid(Heap* heap) {
     return heap && heap->protected_bytes && heap->protected_bytes<=0xffffffffu-heap->protected_base &&
         heap->arena_bytes>=64 && !(heap->protected_base & 31) && !(heap->protected_bytes & 31) &&
@@ -19,7 +19,7 @@ bool allowed(Heap* heap,const unsigned char* pointer,u32 bytes) {
 }
 unsigned char* allocate_wait(void* context,u32 bytes,u32 wait) {
     Heap* heap=static_cast<Heap*>(context);
-    if (!bytes || bytes>maximum_request || !valid(heap)) return nullptr;
+    if (!bytes || !valid(heap) || bytes>heap->protected_bytes) return nullptr;
     // Use stock's nonfatal heap entry under exactly its usual mutex.
     const u32 mutex=word(0x08036aa4),arena=word(0x08036aa8);
     if (!mutex || (arena & 3) || arena<heap->arena_base || arena>heap->protected_base-28 ||
@@ -68,7 +68,7 @@ u32 contiguous_free(Heap& heap) {
 resources::Files files() { return resources::Files{nullptr,open_resource,close_resource,progress}; }
 bool read_bytes(const char* path,unsigned char* out,u32 bytes,bool& opened,Cancelled cancelled,void* context) {
     opened=false;
-    if (!path || !out || !bytes || bytes>maximum_request || (cancelled && cancelled(context))) return false;
+    if (!path || !out || !bytes || bytes>maximum_read || (cancelled && cancelled(context))) return false;
     void* file=open(path,"rb");
     if (!file) return false;
     opened=true;u32 at=0;

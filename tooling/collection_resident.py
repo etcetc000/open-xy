@@ -95,6 +95,7 @@ def linker(original, profile, resident_bytes=0x8000, *, kernel=False):
     publication backend before hooks may leave their stock paths.
     """
     from .collection_activation import geometry
+    from .pipeline import config
     require(hashlib.sha256(original.encode()).hexdigest()==profile['linker_sha256'],
             'Unreviewed input linker for resident placement')
     layout=geometry(profile,resident_bytes)
@@ -112,7 +113,12 @@ def linker(original, profile, resident_bytes=0x8000, *, kernel=False):
         f'  .text {layout["payload_base"]:#x} : {{ '
         'KEEP(sdk/collection_entries.o(.text.collection_entries)) *(.text .text.*) } > MODULE\n'
         '  __collection_payload_text_end = .;')
-    result=original.replace(old,replacement)
+    standard = config()
+    def memory_region(p):
+        return f'ORIGIN = {p["module_base"]:#x}, LENGTH = {p["reserved_bytes"] - p["table_bytes"]:#x}'
+    original_region = memory_region(standard)
+    require(original.count(original_region) == 1, 'Changed module memory region')
+    result = original.replace(original_region, memory_region(profile)).replace(old, replacement)
     if kernel:
         marker='  .rodata : ALIGN(4)'
         require(result.count(marker)==1, 'Changed payload resource boundary')

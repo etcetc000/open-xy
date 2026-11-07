@@ -253,8 +253,14 @@ and durable rollback still require separate qualification.
 ### Resident RAM collections
 
 `build --collection-loader` creates an opt-in resident kernel and embeds the
-selected machines as its fallback. After native verification, enter dev Mac MTP
-and copy only its OS and protected fallback artwork:
+selected machines as its fallback. Add `--expanded-memory` to use the
+[experimental 4 MiB reservation](builder.md#capacity-and-machine-numbers),
+which leaves 16 MiB for the stock application heap. The kernel package records
+the choice and every replacement collection inherits it. Switching the memory
+layout requires building and installing a kernel for that layout.
+
+After native verification, enter dev Mac MTP and copy only its OS and
+protected fallback artwork:
 
 ```sh
 python sdk.py device push <builds>/kernel-001/candidate --kernel-boot --record <private>/kernel-boot-001

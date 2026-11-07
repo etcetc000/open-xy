@@ -37,6 +37,7 @@ return reinterpret_cast<Function*>(host_stock_address(address));
             for mode in ('normal','invalid','audio','open-failed','write-short','write-error','close-error',
                          'flush-error','corrupt','trailing','short','read-error','heap','heap-oom','heap-overlap',
                          'heap-uninitialized','heap-try','heap-busy','heap-low','heap-unlock-error',
+                         'heap-expanded','heap-expanded-low',
                          'abort-before','abort-open','abort-write','abort-close','abort-flush','abort-read'):
                 with self.subTest(mode=mode):subprocess.run([str(runner),mode],check=True)
 

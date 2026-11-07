@@ -10,9 +10,9 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tooling.formats import elf32, ldr, mapped_offset, require, sha
-from tooling import extensions, screen, startup_label, stock_tables
+from tooling import extensions, screen, startup_label
 from tooling.adapters import catalog_defaults
-from tooling.firmware import active_services, assemble, hook_instruction, patch_active
+from tooling.firmware import active_services, assemble, expanded_profile, hook_instruction, patch_active
 from tooling.machines import number_layout
 from tooling.native import configuration, number_suffixes, package_collection
 
@@ -37,36 +37,6 @@ def check_fallbacks(module, symbols, base):
     at = absent['value'] - base
     require(absent['size'] == len(ABSENT) and module[at:at + len(ABSENT)] == ABSENT,
             'Absent-machine callback differs from its source')
-
-
-def expanded_profile(profile):
-    """The reviewed experimental 4 MiB layout (builder/core.mjs expandedProfile), applied independently."""
-    x = profile['experimental_memory']
-    require(isinstance(x, dict) and set(x) == {'module_base', 'reserved_bytes', 'heap_after'} and
-            isinstance(x['heap_after'], str) and re.fullmatch('[0-9a-f]{16}', x['heap_after']) is not None,
-            'Experimental memory layout is inconsistent')
-    # Checked here too, with the stock instruction decoder, rather than trusted.
-    opcode, heap = stock_tables.decode('imm32', bytes.fromhex(x['heap_after']))
-    heaps = [p for p in profile['patches'] if p['kind'] == 'heap']
-    end = profile['module_base'] + profile['reserved_bytes']
-    mib = 1024 * 1024
-    require(len(heaps) == 2 and
-            all(type(x[k]) is int for k in ('module_base', 'reserved_bytes')) and
-            (profile['module_base'] - profile['heap_fill_base']) % mib == 0 and
-            x['reserved_bytes'] > profile['reserved_bytes'] and x['reserved_bytes'] % mib == 0 and
-            x['module_base'] + x['reserved_bytes'] == end == profile['heap_fill_base'] + profile['heap_fill_bytes'] and
-            profile['heap_fill_base'] < x['module_base'] and heap == x['module_base'] - profile['heap_fill_base'] and
-            heap % mib == 0 and profile['reserved_bytes'] % mib == 0 and
-            all(stock_tables.decode('imm32', bytes.fromhex(p['before'])) == (opcode, profile['heap_fill_bytes']) and
-                stock_tables.decode('imm32', bytes.fromhex(p['after'])) == (opcode, profile['module_base'] - profile['heap_fill_base'])
-                for p in heaps), 'Experimental memory layout is inconsistent')
-    expanded = copy.deepcopy(profile)
-    del expanded['experimental_memory']  # the derived profile is the layout itself
-    expanded.update(module_base=x['module_base'], reserved_bytes=x['reserved_bytes'])
-    for patch in expanded['patches']:
-        if patch['kind'] == 'heap':
-            patch['after'] = x['heap_after']
-    return expanded
 
 
 def selection_services(kit, result):

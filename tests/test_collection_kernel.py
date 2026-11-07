@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from tooling import collection_activation as activation, collection_kernel as kernel
+from tooling.firmware import expanded_profile
 from tooling.pipeline import ROOT, config
 
 
@@ -25,7 +26,7 @@ return reinterpret_cast<Function*>(host_stock_address(address));
 }
 }}
 ''')
-            abi=activation.interface(config(),{'samples','drums','extensions'},True,0xa000)
+            abi=activation.interface(config(),{'samples','drums','extensions'},True,kernel.RESIDENT_BYTES)
             kernel.generate(folder,abi,bytes(range(32)),activation.fingerprint(abi))
             sources=['collection_gate','collection_handoff','collection_activation','collection_probe',
                      'collection_cache','collection_resources']
@@ -44,11 +45,21 @@ return reinterpret_cast<Function*>(host_stock_address(address));
                 with self.subTest(mode=mode):subprocess.run([str(runner),mode],check=True)
 
     def test_native_geometry_is_pinned_to_supported_heap(self):
-        abi=activation.interface(config(),set(),True,0xa000)
-        text=kernel.render(abi,bytes(32),bytes(32))
-        self.assertNotIn('@',text)
-        abi['geometry']['resident_base']+=32
-        with self.assertRaises(ValueError):kernel.render(abi,bytes(32),bytes(32))
+        standard = config()
+        for profile, heap in ((standard, '0x8d2d0380,0x200000,0x8c0d0380,0x1200000'),
+                              (expanded_profile(standard), '0x8d0d0380,0x400000,0x8c0d0380,0x1000000')):
+            with self.subTest(reservation=profile['reserved_bytes']):
+                abi = activation.interface(profile, set(), True, kernel.RESIDENT_BYTES)
+                text = kernel.render(abi, bytes(32), bytes(32))
+                self.assertIn(f'io::Heap heap={{{heap},0x800000}};', text)
+                self.assertNotIn('@', text)
+                report = dict(collection_interface=abi, collection_platform='00' * 32, linked=[])
+                self.assertEqual(kernel.read_information(kernel.information(report, '00' * 32))['interface'], abi)
+                abi['geometry']['resident_base'] += 32
+                with self.assertRaises(ValueError):
+                    kernel.render(abi, bytes(32), bytes(32))
+                with self.assertRaises(ValueError):
+                    kernel.read_information(kernel.information(report, '00' * 32))
 
 
 if __name__=='__main__':unittest.main()

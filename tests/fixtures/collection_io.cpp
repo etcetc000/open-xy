@@ -15,6 +15,7 @@ std::vector<unsigned char> data;
 std::string mode,trace;
 bool role_gui=true,locked,aborted;
 u32 closes,flushes,allocations,releases,last_wait;
+u32 requested_bytes=100;
 void require(bool condition,const char* message) { if (!condition) throw std::runtime_error(message); }
 u32 role() { return role_gui; }
 u32 ticks() { return 0xfffffff0; }
@@ -29,7 +30,7 @@ u32 unlock(u32 handle,const void* a,u32 b,u32 c) {
     return mode=="heap-unlock-error" ? 0 : 1;
 }
 unsigned char* allocate(u32 heap,u32 bytes) {
-    require(locked && heap==0x8c0d03a0 && bytes==100,"unlocked heap allocation");++allocations;
+    require(locked && heap==0x8c0d03a0 && bytes==requested_bytes,"unlocked heap allocation");++allocations;
     if (mode=="heap-oom") return nullptr;
     if (mode=="heap-overlap") return reinterpret_cast<unsigned char*>(0x8d2d1000);
     return reinterpret_cast<unsigned char*>(0x8c100000);
@@ -102,6 +103,8 @@ u32 opxy::platform::word(u32 address) {
     if (address==0x08036aa8) return 0x8c0d03a0;
     if (address==0x8c0d03ac) {
         require(locked,"heap metadata read outside lock");
+        if (mode=="heap-expanded") return 0xf00000;
+        if (mode=="heap-expanded-low") return 0xa00000;
         return mode=="heap-low" ? 0x800060 : 0x1000000;
     }
     if (address==0x8c0d03b8) { require(locked,"heap metadata read outside lock");return 0x8c0d1000; }
@@ -112,7 +115,12 @@ int main(int argc,char** argv) {
     mode=argv[1];
     require(ci::ticks()==0xfffffff0,"tick ABI wrong");
     if (mode.substr(0,4)=="heap") {
-        ci::Heap heap={0x8d2d0380,0x200000,0x8c0d0380,0x1200000,0x800000};const auto a=ci::allocator(heap);
+        const bool expanded=mode=="heap-expanded" || mode=="heap-expanded-low";
+        const ci::Heap standard={0x8d2d0380,0x200000,0x8c0d0380,0x1200000,0x800000};
+        ci::Heap heap=expanded ? ci::Heap{0x8d0d0380,0x400000,0x8c0d0380,0x1000000,0x800000} : standard;
+        const auto a=ci::allocator(heap);
+        if (expanded) requested_bytes=0x300000;
+        if (!expanded) require(!a.allocate(a.context,0x300000) && !allocations,"standard heap admitted an expanded request");
         const u32 available=ci::contiguous_free(heap);
         require(!locked && !allocations,"heap query allocated or retained mutex");
         if (mode=="heap") require(available==0x1000000,"wrong contiguous-free lower bound");
@@ -120,9 +128,10 @@ int main(int argc,char** argv) {
             require(!available,"failed heap query reported capacity");
         require(!a.allocate(a.context,0) && !a.allocate(a.context,0xffffffff),"invalid heap size accepted");
         require(!allocations,"invalid request touched heap");
-        unsigned char* p=mode=="heap-try" || mode=="heap-busy" ? ci::try_allocate(heap,100) : a.allocate(a.context,100);
+        unsigned char* p=mode=="heap-try" || mode=="heap-busy" ? ci::try_allocate(heap,requested_bytes) :
+            a.allocate(a.context,requested_bytes);
         require(!locked,"heap mutex retained");
-        if (mode=="heap" || mode=="heap-try") {
+        if (mode=="heap" || mode=="heap-try" || mode=="heap-expanded") {
             require(p!=nullptr,"allocation failed");a.release(a.context,p);require(releases==1,"allocation leaked");
             require(last_wait==(mode=="heap-try" ? 0 : 0xffffffff),"wrong bootstrap blocking policy");
         }

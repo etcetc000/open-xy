@@ -3,7 +3,8 @@ from pathlib import Path
 import copy
 import json
 from .formats import require
-from .pipeline import ROOT,read,check_patch_boundaries
+from .pipeline import ROOT, config, read, check_patch_boundaries
+from .firmware import expanded_profile
 from .formats import sha
 
 TEMPLATE='sdk/platform/opxy-1.2.1/collection_kernel.cpp.in'
@@ -25,22 +26,30 @@ def profile(base):
     return result
 
 
+def memory_profile(interface):
+    """Resolve an interface to an exact reviewed stock heap and module layout."""
+    from .collection_activation import geometry
+    standard = config()
+    require(interface['target'] == standard['id'], 'Unsupported resident kernel target')
+    if interface['geometry'] == geometry(standard, RESIDENT_BYTES):
+        return standard
+    expanded = expanded_profile(standard)
+    require(interface['geometry'] == geometry(expanded, RESIDENT_BYTES),
+            'Unsupported native collection reservation')
+    return expanded
+
+
 def render(interface, platform, abi):
     require(len(platform)==len(abi)==32, 'Invalid resident identity')
     geometry=interface['geometry']
-    require(geometry['payload_base']+geometry['payload_bytes']==geometry['reserved_end'] and
-            geometry['resident_base']+geometry['resident_bytes']==geometry['payload_base'],
-            'Noncontiguous resident geometry')
+    profile = memory_profile(interface)
+    arena_base = profile['heap_fill_base']
     def array(data):return '{'+','.join(str(b) for b in data)+'}'
     values=dict(LIMITS=','.join((hex(geometry['payload_base']),hex(geometry['payload_bytes']),
                                 str(len(interface['entries'])),array(platform),array(abi))),
-                HEAP=','.join(hex(n) for n in (geometry['resident_base'],0x200000,
-                                             0x8c0d0380,geometry['resident_base']-0x8c0d0380,0x800000)),
+                HEAP=','.join(hex(n) for n in (geometry['resident_base'], profile['reserved_bytes'],
+                                             arena_base, geometry['resident_base'] - arena_base, 0x800000)),
                 RESIDENT_BASE=hex(geometry['resident_base']),RESIDENT_BYTES=hex(geometry['resident_bytes']))
-    # The supported profile's SDK heap and reservation are a fixed ABI, never
-    # a caller-controlled address range admitted merely by alignment.
-    require(interface['target']=='opxy-1.2.1' and geometry['resident_base']==0x8d2d0380 and
-            geometry['reserved_end']==0x8d4cc380, 'Unsupported native collection reservation')
     text=(ROOT/TEMPLATE).read_text(encoding='utf-8')
     for name,value in values.items():
         require('@'+name+'@' in text, 'Missing coordinator placeholder')
@@ -116,7 +125,6 @@ def read_information(data):
     require(set(body)=={'format','platform','abi','interface','os_sha256','embedded'} and
             len(bytes.fromhex(body['platform']))==32 and len(bytes.fromhex(body['os_sha256']))==32 and
             activation.fingerprint(body['interface']).hex()==body['abi'], 'Invalid resident kernel identity')
-    expected=activation.geometry(dict(module_base=0x8d2d0380,reserved_bytes=0x200000,table_bytes=0x4000),RESIDENT_BYTES)
-    require(body['interface']['geometry']==expected and body['interface']['target']=='opxy-1.2.1' and
-            0<len(body['interface']['entries'])<=activation.MAX_ENTRIES, 'Unsupported resident kernel layout')
+    memory_profile(body['interface'])
+    require(0 < len(body['interface']['entries']) <= activation.MAX_ENTRIES, 'Unsupported resident kernel layout')
     return body

@@ -698,11 +698,11 @@ def occupied(rules, identity):
     return keys
 
 
-def read_layout(path, build=False):
+def read_layout(path, build=False, *, expanded_memory=False):
     """A layout file's numbers by machine ID. The builder's saved selection is a layout too.
 
-    A build refuses a layout from the builder's experimental memory, which SDK
-    builds do not offer; companions need only the numbers."""
+    A build accepts an expanded layout only with an explicit matching memory
+    choice. Companions need only the machine numbers."""
     value = json.loads(Path(path).read_text(encoding='utf-8'))
     profile = config()
     require(isinstance(value, dict) and value.get('format') == LAYOUT_FORMAT and isinstance(value.get('machines'), dict),
@@ -710,8 +710,6 @@ def read_layout(path, build=False):
     # Earlier profiles with the same identity rules number machines the same way.
     require(value.get('profile') in (profile['id'], *profile.get('layout_profiles', ())),
             f"{path} is a layout for {value.get('profile')}, not {profile['id']}")
-    # The builder's experimental 4 MiB memory (profile experimental_memory) is
-    # builder-only; an SDK build from its layout would quietly use 2 MiB.
     # The same shape the builder accepts (builder/core.mjs readLayout): neither member, or both,
     # reserved_bytes read as JavaScript's JSON.parse reads it (a double, e.g. 4194304.0).
     reserved = value.get('reserved_bytes')
@@ -723,8 +721,9 @@ def read_layout(path, build=False):
             (value.get('memory') == 'expanded' and reserved is not None and reserved.is_integer() and
              reserved > 0 and reserved % (1024 * 1024) == 0),
             f'{path} has an invalid memory choice')
-    require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "
-            'sdk.py builds use standard memory. Remove "memory" and "reserved_bytes" from a copy to build with standard memory.')
+    if build and 'memory' in value:
+        require(expanded_memory and reserved == profile['experimental_memory']['reserved_bytes'],
+                f'{path} uses experimental memory. Use --collection-loader --expanded-memory with a matching layout.')
     return check_layout_numbers(value['machines'], 'the layout')
 
 
@@ -737,8 +736,12 @@ def check_layout_numbers(machines, where):
     return machines
 
 
-def layout_document(numbers):
-    return {'format': LAYOUT_FORMAT, 'profile': config()['id'], 'machines': dict(sorted(numbers.items()))}
+def layout_document(numbers, *, expanded_memory=False):
+    profile = config()
+    layout = {'format': LAYOUT_FORMAT, 'profile': profile['id'], 'machines': dict(sorted(numbers.items()))}
+    if expanded_memory:
+        layout.update(memory='expanded', reserved_bytes=profile['experimental_memory']['reserved_bytes'])
+    return layout
 
 
 def owns_page(rules, kind, page):
