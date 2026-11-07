@@ -120,6 +120,8 @@
   },
   "screen_template_sha256": "d71b110ac905c1bcfcecc9ad94237aa72fe12c531e651f170bb5a1042547fb16",
   "services": {
+    "checkpoint": ["checkpoint"],
+    "checkpoint_control": ["checkpointControl"],
     "samples": [
       "sample",
       "drum"

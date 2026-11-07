@@ -44,13 +44,15 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
 u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0};
-const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2};
+const __UINT64_TYPE__ claim_chords[] = {0, 0};
+const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2, claim_chords};
 ExtensionEntry collection[] = {{"observer", 0, 0, &first},
                                {"writer", 1u, action_edit_notes | action_notify, &second}};
 }
 namespace opxy { namespace platform {
 const ExtensionEntry* extension_collection(u32& count) { count = 2; return collection; }
 const ExtensionRegistry& extension_registry() { return tables; }
+const CheckpointBackend& extension_checkpoint_backend() { static const CheckpointBackend b = {}; return b; }
 TrackPattern extension_pattern(u32 track) {
     return {stock_context.pattern, stock_context.length, stock_context.scale, track < 7};
 }

@@ -10,6 +10,7 @@ using RecordedNote = extensions::Note;
 // each claim's key, and each action the claims that grant it (0: any claim).
 const u32 action_edit_notes = 1u << 0;
 const u32 action_notify = 1u << 1;
+const u32 action_checkpoint = 1u << 2;
 
 struct ExtensionEntry {
     const char* id;
@@ -21,6 +22,8 @@ struct ExtensionRegistry {
     u32 claim_count;
     const u32* action_claims;
     u32 action_count;
+    // Nonempty chord masks make claim_keys[c] a deferred modifier.
+    const __UINT64_TYPE__* claim_chords;
 };
 // Generated with the collection (tooling.extensions.generate_collection).
 const ExtensionEntry* extension_collection(u32& count);
@@ -33,6 +36,15 @@ void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity);
 void extensions_selected_note_off(u32 track, u32 pitch);
 void extensions_recording_tick(u32 delta);
 void extensions_queued_control(const extensions::Control& control);
+bool extensions_modifier(u32 key);
+bool extensions_chord(u32 modifier, u32 key);
+
+struct CheckpointBackend {
+    void (*sync)();
+    extensions::CheckpointResult (*command)(extensions::CheckpointCommand);
+};
+// Generated: no backend or storage is linked without a checkpoint subscriber.
+const CheckpointBackend& extension_checkpoint_backend();
 
 // An instrument track's pattern, as notes are written to it.
 struct TrackPattern { u32 pattern, length, scale; bool editable; };
