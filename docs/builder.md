@@ -4,6 +4,38 @@ Open-XY builds OP-XY firmware in the browser. It runs as a website or from a
 single `opxy-builder.html` file, including offline from `file://`. Firmware never
 leaves the browser.
 
+## MTP troubleshooting on macOS
+
+Select **I’m having trouble connecting to MTP** in either the OS-copy guide or
+build-upload guide. The same help is available before connecting and after a
+failed transfer, including when copying manually.
+
+The help button opens the fresh-install guide directly, assuming you have
+already closed other transfer apps and checked the connection.
+
+For a fresh installation, **Start fresh with OS 1.2.1** guides a full drive
+format and official OS reinstall before installing Open-XY. It erases user content and
+soundpacks; verify backups and obtain the official OS 1.2.1 update before
+proceeding. If you cannot back up data you need, stop. The guide requires an
+explicit acknowledgement before showing the format instructions and never
+formats the device itself.
+
+With the dev menu enabled, **5. format drive** is in **te-boot**, not the factory
+menu (where track 5 writes the OS). Follow the device prompts and wait for
+completion. Hold COM while switching on, then select **1. upload firmware**.
+The guide links to official OS 1.2.1 and walks through copying the `.tfw` file
+and ejecting the removable disk to start the update. After reinstalling,
+it returns to the original copy or install flow. See the
+[official update instructions](https://teenage.engineering/guides/op-xy/te-boot).
+
+A format and reinstall resolved a reported persistent MTP failure on a device
+with soundpacks installed. Soundpacks have **not** been established as the cause,
+and this procedure is not a guaranteed fix.
+
+If MTP connects but `os.ldr` is missing, use **The OS file is missing · Help me
+recover it** instead. That separate path guides an official reinstall without
+directing you to format.
+
 ## Using the builder
 
 1. Use a desktop browser exposing both Web MIDI and WebUSB, such as Chrome, Edge

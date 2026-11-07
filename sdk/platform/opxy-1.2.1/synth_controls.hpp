@@ -28,8 +28,19 @@ struct SynthControls {
     u8 shift;
     u8 shift_choices[4];
     const char* const* shift_titles;
+    // A sample engine's own screen (SDK 1.10, resources.stockShift): for each
+    // encoder, 0 keeps Shift's fine turn of the machine's own control, and a
+    // stock_shift code below gives the Shift turn to the stock sampler page instead.
+    u8 stock_shift[4];
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
+// The stock sampler page's own turns a stockShift entry names: the page's
+// encoder e (0..3) unshifted is 1 + e (start, loop start, loop end, end), with
+// Shift 5 + e (direction, tune, crossfade, gain). A window moves a pair of
+// markers by the same turn: the start and end, or the loop start and end.
+namespace stock_shift {
+const u8 kNone = 0, kShifted = 5, kWindow = 9, kLoopWindow = 10;
+}
 // An owned effect on send track 14 or 15 as its own page shows it (SDK 1.7):
 // each position's shown slot, value, title and caption, every control's
 // current value, and its shift row. While Shift is held on an effect with a
@@ -63,6 +74,9 @@ extern const opxy::u32 sdk_synth_control_count __asm__("sdk_synth_control_count"
 // 0..3 unless an owned synth's encoder press selected an alternate. GUI only.
 void sdk_synth_shown(opxy::u32 track, opxy::u8* shown) __asm__("sdk_synth_shown");
 bool sdk_synth_value(opxy::u32 track, opxy::u32 slot, opxy::i32 value, char* text) __asm__("sdk_synth_value");
+// Whether Shift on the track's sample engine's own screen gives any encoder
+// to the stock sampler page (resources.stockShift, drum_controls_stock.cpp). GUI only.
+bool sdk_sample_stock_shift(opxy::u32 track) __asm__("sdk_sample_stock_shift");
 // The slot shown at page position `index` while engine is the selected track's
 // owned synth, as last refreshed; other indices and engines map to themselves.
 // For stock control titles.
@@ -86,6 +100,8 @@ opxy::u32 sdk_param_steps(opxy::u32 track, opxy::u32 index, opxy::u32* scale) __
 // gets its controls 5..8 stored and sent to the audio side as stock's current
 // values hold them. Stock stores and sends only the first four of an effect's
 // defaults when it is put on a send; every later edit it stores and sends itself.
+// It also keeps the selected padMix kit's lock words' stored base neutral
+// (drum_locks.hpp).
 void sdk_send_refresh() __asm__("sdk_send_refresh");
 // The machine holding an aux track, as its engine, or 0: set by track control's
 // aux tracks (aux_tracks.cpp) in builds that link them, null in others.

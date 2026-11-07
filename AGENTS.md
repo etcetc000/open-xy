@@ -40,10 +40,17 @@ and the [UX conventions](docs/ux.md): implement and test, offer audition where s
 build and propose an authorized hardware test, with the machine's device
 checklist (QA.md, written by `new --repository`) to run. When the user is getting ready to publish,
 recommend a full QA.md pass on the commit the catalog entry will pin. Follow [hardware profiling](docs/profiling.md)
-to collect the revision-bound CPU readout required for catalog submission. A
-synth's readout is a control sweep (the default for profiling builds); when it
-reports a result above the recommended 3.5%, tell the user which setting is
-heaviest and suggest making that path lighter before submitting.
+to collect the revision-bound CPU readout required for catalog submission.
+**Profiling and adding its results are required before declaring a machine ready
+for submission:** run `sdk.py profile report`, copy its complete `cpu` member into
+the catalog entry, and report both `block_percent` (average) and `peak_percent`
+(worst observed block across all measured runs). Never substitute the heaviest
+run's average for a spike, or invent a missing peak. Existing complete captures
+can be reprocessed offline; a clipped peak needs optimization and remeasurement.
+A synth's readout is a control sweep (the default for profiling builds); when it
+reports an average or peak above the recommended 3.5% each, explain which
+metric and workload exceeded it and suggest making that path lighter before
+submitting. This recommendation warns; it does not reject the submission.
 If hardware is unavailable, say that validation remains pending; a maintainer
 can measure it. Never treat a successful host check as a measured CPU result or
 hardware acceptance. A sample engine uses the public sample API and Timestretch
@@ -57,8 +64,10 @@ Read README.md and CONTRIBUTING.md. For native changes also read
 - Engine-specific source, metadata, generators and sound tests belong under that
   engine. Keep `tooling/` and root `tests/` focused on shared contracts.
 - Contributor C++ contains no platform conditionals, OS headers or assembly.
-  Put platform support in `sdk/`. Audio callbacks must not allocate, block,
-  log, perform I/O, register engines or call graphics.
+  Put platform support in `sdk/`. A machine's own hand-written Blackfin
+  routines live in its `native/` folder, each beside the C reference that
+  defines it ([native routines](docs/api.md#native-routines)). Audio callbacks
+  must not allocate, block, log, perform I/O, register engines or call graphics.
 - Preserve exact stock/tool authentication, allowed edits, entry/loader records,
   protected ranges, reserved memory, occupied-ID guards and full reconstruction.
   Do not change expected hashes merely to admit a failed build.

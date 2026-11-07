@@ -19,6 +19,11 @@ struct SampleRegion {
     u32 level;        // unsigned Q27 gain; sample_unity_level is unity
     bool reverse;
     i32 pitch_cents;  // the pad's saved tuning, in cents from the sample's root
+    // The pad's loop markers (SDK 1.10), within the sample: the stock sampler
+    // page's loop start and end. There is no loop when loop_begin is at or
+    // past end, and both are at end where nothing sets a loop.
+    u32 loop_begin;
+    u32 loop_end;
 };
 
 // A sample being assigned to a pad, before stock publishes the new region.
