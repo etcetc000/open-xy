@@ -1859,6 +1859,29 @@
         "peak_percent": 5.737392,
         "report": "https://github.com/kristapskristaps/xy-machines/releases/tag/lustre-v1.0.0"
       }
+    },
+    {
+      "id": "gentape",
+      "kind": "effect",
+      "maintainer": "kristapskristaps",
+      "status": "published",
+      "repository": "https://github.com/kristapskristaps/xy-machines",
+      "tag": "gentape-v1.0.0",
+      "commit": "1dcde2fd769bc8868f0d6ec187ecbce51ca7d2da",
+      "path": "machines/gentape",
+      "keywords": [
+        "lofi",
+        "modulation"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "1dcde2fd769bc8868f0d6ec187ecbce51ca7d2da",
+        "firmware_sha256": "99909caf565c50d42a1fcadc2b808fc628710dcd1d031d49d838fcd8c58be7d6",
+        "runs": 1,
+        "block_percent": 0.843824,
+        "peak_percent": 2.313268,
+        "report": "https://github.com/kristapskristaps/xy-machines/releases/tag/gentape-v1.0.0"
+      }
     }
   ]
 }
