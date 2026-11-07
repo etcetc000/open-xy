@@ -458,11 +458,17 @@ test('the CPU-high label follows the reported peak, or the average when no peak 
   assert.equal(cpuHigh({cpu:{block_percent:4.8, peak_percent:4.4}}), null);
   const peak = cpuHigh({cpu:{block_percent:3.69, peak_percent:6.314183}});
   assert.equal(peak.metric, 'peak');
-  assert.equal(peak.text, 'CPU-high: worst observed block peak 6.31% of an audio block, above 4.5%');
+  assert.equal(peak.detail, 'worst observed block peak 6.31% of an audio block, above 4.5%');
+  assert.equal(peak.text, 'CPU-high: ' + peak.detail);
   // Without a peak, the average, and the text says so.
   const average = cpuHigh({cpu:{block_percent:8.54963}});
   assert.equal(average.metric, 'average');
   assert.equal(average.text, 'CPU-high: average 8.55% of an audio block, above 4.5% (no peak reported)');
+  // A drum kit's peak covers its whole-kit runs, and its average is one voice; both say so.
+  assert.equal(cpuHigh({kind:'drum', cpu:{block_percent:2.7, peak_percent:48.163577}}).text,
+    'CPU-high: worst observed block peak 48.16% of an audio block (whole-kit runs included), above 4.5%');
+  assert.equal(cpuHigh({kind:'drum', cpu:{block_percent:5}}).text,
+    'CPU-high: heaviest single voice average 5% of an audio block, above 4.5% (no peak reported)');
   // Strictly above the threshold; no record, or no usable figure, is no label.
   assert.equal(cpuHigh({cpu:{block_percent:4.5}}), null);
   assert.equal(cpuHigh({cpu:{block_percent:3, peak_percent:4.5}}), null);

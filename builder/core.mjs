@@ -354,14 +354,18 @@ export function cpuWorstCase(m) {
   return null;
 }
 // The CPU-high label, derived from the cpu record so it follows the catalog: the worst
-// case with the words that explain it, or null for a machine at or under the threshold.
+// case with the words that explain it (`detail`, and `text` with the label), or null for
+// a machine at or under the threshold. A drum kit's peak includes its whole-kit runs at
+// full polyphony, and its average is its heaviest single voice (docs/profiling.md).
 export function cpuHigh(m) {
   const worst = cpuWorstCase(m);
   if (!worst || worst.percent <= CPU_HIGH_PERCENT) return null;
+  const drum = m.kind === 'drum';
   const figure = Number(worst.percent.toFixed(2)) + '% of an audio block';
-  return {...worst, text: worst.metric === 'peak'
-    ? 'CPU-high: worst observed block peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
-    : 'CPU-high: average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)'};
+  const detail = worst.metric === 'peak'
+    ? 'worst observed block peak ' + figure + (drum ? ' (whole-kit runs included)' : '') + ', above ' + CPU_HIGH_PERCENT + '%'
+    : (drum ? 'heaviest single voice average ' : 'average ') + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)';
+  return {...worst, detail, text: 'CPU-high: ' + detail};
 }
 // The keywords the machines use, with how many use each, most used first, then by name: the
 // order in which the builder keeps keyword filters when only some fit (builder/app.mjs).

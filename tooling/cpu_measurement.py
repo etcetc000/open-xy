@@ -35,12 +35,16 @@ def worst_case(value):
 
 
 def high(value):
-    """The builder's CPU-high note for a record whose worst case exceeds HIGH_PERCENT, else None."""
+    """The builder's CPU-high note for a record whose worst case exceeds HIGH_PERCENT, else None.
+    A drum kit's peak includes its whole-kit runs, and its average is its heaviest single voice."""
     percent, metric = worst_case(value)
     if percent <= HIGH_PERCENT:
         return None
-    return (f"the builder labels it CPU-high: {'worst observed block peak' if metric == 'peak' else 'average (no peak reported)'} "
-            f"{percent:.3f}% is above {HIGH_PERCENT}%")
+    drum = value.get('benchmark') == BENCHMARKS['drum']
+    what = (('worst observed block peak (whole-kit runs included)' if drum else 'worst observed block peak')
+            if metric == 'peak' else
+            'heaviest single voice average (no peak reported)' if drum else 'average (no peak reported)')
+    return f"the builder labels it CPU-high: {what} {percent:.3f}% is above {HIGH_PERCENT}%"
 
 
 def above_recommended(value):

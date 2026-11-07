@@ -108,6 +108,9 @@ class BuilderPatterns(unittest.TestCase):
         self.assertIn(f'const MAX_KEYWORDS = {catalog.MAX_KEYWORDS};', source)
         # The CPU-high label's threshold, in one constant on each side.
         self.assertIn(f'export const CPU_HIGH_PERCENT = {cpu_measurement.HIGH_PERCENT};', source)
+        for guide in ('docs/catalog.md', 'docs/builder.md'):
+            self.assertIn(f'above {cpu_measurement.HIGH_PERCENT}% of an audio block', ' '.join(
+                (ROOT / guide).read_text(encoding='utf-8').split()), guide)
         # docs/catalog.md explains each word, in the same order.
         docs = (ROOT / 'docs/catalog.md').read_text(encoding='utf-8')
         table = re.search(r'^\| Keyword \| A machine that \|\n\| --- \| --- \|\n((?:\|.*\n)+)', docs, re.M)

@@ -276,11 +276,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       return button;
     }));
     // Its reported CPU worst case, when above core.CPU_HIGH_PERCENT, with the figure.
+    // The tooltip's words are also read out, as text: a plain span takes no aria-label.
     const high = core.cpuHigh(m);
     field('detail-cpu-high').hidden = !high;
     field('detail-cpu-high').title = high?.text ?? '';
-    if (high) field('detail-cpu-high').setAttribute('aria-label', high.text);
-    else field('detail-cpu-high').removeAttribute('aria-label');
+    field('detail-cpu-high').replaceChildren('CPU-high', ...(high ? [node('span', ': ' + high.detail, 'sr-only')] : []));
     field('community-notice').hidden = m.origin !== 'catalog';
     // Credit the catalog's maintainer and repository, with the exact release source;
     // Open-XY's own catalog machines (core.ORIGINS) name the project instead.
@@ -541,7 +541,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const high = core.cpuHigh(m);
       if (high) {
         const badge = node('span', 'CPU-high', 'machine-cpu-high');
-        badge.title = high.text; badge.setAttribute('aria-label', high.text);
+        badge.title = high.text; badge.append(node('span', ': ' + high.detail, 'sr-only'));
         meta.append(badge);
       }
       button.append(meta); button.onclick = () => inspect(m.id);

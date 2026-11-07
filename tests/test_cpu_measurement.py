@@ -235,6 +235,11 @@ class Measurements(unittest.TestCase):
         self.assertEqual(cpu_measurement.worst_case(legacy_synth()), (legacy_synth()['block_percent'], 'average'))
         average = cpu_measurement.high(dict(legacy_synth(), block_percent=5.25))
         self.assertIn('average (no peak reported) 5.250%', average)
+        # A drum kit's peak includes its whole-kit runs, and its average is its heaviest voice.
+        drum = dict(measurement('drum'), block_percent=2.7, peak_percent=48.2)
+        self.assertIn('worst observed block peak (whole-kit runs included) 48.200%', cpu_measurement.high(drum))
+        drum = {k: v for k, v in dict(measurement('drum'), block_percent=5.0).items() if k != 'peak_percent'}
+        self.assertIn('heaviest single voice average (no peak reported) 5.000%', cpu_measurement.high(drum))
         # Strictly above the threshold.
         at = cpu_measurement.HIGH_PERCENT
         self.assertIsNone(cpu_measurement.high(dict(measurement('synth'), block_percent=at, peak_percent=at)))
