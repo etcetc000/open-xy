@@ -13,23 +13,25 @@ from tooling.pipeline import config
 
 
 class Resident(unittest.TestCase):
-    def interface(self):
+    def interface(self, profiling=True):
         profile=config()
-        return activation.interface(profile, set(profile['services']), True, 32768)
+        return activation.interface(profile, set(profile['services']), profiling, 32768)
 
     def test_each_supported_hook_has_an_exact_stock_path(self):
-        abi = self.interface()
-        kinds = {resident.stock_path(e)['kind'] for e in abi['entries']}
-        self.assertEqual(kinds, {'branch','replay','conditional','call_suffix','call_prefix'})
-        source = resident.guarded_dispatch(abi)
-        self.assertEqual(source.count('    [--SP] = ASTAT;'), len(abi['entries']))
-        self.assertEqual(source.count('    ASTAT = [SP++];'), len(abi['entries'])*2)
-        self.assertNotIn('    CALL ', source)
-        self.assertIn('.bss.collection_resident', source)
+        for profiling in (True, False):
+            with self.subTest(profiling=profiling):
+                abi = self.interface(profiling)
+                kinds = {resident.stock_path(e)['kind'] for e in abi['entries']}
+                self.assertEqual(kinds, {'branch', 'replay', 'return', 'conditional', 'call_suffix', 'call_prefix'})
+                source = resident.guarded_dispatch(abi)
+                self.assertEqual(source.count('    [--SP] = ASTAT;'), len(abi['entries']))
+                self.assertEqual(source.count('    ASTAT = [SP++];'), len(abi['entries'])*2)
+                self.assertNotIn('    CALL ', source)
+                self.assertIn('.bss.collection_resident', source)
 
     def test_unknown_displaced_code_and_changed_return_modes_are_refused(self):
         abi = self.interface()
-        for kind in ('branch','replay','conditional','call_suffix','call_prefix'):
+        for kind in ('branch', 'replay', 'return', 'conditional', 'call_suffix', 'call_prefix'):
             entry = copy.deepcopy(next(e for e in abi['entries'] if resident.stock_path(e)['kind'] == kind))
             entry['call'] = not entry['call']
             with self.assertRaises(ValueError): resident.stock_path(entry)
@@ -44,6 +46,11 @@ class Resident(unittest.TestCase):
         path = resident.stock_path(dict(site=hex(site), before=before, call=call, length=8))
         self.assertEqual(path['target'], 0x8c0b148c)
         self.assertEqual(path['opcode'], 0x1000)
+        site, before, call = resident.CONDITIONAL_JUMP
+        path = resident.stock_path(dict(site=hex(site), before=before, call=call, length=4))
+        self.assertEqual(path['raw'], bytes.fromhex('000c'))
+        self.assertEqual(path['target'], 0x8d5aca80)
+        self.assertEqual(path['opcode'], 0x1800)
 
     def test_resident_layout_keeps_the_original_pool_tables_and_payload_boundary(self):
         from tooling.pipeline import ROOT
@@ -106,7 +113,7 @@ class Resident(unittest.TestCase):
             text = sections['.text']
             header = next(h for h in headers if h[3] == text['address'] and h[1] == 1)
             for i in range(len(abi['entries'])):
-                for name, offsets in ((f'sdk_collection_resident_{i}', (0,6,14,18,20,26,34,40)),
+                for name, offsets in ((f'sdk_collection_resident_{i}', (0,6,14,18,20,26,34,38)),
                                       (f'sdk_collection_stock_{i}', (0,))):
                     symbol = symbols[name]
                     for offset in offsets:

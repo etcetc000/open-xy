@@ -3,7 +3,7 @@
 #include "collection_probe.hpp"
 
 namespace opxy { namespace collection { namespace activation {
-const u32 header_bytes = 160, maximum_entries = 128, maximum_resources = 64, resource_bytes = 40;
+const u32 header_bytes = 160, maximum_entries = 192, maximum_resources = 64, resource_bytes = 40;
 const u32 maximum_resource_total_bytes=2u*1024u*1024u;
 const u32 maximum_svg_bytes=256u*1024u,maximum_catalog_bytes=64u*1024u;
 enum Status {
