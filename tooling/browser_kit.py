@@ -16,7 +16,6 @@ from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
 from .definitions import control_positions, paged
 from .formats import require, sha
-from .startup import LOCK_CALLS
 from .machines import FIXED_NUMBERS, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
                        resolve_toolchain, tool_paths)
@@ -160,7 +159,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
-    fallbacks = service_fallbacks(native.active_services(profile, native.service_users(machines)))
+    fallbacks = native.service_fallbacks(native.active_services(profile, native.service_users(machines)))
     if fallbacks:
         kit['serviceFallbacks'] = fallbacks
     kit_path = output / 'kit.json'
@@ -175,21 +174,6 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                    cwd=ROOT, check=True)
     write_builder(kit, output)
     return kit
-
-
-def service_fallbacks(services):
-    """What a selection that does not use a service gets for the service's entry points
-    that shared objects (startup's included) import: kit_absent, which answers 0. Track
-    control's saved data, the aux service's start, and every call into the step-lock
-    handles (startup.LOCK_CALLS)."""
-    fallbacks = {}
-    if 'control' in services:
-        fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
-    if 'aux' in services:
-        fallbacks['aux'] = {'sdk_aux_startup': 'kit_absent'}
-    if 'drum_locks' in services:
-        fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
-    return fallbacks
 
 
 def write_builder(kit, output):
@@ -216,7 +200,7 @@ def write_builder(kit, output):
                "import {supportsDeviceApis} from './browser.mjs';\n")
     require(app.startswith(imports), 'Unexpected browser imports')
     # Keep the public source as ES modules; inline a closed namespace for file://.
-    exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes openKit linkKit readLdr '
+    exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes heapBytes offersExpandedMemory memoryKit openKit linkKit readLdr '
                'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName '
                'MACHINE_KEYWORDS keywordsByUse browseMachines machineAuthor PRESET_NAME_LIMIT readPresets savePreset deletePreset presetMatches applyPreset').split()
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(

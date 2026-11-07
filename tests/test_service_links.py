@@ -17,7 +17,7 @@ import tempfile
 import unittest
 
 from tooling import native
-from tooling.browser_kit import service_fallbacks
+from tooling.native import service_fallbacks
 from tooling.pipeline import ROOT, TOOLCHAIN_HOME
 
 FIXTURES = ROOT / 'tests/fixtures/machines'
