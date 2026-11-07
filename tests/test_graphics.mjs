@@ -407,6 +407,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   const pages = steps.map(el => Object.assign(new Element(), {dataset:{page:el.dataset.step}}));
   const titles = ['input-title', 'machines-title', 'extensions-title', 'download-title'];
   const location = {hash:'#preview/settings', pathname:'/', search:''};
+  const savedBrowserState = new Map();
   const globals = {
     document:{getElementById:$, addEventListener() {}, createElement:() => new Element(),
       querySelectorAll:selector => ({'[data-page]':pages, '.steps button':steps, '[data-step]':steps,
@@ -421,7 +422,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
       }},
     window:{addEventListener() {}}, location,
     history:{replaceState() { location.hash = ''; }},
-    localStorage:{setItem() {}},
+    localStorage:{setItem(key, value) { savedBrowserState.set(key, value); }},
     matchMedia:() => ({matches:true}), requestAnimationFrame:() => 1, cancelAnimationFrame() {},
   };
   for (const [key, value] of Object.entries(globals)) {
@@ -445,7 +446,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
     patchFirmware:async () => blockPatch ? new Promise(resolve => { finishPatch = resolve; }) : Uint8Array.of(1, 2, 3),
   };
   const wizard = {invalidate() { invalidations++; }, navigate() {}, previewLink:() => false,
-    clearSourceBackup() {}, setFirmwareState() {}};
+    clearSourceBackup() {}, setFirmwareState() {}, supportsQuickInstall:() => false};
   const builder = await createBuilder({core:fakeCore,
     wizardApi:{createWizard:options => { wizardOptions = options; return wizard; }},
     visuals:{reveal() {}, icon:() => new Element(), bundle:() => new Element(),
@@ -617,6 +618,19 @@ test('Extensions graphics defaults to original designs without firmware extensio
   await $('build').onclick();
   assert.deepEqual(manifest().settings, {graphics:'colorful'});
   assert.doesNotMatch($('download-summary').textContent, /Grayscale machine graphics/);
+  // Loading verified firmware must preserve the user's edited empty selection.
+  for (const row of $('machines').children) {
+    const checkbox = row.children[0].children[0];
+    if (checkbox.checked) { checkbox.checked = false; checkbox.onchange(); }
+  }
+  assert.deepEqual(wizardOptions.getSelected(), []);
+  assert.deepEqual(JSON.parse(savedBrowserState.get('open-xy-selection')).selected, []);
+  fakeCore.recoverFirmware = async () => ({stock:Uint8Array.of(1), selected:['probe'], extensions:[]});
+  assert.equal(await wizardOptions.onFirmware({name:'Recovered selection', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.deepEqual(wizardOptions.getSelected(), []);
+  assert.equal($('build').disabled, true);
+  assert.match($('build-reason').textContent, /Choose at least one machine/);
 });
 
 test('machine graphics settings preserve selected master artwork and reject asset collisions', async () => {

@@ -17,7 +17,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   document.querySelectorAll('[data-device-art]').forEach(el => el.append(visuals.device()));
   // Preview links can show the guide immediately; using the builder still needs acknowledgement.
   let acknowledged = false;
-  let builderPreview = false, loadCollection;
+  let builderPreview = false, loadCollection, expertMode = false, building = false;
+  try { expertMode = localStorage.getItem('open-xy-expert') === 'true'; } catch {}
   const browserAllowed = supportsBrowser();
   $('browser-blocked').hidden = browserAllowed;
   $('risk-acknowledgement').checked = false;
@@ -31,6 +32,17 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
   const NUMBERS_KEY = 'open-xy-machine-numbers';
+  const SELECTION_KEY = 'open-xy-selection';
+  let selectionError = '', selectionRemembered = false;
+  function rememberSelection() {
+    try {
+      localStorage.setItem(SELECTION_KEY, JSON.stringify({format:'opxy-selection/1', profile:kit.profile.id,
+        selected, extensions:selectedExtensions}));
+      $('selection-memory').textContent = 'Selections are saved automatically in this browser.';
+    } catch {
+      $('selection-memory').textContent = 'Browser storage is unavailable. Selections will not survive a refresh.';
+    }
+  }
   let numbers = null;
   function rememberNumbers(value) {
     numbers = value;
@@ -68,8 +80,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   document.addEventListener('keydown', event => { if (event.key === 'Escape') stopAudio(); });
   const status = (message = '', error = false) => { $('status').textContent = message; $('status').dataset.error = String(error); };
   const fail = error => status(error.message || String(error), true);
-  function invalidate() {
-    wizard.invalidate();
+  function invalidate(stopWizard = true) {
+    if (stopWizard) wizard.invalidate();
     revision++; layout = built = null;
     if (downloadUrl) { URL.revokeObjectURL(downloadUrl); downloadUrl = null; }
     $('download').removeAttribute('href');
@@ -79,7 +91,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   function navigate(step) {
     stopAudio();
     if ($('selected-previews').open) $('selected-previews').close();
-    if (builderPreview && ![2, 3].includes(step)) {
+    if (builderPreview && ![2, 3, 5].includes(step)) {
       builderPreview = false;
       history.replaceState(null, '', location.pathname + location.search);
       ready();
@@ -99,12 +111,31 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     document.querySelector('.steps [data-step="2"]').disabled = !(kit && (stock || builderPreview));
     $('choose-extensions').disabled = !(kit && selected.length && (stock || builderPreview));
     document.querySelector('.steps [data-step="3"]').disabled = $('choose-extensions').disabled;
-    $('build').disabled = builderPreview || !(stock && linked);
+    const reason = builderPreview ? 'You are in audition preview. Open the builder and load your OS to build firmware.'
+      : !stock ? 'Load your OS in Step 1 before building. Your selections will be kept.'
+      : !selected.length ? 'Choose at least one machine.'
+      : !linked ? 'This selection cannot be built. ' + (selectionError || 'Review the memory usage and choose fewer machines.') : '';
+    $('build').disabled = !!reason || building;
+    $('expert-mode').disabled = builderPreview || !acknowledged || !kit;
+    $('expert-build').disabled = !!reason || building;
+    $('expert-run').disabled = !!reason || building || !wizard.supportsQuickInstall();
+    $('expert-save').disabled = !kit || builderPreview;
+    $('expert-reason').textContent = reason || (!wizard.supportsQuickInstall() ? 'USB copying needs a desktop browser with WebUSB. You can still build a ZIP.' : 'Ready to build and copy.');
+    if (kit) facts($('expert-summary'), {
+      OS: stock ? 'Verified OS 1.2.1 loaded' : 'Choose os.ldr',
+      Machines: selectedMachines().map(m => m.name).join(' + ') || 'None',
+      Memory: linked ? kib(linked.sizes.allocated) + ' / ' + kib(core.moduleBytes(kit.profile))
+        : selectionError ? 'Selection cannot be built; limit ' + kib(core.moduleBytes(kit.profile)) : 'Choose machines',
+      Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
+    });
+    $('build-reason').textContent = reason;
+    $('build-setup').hidden = !(builderPreview || !stock);
     $('preview-selected').disabled = !(kit && selected.length);
   }
 
   const wizard = wizardApi.createWizard({ getKit: () => kit, getSelected: () => selected, hasDownload: () => !!downloadUrl, getFiles: () => built,
     onFirmware: (file, isCurrent) => acceptFirmware(file, isCurrent),
+    onQuickExit() { navigate(5); },
     onPreviewExit() {
       history.replaceState(null, '', location.pathname + location.search);
       if (acknowledged) navigate(1); else showEntryGate();
@@ -121,7 +152,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('builder-workspace').inert = true;
   }
   function openPreviewLink() {
-    const match = /^#preview\/(machines|extensions|settings)(?:\/([a-z0-9_-]+))?$/.exec(location.hash);
+    const match = /^#preview\/(machines|extensions|settings|expert)(?:\/([a-z0-9_-]+))?$/.exec(location.hash);
     const leavingMachines = builderPreview && !match;
     builderPreview = !!match;
     if (builderPreview || wizard.previewLink(location.hash)) {
@@ -133,7 +164,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       if (builderPreview) {
         loadCollection?.();
         $('phase-nav').hidden = false;
-        navigate(match[1] === 'machines' ? 2 : 3);
+        navigate(match[1] === 'expert' ? 5 : match[1] === 'machines' ? 2 : 3);
         if (kit) {
           if (match[1] !== 'machines') inspectExtension(kit.extensions?.find(e => e.id === match[2])?.id ?? kit.extensions?.[0]?.id);
           else inspect(kit.machines.find(m => m.id === match[2])?.id ?? kit.machines[0].id);
@@ -165,7 +196,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('phase-nav').hidden = false;
       $('builder-workspace').hidden = false;
       $('builder-workspace').inert = false;
-      navigate(1);
+      navigate(expertMode ? 5 : 1);
       resolve();
     };
   });
@@ -220,10 +251,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       if (current !== ticket || !isCurrent()) return false;
       stock = recovered.stock;
       if (recovered.selected) {
-        selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
-        renderMachines(); renderExtensions(); recalculate();
-        $('firmware-result').textContent = '✓ open-xy OS with ' +
-          selectionNames().join(' + ');
+        if (!selectionRemembered) {
+          selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
+          renderMachines(); renderExtensions(); recalculate();
+        }
+        $('firmware-result').textContent = selectionRemembered ? '✓ open-xy OS verified · your saved choices are kept'
+          : '✓ open-xy OS with ' + selectionNames().join(' + ');
       } else if (recovered.earlier) {
         $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again';
       } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
@@ -534,6 +567,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       meta.append(node('span', originLabel, 'machine-origin'));
       button.append(meta); button.onclick = () => inspect(m.id);
       input.onchange = () => {
+        selectionRemembered = true;
         selected = input.checked ? [...selected, m.id] : selected.filter(id => id !== m.id);
         row.classList.toggle('selected', input.checked); invalidate(); recalculate();
       };
@@ -588,8 +622,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         message.id = 'conflict-' + extension.id; input.setAttribute('aria-describedby', message.id); button.append(message);
       }
       input.onchange = () => {
-        selectedExtensions = core.extensionSelection(kit, input.checked ? [...selectedExtensions, extension.id]
-          : selectedExtensions.filter(id => id !== extension.id));
+        const next = input.checked ? [...selectedExtensions, extension.id] : selectedExtensions.filter(id => id !== extension.id);
+        selectedExtensions = input.checked ? core.extensionSelection(kit, next) : next;
+        selectionRemembered = true;
         invalidate(); renderExtensions(); recalculate();
         document.querySelector('#extensions input[aria-label="Include ' + CSS.escape(extension.name) + '"]')?.focus();
       };
@@ -610,6 +645,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     document.querySelectorAll('#extensions button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
   }
   function recalculate() {
+    rememberSelection();
+    selectionError = '';
     updateOverrideCount();
     linked = null; $('selection-count').textContent = selected.length + ' selected';
     $('extension-memory').textContent = '';
@@ -634,11 +671,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         'Working memory': kib(linked.sizes.bss),
         'Available': kib(linked.sizes.available)});
       status();
-    } catch (error) { $('room-value').textContent = 'Selection cannot be built'; $('extension-memory').textContent = error.message; fail(error); }
+    } catch (error) { selectionError = error.message; $('room-value').textContent = 'Selection cannot be built'; $('extension-memory').textContent = error.message; fail(error); }
     ready();
   }
-  async function build() {
-    if (builderPreview || !acknowledged) return;
+  async function build(showOutput = true) {
+    if (builderPreview || !acknowledged || building || !stock || !linked) return false;
+    invalidate(false); building = true; ready();
     const ticket = revision; $('build').disabled = true; status('Linking and checking your build…');
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
@@ -654,7 +692,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
         settings, sizes: result.sizes, files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
-      if (ticket !== revision) return;
+      if (ticket !== revision) return false;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));
       $('download').href = $('flow-download').href = downloadUrl;
       const modes = new Set(kit.machines.filter(machine => selection.includes(machine.id) && machine.artwork).map(machine => core.graphicsForMachine(machine, settings)));
@@ -664,11 +702,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('bundle-art').replaceChildren(visuals.bundle(Object.keys(files)));
       $('output-hash').textContent = 'OS (os.ldr) SHA-256: ' + hashes['os.ldr'];
       document.querySelector('.steps [data-step="4"]').disabled = false;
-      status(); navigate(4);
-    } catch (error) { if (ticket === revision) fail(error); } finally { ready(); }
+      status(); if (showOutput) navigate(4);
+      return true;
+    } catch (error) { if (ticket === revision) fail(error); return false; } finally { building = false; ready(); }
   }
   document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => navigate(Number(b.dataset.step)));
   $('choose').onclick = () => { navigate(2); recalculate(); };
+  $('build-setup').onclick = () => navigate(1);
   const graphicsInput = $('grayscale-graphics');
   graphicsInput.checked = false;
   graphicsInput.onchange = () => {
@@ -676,7 +716,35 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     else updateOverrideCount();
   };
   $('choose-extensions').onclick = () => { navigate(3); recalculate(); };
-  $('build').onclick = build;
+  $('build').onclick = () => build();
+  $('expert-mode').onclick = () => {
+    if (!acknowledged || builderPreview || !kit) return;
+    expertMode = true;
+    try { localStorage.setItem('open-xy-expert', 'true'); } catch {}
+    navigate(5); ready();
+  };
+  $('expert-guided').onclick = () => {
+    expertMode = false;
+    try { localStorage.setItem('open-xy-expert', 'false'); } catch {}
+    navigate(1);
+  };
+  $('expert-edit').onclick = () => navigate(2);
+  $('expert-extensions').onclick = () => navigate(3);
+  $('expert-firmware').onchange = e => acceptFirmware(e.target.files[0]);
+  $('expert-config').onchange = e => $('restore').onchange(e);
+  $('expert-build').onclick = () => build();
+  $('expert-save').onclick = () => {
+    if (!kit || builderPreview || !acknowledged) return;
+    const config = {format:'opxy-layout/1', profile:kit.profile.id, selected, extensions:selectedExtensions,
+      machines:linked?.numbers ?? numbers ?? {}};
+    const url = URL.createObjectURL(new Blob([JSON.stringify(config, null, 2)], {type:'application/json'}));
+    const a = node('a'); a.href = url; a.download = 'layout.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  $('expert-run').onclick = () => {
+    if (!acknowledged || builderPreview || !stock || !linked || building) return;
+    navigate(4);
+    wizard.quickInstall(() => build(false));
+  };
   $('firmware').onchange = e => acceptFirmware(e.target.files[0]);
   const drop = $('firmware-drop');
   for (const type of ['dragover', 'dragleave', 'drop']) drop.addEventListener(type, e => {
@@ -736,6 +804,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   function choosePreset(preset) {
     const {selected: chosen, missing} = core.applyPreset(kit, preset);
     selected = chosen;
+    selectionRemembered = true;
     invalidate(); renderMachines(); recalculate();
     $('machine-presets').open = false;
     status('Preset “' + preset.name + '”: ' + chosen.length + (chosen.length === 1 ? ' machine' : ' machines') + ' selected.' +
@@ -771,6 +840,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
       if (loaded.selected) core.linkKit(kit, loaded.selected, loaded.machines, extensions);
+      selectionRemembered = true;
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
@@ -787,6 +857,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   async function loadCollectionData(data) {
     const next = await core.openKit(data);
     invalidate(); stock = null; kit = next;
+    selectionRemembered = false; selectedExtensions = [];
     // A tap opens the memory breakdown on screens without hover.
     $('builder-version').textContent = 'v' + kit.version;
     $('capacity-foot').textContent = kib(core.moduleBytes(kit.profile)) + ' for machines; CPU load is not measured';
@@ -795,6 +866,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');
       if (remembered) numbers = core.readLayout(kit, {format: 'opxy-layout/1', ...remembered}).machines;
     } catch { numbers = null; }
+    try {
+      const saved = JSON.parse(localStorage.getItem(SELECTION_KEY) ?? 'null');
+      if (saved) {
+        const restored = core.readSelection(kit, saved);
+        selected = restored.selected; selectedExtensions = restored.extensions; selectionRemembered = true;
+      }
+    } catch { /* Malformed convenience saves leave the collection defaults. */ }
     catalog = core.decode64(kit.stockCatalog);
     $('notices').textContent = kit.notices;
     $('notices').closest('details').hidden = false;
