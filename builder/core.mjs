@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '55c4f8b1c4d382bd9bfac8f7deb8ecb8ae82d045d4bbbf1ac4c3df2e47279a12';
+export const PROFILE_SHA256 = 'cca7a6c5cb7f064e568bc4dfe814daf432573638262ae80569d7640fedb832b6';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -283,7 +283,16 @@ export function readLayout(kit, saved) {
   const selected = saved.selected ?? null;
   check(selected === null || Array.isArray(selected) && selected.every(id => kit.machines.some(m => m.id === id)),
     'This layout lists a machine this site doesn’t have.');
-  return {machines: numbers, selected};
+  // A memory choice this site lacks is reported, not refused: the builder restores
+  // such a layout with standard memory when its selection fits (app.mjs restore).
+  // The layout names its experimental size, so one from another size is not taken for this one.
+  check(saved.memory === undefined ? saved.reserved_bytes === undefined
+    : saved.memory === 'expanded' && Number.isInteger(saved.reserved_bytes) && saved.reserved_bytes > 0 &&
+      saved.reserved_bytes % 1024 ** 2 === 0, 'Invalid memory in this layout.');
+  const offered = offersExpandedMemory(kit.profile) && saved.reserved_bytes === kit.profile.experimental_memory.reserved_bytes;
+  // memoryUnavailable names the size the layout asked for.
+  const memory = saved.memory === undefined ? {} : offered ? {expanded: true} : {memoryUnavailable: saved.reserved_bytes};
+  return {machines: numbers, selected, ...memory};
 }
 // The kit's machines numbered for this selection, in kit order, and the layout after.
 export function assignNumbers(kit, selection, layout = null) {
@@ -466,6 +475,60 @@ export function extensionChoices(kit) {
 
 // Memory every machine and extension shares, below the relocated stock tables.
 export const moduleBytes = profile => profile.reserved_bytes - profile.table_bytes;
+
+// Experimental larger memory: the profile's reviewed experimental_memory grows
+// the reservation to 4 MiB by taking 2 MiB more from the stock application heap,
+// which shrinks from 18 MiB to 16 MiB. Only the module base and the immediates of
+// the two heap edits change; the relocated tables, hooks and every other edit stay
+// where the reviewed profile puts them (tests/test_experimental_memory.py).
+// Less heap for the stock OS is untested under heavy use, so this is opt-in.
+// The application heap a layout leaves below its module.
+export const heapBytes = profile => profile.module_base - profile.heap_fill_base;
+// A Blackfin+ Dreg/Preg = imm32 load as tooling.stock_tables.decode reads it, or
+// null for any other bytes.
+const heapLoad = hex => {
+  // Lowercase only, as unhex (used when patching) requires.
+  if (typeof hex !== 'string' || !/^[0-9a-f]{16}$/.test(hex)) return null;
+  const d = view(unhex(hex)), opcode = d.getUint16(0, true);
+  return (opcode & 0xffc0) === 0xda00 && d.getUint16(6, true) === 0
+    ? {opcode, value: d.getUint16(2, true) * 65536 + d.getUint16(4, true)} : null;
+};
+// The size a heap edit loads, or NaN for any other instruction (never equal).
+const heapImmediate = hex => heapLoad(hex)?.value ?? NaN;
+// Whether an edit's replacement loads the same register as its stock instruction.
+const sameLoad = (a, b) => { const load = heapLoad(a); return load !== null && load.opcode === heapLoad(b)?.opcode; };
+// Whether the profile carries a reviewed larger layout consistent with its heap
+// edits. Without one the builder simply does not offer the option.
+export function offersExpandedMemory(profile) {
+  const x = profile.experimental_memory, heaps = (profile.patches ?? []).filter(p => p.kind === 'heap');
+  const end = profile.module_base + profile.reserved_bytes;
+  return Boolean(x && typeof x === 'object' && Object.keys(x).sort().join() === 'heap_after,module_base,reserved_bytes' &&
+    // Every size is whole MiB, as the builder names them.
+    [x.reserved_bytes, profile.reserved_bytes, x.module_base - profile.heap_fill_base, heapBytes(profile)].every(n => Number.isInteger(n) && n % 1024 ** 2 === 0) &&
+    Number.isInteger(x.module_base) &&
+    x.reserved_bytes > profile.reserved_bytes && x.module_base + x.reserved_bytes === end &&
+    x.module_base > profile.heap_fill_base && heapImmediate(x.heap_after) === x.module_base - profile.heap_fill_base &&
+    profile.heap_fill_base + profile.heap_fill_bytes === end && heaps.length === 2 &&
+    // Every relative hook (a 24-bit halfword branch) still reaches the whole larger module.
+    profile.patches.every(p => p.kind !== 'hook' || ![4, 6].includes(p.length) ||
+      [x.module_base, end].every(t => Math.abs(t - Number(p.address)) < 2 ** 24)) &&
+    heaps.every(p => heapImmediate(p.before) === profile.heap_fill_bytes && sameLoad(p.after, p.before) &&
+      sameLoad(x.heap_after, p.before) && heapImmediate(p.after) === profile.module_base - profile.heap_fill_base));
+}
+export function expandedProfile(profile) {
+  check(offersExpandedMemory(profile), 'This firmware profile cannot offer more memory');
+  const x = profile.experimental_memory, heap = heapBytes({...profile, module_base: x.module_base}), mib = x.reserved_bytes / 1024 ** 2;
+  const name = `IN-MEMORY application heap 0x${profile.heap_fill_bytes.toString(16)} -> 0x${heap.toString(16)} (${mib} MiB module reservation, experimental)`;
+  // The derived profile is the layout itself; it offers no further one.
+  const {experimental_memory: _, ...rest} = profile;
+  return {...rest, module_base: x.module_base, reserved_bytes: x.reserved_bytes,
+    patches: profile.patches.map(p => p.kind === 'heap' ? {...p, name, after: x.heap_after} : p)};
+}
+// The kit linked and patched for the chosen memory; the reviewed kit is unchanged.
+export const memoryKit = (kit, expanded) => {
+  check(typeof expanded === 'boolean', 'Expanded memory must be a boolean');
+  return expanded ? {...kit, profile: expandedProfile(kit.profile)} : kit;
+};
 const screenTemplateOk = async kit => typeof kit.screenTemplate === 'string' &&
   await sha256(utf8.encode(kit.screenTemplate)) === kit.profile.screen_template_sha256;
 export async function openKit(kit) {
@@ -622,7 +685,9 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
         const used = new Map();
         for (const x of objects) for (const y of x.sections) if (y.group) used.set(x.owner ?? 'sdk', (used.get(x.owner ?? 'sdk') || 0) + y.size);
         const shares = [...used].sort((a, b) => b[1] - a[1]).map(([owner, size]) => `${owner} ${(size / 1024).toFixed(1)} KiB`);
-        check(false, `These machines need more than the ${limit / 1024} KiB available: ${shares.join(', ')}`);
+        const error = new Error(`These machines need more than the ${limit / 1024} KiB available: ${shares.join(', ')}`);
+        error.capacity = true;  // callers can tell a selection that does not fit from other link errors
+        throw error;
       }
     }
     if (group === 'data') initializedEnd = cursor;
@@ -805,7 +870,7 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
 // image is rebuilt by undoing every reviewed edit and accepted only by its
 // SHA-256; the uploaded module is never executed or reused for a build. An exact
 // output of this curated collection also restores its machine selection.
-const RECOVERABLE_MACHINES = 10;
+export const RECOVERABLE_MACHINES = 10;
 // Recovery tries every extension choice only for small collections; larger ones
 // try the extensions whose code the module holds.
 const RECOVERABLE_EXTENSIONS = 4;
@@ -857,16 +922,28 @@ export async function recoverFirmware(kit, input, layout = null) {
   check(await sha256(stock) === p.stock_sha256,
     'Only OP–XY OS 1.2.1 is supported. This open-xy OS was not made from OS 1.2.1. ' + UPDATE);
   const payload = input.subarray(module.offset + 16, final.offset);
-  if (module.target === p.module_base && module.count <= moduleBytes(p)) {
+  // Each memory layout loads its module at its own base; the experimental larger
+  // one is reported even when its selection cannot be rebuilt.
+  // Its heap edits must write that layout's heap size, as patchFirmware does.
+  const built = [kit, ...(offersExpandedMemory(p) ? [memoryKit(kit, true)] : [])]
+    .find(k => k.profile.module_base === module.target && k.profile.patches.every(e => e.kind !== 'heap' ||
+      equal(input.subarray(Number(e.file_offset), Number(e.file_offset) + e.length), unhex(e.after))));
+  // The memory layout this OS used, when its module base and heap edits match one.
+  const found = built ? {memory: built === kit ? 'standard' : 'expanded'} : {};
+  if (built && module.count <= moduleBytes(built.profile)) {
     // Reconstruct a selection's entire image; never trust the uploaded module
     // or infer ownership from its label. SDK builds retain timing; site builds
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
     const rebuilds = async (selected, extensions) => {
-      const linked = linkKit(kit, selected, layout, extensions);
+      // A selection that does not fit is not this build, so the exhaustive search
+      // below goes on; any other link or patch error is a real defect and reported.
+      let linked;
+      try { linked = linkKit(built, selected, layout, extensions); }
+      catch (error) { if (error.capacity === true) return false; throw error; }
       if (!equal(linked.module, payload)) return false;
       for (const profiling of [true, false]) {
-        if (equal(await patchFirmware(kit, linked, stock, {profiling}), input)) return true;
+        if (equal(await patchFirmware(built, linked, stock, {profiling}), input)) return true;
       }
       return false;
     };
@@ -879,7 +956,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       : guess.length ? [guess, []] : [[]];
     for (const extensions of present.length ? [guess, ...choices] : []) {
       try {
-        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions};
+        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions, ...found};
       } catch {}  // a guess that cannot link is not this kit's build
     }
     // Small kits also try every selection: at most 1,023 deterministic links per
@@ -889,7 +966,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
         for (const extensions of choices) {
-          if (await rebuilds(selected, extensions)) return {stock, selected, extensions};
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }
@@ -897,7 +974,7 @@ export async function recoverFirmware(kit, input, layout = null) {
   }
   // Another open-xy OS: an earlier release, other machines or another build.
   // Its stock OS is verified above; its machines and extensions are chosen again.
-  return {stock, selected: null, earlier: true};
+  return {stock, selected: null, earlier: true, ...found};
 }
 
 export function presetPath(machine) {
