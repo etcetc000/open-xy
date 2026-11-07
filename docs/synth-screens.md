@@ -72,7 +72,9 @@ light, distance or importance. This is the most important idea in the look.
 | master distortion: fader caps | outline | `323232` | `969696` | `CDCDCD` |
 
 - Use `191919`, `4B4B4B`, `969696` and `CDCDCD`. Where encoder 1's part sits on black,
-  draw it hollow with a thin `CDCDCD` outline, as prism and organ do.
+  draw it hollow with a thin `CDCDCD` outline, as prism and organ do. A 3D part can't be
+  hollow, since it carries a black outline: give encoder 1 `323232` instead, as simple's
+  first step does.
 - Place the four parts left to right in encoder order. Where the subject has its own
   direction, such as a staircase or a stack, run dark to light along it.
 - When the subject is one object, keep the code as small accents: dissolve gives its
@@ -134,10 +136,11 @@ Simple, epiano, axis, the arpeggio's bars, the master EQ's floor.
 - Top and left faces share the base grey; the right face is one ramp step darker, as
   simple's steps go from `CDCDCD` to `AFAFAF`.
 - **Outline every 3D part in black.** Every face of every 3D part, curved or flat, gets a
-  0.5 px `000000` outline, as simple's steps, the arpeggio's bars and the EQ's floor have.
-  Inside the drawing it cuts faces and parts apart; at the silhouette it vanishes into the
-  stage and leaves a crisp edge. The one exception is epiano's keys, whose edges are thin
-  light lines. Flat marks lying on a 3D part, such as a highlight, and lines such as a
+  0.5 px `000000` outline, as simple's steps and the EQ's floor have; the arpeggio's light
+  bars use `4B4B4B`, still dark. Inside the drawing it cuts faces and parts apart; at the
+  silhouette it vanishes into the stage and leaves a crisp edge. Keep 3D parts at `323232`
+  or lighter, so the outline always reads against them. The one exception is epiano's
+  keys, whose edges are thin light lines. Flat marks lying on a 3D part, such as a highlight, and lines such as a
   cable or a graph, are not outlined.
 - Explode layers with even gaps: epiano's plates sit exactly 20 px apart. Fade depth
   into black, as axis's cubes dim as they go back.
@@ -480,7 +483,7 @@ the stock engines remain the better reference for animation.
 **FM pair.** Something running round a loop, with a tail behind it.
 
 - **Drawing:** isometric: fourteen small cubes on a circle. A lit cube fades through the
-  ramp to near black behind it, and a second, shorter tail sits across the ring.
+  ramp to `323232` behind it, and a second, shorter tail sits across the ring.
 - **Grey code:** the fade replaces it, as a position rather than an encoder.
 - **Controls:** run moves the lit cube, tail sets how far the fade reaches, offset moves
   the second tail, and lift raises the lit cube off the ring.
@@ -494,8 +497,7 @@ the stock engines remain the better reference for animation.
 
 **Step sequence.** Four steps, each picking a note from a row.
 
-- **Drawing:** isometric: one thin checked board with round pieces on it, the first
-  hollow.
+- **Drawing:** isometric: one thin checked board with round pieces on it.
 - **Grey code:** one piece per lane.
 - **Controls:** each control moves its piece along its lane a square at a time.
 - **Notes:** the piece for the step that plays hops up and lands back.
@@ -525,7 +527,7 @@ the stock engines remain the better reference for animation.
 
 - **Drawing:** isometric: a pinned cylinder, a comb of teeth running long to short, a
   stand and a small crank.
-- **Grey code:** the cylinder's four bands, hollow then dark to light.
+- **Grey code:** the cylinder's four bands, dark to light.
 - **Controls:** each control adds pins to its band, one to eight. Pin count is hard to
   see, so it's the weakest here against [every control reads](ux.md#screens): check
   it on a device.
