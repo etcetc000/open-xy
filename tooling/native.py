@@ -58,7 +58,7 @@ CXX_FLAGS = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-excep
 from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes, validate_xml
 
 GUI_CXX_FLAGS = ['-Os' if flag == '-O2' else flag for flag in CXX_FLAGS]
-GUI_UNITS = frozenset(('synth_controls', 'synth_control_table', 'drum_values_stock', 'drum_display_stock',
+GUI_UNITS = frozenset(('synth_control_table', 'drum_values_stock', 'drum_display_stock',
                        'screen_order', 'sample_slice_clock', 'presets', 'stock_browser', 'startup'))
 
 
@@ -528,9 +528,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     def assemble_unit(source, obj):
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
-    def cxx(source, obj, m=None, *, gui=False):
+    def cxx(source, obj, m=None):
         compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m),
-                    gui=loader and (gui or (m is None and obj.stem in GUI_UNITS)))
+                    gui=loader and m is None and obj.stem in GUI_UNITS)
 
     def display_unit(folder, m):
         generate_display(folder, machine=m)
@@ -631,7 +631,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   'control': lambda: generate_control(folder, m),
                   'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
                   'player_object': lambda: generate_player_object(folder,m,artwork=artwork(m))}[step]
-        return cxx(str(source()), obj, m, gui=step in ('display', 'screen'))
+        return cxx(str(source()), obj, m)
 
     for name, m, step in plan(machines, profile):
         obj = directory / name
@@ -649,7 +649,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   host=host_platform(), tools=host_pins('tools')[0], compiler=host_pins('compiler')[0],
                   cxx_flags=CXX_FLAGS, gui_cxx_flags=GUI_CXX_FLAGS, profiling=profiling,
                   gui_units=[name for name, m, step in plan(machines, profile)
-                             if loader and ((m is None and step in GUI_UNITS) or (m is not None and step in ('display', 'screen')))],
+                             if loader and m is None and step in GUI_UNITS],
                   benchmark_cases=benchmark.cases(linked, sweep),
                   **({'benchmark_sweep': True} if sweep else {}),
                   **({'collection_probe': True} if getattr(machines, 'collection_probe', False) else {}),

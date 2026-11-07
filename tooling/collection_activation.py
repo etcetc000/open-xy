@@ -11,7 +11,7 @@ from .firmware import branch_instruction, decode_branch, patch_active
 from .formats import require
 
 HEADER_BYTES = 160
-MAX_ENTRIES = 128
+MAX_ENTRIES = 192
 MAX_RESOURCES = 64
 RESOURCE_BYTES = 40
 MAX_RESOURCE_TOTAL = 2*1024*1024

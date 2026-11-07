@@ -75,8 +75,8 @@ def hook_instruction(patch, target):
 def hook_target(patch, instruction):
     """(destination, call) of hook bytes produced by hook_instruction."""
     if patch['length'] in (8, 12):
-        require(patch['call'] or (patch['length'] == 8 and patch.get('absolute_jump') is True),
-                'Unreviewed absolute jump hook')
+        require(type(patch['call']) is bool and (patch['call'] or patch['length'] == 8),
+                'Invalid absolute hook policy')
         require(len(instruction) == patch['length'] and instruction[8:] == bytes(patch['length'] - 8),
                 'Changed absolute-hook padding')
         if patch['call']: return absolute_target(instruction[:8]), True

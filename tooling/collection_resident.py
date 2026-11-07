@@ -6,7 +6,8 @@ the flag may be published only by a separately qualified startup coordinator.
 import struct
 import hashlib
 
-from .firmware import absolute_jump, absolute_call, absolute_target, branch_instruction, decode_branch
+from .collection_activation import MAX_ENTRIES
+from .firmware import absolute_jump, absolute_call, absolute_target, decode_branch
 from .formats import elf32, require
 
 # Every non-branch span is reviewed at its original site. In particular, copying
@@ -42,8 +43,38 @@ REPLAY = {
     0x8d588d94: ('48a3a80d', False),
     0x8d5bddd8: ('00e80500', False),
     0x8d5bde60: ('00e80000', False),
+    # Aux controller and LFO register loads, stack saves and key dispatch.
+    0x8c08f540: ('09da0a8434050000', True),
+    0x8c08f610: ('6005213039307160', True),
+    0x8c08fa14: ('0dda0a8434050000', True),
+    0x8c08fd30: ('926982ce00c4419100003830', True),
+    0x8d53d2a0: ('0ada0584506d0000', True),
+    # Master processor entry prologues.
+    0x8c093888: ('4360990900e80300', False),
+    0x8c09392c: ('093200e803006160', False),
+    0x8c093a70: ('00e80000eb052132', False),
+    0x8d537d04: ('00e82400e305666f', False),
+    0x8d588114: ('00e80c15e305666f', False),
+    # Per-key send sites lie outside the stock hardware loops.
+    0x8d511088: ('09da901100360000', True),
+    0x8d5110ca: ('09da901100360000', True),
+    0x8d511116: ('30e51200', True),
+    0x8d51c7b2: ('0adab01148150000', True),
+    # Profiling-off hooks replace loads and cycle-counter instructions.
+    0x11a09322: ('08da0308c04f0000', True),
+    0x11a0963a: ('09da0308c04f0000', True),
+    0x11a0966c: ('08da0308c04f0000', True),
+    0x11a097be: ('5db9c56f30009631', True),
+    0x11a0985c: ('59b9300096318f31', True),
+    0x11a09ac4: ('59b9300096318f31', True),
+    0x8d51b288: ('08da0308c04f0000', True),
+    0x8d51b52a: ('09da0308c04f0000', True),
+    0x8d51b55c: ('08da0308c04f0000', True),
+    0x8d51b78e: ('300096318f314000', True),
 }
 CONDITIONAL = (0x8c0b1456, '2160baa00a081810', True)
+CONDITIONAL_JUMP = (0x8d5aca48, '000c1b18', False)
+AUX_SHIFT_RETURN = (0x8c08f6ec, '01e8000008601000', True)
 CALL_SUFFIX = (0x8c0b6184, 'ffe3eafd00da0208783c0000', True)
 CALL_PREFIX = (0x8c084d18,'05301930ffe3f0fe',True)
 
@@ -111,14 +142,17 @@ def stock_path(entry):
         target,original_call=decode_branch(site+4,raw[4:])
         require(original_call and target==0x8c084afc, 'Changed player-turn stock call')
         return dict(kind='call_prefix',target=target,raw=raw[:4])
-    if exact == CONDITIONAL:
+    if exact == AUX_SHIFT_RETURN:
+        # UNLINK restores the containing method's RETS before its stock return.
+        return dict(kind='return', raw=raw)
+    if exact in (CONDITIONAL, CONDITIONAL_JUMP):
         # The final short conditional branch is relative to its own address.
-        word = struct.unpack_from('<H', raw, 6)[0]
+        word = struct.unpack_from('<H', raw, length - 2)[0]
         offset = word & 0x3ff
         if offset & 0x200:
             offset -= 0x400
-        return dict(kind='conditional', raw=raw[:6], opcode=word & 0xfc00,
-                    target=site+6+offset*2)
+        return dict(kind='conditional', raw=raw[:-2], opcode=word & 0xfc00,
+                    target=site+length-2+offset*2)
     if exact == CALL_SUFFIX:
         target, original_call = decode_branch(site, raw[:4])
         require(original_call, 'Displaced queue instruction is not a call')
@@ -139,7 +173,7 @@ def guarded_dispatch(interface):
     """Preserve SP, RETS and ASTAT before choosing either absolute tail path."""
     require(interface['target'] == 'opxy-1.2.1', 'Unreviewed resident target')
     entries = interface['entries']
-    require(0 < len(entries) <= 128, 'Invalid guarded dispatch count')
+    require(0 < len(entries) <= MAX_ENTRIES, 'Invalid guarded dispatch count')
     base = interface['geometry']['payload_base']
     require(base % 32 == 0, 'Unaligned resident payload')
     lines = ['.section .bss.collection_resident,"aw",@nobits', '.balign 4',
@@ -159,20 +193,22 @@ def guarded_dispatch(interface):
                   '    ASTAT = [SP++];', '    R0 = [SP++];', '    P0 = [SP++];',
                   _absolute(base+i*4), f'.Lstock_{i}:',
                   '    ASTAT = [SP++];', '    R0 = [SP++];', '    P0 = [SP++];',
-                  f'    JUMP.L {stock};', f'.size {name}, .-{name}',
+                  # The stock path follows its guard in the same text section.
+                  f'.size {name}, .-{name}',
                   f'.global {stock}', f'.type {stock}, STT_FUNC', f'{stock}:']
         end = '    RTS;' if entry['call'] else _absolute(site+entry['length'])
         if path['kind'] == 'branch':
             lines += [_absolute(path['target'])]
         elif path['kind'] == 'replay':
             lines += [_halfwords(path['raw']), end]
+        elif path['kind'] == 'return':
+            lines += [_halfwords(path['raw'])]
         elif path['kind'] == 'conditional':
-            # Preserve the condition/prediction bits and branch four bytes
-            # forward, past RTS, to the absolute taken path.
-            require(entry['call'], 'Unreviewed conditional continuation')
+            # The short branch skips the fallback RTS or absolute jump.
+            skip = 2 if entry['call'] else 5
             lines += [_halfwords(path['raw']),
-                      _halfwords(struct.pack('<H', path['opcode'] | 2)),
-                      '    RTS;', _absolute(path['target'])]
+                      _halfwords(struct.pack('<H', path['opcode'] | skip)),
+                      end, _absolute(path['target'])]
         elif path['kind']=='call_prefix':
             # The wide hook CALL already supplies the exact original RETS.
             lines += [_halfwords(path['raw']),_absolute(path['target'])]
@@ -219,17 +255,21 @@ def check_guarded_dispatch(elf, interface):
                     struct.pack('<4H', 0xe148, flag['value'] >> 16, 0xe108, flag['value'] & 65535) +
                     bytes.fromhex('0091000c0818260130907090') +
                     absolute_jump(layout['payload_base']+i*4) +
-                    bytes.fromhex('260130907090') + branch_instruction(start+40, target, False))
-        require(data == expected, 'Dispatch does not preserve the exact register/flag paths')
+                    bytes.fromhex('260130907090'))
+        require(data == expected and target == start + len(expected),
+                'Dispatch does not preserve the exact register/flag paths')
         path, site = stock_path(entry), int(entry['site'], 16)
         end = bytes.fromhex('1000') if entry['call'] else absolute_jump(site+entry['length'])
         if path['kind'] == 'branch':
             expected = absolute_jump(path['target'])
         elif path['kind'] == 'replay':
             expected = path['raw']+end
+        elif path['kind'] == 'return':
+            expected = path['raw']
         elif path['kind'] == 'conditional':
-            expected = (path['raw']+struct.pack('<H', path['opcode'] | 2)+
-                        bytes.fromhex('1000')+absolute_jump(path['target']))
+            skip = 1 + len(end) // 2
+            expected = (path['raw'] + struct.pack('<H', path['opcode'] | skip) +
+                        end + absolute_jump(path['target']))
         elif path['kind']=='call_prefix':
             expected=path['raw']+absolute_jump(path['target'])
         else:

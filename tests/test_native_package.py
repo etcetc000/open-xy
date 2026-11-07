@@ -125,10 +125,11 @@ class PackageVerification(unittest.TestCase):
             for symbol in undefined:
                 service = services.get(owner_of.get(symbol))
                 if service and name not in services:
-                    # The startup, generated per selection, starts a service it links.
-                    user = (set(native.service_users(self.machines)) if name == 'sdk/startup.o' else
-                            uses.get(owner, set()))
-                    self.assertTrue(user & set(users[service]), (name, symbol))
+                    # Startup can reference any service linked for the frozen resident ABI.
+                    if name == 'sdk/startup.o':
+                        self.assertIn(service, native.collection_services(self.patch_profile, self.machines))
+                    else:
+                        self.assertTrue(uses.get(owner, set()) & set(users[service]), (name, symbol))
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
         _, symbols = elf32(self.elf)
