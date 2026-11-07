@@ -44,9 +44,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # sample engine's own screen give any encoder to one of the stock sampler page's own
 # controls (resources.stockShift); lets a sample engine ship its own samples
 # (machine.json `samples`), installed in the content folder, and its presets point at
-# them; and gives each key of a drum kit a mixer channel of its own on Shift: pan,
+# them; gives each key of a drum kit a mixer channel of its own on Shift: pan,
 # level, small controls and sends, which lock per hit (resources.padMix and
-# resources.padControls). Every kit's voices run stock's track filter (M3).
+# resources.padControls); runs every kit's voices through stock's track filter (M3);
+# and calls a kit's drum_transport with the tempo before every render.
 SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -113,6 +114,7 @@ class Machine:
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
     grayscale: str | None = None
     native: tuple = ()  # its NativeUnits (native/<name>.s), in name order
+    sdk: tuple = (1, 0)  # the SDK version machine.json declares, (major, minor)
 
     @property
     def sample_page(self):
@@ -618,7 +620,7 @@ def machine_at(root, identity=None):
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
                    root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, samples=samples,
-                   grayscale=grayscale, native=native)
+                   grayscale=grayscale, native=native, sdk=version)
     if grayscale:
         from .native import validate_panel
         validate_panel(result)

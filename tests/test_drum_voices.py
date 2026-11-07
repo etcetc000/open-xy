@@ -14,6 +14,9 @@ from test_sample_services import HOST_CXX
 ROOT = Path(__file__).resolve().parents[1]
 CORE = '''#pragma once
 #include <opxy/audio.hpp>
+#include <opxy/transport.hpp>
+// The audio clock, for a kit that hears the tempo (run_adapter's sdk).
+opxy::Transport fixture_transport();
 extern opxy::i32 captured[8];
 extern opxy::u32 captured_model;
 extern opxy::u32 fixture_pitch[opxy::block_frames], captured_pitch[opxy::block_frames];
@@ -532,6 +535,78 @@ int main() {
 """
 
 
+# A kit that takes the tempo, with pad controls: each render's callbacks, in order,
+# leave a trail: s(elect), p(ad), t(ransport), r(ender).
+TRANSPORT_ENGINE = """#include "core.h"
+#include <cstring>
+extern opxy::Transport heard;
+extern unsigned heard_owner, transport_calls;
+extern char trail[8];
+namespace probe {
+inline void step(char c) { trail[std::strlen(trail)] = c; }
+inline void initialize(Voice& v, Shared&, opxy::u32 id) { v.owner = id; ++initialized[id]; }
+inline void start(Voice&, Shared&, opxy::u32 id) { ++started[id]; }
+inline void destroy(Voice&, Shared&, opxy::u32 id) { ++destroyed[id]; }
+inline void drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* raw) {
+    *model = key % 12;
+    for (unsigned i = 0; i < 8; ++i) raw[i] = 64;
+}
+inline void drum_select(Voice&, Shared&, opxy::u32, opxy::u32 model) { captured_model = model; step('s'); }
+inline void drum_pad(Voice&, Shared&, opxy::u32, const opxy::i32*) { step('p'); }
+inline void drum_transport(Voice&, Shared&, opxy::u32 id, const opxy::Transport& transport) {
+    heard = transport;
+    heard_owner = id;
+    ++transport_calls;
+    step('t');
+}
+inline const char* parameter_name(opxy::u32, opxy::u32) { return "parameter"; }
+inline const char* model_name(opxy::u32) { return "model"; }
+inline opxy::u32 parameter_count(opxy::u32) { return 8; }
+inline void render(Voice& v, Shared&, opxy::u32 id, opxy::Output output, opxy::Parameters, opxy::Pitch) {
+    step('r');
+    for (unsigned i = 0; i < opxy::block_frames; ++i) output[i] = v.owner == id ? opxy::i32(id << 16) : -1;
+}
+}
+"""
+# HEARS: whether the adapter passes the tempo; TRAIL: each render's callbacks.
+TRANSPORT_DRIVER = DRIVER[:DRIVER.index('int main() {')] + r"""
+#include <cstring>
+opxy::Transport heard, clock_now;
+unsigned heard_owner, transport_calls, clock_reads;
+char trail[8];
+opxy::Transport fixture_transport() { ++clock_reads; return clock_now; }
+opxy::i32 traced(unsigned id) {
+    std::memset(trail, 0, sizeof trail);
+    return rendered(id);
+}
+int main() {
+    (void)kMarked;
+    const bool hears = HEARS;
+    for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
+    for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
+    for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
+    note(1, 53);
+    clock_now = opxy::Transport{1234, 960, true};
+    CHECK(traced(1) == 2 && !std::strcmp(trail, TRAIL));
+    if (hears) {
+        // The clock as it is this block, before the render, for the voice's owner.
+        CHECK(transport_calls == 1 && heard_owner == 2);
+        CHECK(heard.bpm_x10 == 1234 && heard.ticks96 == 960 && heard.playing);
+        // No tempo is passed as it is: bpm 0, stopped.
+        clock_now = opxy::Transport{0, 0, false};
+        CHECK(traced(1) == 2 && transport_calls == 2 && !heard.bpm_x10 && !heard.ticks96 && !heard.playing);
+    } else {
+        // An older kit is never called and never reads the clock.
+        CHECK(traced(1) == 2 && !transport_calls && !clock_reads);
+    }
+    // A handle without a voice renders silence and calls nothing.
+    const unsigned calls = transport_calls;
+    CHECK(traced(0) == 0 && !trail[0] && transport_calls == calls);
+    return 0;
+}
+"""
+
+
 BENCH_ENGINE = """#include "core.h"
 namespace probe {
 inline void initialize(Voice& v, Shared&, opxy::u32 id) { v.owner = id; ++initialized[id]; }
@@ -608,6 +683,26 @@ int main() {
 """
 
 
+# The profiling workload with a kit that takes the tempo: a running one, 120 BPM.
+BENCH_TRANSPORT_ENGINE = BENCH_ENGINE.replace('#include "core.h"', """#include "core.h"
+extern opxy::Transport heard;
+extern unsigned transport_calls;""", 1).replace('inline const char* parameter_name', """inline void drum_transport(Voice&, Shared&, opxy::u32, const opxy::Transport& transport) {
+    heard = transport;
+    ++transport_calls;
+}
+inline const char* parameter_name""", 1)
+BENCH_TRANSPORT_DRIVER = BENCH_DRIVER[:BENCH_DRIVER.index('int main() {')] + r"""
+opxy::Transport heard;
+unsigned transport_calls;
+opxy::Transport fixture_transport() { return opxy::Transport(); }
+int main() {
+    const opxy::benchmark::Stats kit = probe_benchmark(0);
+    CHECK(kit.count == 1500 && kit.audible && transport_calls > 1000);
+    // The last block's clock: 120 BPM, playing, 96 ticks a quarter note from the run's start.
+    CHECK(heard.bpm_x10 == 1200 && heard.playing && heard.ticks96 == 1499u * 64u * 192u / 44100u);
+    return 0;
+}
+"""
 FILTER_STOCK = {
     'reinterpret_cast<const volatile opxy::u8*>(0x11b01dc8)': 'fixture_filter_on',
     'reinterpret_cast<const volatile opxy::u32*>(0x84042700)': 'fixture_filter_type',
@@ -617,12 +712,14 @@ FILTER_STOCK = {
 
 
 class DrumVoices(unittest.TestCase):
-    def run_adapter(self, engine, driver, capacity, **resources):
+    def run_adapter(self, engine, driver, capacity, sdk=None, **resources):
         definition = copy.deepcopy(fixture('probesynth').definition)
         definition['id'] = 'probe'
         definition['resources'].update(voiceBytes=4, voiceAlignment=4, voiceCapacity=capacity,
                                        sharedBytes=0, modelCount=12, **resources)
         machine = SimpleNamespace(kind='drum', definition=definition, prefix='probe', native_name='probe')
+        if sdk:
+            machine.sdk = sdk
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             source = generate_voice(folder, machine)
@@ -640,6 +737,13 @@ class DrumVoices(unittest.TestCase):
             for native, double in FILTER_STOCK.items():
                 self.assertEqual(generated.count(native), 1, native)
                 generated = generated.replace(native, double)
+            hears = bool(sdk) and sdk >= (1, 10)
+            self.assertIn('const bool kTransport = %s;' % ('true' if hears else 'false'), generated)
+            # The audio clock, read once per render and only for a kit that hears it.
+            native_clock = 'kTransport ? opxy::platform::audio_transport() : opxy::Transport()'
+            self.assertEqual(generated.count(native_clock), 1)
+            if sdk:
+                generated = generated.replace(native_clock, 'kTransport ? fixture_transport() : opxy::Transport()')
             source.write_text(generated, encoding='utf-8')
             for name, content in (('core.h', CORE), ('engine.cpp', engine), ('test.cpp', driver)):
                 (folder / name).write_text(content, encoding='utf-8')
@@ -697,6 +801,36 @@ class DrumVoices(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_same_key_choke_fades_the_old_voice_and_finished_frees_it(self):
         self.run_adapter(CHOKE_ENGINE, CHOKE_DRIVER, 4, chokeSameKey=1)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_kit_hears_the_tempo_before_each_render(self):
+        driver = TRANSPORT_DRIVER.replace('HEARS', 'true').replace('TRAIL', '"sptr"')
+        self.run_adapter(TRANSPORT_ENGINE, driver, 2, sdk=(1, 10), padMix=1, padControls=[dict(label='FILTER', bits=4)])
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_kit_before_sdk_1_10_never_hears_the_tempo(self):
+        driver = TRANSPORT_DRIVER.replace('HEARS', 'false').replace('TRAIL', '"sr"')
+        self.run_adapter(TRANSPORT_ENGINE, driver, 2, sdk=(1, 9))
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_kit_without_drum_transport_plays_as_before(self):
+        # SDK 1.10, no drum_transport: the fallback is chosen and the whole lifecycle holds.
+        self.run_adapter(ENGINE, DRIVER + 'opxy::Transport fixture_transport() { return opxy::Transport{1200, 0, true}; }\n',
+                         2, sdk=(1, 10))
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_the_profiling_workload_gives_the_kit_a_running_tempo(self):
+        self.run_adapter(BENCH_TRANSPORT_ENGINE, BENCH_TRANSPORT_DRIVER, 4, sdk=(1, 10), chokeSameKey=1)
+
+    def test_machine_json_declares_the_sdk_the_adapter_gates_on(self):
+        from dataclasses import replace
+        from tooling.adapters import drum_transport
+        base = fixture('probesynth')
+        self.assertEqual(base.sdk, (1, 1))
+        self.assertFalse(drum_transport(base))   # a synth
+        drum = replace(base, kind='drum')
+        self.assertEqual([drum_transport(replace(drum, sdk=v)) for v in ((1, 8), (1, 9), (1, 10))],
+                         [False, False, True])
 
 
 if __name__ == '__main__':
