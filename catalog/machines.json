@@ -307,6 +307,32 @@
       }
     },
     {
+      "id": "vibe",
+      "kind": "effect",
+      "maintainer": "meemknight",
+      "status": "published",
+      "repository": "https://github.com/meemknight/vibe",
+      "tag": "v1.0.0",
+      "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
+      "path": ".",
+      "keywords": [
+        "ambient",
+        "delay",
+        "reverb",
+        "modulation",
+        "granular"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
+        "firmware_sha256": "e1e44f88ec568201a0be2444f99bf3c26111534a05199c86f7a0f40168575726",
+        "runs": 2,
+        "block_percent": 4.628061,
+        "peak_percent": 7.71191,
+        "report": "https://github.com/etcetc000/open-xy/pull/409#issuecomment-6714434389"
+      }
+    },
+    {
       "id": "matrixy",
       "kind": "synth",
       "maintainer": "frankoooooooo",
@@ -1933,29 +1959,56 @@
       }
     },
     {
-      "id": "vibe",
-      "kind": "effect",
-      "maintainer": "meemknight",
+      "id": "reaction",
+      "kind": "synth",
+      "maintainer": "frankoooooooo",
       "status": "published",
-      "repository": "https://github.com/meemknight/vibe",
+      "repository": "https://github.com/frankoooooooo/reaction",
       "tag": "v1.0.0",
-      "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
+      "commit": "7039979e7fa443376ce4f6a81d3fffc43d4c1f99",
       "path": ".",
       "keywords": [
-        "ambient",
+        "analog",
+        "pad",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "7039979e7fa443376ce4f6a81d3fffc43d4c1f99",
+        "firmware_sha256": "797407393507eccafb6ad2a7ffae1856fc8f93634e8309fd209a237e686e9a02",
+        "runs": 1,
+        "block_percent": 2.363622,
+        "peak_percent": 2.676432,
+        "midpoint_percent": 2.330053,
+        "combined_percent": 2.093538,
+        "worst_setting": {
+          "control": 0,
+          "label": "Canopy",
+          "value": 805306367
+        }
+      }
+    },
+    {
+      "id": "diffusion",
+      "kind": "effect",
+      "maintainer": "frankoooooooo",
+      "status": "published",
+      "repository": "https://github.com/frankoooooooo/diffusion",
+      "tag": "v1.0.0",
+      "commit": "12bc04c3370e118911992358d629f7b1c1f3c0bb",
+      "path": ".",
+      "keywords": [
         "delay",
-        "reverb",
-        "modulation",
-        "granular"
+        "lofi",
+        "experimental"
       ],
       "cpu": {
         "benchmark": "opxy-effect-callback-v1",
-        "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
-        "firmware_sha256": "e1e44f88ec568201a0be2444f99bf3c26111534a05199c86f7a0f40168575726",
-        "runs": 2,
-        "block_percent": 4.628061,
-        "peak_percent": 7.71191,
-        "report": "https://github.com/etcetc000/open-xy/pull/409#issuecomment-6714434389"
+        "commit": "12bc04c3370e118911992358d629f7b1c1f3c0bb",
+        "firmware_sha256": "783cc89d4afae8171e374f6988f05438bf88567284fced161fd9e4a1773ab794",
+        "runs": 1,
+        "block_percent": 3.744564,
+        "peak_percent": 6.396582
       }
     }
   ]
