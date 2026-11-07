@@ -16,8 +16,9 @@ static void defaults(u32 key, u8* model, u8* values) {
 }
 static u32 count(u32) { return 8; }
 static const DrumMachine machine = {reinterpret_cast<const char*>(100),nullptr,2,defaults,
-    nullptr,nullptr,count,0,nullptr,nullptr,nullptr};
+    nullptr,nullptr,count,0,nullptr,nullptr,0,0,nullptr,0,nullptr,nullptr,nullptr};
 const DrumMachine* sdk_drum_machine(u32 id) { return id == 100 ? &machine : nullptr; }
+extern "C" u32 sdk_project_locks_held_value(u32, u32, u32, i32*) { return 0; }
 static u32 last_pitch(u32 track) { require(track == 0); ++calls; return pitch; }
 static u32 track_id(u32 track) { require(track == 0); return engine; }
 static void* pad(u32 track, u32 note, u32*, u32) {

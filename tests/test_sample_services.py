@@ -54,7 +54,7 @@ class SampleServices(unittest.TestCase):
                 elif name == 'keyboard_octaves':
                     shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
                 elif name == 'drum_trigger':
-                    for unit in ('drum_values.hpp', 'drum_values_stock.cpp'):
+                    for unit in ('drum_lock_store.hpp', 'drum_values.hpp', 'drum_values_stock.cpp'):
                         shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1' / unit, Path(folder) / unit)
                 elif name == 'benchmark':
                     from tooling.benchmark import generate
