@@ -596,8 +596,13 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
+  const checkpoint = kit.extensions?.some(e => extensions.has(e.id) && e.actions?.includes('checkpoint'));
+  const control = kit.machines.some(m => selected.has(m.id) &&
+    (m.features ?? []).some(f => f === 'trackControl' || f === 'hidePages'));
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(extensions.size ? [{kind: 'extension'}] : []),
+    ...(checkpoint ? [{kind: 'checkpoint'}] : []),
+    ...(checkpoint && control ? [{kind: 'checkpointControl'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : [])]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
