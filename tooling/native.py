@@ -33,7 +33,7 @@ from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_
 from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
                        fresh_output, host_pins, host_platform,
                        hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
-from .startup import generate as generate_startup
+from .startup import LOCK_CALLS, generate as generate_startup
 
 LINKER = 'linker/opxy-1.2.1.ld'
 TARGET = 'opxy-1.2.1'
@@ -196,6 +196,8 @@ def plan(machines, profile=None):
         else:
             steps = ('registration', 'sample_voice', *(('display', 'screen') if m.display != 'stock' else ()))
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
+        # A machine's own routines (native/<name>.s), assembled into it alone.
+        units += [(f'{m.id}/native_{unit.name}.o', m, 'native:' + unit.name) for unit in m.native]
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
@@ -325,9 +327,12 @@ def absent_symbols(m):
             # The shared drum table names these.
             absent.update({m.prefix + suffix: 'kit_absent' for suffix in
                            ('_drum_defaults', '_drum_label', '_drum_model_name', '_drum_count')})
+            if m.definition['resources'].get('padControls'):
+                absent[m.prefix + '_drum_pad_text'] = 'kit_absent'
             if sends_per_key(m):
-                # The send table names these; no voice's method table is kit_absent.
-                absent.update({m.prefix + suffix: 'kit_absent' for suffix in ('_vtable', '_drum_send')})
+                # The send table names these; no voice's method table is kit_absent. The
+                # table is declared without an assembler name, so it carries C's underscore.
+                absent.update({'_' + m.prefix + '_vtable': 'kit_absent', m.prefix + '_drum_send': 'kit_absent'})
         if m.kind == 'sample':
             # The shared sample table names these; unselected, its ready check declines first.
             absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
@@ -368,6 +373,21 @@ def number_suffixes(kind, own_screen=False):
             ('_engine_id', '_page_id', '_screen_page_id') if kind == 'sample' and own_screen else ('_engine_id', '_page_id'))
 
 
+def service_fallbacks(services):
+    """What a selection that does not use a service gets for the service's entry points
+    that shared objects (startup's included) import: kit_absent, which answers 0. Track
+    control's saved data, the aux service's start, and every call into the step-lock
+    handles (startup.LOCK_CALLS)."""
+    fallbacks = {}
+    if 'control' in services:
+        fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
+    if 'aux' in services:
+        fallbacks['aux'] = {'sdk_aux_startup': 'kit_absent'}
+    if 'drum_locks' in services:
+        fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
+    return fallbacks
+
+
 def absent_numbers(absent):
     """Unselected machines have no numbers (builder/core.mjs numberSymbols): each number
     symbol they have, a sample engine's own screen page included, is 0."""
@@ -380,6 +400,12 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     as the builder does; None, or how they overflow the shared module memory."""
     absent = [m for m in machines if m not in selected]
     aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
+    # Entry points of services the whole collection's shared objects (startup's
+    # included) call into but this selection doesn't link, as the builder resolves them.
+    used = active_services(profile, service_users(subset(machines, selected)))
+    for service, fallbacks in service_fallbacks(active_services(profile, service_users(machines))).items():
+        if service not in used:
+            aliases.update(fallbacks)
     definitions = {**definitions, **absent_numbers(absent)}
     # GNU ld synthesizes FILE symbols from object arguments; relative names keep
     # independent rebuilds byte-identical.
@@ -503,6 +529,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
         if step.startswith('source:'):
             return cxx(m.source(step.removeprefix('source:')), obj, m)
+        if step.startswith('native:'):
+            unit = next(u for u in m.native if u.name == step.removeprefix('native:'))
+            assemble_unit(unit.path, obj)
+            return check_native_object(execute([tools['objdump'], '-h', '-t', obj]), unit, f'{m.id}/native/{unit.name}.s')
         source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
                   'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
                   'registration': lambda: generate_registration(folder, m),
@@ -566,6 +596,28 @@ def normalize_object(data):
     return bytes(out)
 
 
+def check_native_object(listing, unit, name):
+    """A machine's assembled native unit (objdump -h -t): code and constants, writable
+    data only up to its manifest's stateBytes, and one global, its routine in .text."""
+    sections = re.findall(r'^\s*\d+\s+(\S+)\s+([0-9a-f]{8})\s+[0-9a-f]{8}\s+[0-9a-f]{8}\s+[0-9a-f]{8}\s+\S+\s*\n\s*([^\n]*)',
+                          listing, re.M)
+    placed = {section: int(size, 16) for section, size, flags in sections if 'ALLOC' in flags and int(size, 16)}
+    allowed = {'.text', '.rodata'} | ({'.data', '.bss'} if unit.state_bytes else set())
+    require(set(placed) <= allowed, f'{name}: unexpected sections ' + ', '.join(sorted(set(placed) - allowed)))
+    state = placed.get('.data', 0) + placed.get('.bss', 0)
+    require(state <= unit.state_bytes, f'{name}: {state} bytes of .data and .bss, more than its stateBytes {unit.state_bytes}')
+    exported = [line.split() for line in listing.splitlines()
+                if re.match(r'[0-9a-f]{8} (?:[gu!]| w)', line) and '*UND*' not in line]
+    require([(fields[-1], fields[-3], 'F' in fields[1:-3]) for fields in exported] == [('_' + unit.symbol, '.text', True)],
+            f'{name}: exports one function in .text, _{unit.symbol}')
+
+
+def native_entries(machines, symbols):
+    """Each linked native routine's address -> (its name, its manifest's stackBytes)."""
+    return {symbols['_' + unit.symbol]['value']: (f'{m.id}/native/{unit.name}', unit.stack_bytes)
+            for m in machines for unit in m.native if '_' + unit.symbol in symbols}
+
+
 def stack_usage(directory):
     worst = {}
     for path in Path(directory).rglob('*.su'):
@@ -601,7 +653,7 @@ def _frame_delta(text):
     return 0
 
 
-def audio_stack_bounds(disassembly, module, base, symbols, machines):
+def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None):
     """Worst-case stack bytes of each machine's audio entry; recursion fails the build.
 
     Frames are the deepest SP excursion along each function (LINK counts its
@@ -609,7 +661,14 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
     reach any function whose address is stored in module data (except the SDK
     method tables, which only stock calls). Indirect calls are expanded one
     level: the bound covers a dispatch through a table, not a chain of them.
+
+    A machine's native routine (`native`: address -> (name, declared stackBytes))
+    counts the stack its manifest declares, which must cover the frame measured
+    here (its lint admits only the SP forms measured). Its indirect jumps stay
+    within the routine (a computed branch, such as into a loop), and it makes no
+    indirect calls; its direct calls are followed as any function's.
     """
+    native = native or {}
     starts, body, current = [], {}, None
     for line in disassembly.splitlines():
         if m := _FUNCTION.match(line):
@@ -637,12 +696,18 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines):
         for text in body[function]:
             frame += _frame_delta(text)
             deepest = max(deepest, frame)
-            if re.search(r'(?:CALL|JUMP) \(P\d\)', text):
+            if function in native and re.search(r'(?:CALL|JUMP) \(P\d\)', text):
+                require(text.startswith('JUMP'), native[function][0] + ': an indirect CALL in a native routine')
+            elif re.search(r'(?:CALL|JUMP) \(P\d\)', text):
                 if indirect:
                     callees |= {(target, False) for target in taken}
             elif (m := _DIRECT.search(text)) and (target := owner(int(m.group(1), 16))) is not None:
                 if target != function or text.startswith('CALL'):
                     callees.add((target, indirect))
+        if function in native:
+            label, declared = native[function]
+            require(deepest <= declared, f'{label}: takes {deepest} bytes of stack, more than its stackBytes {declared}')
+            deepest = declared
         result = deepest + max((depth(*callee) for callee in callees), default=0)
         active.discard(key)
         memo[key] = result
@@ -706,7 +771,7 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
                                    label['size'], symbols['kit_startup_label_text']['value']),
             'Unexpected startup label thunk')
     (directory / 'disassembly.txt').write_text(disassembly, encoding='utf-8')
-    stack = audio_stack_bounds(disassembly, module, low, symbols, machines)
+    stack = audio_stack_bounds(disassembly, module, low, symbols, machines, native_entries(machines, symbols))
     sizes = dict(initialized_bytes=len(module), bss_bytes=allocated['.bss']['size'],
                  allocated_span_bytes=intervals[-1][1] - low)
     limit = module_bytes(profile)
@@ -1089,7 +1154,7 @@ def main(argv=None, command=None):
                     f'(a copy of the device\'s /content): {args.stock_content}')
         # A package records the collection it was built from.
         entries = package_collection(args.package) if command == 'verify' else selected_collection(args)
-        layout = read_layout(args.layout) if command != 'verify' and args.layout else None
+        layout = read_layout(args.layout, build=command == 'build') if command != 'verify' and args.layout else None
         profile, machines, definitions = configuration(entries, layout)
         tools = resolve_toolchain(args.toolchain, args.compiler)
         tool_paths(tools[0])

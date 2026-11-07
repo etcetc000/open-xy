@@ -200,6 +200,23 @@ selected machine shares for code, data and state, and 16 KiB for relocated stock
 tables. The memory meter shows each machine's share; see
 [memory and limits](api.md#memory-and-limits). CPU headroom is not measured.
 
+Below the meter, **Use 4 MiB for machines** is an experimental option, off by
+default. It grows the reservation to 4 MiB (4080 KiB for machines) by
+shortening the application heap from 18 MiB to 16 MiB, using the profile's
+reviewed `experimental_memory` layout: the module starts 2 MiB lower and the two
+heap edits write the smaller size, while the tables, hooks and every other edit
+are unchanged. The stock OS needs that heap for its interface, projects,
+presets, file browsing and MTP, and running out of it is fatal, so this build
+may be unstable under heavy use. The selection summary shows the choice,
+`build.json` and `layout.json` record it (`reserved_bytes`, and
+`"memory": "expanded"` in the layout). Loading an open-xy OS sets the option to what that OS
+used (a stock OS keeps the current choice), and so does restoring a `layout.json`
+that lists machines. A layout from an experimental size this site doesn't offer
+keeps the current choice; machines that need more than the memory chosen use
+this site's option when it is on, and otherwise the builder says to turn it on.
+`sdk.py build` uses only the standard layout and refuses a 4 MiB `layout.json`;
+`sdk.py project write` accepts it.
+
 Projects save each track's machine by number, so a machine keeps its numbers
 in your firmware for good ([layouts](api.md#identity)). The builder remembers
 your layout in this browser and writes it to `layout.json` in every download;

@@ -54,6 +54,7 @@ static Slot voices[kVoices];
 static Shared shared;
 static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
 static_assert(alignof(Voice) == @VOICE_ALIGNMENT@, "Declared voice alignment differs from the compiled type");
+static_assert(alignof(Voice) >= 4 && sizeof(Voice) % 4 == 0, "A voice is cleared in whole words");
 static_assert(@SHARED_BYTES@ == 0 ? __is_empty(Shared) : sizeof(Shared) == @SHARED_BYTES@,
               "Declared shared size differs from the compiled type");
 static const opxy::u32* const increments = reinterpret_cast<const opxy::u32*>(opxy::platform::kPitchIncrements);
@@ -89,9 +90,11 @@ static bool sounding(const Slot& slot, opxy::u32 now) {
 static void begin(Slot& slot, Handle* handle, opxy::u32 now) {
     const opxy::u32 id = owner(handle);
     // Storage starts zeroed for every owner; a voice need not be assignable, so
-    // it is cleared byte by byte rather than with memset.
-    unsigned char* bytes = reinterpret_cast<unsigned char*>(&slot.voice);
-    for (unsigned i = 0; i < sizeof(Voice); ++i) bytes[i] = 0;
+    // it is cleared word by word rather than with memset. A Voice is whole
+    // aligned words (voiceAlignment 4, 8 or 16).
+    typedef opxy::u32 __attribute__((may_alias)) Word;
+    Word* words = reinterpret_cast<Word*>(&slot.voice);
+    for (unsigned i = 0; i < sizeof(Voice) / sizeof(Word); ++i) words[i] = 0;
     slot.owner = id;
     slot.next = 0;
     slot.born = blocks;

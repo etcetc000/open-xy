@@ -64,8 +64,10 @@ Read README.md and CONTRIBUTING.md. For native changes also read
 - Engine-specific source, metadata, generators and sound tests belong under that
   engine. Keep `tooling/` and root `tests/` focused on shared contracts.
 - Contributor C++ contains no platform conditionals, OS headers or assembly.
-  Put platform support in `sdk/`. Audio callbacks must not allocate, block,
-  log, perform I/O, register engines or call graphics.
+  Put platform support in `sdk/`. A machine's own hand-written Blackfin
+  routines live in its `native/` folder, each beside the C reference that
+  defines it ([native routines](docs/api.md#native-routines)). Audio callbacks
+  must not allocate, block, log, perform I/O, register engines or call graphics.
 - Preserve exact stock/tool authentication, allowed edits, entry/loader records,
   protected ranges, reserved memory, occupied-ID guards and full reconstruction.
   Do not change expected hashes merely to admit a failed build.
