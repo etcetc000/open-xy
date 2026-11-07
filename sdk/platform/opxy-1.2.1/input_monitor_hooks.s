@@ -1,11 +1,12 @@
-/* 8d50fff4: stock's bundle stores frame 63's right sample and reads a mix flag.
- * Commit that sample before applying the envelope. Read the flag on return. */
 .section .text
 .align 2
+.extern sdk_live_input_rendered
 .extern sdk_input_monitor_audio
 .global sdk_input_monitor_audio_hook
 .type sdk_input_monitor_audio_hook, STT_FUNC
 sdk_input_monitor_audio_hook:
+    /* Stock's replaced bundle stores frame 63's right sample, then reads a
+       mix flag. Commit that final sample before processing the scratch. */
     [P1] = R3;
     LINK 0;
     [--SP] = ASTAT;
@@ -16,6 +17,9 @@ sdk_input_monitor_audio_hook:
     [--SP] = P1;
     [--SP] = P2;
     SP += -12;
+    P1 = R2;                   /* Aux 5 live parameters, reloaded at 8d50ffe2. */
+    R0 = [P1];
+    CALL sdk_live_input_rendered;
     CALL sdk_input_monitor_audio;
     SP += 12;
     P2 = [SP++];

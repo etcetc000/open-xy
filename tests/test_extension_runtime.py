@@ -29,6 +29,16 @@ def build_and_run(test, source, folder, includes=()):
     test.assertEqual(ran.returncode, 0, f'{source.name}: check failed at line {ran.returncode}\n{ran.stdout}{ran.stderr}')
 
 
+def map_stock(folder):
+    stock = (PLATFORM / 'stock.hpp').read_text()
+    stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
+                          'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+    for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
+        stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                              'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
+    (folder / 'stock.hpp').write_text(stock)
+
+
 class KeyQueueHook(unittest.TestCase):
     def test_queued_event_keeps_absolute_call_and_exact_nop_padding(self):
         from tooling.firmware import hook_instruction, hook_target
@@ -109,13 +119,7 @@ class Runtime(unittest.TestCase):
     def test_stock_adapter_events_keys_and_writes_with_the_probe_subscribed(self):
         from tooling.extensions import extension_at, generate_collection, generate_extension
         def prepare(folder):
-            stock = (PLATFORM / 'stock.hpp').read_text()
-            stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
-                                  'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
-            for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
-                stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
-                                      'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
-            (folder / 'stock.hpp').write_text(stock)
+            map_stock(folder)
             (folder / 'stock_browser.hpp').write_text((PLATFORM / 'stock_browser.hpp').read_text())
             (folder / 'input_monitor_stock.cpp').write_text((PLATFORM / 'input_monitor_stock.cpp').read_text().replace(
                 '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
@@ -125,3 +129,10 @@ class Runtime(unittest.TestCase):
             generate_collection(folder, [probe])
             generate_extension(folder, probe)
         self.run_fixture('extension_stock', prepare)
+
+    def test_live_input_shift_controls_publish_complete_choices_to_audio(self):
+        def prepare(folder):
+            map_stock(folder)
+            for name in ('stock_browser.hpp', 'live_input_menu.cpp', 'live_input_stock.cpp'):
+                (folder / name).write_text((PLATFORM / name).read_text())
+        self.run_fixture('live_input', prepare)

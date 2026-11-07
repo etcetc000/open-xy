@@ -1,4 +1,5 @@
 #include <input_monitor_stock.cpp>
+opxy::u32 sdk_live_input_option_bits() { return 0; }
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

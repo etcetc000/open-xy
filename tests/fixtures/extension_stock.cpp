@@ -5,6 +5,7 @@
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
 #include <input_monitor_stock.cpp>
+opxy::u32 sdk_live_input_option_bits() { return 0; }
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 opxy::u32 stock_gui_role() { return 1; }

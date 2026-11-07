@@ -30,7 +30,7 @@ LOCK_CALLS = (('u32', 'size', ('void*', 'u32'), 'return 0;'),
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False, extensions=False, monitor=False, locks=False):
+           control=False, aux=False, extensions=False, monitor=False, locks=False, input_overlay=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -102,7 +102,7 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
         screens.append('    sdk_aux_startup();')
     menu_fallbacks = []
-    if not monitor:
+    if not (monitor or input_overlay):
         menu_fallbacks.append('extern "C" void sdk_input_monitor_frame(u32,u32) __asm__("sdk_input_monitor_frame");\nvoid sdk_input_monitor_frame(u32,u32) {}')
     if not aux:
         menu_fallbacks.append('extern "C" void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");\nvoid sdk_aux_machine_menu() {}\nextern "C" u32 sdk_aux_machine_turn(u32,u32,u32) __asm__("sdk_aux_machine_turn");\nu32 sdk_aux_machine_turn(u32,u32,u32) { return 0; }')
@@ -130,8 +130,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False, extensions=False, monitor=False, locks=False):
+             control=False, aux=False, extensions=False, monitor=False, locks=False, input_overlay=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux, extensions, monitor, locks), encoding='utf-8', newline='\n')
+                                  control, aux, extensions, monitor, locks, input_overlay), encoding='utf-8', newline='\n')
     return destination

@@ -158,7 +158,7 @@ def changes(before, after, allow_carried_cpu=False):
     current = {e['id']: e for e in after}
     previous = {e['id']: e for e in before}
     for entry in after:
-        # Extensions and players run on the controller path, not in audio: they carry no cpu record.
+        # The machine CPU schema applies to audio-rendering machine kinds.
         if entry['kind'] not in ('extension', 'player'):
             audio_changes(entry, previous.get(entry['id']), allow_carried_cpu)
         # A machine submitted for the builder is listed there under at least one keyword; entries

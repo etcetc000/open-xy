@@ -1,5 +1,6 @@
 #include "stock.hpp"
 extern "C" {
+bool sdk_live_input_turn(opxy::u32, const opxy::i32*) __asm__("sdk_live_input_turn");
 void sdk_aux_shift_m1() __asm__("sdk_aux_shift_m1");
 void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");
 opxy::u32 sdk_aux_machine_turn(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_aux_machine_turn");
@@ -16,6 +17,7 @@ void sdk_aux_shift_m1() {
 }
 
 opxy::u32 sdk_aux_turn(opxy::u32 controller, opxy::u32 encoder, opxy::u32 event) {
-    if (sdk_input_monitor_turn(encoder, reinterpret_cast<const opxy::i32*>(event))) return 1;
+    const auto* turn = reinterpret_cast<const opxy::i32*>(event);
+    if (sdk_input_monitor_turn(encoder, turn) || sdk_live_input_turn(encoder, turn)) return 1;
     return sdk_aux_machine_turn(controller, encoder, event);
 }

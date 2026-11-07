@@ -3,9 +3,9 @@
 
 namespace opxy { namespace platform { namespace input_monitor {
 // Last LIVE word of external-audio track 12. Never written to stored controls.
-const u32 mark = 0x4f4d0000u;
-const u32 mask = 0xffff0000u;
-const u32 released = 0x4f520000u;
+const u32 mark = 0x50000000u;
+const u32 mask = 0xf0000000u;
+const u32 released = 0x60000000u;
 const u32 word_index = 57;
 const u32 fade_in_frames = 2205;   // 50 ms at 44.1 kHz
 const u32 fade_out_frames = 8820;  // 200 ms

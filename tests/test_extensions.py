@@ -2,6 +2,7 @@
 and build provenance. Extensions live in their own repositories; the SDK's probe
 extension (tests/fixtures/extension_probe) stands in for one here."""
 import copy
+from dataclasses import replace
 import json
 from pathlib import Path
 import re
@@ -129,6 +130,31 @@ class Extensions(unittest.TestCase):
         self.assertEqual(entry['claim_labels'], {'record_double_tap': 'Record double-tap'})
         self.assertLessEqual(len(entry['description']), extensions.TEXT_LIMITS['description'])
 
+    def test_live_input_is_an_exclusive_optional_service(self):
+        with Folder() as folder:
+            with self.assertRaisesRegex(ValueError, 'live_input must be true'):
+                extensions.extension_at(folder.declare(live_input=1))
+            probe = extensions.extension_at(folder.declare(live_input=True))
+            self.assertTrue(extensions.metadata([probe], {'probe': 'personal'})[0]['live_input'])
+            collection = native.Collection([], [probe])
+            self.assertEqual(set(native.object_services(collection).values()), {'extensions', 'live_input', 'input_audio', 'input_overlay', 'aux_menu'})
+            output = folder.root.parent / 'generated'
+            output.mkdir()
+            adapter = extensions.generate_extension(output, probe).read_text()
+            self.assertIn('opxy::extensions::probe::reset_input()', adapter)
+            self.assertIn('opxy::extensions::probe::process_input(stereo)', adapter)
+            self.assertIn('sdk_live_input_controls() { return nullptr; }', adapter)
+            configured = extensions.extension_at(folder.declare(live_input={'controls': True}))
+            adapter = extensions.generate_extension(output, configured).read_text()
+            self.assertIn('opxy::extensions::probe::input_controls', adapter)
+            self.assertIn('opxy::extensions::probe::prepare_input(target, retune, amount, brain)', adapter)
+            table = extensions.generate_collection(output, [configured]).read_text()
+            self.assertIn('sdk_live_input_gui_tick() { sdk_live_input_publish(); }', table)
+            with self.assertRaisesRegex(ValueError, 'Only one live input processor'):
+                extensions.check_collection([probe, replace(probe, id='other', claims=(), actions=())])
+        ordinary = native.Collection([], [extensions.extension_at(PROBE)])
+        self.assertNotIn('live_input', native.object_services(ordinary).values())
+
     def test_extensions_reach_a_build_through_its_collection(self):
         with tempfile.TemporaryDirectory() as folder:
             listing = Path(folder) / 'collection.json'
@@ -152,7 +178,7 @@ class Extensions(unittest.TestCase):
         monitor = Extension('monitor', PROBE, (), ('monitor_input',), {})
         machines = native.Collection([fixture('probesynth')], [monitor])
         services = native.active_services(config(), native.service_users(machines))
-        self.assertEqual(services, {'extensions', 'input_monitor', 'aux_menu'})
+        self.assertEqual(services, {'extensions', 'input_monitor', 'input_audio', 'input_overlay', 'aux_menu'})
         steps = {step for _, _, step in native.plan(machines)}
         self.assertIn('input_monitor_audio', steps)
         self.assertIn('input_monitor_ui', steps)

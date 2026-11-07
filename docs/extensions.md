@@ -1,8 +1,9 @@
 # Firmware extensions
 
 Extensions change how the OP-XY itself behaves: recording, controls, the
-sequencer. Machines make sound and draw; extensions observe the firmware's
-events and act through stock. Like machines, extensions live in repositories of
+sequencer. Extensions observe firmware events and act through stock. Dedicated
+audio adapters can also process monitored input or the master mix. Like
+machines, extensions live in repositories of
 their own and reach builds through the catalog
 ([`catalog/extensions.json`](../catalog/extensions.json)). Capture is the first,
 in [open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture), and the worked example for the next.
@@ -206,6 +207,38 @@ A [master-processor extension](master-filter.md) supplies a stereo audio transfo
 and an authored panel through the SDK's shared master-processor capability, with one active processor at a time.
 It uses the stock selector and the project companion service; it does not
 intercept the controller recording events listed above.
+
+## Live input processor
+
+Declare `"live_input": true` to process the built-in mic, headset mic and
+3.5 mm line input monitored on Aux 5. A collection may include one live input
+processor. Selecting it in the builder or adding it with `--extension` enables
+it whenever stock Aux 5 monitoring renders one of those sources.
+
+Export `hooks` as usual (an empty `Hooks()` is valid) and supply these two
+functions in `opxy::extensions::<id>`:
+
+- `void reset_input()` discards retained audio. It runs before the first block
+  and after a source change or a skipped block, immediately before processing resumes.
+- `void process_input(i32* stereo)` transforms `opxy::block_frames` interleaved
+  stereo Q31 frames at 44.1 kHz in place. Even indices are left. The buffer is
+  borrowed for the callback.
+
+To expose the tuning controls, declare `"live_input": {"controls": true}`,
+include `<opxy/live_input.hpp>`, and export an immutable
+`live_input::Controls input_controls` in the same namespace. Hold Shift on
+Aux 5 M1 to edit Target, Retune and Amount on encoders 2–4. Target row 0 is
+Off and row 1 follows Brain. Retune starts at its first choice and Amount at
+100%. The choices last for the current session. Before each processed block the
+SDK calls `void prepare_input(u32 target, u32 retune, u32 amount, u32 brain)`.
+Amount ranges from 0 to 15, and `brain` contains the 12 allowed pitch classes,
+from C in bit 0, or zero if Brain has no scale.
+
+The DSP callbacks run on the audio role. Use preallocated state and bounded work.
+The callback runs before the monitored input is mixed into the dry and send
+buses. Stock controls source selection, monitoring, feedback protection and
+routing. This capability covers the Aux 5 monitoring path. The raw sampler
+input uses its own path.
 
 ## Change the SDK for an extension
 

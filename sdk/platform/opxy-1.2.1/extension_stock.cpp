@@ -5,6 +5,7 @@
 #include "stock.hpp"
 
 extern "C" {
+void sdk_live_input_gui_tick() __asm__("sdk_live_input_gui_tick");
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
 void sdk_extensions_key(const opxy::u32*) __asm__("sdk_extensions_key");
 opxy::u32 sdk_extensions_key_queue(const opxy::u32*) __asm__("sdk_extensions_key_queue");
@@ -139,6 +140,7 @@ void sdk_extensions_controller_update(u32 controller, u32 elapsed) {
     extensions_sync();
     stock<void(u32, u32)>(0x8d5986b8)(controller, elapsed);
     extensions_motion();
+    sdk_live_input_gui_tick();
 }
 void sdk_extensions_recorder_tick(u32 state, u32 delta) {
     extensions_recording_tick(delta);

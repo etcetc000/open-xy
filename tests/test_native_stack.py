@@ -43,6 +43,13 @@ class AudioStack(unittest.TestCase):
         self.assertEqual(audio_stack_bounds(text, bytes(0x100), BASE, symbols, []),
                          {'sdk:input_monitor': 12 + 24})
 
+    def test_live_input_exit_hook_stack_is_bounded(self):
+        text = disassembly([('exit', [f'CALL 0x{BASE + 0x104:x} <finish>;', 'RTS;']),
+                            ('finish', ['LINK 0x10;', 'UNLINK;', 'RTS;'])])
+        symbols = {'sdk_live_input_exit': dict(value=BASE + 0x100, size=4)}
+        self.assertEqual(audio_stack_bounds(text, bytes(0x100), BASE, symbols, []),
+                         {'sdk:live_input_exit': 24})
+
     def test_recursion_fails(self):
         text = disassembly([('render', ['LINK 0x0;', f'CALL 0x{BASE + 0x100:x} <render>;', 'RTS;'])])
         with self.assertRaisesRegex(ValueError, 'Recursive'):

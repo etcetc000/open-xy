@@ -70,13 +70,12 @@ def expanded_profile(profile):
 
 
 def selection_services(kit, result):
+    chosen = [e for e in kit.get('extensions', []) if e['id'] in result['extensions']]
     return active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
-                           (['extension'] if result['extensions'] else []) +
-                           (['inputMonitor'] if any('monitor_input' in e.get('actions', []) and
-                                                      e['id'] in result['extensions']
-                                                      for e in kit.get('extensions', [])) else []) +
-                           (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
-                                                    for e in kit.get('extensions', [])) else []))
+                           (['extension'] if chosen else []) +
+                           (['inputMonitor'] if any('monitor_input' in e.get('actions', []) for e in chosen) else []) +
+                           (['master_filter'] if any(e.get('master_processor') or e.get('master_filter') for e in chosen) else []) +
+                           (['live_input'] if any(e.get('live_input') for e in chosen) else []))
 
 
 def assembled(stock, module, symbols, reviewed, services, profiling):

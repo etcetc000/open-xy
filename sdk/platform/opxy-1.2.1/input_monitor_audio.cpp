@@ -1,4 +1,4 @@
-#include "input_monitor.hpp"
+#include "live_input_transport.hpp"
 #include "stock.hpp"
 #include <opxy/audio.hpp>
 #include <opxy/q31.hpp>
@@ -8,7 +8,7 @@ void sdk_input_monitor_audio() {
     using namespace opxy::platform;
     static input_monitor::Envelope envelope;
     const u32 marker = word(0x84eab39c + 12 * 0xe8 + input_monitor::word_index * 4);
-    if (!envelope.begin(marker)) return;
+    if (!envelope.begin(marker & ~live_input_transport::tuner_mask)) return;
     // Stock has rendered its input to this private interleaved scratch, before
     // adding it to the music or any FX send. The user's levels stay untouched.
     i32* buffer = at<i32>(0x11903600);

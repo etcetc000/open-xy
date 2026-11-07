@@ -139,6 +139,9 @@
     "extensions": [
       "extension"
     ],
+    "live_input": [
+      "live_input"
+    ],
     "master_filter": [
       "master_filter"
     ],
@@ -159,12 +162,21 @@
     "drum_locks": [
       "padMix"
     ],
+    "input_audio": [
+      "inputMonitor",
+      "live_input"
+    ],
     "input_monitor": [
       "inputMonitor"
     ],
+    "input_overlay": [
+      "inputMonitor",
+      "live_input"
+    ],
     "aux_menu": [
       "auxTrack",
-      "inputMonitor"
+      "inputMonitor",
+      "live_input"
     ]
   },
   "patches": [
@@ -2228,14 +2240,25 @@
     },
     {
       "kind": "hook",
-      "name": "Live input scratch: temporary monitoring envelope before dry and FX mixing",
+      "name": "External audio: process all 64 input frames before mixing",
       "address": "0x8d50fff4",
       "file_offset": "0x147250",
       "length": 8,
       "before": "03c800180b930099",
       "symbol": "sdk_input_monitor_audio_hook",
       "call": true,
-      "service": "input_monitor"
+      "service": "input_audio"
+    },
+    {
+      "kind": "hook",
+      "name": "External audio: finish the input block even when stock skips rendering",
+      "address": "0x8d51011e",
+      "file_offset": "0x14737a",
+      "length": 8,
+      "before": "a66ca30501e80000",
+      "symbol": "sdk_live_input_exit",
+      "call": false,
+      "service": "live_input"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

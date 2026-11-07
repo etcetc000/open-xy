@@ -1,6 +1,7 @@
-#include "input_monitor.hpp"
+#include "live_input_transport.hpp"
 #include "stock_browser.hpp"
 #include "../extension_runtime.hpp"
+extern "C" opxy::u32 sdk_live_input_option_bits() __asm__("sdk_live_input_option_bits");
 extern "C" opxy::u32 stock_gui_role() __asm__("stock_gui_role");
 
 namespace opxy { namespace platform { namespace input_monitor {
@@ -17,6 +18,7 @@ stock_browser::StockSelector<2> selector = {};
 // LIVE publication uses stock's existing parameter transport. Its stored
 // counterpart is never touched; republish after stock clears its live values.
 void publish(u32 value) {
+    value |= sdk_live_input_option_bits();
     const u32 address = kGuiParameters + 0x4080 + (12 * 58 + word_index) * 4;
     if (word(address) != value)
         stock<void(u32,u32,u32,i32)>(0x8d5acea8)(kGuiParameters, 12, word_index, static_cast<i32>(value));
@@ -124,7 +126,7 @@ bool extension_monitor_input(bool enabled) {
     if (owned) { releasing = false; publish(marker(true)); return true; }
     if (input.active) { blocked = true; return false; }
     project = word(kMonitorProject);
-    epoch = (epoch + 1) & 0x7fffu;
+    epoch = (epoch + 1) & 31u;
     publish(marker(true));
     stock<void(u32)>(0x8d4db4a4)(1);
     owned = true;

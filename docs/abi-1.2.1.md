@@ -52,6 +52,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
+| Live input | 2 | Transforms the monitored Aux 5 analog input scratch and tracks interruptions |
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
@@ -93,6 +94,42 @@ publishes those callback statistics into the existing diagnostic records and
 exporter. The heap calls match the bounded allocation path used by sample analysis;
 allocation, preparation and cleanup are outside the timed callback. No callback
 wrapper is inserted into normal audio processing. See [workloads](profiling.md#what-is-measured).
+
+## Live input
+
+The `live_input` service is enabled for a collection with a selected
+[live input processor](extensions.md#live-input-processor). The stock Aux 5
+mixer at `8d50fdc0` checks monitoring and the microphone feedback guard
+before producing interleaved Q31 scratch at `11903600`. The input gain has
+nine bits of headroom (`8d50fe12`), so the processor receives much smaller
+sample values than full-scale Q31. The bundle at
+`8d50fff4` writes the last right sample and loads a stock mix flag. The
+hook replays the store, reads the live track parameter block through R2 and
+calls the processor for source indices 0 (mic), 1 (headset) and 2 (line). The same hook runs
+the Tilt Mic envelope after processing, then replays the flag load. The source index uses the same five-way
+quantizer as `8d50fdf4`. Dry and FX mixing follow.
+
+Both stock early-outs and the normal path reach `8d51011e`. The exit hook
+marks a missed block and replays the stock epilogue. The next processed block
+starts with a reset after a missed block or source change. Both hooks run on
+the audio role. The DSP lives in the extension, and the SDK adapter leaves
+the original monitor and routing controls in stock.
+
+The existing Aux encoder hook at `8c08fa14` routes Shift turns on M1 to
+the shared overlay. The GUI publishes the controls together in the external
+audio track's unused live word 57 through `8d5acea8`. The controller update
+refreshes the word after stock clears it. The upper nibble tags the word,
+bits 16–27 carry Brain pitch classes, bits 6–15 carry the tuning controls,
+and the low six carry the Tilt Mic epoch and gate. The audio role retains
+the last tagged word across an interruption.
+
+When Target is Auto, the GUI reads the same Brain state as its M1 page
+(`8d5442c8`–`8d544476`). The manual scale triple starts at `84eb5584+0x74`.
+When stock uses the resolved scale, its getter `8d58b324` selects a triple
+from `860bf520` at offset 0x0c, 0x40 or 0x74 depending on bytes 0 and 8.
+As in stock's keyboard membership check at `8d5ab190`, the first word
+transposes the seven pitch classes selected by the third word. The adapter
+publishes zero for a missing project, a load in progress or an invalid scale.
 
 ## Stock browser
 
@@ -199,11 +236,8 @@ LIVE-only parameter setter `8d5acea8`, external-audio track 12, word 57 (the
 same unused last-word transport the aux service uses on CV). No stored track
 word is changed. The audio-side copy is at `84eab39c + 12*0xe8 + 57*4`.
 
-An optional eight-byte call at `8d50fff4` replaces the bundle that stores the
-last right-channel sample and reads the stock mix flag. The hook replays the
-store before scaling all 64 stereo frames in interleaved scratch `11903600`.
-It preserves the live caller-saved registers and ASTAT, then reads the flag
-before stock dry-music and FX-send mixing. The envelope spans 2,205
+The [shared input hook](#live-input) runs the audio-only envelope on the
+completed scratch before mixing. It scales its 64 stereo frames, 2,205
 frames in and 8,820 out at 44.1 kHz. The controller retains the monitoring flag
 for 205 ms on ordinary release, then clears the flag. It publishes the envelope
 release token after the following stock controller update has published that
@@ -217,7 +251,8 @@ registers nor saved routing/gain/level controls change.
 The `aux_menu` service shares the existing Aux encoder hook at `8c08fa14`
 with aux machine routing. On external-audio track 12, tab 0, holding Shift
 reveals a `tilt mic` overlay; the dark encoder (index 0 or shifted index 4)
-selects Off counterclockwise and Auto clockwise. Other turns delegate unchanged.
+selects Off counterclockwise and Auto clockwise. When a live input processor
+supplies controls, the other three encoders edit them in the same overlay.
 The existing compositor traversal draws a private instance of stock's send
 popup immediately after input page 63, before later stock dialogs. Its 96-byte
 layout has value leaves at +24, row groups at +40, palette IDs at +56, icons at
@@ -226,7 +261,7 @@ the renderer at `8d5f0df6` skips a node when it is zero. Base construction with 
 stock's registered page 22 alone. The adapter loads `fx_send.svg`, binds with
 `8d53b04c`, resets with `8d53adc4`, and advances with `8d53ae00`. This retains
 the stock easing and dimmed background. It defers the presenter's SVG draw,
-then displays only its first row, centered with a tilt-mic Off/Auto caption.
+then centers the active rows and replaces their captions with the current values.
 The stock frame reads routing values into this private presenter; no routing
 setter is called. Releasing Shift hides it, and reopening restarts the native
 animation. No additional artwork is installed.

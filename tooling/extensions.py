@@ -63,6 +63,8 @@ class Extension:
     text: dict  # name, description and optional note: the site's row and details
 
     master_processor: dict = None
+    live_input: bool = False
+    live_input_controls: bool = False
 
     @property
     def master_filter(self):
@@ -81,9 +83,13 @@ def extension_at(folder):
             f'{root}: an extension folder holds extension.json and extension.cpp')
     data = document(root / 'extension.json')
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and optional note and master_processor')
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'live_input'}, f'{root}: extension.json fields are '
+            'id, name, description, claims, actions and optional note, master_processor and live_input')
     name = data['id']
+    input_spec = data.get('live_input')
+    input_controls = isinstance(input_spec, dict) and set(input_spec) == {'controls'} and input_spec['controls'] is True
+    require('live_input' not in data or input_spec is True or input_controls,
+            'live_input must be true or declare controls: true')
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
         require(key not in data or (isinstance(data[key], str) and 0 < len(data[key]) <= TEXT_LIMITS[key]),
@@ -125,7 +131,7 @@ def extension_at(folder):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter)
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, input_spec is True or input_controls, input_controls)
 
 
 def check_collection(extensions):
@@ -144,6 +150,7 @@ def check_collection(extensions):
             if actions[action].get('exclusive'):
                 require(action not in action_owners, f'{action} has multiple owners: {action_owners.get(action)}, {e.id}')
                 action_owners[action] = e.id
+    require(sum(e.live_input for e in extensions) <= 1, 'Only one live input processor can be included')
     processors = [e for e in extensions if e.master_processor is not None]
     ids = [e.master_processor.get('state_id', e.id) for e in processors]
     require(len(ids) == len(set(ids)), 'Master processor state IDs must be unique')
@@ -184,6 +191,14 @@ def generate_collection(folder, extensions):
     mask = lambda table, names: '0x%xu' % sum(table[n] for n in names)
     table = lambda values: ', '.join(values) or '0'
     lines = ['#include "extension_runtime.hpp"']
+    tick = 'sdk_live_input_gui_tick'
+    publish = 'sdk_live_input_publish'
+    lines.append(f'extern "C" void {tick}() __asm__("{tick}");')
+    if any(e.live_input_controls for e in extensions):
+        lines += [f'extern "C" void {publish}() __asm__("{publish}");',
+                  f'void {tick}() {{ {publish}(); }}']
+    else:
+        lines.append(f'void {tick}() {{}}')
     for e in extensions:
         symbol = 'sdk_extension_' + e.id + '_hooks'
         lines.append('extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");')
@@ -221,6 +236,22 @@ def generate_extension(folder, extension):
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");\n'
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() {\n'
                       '    return &opxy::extensions::' + extension.id + '::hooks;\n}\n', encoding='utf-8')
+    if extension.live_input:
+        namespace = 'opxy::extensions::' + extension.id
+        with target.open('a', encoding='utf-8') as out:
+            for callback, args, values in (('reset', '', ''), ('process', 'opxy::i32* stereo', 'stereo')):
+                entry = 'sdk_live_input_' + callback
+                out.write(f'extern "C" void {entry}({args}) __asm__("{entry}");\n'
+                          f'void {entry}({args}) {{ {namespace}::{callback}_input({values}); }}\n')
+            controls = f'&{namespace}::input_controls' if extension.live_input_controls else 'nullptr'
+            prepare = (f'{namespace}::prepare_input(target, retune, amount, brain);'
+                       if extension.live_input_controls else '')
+            out.write('#include <opxy/live_input.hpp>\n'
+                      'extern "C" const opxy::live_input::Controls* sdk_live_input_controls() __asm__("sdk_live_input_controls");\n'
+                      'extern "C" void sdk_live_input_prepare(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_live_input_prepare");\n'
+                      f'const opxy::live_input::Controls* sdk_live_input_controls() {{ return {controls}; }}\n'
+                      'void sdk_live_input_prepare(opxy::u32 target, opxy::u32 retune, opxy::u32 amount, opxy::u32 brain)'
+                      f' {{ {prepare} }}\n')
     if extension.master_processor is not None:
         legacy = 'master_filter' in document(extension.root/'extension.json')
         symbol = 'sdk_extension_' + extension.id + '_processor'
@@ -241,6 +272,8 @@ def metadata(extensions, origins):
     rows = [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
     for e, row in zip(extensions, rows):
+        if e.live_input:
+            row['live_input'] = True
         if e.master_processor is not None:
             data = validate_master_artwork(e.root / e.master_processor['artwork'])
             row['master_processor'] = dict(state_id=e.master_processor.get('state_id',e.id), asset=Path(e.master_processor['artwork']).name,
