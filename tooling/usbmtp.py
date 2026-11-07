@@ -19,6 +19,10 @@ from .formats import require
 from .wpd import Entry
 
 VENDOR = 0x2367
+# The OP-XY in file transfer, both from COM and from the dev boot menu (tooling/wpd.py:
+# vid_2367&pid_0021). Other teenage engineering devices share the vendor and speak MTP
+# too, so the product is checked as well: nothing else is ever opened.
+PRODUCT = 0x0021
 # Vendor-specific, the class "mac" mode uses so that macOS leaves the device alone;
 # Still Image is the standard MTP class.
 CLASSES = (0xff, 6)
@@ -42,6 +46,13 @@ BUSY = ('Another app is using your OP-XY. Quit Field Kit, OpenMTP, Android File 
 STOPPED = 'Your OP-XY stopped responding. Reconnect it, then try again'
 NOT_IN_MODE = ('Expected one OP-XY in file-transfer mode, found none: choose "mtp file transfer (mac)" '
                'on the device and close other apps using it')
+
+
+def is_opxy(device_descriptor):
+    """True only for an OP-XY in file transfer: vendor and product of a USB device descriptor."""
+    return len(device_descriptor) >= 12 and struct.unpack_from('<HH', device_descriptor, 8) == (VENDOR, PRODUCT)
+
+
 LIBRARY_NAMES = ('libusb-1.0.so.0', 'libusb-1.0.dylib', '/opt/homebrew/lib/libusb-1.0.dylib',
                  '/usr/local/lib/libusb-1.0.dylib', '/opt/local/lib/libusb-1.0.dylib')
 
@@ -188,7 +199,7 @@ class Usb:
                 descriptor = ct.create_string_buffer(18)
                 if lib.libusb_get_device_descriptor(listing[index], descriptor) != 0:
                     continue
-                if struct.unpack_from('<H', descriptor.raw, 8)[0] != VENDOR:
+                if not is_opxy(descriptor.raw):
                     continue
                 handle = ct.c_void_p()
                 if lib.libusb_open(listing[index], ct.byref(handle)) != 0:

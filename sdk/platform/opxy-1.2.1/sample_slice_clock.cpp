@@ -30,7 +30,7 @@ u32 sdk_sample_slice_clock_rate(u32 engine, const SamplePreviewRange* source, u3
     const u32 rate = slice_file_rate(file_bits);
     if (!source || !source->processed || !machine || !machine->slice_clock || !rate) return file_bits;
     const opxy::SampleSlice input{source->frames, rate, source->bpm_x10,
-        opxy::SampleRegion{source->begin, source->end, source->level, false, source->pitch_cents},
+        opxy::SampleRegion{source->begin, source->end, source->level, false, source->pitch_cents, source->end, source->end},
         source->settings, source->parameters, source->track_transpose};
     opxy::SampleSliceRate clock{};
     machine->slice_clock(&input, &clock);

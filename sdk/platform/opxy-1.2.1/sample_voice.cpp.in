@@ -180,7 +180,7 @@ static int render(void* self, opxy::i32* output, const opxy::i32* parameters) {
         const opxy::platform::SamplePreviewRange& source = slot->slice;
         const opxy::SampleBlock block{output, source.parameters, increments,
             opxy::Transport{source.bpm_x10, 0, false},
-            opxy::SampleRegion{source.begin, source.end, source.level, false, source.pitch_cents},
+            opxy::SampleRegion{source.begin, source.end, source.level, false, source.pitch_cents, source.end, source.end},
             slot->analysis, source.settings, @STEREO@ ? 2u : 1u, source.track_transpose, 0, true};
         @NAMESPACE@::render_sample(slot->voice, block);
         return 0;

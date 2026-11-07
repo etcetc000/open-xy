@@ -380,6 +380,9 @@ def main(argv=None):
                              module_base=new_end - profile['reserved_bytes'], heap_fill_base=new_fill['target'],
                              heap_fill_bytes=new_fill['count'], linker_sha256=None, stock_catalog_sha256=None,
                              stock_svg_sha256=None, patches=candidate)
+    # The builder's experimental larger memory is reviewed per release: a port starts
+    # without it rather than carrying addresses of the old one.
+    candidate_profile.pop('experimental_memory', None)
     (args.out / 'profile-candidate.json').write_text(json.dumps(candidate_profile, indent=2) + '\n', encoding='utf-8')
     count = lambda rows, status: sum(r['status'] == status for r in rows)
     lines = [f'Edits: {count(edits, "verified")} verified, {count(edits, "located")} located with changed bytes, '

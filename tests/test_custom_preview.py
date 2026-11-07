@@ -123,6 +123,9 @@ class CustomPreviewTests(unittest.TestCase):
                 for name in ('README.md', 'AGENTS.md'):
                     text = (repo / name).read_text()
                     self.assertIn('docs/profiling.md', text)
+                    self.assertIn('block_percent', text)
+                    self.assertIn('peak_percent', text)
+                    self.assertIn('catalog-cpu.json', text)
                     self.assertIn('docs/catalog.md#submit-a-machine', text)
                     self.assertIn('open-xy-core-machines', text)
                     self.assertNotIn('machine-template', text)
@@ -137,6 +140,7 @@ class CustomPreviewTests(unittest.TestCase):
                 self.assertIn('engine list' if kind == 'synth' else 'effect list', qa)
                 self.assertEqual('## Presets' in qa and '## LFOs' in qa, kind == 'synth')
                 self.assertIn('docs/profiling.md', qa)
+                self.assertIn('peak_percent', qa)
                 self.assertIn('QA.md', (repo / 'README.md').read_text())
                 self.assertIn('QA.md', (repo / 'AGENTS.md').read_text())
                 workflow = (repo / '.github/workflows/machine.yml').read_text()
