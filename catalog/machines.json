@@ -21,15 +21,30 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.8.0",
-      "commit": "25336d7945aa91b275549d3c357670b2e510c9a8",
+      "tag": "v1.10.0",
+      "commit": "2e8069a88755d8a0263764842698afa77c1c1887",
       "path": "machines/macroosc",
       "keywords": [
         "emulation",
         "fm",
         "physical",
         "vocal"
-      ]
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "2e8069a88755d8a0263764842698afa77c1c1887",
+        "firmware_sha256": "815ca498aab032ea0c2dc02e3e23b06a3d9462d7e303e59a49656e6f0b6eaae8",
+        "runs": 3,
+        "block_percent": 2.355993,
+        "midpoint_percent": 2.355993,
+        "combined_percent": 2.355993,
+        "worst_setting": {
+          "control": 1,
+          "label": "Timbre",
+          "value": 1073741823
+        },
+        "peak_percent": 2.502479
+      }
     },
     {
       "id": "timestretch",
@@ -73,8 +88,8 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.5.0",
-      "commit": "09c86cb49689223dbecad556a43034350ecdc59e",
+      "tag": "v1.10.0",
+      "commit": "2e8069a88755d8a0263764842698afa77c1c1887",
       "path": "machines/karplus",
       "keywords": [
         "physical",
