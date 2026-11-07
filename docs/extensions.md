@@ -170,11 +170,15 @@ pre-recall state once, without redo. A redundant recall preserves that recovery.
 Recording/held recording notes refuse the action. Stock paste can release voices;
 device timing must be tested on the exact image.
 
-Only selected checkpoint users link its storage: about 1 MiB for two bounded
-word-run snapshots, each with 384 KiB of encoded pattern data and 64 KiB of SDK
-saved data. Capacity exhaustion refuses the operation before live edits. Sample
-files must already be resident when captured; the SDK retains their cache
-references, never copies PCM or reads files during the action.
+Checkpoint users link a 640 KiB pool shared by the checkpoint and the staged
+snapshot. Recovery stores differences from the checkpoint where they are smaller
+than a full compressed pattern. Each snapshot can use up to 384 KiB for patterns
+and 64 KiB for SDK saved data, subject to the free space in the pool. A replacement
+store also has to fit alongside the previous checkpoint until it succeeds. SDK
+saved data uses its actual serialized size, and only builds with control support
+reserve the 8 KiB serialization scratch buffer. Capacity exhaustion refuses the
+operation before live edits. Sample files must already be resident when captured.
+The SDK retains their cache references without copying PCM or reading files.
 
 ## Add an extension
 

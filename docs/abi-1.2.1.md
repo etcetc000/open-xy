@@ -204,8 +204,11 @@ the generation at `840a0538`, which stock's pending-project swap (`8d585cdc`)
 increments, so a reused project buffer cannot revive a checkpoint.
 
 `checkpoint.cpp` captures up to 32 active/source records; recovery includes their
-union with the current scene's records, at most 64. Bounded word-run storage
-refuses exhaustion. Inline sample paths start at pattern +0x396c, 24 rows of
+union with the current scene's records, at most 64. The checkpoint lives at the
+start of a shared pool and staging uses the remaining space. Recovery can encode
+an XOR difference against a matching checkpoint record. Undo reads both saved
+streams to reconstruct the record independently of subsequent live edits.
+Inline sample paths start at pattern +0x396c, 24 rows of
 128 bytes. File-backed engines retain resident path hashes (`8d4e813a`) through
 the stock sample manager (`84048894`), acquire `8d509d70`, release `8d509df8`.
 SDK sample-engine classification follows its selected service. No file I/O or
@@ -217,8 +220,10 @@ publishes each track (`8d587668`) through stock's post-paste refresh
 (`8d597730(controller, track)`). Stock undo identities are cleared (`8d591948`);
 transport is not stopped or restarted and the clipboard is untouched. The
 `checkpoint_control` service exists only when both checkpoint and control are
-selected. Its per-pattern aux restore accepts null to clear that pattern's
-kept controls without discarding another pattern's. Browser service fallbacks
+selected. It serializes control data into the shared pool and compares it with
+one reusable machine-sized scratch buffer. Its per-pattern aux restore accepts
+null to clear that pattern's kept controls without discarding another pattern's.
+Browser service fallbacks
 omit checkpoint storage and optional support when their owners are unselected.
 
 History uses the same position getter, pickup convention and scaled Q8 duration

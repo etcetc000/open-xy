@@ -7,7 +7,8 @@ namespace {
 void require(bool value, const char* message) {
     if (!value) { std::fprintf(stderr, "%s\n", message); std::exit(1); }
 }
-CheckpointStorage<4096> storage = {};
+u32 encoded[4096];
+CheckpointStorage storage = {encoded, 4096, 0};
 u32 input[2048], output[2049];
 }
 int main() {
@@ -29,7 +30,8 @@ int main() {
         require(output[2048] == 0x12345678, "decode stays within destination");
         require(!storage.valid(offset, size, 2047) && !storage.valid(offset, size, 2049), "decoded length is exact");
     }
-    CheckpointStorage<4> small = {};
+    u32 tiny[4];
+    CheckpointStorage small = {tiny, 4, 0};
     const u32 values[] = {1, 2, 3}; u32 offset = 0, size = 0;
     require(small.append(values, 3, offset, size) && small.used == 4, "exact capacity");
     require(!small.append(values, 1, offset, size) && small.used == 4 && small.words[1] == 1,

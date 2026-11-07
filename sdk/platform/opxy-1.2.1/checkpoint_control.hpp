@@ -6,30 +6,45 @@ namespace opxy { namespace platform { namespace checkpoint {
 namespace kept {
 // A RAM-only stream bound to this build's immutable control-machine table.
 // Words are copied explicitly; no file format or contributor addresses escape.
-inline void put(u8* data, u32& at, u32 value) {
-    for (u32 i = 0; i < 4; ++i) data[at++] = static_cast<u8>(value >> (8 * i));
-}
+struct Stream {
+    u8* destination;
+    const u8* expected;
+    u32 capacity, at;
+
+    bool transfer(const u8* data, u32 bytes) {
+        if (bytes > capacity - at) return false;
+        if (destination)
+            for (u32 i = 0; i < bytes; ++i) destination[at + i] = data[i];
+        else
+            for (u32 i = 0; i < bytes; ++i) if (expected[at + i] != data[i]) return false;
+        at += bytes;
+        return true;
+    }
+
+    bool put(u32 value) {
+        u8 bytes[4];
+        for (u32 i = 0; i < 4; ++i) bytes[i] = static_cast<u8>(value >> (8 * i));
+        return transfer(bytes, 4);
+    }
+};
 inline u32 get(const u8* data, u32& at) {
     u32 value = 0;
     for (u32 i = 0; i < 4; ++i) value |= static_cast<u32>(data[at++]) << (8 * i);
     return value;
 }
-inline bool save(u8* data, u32& bytes, u32 capacity, const PatternRef* patterns, u32 count) {
-    bytes = 0;
-    if (capacity < 8) return false;
+inline bool transfer(Stream& stream, const PatternRef* patterns, u32 count) {
+    if (stream.capacity < 8) return false;
+    // Each machine serializes into one reusable buffer. Snapshot payloads use
+    // only the bytes the selected machines actually return.
+    static u8 scratch[control::saved_capacity];
+    stream.at = 8;
     u32 machines = 0, aux = 0;
-    put(data, bytes, 0); put(data, bytes, 0);
     for (u32 i = 0; i < sdk_control_machine_count; ++i) {
         const ControlMachine& m = sdk_control_machines[i];
         if (!m.save || !m.load || m.ready() != 1) continue;
-        if (m.saved_bytes > capacity - bytes || capacity - bytes - m.saved_bytes < 8) return false;
-        put(data, bytes, i);
-        const u32 size_at = bytes;
-        put(data, bytes, 0);
-        const u32 n = m.save(data + bytes);
-        if (n > m.saved_bytes) return false;
-        u32 cursor = size_at; put(data, cursor, n);
-        bytes += n;
+        if (m.saved_bytes > sizeof scratch) return false;
+        const u32 n = m.save(scratch);
+        if (n > m.saved_bytes || !stream.put(i) || !stream.put(n) || !stream.transfer(scratch, n)) return false;
         ++machines;
     }
     if (sdk_aux.kept && sdk_aux.restore)
@@ -37,14 +52,24 @@ inline bool save(u8* data, u32& bytes, u32 capacity, const PatternRef* patterns,
             const PatternRef& p = patterns[i];
             if (p.track < control::tracks) continue;
             const i32* values = sdk_aux.kept(p.track, p.index);
-            if (capacity - bytes < 44) return false;
-            put(data, bytes, p.track); put(data, bytes, p.index);
-            put(data, bytes, values ? 1 : 0);
-            for (u32 k = 0; k < 8; ++k) put(data, bytes, values ? static_cast<u32>(values[k]) : 0);
+            if (!stream.put(p.track) || !stream.put(p.index) || !stream.put(values ? 1 : 0)) return false;
+            for (u32 k = 0; k < 8; ++k)
+                if (!stream.put(values ? static_cast<u32>(values[k]) : 0)) return false;
             ++aux;
         }
-    u32 at = 0; put(data, at, machines); put(data, at, aux);
+    Stream header = stream;
+    header.at = 0;
+    return header.put(machines) && header.put(aux);
+}
+inline bool save(u8* data, u32& bytes, u32 capacity, const PatternRef* patterns, u32 count) {
+    Stream stream = {data, nullptr, capacity, 0};
+    if (!transfer(stream, patterns, count)) return false;
+    bytes = stream.at;
     return true;
+}
+inline bool matches(const u8* data, u32 bytes, const PatternRef* patterns, u32 count) {
+    Stream stream = {nullptr, data, bytes, 0};
+    return transfer(stream, patterns, count) && stream.at == bytes;
 }
 inline bool validate(const u8* data, u32 bytes) {
     if (bytes < 8) return false;

@@ -43,9 +43,12 @@ void refresh(u32 controller, u32 track) {
     if (check_complete) require(value(15, 0x258) == 115, "all patterns restored before first publication");
 }
 bool save_extra(u8* data, u32& size, u32 capacity, const cp::PatternRef*, u32 count) {
-    require(capacity == 65536 && count >= 16 && count <= 64, "bounded extra capture");
-    if (fail_extra) return false;
+    require(capacity <= 65536 && count >= 16 && count <= 64, "bounded extra capture");
+    if (fail_extra || capacity < 4) return false;
     std::memcpy(data, &extra_state, 4); size = 4; return true;
+}
+bool matches_extra(const u8* data, u32 bytes, const cp::PatternRef*, u32) {
+    return bytes == 4 && std::memcmp(data, &extra_state, 4) == 0;
 }
 bool validate_extra(const u8*, u32 bytes) { return bytes == 4 && !bad_extra; }
 void load_extra(const u8* data, u32 bytes) { require(bytes == 4, "extra restore size"); std::memcpy(&extra_state, data, 4); }
@@ -102,7 +105,7 @@ Address host_stock_address(Address address) {
     require(false, "unexpected stock boundary"); return 0;
 }
 namespace checkpoint {
-const Support& support() { static const Support s = {save_extra, validate_extra, load_extra}; return s; }
+const Support& support() { static const Support s = {save_extra, matches_extra, validate_extra, load_extra}; return s; }
 bool sample_engine(u32 engine) { return owned_sample(engine); }
 }
 }}
@@ -120,8 +123,11 @@ int main() {
     require(value(0, 0x3864, 1) == 0 && !scene()[16] && extra_state == 100, "linked sound, mute and SDK state");
     require(project[0] == 0x34 && project[1] == 0x12 && clock_position == 12345 && clipboard == 777, "unrelated state preserved");
     require(references() == 2, "baseline and recovery retain their resources");
+    require(cp::recovery->storage.used < cp::saved->storage.used / 8,
+            "small edits share most of the checkpoint's pattern data");
     require(cp::command(Command::restore) == Result::success && refreshes == 16, "redundant recall no-op");
     check_complete = false;
+    value(15, 0x258) = 900;
     require(cp::command(Command::undo) == Result::success && value(15, 0x258) == 515 && extra_state == 999,
             "recovery survived redundant recall");
     require(cp::command(Command::undo) == Result::empty, "one recovery, no stale redo");
@@ -190,5 +196,35 @@ int main() {
     project[6] = 99;
     require(cp::command(Command::restore) == Result::success && value(15, 0x258) == 115,
             "baseline remains recallable after capacity failures");
+
+    // A dense checkpoint leaves less room for a second full store, while a
+    // few changes can still use recovery deltas in the remaining space.
+    ++generation;
+    for (u32 t = 0; t < 16; ++t)
+        for (u32 p = 0; p < 2; ++p) {
+            for (u32 offset = 0; offset < 0x457c; offset += 4)
+                value(t, offset, p) = 1 + t * 0x10000 + p * 0x1000 + offset;
+            for (u32 offset = 0x4d04; offset < 0x53f4; offset += 4)
+                value(t, offset, p) = 1 + offset;
+            value(t, 0x18, p) = 18;
+        }
+    require(cp::command(Command::store) == Result::success && cp::extent(*cp::saved) > cp::kPoolWords / 2,
+            "dense checkpoint fits on its own");
+    const u32 dense_baseline = value(15, 0x258);
+    value(15, 0x258) = 500;
+    require(cp::command(Command::store) == Result::unavailable && value(15, 0x258) == 500,
+            "shared pool exhaustion preserves live data and the previous checkpoint");
+    require(cp::command(Command::restore) == Result::success && value(15, 0x258) == dense_baseline,
+            "deltas fit alongside a dense checkpoint");
+    require(cp::command(Command::undo) == Result::success && value(15, 0x258) == 500,
+            "dense delta recovers the prior edits");
+
+    std::memset(project, 0, sizeof project);
+    initialize();
+    project[6] = 99;
+    require(cp::command(Command::store) == Result::success, "replace a dense checkpoint with a sparse one");
+    value(15, 0x258) = 600;
+    require(cp::command(Command::restore) == Result::success && value(15, 0x258) == 115,
+            "replacement remains valid after moving it to the start of the pool");
     return 0;
 }

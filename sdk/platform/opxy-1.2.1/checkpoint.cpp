@@ -20,21 +20,26 @@ const u32 kPatternBytes = 0x53f4, kTrackBytes = 0x53f44, kPatternsOffset = 0xd7c
 const u32 kSceneOffset = 0x98, kSceneBytes = 33, kTracks = 16, kRecords = 64;
 const u32 kScenes = (kPatternsOffset - kSceneOffset) / kSceneBytes;
 const u32 kExtraBytes = 65536, kPins = kRecords * 24;
+const u32 kPatternWords = kPatternBytes / sizeof(u32);
+const u32 kPatternLimit = 384 * 1024 / sizeof(u32), kPoolWords = 640 * 1024 / sizeof(u32);
 
-struct Record { PatternRef ref; u32 offset, words; };
+struct Record { PatternRef ref; u32 offset, words, base; };
 struct Snapshot {
     u32 project, generation, scene, counts[kTracks], count, pin_count, pins[kPins], extra_bytes;
     u8 scene_data[kSceneBytes], links[18];
-    alignas(4) u8 extra[kExtraBytes];
     Record records[kRecords];
-    CheckpointStorage<96 * 1024> storage;
+    CheckpointStorage storage;
     bool valid;
 };
-// This unit and its storage are absent unless a selected extension uses it.
+// The checkpoint occupies the start of the pool. Recovery or a replacement
+// store grows after it, using only the remaining space.
+u32 pool[kPoolWords];
 Snapshot snapshots[2];
 Snapshot* saved = &snapshots[0];
 Snapshot* recovery = &snapshots[1];
-alignas(4) u8 extra_compare[kExtraBytes];
+
+u32 extent(const Snapshot& s) { return s.storage.used + (s.extra_bytes + 3) / 4; }
+u8* extra(const Snapshot& s) { return reinterpret_cast<u8*>(s.storage.words + s.storage.used); }
 
 void copy(void* to, const void* from, u32 bytes) {
     auto* dst = static_cast<u8*>(to);
@@ -78,15 +83,32 @@ bool pin(Snapshot& s, const char* path) {
     s.pins[s.pin_count++] = key;
     return true;
 }
-bool add(Snapshot& s, u32 track, u32 index) {
+const Record* find(const Snapshot& s, u32 track, u32 index) {
     for (u32 i = 0; i < s.count; ++i)
-        if (s.records[i].ref.track == track && s.records[i].ref.index == index) return true;
+        if (s.records[i].ref.track == track && s.records[i].ref.index == index) return &s.records[i];
+    return nullptr;
+}
+bool encode(Snapshot& s, Record& r, const u32* data, const Snapshot* baseline) {
+    r.base = kRecords;
+    if (baseline) {
+        const Record* original = find(*baseline, r.ref.track, r.ref.index);
+        CheckpointStorage::Reader read;
+        if (original && baseline->storage.reader(original->offset, original->words, kPatternWords, read) &&
+            s.storage.append_difference(data, kPatternWords, read, r.offset, r.words)) {
+            r.base = static_cast<u32>(original - baseline->records);
+            return true;
+        }
+    }
+    return s.storage.append(data, kPatternWords, r.offset, r.words);
+}
+bool add(Snapshot& s, u32 track, u32 index, const Snapshot* baseline) {
+    if (find(s, track, index)) return true;
     if (s.count == kRecords || index >= s.counts[track]) return false;
     Record& r = s.records[s.count++];
     r.ref = {track, index};
     const auto* data = at<const u8>(block(s.project, track, index));
     if (!notes::clearable(*reinterpret_cast<const notes::Container*>(data + 0x457c))) return false;
-    if (!s.storage.append(reinterpret_cast<const u32*>(data), kPatternBytes / 4, r.offset, r.words)) return false;
+    if (!encode(s, r, reinterpret_cast<const u32*>(data), baseline)) return false;
     const u32 engine = *reinterpret_cast<const u32*>(data + 0x18);
     if (track < 8 && (stock<u32(u32)>(0x8d5b79c0)(engine) ||
                      sample_engine(engine)))
@@ -100,19 +122,21 @@ bool available() {
 }
 bool capture(Snapshot& s, const Snapshot* affected = nullptr) {
     release(s);
+    const u32 start = saved->valid ? extent(*saved) : 0;
+    const u32 space = kPoolWords - start;
     s.project = word(kProject);
     s.generation = word(kGeneration);
     s.scene = byte(s.project + 6);
     if (s.scene >= kScenes) return false;
     s.count = 0;
-    s.storage.used = 0;
+    s.storage = {pool + start, space < kPatternLimit ? space : kPatternLimit, 0};
     copy(s.scene_data, at<const void>(scene_address(s.project)), kSceneBytes);
     copy(s.links, at<const void>(s.project + 0xc), sizeof s.links);
     const u32 linked = s.links[0] | static_cast<u32>(s.links[1]) << 8;
     for (u32 t = 0; t < kTracks; ++t) {
         s.counts[t] = count(s.project, t);
-        if (!s.counts[t] || s.counts[t] > 16 || !add(s, t, s.scene_data[t]) ||
-            ((linked & (1u << t)) && !add(s, t, s.links[2 + t]))) {
+        if (!s.counts[t] || s.counts[t] > 16 || !add(s, t, s.scene_data[t], affected) ||
+            ((linked & (1u << t)) && !add(s, t, s.links[2 + t], affected))) {
             release(s);
             return false;
         }
@@ -122,7 +146,7 @@ bool capture(Snapshot& s, const Snapshot* affected = nullptr) {
     // original pattern that recall overwrites but recovery no longer selected.
     if (affected)
         for (u32 i = 0; i < affected->count; ++i)
-            if (!add(s, affected->records[i].ref.track, affected->records[i].ref.index)) {
+            if (!add(s, affected->records[i].ref.track, affected->records[i].ref.index, affected)) {
                 release(s);
                 return false;
             }
@@ -130,7 +154,8 @@ bool capture(Snapshot& s, const Snapshot* affected = nullptr) {
     if (support().save) {
         PatternRef refs[kRecords];
         for (u32 i = 0; i < s.count; ++i) refs[i] = s.records[i].ref;
-        if (!support().save(s.extra, s.extra_bytes, kExtraBytes, refs, s.count)) {
+        const u32 bytes = (space - s.storage.used) * sizeof(u32);
+        if (!support().save(extra(s), s.extra_bytes, bytes < kExtraBytes ? bytes : kExtraBytes, refs, s.count)) {
             release(s);
             return false;
         }
@@ -138,21 +163,40 @@ bool capture(Snapshot& s, const Snapshot* affected = nullptr) {
     s.valid = true;
     return true;
 }
-CheckpointResult validate(const Snapshot& s) {
+bool base_reader(const Record& r, const Snapshot* baseline, CheckpointStorage::Reader& read) {
+    if (!baseline || !baseline->valid || r.base >= baseline->count) return false;
+    const Record& original = baseline->records[r.base];
+    return original.base == kRecords && original.ref.track == r.ref.track && original.ref.index == r.ref.index &&
+        baseline->storage.reader(original.offset, original.words, kPatternWords, read);
+}
+template <class Sink> bool visit(const Snapshot& s, const Record& r, const Snapshot* baseline, Sink sink) {
+    if (r.base == kRecords) return s.storage.visit(r.offset, r.words, kPatternWords, sink);
+    CheckpointStorage::Reader read;
+    if (!base_reader(r, baseline, read)) return false;
+    return s.storage.visit(r.offset, r.words, kPatternWords, [&read, &sink](u32 i, u32 delta) {
+        u32 value;
+        return read.next(value) && sink(i, value ^ delta);
+    }) && read.done();
+}
+CheckpointResult validate(const Snapshot& s, const Snapshot* baseline) {
     if (!s.valid) return CheckpointResult::empty;
     const u32 project = word(kProject);
     if (project != s.project || word(kGeneration) != s.generation) return CheckpointResult::empty;
     if (byte(project + 6) != s.scene) return CheckpointResult::wrong_scene;
     for (u32 t = 0; t < kTracks; ++t)
         if (count(project, t) != s.counts[t]) return CheckpointResult::changed;
-    if (s.count > kRecords || s.extra_bytes > kExtraBytes) return CheckpointResult::changed;
-    if (support().validate && !support().validate(s.extra, s.extra_bytes)) return CheckpointResult::changed;
+    if (s.count > kRecords || s.extra_bytes > kExtraBytes || s.storage.used > kPatternLimit)
+        return CheckpointResult::changed;
+    const u32 start = baseline ? extent(*baseline) : 0;
+    if (start > kPoolWords || s.storage.words != pool + start || extent(s) > kPoolWords - start)
+        return CheckpointResult::changed;
+    if (support().validate && !support().validate(extra(s), s.extra_bytes)) return CheckpointResult::changed;
     // Validate every destination and every currently selected pattern before
     // opening the transaction. A still-recording note cannot be overwritten.
     for (u32 i = 0; i < s.count; ++i) {
         const PatternRef& p = s.records[i].ref;
         if (p.track >= kTracks || p.index >= s.counts[p.track] ||
-            !s.storage.valid(s.records[i].offset, s.records[i].words, kPatternBytes / 4))
+            !visit(s, s.records[i], baseline, [](u32, u32) { return true; }))
             return CheckpointResult::changed;
         if (!notes::clearable(*at<const notes::Container>(block(project, p.track, p.index) + 0x457c)))
             return CheckpointResult::busy;
@@ -165,27 +209,25 @@ bool matches_live(const Snapshot& s) {
     for (u32 i = 0; i < s.count; ++i) {
         const Record& r = s.records[i];
         const u32* live = at<const u32>(block(s.project, r.ref.track, r.ref.index));
-        if (!s.storage.visit(r.offset, r.words, kPatternBytes / 4, [live](u32 k, u32 stored) {
+        if (!s.storage.visit(r.offset, r.words, kPatternWords, [live](u32 k, u32 stored) {
             const u32 mask = k == 0x14 / 4 ? ~8u : ~0u;
             return (stored & mask) == (live[k] & mask);
         })) return false;
     }
-    if (support().save) {
+    if (support().matches) {
         PatternRef refs[kRecords];
         for (u32 i = 0; i < s.count; ++i) refs[i] = s.records[i].ref;
-        u32 bytes = 0;
-        if (!support().save(extra_compare, bytes, kExtraBytes, refs, s.count) || bytes != s.extra_bytes ||
-            !equal(extra_compare, s.extra, bytes)) return false;
+        if (!support().matches(extra(s), s.extra_bytes, refs, s.count)) return false;
     }
     return true;
 }
-void apply(const Snapshot& s) {
+void apply(const Snapshot& s, const Snapshot* baseline = nullptr) {
     stock<void(u32)>(0x8d591948)(kController);  // discard stock's stale single-track undo identities
     for (u32 i = 0; i < s.count; ++i) {
         const Record& r = s.records[i];
         const u32 target = block(s.project, r.ref.track, r.ref.index);
         u32* destination = at<u32>(target);
-        s.storage.visit(r.offset, r.words, kPatternBytes / 4, [destination](u32 index, u32 value) {
+        visit(s, r, baseline, [destination](u32 index, u32 value) {
             destination[index] = value;
             return true;
         });
@@ -195,7 +237,7 @@ void apply(const Snapshot& s) {
     // Stock's scene paste validates the assignments, marks the project dirty
     // and advances its edit revision, without touching transport or the clipboard.
     stock<void(const void*)>(0x8d585b90)(s.scene_data);
-    if (support().load) support().load(s.extra, s.extra_bytes);
+    if (support().load) support().load(extra(s), s.extra_bytes);
     for (u32 t = 0; t < kTracks; ++t) {
         stock<void(u32)>(0x8d587668)(t);
         // The same refresh stock uses after pasting a pattern: publish sound,
@@ -214,15 +256,22 @@ extensions::CheckpointResult command(extensions::CheckpointCommand cmd) {
     if (!available()) return CheckpointResult::busy;
     if (cmd == CheckpointCommand::store) {
         if (!capture(*recovery)) return CheckpointResult::unavailable;
+        if (recovery->storage.words != pool) {
+            const u32 words = extent(*recovery);
+            for (u32 i = 0; i < words; ++i) pool[i] = recovery->storage.words[i];
+            recovery->storage.words = pool;
+        }
         Snapshot* old = saved; saved = recovery; recovery = old;
         release(*recovery);
         return CheckpointResult::success;
     }
-    Snapshot& target = cmd == CheckpointCommand::undo ? *recovery : *saved;
-    const CheckpointResult result = validate(target);
+    const bool undo = cmd == CheckpointCommand::undo;
+    Snapshot& target = undo ? *recovery : *saved;
+    const Snapshot* baseline = undo ? saved : nullptr;
+    const CheckpointResult result = validate(target, baseline);
     if (result != CheckpointResult::success) return result;
-    if (cmd == CheckpointCommand::undo) {
-        apply(target);
+    if (undo) {
+        apply(target, baseline);
         release(target);
         return CheckpointResult::success;
     }

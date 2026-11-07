@@ -5,6 +5,7 @@ namespace opxy { namespace platform { namespace checkpoint {
 struct PatternRef { u32 track, index; };
 struct Support {
     bool (*save)(u8*, u32&, u32, const PatternRef*, u32);
+    bool (*matches)(const u8*, u32, const PatternRef*, u32);
     bool (*validate)(const u8*, u32);
     void (*load)(const u8*, u32);
 };
