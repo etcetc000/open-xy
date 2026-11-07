@@ -27,7 +27,7 @@ CALL = '    probesources::apply_gain(output, opxy::block_frames, 16384);\n'
 
 def with_native(directory, name='probesources', files=None, call=True):
     """A copy of a fixture machine carrying the example unit (renamed to its prefix)."""
-    folder = Path(directory) / name
+    folder = Path(directory).resolve() / name
     shutil.copytree(FOLDER / name, folder)
     (folder / 'native').mkdir()
     for path in EXAMPLE.iterdir():
