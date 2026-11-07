@@ -2229,10 +2229,10 @@
     {
       "kind": "hook",
       "name": "Live input scratch: temporary monitoring envelope before dry and FX mixing",
-      "address": "0x8d50ffec",
-      "file_offset": "0x147248",
+      "address": "0x8d50fff4",
+      "file_offset": "0x147250",
       "length": 8,
-      "before": "08dab011d41d0000",
+      "before": "03c800180b930099",
       "symbol": "sdk_input_monitor_audio_hook",
       "call": true,
       "service": "input_monitor"

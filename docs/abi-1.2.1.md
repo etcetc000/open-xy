@@ -199,10 +199,11 @@ LIVE-only parameter setter `8d5acea8`, external-audio track 12, word 57 (the
 same unused last-word transport the aux service uses on CV). No stored track
 word is changed. The audio-side copy is at `84eab39c + 12*0xe8 + 57*4`.
 
-An optional eight-byte call at `8d50ffec` replaces the complete `P0 = 11b01dd4`
-load, preserving caller-saved registers and ASTAT and replaying that load.
-Stock has filled interleaved input scratch `11903600`; dry-music and FX-send
-additions follow. The audio-only envelope scales its 64 stereo frames, 2,205
+An optional eight-byte call at `8d50fff4` replaces the bundle that stores the
+last right-channel sample and reads the stock mix flag. The hook replays the
+store before scaling all 64 stereo frames in interleaved scratch `11903600`.
+It preserves the live caller-saved registers and ASTAT, then reads the flag
+before stock dry-music and FX-send mixing. The envelope spans 2,205
 frames in and 8,820 out at 44.1 kHz. The controller retains the monitoring flag
 for 205 ms on ordinary release, then clears the flag. It publishes the envelope
 release token after the following stock controller update has published that
