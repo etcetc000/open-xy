@@ -225,6 +225,21 @@ class Measurements(unittest.TestCase):
         cpu_measurement.validate(measurement('synth'), 'synth', legacy=False)
         self.assertIn('above the recommended', cpu_measurement.above_recommended(legacy_synth()))
 
+    def test_the_cpu_high_label_follows_the_peak_or_else_the_average(self):
+        # The reported peak decides when there is one, even under a heavier average.
+        self.assertEqual(cpu_measurement.worst_case(dict(measurement('synth'), block_percent=4.8, peak_percent=4.4)), (4.4, 'peak'))
+        self.assertIsNone(cpu_measurement.high(dict(measurement('synth'), block_percent=4.8, peak_percent=4.4)))
+        labelled = cpu_measurement.high(dict(measurement('synth'), block_percent=3.0, peak_percent=4.6))
+        self.assertIn('worst observed block peak 4.600%', labelled)
+        # A record without a peak falls back to its average, and says so.
+        self.assertEqual(cpu_measurement.worst_case(legacy_synth()), (legacy_synth()['block_percent'], 'average'))
+        average = cpu_measurement.high(dict(legacy_synth(), block_percent=5.25))
+        self.assertIn('average (no peak reported) 5.250%', average)
+        # Strictly above the threshold.
+        at = cpu_measurement.HIGH_PERCENT
+        self.assertIsNone(cpu_measurement.high(dict(measurement('synth'), block_percent=at, peak_percent=at)))
+        self.assertIsNone(cpu_measurement.high(dict(legacy_synth(), block_percent=at)))
+
     def test_changed_submissions_require_a_measurement_but_legacy_entries_can_stay(self):
         for kind in cpu_measurement.BENCHMARKS:
             entry = dict(PUBLISHED, kind=kind)

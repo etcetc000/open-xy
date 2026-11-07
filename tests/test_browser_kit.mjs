@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -450,6 +450,30 @@ test('machines are found by name, author, kind, description and keyword, in a ch
   assert.deepEqual(keywordsByUse([...machines, {id:'pads', keywords:['pad', 'bass']}]),
     [{keyword:'pad', count:2}, {keyword:'bass', count:1}, {keyword:'delay', count:1}, {keyword:'fm', count:1}, {keyword:'pluck', count:1}]);
   assert.deepEqual(keywordsByUse([{id:'none'}]), []);
+});
+test('the CPU-high label follows the reported peak, or the average when no peak is reported', () => {
+  assert.equal(CPU_HIGH_PERCENT, 4.5);
+  // The peak decides when there is one, even under a heavier average.
+  assert.deepEqual(cpuWorstCase({cpu:{block_percent:4.8, peak_percent:4.4}}), {percent:4.4, metric:'peak'});
+  assert.equal(cpuHigh({cpu:{block_percent:4.8, peak_percent:4.4}}), null);
+  const peak = cpuHigh({cpu:{block_percent:3.69, peak_percent:6.314183}});
+  assert.equal(peak.metric, 'peak');
+  assert.equal(peak.text, 'CPU-high: worst observed block peak 6.31% of an audio block, above 4.5%');
+  // Without a peak, the average, and the text says so.
+  const average = cpuHigh({cpu:{block_percent:8.54963}});
+  assert.equal(average.metric, 'average');
+  assert.equal(average.text, 'CPU-high: average 8.55% of an audio block, above 4.5% (no peak reported)');
+  // Strictly above the threshold; no record, or no usable figure, is no label.
+  assert.equal(cpuHigh({cpu:{block_percent:4.5}}), null);
+  assert.equal(cpuHigh({cpu:{block_percent:3, peak_percent:4.5}}), null);
+  for (const m of [{}, {cpu:null}, {cpu:'5'}, {cpu:{block_percent:'9'}}, {cpu:{block_percent:NaN}}]) assert.equal(cpuHigh(m), null, JSON.stringify(m));
+  assert.deepEqual(cpuWorstCase({cpu:{block_percent:5, peak_percent:'x'}}), {percent:5, metric:'average'});
+  // Derived from every catalog entry's record, so it changes only when a report does.
+  const catalog = JSON.parse(readFileSync(new URL('../catalog/machines.json', import.meta.url), 'utf8')).machines;
+  for (const entry of catalog.filter(e => e.cpu)) {
+    const worst = entry.cpu.peak_percent ?? entry.cpu.block_percent;
+    assert.equal(Boolean(cpuHigh(entry)), worst > CPU_HIGH_PERCENT, entry.id);
+  }
 });
 test('machine presets save, replace, delete and choose named selections by ID', () => {
   let presets = savePreset([], '  Night   set ', ['moth', 'fm2op']);

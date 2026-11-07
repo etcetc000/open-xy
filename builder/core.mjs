@@ -341,6 +341,28 @@ export const validKeywords = m => m.keywords === undefined || Array.isArray(m.ke
   m.keywords.length <= MAX_KEYWORDS && new Set(m.keywords).size === m.keywords.length && m.keywords.every(keyword => MACHINE_KEYWORDS.includes(keyword));
 // Who maintains a machine: its catalog maintainer; a personal kit's own machines have none.
 export const machineAuthor = m => m.source?.maintainer ?? '';
+// The share of an audio block above which the builder labels a machine CPU-high
+// (tooling.cpu_measurement.HIGH_PERCENT, which tests compare).
+export const CPU_HIGH_PERCENT = 4.5;
+// A catalog machine's reported CPU worst case: its worst observed block peak, or its
+// average per block when its record reports no peak; null without a cpu record.
+export function cpuWorstCase(m) {
+  const usable = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
+  const cpu = m.cpu && typeof m.cpu === 'object' ? m.cpu : {};
+  if (usable(cpu.peak_percent)) return {percent: cpu.peak_percent, metric: 'peak'};
+  if (usable(cpu.block_percent)) return {percent: cpu.block_percent, metric: 'average'};
+  return null;
+}
+// The CPU-high label, derived from the cpu record so it follows the catalog: the worst
+// case with the words that explain it, or null for a machine at or under the threshold.
+export function cpuHigh(m) {
+  const worst = cpuWorstCase(m);
+  if (!worst || worst.percent <= CPU_HIGH_PERCENT) return null;
+  const figure = Number(worst.percent.toFixed(2)) + '% of an audio block';
+  return {...worst, text: worst.metric === 'peak'
+    ? 'CPU-high: worst observed block peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
+    : 'CPU-high: average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)'};
+}
 // The keywords the machines use, with how many use each, most used first, then by name: the
 // order in which the builder keeps keyword filters when only some fit (builder/app.mjs).
 export function keywordsByUse(machines) {

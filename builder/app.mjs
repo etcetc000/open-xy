@@ -275,6 +275,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       };
       return button;
     }));
+    // Its reported CPU worst case, when above core.CPU_HIGH_PERCENT, with the figure.
+    const high = core.cpuHigh(m);
+    field('detail-cpu-high').hidden = !high;
+    field('detail-cpu-high').title = high?.text ?? '';
+    if (high) field('detail-cpu-high').setAttribute('aria-label', high.text);
+    else field('detail-cpu-high').removeAttribute('aria-label');
     field('community-notice').hidden = m.origin !== 'catalog';
     // Credit the catalog's maintainer and repository, with the exact release source;
     // Open-XY's own catalog machines (core.ORIGINS) name the project instead.
@@ -532,6 +538,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       meta.append(memory);
       const originLabel = {bundled: 'Core', official: 'Core', catalog: 'Community', personal: 'Yours'}[m.origin];
       meta.append(node('span', originLabel, 'machine-origin'));
+      const high = core.cpuHigh(m);
+      if (high) {
+        const badge = node('span', 'CPU-high', 'machine-cpu-high');
+        badge.title = high.text; badge.setAttribute('aria-label', high.text);
+        meta.append(badge);
+      }
       button.append(meta); button.onclick = () => inspect(m.id);
       input.onchange = () => {
         selected = input.checked ? [...selected, m.id] : selected.filter(id => id !== m.id);

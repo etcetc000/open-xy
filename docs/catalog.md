@@ -76,6 +76,15 @@ the field schema, workloads and contributor commands. Unchanged legacy entries
 may remain without a record until their next update; measurements are never
 backfilled with host estimates.
 
+The builder labels a machine **CPU-high** when its reported worst case is above
+4.5% of an audio block (`HIGH_PERCENT` in
+[`tooling/cpu_measurement.py`](../tooling/cpu_measurement.py), which
+`builder/core.mjs` repeats as `CPU_HIGH_PERCENT`). The worst case is the record's
+`peak_percent`, or its `block_percent` average when it reports no peak; the
+label's tooltip gives the figure and says which it is. The label is derived from
+the `cpu` record, never written in an entry, and `catalog check` notes it for the
+entries it reviews.
+
 IDs are unique across the catalog. Open-XY's own machines are entries like
 any other, published from the [core machines](https://github.com/etcetc000/open-xy-core-machines).
 

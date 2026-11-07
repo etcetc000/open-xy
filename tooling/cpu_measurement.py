@@ -23,6 +23,24 @@ DRUM_FIELDS = FIELDS | {'midpoint_percent', 'kit_percent', 'choke_percent', 'cei
 # The share of the stock block budget a machine should stay within (docs/profiling.md).
 # Above it a machine is still accepted, with a warning.
 RECOMMENDED_PERCENT = 3.5
+# Above this share of a block, a machine's reported worst case (its worst observed block
+# peak, else its average) gets the builder's CPU-high label (builder/core.mjs
+# CPU_HIGH_PERCENT, which tests compare). The label is derived, never written in an entry.
+HIGH_PERCENT = 4.5
+
+
+def worst_case(value):
+    """The reported worst case: (percent, 'peak') when the record has a peak, else (percent, 'average')."""
+    return (value['peak_percent'], 'peak') if 'peak_percent' in value else (value['block_percent'], 'average')
+
+
+def high(value):
+    """The builder's CPU-high note for a record whose worst case exceeds HIGH_PERCENT, else None."""
+    percent, metric = worst_case(value)
+    if percent <= HIGH_PERCENT:
+        return None
+    return (f"the builder labels it CPU-high: {'worst observed block peak' if metric == 'peak' else 'average (no peak reported)'} "
+            f"{percent:.3f}% is above {HIGH_PERCENT}%")
 
 
 def above_recommended(value):
