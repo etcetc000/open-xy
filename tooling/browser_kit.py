@@ -159,13 +159,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
-    services = native.active_services(profile, native.service_users(machines))
-    # Track control: startup's calls into the saved data, while a selection does not use the service.
-    if 'control' in services:
-        kit['serviceFallbacks'] = {'control': dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'),
-                                                            'kit_absent')}
-    if 'aux' in services:
-        kit.setdefault('serviceFallbacks', {})['aux'] = {'sdk_aux_startup': 'kit_absent'}
+    fallbacks = native.service_fallbacks(native.active_services(profile, native.service_users(machines)))
+    if fallbacks:
+        kit['serviceFallbacks'] = fallbacks
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves

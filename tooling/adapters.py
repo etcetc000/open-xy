@@ -77,8 +77,21 @@ def generate_voice(directory, m, sweep=False):
         values['PAD_COUNT'] = len(pads)
         values['PAD_BITS'] = ', '.join(str(f['bits']) for f in pads) or '1'
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
+        values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
+
+
+def drum_transport(m):
+    """Whether a drum kit's adapter passes the tempo to its drum_transport: a kit declaring
+    SDK 1.10 or later. Older kits never get the call, whatever their source defines."""
+    return m.kind == 'drum' and getattr(m, 'sdk', (1, 0)) >= (1, 10)
+
+
+def pad_mix(m):
+    """Whether a drum kit's Shift row is each key's mixer channel (resources.padMix), whose
+    pan, level, pad controls and sends also lock per hit (drum_locks.hpp)."""
+    return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
 
 
 def sends_per_key(m):

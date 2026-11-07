@@ -109,8 +109,16 @@ int main() {
     CHECK(probe_drum_send(objects[4]) == 0);
     end(3);
     end(4);
+    // A note keeps the codes of its first block's payload: the payload is the
+    // pad's, which a later note on the pad replaces.
+    render(1, nullptr);
+    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? 5u + (3u << 3) : 0u));
+    note(1, 53);
     render(1, nullptr);
     CHECK(probe_drum_send(objects[1]) == 0);
+    render(1, marked);
+    CHECK(probe_drum_send(objects[1]) == 0);
+    note(1, 53);
     render(1, marked);
     // A destroyed handle has no voice: whatever it renders is silence.
     end(1);
@@ -296,8 +304,12 @@ class DrumSend(unittest.TestCase):
         self.assertIn('sdk_drum_send_kit_count = 0;', source)
         machine = SimpleNamespace(**dict(vars(kit(1)), display='drawing'))
         absent = native.absent_symbols(machine)
-        self.assertEqual(absent['probe_vtable'], 'kit_absent')
+        # The table's declaration has no assembler name, so the object imports _probe_vtable.
+        self.assertEqual(absent['_probe_vtable'], 'kit_absent')
         self.assertEqual(absent['probe_drum_send'], 'kit_absent')
+        self.assertNotIn('probe_drum_pad_text', absent)
+        machine.definition['resources']['padControls'] = [dict(bits=4, label='TUNE')]
+        self.assertEqual(native.absent_symbols(machine)['probe_drum_pad_text'], 'kit_absent')
 
 
 if __name__ == '__main__':
