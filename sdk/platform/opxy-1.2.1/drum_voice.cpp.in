@@ -71,6 +71,9 @@ const bool kPadMix = @PAD_MIX@;
 const opxy::u32 kPadCount = @PAD_COUNT@;
 static const opxy::u8 pad_bits[] = {@PAD_BITS@};
 const opxy::u32 kPadSigns = @PAD_SIGNS@;
+// A kit declaring SDK 1.10 or later hears the tempo through drum_transport; older kits
+// never do, so the audio clock is not read for them.
+const bool kTransport = @TRANSPORT@;
 const opxy::u32 kChokeFrames = 128;
 static_assert(kChokeFrames << 24 == 0x80000000u, "The fade's Q31 gain steps are 1/128");
 static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
@@ -135,6 +138,15 @@ namespace sdk_drum_pads {
 struct Absent {};
 template <class V, class S> Absent drum_pad(V&, S&, opxy::u32, const opxy::i32*) { return Absent(); }
 template <class F> bool pad_control_text(opxy::u32, opxy::i32, F*) { return false; }
+}
+// An engine may take the tempo with
+// `void drum_transport(Voice&, Shared&, u32 owner, const opxy::Transport&)` in its
+// namespace, before every render, after drum_select and drum_pad: the audio clock's
+// advisory tempo, 96-PPQN ticks and play state, as sample engines get them. A kit
+// without one never hears it.
+namespace sdk_drum_transport {
+struct Absent {};
+template <class V, class S> Absent drum_transport(V&, S&, opxy::u32, const opxy::Transport&) { return Absent(); }
 }
 extern "C" {
 extern const void* const @PREFIX@_vtable[];
@@ -214,7 +226,7 @@ void* @PREFIX@_factory(opxy::u32 index, opxy::u32 track) {
 // voice's filter envelope this block.
 static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* region, const opxy::i32* parameters,
                                 const opxy::u32* increments, const opxy::i32* amplitude,
-                                opxy::u32 filter, opxy::i32 envelope) {
+                                opxy::u32 filter, opxy::i32 envelope, const opxy::Transport& transport) {
     if (Slot* slot = held(static_cast<Handle*>(self))) {
         Handle* handle = static_cast<Handle*>(self);
         opxy::u8 model, stored[8];
@@ -254,6 +266,10 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
         if (kPadCount) {
             using namespace sdk_drum_pads;
             drum_pad(slot->voice, shared, slot->owner, static_cast<const opxy::i32*>(slot->pads));
+        }
+        if (kTransport) {
+            using namespace sdk_drum_transport;
+            drum_transport(slot->voice, shared, slot->owner, transport);
         }
         @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
         // The track filter, where stock's normal renderer runs a synth voice's:
@@ -301,8 +317,10 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* region,
     const opxy::u32 track = static_cast<const Handle*>(self)->track;
     const opxy::u32 filter = track < opxy::platform::kDrumFilterTracks && stock_filter_on[track]
         ? stock_filter_type[track] : opxy::platform::kDrumFilterNone;
+    // The tempo is read only for a kit that hears it; a handle without a voice ignores it.
     render_voice(self, output, region, parameters, stock_increments, stock_amplitude, filter,
-                 filter != opxy::platform::kDrumFilterNone ? stock_filter_envelope[opxy::block_frames - 1] : 0);
+                 filter != opxy::platform::kDrumFilterNone ? stock_filter_envelope[opxy::block_frames - 1] : 0,
+                 kTransport ? opxy::platform::audio_transport() : opxy::Transport());
     return 0;
 }
 // +8 belongs to stock's other renderer. Never leave its output scratch stale

@@ -683,6 +683,23 @@ argument-dependent lookup finds it, and take the voice and the shared state;
 one elsewhere or with other arguments is never called. A kit without it behaves exactly as
 before. The browser preview models neither the choke nor `finished`.
 
+A kit declaring `"sdk": "1.10"` or later may also take the tempo:
+
+```cpp
+void drum_transport(Voice&, Shared&, opxy::u32 owner, const opxy::Transport&);   // optional; in the machine namespace
+```
+
+The adapter calls it before every `render`, after `drum_select` and
+`drum_pad`, with the audio clock's advisory tempo, 96-PPQN ticks and play
+state, the same [`opxy::Transport`](../sdk/include/opxy/transport.hpp) sample
+engines get. `bpm_x10` is 0 when there is no tempo. As with `finished`,
+argument-dependent lookup finds it in the namespace that defines `Voice`; include
+`<opxy/transport.hpp>` in the kit's source. It needs no resource: an SDK
+without it builds the same source and never calls it, nor does this SDK for a
+kit declaring an older version. Keep a fallback for when it is not called or
+`bpm_x10` is 0, such as a tempo of the kit's own. The profiling workload passes
+120 BPM, playing. The browser preview has no tempo and never calls it.
+
 Kits use the same fixed shared-state and voice-pool rules as synths. Their
 code and state are linked once per machine, shared across tracks; voices
 still require independent state. Machine code and model data need no file loading when notes or patterns change.
@@ -1019,7 +1036,9 @@ void process(State& state, opxy::Buffer buffer, const opxy::Transport& transport
 ```
 
 `transport.bpm_x10` is the tempo in tenths of BPM, or 0 when there is none
-(see [`opxy/transport.hpp`](../sdk/include/opxy/transport.hpp)). A control with
+(see [`opxy/transport.hpp`](../sdk/include/opxy/transport.hpp)). Sample
+engines get the same transport in their `SampleBlock`, and drum kits through
+[`drum_transport`](#synthesis-drum-kits). A control with
 `"display": "division"` and a linear 0..1 mapping picks one of stock delay's
 note lengths, an eighth of its travel each: 1/32, 1/32 dotted, 1/16, 1/16
 dotted, 1/8, 1/8 dotted, 1/4 and 1/2. `opxy::division(control)` gives the index
