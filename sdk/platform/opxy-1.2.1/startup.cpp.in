@@ -35,7 +35,8 @@ int sdk_stock_engine_known(const void*) __asm__("sdk_stock_engine_known");
 
 namespace {
 typedef __UINTPTR_TYPE__ Address;
-u32 value(const char* symbol) { return static_cast<u32>(reinterpret_cast<Address>(symbol)); }
+// A collection of only stock-page effects or players never calls it.
+__attribute__((unused)) u32 value(const char* symbol) { return static_cast<u32>(reinterpret_cast<Address>(symbol)); }
 }
 
 int kit_absent() { return 0; }
