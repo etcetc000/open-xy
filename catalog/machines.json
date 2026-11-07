@@ -356,6 +356,32 @@
       }
     },
     {
+      "id": "vibe",
+      "kind": "effect",
+      "maintainer": "meemknight",
+      "status": "published",
+      "repository": "https://github.com/meemknight/vibe",
+      "tag": "v1.0.0",
+      "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
+      "path": ".",
+      "keywords": [
+        "ambient",
+        "delay",
+        "reverb",
+        "modulation",
+        "granular"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
+        "firmware_sha256": "e1e44f88ec568201a0be2444f99bf3c26111534a05199c86f7a0f40168575726",
+        "runs": 2,
+        "block_percent": 4.628061,
+        "peak_percent": 7.71191,
+        "report": "https://github.com/etcetc000/open-xy/pull/409#issuecomment-6714434389"
+      }
+    },
+    {
       "id": "matrixy",
       "kind": "synth",
       "maintainer": "frankoooooooo",
