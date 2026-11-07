@@ -679,8 +679,11 @@ def occupied(rules, identity):
     return keys
 
 
-def read_layout(path):
-    """A layout file's numbers by machine ID. The builder's saved selection is a layout too."""
+def read_layout(path, build=False):
+    """A layout file's numbers by machine ID. The builder's saved selection is a layout too.
+
+    A build refuses a layout from the builder's experimental memory, which SDK
+    builds do not offer; companions need only the numbers."""
     value = json.loads(Path(path).read_text(encoding='utf-8'))
     profile = config()
     require(isinstance(value, dict) and value.get('format') == LAYOUT_FORMAT and isinstance(value.get('machines'), dict),
@@ -688,6 +691,21 @@ def read_layout(path):
     # Earlier profiles with the same identity rules number machines the same way.
     require(value.get('profile') in (profile['id'], *profile.get('layout_profiles', ())),
             f"{path} is a layout for {value.get('profile')}, not {profile['id']}")
+    # The builder's experimental 4 MiB memory (profile experimental_memory) is
+    # builder-only; an SDK build from its layout would quietly use 2 MiB.
+    # The same shape the builder accepts (builder/core.mjs readLayout): neither member, or both,
+    # reserved_bytes read as JavaScript's JSON.parse reads it (a double, e.g. 4194304.0).
+    reserved = value.get('reserved_bytes')
+    try:
+        reserved = float(reserved) if type(reserved) in (int, float) else None
+    except OverflowError:
+        reserved = None  # JavaScript reads it as Infinity
+    require(('memory' not in value and 'reserved_bytes' not in value) or
+            (value.get('memory') == 'expanded' and reserved is not None and reserved.is_integer() and
+             reserved > 0 and reserved % (1024 * 1024) == 0),
+            f'{path} has an invalid memory choice')
+    require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "
+            'sdk.py builds use standard memory. Remove "memory" and "reserved_bytes" from a copy to build with standard memory.')
     return check_layout_numbers(value['machines'], 'the layout')
 
 

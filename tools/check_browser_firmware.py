@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import zipfile
@@ -9,7 +10,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tooling.formats import elf32, ldr, mapped_offset, require, sha
-from tooling import extensions, screen, startup_label
+from tooling import extensions, screen, startup_label, stock_tables
 from tooling.adapters import catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
 from tooling.machines import number_layout
@@ -36,6 +37,122 @@ def check_fallbacks(module, symbols, base):
     at = absent['value'] - base
     require(absent['size'] == len(ABSENT) and module[at:at + len(ABSENT)] == ABSENT,
             'Absent-machine callback differs from its source')
+
+
+def expanded_profile(profile):
+    """The reviewed experimental 4 MiB layout (builder/core.mjs expandedProfile), applied independently."""
+    x = profile['experimental_memory']
+    require(isinstance(x, dict) and set(x) == {'module_base', 'reserved_bytes', 'heap_after'} and
+            isinstance(x['heap_after'], str) and re.fullmatch('[0-9a-f]{16}', x['heap_after']) is not None,
+            'Experimental memory layout is inconsistent')
+    # Checked here too, with the stock instruction decoder, rather than trusted.
+    opcode, heap = stock_tables.decode('imm32', bytes.fromhex(x['heap_after']))
+    heaps = [p for p in profile['patches'] if p['kind'] == 'heap']
+    end = profile['module_base'] + profile['reserved_bytes']
+    mib = 1024 * 1024
+    require(len(heaps) == 2 and
+            all(type(x[k]) is int for k in ('module_base', 'reserved_bytes')) and
+            (profile['module_base'] - profile['heap_fill_base']) % mib == 0 and
+            x['reserved_bytes'] > profile['reserved_bytes'] and x['reserved_bytes'] % mib == 0 and
+            x['module_base'] + x['reserved_bytes'] == end == profile['heap_fill_base'] + profile['heap_fill_bytes'] and
+            profile['heap_fill_base'] < x['module_base'] and heap == x['module_base'] - profile['heap_fill_base'] and
+            heap % mib == 0 and profile['reserved_bytes'] % mib == 0 and
+            all(stock_tables.decode('imm32', bytes.fromhex(p['before'])) == (opcode, profile['heap_fill_bytes']) and
+                stock_tables.decode('imm32', bytes.fromhex(p['after'])) == (opcode, profile['module_base'] - profile['heap_fill_base'])
+                for p in heaps), 'Experimental memory layout is inconsistent')
+    expanded = copy.deepcopy(profile)
+    del expanded['experimental_memory']  # the derived profile is the layout itself
+    expanded.update(module_base=x['module_base'], reserved_bytes=x['reserved_bytes'])
+    for patch in expanded['patches']:
+        if patch['kind'] == 'heap':
+            patch['after'] = x['heap_after']
+    return expanded
+
+
+def selection_services(kit, result):
+    return active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
+                           (['extension'] if result['extensions'] else []) +
+                           (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
+                                                    for e in kit.get('extensions', [])) else []))
+
+
+def assembled(stock, module, symbols, reviewed, services, profiling):
+    """Python's own LDR for a GNU-linked module and the reviewed profile it was linked for."""
+    profile = copy.deepcopy(reviewed)
+    for patch in profile['patches']:
+        if not patch_active(patch, services, profiling):
+            patch['after'] = patch['before']
+        elif patch['kind'] == 'hook':
+            patch['after'] = hook_instruction(patch, symbols[patch['symbol']]['value']).hex()
+        elif patch['kind'] == 'startup':
+            patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
+    return assemble(stock, module, profile, reviewed, len(profile['patches']), services, profiling)
+
+
+def check_module(prefix, result, profile, boot_label):
+    """A GNU-linked module for the profile it was linked for: digest, fallbacks, label,
+    reserved region, allocation and globals. Returns its bytes and symbols."""
+    sections, symbols = elf32(prefix.with_suffix('.elf').read_bytes())
+    module = prefix.with_suffix('.bin').read_bytes()
+    require(sha(module) == result['module_sha256'], 'GNU module digest differs: ' + result['name'])
+    low = profile['module_base']
+    check_fallbacks(module, symbols, low)
+    check_startup_label(module, symbols, low, boot_label)
+    require(symbols['__extensions_reserved_start']['value'] == low and
+            symbols['__extensions_reserved_end']['value'] - low == profile['reserved_bytes'] - profile['table_bytes'] and
+            symbols['__extensions_initialized_end']['value'] - low == result['sizes']['initialized'] and
+            symbols['__extensions_module_end']['value'] - low == result['sizes']['allocated'] and
+            sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs: ' + result['name'])
+    for name, value in result['globals'].items():
+        require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
+    return module, symbols
+
+
+def check_numbers(kit, result, symbols):
+    """The selection's numbers, worked out again by the Python numbering the native build
+    uses: each selected machine's number symbols must carry them; returns them."""
+    numbers = number_layout(kit['profile']['identities'], [(i, None, n) for i, n in kit['fixed'].items()],
+                            result['layout'], [(m['id'], m['kind'], m['identity']) for m in kit['machines']
+                                               if m['id'] in result['selected']])
+    for machine in kit['machines']:
+        # A sample engine asking for no page draws its own screen (builder/core.mjs numberSymbols).
+        own_screen = machine['kind'] == 'sample' and machine['identity']['page'] is None
+        value = lambda suffix: symbols.get(machine['prefix'] + suffix, {}).get('value')
+        if machine['id'] not in result['selected']:
+            # An unselected machine has no numbers: no startup, catalog or control lookup matches it.
+            require(all(value(s) == 0 for s in number_suffixes(machine['kind'], own_screen)),
+                    'Unselected machine has numbers: ' + machine['id'])
+            continue
+        own = numbers[machine['id']]
+        # A sample engine drawing its own screen numbers that screen's page; its page
+        # symbol stays its stock page.
+        pairs = {'player': (('_player_id', 'player'), ('_page_id', 'page')),
+                 'effect': (('_fx_id', 'effect'), ('_fx_page_id', 'page')),
+                 'sample': (('_engine_id', 'engine'), ('_screen_page_id' if own_screen else '_page_id', 'page'))
+                 }.get(machine['kind'], (('_engine_id', 'engine'), ('_page_id', 'page')))
+        require(all(value(suffix) == own[key] for suffix, key in pairs),
+                'Selection numbers differ: ' + machine['id'])
+    return numbers
+
+
+def check_expanded(directory, kit, stock, boot_label):
+    """GNU-linked 4 MiB modules: their symbols and sizes, and Python's LDR equal to the browser's."""
+    results = directory / 'reference/selections-expanded.json'
+    # A profile with the layout must pass its checks here (named errors) before its results are required.
+    reviewed = expanded_profile(kit['profile']) if 'experimental_memory' in kit['profile'] else None
+    require(results.is_file() == (reviewed is not None), 'Experimental memory checks missing or unexpected')
+    if reviewed is None:
+        return 0
+    selections = json.loads(results.read_text())
+    for result in selections:
+        prefix = directory / 'reference' / result['name']
+        module, symbols = check_module(prefix, result, reviewed, boot_label)
+        check_numbers(kit, result, symbols)  # every 4 MiB build, the whole collection included
+        services = selection_services(kit, result)
+        for profiling, suffix in ((True, '.ldr'), (False, '.profiling-off.ldr')):
+            require(assembled(stock, module, symbols, reviewed, services, profiling) == prefix.with_suffix(suffix).read_bytes(),
+                    'Python/browser firmware differs (experimental memory): ' + suffix)
+    return len(selections)
 
 
 def main():
@@ -77,55 +194,12 @@ def main():
             'Browser firmware for the linked machines differs from the native package')
     for result in selections:
         prefix = directory / 'reference' / result['name']
-        sections, symbols = elf32(prefix.with_suffix('.elf').read_bytes())
-        module = prefix.with_suffix('.bin').read_bytes()
-        require(sha(module) == result['module_sha256'], 'GNU module digest differs')
-        low = kit['profile']['module_base']
-        check_fallbacks(module, symbols, low)
-        check_startup_label(module, symbols, low, boot_label)
-        require(symbols['__extensions_initialized_end']['value'] - low == result['sizes']['initialized'] and
-                symbols['__extensions_module_end']['value'] - low == result['sizes']['allocated'] and
-                sections.get('.bss', {}).get('size', 0) == result['sizes']['bss'], 'GNU memory allocation differs')
-        for name, value in result['globals'].items():
-            require(symbols[name]['value'] == value, 'GNU symbol differs: ' + name)
-        # The selection's numbers, worked out again by the Python numbering the native build
-        # uses: each selected machine's number symbols and menu entry must carry them.
-        numbers = number_layout(kit['profile']['identities'], [(i, None, n) for i, n in kit['fixed'].items()],
-                                result['layout'], [(m['id'], m['kind'], m['identity']) for m in kit['machines']
-                                                   if m['id'] in result['selected']])
-        for machine in kit['machines']:
-            # A sample engine asking for no page draws its own screen (builder/core.mjs numberSymbols).
-            own_screen = machine['kind'] == 'sample' and machine['identity']['page'] is None
-            value = lambda suffix: symbols.get(machine['prefix'] + suffix, {}).get('value')
-            if machine['id'] not in result['selected']:
-                # An unselected machine has no numbers: no startup, catalog or control lookup matches it.
-                require(all(value(s) == 0 for s in number_suffixes(machine['kind'], own_screen)),
-                        'Unselected machine has numbers: ' + machine['id'])
-                continue
-            own = numbers[machine['id']]
-            # A sample engine drawing its own screen numbers that screen's page; its page
-            # symbol stays its stock page.
-            pairs = {'player': (('_player_id', 'player'), ('_page_id', 'page')),
-                     'effect': (('_fx_id', 'effect'), ('_fx_page_id', 'page')),
-                     'sample': (('_engine_id', 'engine'), ('_screen_page_id' if own_screen else '_page_id', 'page'))
-                     }.get(machine['kind'], (('_engine_id', 'engine'), ('_page_id', 'page')))
-            require(all(value(suffix) == own[key] for suffix, key in pairs),
-                    'Selection numbers differ: ' + machine['id'])
-        services = active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
-                                   (['extension'] if result['extensions'] else []) +
-                                   (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
-                                                            for e in kit.get('extensions', [])) else []))
+        module, symbols = check_module(prefix, result, kit['profile'], boot_label)
+        numbers = check_numbers(kit, result, symbols)
+        services = selection_services(kit, result)
         modes = {}
         for profiling in (True, False):
-            profile = copy.deepcopy(kit['profile'])
-            for patch in profile['patches']:
-                if not patch_active(patch, services, profiling):
-                    patch['after'] = patch['before']
-                elif patch['kind'] == 'hook':
-                    patch['after'] = hook_instruction(patch, symbols[patch['symbol']]['value']).hex()
-                elif patch['kind'] == 'startup':
-                    patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
-            expected = assemble(stock, module, profile, kit['profile'], len(profile['patches']), services, profiling)
+            expected = assembled(stock, module, symbols, kit['profile'], services, profiling)
             suffix = '.ldr' if profiling else '.profiling-off.ldr'
             require(expected == prefix.with_suffix(suffix).read_bytes(), 'Python/browser firmware differs: ' + suffix)
             modes[profiling] = expected
@@ -193,7 +267,9 @@ def main():
             require(set(archive.namelist()) == set(expected_files) and archive.testzip() is None, 'Invalid ZIP file')
             for name, data in expected_files.items():
                 require(archive.read(name) == data, 'ZIP payload differs')
-    print('Independent GNU/Python verification passed for the checked selections (module, symbols, BSS, LDR, assets, ZIP).')
+    expanded = check_expanded(directory, kit, stock, boot_label)
+    print('Independent GNU/Python verification passed for the checked selections (module, symbols, BSS, LDR, assets, ZIP)'
+          + (f', and {expanded} at the experimental 4 MiB layout (module, symbols, BSS, LDR).' if expanded else '.'))
 
 
 if __name__ == '__main__':

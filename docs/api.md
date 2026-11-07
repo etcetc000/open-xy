@@ -37,10 +37,11 @@ The [firmware contract](abi-1.2.1.md) explains where each rule comes from.
 
 Every selected machine and the SDK share **one 2032 KiB module region**: code,
 constant data and zero-initialized state together. It is the 2 MiB the
-firmware reserves from its heap, minus 16 KiB of relocated stock tables. There
+firmware reserves from its heap, minus 16 KiB of relocated stock tables (4080 KiB
+with the builder's [experimental 4 MiB option](builder.md#capacity-and-machine-numbers)). There
 is no per-machine allowance: a build that does not fit names each machine's
 share, and `sdk.py compile` and the builder's memory meter report the same
-figures. State usually dominates, since a synth's voice pool is
+figures for standard memory. State usually dominates, since a synth's voice pool is
 `voiceBytes × (min(voiceCapacity, 27) + 1)`: stock never sounds more than 27
 notes, and one spare voice serves a note that ended as another starts. The SDK
 adds 12 bytes per stock voice index (3 KiB) and 16 per voice.

@@ -88,7 +88,8 @@ class OsPort(unittest.TestCase):
             root = Path(folder)
             (root / 'source.ldr').write_bytes(self.source.data)
             (root / 'target.ldr').write_bytes(self.target.data)
-            (root / 'profile.json').write_text(json.dumps(self.profile))
+            # The experimental larger memory is reviewed per release and never ported.
+            (root / 'profile.json').write_text(json.dumps(dict(self.profile, experimental_memory={'module_base': 1})))
             args = ['--source', str(root / 'source.ldr'), '--target', str(root / 'target.ldr'),
                     '--profile', str(root / 'profile.json')]
             with self.assertRaisesRegex(ValueError, 'outside every checkout'):
@@ -100,6 +101,7 @@ class OsPort(unittest.TestCase):
             self.assertEqual(candidate['heap_fill_base'], HEAP - 0x40)
             self.assertEqual(candidate['module_base'], self.new_code - RESERVED)
             self.assertIsNone(candidate['id'])
+            self.assertNotIn('experimental_memory', candidate)
             self.assertEqual([p['port_status'] for p in candidate['patches']], ['verified', 'located'])
 
 
