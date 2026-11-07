@@ -33,7 +33,7 @@ from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_
 from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
                        fresh_output, host_pins, host_platform,
                        hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
-from .startup import generate as generate_startup
+from .startup import LOCK_CALLS, generate as generate_startup
 
 LINKER = 'linker/opxy-1.2.1.ld'
 TARGET = 'opxy-1.2.1'
@@ -325,9 +325,12 @@ def absent_symbols(m):
             # The shared drum table names these.
             absent.update({m.prefix + suffix: 'kit_absent' for suffix in
                            ('_drum_defaults', '_drum_label', '_drum_model_name', '_drum_count')})
+            if m.definition['resources'].get('padControls'):
+                absent[m.prefix + '_drum_pad_text'] = 'kit_absent'
             if sends_per_key(m):
-                # The send table names these; no voice's method table is kit_absent.
-                absent.update({m.prefix + suffix: 'kit_absent' for suffix in ('_vtable', '_drum_send')})
+                # The send table names these; no voice's method table is kit_absent. The
+                # table is declared without an assembler name, so it carries C's underscore.
+                absent.update({'_' + m.prefix + '_vtable': 'kit_absent', m.prefix + '_drum_send': 'kit_absent'})
         if m.kind == 'sample':
             # The shared sample table names these; unselected, its ready check declines first.
             absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
@@ -368,6 +371,21 @@ def number_suffixes(kind, own_screen=False):
             ('_engine_id', '_page_id', '_screen_page_id') if kind == 'sample' and own_screen else ('_engine_id', '_page_id'))
 
 
+def service_fallbacks(services):
+    """What a selection that does not use a service gets for the service's entry points
+    that shared objects (startup's included) import: kit_absent, which answers 0. Track
+    control's saved data, the aux service's start, and every call into the step-lock
+    handles (startup.LOCK_CALLS)."""
+    fallbacks = {}
+    if 'control' in services:
+        fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
+    if 'aux' in services:
+        fallbacks['aux'] = {'sdk_aux_startup': 'kit_absent'}
+    if 'drum_locks' in services:
+        fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
+    return fallbacks
+
+
 def absent_numbers(absent):
     """Unselected machines have no numbers (builder/core.mjs numberSymbols): each number
     symbol they have, a sample engine's own screen page included, is 0."""
@@ -380,6 +398,12 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     as the builder does; None, or how they overflow the shared module memory."""
     absent = [m for m in machines if m not in selected]
     aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
+    # Entry points of services the whole collection's shared objects (startup's
+    # included) call into but this selection doesn't link, as the builder resolves them.
+    used = active_services(profile, service_users(subset(machines, selected)))
+    for service, fallbacks in service_fallbacks(active_services(profile, service_users(machines))).items():
+        if service not in used:
+            aliases.update(fallbacks)
     definitions = {**definitions, **absent_numbers(absent)}
     # GNU ld synthesizes FILE symbols from object arguments; relative names keep
     # independent rebuilds byte-identical.
