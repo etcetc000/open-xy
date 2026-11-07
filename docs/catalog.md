@@ -67,12 +67,29 @@ Note players carry no audio-render CPU record; their note transforms are not
 covered by the profiler.
 
 New or changed draft/published instrument/effect entries require a `cpu` record generated
-from [hardware profiling](profiling.md), for synth, sample and effect machines; a synth's is a
-control sweep that records its heaviest setting. Results above the recommended
-3.5% of the block budget are accepted with a warning. That guide owns
+from [hardware profiling](profiling.md), for synths, drum kits, sample engines and effects,
+including average cost and the worst observed block peak. A synth's control
+sweep reports both, which may occur at different settings. Average or peak results above the recommended
+3.5% each of the block budget are accepted with a warning; clipped peaks cannot be
+published as exact measurements. That guide owns
 the field schema, workloads and contributor commands. Unchanged legacy entries
 may remain without a record until their next update; measurements are never
 backfilled with host estimates.
+
+The builder labels a machine **CPU-high** when its reported worst case is above
+4.5% of an audio block (`HIGH_PERCENT` in
+[`tooling/cpu_measurement.py`](../tooling/cpu_measurement.py), which
+`builder/core.mjs` repeats as `CPU_HIGH_PERCENT`). The worst case is the record's
+`peak_percent`, or its `block_percent` average when it reports no peak; the
+label immediately explains on hover or keyboard focus that higher CPU usage may reduce the number of simultaneous voices. A drum kit is judged by its
+worst single sound, never its whole-kit, choke or ceiling runs: its
+`voice_peak_percent`, the worst block of its single-voice runs, or, in a record
+without one, its `block_percent`, the heaviest single voice's average
+([profiling](profiling.md)). Its `peak_percent` includes whole-kit runs at full
+polyphony and is not used. `profile report` writes `voice_peak_percent`; a kit
+measured before it has none until it is measured again. The label is derived from
+the `cpu` record, never written in an entry, and `catalog check` notes it for the
+entries it reviews.
 
 IDs are unique across the catalog. Open-XY's own machines are entries like
 any other, published from the [core machines](https://github.com/etcetc000/open-xy-core-machines).
@@ -130,7 +147,12 @@ python sdk.py compile --collection local/catalog/collection.json --out <folder>
    `v1.0.0`. Change the catalog entry to `draft` for review or `published` for
    inclusion, adding `repository`, `tag`, the full tagged `commit` and `path`
    from the field table, and one to five `keywords` that describe it. Add the
-   generated `cpu` member from `catalog-cpu.json`.
+   complete generated `cpu` member from `catalog-cpu.json`, including both
+   `block_percent` (average cost) and `peak_percent` (worst observed block).
+   An average-only record fails a new submission. The heaviest setting by mean
+   need not be the setting with the largest spike; the report lists both.
+   Existing complete captures can be reprocessed with `sdk.py profile report`
+   to obtain the peak without another device run, if source and package still match.
    A new CPU record's commit must equal the tagged machine commit. If you link a
    report, keep it in an issue/comment or separate evidence location so adding
    the readout does not change the machine commit after measurement.
@@ -182,13 +204,19 @@ A maintainer then reviews a new machine once, in full:
 - It uses only the public headers: no assembly, raw addresses or platform code.
 - Its audio callbacks never allocate, block, log or do I/O.
 - Its name is sensible, and its licence allows redistribution.
+- A sample engine's [own samples](api.md#own-samples) are audio its maintainer
+  made or may redistribute under the machine's licence, never stock OP-XY content
+  or commercial or library sounds, and the samples folder's `README.md` states
+  each one's provenance and licence.
 - New synths follow the [control and header conventions](ux.md): five to eight
   controls use two fixed rows and whole-page switching, with repeated shared
   controls where the second page has no alternate.
 - It sounds right in the browser preview from its CI.
 
-An update moves `tag` and `commit` and is reviewed as a diff. The workflow
-compares the catalog with the pull request's target branch: a change of `kind`
+An update moves `tag` and `commit` and is reviewed as a diff. A sample engine's
+update keeps each sample an earlier release shipped and gives new audio a new
+name, since projects load [its own samples](api.md#own-samples) by name. The
+workflow compares the catalog with the pull request's target branch: a change of `kind`
 is refused, and a removed machine becomes `retired`, never deleted.
 A new `repository` or `maintainer` is a handover: it fails the check, and a
 catalog maintainer approves it in a pull request of its own.

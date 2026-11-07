@@ -13,8 +13,13 @@ const u32 overview_bins = 96;
 // the file worker reads it in the background; frames, rate, channels and the bins
 // are then 0 too. generation changes whenever a different overview is published,
 // including when the same file is replaced or reloaded, and is never 0 once
-// loaded: redraw a waveform when it moves. Read-only and display-only: audio
-// callbacks never call it.
+// loaded: redraw a waveform when it moves. gain (SDK 1.10) is the sample's gain,
+// the one Shift + encoder 4 edits on the stock sampler's page: stock's own whole
+// steps, from -30 at the bottom of its travel to +20 at the top, 0 as a sample is
+// assigned, or gain_unavailable while the track holds no sample. The level the
+// engine receives (SampleBlock.region.level) follows it along stock's own curve.
+// Read-only and display-only: audio callbacks never call it.
+const i32 gain_unavailable = -0x7fffffff - 1;
 struct SampleOverview {
     u32 generation;
     u32 assigned;
@@ -25,6 +30,7 @@ struct SampleOverview {
     u32 begin, end;
     u32 reverse;
     i16 low[overview_bins], high[overview_bins];
+    i32 gain;
 };
 }}
 

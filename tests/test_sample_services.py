@@ -83,6 +83,8 @@ class SampleServices(unittest.TestCase):
                     (ROOT / 'sdk/platform/opxy-1.2.1/retained_drawing.hpp').read_bytes())
                 (Path(folder) / 'screen.hpp').write_bytes(
                     (ROOT / 'tests/fixtures/screen_drawing_host.hpp').read_bytes())
+                (Path(folder) / 'amp_envelope.hpp').write_bytes(
+                    (ROOT / 'tests/fixtures/amp_envelope_host.hpp').read_bytes())
             if name == 'startup':
                 generate_startup(folder, ['first', 'second', 'sampled', 'drawn'], ['effect'], ['sampled', 'drawn'], ['drawn'],
                                  effect_screens=['effect'], player_pages=['player'], control=True)

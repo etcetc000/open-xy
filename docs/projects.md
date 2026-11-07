@@ -83,8 +83,9 @@ rest.
 
 A writer replacing a project rewrites its own sections. It keeps other owners'
 sections unchanged while the previous companion still matched the project it
-replaces, and drops them otherwise. The firmware writes `open-xy.machines` and,
-when a track control machine keeps anything, `open-xy.control`.
+replaces, and drops them otherwise. The firmware writes `open-xy.machines`;
+when a track control machine keeps anything, `open-xy.control`; and when a step
+holds SDK locks, `open-xy.locks`.
 
 ### Canonical form
 
@@ -141,6 +142,25 @@ engine number. After a load, a pattern whose machine the firmware lacks is the
 stock role again and gets those controls back. Early test builds of aux tracks wrote one entry per
 track instead (`"machine"` and `"controls"`); the reader skips it, so such a
 project opens with CV on track 12, playing the machine's values as its controls.
+
+## `open-xy.locks`
+
+Version 1. `pool` holds the values of the project's
+[step-lock handles](abi-1.2.1.md#step-lock-handles), as base64 of their blocks in
+handle order, each a run of little-endian 16-bit words: the handle (1..2457,
+ascending), the entry count (1..25), then each entry's field mask (non-zero),
+its key (a note 0..127, ascending, or 65535 for every key the step plays, last)
+and one value per mask bit, lowest field first, as a signed 16-bit number. The
+fields' meaning is the client's (a `padMix` kit's Shift row). The pool takes at
+most 24 KiB before base64.
+
+The project itself holds which step carries which handle, in lock word 37. When
+the firmware loads a project whose companion matches it and holds a valid
+version 1 section, every handle the section does not give values for is cleared
+from it. Without one (no companion, a mismatched one, a newer version, or a pool
+that is not valid base64 or whose blocks break these rules) the handles stay as
+saved and play nothing; the rest of the companion still applies. The section is
+sized before `open-xy.control`, which gets the room it leaves.
 
 ## `open-xy.master-filter`
 

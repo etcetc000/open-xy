@@ -71,7 +71,8 @@ two-page header. Unused second-page columns repeat the same control from page 1.
 It includes source, tests, README, agent instructions, licence and CI. Use
 `--kind effect` for a send effect; omit `--repository` when adding just a machine
 folder to an existing repository. Follow the generated instructions through
-audition, [hardware profiling](docs/profiling.md) and
+audition, mandatory [hardware profiling](docs/profiling.md) of both average CPU
+and the worst observed block (peak CPU), and
 [catalog submission](docs/catalog.md#submit-a-machine).
 
 A machine is a folder of source: `machine.json`, which declares its kind (each

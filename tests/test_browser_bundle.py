@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from tooling.browser_kit import write_builder
+from tooling.definitions import ROOT
 from tooling.formats import sha
 from tooling.screen import template
 
@@ -59,6 +60,12 @@ const variant = '<circle fill="#bbbbbb" stroke="#777777"/>';
 if (Core.selectArtwork({artwork:svg, grayscaleArtwork:variant}, 'grayscale') !== variant)
   throw new Error('Offline authored grayscale differs');
 '''
+            # Every core function the app calls must be in the closed file:// namespace.
+            # Drop line comments, not '//' inside strings such as URLs.
+            app = re.sub(r'(^|\s)//.*', r'\1', (ROOT / 'builder/app.mjs').read_text(encoding='utf-8'), flags=re.M)
+            used = sorted(set(re.findall(r'\bcore\.(\w+)', app)) - {'mjs'})
+            self.assertIn('memoryKit', used)
+            check += 'for (const name of %s) if (!(name in Core)) throw new Error("Offline Core lacks " + name);\n' % json.dumps(used)
             subprocess.run(['node', '--input-type=module'], input=core + check, text=True, encoding='utf-8',
                            check=True, capture_output=True, timeout=30)
 

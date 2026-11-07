@@ -19,3 +19,6 @@ extern const opxy::platform::CompanionMachine sdk_companion_machines[];
 // startup.cpp, which reaches the control service (track_control_project.cpp) when the
 // collection links it.
 extern "C" opxy::u32 sdk_project_kept(void* file) __asm__("sdk_project_kept");
+// The bytes the companion being written gives open-xy.locks, after open-xy.control:
+// set by the companion writer (project_companion.cpp) while it writes, 0 otherwise.
+extern "C" opxy::u32 sdk_companion_reserved __asm__("sdk_companion_reserved");

@@ -123,6 +123,7 @@ class Benchmark(unittest.TestCase):
         result = decode(capture, expected)
         self.assertEqual(result[-1]['machine']['name'], 'probesynth')
         self.assertTrue(result[-1]['metrics'][3]['maximum_clipped'])
+        self.assertEqual(result[-1]['metrics'][3]['maximum_budget_percent'], 100)
         self.assertAlmostEqual(result[-1]['metrics'][3]['average_budget_percent'], 100000 / 65535)
         for change in [dict(complete=False), dict(errors=['CRC']), dict(frames=capture['frames'][:-1]),
                        dict(frames=capture['frames'] + [frame]),

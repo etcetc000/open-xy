@@ -68,6 +68,28 @@ inline void* pad_region(u32 track, u32 key) {
     u32 scratch;
     return stock<void*(u32, u32, u32*, u32)>(0x8d58926c)(track, key, &scratch, 0);
 }
+// The key stock's instrument controller hands its per-key editor (8c0b1344,
+// 8c0b1448..8c0b1454): the key it holds for editing at 0x8400dfc8 (a held or
+// Shift-selected pad, 8c0b29ce), or, when that is -1 (each page or track change
+// sets it so, 8c0b1a04, 8c091d92), the track's last played key (8d4d6cb0, a
+// byte at 0x080379f0 + track that every note start sets, sequenced notes too,
+// 8d595838), which the turn then latches there (8c0b1678). Stock's dbox page
+// shows the same key (8d530724, 8d52d7c8). The track's selected key (8d4d6c98, a
+// byte at 0x08037a00 + track) is the last key played from the GUI (8d59429a).
+const u32 kDrumEditKey = 0x8400dfc8;
+inline u32 drum_held_key() { return word(kDrumEditKey); }
+inline u32 drum_played_key(u32 track) { return stock<u32(u32)>(0x8d4d6cb0)(track); }
+inline u32 drum_selected_key(u32 track) { return stock<u32(u32)>(0x8d4d6c98)(track); }
+// An owned kit's key, which its screen, Shift row and locks show and its
+// per-key edits change: the held key, else the selected one. The SDK never
+// writes the held key: on an owned kit's track the turn's fallback to the last
+// played key (8c0b14b4) gives the selected key instead and its latch
+// (8c0b167a) keeps -1 (drum_values_stock.cpp), so only a pad held or
+// Shift-selected is held, and a turn edits the key the screen shows.
+inline u32 drum_edit_key(u32 track) {
+    const u32 held = drum_held_key();
+    return held < 128 ? held : drum_selected_key(track);
+}
 inline void set_text(void* node, const char* text) { stock<void(void*, const char*)>(0x8d6011f0)(node, text); }
 inline void* find_node(void* page, const char* id) { return stock<void*(void*, const char*, u32)>(0x8d520308)(page, id, 1); }
 }}
