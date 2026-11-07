@@ -100,10 +100,11 @@ test('machines whose code lies within another present machine are tried without'
   // Identical code: each could be the one built, or both; the selection never empties.
   const twins = {objects:[text('a', shared), text('b', shared)]};
   assert.deepEqual(presentSelections(twins, ['a', 'b']), [['a', 'b'], ['b'], ['a']]);
-  // Past the limit, only the machines that look present are tried.
-  const many = Array.from({length:7}, (_, i) => 'm' + i);
-  assert.ok(2 ** many.length - 1 > RECOVERABLE_ALTERNATIVES);
-  assert.deepEqual(presentSelections({objects:many.map(id => text(id, shared))}, many), [many]);
+  // Many lookalikes: fewest dropped first, up to the limit.
+  const many = Array.from({length:9}, (_, i) => 'm' + i), tried = presentSelections({objects:many.map(id => text(id, shared))}, many);
+  assert.equal(tried.length, RECOVERABLE_ALTERNATIVES);
+  assert.deepEqual(tried.slice(0, 3), [many, many.slice(1), [many[0], ...many.slice(2)]]);
+  assert.ok(tried.every((selection, i) => i === 0 || selection.length <= tried[i - 1].length));
 });
 
 test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', async () => {

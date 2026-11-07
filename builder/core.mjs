@@ -903,21 +903,26 @@ const presentMachines = (kit, payload) =>
 // Machines built from the same source can share code, so one of them in a module
 // makes another look present when its largest code section lies within the
 // first's code. The selections to try for the machines that look present: all of
-// them, then without each nonempty set of such lookalikes, largest first. At most
-// RECOVERABLE_ALTERNATIVES of these; past that, only all of them.
+// them, then without one lookalike, then without two, and so on, up to
+// RECOVERABLE_ALTERNATIVES selections in all.
 export const RECOVERABLE_ALTERNATIVES = 64;
 export function presentSelections(kit, present) {
   const code = id => kit.objects.filter(o => o.owner === id);
   const text = id => join(code(id).flatMap(o => o.sections.filter(s => s.group === 'text').map(s => s.data)));
   const lookalikes = present.filter(id => present.some(other => other !== id && holdsCode(code(id), text(other))));
-  if (!lookalikes.length || 2 ** lookalikes.length - 1 > RECOVERABLE_ALTERNATIVES) return [present];
-  const selections = [];
-  for (let mask = 1; mask < 2 ** lookalikes.length; mask++) {
-    const dropped = lookalikes.filter((_, i) => mask & 2 ** i);
-    const selection = present.filter(id => !dropped.includes(id));
-    if (selection.length) selections.push(selection);
-  }
-  return [present, ...selections.sort((a, b) => b.length - a.length)];
+  const selections = [present];
+  // Each set of `count` lookalikes from index `from` on, joined to `dropped`.
+  const drop = (count, from, dropped) => {
+    if (selections.length >= RECOVERABLE_ALTERNATIVES) return;
+    if (!count) {
+      const selection = present.filter(id => !dropped.includes(id));
+      if (selection.length) selections.push(selection);
+      return;
+    }
+    for (let i = from; i <= lookalikes.length - count; i++) drop(count - 1, i + 1, [...dropped, lookalikes[i]]);
+  };
+  for (let count = 1; count <= lookalikes.length; count++) drop(count, 0, []);
+  return selections;
 }
 const presentExtensions = (kit, payload) => (kit.extensions ?? [])
   .filter(e => holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
@@ -974,12 +979,16 @@ export async function recoverFirmware(kit, input, layout = null) {
     const guess = sharedClaim((kit.extensions ?? []).filter(e => held.includes(e.id))) ? [] : held;
     const choices = (kit.extensions ?? []).length <= RECOVERABLE_EXTENSIONS ? extensionChoices(kit)
       : guess.length ? [guess, []] : [[]];
+    // The guess first, then the other extension choices, each once.
+    const tries = [guess, ...choices.filter(choice => choice.join() !== guess.join())];
     for (const selected of present.length ? presentSelections(kit, present) : []) {
-      for (const extensions of [guess, ...choices]) {
+      for (const extensions of tries) {
         try {
           if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
         } catch {}  // a guess that cannot link is not this kit's build
       }
+      // Yield between candidates, as the exhaustive search below does.
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
     // Small kits also try every selection: at most 1,023 deterministic links per
     // extension choice, each under a millisecond. Yield between candidates so file
