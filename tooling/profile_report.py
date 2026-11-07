@@ -119,7 +119,8 @@ def aggregate(captures, expected, identity, name, commit, url):
 
 def aggregate_drum(captures, expected, identity, name, commit, url, own):
     """A kit's record: each run's median across captures; its heaviest single voice is
-    block_percent, whatever a level does to its sound (the workload always reports those)."""
+    block_percent, whatever a level does to its sound (the workload always reports those),
+    and the worst block of the single-voice runs alone is voice_peak_percent."""
     case = own[0]
     seen, collectors = set(), set()
     values = {index: [] for index in range(len(own))}
@@ -149,6 +150,8 @@ def aggregate_drum(captures, expected, identity, name, commit, url, own):
     worst = max(voices, key=lambda index: (medians[index], -index))
     measurement = dict(benchmark=case['benchmark'], commit=commit, firmware_sha256=identity['firmware_sha256'],
                        runs=len(captures), block_percent=medians[worst], peak_percent=max(maxima.values()),
+                       # The worst single sound's spike, for the builder's CPU-high label.
+                       voice_peak_percent=max(maxima[i] for i in voices),
                        midpoint_percent=max(medians[i] for i in voices if own[i]['drum']['level'] == 64),
                        kit_percent=medians[of('kit')[0]], choke_percent=medians[of('choke')[0]],
                        ceiling_percent=medians[of('ceiling')[0]], worst_model=own[worst]['drum'])
@@ -192,7 +195,8 @@ def create(package, paths, name, url, out):
                      f"block budget ({drum_label(measurement['worst_model'])}). Heaviest at the middle: "
                      f"{measurement['midpoint_percent']:.3f}%. Whole kit: its own keys "
                      f"{measurement['kit_percent']:.3f}%, same-key retriggers {measurement['choke_percent']:.3f}%, "
-                     f"full polyphony of the heaviest voice {measurement['ceiling_percent']:.3f}%.")
+                     f"full polyphony of the heaviest voice {measurement['ceiling_percent']:.3f}%. "
+                     f"Worst block of a single voice: {measurement['voice_peak_percent']:.3f}%.")
         table = ['| Run | Mean block budget (median across captures) | Worst observed block |', '| --- | ---: | ---: |']
         table += [f'| {case_label(run)} | {median:.3f}% | {peak:.3f}% |' for run, median, peak in runs]
         published += '\n\n' + '\n'.join(table)

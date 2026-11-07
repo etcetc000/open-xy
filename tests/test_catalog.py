@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from tooling import catalog
+from tooling import catalog, cpu_measurement
 from tooling.machines import FIXED_NUMBERS, ROOT
 from machine_fixtures import FOLDER
 
@@ -106,6 +106,11 @@ class BuilderPatterns(unittest.TestCase):
         self.assertIsNotNone(keywords)
         self.assertEqual(tuple(re.findall(r"'([a-z]+)'", keywords.group(1))), catalog.KEYWORDS)
         self.assertIn(f'const MAX_KEYWORDS = {catalog.MAX_KEYWORDS};', source)
+        # The CPU-high label's threshold, in one constant on each side.
+        self.assertIn(f'export const CPU_HIGH_PERCENT = {cpu_measurement.HIGH_PERCENT};', source)
+        for guide in ('docs/catalog.md', 'docs/builder.md'):
+            self.assertIn(f'above {cpu_measurement.HIGH_PERCENT}% of an audio block', ' '.join(
+                (ROOT / guide).read_text(encoding='utf-8').split()), guide)
         # docs/catalog.md explains each word, in the same order.
         docs = (ROOT / 'docs/catalog.md').read_text(encoding='utf-8')
         table = re.search(r'^\| Keyword \| A machine that \|\n\| --- \| --- \|\n((?:\|.*\n)+)', docs, re.M)
@@ -272,6 +277,9 @@ class KeywordOnlyChanges(unittest.TestCase):
         self.assertEqual(status, 0, out)
         self.assertIn('WARNING: moved:', out)
         self.assertNotIn('WARNING: same:', out)
+        # Its peak is above the CPU-high threshold, so check says the builder labels it.
+        self.assertIn('NOTE: moved: the builder labels it CPU-high: worst observed block peak', out)
+        self.assertNotIn('NOTE: same:', out)
         # The moved release still needs its measurement; the keyword change alone does not.
         self.after[1] = {k: v for k, v in self.after[1].items() if k != 'cpu'}
         status, out = self.run_main('check', '--base', 'base')
