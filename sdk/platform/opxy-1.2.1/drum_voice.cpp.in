@@ -147,6 +147,7 @@ template <class F> bool pad_control_text(opxy::u32, opxy::i32, F*) { return fals
 namespace sdk_drum_transport {
 struct Absent {};
 template <class V, class S> Absent drum_transport(V&, S&, opxy::u32, const opxy::Transport&) { return Absent(); }
+}
 // One DSP body serves normal rendering and the isolated diagnostic workload.
 // Keeping this SDK wrapper out of line avoids duplicating author DSP code.
 static __attribute__((noinline)) void sdk_drum_render(Voice& voice, Shared& state, opxy::u32 id,

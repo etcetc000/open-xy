@@ -29,7 +29,7 @@ class DrumFilter(unittest.TestCase):
                      'kDrumFilterResetMethod = 5', 'kDrumFilterPool = 128', 'kDrumFilterLadder = 16'):
             self.assertIn(text, header)
         # Before the amplitude envelope, after the engine's render.
-        render = adapter.index('@NAMESPACE@::render(slot->voice')
+        render = adapter.index('sdk_drum_render(slot->voice')
         self.assertLess(render, adapter.index('drum_filter_run('))
         self.assertLess(adapter.index('drum_filter_run('), adapter.index('output[i] = opxy::q31::multiply(output[i], amplitude[i])'))
         # The profiling workload runs the ladder on every voice.
