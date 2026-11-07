@@ -8,7 +8,7 @@ Adjust that path if the user already has the SDK elsewhere.
 1. Read the [machine API](https://github.com/etcetc000/open-xy/blob/staging/docs/api.md),
    follow the [UX conventions](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md)
    for controls, pages, screens and motion, and read the relevant [core machines](https://github.com/etcetc000/open-xy-core-machines):
-   Macro Osc for two-page synths, Karplus or 2op FM for four-control synths,
+   Macro Osc for two-page controls (its code, not its look), Karplus or 2op FM for four-control synths,
    Ring Mod or Ping Pong for effects, Timestretch
    for sample engines. They are the worked examples; this repository holds the
    user's implementation. Use the actual parameter count: four controls keep
@@ -18,6 +18,11 @@ Adjust that path if the user already has the SDK elsewhere.
    same saved parameter in columns without alternates; never invent filler
    parameters. Format captions in real units and keep artwork below y=38.
    Preserve licences and attribution when reusing code.
+   Design the screen with [synth screens](https://github.com/etcetc000/open-xy/blob/staging/docs/synth-screens.md):
+   offer the user at least three different options in words first (subject,
+   way of drawing, grey code, what each control moves, what a note does),
+   checked against that page's list, and author the artwork and display code
+   only for the one the user picks.
    When the user wants colorful artwork, consider the optional
    [color design guidance](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md#color-design-guidance).
    Adapt it to the user's visual intent; palette size, metaphors and contrast

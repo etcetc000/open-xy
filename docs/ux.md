@@ -3,13 +3,14 @@
 How a machine looks and behaves on the OP-XY, so every machine plays like part
 of one instrument. Catalog review checks machines against these conventions.
 [Macro Osc](https://github.com/etcetc000/open-xy-core-machines/tree/main/machines/macroosc)
-is the reference for each of them.
+is a functional reference for controls and pages, not a visual one;
+[synth screens](synth-screens.md) is the reference for how a screen looks.
 
 ## Principles
 
 - **Part of one instrument.** A machine should feel as if the OP-XY made it:
   its type, its greys, its motion and its page conventions. The sections below
-  say how.
+  say how, and [synth screens](synth-screens.md) shows the look.
 - **Every control reads.** Turning a control visibly changes the screen, and
   the change says what the control does to the sound. A player learns a
   machine by turning it, without a manual.
@@ -62,8 +63,8 @@ is the reference for each of them.
 - **Use the shared header.** New synths with five to eight controls use
   [`opxy/page_header.hpp`](display.md#two-page-header), already wired up by
   `sdk.py new` when `--controls` is 5, 6, 7 or 8. Choose the actual parameter
-  count; the default is four controls with the stock header. Macro Osc remains
-  the two-page visual reference.
+  count; the default is four controls with the stock header. Macro Osc shows
+  the two pages wired up.
 - **Show both pages in place.** Page 1 stays on top and page 2 under it; a
   press does not swap them. The page the encoders edit is the stock header's
   size and sits on the stepped bar; the other is smaller and grey. Cover the
@@ -111,19 +112,25 @@ things everywhere.
 
 - **Motion answers the player.** Animate what a press, turn or note changed;
   an idle screen stays still.
-- **Short and decelerating.** An exponential ease-out that settles within
-  0.15 to 0.2 s. On a page switch each row grows or shrinks
+- **Notes move while they sound.** A note's motion runs while it's held and
+  settles after the release, timed from the [amp envelope](display.md#amp-envelope-sdk-110)
+  where the sound has one ([synth screens](synth-screens.md#how-it-should-move)).
+- **Short and decelerating.** A press or a turn eases out exponentially and
+  settles within 0.15 to 0.2 s. On a page switch each row grows or shrinks
   where it is: the edited page's values from 13 to 20 px, the other's from 20
-  to 13, and the bar moves to the edited row
-  ([Macro Osc's display](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/display.cpp)).
+  to 13, and the bar moves to the edited row, as the
+  [shared header](display.md#two-page-header) does.
 - **Reduced motion jumps.** With `reduced_motion` set, or on a track change,
   show the end state at once.
-- **Grey is inactive, bright is active**: the page row, unlit segments, a dial
-  not being edited.
+- **Grey is inactive, bright is active** for interface state: the page row,
+  unlit segments, a dial not being edited. In the drawing itself, the four
+  [encoder greys](synth-screens.md#the-grey-is-the-knob) say which control
+  moves a part, and a part keeps its grey while it moves.
 
 ## Screens
 
-How a screen looks is the machine's own. These hold whatever it draws.
+What a screen draws is the machine's own; [synth screens](synth-screens.md)
+gives the default look, taken from stock's screens. These hold whatever it draws.
 
 - **Judge at 1:1.** The screen is 480 × 220 px; look at each frame at that
   size, not enlarged. Avoid parts under about 3 to 4 px, lines or hatching
