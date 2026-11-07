@@ -137,6 +137,15 @@ class UsbMtpTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'too long'):
             ptp_string('x' * 255)
 
+    def test_only_an_opxy_in_file_transfer_is_ever_opened(self):
+        def descriptor(vendor, product):
+            return bytes([18, 1, 0, 2, 0, 0, 0, 64]) + struct.pack('<HHH', vendor, product, 0x0257) + bytes([1, 2, 3, 1])
+        self.assertTrue(usbmtp.is_opxy(descriptor(0x2367, 0x0021)))      # COM > MTP and the dev boot menu
+        self.assertFalse(usbmtp.is_opxy(descriptor(0x2367, 0x8021)))     # the OP-XY outside file transfer
+        self.assertFalse(usbmtp.is_opxy(descriptor(0x2367, 0x0001)))     # another teenage engineering device
+        self.assertFalse(usbmtp.is_opxy(descriptor(0x05ac, 0x0021)))     # another vendor
+        self.assertFalse(usbmtp.is_opxy(descriptor(0x2367, 0x0021)[:11]))
+
     def test_the_file_transfer_interface_is_found_in_a_configuration_descriptor(self):
         config = bytes([9, 2, 0, 0, 1, 1, 0, 0x80, 50])
         interface = lambda number, klass: bytes([9, 4, number, 0, 3, klass, 1, 1, 0])
