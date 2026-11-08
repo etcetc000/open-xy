@@ -62,6 +62,16 @@ class GrayscaleTests(unittest.TestCase):
         with patch.object(Path, 'resolve', redirected), self.assertRaisesRegex(ValueError, 'redirected'):
             machine_at(self.source)
 
+    def test_a_linked_parent_is_fine_but_a_linked_machine_is_redirected(self):
+        try:
+            (self.root / 'parent').symlink_to(self.root, target_is_directory=True)
+            (self.root / 'linked').symlink_to(self.source, target_is_directory=True)
+        except OSError:
+            self.skipTest('No symlinks here')
+        self.assertEqual(machine_at(self.root / 'parent' / 'machine').id, 'grayprobe')
+        with self.assertRaisesRegex(ValueError, 'redirected'):
+            machine_at(self.root / 'linked')
+
     def test_colored_decorations_palettes_and_incompatible_bindings_are_rejected(self):
         cases = [self.gray.replace(b'</g>', b'<circle r="2" fill="#ff0000"/></g>'),
                  self.gray.replace(b'fill="#000000"', b'fill="#00ff00"', 1),

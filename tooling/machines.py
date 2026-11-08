@@ -489,6 +489,8 @@ def reads_sample_overview(root):
 def machine_at(root, identity=None):
     """The machine in a folder; its definition names it."""
     root = Path(os.path.abspath(root))
+    # Only the folder and its machine.json may not be links; its parents may (macOS /var, /tmp).
+    root = Path(os.path.realpath(root.parent)) / root.name
     path = root / 'machine.json'
     require(path.is_file() and path.resolve() == path.absolute() and root.resolve() == root,
             'Unknown or redirected machine: ' + str(identity or root))
