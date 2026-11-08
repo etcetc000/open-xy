@@ -14,6 +14,12 @@ unsigned char holders[tracks][copies] = {{1, 2, 3}, {1, 2, 3}, {1, 2, 3}, {1, 2,
                                          {1, 2, 3}, {1, 2, 3}, {1, 2, 3}, {1, 2, 3}};
 u32 dirty;  // bit track * copies + slot: to publish
 u32 sequence;
+// The audio role can't acknowledge a transaction. So every slot is published
+// again in turn, one per kRefreshTicks ticks that published nothing: a swap or
+// copy it never applied (lost on the way, or cut short) heals within
+// tracks * copies * kRefreshTicks such ticks.
+const u32 kRefreshTicks = 4;
+u32 idle_ticks, refresh_next;
 // The last load's section. Stock loads every project into one buffer, so a
 // load is told apart by its count, not by the project's address.
 unsigned char loaded_bytes[save_bytes > v1_bytes ? save_bytes : v1_bytes];
@@ -130,8 +136,11 @@ bool show(u32 track, u32 lfo) {
     publish_swap(track, slot, leaving, target);
     slots_gui[track][slot] = leaving;
     // The slot is published again as a copy on the next tick: the same value if
-    // the swap arrived, and the slot's right LFO if a full queue lost it.
+    // the swap arrived, and the slot's right LFO if a full queue lost it. The
+    // refresh then starts at this slot, so it goes once more a few ticks later,
+    // in a quieter frame.
     dirty |= bit(track, slot);
+    refresh_next = track * copies + slot;
     holders[track][slot] = static_cast<unsigned char>(visible[track]);
     visible[track] = static_cast<unsigned char>(lfo);
     load_stock(track, target);
@@ -190,12 +199,20 @@ void tick() {
             }
         }
     }
-    for (u32 sent = 0; dirty && sent < 2; ++sent) {
-        u32 i = 0;
-        while (!(dirty & (1u << i))) ++i;
-        dirty &= ~(1u << i);
-        publish(i / copies, i % copies);
+    if (dirty) {
+        idle_ticks = 0;
+        for (u32 sent = 0; dirty && sent < 2; ++sent) {
+            u32 i = 0;
+            while (!(dirty & (1u << i))) ++i;
+            dirty &= ~(1u << i);
+            publish(i / copies, i % copies);
+        }
+        return;
     }
+    if (++idle_ticks < kRefreshTicks) return;
+    idle_ticks = 0;
+    publish(refresh_next / copies, refresh_next % copies);
+    refresh_next = (refresh_next + 1) % (tracks * copies);
 }
 
 bool any() {

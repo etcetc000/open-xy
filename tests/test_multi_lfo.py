@@ -59,6 +59,11 @@ class MultiLfo(unittest.TestCase):
             build_and_run(self, ROOT / 'tests/fixtures/multi_lfo.cpp', folder)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_lfo_left_keeps_running_through_a_swap_even_when_its_messages_are_lost(self):
+        with tempfile.TemporaryDirectory(prefix='multi-lfo-swap-') as folder:
+            build_and_run(self, ROOT / 'tests/fixtures/multi_lfo_swap.cpp', folder)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_page_layer_takes_keys_and_turns_and_grants_showing_lfos(self):
         with tempfile.TemporaryDirectory(prefix='page-layer-') as folder:
             build_and_run(self, ROOT / 'tests/fixtures/page_layer.cpp', folder)

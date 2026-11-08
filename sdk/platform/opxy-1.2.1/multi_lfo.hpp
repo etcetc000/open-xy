@@ -63,7 +63,10 @@ void load_begin();
 void load_byte(u32 byte);
 void load_end(u32 version, bool loaded);
 // The GUI tick: after a project load, take its copies (or clear them: one saved
-// without them), then publish up to two changed copies to the audio role.
+// without them), then publish up to two changed copies to the audio role. Every
+// fourth tick in a row that publishes nothing publishes the next slot again
+// (all 24 in turn): the audio role can't acknowledge, so a swap or copy it
+// never applied heals.
 void tick();
 // Whether a save has anything to keep, and its bytes (save_bytes of them,
 // version save_version): per track, the LFO shown, then per slot the LFO it

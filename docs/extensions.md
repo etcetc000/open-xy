@@ -206,8 +206,10 @@ Duck then work for whichever LFO it shows. `shown_lfo` says which one that is.
   leaving LFO's, so stock's later messages and newer edits stand), and the two
   LFOs' state blocks are exchanged in every voice and track state, so neither
   restarts or doubles. At most one block passes before the swap is heard.
-  The slot is published once more as a copy on the next tick, so a lost
-  swap message heals.
+  The slot is published once more as a copy on the next tick, and again a few
+  ticks later. The audio role can't acknowledge a transaction, so the GUI also
+  publishes every slot again in turn (one per four ticks that publish
+  nothing): a swap or copy that never arrived, or arrived cut short, heals.
 - Stock's knob telemetry is its own LFO's: the LFO its page shows. A note start
   resets each copy's state as stock resets its own.
 - An LFO shown for the first time starts as a copy of the one it replaces, off.
