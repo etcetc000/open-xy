@@ -36,6 +36,10 @@ def fixture_environment(options, inherited):
     if not Path(options.toolchain).is_dir():
         raise ValueError(f'Missing toolchain directory: {options.toolchain}')
     env['OPXY_TEST_NATIVE_ELF'] = str(Path(env['OPXY_TEST_NATIVE_PACKAGE']) / 'analysis/module.elf')
+    # Tests that compile or link for the device use the compiler qualification was
+    # given, not whatever this checkout's local/toolchain holds.
+    if getattr(options, 'compiler', None):
+        env['OPXY_TEST_COMPILER'] = str(Path(options.compiler).resolve())
     return env, True
 
 

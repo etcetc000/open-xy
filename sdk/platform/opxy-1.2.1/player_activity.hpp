@@ -35,7 +35,8 @@ inline bool player_black(u32 note) {
     const u32 pc = note % 12;
     return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
 }
-inline u32 player_white(u32 note) {
+// Object normalization makes weak definitions global; keep this table local to each player.
+static inline u32 player_white(u32 note) {
     static const u8 positions[12] = {0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6};
     return 7 * (note / 12) + positions[note % 12];
 }
