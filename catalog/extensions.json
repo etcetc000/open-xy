@@ -30,6 +30,16 @@
       "tag": "checkpoint-v0.1.0",
       "commit": "5fedd9903d7dace1657863b0c0ffcd6d843b1b05",
       "path": "extensions/checkpoint"
+    },
+    {
+      "id": "midi_feedback",
+      "kind": "extension",
+      "maintainer": "frankoooooooo",
+      "status": "published",
+      "repository": "https://github.com/frankoooooooo/open-xy-midi-feedback",
+      "tag": "v1.0.0",
+      "commit": "775aec8a75df34b602a30d1a9651ee68912d90f5",
+      "path": "midi_feedback"
     }
   ]
 }
