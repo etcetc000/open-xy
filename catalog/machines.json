@@ -623,6 +623,19 @@
       }
     },
     {
+      "id": "scales",
+      "kind": "player",
+      "maintainer": "MartinfraDD",
+      "status": "published",
+      "repository": "https://github.com/MartinfraDD/scales",
+      "tag": "v1.0.0",
+      "commit": "ddba02717fb76d1245518fa6aa72d51e6201fc4e",
+      "path": ".",
+      "keywords": [
+        "chord"
+      ]
+    },
+    {
       "id": "morphose",
       "kind": "synth",
       "maintainer": "blen2r",
