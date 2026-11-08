@@ -1673,7 +1673,7 @@
     {
       "id": "tesla",
       "kind": "synth",
-      "maintainer": "meemknight",
+      "maintainer": "lowlevelgamedev",
       "status": "published",
       "repository": "https://github.com/meemknight/OPXY-Tesla",
       "tag": "v1.0.0",
