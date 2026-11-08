@@ -222,6 +222,8 @@ def main():
         selected = [m for m in kit['machines'] if m['id'] in result['selected']]
         catalog = json.loads((content / 'op1_factory.json').read_bytes())
         for machine in selected:
+            if not machine['catalog']:
+                continue  # an aux machine is no instrument: it has no menu entry (builder/core.mjs presetPath)
             key = {'effect': 'fx_types', 'player': 'seq_types'}.get(machine['kind'], 'engine_types')
             entry = json.loads(machine['catalog'].strip().lstrip(','))
             # An effect's or player's menu entry carries this selection's number, which
@@ -235,7 +237,13 @@ def main():
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
         for machine in selected:
-            if machine['kind'] in ('synth', 'drum', 'sample'):
+            if not machine['catalog']:
+                # An aux machine's presets are the files the kit generated (tooling.adapters.aux_preset_files).
+                for name, text in machine.get('auxPresets', {}).items():
+                    data = (prefix / name).read_bytes()
+                    require(json.loads(data) == json.loads(text), 'Aux preset differs: ' + name)
+                    expected_files[name] = data
+            elif machine['kind'] in ('synth', 'drum', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'
                 data = (prefix / name).read_bytes()
                 preset = json.loads(data)
