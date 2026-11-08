@@ -56,9 +56,10 @@ const opxy::live_input::Controls* sdk_live_input_controls() {
 }
 const live_input::ExtraControls* sdk_live_input_extra_controls() {
     static const char* choices[] = {"off", "on"};
+    static const char* harmonies[] = {"off", "one", "two", "three", "four", "five", "six", "seven"};
     static const live_input::ExtraControls controls = {
         {"harmony", "blend", "compress", "de-ess"},
-        {{choices, 2}, {choices, 2}, {choices, 2}, {choices, 2}},
+        {{harmonies, 8}, {choices, 2}, {choices, 2}, {choices, 2}},
     };
     return extra_installed ? &controls : nullptr;
 }
@@ -138,20 +139,22 @@ int main() {
     sdk_aux_shift_m1();
     CHECK(sdk_live_input_page() == 2 && tilt_menu_count == 1);
     CHECK(sdk_aux_turn(0, 0, 0) && !tilt_turn_count);
-    for (u32 row = 0; row < 4; ++row) CHECK(sdk_live_input_turn(row, &up));
+    for (u32 step = 0; step < 7; ++step) CHECK(sdk_live_input_turn(0, &up));
+    for (u32 row = 1; row < 4; ++row) CHECK(sdk_live_input_turn(row, &up));
     CHECK(!std::strcmp(sdk_live_input_caption(0, true), "harmony") &&
-          !std::strcmp(sdk_live_input_caption(0, false), "on"));
+          !std::strcmp(sdk_live_input_caption(0, false), "seven"));
     CHECK(target(gui_word) == 0 && brain(gui_word) == 0xcd6u);
     CHECK((gui_word & ~tuner_mask) == tag);
     audio_word = input_monitor::mark | 3u | sdk_live_input_option_bits();
     sdk_live_input_rendered(0);
-    for (u32 row = 0; row < 4; ++row) CHECK(audio_extra.values[row] == 1);
+    CHECK(audio_extra.values[0] == 7);
+    for (u32 row = 1; row < 4; ++row) CHECK(audio_extra.values[row] == 1);
     CHECK(audio_values[0] == 0 && audio_values[3] == 0xcd6u);
     shift = 0;
     sdk_live_input_publish();
     shift = 1;
     CHECK(sdk_live_input_page() == 1 && sdk_aux_turn(0, 0, 0) && tilt_turn_count == 1);
-    const live_input::ExtraValues max_values = {{3, 7, 1, 1}};
+    const live_input::ExtraValues max_values = {{7, 7, 1, 1}};
     const u32 packed = option_bits(31, 1, 0, 24, max_values);
     CHECK(packed == tuner_mask - (7u << 16) && brain(packed) == 0xd9au);
 }

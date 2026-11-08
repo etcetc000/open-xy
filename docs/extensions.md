@@ -238,7 +238,7 @@ To add a second Shift page, declare
 `"live_input": {"controls": true, "extra_controls": true}` and export an
 immutable `live_input::ExtraControls input_extra_controls`. Supply the
 four row captions and their choices in encoder order. Rows support up to
-4, 8, 2 and 2 choices respectively, and start at index zero. Holding Shift
+8, 8, 2 and 2 choices respectively, and start at index zero. Holding Shift
 and pressing M1 switches between pages. Releasing Shift returns to the
 first page. This configuration uses
 `prepare_input(u32 target, u32 retune, u32 amount, u32 brain, const live_input::ExtraValues& extra)`.

@@ -118,8 +118,8 @@ the original monitor and routing controls in stock.
 The existing Aux encoder hook at `8c08fa14` routes Shift turns on M1 to
 the shared overlay. The GUI publishes the controls together in the external
 audio track's unused live word 57 through `8d5acea8`. The controller update
-refreshes the word after stock clears it. The upper nibble tags the word,
-bits 21–27 carry the optional second page, bits 16–20 carry the Brain
+refreshes the word after stock clears it. The upper three bits tag the word,
+bits 21–28 carry the optional second page, bits 16–20 carry the Brain
 scale index, bits 6–15 carry tuning, and the low six carry the Tilt Mic
 epoch and gate. The audio role decodes the scale into its pitch classes and retains
 the last tagged word across an interruption.
