@@ -70,10 +70,16 @@ def expanded_profile(profile):
 
 
 def selection_services(kit, result):
-    return active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
+    """The services a selection links (builder/core.mjs activeServices): its machines' kinds
+    and declared features, its extensions, and a master processor among them."""
+    selected = [m for m in kit['machines'] if m['id'] in result['selected']]
+    return active_services(kit['profile'], [m['kind'] for m in selected] +
+                           [f for m in selected for f in m.get('features', [])] +
                            (['extension'] if result['extensions'] else []) +
-                           (['master_filter'] if any(e.get('master_filter') and e['id'] in result['extensions']
-                                                    for e in kit.get('extensions', [])) else []))
+                           # kit.json names it master_processor; older kits, master_filter (core.mjs processorOf).
+                           (['master_filter'] if any((e.get('master_processor') or e.get('master_filter')) and
+                                                     e['id'] in result['extensions']
+                                                     for e in kit.get('extensions', [])) else []))
 
 
 def assembled(stock, module, symbols, reviewed, services, profiling):
