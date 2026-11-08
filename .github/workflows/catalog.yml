@@ -116,6 +116,10 @@ jobs:
           key: toolchain-${{ runner.os }}-${{ hashFiles('profiles/toolchains.json') }}
       - name: Pinned Blackfin tools
         run: python sdk.py toolchain fetch
+      - name: Multiple-player native link regression
+        env:
+          PYTHONPATH: tests
+        run: python -m unittest test_players.PlayerNativeLink
       - name: Restore fetched machines
         uses: actions/cache/restore@v4
         with:
