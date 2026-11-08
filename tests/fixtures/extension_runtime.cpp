@@ -16,9 +16,21 @@ void first_note(const extensions::Context&, const extensions::LiveNote& note) {
     extensions_recordable_note_on(0, 60, 100);
 }
 void second_note(const extensions::Context&, const extensions::LiveNote&) { order[order_count++] = 2; }
+u32 edits, edited_track, edited_index;
+i32 edited_value;
+void observe_edit(const extensions::Context&, const extensions::ParameterEdit& edit, const extensions::Actions& actions) {
+    ++edits; edited_track = edit.track; edited_index = edit.index; edited_value = edit.value;
+    // Only the actions the registry grants during edits: no notes, no popup, bounded CCs.
+    result = actions.insert_notes(saved_context, 0, &good, 1);
+    actions.notify("edit");
+    actions.send_cc(16, 1, 1); actions.send_cc(0, 128, 1); actions.send_cc(0, 1, 128);  // refused
+    for (u32 i = 0; i < extensions::send_cc_limit + 2; ++i) actions.send_cc(edit.track, 7, 100);
+    extensions_parameter_edit(0, 0, 0);  // reentrant: dropped
+}
 void observe_control(const extensions::Context& context, const extensions::Control&, const extensions::Actions& actions) {
     result = actions.insert_notes(context, 0, &good, 1);
     actions.notify("unauthorized");
+    actions.send_cc(0, 1, 1);  // granted only during an edit
 }
 void edit_control(const extensions::Context& context, const extensions::Control&, const extensions::Actions& actions) {
     saved = actions; saved_context = context;
@@ -40,13 +52,17 @@ void edit_control(const extensions::Context& context, const extensions::Control&
 const extensions::Hooks first = extensions::Hooks().with_recordable_note_on(first_note)
                                                    .with_queued_control(observe_control);
 const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(second_note)
-                                                    .with_queued_control(edit_control);
+                                                    .with_queued_control(edit_control)
+                                                    .with_parameter_edit(observe_edit);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0};
-const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2};
-ExtensionEntry collection[] = {{"observer", 0, 0, &first},
-                               {"writer", 1u, action_edit_notes | action_notify, &second}};
+// send_cc needs no claim: parameter_edit grants it.
+u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0}, action_events[] = {0, 0, event_parameter_edit};
+const ExtensionRegistry tables = {claim_keys, 2, action_claims, 3, action_events};
+// The writer has a MIDI menu row, on by default.
+ExtensionEntry collection[] = {{"observer", 0, 0, &first, nullptr, nullptr, 0},
+                               {"writer", 1u, action_edit_notes | action_notify | action_send_cc, &second,
+                                "writer", "ext_writer", 1}};
 }
 namespace opxy { namespace platform {
 const ExtensionEntry* extension_collection(u32& count) { count = 2; return collection; }
@@ -63,18 +79,39 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
     ++writes; replaced = replace; written_track = track; return count;
 }
 void extension_notify(const char*) { ++notices; }
+u32 ccs, cc_channel, cc_number, cc_value;
+void extension_send_cc(u32 channel, u32 cc, u32 value) { ++ccs; cc_channel = channel; cc_number = cc; cc_value = value; }
+bool extension_stock_sends_midi(u32 track) { return track == 10; }
+u32 restores;
+void extension_menu_restore() { ++restores; }
 }}
 void control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};
     extensions_queued_control(event);
 }
 int main() {
+    // Encoder edits of any of the 16 tracks reach subscribers once; others are dropped.
+    extensions_parameter_edit(12, 9, 4096);
+    CHECK(edits == 1 && edited_track == 12 && edited_index == 9 && edited_value == 4096);
+    CHECK(result == 0 && writes == 0 && notices == 0);
+    CHECK(ccs == extensions::send_cc_limit && cc_channel == 12 && cc_number == 7 && cc_value == 100);
+    CHECK(restores == 1);  // once, when the runtime starts
+    // Its MIDI menu row switches the writer off: no events, until switched on again.
+    extensions_menu_set(1, false);
+    extensions_parameter_edit(12, 9, 1); CHECK(edits == 1);
+    extensions_recordable_note_on(0, 60, 100); CHECK(order_count == 1 && order[0] == 1);
+    extensions_menu_set(1, true);
+    extensions_parameter_edit(12, 9, 1); CHECK(edits == 2);
+    order_count = 0; ccs = 0; observations = 0;
+    extensions_parameter_edit(16, 0, 1); CHECK(edits == 2);
+    entries = nullptr; initialized = false;
     extensions_recordable_note_on(0, 60, 100);
     CHECK(order_count == 2 && order[0] == 1 && order[1] == 2 && observations == 1);
     extensions_recordable_note_on(7, 60, 100); CHECK(order_count == 2);
     // Only the claim owner acts: one write and one notification per callback.
     control(50, true);
     CHECK(writes == 1 && notices == 1 && result == 1 && written_track == 0);
+    CHECK(ccs == 0);  // a claimed key does not grant send_cc
     CHECK(saved.insert_notes(saved_context, 0, &good, 1) == 0);
     saved.notify("late"); CHECK(notices == 1);
     // Refused writes; notify is its own action, so each callback may still post.

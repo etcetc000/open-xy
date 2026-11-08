@@ -5,6 +5,9 @@
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
 
+// The control service's encoder-edit hook (track_control.cpp) owns this pointer.
+void (*sdk_parameter_edits)(opxy::u32, opxy::u32, opxy::i32);
+
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 using namespace opxy;
 using namespace opxy::platform;
@@ -117,6 +120,20 @@ void release(u32 pitch=60) { sdk_extensions_live_note_off(0x860c6adc,selected,pi
 }
 
 namespace opxy { namespace platform {
+u32 sent_cc[3], sent_ccs; const void* sent_time = &sent_ccs;
+void stock_send_cc(u32 ch, u32 cc, u32 v, const void* time) { sent_cc[0]=ch; sent_cc[1]=cc; sent_cc[2]=v; sent_time=time; ++sent_ccs; }
+u32 engine_of(u32 t) { return t == 3 ? 29 : 5; }  // a MIDI engine on track 4
+// Stock's MIDI menu: new, the setting constructor, load, value and the menu build.
+struct Setting { const char* key; i32 value, min, max; u32 loads; };
+Setting settings[4]; u32 setting_count, saved = 1, built_count; const MenuRow* built_rows;
+void* stock_new(u32 bytes) { return bytes == 0x18 && setting_count < 4 ? &settings[setting_count++] : nullptr; }
+void setting_ctor(void* s, const char* key, i32 value, i32 min, i32 max) {
+    *static_cast<Setting*>(s) = {key, value, min, max, 0};
+}
+void setting_load(void* s) { ++static_cast<Setting*>(s)->loads; static_cast<Setting*>(s)->value = saved; }
+i32 setting_value(void* s) { return static_cast<Setting*>(s)->value; }
+void menu_build(u32 menu, const MenuRow* rows, u32 count) { failed |= menu != 0x0801eef0; built_count = count;
+    static MenuRow copy[16]; for (u32 i = 0; i < count; ++i) copy[i] = rows[i]; built_rows = copy; }
 Address host_stock_address(Address address) {
     switch (address) {
         case 0x840a0524: return reinterpret_cast<Address>(&project_id);
@@ -151,6 +168,13 @@ Address host_stock_address(Address address) {
         case 0x8d58f24c: return reinterpret_cast<Address>(&insert);
         case 0x8d587668: return reinterpret_cast<Address>(&publish);
         case 0x8d549168: return reinterpret_cast<Address>(&popup);
+        case 0x8d57a200: return reinterpret_cast<Address>(&stock_send_cc);
+        case 0x8d58781c: return reinterpret_cast<Address>(&engine_of);
+        case 0x8d4d2900: return reinterpret_cast<Address>(&stock_new);
+        case 0x8c089110: return reinterpret_cast<Address>(&setting_ctor);
+        case 0x8c088da0: return reinterpret_cast<Address>(&setting_load);
+        case 0x8c088caa: return reinterpret_cast<Address>(&setting_value);
+        case 0x8c097f0c: return reinterpret_cast<Address>(&menu_build);
     }
     static const u32 ratios[32]={3,1,2,1,4,3,1,1,3,4,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,12,1,16,1,32};
     if (address>=0x840a36e0 && address<0x840a3760) return reinterpret_cast<Address>(ratios)+(address-0x840a36e0);
@@ -165,7 +189,33 @@ using extensions::probe::written;
 int main() {
     fill_pattern(0);
     // The controller update forwards and refreshes the context.
+    // At boot, stock builds its MIDI menu: its five rows, then the probe's on/off row,
+    // with a setting of its own (key ext_probe, 0..1, on by default).
+    const MenuRow stock_rows[5] = {{"clock", nullptr, 1, nullptr}, {"notes", nullptr, 2, nullptr},
+        {"other", nullptr, 3, nullptr}, {"active track ch.", nullptr, 4, nullptr}, {"echo", nullptr, 5, nullptr}};
+    sdk_extensions_midi_menu(0x0801eef0, stock_rows, 5);
+    CHECK(built_count == 6 && built_rows[4].display == 5 && built_rows[0].label == stock_rows[0].label);
+    const MenuRow& row = built_rows[5];
+    CHECK(row.label && row.label[0] == 'p' && row.display == 0x8c098cae && row.setter && row.setting == &settings[0]);
+    CHECK(settings[0].key && settings[0].key[0] == 'e' && settings[0].key[4] == 'p' && settings[0].value == 1 &&
+          settings[0].min == 0 && settings[0].max == 1 && settings[0].loads == 0);
+    CHECK(!sdk_parameter_edits);
     sdk_extensions_controller_update(0x860c6adc,17); CHECK(loop_calls==1 && seen.contexts>=1);
+    // The runtime's start restored the saved value through stock's load, once.
+    CHECK(settings[0].loads == 1);
+    // The controller update connects encoder edits, which reach the probe with their track.
+    CHECK(sdk_parameter_edits);
+    sdk_parameter_edits(14, 2, 0x7fffffff);
+    CHECK(seen.edits==1 && seen.edit.track==14 && seen.edit.index==2 && seen.edit.value==0x7fffffff);
+    // send_cc, granted during the edit, reaches stock's CC out now (no time).
+    CHECK(!seen.edit.stock_sends && sent_ccs==1 && sent_cc[0]==14 && sent_cc[1]==1 && sent_cc[2]==127 && !sent_time);
+    // Stock sends MIDI itself for a MIDI engine track and the MIDI aux track.
+    sdk_parameter_edits(3, 0, 0); CHECK(seen.edit.stock_sends && sent_ccs==1);
+    sdk_parameter_edits(10, 0, 0); CHECK(seen.edit.stock_sends && sent_ccs==1);
+    // The menu row switches the probe off and on: no events while off.
+    const u32 edits = seen.edits;
+    row.setter(0); sdk_parameter_edits(14, 2, 0); CHECK(seen.edits == edits && sent_ccs == 1);
+    row.setter(1); sdk_parameter_edits(14, 2, 0); CHECK(seen.edits == edits + 1 && sent_ccs == 2);
     const extensions::RecordingContext& c = seen.context.recording;
     CHECK(c.project==1 && c.pattern==2 && c.track==0 && c.length==16*480 && c.scale==3);
     CHECK(c.editable && c.recordable && !seen.context.playing);

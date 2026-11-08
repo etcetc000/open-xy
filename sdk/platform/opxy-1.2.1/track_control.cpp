@@ -141,6 +141,7 @@ i32 shown_words[control::all_tracks][control::display_words];
 }
 
 opxy::platform::AuxService sdk_aux;
+void (*sdk_parameter_edits)(opxy::u32, opxy::u32, opxy::i32);
 
 // A machine that takes over aux tracks runs there only: on tracks 1-8 (from a
 // project or preset that names its engine) it is not a control machine and does
@@ -278,6 +279,7 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
     turned_index = index;
     turned_tick = gui_ticks;
     param_set(project, track, index, value);
+    if (sdk_parameter_edits) sdk_parameter_edits(track, index, value);
 }
 
 // Called by project load/new-project handling before another GUI tick. It

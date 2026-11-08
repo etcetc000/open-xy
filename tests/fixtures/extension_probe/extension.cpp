@@ -4,12 +4,13 @@
 // reads what it saw. It is a test fixture, not a shipped extension.
 namespace opxy { namespace extensions { namespace probe {
 struct Seen {
-    u32 contexts, notes_on, notes_off, ticks, activity, controls;
+    u32 contexts, notes_on, notes_off, ticks, activity, controls, edits;
     Context context;
     LiveNote note;
     NoteOff off;
     Tick tick;
     Control control;
+    ParameterEdit edit;
 };
 Seen seen;
 // What an accepted Record release does: 0 nothing, 1 replace, 2 insert, 3 replace track 3.
@@ -30,6 +31,12 @@ void queued_control(const Context& c, const Control& k, const Actions& actions) 
     written = command == 2 ? actions.insert_notes(c, track, take, 2) : actions.replace_notes(c, track, take, 2);
     if (written) actions.notify("probed");
 }
+// Echoes each edit stock does not send itself as CC 1 on the track's channel.
+void parameter_edit(const Context&, const ParameterEdit& e, const Actions& actions) {
+    ++seen.edits;
+    seen.edit = e;
+    if (!e.stock_sends) actions.send_cc(e.track, 1, static_cast<u32>(e.value) >> 24);
+}
 }
 extern constexpr Hooks hooks = Hooks()
     .with_context(context)
@@ -37,5 +44,6 @@ extern constexpr Hooks hooks = Hooks()
     .with_selected_note_off(selected_note_off)
     .with_recording_tick(recording_tick)
     .with_input_activity(input_activity)
-    .with_queued_control(queued_control);
+    .with_queued_control(queued_control)
+    .with_parameter_edit(parameter_edit);
 }}}

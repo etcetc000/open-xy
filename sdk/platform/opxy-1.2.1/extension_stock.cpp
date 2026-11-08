@@ -3,6 +3,7 @@
 #include "../extension_runtime.hpp"
 #include "note_container.hpp"
 #include "stock.hpp"
+#include "track_control.hpp"
 
 extern "C" {
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
@@ -16,6 +17,7 @@ void sdk_extensions_live_note_on(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opx
     __asm__("sdk_extensions_live_note_on");
 void sdk_extensions_live_note_off(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32,
     const void*) __asm__("sdk_extensions_live_note_off");
+void sdk_extensions_midi_menu(opxy::u32, const void*, opxy::u32) __asm__("sdk_extensions_midi_menu");
 }
 
 namespace opxy { namespace platform {
@@ -35,6 +37,19 @@ using PatternNote = notes::Note;  // Stock copies the first eleven payload bytes
 
 // No other key and no Shift held. Press dispatch precedes insertion into
 // stock's held-key list, so a chord keeps stock behavior.
+// Stock's MIDI settings menu (built once at boot, 8c098d48) takes rows of
+// {label, setting, display, setter}. A setting (8c089110, 0x18 bytes from stock's
+// new, 8d4d2900) registers its key, so stock saves and loads its value; the menu
+// calls setter(value) when it loads it and after an edit. 8c098cae shows on/off.
+struct MenuRow { const char* label; void* setting; u32 display; void (*setter)(i32); };
+const u32 kMenuRows = 4;
+u32 menu_entries[kMenuRows], menu_rows;
+void* menu_settings[kMenuRows];
+template <u32 row> void menu_set(i32 value) {
+    if (row < menu_rows) extensions_menu_set(menu_entries[row], value != 0);
+}
+void (*const menu_setters[kMenuRows])(i32) = {menu_set<0>, menu_set<1>, menu_set<2>, menu_set<3>};
+
 bool unmodified(u32 key) {
     if (shift_held()) return false;
     for (u32 other = 0; other < 56; ++other)
@@ -117,6 +132,26 @@ u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replac
     if (written || replace) stock<void(u32)>(0x8d587668)(track);  // A cleared pattern is a change too.
     return written;
 }
+// Stock's CC out (8d57a200): channel, cc, value and a time (null: now). It sends
+// only while the MIDI "other" output setting is on, and already runs on this
+// path for MIDI engine tracks (8d58a896).
+void extension_send_cc(u32 channel, u32 cc, u32 value) {
+    stock<void(u32, u32, u32, const void*)>(0x8d57a200)(channel, cc, value, nullptr);
+}
+// Stock's publish (8d5acd9c) sends MIDI itself for the MIDI engine (29) and the
+// MIDI aux track (10).
+bool extension_stock_sends_midi(u32 track) {
+    return stock<u32(u32)>(0x8d58781c)(track) == 29 || track == 10;
+}
+// Once, on the controller path, when the runtime starts: stock's load (8c088da0)
+// and value (8c088caa) of each row's setting, as the menu applies them when built.
+// Not at boot, where the menu is built before stock's settings can be read.
+void extension_menu_restore() {
+    for (u32 row = 0; row < menu_rows; ++row) {
+        stock<void(void*)>(0x8c088da0)(menu_settings[row]);
+        extensions_menu_set(menu_entries[row], stock<i32(void*)>(0x8c088caa)(menu_settings[row]) != 0);
+    }
+}
 void extension_notify(const char* text) {
     stock<void(const char*, u32, u32, u32)>(0x8d549168)(text, 1, 0, 0x3f000000u);
 }
@@ -126,6 +161,8 @@ using namespace opxy;
 using namespace opxy::platform;
 
 void sdk_extensions_controller_update(u32 controller, u32 elapsed) {
+    // Encoder edits reach extensions through the control service's edit hook.
+    sdk_parameter_edits = extensions_parameter_edit;
     extensions_sync();
     stock<void(u32, u32)>(0x8d5986b8)(controller, elapsed);
     extensions_sync();
@@ -182,3 +219,29 @@ u32 sdk_extensions_key_queue(const u32* event) {
     // A 12-byte span admits CALL.A across the module's relative-call range.
     return 0x08023c78;
 }
+// The MIDI menu's build: stock's rows, then one on/off row per extension that
+// declares one, each with its own setting (key ext_<id>, 0..1). The absolute call
+// replaces stock's menu load and call (8c099076..8c099082), so R0 is not the menu:
+// rows (R1) and count (R2) are stock's, and the menu is stock's constant.
+void sdk_extensions_midi_menu(u32, const void* rows, u32 count) {
+    const u32 menu = 0x0801eef0;
+    MenuRow all[16];
+    const MenuRow* stock_rows = static_cast<const MenuRow*>(rows);
+    u32 total = 0;
+    for (; total < count && total < 16 - kMenuRows; ++total) all[total] = stock_rows[total];
+    u32 entry_count = 0;
+    const ExtensionEntry* list = extension_collection(entry_count);
+    for (u32 i = 0; list && i < entry_count && i < 16 && menu_rows < kMenuRows; ++i) {
+        if (!list[i].menu_label) continue;
+        void* setting = stock<void*(u32)>(0x8d4d2900)(0x18);
+        if (!setting) break;
+        stock<void(void*, const char*, i32, i32, i32)>(0x8c089110)(setting, list[i].menu_key,
+            list[i].menu_default ? 1 : 0, 0, 1);
+        menu_entries[menu_rows] = i;
+        menu_settings[menu_rows] = setting;
+        all[total++] = {list[i].menu_label, setting, 0x8c098cae, menu_setters[menu_rows]};
+        ++menu_rows;
+    }
+    stock<void(u32, const MenuRow*, u32)>(0x8c097f0c)(menu, all, total);
+}
+

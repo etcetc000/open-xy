@@ -131,7 +131,8 @@
     ],
     "control": [
       "trackControl",
-      "hidePages"
+      "hidePages",
+      "extension"
     ],
     "aux": [
       "auxTrack"
@@ -1559,7 +1560,10 @@
       "before": "ffe3bdfc",
       "symbol": "sdk_param_edit_set",
       "call": true,
-      "service": "control"
+      "service": "control",
+      "events": [
+        "parameter_edit"
+      ]
     },
     {
       "kind": "hook",
@@ -1691,6 +1695,17 @@
       "events": [
         "context"
       ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c099076",
+      "file_offset": "0xd02b2",
+      "length": 12,
+      "before": "00da0108f0ee0000ffe347f7",
+      "symbol": "sdk_extensions_midi_menu",
+      "call": true,
+      "service": "extensions",
+      "surface": "midi_menu"
     },
     {
       "kind": "hook",

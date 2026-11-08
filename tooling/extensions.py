@@ -28,6 +28,9 @@ RESERVED = {'runtime', 'collection', 'stock', *'''alignas alignof and and_eq asm
 # The site's row and details: one line saying what it does and how, and an
 # optional note for its one limit. Short on purpose: people scan, not read.
 TEXT_LIMITS = {'name': 32, 'description': 140, 'note': 100}
+# A row in stock's MIDI settings menu: stock's longest label is "active track ch.".
+MENU_LABEL = re.compile(r'[a-z0-9.][a-z0-9. ]{0,15}')
+MENU_ROWS = 4
 MAX_EXTENSIONS = 16
 HEADER = 'sdk/include/opxy/extension.hpp'
 RUNTIME = 'sdk/platform/extension_runtime.hpp'
@@ -47,8 +50,10 @@ def registry():
                 isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
                 type(claim['key']) is int and 0 <= claim['key'] < 256, 'Invalid claim: ' + name)
     for name, action in actions.items():
-        require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
-                ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
+        require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires', 'during'} and
+                ('requires' not in action or action['requires'] in claims) and
+                not ('requires' in action and 'during' in action) and
+                ('during' not in action or action['during'] in events()), 'Invalid action: ' + name)
     return claims, actions
 
 
@@ -61,6 +66,8 @@ class Extension:
     text: dict  # name, description and optional note: the site's row and details
 
     master_processor: dict = None
+    # An on/off row in stock's MIDI settings menu that switches the extension: label, default.
+    menu: dict = None
 
     @property
     def master_filter(self):
@@ -79,8 +86,9 @@ def extension_at(folder):
             f'{root}: an extension folder holds extension.json and extension.cpp')
     data = document(root / 'extension.json')
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and optional note and master_processor')
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'menu'},
+            f'{root}: extension.json fields are id, name, description, claims, actions and optional note, '
+            'master_processor and menu')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -112,12 +120,18 @@ def extension_at(folder):
     for action in data['actions']:
         needed = actions[action].get('requires')
         require(needed is None or needed in data['claims'], f'{name}: {action} requires the {needed} claim')
-    require(not data['actions'] or data['claims'], f'{name}: actions are granted through a claim it holds')
+        require('during' in actions[action] or data['claims'],
+                f'{name}: {action} is granted through a claim it holds')
+    menu = data.get('menu')
+    require(menu is None or (isinstance(menu, dict) and set(menu) == {'label', 'default'} and
+                             isinstance(menu['label'], str) and MENU_LABEL.fullmatch(menu['label']) and
+                             type(menu['default']) is bool),
+            f'{name}: menu is a label (1-16 lowercase letters, digits, "." or spaces) and a true or false default')
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter)
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, menu)
 
 
 def check_collection(extensions):
@@ -131,6 +145,7 @@ def check_collection(extensions):
         for claim in e.claims:
             require(claim not in owners, f'{claims[claim]["label"]} has multiple owners: {owners.get(claim)}, {e.id}')
             owners[claim] = e.id
+    require(sum(e.menu is not None for e in extensions) <= MENU_ROWS, f'At most {MENU_ROWS} extension menu rows')
     processors = [e for e in extensions if e.master_processor is not None]
     ids = [e.master_processor.get('state_id', e.id) for e in processors]
     require(len(ids) == len(set(ids)), 'Master processor state IDs must be unique')
@@ -151,22 +166,31 @@ def check_profile(profile):
     """Every extension hook names the events it feeds, and every event has a site."""
     known, fed = set(events()), set()
     for patch in profile['patches']:
-        if patch.get('service') == 'extensions':
+        if patch.get('service') == 'extensions' and patch.get('surface') == 'midi_menu':
+            require(patch['kind'] == 'hook' and 'events' not in patch, 'A surface hook feeds no event')
+        elif patch.get('service') == 'extensions':
             listed = patch.get('events')
             require(patch['kind'] == 'hook' and isinstance(listed, list) and listed and
                     len(set(listed)) == len(listed) and set(listed) <= known,
                     'An extension hook names the events it feeds: ' + str(patch.get('symbol')))
             fed |= set(listed)
-        else:
-            require('events' not in patch, 'Only extension hooks name events')
+        elif 'events' in patch:
+            # A hook of a service extensions link (control's encoder edits) may feed one too.
+            listed = patch['events']
+            require(patch['kind'] == 'hook' and 'extension' in profile['services'].get(patch.get('service'), ()) and
+                    isinstance(listed, list) and listed and len(set(listed)) == len(listed) and set(listed) <= known,
+                    'Only hooks of services extensions link name events: ' + str(patch.get('symbol')))
+            fed |= set(listed)
     require(fed == known, 'Events without a firmware site: ' + ', '.join(sorted(known - fed)))
 
 
 def generate_collection(folder, extensions):
     """The collection and the registry tables the runtime reads: each claim's
-    key, and the claims that grant each action (0: any claim its holder owns)."""
+    key, the claims that grant each action (0: any claim its holder owns), and
+    the events that grant it instead (bits in Hooks order; 0: claims only)."""
     claims, actions = registry()
     claim_bit = {name: 1 << i for i, name in enumerate(claims)}
+    event_bit = {name: 1 << i for i, name in enumerate(events())}
     action_bit = {name: 1 << i for i, name in enumerate(actions)}
     mask = lambda table, names: '0x%xu' % sum(table[n] for n in names)
     table = lambda values: ', '.join(values) or '0'
@@ -181,15 +205,19 @@ def generate_collection(folder, extensions):
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',
-              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d};' % (
+              'const u32 action_events[] = {' + table(
+                  [mask(event_bit, [a['during']] if 'during' in a else []) for a in actions.values()]) + '};',
+              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d, action_events};' % (
                   len(claims), len(actions)),
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
               'const ExtensionEntry* extension_collection(u32& count) {', '    count = 0;']
     for e in extensions:
         lines += ['    if (const auto* hooks = sdk_extension_' + e.id + '_hooks())',
-                  '        collection_entries[count++] = {"%s", %s, %s, hooks};' % (
-                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions))]
+                  '        collection_entries[count++] = {"%s", %s, %s, hooks, %s, %s, %d};' % (
+                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions),
+                      '"%s"' % e.menu['label'] if e.menu else 'nullptr',
+                      '"ext_%s"' % e.id if e.menu else 'nullptr', bool(e.menu and e.menu['default']))]
     lines += ['    return collection_entries;', '}', '}}', '']
     target = folder / 'extension_collection.cpp'
     target.write_text('\n'.join(lines), encoding='utf-8')

@@ -10,17 +10,27 @@ using RecordedNote = extensions::Note;
 // each claim's key, and each action the claims that grant it (0: any claim).
 const u32 action_edit_notes = 1u << 0;
 const u32 action_notify = 1u << 1;
+const u32 action_send_cc = 1u << 2;
+// Events that grant actions (profiles/extensions.json "during"), one bit each
+// in Hooks order, as the generated registry writes them.
+const u32 event_parameter_edit = 1u << 6;
 
 struct ExtensionEntry {
     const char* id;
     u32 claims, actions;  // Bits in registry order.
     const extensions::Hooks* hooks;
+    // Its on/off row in stock's MIDI settings menu, or null: label, stock's
+    // settings key and the value before stock restores the saved one.
+    const char* menu_label;
+    const char* menu_key;
+    u32 menu_default;
 };
 struct ExtensionRegistry {
     const u32* claim_keys;
     u32 claim_count;
     const u32* action_claims;
     u32 action_count;
+    const u32* action_events;  // Events that grant each action; 0: only claims do.
 };
 // Generated with the collection (tooling.extensions.generate_collection).
 const ExtensionEntry* extension_collection(u32& count);
@@ -33,6 +43,12 @@ void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity);
 void extensions_selected_note_off(u32 track, u32 pitch);
 void extensions_recording_tick(u32 delta);
 void extensions_queued_control(const extensions::Control& control);
+void extensions_parameter_edit(u32 track, u32 index, i32 value);
+// An extension's MIDI menu row was set (by stock restoring or the user editing
+// it): while off, the extension gets no events.
+void extensions_menu_set(u32 entry, bool on);
+// The adapter restores the rows' saved values on the controller path, once.
+void extension_menu_restore();
 
 // An instrument track's pattern, as notes are written to it.
 struct TrackPattern { u32 pattern, length, scale; bool editable; };
@@ -44,4 +60,8 @@ i32 extension_collision_radius(u32 track);
 bool extension_record_held();
 u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replace);
 void extension_notify(const char* text);
+// A MIDI control change out on `channel` (0..15), as stock sends its own.
+void extension_send_cc(u32 channel, u32 cc, u32 value);
+// Stock sends its own MIDI for an edit of this track's parameters.
+bool extension_stock_sends_midi(u32 track);
 }}

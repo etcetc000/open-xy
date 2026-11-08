@@ -47,7 +47,7 @@ class Folder:
 class Extensions(unittest.TestCase):
     def test_a_folder_declares_itself_against_the_registry(self):
         probe = extensions.extension_at(PROBE)
-        self.assertEqual((probe.id, probe.claims, probe.actions), ('probe', ('record_double_tap',), ('edit_notes', 'notify')))
+        self.assertEqual((probe.id, probe.claims, probe.actions), ('probe', ('record_double_tap',), ('edit_notes', 'notify', 'send_cc')))
         for changes in (
             dict(id='../probe'), dict(id='runtime'), dict(id='delete'),  # paths, SDK objects, C++ keywords
             dict(claims=[]),  # edit_notes needs its claim
@@ -55,9 +55,16 @@ class Extensions(unittest.TestCase):
             dict(actions=['edit_notes', 'edit_notes']),
             dict(extra=True), dict(origin='official'),  # origin comes from the catalog, not the folder
             dict(description='x' * 141), dict(note=''), dict(name=None),
+            # A MIDI menu row: a short lowercase label and a boolean default.
+            dict(menu={'label': 'Probe', 'default': True}), dict(menu={'label': 'x' * 17, 'default': True}),
+            dict(menu={'label': '', 'default': True}), dict(menu={'label': 'probe', 'default': 1}),
+            dict(menu={'label': 'probe'}), dict(menu={'label': 'probe', 'default': True, 'key': 'x'}),
         ):
             with self.subTest(**{k: str(v) for k, v in changes.items()}), Folder() as folder, self.assertRaises(ValueError):
                 extensions.extension_at(folder.declare(**changes))
+        # An action granted during an event needs no claim: MIDI feedback is an observer.
+        with Folder() as folder:
+            self.assertEqual(extensions.extension_at(folder.declare(claims=[], actions=['send_cc'])).actions, ('send_cc',))
         with Folder() as folder, self.assertRaisesRegex(ValueError, 'conditional compilation'):
             (folder.root / 'extension.cpp').write_text('#ifdef X\n#endif\n', encoding='utf-8')
             extensions.extension_at(folder.root)
@@ -69,10 +76,18 @@ class Extensions(unittest.TestCase):
         other = extensions.Extension('other', PROBE, ('record_double_tap',), (), {})
         with self.assertRaisesRegex(ValueError, 'multiple owners'):
             extensions.check_collection([probe, other])
+        self.assertEqual(probe.menu, {'label': 'probe', 'default': True})
+        rows = [extensions.Extension(f'row{i}', PROBE, (), (), {}, None, {'label': 'row', 'default': False})
+                for i in range(extensions.MENU_ROWS + 1)]
+        extensions.check_collection(rows[:-1])
+        with self.assertRaisesRegex(ValueError, 'menu rows'):
+            extensions.check_collection(rows)
 
     def test_the_registry_is_claims_and_actions_only(self):
         for mutate in (lambda d: d['claims'].update(bad={'label': ''}),
                        lambda d: d['actions'].update(other={'requires': 'missing'}),
+                       lambda d: d['actions'].update(other={'during': 'note_on'}),
+                       lambda d: d['actions'].update(other={'requires': 'record_double_tap', 'during': 'parameter_edit'}),
                        lambda d: d.update(extensions=[]), lambda d: d.update(schema=2)):
             data = document(ROOT / extensions.PROFILE)
             mutate(data)
@@ -93,13 +108,18 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control',
+                                               'parameter_edit'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),
             lambda p: hook(p).update(events=['note_on']),
             lambda p: hook(p).update(events=[]),
             lambda p: next(x for x in p['patches'] if not x.get('service')).update(events=['context']),
+            # Only hooks of services extensions link may feed an event.
+            lambda p: next(x for x in p['patches'] if x.get('service') == 'aux').update(events=['context']),
+            # The MIDI menu hook is a surface: it feeds no event.
+            lambda p: next(x for x in p['patches'] if x.get('surface')).update(events=['context']),
             lambda p: [x.update(events=['context']) for x in p['patches'] if x.get('events')],
         ):
             changed = copy.deepcopy(profile)

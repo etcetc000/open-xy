@@ -35,6 +35,7 @@ Three layers, kept apart:
 | Stage | Happens when | Event |
 | --- | --- | --- |
 | Input | A key or MIDI note arrives, before recording and the sequencer | `recordable_note_on` and `selected_note_off` (selected track only); `input_activity` (any track, but without the note) |
+| Parameter | An encoder edits a track's parameter, after stock set it | `parameter_edit` (any track, plain or locked edits; not sequencer locks, LFOs or MIDI input) |
 | Sequencer | A pattern step plays | Not exposed |
 | Track | Live and sequenced notes reach a track, before its instrument | Not exposed |
 | Voice | The instrument starts a voice | A machine's voice callbacks |
@@ -45,7 +46,7 @@ while playing. A subscriber that wants a narrower scope filters; one that needs
 a wider scope widens the event (below), never adds a nearby site. The same
 holds for time (transport, GUI tick), controls (queued keys, keyboard keys,
 encoder edits, page keys) and the project lifecycle (loading, starting a new
-project, saving); of these, only queued keys are exposed.
+project, saving); of these, only queued keys and encoder edits are exposed.
 
 Adjacent sites are still separate sites. The controller update behind `context`
 follows stock's GUI tick in the same main loop; a GUI-tick event would be a site
@@ -71,8 +72,8 @@ filters to that track for it.
 | Kind | What | Here |
 | --- | --- | --- |
 | Events | Something happened | The `Hooks` callbacks |
-| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify` |
-| Surfaces | Add to the screen | None for extensions yet: menu rows, pages, overlays |
+| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify`, `Actions::send_cc` |
+| Surfaces | Add to the screen | An on/off row in stock's MIDI settings menu (`menu`); none yet for pages or overlays |
 | Saved state | Data kept with a project | None for extensions yet |
 
 An event says something happened; an action asks stock to do something. Sending
@@ -95,6 +96,7 @@ only for the callback. The SDK does not sandbox native code.
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
 | `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
+| `parameter_edit` | An encoder edit of any track's parameter (0–15; index 0–7 the engine's controls, then stock's own track parameters as in [`track_control.hpp`](../sdk/include/opxy/track_control.hpp)) with the value stock now holds, plain or locked. Not sequencer locks, LFOs, MIDI input or machines' writes. Linking an extension links the control service, whose edit hook this is | Encoder edit (control service) |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
 scale 1 has 480 ticks per step. Stock's pickup gives negative positions near
@@ -117,7 +119,9 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
-  claim, and without it any claim its holder owns grants it.
+  claim, and without it any claim its holder owns grants it. An action with
+  `during` names an event instead: the runtime grants it to every holder
+  inside that event's callback, needs no claim, and never grants it elsewhere.
   - `edit_notes` (requires `record_double_tap`) unlocks `Actions::insert_notes`
     (add beside the existing notes) and `Actions::replace_notes` (clear the
     track's notes, then add), on any instrument track whose pattern is
@@ -127,6 +131,13 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
+  - `send_cc` (during `parameter_edit`) unlocks `Actions::send_cc`: a MIDI
+    control change (channel 0–15, cc and value 0–127) through stock's MIDI
+    out, at most `send_cc_limit` per callback. Stock sends it only while its
+    MIDI "other" output setting is on. Stock receives channel N on track N,
+    and maps CC 12–19 to a track's engine controls, so `value >> 24` on the
+    edit's own track and CC round-trips. An edit with `stock_sends` set is one
+    stock already sends MIDI for (a MIDI engine track, the MIDI aux track).
 
   Calls outside the callback, with a stale context, or a second write or
   popup in one callback are refused.
@@ -141,7 +152,11 @@ An extension is a folder in a repository of its own, beside this SDK checkout:
    one-line `description` saying what it does and how to use it, 140 characters
    at most, and optionally a `note` for its one limit, 100), and the `claims`
    and `actions` it uses from the registry. People scan this; put the full
-   behavior in your repository's README.
+   behavior in your repository's README. Optionally a `menu` row,
+   `{"label": "enc. feedback", "default": true}`: an on/off row after stock's
+   own in the MIDI settings menu (1–16 lowercase letters, digits, `.` or
+   spaces; at most four per build). Stock saves it like its own settings
+   (key `ext_<id>`); while it is off the extension gets no events at all.
 2. `extension.cpp`, exporting `opxy::extensions::<id>::hooks`, naming only the
    events it takes:
    `extern constexpr Hooks hooks = Hooks().with_context(context).with_queued_control(queued_control);`
@@ -208,7 +223,7 @@ generated registry. Never add a per-claim field to the collection or a
 per-claim branch to the runtime.
 
 **Add an action** with a registry entry (and its `requires`, if one claim must
-grant it), a bit in
+grant it, or `during`, if an event grants it), a bit in
 [`extension_runtime.hpp`](../sdk/platform/extension_runtime.hpp) in registry
 order (a test keeps them in step), its function appended to `Actions`, and its
 stock work in the version adapter,

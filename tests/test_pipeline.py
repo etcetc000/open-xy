@@ -88,7 +88,8 @@ class Services(unittest.TestCase):
         self.assertEqual(active_services(profile, ['synth', 'effect']), set())
         self.assertEqual(active_services(profile, ['sample']), {'samples', 'octaves'})
         self.assertEqual(active_services(profile, ['drum']), {'samples', 'octaves', 'drums'})
-        self.assertEqual(active_services(profile, ['synth', 'extension']), {'extensions'})
+        # Extensions take encoder edits through the control service's edit hook.
+        self.assertEqual(active_services(profile, ['synth', 'extension']), {'extensions', 'control'})
         from tooling.extensions import extension_at
         from tooling.pipeline import ROOT
         probe = extension_at(ROOT / 'tests/fixtures/extension_probe')
@@ -99,16 +100,17 @@ class Services(unittest.TestCase):
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
         # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
-        # sends or a padMix kit's step locks: those services stay off.
+        # sends or a padMix kit's step locks: those services stay off, except control, which
+        # the extension links for its encoder edits.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
-                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks')])
+                                          ('aux', 'players', 'master_filter', 'drum_sends', 'drum_locks')])
         self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks'})
         self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
-        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'drums', 'extensions'})
+        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'drums', 'extensions', 'control'})
         self.assertEqual(native.object_services(without), {})
 
     def test_only_a_service_edit_may_stay_stock(self):

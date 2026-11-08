@@ -1,7 +1,8 @@
 {
   "id": "probe",
   "name": "Probe",
-  "description": "SDK test extension: records the events it receives and writes notes when Record is released.",
+  "description": "SDK test extension: records the events it receives, writes notes when Record is released and echoes edits as CC.",
   "claims": ["record_double_tap"],
-  "actions": ["edit_notes", "notify"]
+  "actions": ["edit_notes", "notify", "send_cc"],
+  "menu": {"label": "probe", "default": true}
 }

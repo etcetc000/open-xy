@@ -492,7 +492,39 @@ Unless a step is held for a parameter lock, that calls the setter `8d5acf28`
 with the new value; the setter writes the live value, the base value for synth
 tracks, and publishes. The call at `8d5ad5ae` routes through
 `sdk_param_edit_set`, which notes the parameter turned (pages show its own
-value for a moment) and always makes the original call.
+value for a moment) and always makes the original call. With extensions linked, it then raises
+their `parameter_edit` event through `sdk_parameter_edits`, which the
+extensions adapter sets on its first controller update; the control service is
+linked whenever an extension is.
+
+Stock sends MIDI control changes through `8d57a200(channel, cc, value, time)`
+(time null: now), which builds `0xB0 | channel` and queues three bytes only
+while bit 5 of `84ebaca4` (the MIDI "other" output setting) is set; it runs on
+the GUI and controller path already. Stock's own publish (`8d5acd9c`, its tail
+at `8d5ace7c`) sends MIDI for an edit only when the track's engine
+(`8d58781c`) is 29, the MIDI engine, or the track is 10, the MIDI aux track.
+The extensions adapter's `send_cc` calls the same routine, and marks those
+tracks' edits `stock_sends`. Incoming CC (`8d58e708`) routes channel N to
+track N and calls the setter `8d5acf28` directly with
+`v × 0x01020408 + (v >> 4)`, whose inverse is `word >> 24`; it never reaches
+the encoder-edit call at `8d5ad5ae`, so an edit event never echoes input. Its
+map: CC 12–19 parameters 0–7, 20–23 8–11, 24–27 32–35, 28–31 12–15, 32–39
+16–23, 40–47 24–31, 10 parameter 40 and 7 parameter 41.
+
+Stock's MIDI settings menu is built once at boot by a static initializer
+(`8c098d48`): five 16-byte rows `{label, setting, display, setter}` are copied
+to the stack and passed to `8c097f0c(menu 0801eef0, rows, 5)`, which copies
+them into the menu. Each setting is a 0x18-byte object from stock's `new`
+(`8d4d2900`) built by `8c089110(setting, key, default, min, max)`, which
+registers the key so stock saves and loads it; `8c088da0` loads it and
+`8c088caa` returns its value. The menu calls `setter(value)` after loading the
+values and after an edit; `8c098cae` displays 1 as "on", else "off". An
+absolute call replaces the menu's load and call (`8c099076`..`8c099082`, out
+of a relative call's reach of the larger module) with
+`sdk_extensions_midi_menu`, which supplies the menu and appends one
+row per extension declaring `menu` (its setting keyed `ext_<id>`, 0..1) and
+passes stock the longer list. The runtime restores those values with
+`8c088da0` and `8c088caa` once on the controller path, not at boot.
 
 Every page shows a parameter's value through `8d5ac9dc(project, track, index,
 …)`. With a step held it shows that step's lock; otherwise it reads the live

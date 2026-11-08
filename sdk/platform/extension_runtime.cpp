@@ -7,11 +7,13 @@ const ExtensionEntry* entries;
 const ExtensionRegistry* registry;
 u32 entry_count;
 bool initialized, dispatching;
+// Each entry's menu row: 0 not set yet (its default), 1 off, 2 on.
+u8 menu_state[16];
 char notification[32];
 
 // The actions one callback may take, and what it has done with them: one stock
-// undo transaction and at most one notification per callback.
-struct Transaction { u32 granted; bool attempted, notified; };
+// undo transaction, at most one notification and send_cc_limit messages per callback.
+struct Transaction { u32 granted; bool attempted, notified; u32 sent; };
 Transaction transaction;
 
 bool same_text(const char* a, const char* b) {
@@ -37,7 +39,7 @@ bool ready() {
             (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count)) ||
             (entry.claims && !entry.hooks->queued_control)) return false;
         for (u32 a = 0; a < known.action_count; ++a) {
-            if (!(entry.actions & (1u << a))) continue;
+            if (!(entry.actions & (1u << a)) || (known.action_events && known.action_events[a])) continue;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
             if (!(entry.claims & needs)) return false;
         }
@@ -48,7 +50,13 @@ bool ready() {
     entries = list;
     registry = &known;
     entry_count = count;
+    extension_menu_restore();
     return true;
+}
+// An extension switched off in the MIDI menu gets no events.
+bool on(u32 i) {
+    const ExtensionEntry& entry = entries[i];
+    return !entry.menu_label || (menu_state[i] ? menu_state[i] == 2 : entry.menu_default != 0);
 }
 
 // Actions granted while a claimed key fires and stock accepted it.
@@ -60,8 +68,17 @@ u32 granted(const ExtensionEntry& entry, const extensions::Control& control) {
     u32 result = 0;
     for (u32 a = 0; fired && a < registry->action_count; ++a) {
         const u32 needs = registry->action_claims[a] ? registry->action_claims[a] : entry.claims;
-        if ((entry.actions & (1u << a)) && (fired & needs)) result |= 1u << a;
+        if ((entry.actions & (1u << a)) && (fired & needs) &&
+            !(registry->action_events && registry->action_events[a])) result |= 1u << a;
     }
+    return result;
+}
+
+// Actions granted by the event itself (registry "during"), to any holder.
+u32 granted_during(const ExtensionEntry& entry, u32 event) {
+    u32 result = 0;
+    for (u32 a = 0; registry->action_events && a < registry->action_count; ++a)
+        if ((entry.actions & (1u << a)) && (registry->action_events[a] & event)) result |= 1u << a;
     return result;
 }
 
@@ -99,7 +116,13 @@ u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedN
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes};
+void send_cc(u32 channel, u32 cc, u32 value) {
+    if (!(transaction.granted & action_send_cc) || transaction.sent >= extensions::send_cc_limit ||
+        channel > 15 || cc > 127 || value > 127) return;
+    ++transaction.sent;
+    extension_send_cc(channel, cc, value);
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, send_cc};
 }
 
 void extensions_sync() {
@@ -107,14 +130,14 @@ void extensions_sync() {
     current.recording = extension_context(current.playing);
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
-        if (entries[i].hooks->context) entries[i].hooks->context(current);
+        if (on(i) && entries[i].hooks->context) entries[i].hooks->context(current);
     dispatching = false;
 }
 void extensions_input_activity() {
     if (dispatching || !ready()) return;
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
-        if (entries[i].hooks->input_activity) entries[i].hooks->input_activity();
+        if (on(i) && entries[i].hooks->input_activity) entries[i].hooks->input_activity();
     dispatching = false;
 }
 void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity) {
@@ -128,7 +151,7 @@ void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity) {
                                        static_cast<u32>(radius)};
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
-        if (entries[i].hooks->recordable_note_on) entries[i].hooks->recordable_note_on(current, note);
+        if (on(i) && entries[i].hooks->recordable_note_on) entries[i].hooks->recordable_note_on(current, note);
     dispatching = false;
 }
 void extensions_selected_note_off(u32 track, u32 pitch) {
@@ -139,7 +162,7 @@ void extensions_selected_note_off(u32 track, u32 pitch) {
     const extensions::NoteOff note = {track, pitch};
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
-        if (entries[i].hooks->selected_note_off) entries[i].hooks->selected_note_off(current, note);
+        if (on(i) && entries[i].hooks->selected_note_off) entries[i].hooks->selected_note_off(current, note);
     dispatching = false;
 }
 void extensions_recording_tick(u32 delta) {
@@ -151,7 +174,7 @@ void extensions_recording_tick(u32 delta) {
                                    discontinuity};
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
-        if (entries[i].hooks->recording_tick) entries[i].hooks->recording_tick(current, tick);
+        if (on(i) && entries[i].hooks->recording_tick) entries[i].hooks->recording_tick(current, tick);
     dispatching = false;
 }
 void extensions_queued_control(const extensions::Control& control) {
@@ -160,9 +183,27 @@ void extensions_queued_control(const extensions::Control& control) {
     if (!entries) return;
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i) {
-        transaction = {granted(entries[i], control), false, false};
+        if (!on(i)) continue;
+        transaction = {granted(entries[i], control), false, false, 0};
         if (entries[i].hooks->queued_control) entries[i].hooks->queued_control(current, control, actions);
-        transaction = {0, false, false};
+        transaction = {0, false, false, 0};
+    }
+    dispatching = false;
+}
+void extensions_menu_set(u32 entry, bool value) {
+    if (entry < 16) menu_state[entry] = value ? 2 : 1;
+}
+void extensions_parameter_edit(u32 track, u32 index, i32 value) {
+    if (dispatching) return;
+    extensions_sync();
+    if (!entries || track >= 16) return;
+    const extensions::ParameterEdit edit = {track, index, value, extension_stock_sends_midi(track)};
+    dispatching = true;
+    for (u32 i = 0; i < entry_count; ++i) {
+        if (!on(i)) continue;
+        transaction = {granted_during(entries[i], event_parameter_edit), false, false, 0};
+        if (entries[i].hooks->parameter_edit) entries[i].hooks->parameter_edit(current, edit, actions);
+        transaction = {0, false, false, 0};
     }
     dispatching = false;
 }
