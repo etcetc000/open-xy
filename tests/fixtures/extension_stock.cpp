@@ -48,6 +48,11 @@ void forward_tick(u32 state, u32 delta) {
     failed |= state != 0x860c072c; last_delta = delta; ++tick_calls;
 }
 void forward_stop(u32 controller) { failed |= controller != 0x860c6adc; ++stop_calls; }
+// Stock's plain press dispatch and its held-key record, which the bar menu's
+// claimed M keys reach directly.
+u32 plain_presses, held_keys;
+void plain_press(const u32* e) { failed |= e[0] < 6 || e[0] > 9 || !e[1]; ++plain_presses; }
+void key_held(const u32* e) { failed |= !e[1]; ++held_keys; }
 void forward_event(const u32* e) {
     ++event_calls;
     if (!input_enabled) return;
@@ -146,6 +151,8 @@ Address host_stock_address(Address address) {
         case 0x8d590b0a: return reinterpret_cast<Address>(&forward_tick);
         case 0x8d591964: return reinterpret_cast<Address>(&forward_stop);
         case 0x8c0b5d58: return reinterpret_cast<Address>(&forward_event);
+        case 0x8c0b5b10: return reinterpret_cast<Address>(&plain_press);
+        case 0x8d5b8100: return reinterpret_cast<Address>(&key_held);
         case 0x8d595738: return reinterpret_cast<Address>(&forward_on);
         case 0x8d5b7d54: return reinterpret_cast<Address>(&accepted_note);
         case 0x8d5b7e34: return reinterpret_cast<Address>(&steps_held);
@@ -218,6 +225,25 @@ int main() {
     key(10,true); CHECK(seen.control.key==10 && seen.control.accepted);
     CHECK(seen.control.held==extensions::keys::none && !seen.control.shift && !seen.context.shift && seen.control.screen == 0);
     screen=0x23; key(8,true); CHECK(seen.control.screen==extensions::screens::bar_menu); key(8,false); screen=0;
+    // The probe claims bar_menu: in the bar menu, M1, M2 and M4 without Shift
+    // are only recorded held (no stock clear can start) and reach the probe;
+    // with Shift they go to stock's plain press dispatch (its clears). Releases,
+    // M3, other screens and disabled input keep stock's dispatch.
+    {
+        const u32 events = event_calls;
+        screen=0x23; key(6,true);
+        CHECK(event_calls==events && !plain_presses && held_keys==1 && seen.control.key==6 && seen.control.pressed);
+        CHECK(seen.control.accepted && seen.control.screen==extensions::screens::bar_menu);
+        key(6,false); CHECK(event_calls==events+1 && seen.control.key==6 && !seen.control.pressed);
+        shift=1; key(7,true); CHECK(event_calls==events+1 && plain_presses==1 && held_keys==2 && seen.control.shift);
+        key(7,false); shift=0; CHECK(event_calls==events+2);
+        key(9,true); CHECK(event_calls==events+2 && plain_presses==1 && held_keys==3); key(9,false);
+        key(8,true); CHECK(event_calls==events+4 && held_keys==3); key(8,false);
+        screen=0; key(6,true); CHECK(event_calls==events+6 && held_keys==3); key(6,false);
+        screen=0x23; input_enabled=0; key(6,true); CHECK(event_calls==events+8 && held_keys==3 && !seen.control.accepted);
+        key(6,false); input_enabled=1; screen=0;
+        CHECK(!failed);
+    }
     other_held=55; key(50,true); CHECK(!seen.control.unmodified && seen.control.held==55); key(50,false); other_held=0;
     // The sequencer view reaches the context: one bar of 16 steps at scale 3 (1680).
     CHECK(seen.context.sequencer.track[0].bars==1 && seen.context.sequencer.track[15].bar_ticks==7680);

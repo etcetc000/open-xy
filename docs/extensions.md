@@ -95,7 +95,7 @@ only for the callback. The SDK does not sandbox native code.
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
 | `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held; `held`: the one other key held without Shift (`keys::none` otherwise); `screen`: stock's screen (`screens::bar_menu` for BAR's menu, held or kept open by pressing Shift first); `shift`: Shift held. Key numbers are in `keys` | Key queue |
-| `key_label` | Asks a claim's holder for the text stock shows over the claimed key in its menu: 1–15 printable characters, or `nullptr` for stock's own. Asked after every `context`; the SDK redraws the slot when the text changes. Only `bar_menu_m3` has a slot (the bar menu's M3) | Controller update, bar menu labels |
+| `key_label` | Asks a claim's holder for the label over a claimed key in stock's menu (`KeyLabel`): 1–15 printable characters, greyed out when not `enabled`, or `nullptr` for an empty slot. While Shift is held the menu shows stock's own labels, without asking. Asked after every `context`; the SDK redraws a slot when its label changes. Only `bar_menu` has slots (the bar menu's M1–M4) | Controller update, bar menu labels |
 | `sequencer_change` | A track's bar count or step scale changed while bars loop or are armed, after `context`. With `Actions`: an extension declaring `loop_bars` may move those loops here (for example to keep tracks lined up), but not start one | Controller update |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
@@ -115,11 +115,14 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   recognizes its gesture itself; the shared
   [`DoubleTap`](../sdk/include/opxy/double_tap.hpp) helper handles taps, holds,
   repeats and timeouts on any key without delaying stock controls.
-  `record_double_tap` is capture's. `bar_menu_m3` is M3 (key 8), which stock
-  leaves unused while its bar menu (BAR, 25) is open; its owner checks
-  `screen == screens::bar_menu` (and `shift` for a Shift variant) and may label it through
-  `key_label`, which sees `Context::shift` to follow Shift. `shift_play` is
-  Play (51) with Shift held, which stock ignores; its owner checks `shift`.
+  A claim may govern several keys.
+  `record_double_tap` is capture's. `bar_menu` is M1–M4 (keys 6–9) while
+  stock's bar menu (BAR, 25) is open: without Shift they are its owner's, and
+  stock's own actions there move to Shift + M (its clears: M1 notes, M2
+  parameter locks, M4 both, each after stock's hold). The owner checks
+  `screen == screens::bar_menu` and `!shift`, and labels the keys through
+  `key_label`. `shift_play` is Play (51) with Shift held, which stock ignores;
+  its owner checks `shift`.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
@@ -134,7 +137,7 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
   - `loop_bars` unlocks `Actions::loop_bars` (granted by any claim its holder
-    owns, such as `bar_menu_m3`): hold
+    owns, such as `bar_menu`): hold
     each track in one bar of its playing pattern (`BarLoop`, `no_bar` for the
     tracks stock keeps). Every playhead move stays in that bar: play start
     lands on its first step and shows that bar's steps (other bars can still

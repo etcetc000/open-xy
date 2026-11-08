@@ -2,6 +2,6 @@
   "id": "probe",
   "name": "Probe",
   "description": "SDK test extension: records the events it receives and writes notes when Record is released.",
-  "claims": ["record_double_tap"],
+  "claims": ["record_double_tap", "bar_menu"],
   "actions": ["edit_notes", "notify"]
 }

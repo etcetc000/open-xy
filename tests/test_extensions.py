@@ -47,7 +47,7 @@ class Folder:
 class Extensions(unittest.TestCase):
     def test_a_folder_declares_itself_against_the_registry(self):
         probe = extensions.extension_at(PROBE)
-        self.assertEqual((probe.id, probe.claims, probe.actions), ('probe', ('record_double_tap',), ('edit_notes', 'notify')))
+        self.assertEqual((probe.id, probe.claims, probe.actions), ('probe', ('record_double_tap', 'bar_menu'), ('edit_notes', 'notify')))
         for changes in (
             dict(id='../probe'), dict(id='runtime'), dict(id='delete'),  # paths, SDK objects, C++ keywords
             dict(claims=[]),  # edit_notes needs its claim
@@ -73,7 +73,10 @@ class Extensions(unittest.TestCase):
     def test_the_registry_is_claims_and_actions_only(self):
         for mutate in (lambda d: d['claims'].update(bad={'label': ''}),
                        lambda d: d['actions'].update(other={'requires': 'missing'}),
-                       lambda d: d.update(extensions=[]), lambda d: d.update(schema=2)):
+                       lambda d: d.update(extensions=[]), lambda d: d.update(schema=2),
+                       lambda d: d['claims']['shift_play'].update(keys=[]),
+                       lambda d: d['claims']['shift_play'].update(keys=[51, 51]),
+                       lambda d: d['claims'].update(old={'label': 'Old', 'key': 50})):
             data = document(ROOT / extensions.PROFILE)
             mutate(data)
             with mock.patch.object(extensions, 'document', return_value=data), self.assertRaises(ValueError):
@@ -81,13 +84,14 @@ class Extensions(unittest.TestCase):
 
     def test_actions_match_the_runtime_bits_and_claims_are_data(self):
         # An action is SDK code: one registry entry and one runtime constant, in
-        # registry order. A claim is data: a registry entry naming its key.
+        # registry order. A claim is data: a registry entry naming its keys.
         header = (ROOT / extensions.RUNTIME).read_text(encoding='utf-8')
         claims, actions = extensions.registry()
         declared = re.findall(r'const u32 action_(\w+) = 1u << (\d+);', header)
         self.assertEqual(declared, [(name, str(i)) for i, name in enumerate(actions)])
         self.assertNotRegex(header, r'const u32 claim_')
-        self.assertTrue(all(type(c['key']) is int for c in claims.values()))
+        self.assertTrue(all(c['keys'] and all(type(k) is int for k in c['keys']) for c in claims.values()))
+        self.assertEqual(claims['bar_menu']['keys'], [6, 7, 8, 9])
 
     def test_every_extension_hook_names_its_events_and_every_event_has_a_site(self):
         profile = config()
@@ -96,7 +100,7 @@ class Extensions(unittest.TestCase):
                                                'recording_tick', 'input_activity', 'queued_control',
                                                'key_label', 'sequencer_change'])
         self.assertEqual({x['address'] for x in profile['patches'] if 'key_label' in x.get('events', [])},
-                         {'0x8c0baaf0', '0x8d547004'})
+                         {'0x8c0baaf0', '0x8d546fca', '0x8d546fe6', '0x8d547004', '0x8d547020'})
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         served = lambda p: next(x for x in p['patches'] if x.get('actions'))
         self.assertEqual({x['address'] for x in profile['patches'] if x.get('actions') == ['loop_bars']},
@@ -124,7 +128,7 @@ class Extensions(unittest.TestCase):
         probe = extensions.extension_at(PROBE)
         [entry] = extensions.metadata([probe], {'probe': 'personal'})
         self.assertEqual(entry['origin'], 'personal')
-        self.assertEqual(entry['claim_labels'], {'record_double_tap': 'Record double-tap'})
+        self.assertEqual(entry['claim_labels'], {'record_double_tap': 'Record double-tap', 'bar_menu': 'Bar menu M1-M4'})
         self.assertLessEqual(len(entry['description']), extensions.TEXT_LIMITS['description'])
 
     def test_extensions_reach_a_build_through_its_collection(self):

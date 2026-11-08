@@ -56,6 +56,31 @@ u32 held_with(u32 key) {
 
 bool extension_shift() { return shift_held(); }
 
+namespace {
+// Stock's key dispatch (8c0b5d58), with the bar menu's M1, M2 and M4 moved to
+// Shift while an extension claims them. Stock dispatches a press to the
+// screen's controller, through its Shift handler while Shift is held
+// (8c0b5b80) or its plain one otherwise (8c0b5b10), then records the key as
+// held (8d5b8100). The bar menu's plain handler marks M1, M2 or M4 pressed,
+// and its update clears notes (M1), parameter locks (M2) or both (M4) once
+// the key has been held 800 ms; its Shift handler ignores them. So a claimed
+// press without Shift is only recorded as held (no clear can start; the
+// holder gets the key), and one with Shift goes to the plain handler (stock's
+// clear, with its hold). Releases and every other key keep stock's dispatch.
+bool menu_clear_key(u32 key) {
+    return key == extensions::keys::m1 || key == extensions::keys::m2 || key == extensions::keys::m4;
+}
+void dispatch_key(const u32* event) {
+    if (event[1] && byte(kInputEnabled) && word(kScreen) == extensions::screens::bar_menu &&
+        menu_clear_key(event[0]) && extensions_claimed(event[0])) {
+        if (shift_held()) stock<void(const u32*)>(0x8c0b5b10)(event);
+        stock<void(const u32*)>(0x8d5b8100)(event);
+        return;
+    }
+    stock<void(const u32*)>(0x8c0b5d58)(event);
+}
+}
+
 TrackPattern extension_pattern(u32 track) {
     TrackPattern p = {};
     if (!word(kProject) || track >= 8) return p;
@@ -184,7 +209,7 @@ void sdk_extensions_key(const u32* event) {
     const bool enabled = byte(kInputEnabled) != 0;
     // The clock writes a full 64-bit microsecond value through its argument.
     stock<void(extensions::Time*)>(0x8d5be3a0)(&control.time);
-    stock<void(const u32*)>(0x8c0b5d58)(event);
+    dispatch_key(event);
     // Stock records Record's held state; other keys are accepted while input is enabled.
     control.accepted = enabled && (control.key != extensions::keys::record ||
         (control.pressed ? extension_record_held() : was_held && !extension_record_held()));

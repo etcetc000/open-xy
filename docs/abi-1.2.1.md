@@ -300,20 +300,34 @@ unless recording was disarmed first. Such a start places its tracks already at p
 back to zero for the count-in, so a note played just before the count-in ends
 is picked up on the start's bar.
 
-The bar menu's controller (`0x8c084594`) handles BAR (25: the next bar is
-shown), M1, M2 and M4; it does not handle M3, and stock's global M-key handler
-(`0x8c091008`) acts only on screens 5, 8, 11 and 38. Each sequencer track's
-bar length in song ticks is `16 * 480 * 1680 / factor[scale]`, with the factors
-at `0x840aa47c`.
+The bar menu's controller (a singleton at `0x08014b7c`, vtable `0x0803f35c`)
+handles BAR (25: the next bar is shown), M1, M2 and M4; it does not handle M3,
+and stock's global M-key handler (`0x8c091008`) acts only on screens 5, 8, 11
+and 38. Stock's key dispatch (`0x8c0b5d58`) sends a press to the screen's
+controller, through its Shift handler while Shift is held (`0x8c0b5b80`) or its
+plain one (`0x8c0b5b10`), then records the key as held (`0x8d5b8100`). The bar
+menu's plain handler (`0x8c08425c`) only marks M1, M2 or M4 pressed (bytes
+`+0x9` to `+0xc`); its update (`0x8c0847e0`) clears once the key has been held
+800 ms: notes for M1 and M4 (`0x8d5940a4`), parameter locks for M2 and M4
+(`0x8d593484`). Its Shift handler ignores them. While an extension claims
+`bar_menu`, [`extension_stock.cpp`](../sdk/platform/opxy-1.2.1/extension_stock.cpp)
+dispatches a plain M1, M2 or M4 press in the bar menu only to the held-key
+record, and one with Shift to the plain handler, so the clears move to Shift
+with their hold; releases keep stock's dispatch. Each sequencer track's bar
+length in song ticks is `16 * 480 * 1680 / factor[scale]`, with the factors at
+`0x840aa47c`.
 
 Stock menus label M1–M4 through one object per screen:
-`0x8d56a758(labels, slot, text, shown, enabled)`. The bar menu builds its labels
-once (`0x8d546de8`) and leaves M3 empty, hidden and disabled; that call
-(`0x8d547004`) is replaced by `sdk_extensions_bar_label`
+`0x8d56a758(labels, slot, text, shown, enabled)`; a label shown but not enabled
+is drawn greyed out. The bar menu builds its labels once (`0x8d546de8`): "clr
+notes" (`0x8d546fca`), "clr params" (`0x8d546fe6`), M3 empty, hidden and
+disabled (`0x8d547004`), "clr all" (`0x8d547020`). Those four calls are replaced
+by `sdk_extensions_bar_label`
 ([`extension_label.cpp`](../sdk/platform/opxy-1.2.1/extension_label.cpp)). It
-records the menu's label object and shows the `bar_menu_m3` holder's
-`key_label`, if there is one. Later changes to the label go through the same
-stock call; an empty label restores stock's arguments.
+records the menu's label object and stock's arguments for each slot, and shows
+the `bar_menu` holder's `key_label` instead, if there is one. Later changes go
+through the same stock call; a slot given back (Shift held) shows stock's
+arguments again.
 
 ## Startup
 

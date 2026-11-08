@@ -1879,10 +1879,49 @@
     },
     {
       "kind": "hook",
+      "address": "0x8d546fca",
+      "file_offset": "0x17e226",
+      "length": 4,
+      "before": "01e3c71b",
+      "symbol": "sdk_extensions_bar_label",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "key_label"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d546fe6",
+      "file_offset": "0x17e242",
+      "length": 4,
+      "before": "01e3b91b",
+      "symbol": "sdk_extensions_bar_label",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "key_label"
+      ]
+    },
+    {
+      "kind": "hook",
       "address": "0x8d547004",
       "file_offset": "0x17e260",
       "length": 4,
       "before": "01e3aa1b",
+      "symbol": "sdk_extensions_bar_label",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "key_label"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8d547020",
+      "file_offset": "0x17e27c",
+      "length": 4,
+      "before": "01e39c1b",
       "symbol": "sdk_extensions_bar_label",
       "call": true,
       "service": "extensions",

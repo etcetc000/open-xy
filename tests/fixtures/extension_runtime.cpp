@@ -43,8 +43,9 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
                                                     .with_queued_control(edit_control);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0};
-const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2};
+const ClaimKey claim_keys[] = {{0, 50}, {1, 51}};
+u32 action_claims[] = {1u, 0};
+const ExtensionRegistry tables = {claim_keys, 2, 2, action_claims, 2};
 ExtensionEntry collection[] = {{"observer", 0, 0, &first},
                                {"writer", 1u, action_edit_notes | action_notify, &second}};
 }
@@ -68,7 +69,7 @@ bool extension_shift() { return shift_down; }
 void extension_sequencer(extensions::Sequencer& s) { s = extensions::Sequencer(); }
 bool extension_loop(const extensions::BarLoop&) { return false; }
 bool extension_labels(u32) { return false; }
-void extension_key_label(u32, const char*) {}
+void extension_key_label(u32, const char*, bool) {}
 bool extension_play_from(u32) { return false; }
 }}
 void control(u32 key, bool accepted) {

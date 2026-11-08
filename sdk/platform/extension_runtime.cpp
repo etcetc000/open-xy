@@ -8,8 +8,10 @@ const ExtensionRegistry* registry;
 u32 entry_count;
 bool initialized, dispatching;
 char notification[32];
-// The label each claim's holder last gave its key ("" for stock's own).
-char labels[32][16];
+// The label last drawn for each claimed key (registry pair order): the
+// holder's text and state, or stock's own while Shift is held.
+struct Label { char text[16]; bool enabled, stock, drawn; };
+Label labels[32];
 
 // The actions one callback may take, and what it has done with them: one stock
 // undo transaction and at most one notification per callback.
@@ -51,7 +53,10 @@ bool ready() {
     u32 count = 0;
     const ExtensionEntry* list = extension_collection(count);
     const ExtensionRegistry& known = extension_registry();
-    if (!list || count > 16 || known.claim_count > 32 || known.action_count > 32) return false;
+    if (!list || count > 16 || known.claim_count > 32 || known.claim_key_count > 32 ||
+        known.action_count > 32) return false;
+    for (u32 k = 0; k < known.claim_key_count; ++k)
+        if (known.claim_keys[k].claim >= known.claim_count) return false;
     u32 claimed = 0;
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
@@ -77,8 +82,10 @@ bool ready() {
 u32 granted(const ExtensionEntry& entry, const extensions::Control& control) {
     if (!control.accepted) return 0;
     u32 fired = 0;
-    for (u32 c = 0; c < registry->claim_count; ++c)
-        if ((entry.claims & (1u << c)) && registry->claim_keys[c] == control.key) fired |= 1u << c;
+    for (u32 k = 0; k < registry->claim_key_count; ++k) {
+        const ClaimKey& pair = registry->claim_keys[k];
+        if ((entry.claims & (1u << pair.claim)) && pair.key == control.key) fired |= 1u << pair.claim;
+    }
     u32 result = 0;
     for (u32 a = 0; fired && a < registry->action_count; ++a) {
         const u32 needs = registry->action_claims[a] ? registry->action_claims[a] : entry.claims;
@@ -159,7 +166,7 @@ bool play_from(const extensions::Context& expected, u32 song_tick) {
 }
 const extensions::Actions actions = {insert_notes, notify, replace_notes, loop_bars, play_from};
 
-// A label is 1-15 printable characters; anything else gives the key back to stock.
+// A label is 1-15 printable characters; anything else leaves the slot empty.
 void take_label(char* label, const char* text) {
     u32 length = 0;
     while (text && length < 16 && text[length] >= ' ' && text[length] <= '~') ++length;
@@ -167,19 +174,28 @@ void take_label(char* label, const char* text) {
     for (u32 i = 0; i < length; ++i) label[i] = text[i];
     label[length] = 0;
 }
-// Only a claim's holder labels its key, and only where the adapter has a slot.
+// Only a claim's holder labels its keys, and only where the adapter has a
+// slot; while Shift is held the slots show stock's own labels.
 void update_labels() {
     for (u32 i = 0; i < entry_count; ++i) {
         const ExtensionEntry& entry = entries[i];
-        for (u32 c = 0; c < registry->claim_count; ++c) {
-            if (!(entry.claims & (1u << c))) continue;
-            const u32 key = registry->claim_keys[c];
-            if (!extension_labels(key)) continue;
-            char label[16];
-            take_label(label, entry.hooks->key_label ? entry.hooks->key_label(current, key) : nullptr);
-            if (same_text(label, labels[c])) continue;
-            for (u32 k = 0; k < 16; ++k) labels[c][k] = label[k];
-            extension_key_label(key, labels[c]);
+        for (u32 k = 0; k < registry->claim_key_count; ++k) {
+            const ClaimKey& pair = registry->claim_keys[k];
+            if (!(entry.claims & (1u << pair.claim)) || !extension_labels(pair.key)) continue;
+            Label next = {};
+            next.stock = current.shift;
+            next.enabled = true;
+            if (!next.stock && entry.hooks->key_label) {
+                const extensions::KeyLabel label = entry.hooks->key_label(current, pair.key);
+                take_label(next.text, label.text);
+                next.enabled = label.enabled;
+            }
+            Label& last = labels[k];
+            if (last.drawn && last.stock == next.stock && last.enabled == next.enabled &&
+                same_text(last.text, next.text)) continue;
+            last = next;
+            last.drawn = true;
+            extension_key_label(pair.key, last.stock ? nullptr : last.text, last.enabled);
         }
     }
 }
@@ -205,6 +221,15 @@ void extensions_sync() {
     }
     update_labels();
     dispatching = false;
+}
+bool extensions_claimed(u32 key) {
+    if (!ready()) return false;
+    for (u32 k = 0; k < registry->claim_key_count; ++k) {
+        if (registry->claim_keys[k].key != key) continue;
+        for (u32 i = 0; i < entry_count; ++i)
+            if (entries[i].claims & (1u << registry->claim_keys[k].claim)) return true;
+    }
+    return false;
 }
 void extensions_input_activity() {
     if (dispatching || !ready()) return;

@@ -110,7 +110,10 @@ using OnSelectedNoteOff = void (*)(const Context&, const NoteOff&);
 using OnRecordingTick = void (*)(const Context&, const Tick&);
 using OnInputActivity = void (*)();
 using OnQueuedControl = void (*)(const Context&, const Control&, const Actions&);
-using OnKeyLabel = const char* (*)(const Context&, u32 key);
+// A claimed key's label: 1-15 printable characters (nullptr: the slot is
+// empty), drawn greyed out when not enabled.
+struct KeyLabel { const char* text; bool enabled; };
+using OnKeyLabel = KeyLabel (*)(const Context&, u32 key);
 using OnSequencerChange = void (*)(const Context&, const Actions&);
 
 // One callback per event, named for what it delivers. Each event lists its
@@ -122,7 +125,8 @@ using OnSequencerChange = void (*)(const Context&, const Actions&);
 //
 // All callbacks are synchronous on the controller path, in collection order.
 // Arguments are borrowed for the callback. No allocation, blocking or I/O.
-// Observers cannot transform live input or consume stock controls.
+// Observers cannot transform live input or consume stock controls; only a
+// claim may move a stock control (bar_menu: the bar menu's M keys go to Shift).
 struct Hooks {
     // Selected-track recording context and play state; before every other event.
     OnContext context;
@@ -139,9 +143,10 @@ struct Hooks {
     // A queued control (Record and other queued keys; not keyboard keys
     // 26-49) after stock handled it. Actions act only for their claim owner.
     OnQueuedControl queued_control;
-    // The text stock shows over a claimed key in its menu (bar_menu_m3: the bar
-    // menu's M3 slot), 1-15 printable characters, or nullptr for stock's own.
-    // Asked after every context callback; the SDK redraws when it changes.
+    // The label over a claimed key in stock's menu (bar_menu: the bar menu's
+    // M1-M4 slots). While Shift is held the menu shows stock's own labels, as
+    // Shift gives the keys back to stock. Asked after every context callback;
+    // the SDK redraws a slot when its label changes.
     OnKeyLabel key_label;
     // A track's bar count or step scale changed while bars loop (or are
     // armed), after the context callback. loop_bars may move those loops

@@ -1,6 +1,7 @@
 // loop_bars in the runtime: granted by its claim, one change per callback,
 // validated against the playing patterns, and ended without a claim by its holder;
-// key labels from the claim's holder only, validated, passed on when they change;
+// key labels from the claim's holder only, validated, passed on when they change,
+// stock's own while Shift is held;
 // sequencer_change may move loops that hold, never start one.
 #include <extension_runtime.cpp>
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
@@ -39,14 +40,16 @@ void observer(const extensions::Context& context, const extensions::Control&, co
     observed += !actions.loop_bars(context, none());
 }
 const char* label;
+bool label_enabled = true;
 u32 asked, unclaimed, labelled;
-char shown[16];
 bool saw_shift;
-const char* looper_label(const extensions::Context& c, u32 key) {
+// M3 gives `label`, M1 "first", M2 and M4 nothing (empty slots).
+extensions::KeyLabel looper_label(const extensions::Context& c, u32 key) {
     ++asked; saw_shift = c.shift;
-    return key == 8 ? label : "wrong";
+    if (key == 8) return {label, label_enabled};
+    return {key == 6 ? "first" : nullptr, true};
 }
-const char* observer_label(const extensions::Context&, u32) { ++unclaimed; return "taken"; }
+extensions::KeyLabel observer_label(const extensions::Context&, u32) { ++unclaimed; return {"taken", true}; }
 u32 changes, moved, moves_refused, observer_changes;
 void mover(const extensions::Context& context, const extensions::Actions& actions) {
     ++changes;
@@ -64,9 +67,11 @@ const extensions::Hooks first =
     extensions::Hooks().with_queued_control(looper).with_key_label(looper_label).with_sequencer_change(mover);
 const extensions::Hooks second = extensions::Hooks()
     .with_queued_control(observer).with_key_label(observer_label).with_sequencer_change(observer_change);
-// Claims: Record (50), M3 (8) and Play (51); edit_notes needs the first, the others any claim.
-u32 claim_keys[] = {50, 8, 51}, action_claims[] = {1u, 0, 0, 0};
-const ExtensionRegistry tables = {claim_keys, 3, action_claims, 4};
+// Claims: Record (50), the bar menu's M1-M4 (6-9) and Play (51); edit_notes
+// needs the first, the others any claim.
+const ClaimKey claim_keys[] = {{0, 50}, {1, 6}, {1, 7}, {1, 8}, {1, 9}, {2, 51}};
+u32 action_claims[] = {1u, 0, 0, 0};
+const ExtensionRegistry tables = {claim_keys, 6, 3, action_claims, 4};
 ExtensionEntry collection[] = {{"looper", 6u, action_loop_bars | action_notify | action_play_from, &first},
                                {"observer", 0, 0, &second}};
 }
@@ -85,15 +90,23 @@ bool shift_down;
 bool extension_shift() { return shift_down; }
 void extension_sequencer(extensions::Sequencer& s) { s = sequencer; }
 bool extension_loop(const extensions::BarLoop& loop) { ++loops; taken = loop; return true; }
-bool extension_labels(u32 key) { return key == 8; }
+bool extension_labels(u32 key) { return key >= 6 && key <= 9; }
 u32 starts, started_at;
 bool extension_play_from(u32 tick) { ++starts; started_at = tick; return true; }
-void extension_key_label(u32 key, const char* text) {
-    if (key != 8) return;
-    ++labelled;
+// What each slot (M1-M4) was last given: text, greyed out, or stock's own.
+struct Shown { char text[16]; bool enabled, stock; u32 calls; };
+Shown slots[4];
+char* shown = slots[2].text;
+void extension_key_label(u32 key, const char* text, bool enabled) {
+    if (key < 6 || key > 9) return;
+    Shown& s = slots[key - 6];
+    ++s.calls;
+    if (key == 8) ++labelled;
+    s.stock = text == nullptr;
+    s.enabled = enabled;
     u32 i = 0;
-    for (; i < 15 && text[i]; ++i) shown[i] = text[i];
-    shown[i] = 0;
+    for (; text && i < 15 && text[i]; ++i) s.text[i] = text[i];
+    s.text[i] = 0;
 }
 }}
 void control(u32 key, bool accepted) {
@@ -126,8 +139,11 @@ int main() {
     mode = 1; const u32 before = loops; control(8, true);
     CHECK(loops == before + 1 && results == 2 && refusals == 2 && taken.bar[2] == extensions::no_bar);
     CHECK(observed == controls);
-    // Labels: asked of the M3 claim's holder only, after the context; passed on
-    // when they change. Too long, empty or unprintable text gives the slot back.
+    // Labels: asked of the bar menu claim's holder only, for each of its keys,
+    // after the context; passed on when they change. No text, or text too
+    // long or unprintable, leaves the slot empty.
+    CHECK(same_text(slots[0].text, "first") && slots[0].enabled && !slots[0].stock);
+    CHECK(slots[1].calls == 1 && slots[1].text[0] == 0 && !slots[1].stock && slots[3].calls == 1);
     const u32 before_labels = labelled;
     label = nullptr; extensions_sync(); CHECK(asked && !unclaimed && labelled == before_labels);
     label = "loop off"; extensions_sync(); CHECK(labelled == before_labels + 1 && same_text(shown, "loop off"));
@@ -137,9 +153,18 @@ int main() {
     label = "fifteen chars!!"; extensions_sync(); CHECK(same_text(shown, "fifteen chars!!"));
     label = "tab\there"; extensions_sync(); CHECK(labelled == before_labels + 5 && shown[0] == 0);
     label = ""; extensions_sync(); CHECK(labelled == before_labels + 5);
-    // Labels are asked with Shift as it is at this update.
-    shift_down = true; extensions_sync(); CHECK(saw_shift);
-    shift_down = false; extensions_sync(); CHECK(!saw_shift);
+    // A label may be greyed out: that is a change too.
+    label = "loop on"; label_enabled = false; extensions_sync();
+    CHECK(labelled == before_labels + 6 && same_text(shown, "loop on") && !slots[2].enabled);
+    // While Shift is held every slot shows stock's own, without asking; back
+    // to the holder's when it is let go.
+    const u32 asked_before = asked;
+    shift_down = true; extensions_sync();
+    CHECK(asked == asked_before && slots[0].stock && slots[1].stock && slots[2].stock && slots[3].stock);
+    CHECK(labelled == before_labels + 7);
+    extensions_sync(); CHECK(labelled == before_labels + 7 && asked == asked_before);
+    shift_down = false; extensions_sync();
+    CHECK(!saw_shift && !slots[2].stock && same_text(shown, "loop on") && same_text(slots[0].text, "first"));
     CHECK(!unclaimed);
     // sequencer_change: only while bars loop, only when a bar count or scale
     // changed; the holder may move the loop there, once, without a popup.
