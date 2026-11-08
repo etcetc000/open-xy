@@ -4,7 +4,7 @@
 #include <cstring>
 using namespace opxy::platform::input_monitor_popup;
 namespace {
-bool held, ready;
+bool held, ready, extra_available;
 u32 tuning;
 u32 choice, constructs, loads, binds, resets, frames, draws;
 Node value_nodes[4], row_nodes[4], icon_nodes[4];
@@ -43,6 +43,9 @@ void draw(Popup* p,u32 flags) {
 }
 bool sdk_input_monitor_shift_visible() { return held; }
 u32 sdk_live_input_page() { return held ? tuning : 0; }
+const char* sdk_live_input_page_hint() {
+    return extra_available ? (tuning == 2 ? "m1 > quick" : "m1 > vocal fx") : nullptr;
+}
 const char* sdk_live_input_caption(u32 row, bool label) {
     const char* labels[] = {nullptr, "tune", "retune", "amount"};
     const char* values[] = {nullptr, "F# minor", "hard", "100%"};
@@ -87,9 +90,13 @@ int main() {
     require(std::strcmp(captions[1],"tune   F# minor")==0 && std::strcmp(captions[2],"retune   hard")==0 &&
             std::strcmp(captions[3],"amount   100%")==0,"tune values map to the three remaining encoders");
     require(value_nodes[3].matrix[7]==177*1024+512,"last caption fits inside its stock row");
+    extra_available=true;sdk_input_monitor_frame(63,63);
+    require(std::strcmp(captions[3],"amount   100%   m1 > vocal fx")==0 &&
+            value_nodes[3].matrix[0]==717,"quick page hints at vocal effects in the last row");
     tuning=2;sdk_input_monitor_frame(63,63);
     require(std::strcmp(captions[0],"harmony   third up")==0 && std::strcmp(captions[1],"blend   20%")==0 &&
-            std::strcmp(captions[2],"compress   soft")==0 && std::strcmp(captions[3],"de-ess   off")==0,
+            std::strcmp(captions[2],"compress   soft")==0 &&
+            std::strcmp(captions[3],"de-ess   off   m1 > quick")==0,
             "the second page uses all four rows, including the Tilt Mic row");
     require(motion_q10(0x41c00000u)==24*1024 && motion_q10(0xc1c00000u)==-24*1024,"native slide endpoints");
     require(!motion_q10(0x7fc00000u) && !motion_q10(1),"invalid or subpixel motion is bounded");

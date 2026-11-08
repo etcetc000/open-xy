@@ -9,6 +9,7 @@ opxy::u32 sdk_live_input_page() __asm__("sdk_live_input_page");
 bool sdk_live_input_toggle_page() __asm__("sdk_live_input_toggle_page");
 bool sdk_live_input_turn(opxy::u32, const opxy::i32*) __asm__("sdk_live_input_turn");
 const char* sdk_live_input_caption(opxy::u32, bool) __asm__("sdk_live_input_caption");
+const char* sdk_live_input_page_hint() __asm__("sdk_live_input_page_hint");
 void sdk_live_input_publish() __asm__("sdk_live_input_publish");
 opxy::u32 sdk_live_input_option_bits() __asm__("sdk_live_input_option_bits");
 }
@@ -87,6 +88,11 @@ bool sdk_live_input_toggle_page() {
     if (!sdk_live_input_page() || !extra_controls()) return false;
     extra_page = !extra_page;
     return true;
+}
+
+const char* sdk_live_input_page_hint() {
+    if (!extra_controls()) return nullptr;
+    return extra_page ? "m1 > quick" : "m1 > vocal fx";
 }
 
 bool sdk_live_input_turn(opxy::u32 encoder, const opxy::i32* event) {
