@@ -133,6 +133,6 @@ class Runtime(unittest.TestCase):
     def test_live_input_shift_controls_publish_complete_choices_to_audio(self):
         def prepare(folder):
             map_stock(folder)
-            for name in ('stock_browser.hpp', 'live_input_menu.cpp', 'live_input_stock.cpp'):
+            for name in ('stock_browser.hpp', 'live_input_menu.cpp', 'live_input_stock.cpp', 'aux_menu.cpp'):
                 (folder / name).write_text((PLATFORM / name).read_text())
         self.run_fixture('live_input', prepare)

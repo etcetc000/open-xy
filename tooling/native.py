@@ -395,7 +395,8 @@ def service_fallbacks(services):
     if 'extensions' in services or 'aux_menu' in services:
         fallbacks['live_input'] = dict.fromkeys(('sdk_live_input_publish', 'sdk_live_input_option_bits',
                                                 'sdk_live_input_rendered', 'sdk_live_input_turn',
-                                                'sdk_live_input_shift_visible', 'sdk_live_input_caption'), 'kit_absent')
+                                                'sdk_live_input_page', 'sdk_live_input_toggle_page',
+                                                'sdk_live_input_caption'), 'kit_absent')
     if 'input_audio' in services:
         fallbacks['input_monitor'] = {'sdk_input_monitor_audio': 'kit_absent'}
     if 'input_overlay' in services:

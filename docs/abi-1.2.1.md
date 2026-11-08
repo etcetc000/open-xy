@@ -119,11 +119,12 @@ The existing Aux encoder hook at `8c08fa14` routes Shift turns on M1 to
 the shared overlay. The GUI publishes the controls together in the external
 audio track's unused live word 57 through `8d5acea8`. The controller update
 refreshes the word after stock clears it. The upper nibble tags the word,
-bits 16–27 carry Brain pitch classes, bits 6–15 carry the tuning controls,
-and the low six carry the Tilt Mic epoch and gate. The audio role retains
+bits 21–27 carry the optional second page, bits 16–20 carry the Brain
+scale index, bits 6–15 carry tuning, and the low six carry the Tilt Mic
+epoch and gate. The audio role decodes the scale into its pitch classes and retains
 the last tagged word across an interruption.
 
-When Target is Auto, the GUI reads the same Brain state as its M1 page
+When Target follows Brain, the GUI reads the same Brain state as its M1 page
 (`8d5442c8`–`8d544476`). The manual scale triple starts at `84eb5584+0x74`.
 When stock uses the resolved scale, its getter `8d58b324` selects a triple
 from `860bf520` at offset 0x0c, 0x40 or 0x74 depending on bytes 0 and 8.

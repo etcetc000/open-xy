@@ -65,6 +65,7 @@ class Extension:
     master_processor: dict = None
     live_input: bool = False
     live_input_controls: bool = False
+    live_input_extra_controls: bool = False
 
     @property
     def master_filter(self):
@@ -87,9 +88,12 @@ def extension_at(folder):
             'id, name, description, claims, actions and optional note, master_processor and live_input')
     name = data['id']
     input_spec = data.get('live_input')
-    input_controls = isinstance(input_spec, dict) and set(input_spec) == {'controls'} and input_spec['controls'] is True
+    input_controls = isinstance(input_spec, dict) and input_spec.get('controls') is True and (
+        set(input_spec) == {'controls'} or
+        set(input_spec) == {'controls', 'extra_controls'} and input_spec['extra_controls'] is True)
+    extra_controls = input_controls and 'extra_controls' in input_spec
     require('live_input' not in data or input_spec is True or input_controls,
-            'live_input must be true or declare controls: true')
+            'live_input must be true or declare controls: true with optional extra_controls: true')
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
         require(key not in data or (isinstance(data[key], str) and 0 < len(data[key]) <= TEXT_LIMITS[key]),
@@ -131,7 +135,8 @@ def extension_at(folder):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, input_spec is True or input_controls, input_controls)
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter,
+                     input_spec is True or input_controls, input_controls, extra_controls)
 
 
 def check_collection(extensions):
@@ -244,13 +249,19 @@ def generate_extension(folder, extension):
                 out.write(f'extern "C" void {entry}({args}) __asm__("{entry}");\n'
                           f'void {entry}({args}) {{ {namespace}::{callback}_input({values}); }}\n')
             controls = f'&{namespace}::input_controls' if extension.live_input_controls else 'nullptr'
-            prepare = (f'{namespace}::prepare_input(target, retune, amount, brain);'
+            extra = f'&{namespace}::input_extra_controls' if extension.live_input_extra_controls else 'nullptr'
+            values = ', extra' if extension.live_input_extra_controls else ''
+            prepare = (f'{namespace}::prepare_input(target, retune, amount, brain{values});'
                        if extension.live_input_controls else '')
             out.write('#include <opxy/live_input.hpp>\n'
                       'extern "C" const opxy::live_input::Controls* sdk_live_input_controls() __asm__("sdk_live_input_controls");\n'
-                      'extern "C" void sdk_live_input_prepare(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_live_input_prepare");\n'
+                      'extern "C" const opxy::live_input::ExtraControls* sdk_live_input_extra_controls() __asm__("sdk_live_input_extra_controls");\n'
+                      'extern "C" void sdk_live_input_prepare(opxy::u32, opxy::u32, opxy::u32, opxy::u32,'
+                      ' const opxy::live_input::ExtraValues&) __asm__("sdk_live_input_prepare");\n'
                       f'const opxy::live_input::Controls* sdk_live_input_controls() {{ return {controls}; }}\n'
-                      'void sdk_live_input_prepare(opxy::u32 target, opxy::u32 retune, opxy::u32 amount, opxy::u32 brain)'
+                      f'const opxy::live_input::ExtraControls* sdk_live_input_extra_controls() {{ return {extra}; }}\n'
+                      'void sdk_live_input_prepare(opxy::u32 target, opxy::u32 retune, opxy::u32 amount, opxy::u32 brain,'
+                      ' const opxy::live_input::ExtraValues& extra)'
                       f' {{ {prepare} }}\n')
     if extension.master_processor is not None:
         legacy = 'master_filter' in document(extension.root/'extension.json')

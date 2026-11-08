@@ -1,5 +1,6 @@
 #include <live_input_menu.cpp>
 #include <live_input_stock.cpp>
+#include <aux_menu.cpp>
 #include <cstring>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
@@ -10,6 +11,9 @@ u8 selected_track_byte, manual_flags[9], resolved_flags[9];
 u32 page, shift, project_state[2] = {1, 0};
 u32 manual_scale[3] = {0, 0, 0}, resolved_scale[3] = {2, 0, 1};
 u32 gui_word, audio_word, writes, reset_count, process_count, audio_values[4];
+bool extra_installed;
+u32 tilt_menu_count, tilt_turn_count;
+live_input::ExtraValues audio_extra;
 i32 input_block[128];
 bool bad;
 u32 held() { return shift; }
@@ -50,16 +54,33 @@ const opxy::live_input::Controls* sdk_live_input_controls() {
     static const opxy::live_input::Controls controls = {{modes, 3}, {speeds, 2}};
     return &controls;
 }
+const live_input::ExtraControls* sdk_live_input_extra_controls() {
+    static const char* choices[] = {"off", "on"};
+    static const live_input::ExtraControls controls = {
+        {"harmony", "blend", "compress", "de-ess"},
+        {{choices, 2}, {choices, 2}, {choices, 2}, {choices, 2}},
+    };
+    return extra_installed ? &controls : nullptr;
+}
+bool sdk_input_monitor_menu() { ++tilt_menu_count; return true; }
+bool sdk_input_monitor_turn(u32 encoder, const i32*) {
+    if (encoder != 0) return false;
+    ++tilt_turn_count;
+    return true;
+}
+void sdk_aux_machine_menu() {}
+u32 sdk_aux_machine_turn(u32, u32, u32) { return 0; }
 void sdk_live_input_reset() { ++reset_count; }
 void sdk_live_input_process(opxy::i32* buffer) {
     bad |= buffer != input_block;
     ++process_count;
 }
-void sdk_live_input_prepare(u32 mode, u32 speed, u32 amount, u32 brain) {
+void sdk_live_input_prepare(u32 mode, u32 speed, u32 amount, u32 brain, const live_input::ExtraValues& extra) {
     audio_values[0] = mode;
     audio_values[1] = speed;
     audio_values[2] = amount;
     audio_values[3] = brain;
+    audio_extra = extra;
 }
 
 int main() {
@@ -75,9 +96,9 @@ int main() {
     CHECK(!sdk_live_input_turn(0, &up));
     CHECK(sdk_live_input_turn(5, &up) && brain(gui_word) == 0xab5u);
     CHECK(sdk_live_input_turn(2, &up) && sdk_live_input_turn(7, &down));
-    CHECK(!std::strcmp(sdk_live_input_caption(1), "auto") &&
-          !std::strcmp(sdk_live_input_caption(2), "hard") &&
-          !std::strcmp(sdk_live_input_caption(3), "93%"));
+    CHECK(!std::strcmp(sdk_live_input_caption(1, false), "auto") &&
+          !std::strcmp(sdk_live_input_caption(2, false), "hard") &&
+          !std::strcmp(sdk_live_input_caption(3, false), "93%"));
     manual_flags[0] = 1;
     sdk_live_input_publish();
     CHECK(brain(gui_word) == 0xcd6u);
@@ -111,4 +132,26 @@ int main() {
     sdk_live_input_publish();
     CHECK(target(gui_word) == 1 && brain(gui_word) == 0xcd6u && writes == write_count + 1);
     CHECK(sdk_live_input_turn(1, &down) && target(gui_word) == 0 && brain(gui_word) == 0 && !bad);
+    sdk_aux_shift_m1();
+    CHECK(sdk_live_input_page() == 1 && tilt_menu_count == 1);
+    extra_installed = true;
+    sdk_aux_shift_m1();
+    CHECK(sdk_live_input_page() == 2 && tilt_menu_count == 1);
+    CHECK(sdk_aux_turn(0, 0, 0) && !tilt_turn_count);
+    for (u32 row = 0; row < 4; ++row) CHECK(sdk_live_input_turn(row, &up));
+    CHECK(!std::strcmp(sdk_live_input_caption(0, true), "harmony") &&
+          !std::strcmp(sdk_live_input_caption(0, false), "on"));
+    CHECK(target(gui_word) == 0 && brain(gui_word) == 0xcd6u);
+    CHECK((gui_word & ~tuner_mask) == tag);
+    audio_word = input_monitor::mark | 3u | sdk_live_input_option_bits();
+    sdk_live_input_rendered(0);
+    for (u32 row = 0; row < 4; ++row) CHECK(audio_extra.values[row] == 1);
+    CHECK(audio_values[0] == 0 && audio_values[3] == 0xcd6u);
+    shift = 0;
+    sdk_live_input_publish();
+    shift = 1;
+    CHECK(sdk_live_input_page() == 1 && sdk_aux_turn(0, 0, 0) && tilt_turn_count == 1);
+    const live_input::ExtraValues max_values = {{3, 7, 1, 1}};
+    const u32 packed = option_bits(31, 1, 0, 24, max_values);
+    CHECK(packed == tuner_mask - (7u << 16) && brain(packed) == 0xd9au);
 }

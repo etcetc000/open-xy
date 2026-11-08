@@ -3,7 +3,8 @@
 
 extern "C" {
 void sdk_live_input_reset() __asm__("sdk_live_input_reset");
-void sdk_live_input_prepare(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_live_input_prepare");
+void sdk_live_input_prepare(opxy::u32, opxy::u32, opxy::u32, opxy::u32,
+                            const opxy::live_input::ExtraValues&) __asm__("sdk_live_input_prepare");
 void sdk_live_input_process(opxy::i32*) __asm__("sdk_live_input_process");
 void sdk_live_input_rendered(opxy::u32) __asm__("sdk_live_input_rendered");
 void sdk_live_input_finish() __asm__("sdk_live_input_finish");
@@ -27,7 +28,7 @@ void sdk_live_input_rendered(opxy::u32 source_word) {
     rendered = true;
     const opxy::u32 token = opxy::platform::word(0x84eab39c + (track * words + slot) * 4);
     if (tagged(token)) settings = token;
-    sdk_live_input_prepare(target(settings), retune(settings), amount(settings), brain(settings));
+    sdk_live_input_prepare(target(settings), retune(settings), amount(settings), brain(settings), extra_values(settings));
     sdk_live_input_process(opxy::platform::at<opxy::i32>(0x11903600));
 }
 

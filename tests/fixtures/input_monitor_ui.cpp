@@ -4,7 +4,8 @@
 #include <cstring>
 using namespace opxy::platform::input_monitor_popup;
 namespace {
-bool held, ready, tuning;
+bool held, ready;
+u32 tuning;
 u32 choice, constructs, loads, binds, resets, frames, draws;
 Node value_nodes[4], row_nodes[4], icon_nodes[4];
 char captions[4][32];
@@ -37,14 +38,18 @@ void text(void* node,const char* value) {
 void draw(Popup* p,u32 flags) {
     require(p->svg==reinterpret_cast<void*>(1) && !flags,"restore the document before drawing");++draws;
     require(p->rows[0]->visible,"first stock container remains visible");
-    for(u32 i=0;i<4;++i){require(!p->icons[i]->visible,"hide send-specific icons");if(i)require(p->rows[i]->visible==tuning,"tuning rows follow the installed controls");}
+    for(u32 i=0;i<4;++i){require(!p->icons[i]->visible,"hide send-specific icons");if(i)require(p->rows[i]->visible==(tuning != 0),"tuning rows follow the installed controls");}
 }
 }
 bool sdk_input_monitor_shift_visible() { return held; }
-bool sdk_live_input_shift_visible() { return held && tuning; }
-const char* sdk_live_input_caption(u32 row) {
+u32 sdk_live_input_page() { return held ? tuning : 0; }
+const char* sdk_live_input_caption(u32 row, bool label) {
+    const char* labels[] = {nullptr, "tune", "retune", "amount"};
     const char* values[] = {nullptr, "F# minor", "hard", "100%"};
-    return values[row];
+    const char* extra_labels[] = {"harmony", "blend", "compress", "de-ess"};
+    const char* extra_values[] = {"third up", "20%", "soft", "off"};
+    if (tuning == 2) return label ? extra_labels[row] : extra_values[row];
+    return label ? labels[row] : values[row];
 }
 u32 sdk_input_monitor_choice() { return choice; }
 namespace opxy { namespace platform {
@@ -77,11 +82,15 @@ int main() {
     held=false;sdk_input_monitor_frame(0,63);require(draws==2,"release removes the popup");
     held=true;sdk_input_monitor_frame(63,63);require(resets==2,"reopening restarts the same native animation");
     sdk_input_monitor_frame(0,21);sdk_input_monitor_frame(63,63);require(resets==3,"leaving and returning resets animation");
-    tuning=true;sdk_input_monitor_frame(63,63);
+    tuning=1;sdk_input_monitor_frame(63,63);
     require(row_nodes[0].matrix[7]==0 && row_nodes[3].matrix[7]==0,"full overlay occupies the stock four rows");
     require(std::strcmp(captions[1],"tune   F# minor")==0 && std::strcmp(captions[2],"retune   hard")==0 &&
             std::strcmp(captions[3],"amount   100%")==0,"tune values map to the three remaining encoders");
     require(value_nodes[3].matrix[7]==177*1024+512,"last caption fits inside its stock row");
+    tuning=2;sdk_input_monitor_frame(63,63);
+    require(std::strcmp(captions[0],"harmony   third up")==0 && std::strcmp(captions[1],"blend   20%")==0 &&
+            std::strcmp(captions[2],"compress   soft")==0 && std::strcmp(captions[3],"de-ess   off")==0,
+            "the second page uses all four rows, including the Tilt Mic row");
     require(motion_q10(0x41c00000u)==24*1024 && motion_q10(0xc1c00000u)==-24*1024,"native slide endpoints");
     require(!motion_q10(0x7fc00000u) && !motion_q10(1),"invalid or subpixel motion is bounded");
     return 0;

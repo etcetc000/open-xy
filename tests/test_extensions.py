@@ -148,6 +148,11 @@ class Extensions(unittest.TestCase):
             adapter = extensions.generate_extension(output, configured).read_text()
             self.assertIn('opxy::extensions::probe::input_controls', adapter)
             self.assertIn('opxy::extensions::probe::prepare_input(target, retune, amount, brain)', adapter)
+            self.assertIn('sdk_live_input_extra_controls() { return nullptr; }', adapter)
+            configured = extensions.extension_at(folder.declare(live_input={'controls': True, 'extra_controls': True}))
+            adapter = extensions.generate_extension(output, configured).read_text()
+            self.assertIn('opxy::extensions::probe::input_extra_controls', adapter)
+            self.assertIn('opxy::extensions::probe::prepare_input(target, retune, amount, brain, extra)', adapter)
             table = extensions.generate_collection(output, [configured]).read_text()
             self.assertIn('sdk_live_input_gui_tick() { sdk_live_input_publish(); }', table)
             with self.assertRaisesRegex(ValueError, 'Only one live input processor'):
