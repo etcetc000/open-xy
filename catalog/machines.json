@@ -21,15 +21,30 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.8.0",
-      "commit": "25336d7945aa91b275549d3c357670b2e510c9a8",
+      "tag": "v1.10.0",
+      "commit": "2e8069a88755d8a0263764842698afa77c1c1887",
       "path": "machines/macroosc",
       "keywords": [
         "emulation",
         "fm",
         "physical",
         "vocal"
-      ]
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "2e8069a88755d8a0263764842698afa77c1c1887",
+        "firmware_sha256": "815ca498aab032ea0c2dc02e3e23b06a3d9462d7e303e59a49656e6f0b6eaae8",
+        "runs": 3,
+        "block_percent": 2.355993,
+        "midpoint_percent": 2.355993,
+        "combined_percent": 2.355993,
+        "worst_setting": {
+          "control": 1,
+          "label": "Timbre",
+          "value": 1073741823
+        },
+        "peak_percent": 2.502479
+      }
     },
     {
       "id": "timestretch",
@@ -68,13 +83,47 @@
       "path": "."
     },
     {
+      "id": "weave",
+      "kind": "synth",
+      "maintainer": "Onat-H",
+      "status": "published",
+      "repository": "https://github.com/Onat-H/open-xy-weave",
+      "tag": "v1.0.1",
+      "commit": "9715663b8de14dc8e46e497cf9ffc504a5a61c90",
+      "path": "machines/weave",
+      "keywords": [
+        "emulation",
+        "fm",
+        "granular",
+        "physical",
+        "percussion"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "9715663b8de14dc8e46e497cf9ffc504a5a61c90",
+        "firmware_sha256": "e1e44f88ec568201a0be2444f99bf3c26111534a05199c86f7a0f40168575726",
+        "runs": 2,
+        "block_percent": 5.95407,
+        "peak_percent": 11.938659,
+        "midpoint_percent": 4.496834,
+        "combined_percent": 4.441901,
+        "worst_setting": {
+          "control": 0,
+          "label": "Model",
+          "value": 1923787433,
+          "option": "terrain"
+        },
+        "report": "https://github.com/etcetc000/open-xy/pull/427#issuecomment-6714434197"
+      }
+    },
+    {
       "id": "karplus",
       "kind": "synth",
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.5.0",
-      "commit": "09c86cb49689223dbecad556a43034350ecdc59e",
+      "tag": "v1.10.0",
+      "commit": "2e8069a88755d8a0263764842698afa77c1c1887",
       "path": "machines/karplus",
       "keywords": [
         "physical",
@@ -304,6 +353,32 @@
         "firmware_sha256": "9072728f05b15079cfc0473414cc5aae9d90d61b625747960b7c800bbb8cfd66",
         "runs": 3,
         "block_percent": 3.804074
+      }
+    },
+    {
+      "id": "vibe",
+      "kind": "effect",
+      "maintainer": "meemknight",
+      "status": "published",
+      "repository": "https://github.com/meemknight/vibe",
+      "tag": "v1.0.0",
+      "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
+      "path": ".",
+      "keywords": [
+        "ambient",
+        "delay",
+        "reverb",
+        "modulation",
+        "granular"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "80c0771a25992157808926fc6e11db8647bf3a64",
+        "firmware_sha256": "e1e44f88ec568201a0be2444f99bf3c26111534a05199c86f7a0f40168575726",
+        "runs": 2,
+        "block_percent": 4.628061,
+        "peak_percent": 7.71191,
+        "report": "https://github.com/etcetc000/open-xy/pull/409#issuecomment-6714434389"
       }
     },
     {
