@@ -1,4 +1,4 @@
-"""Copies of stock's LFO (lfo_copies) and page layers: host doubles of both
+"""Four of stock's LFOs (lfo_copies) and page layers: host doubles of both
 roles, the companion round trip, and the reviewed stock call sites."""
 import base64
 import json
@@ -54,12 +54,12 @@ def stock_call(address, before):
 
 class MultiLfo(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
-    def test_copies_run_through_stock_code_and_restore_last_in_first_out(self):
+    def test_lfos_run_through_stock_code_restore_last_in_first_out_and_swap_at_a_block(self):
         with tempfile.TemporaryDirectory(prefix='multi-lfo-') as folder:
             build_and_run(self, ROOT / 'tests/fixtures/multi_lfo.cpp', folder)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
-    def test_page_layer_takes_keys_and_turns_and_grants_lfo_copies(self):
+    def test_page_layer_takes_keys_and_turns_and_grants_showing_lfos(self):
         with tempfile.TemporaryDirectory(prefix='page-layer-') as folder:
             build_and_run(self, ROOT / 'tests/fixtures/page_layer.cpp', folder)
 
@@ -74,17 +74,36 @@ class MultiLfo(unittest.TestCase):
             saved = subprocess.run([str(writer), str(project), '1'], capture_output=True, text=True, timeout=30,
                                    env=dict(os.environ, LFO='1'))
             self.assertEqual(saved.returncode, 0, saved.stderr)
-            section = json.loads(project.with_suffix('.oxy').read_bytes())['sections']['open-xy.lfo-copies']
-            self.assertEqual(section['version'], 1)
+            companion = project.with_suffix('.oxy')
+            document = json.loads(companion.read_bytes())
+            section = document['sections']['open-xy.lfo-copies']
+            self.assertEqual(section['version'], 2)
             data = base64.b64decode(section['copies'])
-            self.assertEqual(len(data), 8 * 3 * 34)
-            at = (2 * 3 + 1) * 34
-            self.assertEqual(data[at:at + 6], bytes([1, 6, 100, 0, 0, 0]))
-            self.assertEqual(int.from_bytes(data[at + 6:at + 10], 'little', signed=True), -200)
-            self.assertEqual(data.count(0), len(data) - sum(1 for b in data if b))
+            self.assertEqual(len(data), 8 * 106)
+            # Track 3 shows LFO 2: slot 0 holds LFO 1 (stock's), slot 1 LFO 3 (the duck).
+            at = 2 * 106
+            self.assertEqual(data[at], 1)
+            self.assertEqual(data[at + 1:at + 5], bytes([0, 1, 1, 11]))
+            self.assertEqual(data[at + 36:at + 40], bytes([2, 1, 6, 100]))
+            self.assertEqual(int.from_bytes(data[at + 43:at + 47], 'little', signed=True), -200)
+            self.assertEqual(data[at + 71], 3)
             loaded = subprocess.run([str(reader), str(project), '1', 'lfo'], capture_output=True, text=True, timeout=30)
             self.assertEqual(loaded.returncode, 0, loaded.stderr)
-            self.assertEqual(loaded.stdout.split(), ['lfo:2,1,1,6,100,-200,300,0,5,6,7,-8'])
+            self.assertEqual(loaded.stdout.split(), ['show:2,1', 'lfo:2,0,0,1,1,11,12,13,14,15,16,17,18',
+                                                     'lfo:2,1,2,1,6,100,-200,300,0,5,6,7,-8'])
+            # Version 1 (the first test build's): LFO 1 shown, slot c holding LFO c + 2.
+            v1 = bytearray(8 * 3 * 34)
+            v1[(2 * 3 + 1) * 34:(2 * 3 + 1) * 34 + 3] = bytes([1, 6, 9])
+            document['sections']['open-xy.lfo-copies'] = {'copies': base64.b64encode(bytes(v1)).decode(), 'version': 1}
+            companion.write_text(json.dumps(document, indent=2), encoding='utf-8')
+            loaded = subprocess.run([str(reader), str(project), '1', 'lfo'], capture_output=True, text=True, timeout=30)
+            self.assertEqual(loaded.returncode, 0, loaded.stderr)
+            self.assertEqual(loaded.stdout.split(), ['lfo:2,1,2,1,6,9,0,0,0,0,0,0,0'])
+            # A version-2 section of version 1's length is not whole: nothing loads.
+            document['sections']['open-xy.lfo-copies']['version'] = 2
+            companion.write_text(json.dumps(document, indent=2), encoding='utf-8')
+            loaded = subprocess.run([str(reader), str(project), '1', 'lfo'], capture_output=True, text=True, timeout=30)
+            self.assertEqual((loaded.returncode, loaded.stdout.strip()), (0, ''))
             # Without copies the section is left out, and a load clears what was set.
             plain = folder / 'plain.xy'
             self.assertEqual(subprocess.run([str(writer), str(plain), '1'], timeout=30).returncode, 0)
@@ -94,7 +113,7 @@ class MultiLfo(unittest.TestCase):
             # A failed load keeps the copies the GUI had.
             loaded = subprocess.run([str(reader), str(project), '0', 'lfo'], capture_output=True, text=True, timeout=30)
             self.assertEqual(loaded.returncode, 0, loaded.stderr)
-            self.assertEqual(loaded.stdout.split(), ['lfo:0,0,1,0,1,1,1,1,1,1,1,1'])
+            self.assertEqual(loaded.stdout.split(), ['lfo:0,0,1,1,0,1,1,1,1,1,1,1,1'])
 
     def test_every_site_holds_the_reviewed_stock_bytes(self):
         sites = {p['address']: p for p in PROFILE['patches'] if p.get('service') in ('multi_lfo', 'page_layers')}
@@ -135,7 +154,7 @@ class MultiLfo(unittest.TestCase):
         self.assertEqual(services['page_layers'], ['page_layer'])
         for unit in ('multi_lfo_audio', 'multi_lfo_audio_stock', 'multi_lfo_hooks'):
             self.assertEqual(native.UNIT_SERVICES[unit], 'multi_lfo')
-        for unit in ('page_layer_stock', 'page_layer_hooks', 'extension_overlay'):
+        for unit in ('page_layer_stock', 'page_layer_hooks'):
             self.assertEqual(native.UNIT_SERVICES[unit], 'page_layers')
         self.assertEqual(native.UNIT_SERVICES['b3_receive'], 'b3')
         # The GUI state and its transport link always: the companion reads and writes the copies.

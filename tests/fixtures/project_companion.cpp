@@ -11,6 +11,9 @@
 // The copies' B3 transport: counted, not sent.
 namespace { opxy::u32 lfo_messages; }
 void opxy::platform::multi_lfo::send(opxy::u32, opxy::i32) { ++lfo_messages; }
+// Stock's LFO storage on track 3: a value LFO, which showing LFO 2 moves to a slot.
+void opxy::platform::multi_lfo::read_stock(opxy::u32, Settings& out) { out = {1, 1, {11, 12, 13, 14, 15, 16, 17, 18}}; }
+void opxy::platform::multi_lfo::load_stock(opxy::u32, const Settings&) {}
 extern "C" void sdk_control_forget() {}
 void opxy::platform::control_loaded(const opxy::platform::ControlMachine&) {}
 
@@ -143,10 +146,11 @@ int main(int argc, char** argv) {
     saving = argv[1];
     save_result = static_cast<unsigned>(std::atoi(argv[2]));
     holding = std::getenv("HOLD") != nullptr;
-    // LFO: track 3's second copy is a ducking LFO, as an extension sets it.
+    // LFO: track 3's LFO 3 is a ducking LFO, and its page shows LFO 2, so stock's
+    // own LFO went to LFO 2's slot.
     if (std::getenv("LFO")) {
         opxy::platform::multi_lfo::Settings copy = {1, 6, {100, -200, 300, 0, 5, 6, 7, -8}};
-        if (!opxy::platform::multi_lfo::set(2, 1, copy)) return 3;
+        if (!opxy::platform::multi_lfo::set(2, 1, copy) || !opxy::platform::multi_lfo::show(2, 1)) return 3;
     }
     // The aux service, as its startup fills it in (unless NOAUX: a build without it).
     if (!std::getenv("NOAUX")) sdk_aux = opxy::platform::AuxService{nullptr, nullptr, aux_kept, aux_restore, aux_forget};

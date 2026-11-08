@@ -110,20 +110,15 @@ u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedN
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-bool valid_lfo_type(u32 type) {
-    using namespace extensions::lfo_types;
-    return type == tremolo || type == value || type == random || type == element || type == duck;
+bool show_lfo(u32 track, u32 lfo) {
+    if (!(transaction.granted & action_lfo_copies) || track >= 8 || lfo >= extensions::lfo_count) return false;
+    return extension_show_lfo(track, lfo);
 }
-bool set_lfo(u32 track, u32 copy, const extensions::Lfo& lfo) {
-    if (!(transaction.granted & action_lfo_copies) || track >= 8 || copy >= extensions::lfo_copies ||
-        !valid_lfo_type(lfo.type)) return false;
-    return extension_set_lfo(track, copy, lfo);
+u32 shown_lfo(u32 track) {
+    if (!(transaction.granted & action_lfo_copies) || track >= 8) return 0;
+    return extension_shown_lfo(track);
 }
-bool get_lfo(u32 track, u32 index, extensions::Lfo& lfo) {
-    if (!(transaction.granted & action_lfo_copies) || track >= 8 || index > extensions::lfo_copies) return false;
-    return extension_get_lfo(track, index, lfo);
-}
-const extensions::Actions actions = {insert_notes, notify, replace_notes, set_lfo, get_lfo};
+const extensions::Actions actions = {insert_notes, notify, replace_notes, show_lfo, shown_lfo};
 }
 
 void extensions_sync() {
@@ -196,14 +191,13 @@ namespace {
 // track, or none. Keys it took from stock: only it hears their release.
 const u32 kNone = ~0u, kKeys = 64;
 u32 layer_entry = kNone, layer_claim, layer_page, layer_track;
-u32 layer_openings;  // counts openings, so a reopening starts with every node hidden
 u32 layer_took[kKeys / 32];
 
 bool layer_send(extensions::Layer::Kind kind, u32 key = 0, bool pressed = false, i32 delta = 0,
-                u32 elapsed = 0, bool shift = false) {
+                bool shift = false) {
     if (layer_entry == kNone || dispatching) return false;
     const ExtensionEntry& entry = entries[layer_entry];
-    const extensions::Layer event = {kind, key, pressed, delta, elapsed, shift, layer_track};
+    const extensions::Layer event = {kind, key, pressed, delta, shift, layer_track};
     dispatching = true;
     transaction = {grants(entry, 1u << layer_claim), false, false};
     const bool took = entry.hooks->layer(current, event, actions);
@@ -251,7 +245,6 @@ void extensions_page(u32 page, u32 track) {
     layer_page = page;
     layer_track = track;
     layer_took[0] = layer_took[1] = 0;
-    ++layer_openings;
     layer_send(extensions::Layer::open);
 }
 
@@ -262,34 +255,16 @@ bool extensions_page_key(u32 key, bool pressed, bool shift) {
     if (!pressed) {
         if (!(took & bit)) return false;  // a release of a press stock had
         took &= ~bit;
-        layer_send(extensions::Layer::keypress, key, false, 0, 0, shift);
+        layer_send(extensions::Layer::keypress, key, false, 0, shift);
         return true;  // its press was taken, so stock never saw it
     }
-    const bool taken = layer_send(extensions::Layer::keypress, key, true, 0, 0, shift);
+    const bool taken = layer_send(extensions::Layer::keypress, key, true, 0, shift);
     if (taken) took |= bit;
     return taken;
 }
 
 bool extensions_page_turn(u32 encoder, i32 delta, bool shift) {
     if (layer_entry == kNone || dispatching || encoder >= 4) return false;
-    return layer_send(extensions::Layer::turn, encoder, false, delta, 0, shift);
-}
-
-bool extensions_layer_open(u32& first, u32& count, u32& opening) {
-    if (layer_entry == kNone) return false;
-    first = entries[layer_entry].layer_first;
-    count = entries[layer_entry].layer_count;
-    opening = layer_openings;
-    return true;
-}
-void extensions_layer_frame(u32 elapsed_ms) {
-    if (layer_entry == kNone || dispatching) return;
-    layer_send(extensions::Layer::frame, 0, false, 0, elapsed_ms);
-}
-void extensions_layer_draw(const extensions::Canvas& canvas) {
-    if (layer_entry == kNone || dispatching || !entries[layer_entry].hooks->draw) return;
-    dispatching = true;
-    entries[layer_entry].hooks->draw(canvas);
-    dispatching = false;
+    return layer_send(extensions::Layer::turn, encoder, false, delta, shift);
 }
 }}

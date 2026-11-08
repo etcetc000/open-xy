@@ -45,8 +45,8 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
 // set to 0); notify needs any claim its holder owns.
 u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0}, claim_pages[] = {0, 0};
 const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2, claim_pages};
-ExtensionEntry collection[] = {{"observer", 0, 0, &first, 0, 0},
-                               {"writer", 1u, action_edit_notes | action_notify, &second, 0, 0}};
+ExtensionEntry collection[] = {{"observer", 0, 0, &first},
+                               {"writer", 1u, action_edit_notes | action_notify, &second}};
 }
 namespace opxy { namespace platform {
 const ExtensionEntry* extension_collection(u32& count) { count = 2; return collection; }
@@ -64,8 +64,8 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
 }
 void extension_notify(const char*) { ++notices; }
 // Neither entry holds lfo_copies (tests/fixtures/page_layer.cpp grants it).
-bool extension_set_lfo(u32, u32, const extensions::Lfo&) { __builtin_trap(); }
-bool extension_get_lfo(u32, u32, extensions::Lfo&) { __builtin_trap(); }
+bool extension_show_lfo(u32, u32) { __builtin_trap(); }
+u32 extension_shown_lfo(u32) { __builtin_trap(); }
 }}
 void control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};

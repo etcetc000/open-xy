@@ -27,9 +27,10 @@
 // section's pool into a staged pool, and the locks service then clears every handle the
 // loaded project holds that a valid, matching section did not give values for.
 //
-// The copies of stock's LFO (multi_lfo.hpp) keep their settings in
-// open-xy.lfo-copies, written when any copy is set: a load stages them, and the
-// GUI tick takes them after a load that succeeded.
+// The four LFOs (multi_lfo.hpp) keep in open-xy.lfo-copies which LFO stock's
+// storage holds and the three copies, written when a copy is set or another
+// LFO than LFO 1 shows: a load stages them, and the GUI tick takes them after a
+// load that succeeded. Version 1 (multi-lfo-001) loads with LFO 1 shown.
 #include "project_companion.hpp"
 #include "stock.hpp"
 #include "master_processor.hpp"
@@ -228,7 +229,8 @@ void write_companion(void* project, u32 bytes, u32 crc) {
         multi_lfo::save(copies);
         w.put(",\n    \"open-xy.lfo-copies\": {\n      \"copies\": \"");
         w.base64(copies, multi_lfo::save_bytes);
-        w.put("\",\n      \"version\": 1\n    }");
+        // Version 2 (multi_lfo::save_version): the LFO shown, then each slot's LFO.
+        w.put("\",\n      \"version\": 2\n    }");
     }
     w.put("\n  },\n  \"version\": 1\n}\n");
     w.flush();
@@ -847,11 +849,14 @@ bool locks_section(Parser& p, bool& ok) {
     return read;
 }
 
-// open-xy.lfo-copies: like open-xy.locks, version 1's bytes go one by one to the
-// copies' staged section; lfo_ok says it was read whole.
+// open-xy.lfo-copies: like open-xy.locks, the bytes of version 1 or 2 go one by
+// one to the LFOs' staged section; lfo_ok says it was read whole, lfo_version
+// which version it is.
 bool lfo_ok;
+u32 lfo_version;
 bool lfo_section(Parser& p, bool& ok) {
     ok = lfo_ok = false;
+    lfo_version = 0;
     multi_lfo::load_begin();
     if (p.peek() != '{') return p.skip();
     bool version_ok = false, copies_ok = false;
@@ -865,7 +870,8 @@ bool lfo_section(Parser& p, bool& ok) {
         return p.base64([](u32 byte) { multi_lfo::load_byte(byte); }, copies_ok);
     });
     ok = version_ok && version >= 1;
-    lfo_ok = ok && version == 1 && copies_ok;
+    lfo_ok = ok && (version == 1 || version == 2) && copies_ok;
+    if (lfo_ok) lfo_version = version;
     return read;
 }
 
@@ -1017,6 +1023,6 @@ u32 sdk_project_load(void* project, const char* path) {
         sdk_project_locks_loaded(project, apply_companion(project, path));
         sdk_project_loaded(path);
     }
-    multi_lfo::load_end(lfo_applies, loaded && project && path);
+    multi_lfo::load_end(lfo_applies ? lfo_version : 0, loaded && project && path);
     return loaded;
 }

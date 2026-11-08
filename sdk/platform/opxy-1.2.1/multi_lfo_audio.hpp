@@ -1,4 +1,5 @@
-// The audio role's evaluation of the copies of stock's LFO (multi_lfo.hpp).
+// The audio role's evaluation of the four LFOs (multi_lfo.hpp): stock's LFO
+// (the one its page shows) and the three copies.
 //
 // Stock evaluates its LFO with 11a0446e(state, track, words, pass) at seven
 // sites: per voice in both voice renderers (pass 0 before the voice's
@@ -17,7 +18,17 @@
 //   it after stock's own restore: last in, first out.
 // - Per-sample buffers (pitch, amplitude, pan): stock scales them in place,
 //   buf *= 1 + lfo, so copies and stock's LFO compose.
-// Stock's selected-track telemetry (the knob animation) stays stock's LFO's.
+// Stock's selected-track telemetry (the knob animation) stays stock's LFO's:
+// the LFO its page shows.
+//
+// A swap (showing another LFO on the page) arrives as a pending change; pass 2,
+// the first LFO site of a track's block, takes the track's pending changes
+// before anything evaluates: the slot gets the LFO stock ran, stock's
+// audio-side type, on flag and words 24-31 get the slot's LFO (each only where
+// it still holds the leaving LFO's value, so stock's own later messages for
+// the same values, or a newer edit, are never undone), and stock's LFO state
+// and the slot's are exchanged in every voice and track state of the track,
+// so both LFOs keep their phase.
 #pragma once
 #include "multi_lfo.hpp"
 #include "stock.hpp"
@@ -50,7 +61,8 @@ void reset(Address state, u32 track, Address words);
 void restore(u32 track);
 void telemetry(u32 track, u32 index, i32 wave, i32 amount);
 bool on(u32 track);
-// Stock's audio-side LFO type table, the track's words and its save slot.
+// Stock's audio-side LFO on flag and type table, the track's words and its save slot.
+unsigned char& on_flag(u32 track);
 u32& type(u32 track);
 i32* words(u32 track);
 i32& slot_index(u32 track);

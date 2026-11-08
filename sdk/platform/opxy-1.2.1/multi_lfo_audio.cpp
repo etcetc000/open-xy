@@ -1,34 +1,44 @@
-// The audio role's evaluation of the copies of stock's LFO (multi_lfo_audio.hpp).
+// The audio role's evaluation of the four LFOs (multi_lfo_audio.hpp).
 #include "multi_lfo_audio.hpp"
 
 namespace opxy { namespace platform { namespace multi_lfo {
 namespace {
 // Each stock LFO state (a voice's at +0x98, or a track's) has a state per
-// copy, made from stock's own state the first time the copy runs there, so
+// copy, made from stock's own state the first time a copy runs there, so
 // fields stock sets once per voice start from stock's values; a note start
 // then resets it as stock resets its own. Voices and tracks are fixed stock
-// objects, so their states keep their addresses.
+// objects, so their states keep their addresses. Each remembers the track it
+// last ran for: a swap exchanges the states of that track only.
 const u32 kStates = 64;
 struct Owned {
     Address key;
+    u32 track;
     unsigned char state[copies][state_bytes] __attribute__((aligned(4)));
 };
 Owned owned[kStates];
 
-Address copy_state(Address stock_state, u32 copy) {
+Owned* find(Address stock_state, bool create) {
     u32 at = static_cast<u32>(static_cast<u32>(stock_state >> 2) * 2654435761u) >> 26;
     for (u32 n = 0; n < kStates; ++n, at = (at + 1) & (kStates - 1)) {
         Owned& o = owned[at];
-        if (o.key == stock_state) return reinterpret_cast<Address>(o.state[copy]);
+        if (o.key == stock_state) return &o;
         if (!o.key) {
-            o.key = stock_state;
+            if (!create) return nullptr;
             const unsigned char* from = reinterpret_cast<const unsigned char*>(stock_state);
             for (u32 c = 0; c < copies; ++c)
                 for (u32 i = 0; i < state_bytes; ++i) o.state[c][i] = from[i];
-            return reinterpret_cast<Address>(o.state[copy]);
+            o.key = stock_state;
+            return &o;
         }
     }
-    return 0;  // full: copies do not run there
+    return nullptr;  // full: copies do not run there
+}
+
+Address copy_state(Address stock_state, u32 copy, u32 track) {
+    Owned* o = find(stock_state, true);
+    if (!o) return 0;
+    o->track = track;
+    return reinterpret_cast<Address>(o->state[copy]);
 }
 
 // The copies' saved words, last in first out, each with its track and scope.
@@ -84,7 +94,7 @@ bool evaluate(Address state, u32 track, Address track_words, u32 pass, u32 scope
         for (u32 c = 0; c < copies; ++c) {
             const Settings& s = audio(track, c);
             if (!s.on) continue;
-            const Address own = copy_state(state, c);
+            const Address own = copy_state(state, c, track);
             if (!own) continue;
             i32& slot = stock_lfo::slot_index(track);
             i32& original = stock_lfo::slot_original(track);
@@ -135,7 +145,40 @@ void voice_restore(u32 track) {
     stock_voice = copies_voice = false;
 }
 
+void exchange_states(u32 track, u32 slot) {
+    if (slot >= copies) return;
+    for (u32 n = 0; n < kStates; ++n) {
+        Owned& o = owned[n];
+        if (!o.key || o.track != track) continue;
+        unsigned char* stock_state = reinterpret_cast<unsigned char*>(o.key);
+        for (u32 i = 0; i < state_bytes; ++i) {
+            const unsigned char b = stock_state[i];
+            stock_state[i] = o.state[slot][i];
+            o.state[slot][i] = b;
+        }
+    }
+}
+
+void apply(u32 track) {
+    Change change;
+    while (take(track, change)) {
+        if (!change.swap) continue;
+        // Stock's audio-side LFO becomes the slot's, where it still holds the leaving LFO.
+        u32& type = stock_lfo::type(track);
+        if (type == change.next.type) type = change.stock.type;
+        unsigned char& on = stock_lfo::on_flag(track);
+        if ((on ? 1u : 0u) == change.next.on) on = change.stock.on ? 1 : 0;
+        i32* w = stock_lfo::words(track) + first_word;
+        for (u32 i = 0; i < words; ++i)
+            if (w[i] == change.next.words[i]) w[i] = change.stock.words[i];
+        exchange_states(track, change.slot);
+    }
+}
+
 u32 track_pass(Address state, u32 track, Address track_words, u32 pass) {
+    // Pass 2 is the first LFO site of a track's block: nothing of the track is
+    // being evaluated or waits for its restore.
+    if (pass == 2) apply(track);
     const u32 scope = pass == 4 ? track_after : track_before;
     bool pushed = false;
     const bool applied = evaluate(state, track, track_words, pass, scope, pushed);
@@ -159,11 +202,13 @@ void track_restore(u32 track, Scope scope) {
 
 void reset(Address state, u32 track, Address track_words) {
     stock_lfo::reset(state, track, track_words);
+    // A voice started on another track: a swap there must not take its state.
+    if (Owned* o = find(state, false)) o->track = track;
     if (track >= tracks) return;
     for (u32 c = 0; c < copies; ++c) {
         const Settings& s = audio(track, c);
         if (!s.on) continue;
-        const Address own = copy_state(state, c);
+        const Address own = copy_state(state, c, track);
         if (!own) continue;
         Swap swap(track, track_words, s);
         stock_lfo::reset(own, track, track_words);

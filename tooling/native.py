@@ -24,7 +24,6 @@ from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, 
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
                        generate_synth_controls, generate_project_companion_table, generate_track_controls,
-                       generate_extension_overlay,
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
@@ -224,7 +223,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks',
              'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles',
              'multi_lfo_state', 'multi_lfo_send', 'b3_receive', 'multi_lfo_audio', 'multi_lfo_audio_stock',
-             'multi_lfo_hooks', 'page_layer_stock', 'page_layer_hooks', 'extension_overlay')
+             'multi_lfo_hooks', 'page_layer_stock', 'page_layer_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -256,9 +255,8 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 UNIT_SERVICES['b3_receive'] = 'b3'
 # Copies of stock's LFO run beside it at stock's LFO sites.
 UNIT_SERVICES.update(dict.fromkeys(('multi_lfo_audio', 'multi_lfo_audio_stock', 'multi_lfo_hooks'), 'multi_lfo'))
-# Page layers take the instrument controller's input first; the overlay screen
-# paints them, and startup registers it in builds that link them.
-UNIT_SERVICES.update(dict.fromkeys(('page_layer_stock', 'page_layer_hooks', 'extension_overlay'), 'page_layers'))
+# Page layers take the instrument controller's input first; stock keeps drawing the page.
+UNIT_SERVICES.update(dict.fromkeys(('page_layer_stock', 'page_layer_hooks'), 'page_layers'))
 
 
 def service_users(machines):
@@ -523,8 +521,6 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_track_controls(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
-            if step == 'extension_overlay':
-                return cxx(str(generate_extension_overlay(folder, extensions_of(machines))), obj)
             if step == 'divide':
                 return assemble_unit(ROOT / RUNTIME_ASM, obj)
             if step == 'memory':
@@ -540,8 +536,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
-                                                locks='drum_locks' in services,
-                                                overlay='page_layers' in services)), obj)
+                                                locks='drum_locks' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
@@ -986,10 +981,6 @@ def prepare_assets(catalog, profile, machines):
     check_aux_presets(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))
-    # Page layers link the overlay screen, which startup registers: its artwork
-    # ships with it, the empty template when no layer has nodes.
-    if any(extensions.page_claims(e) for e in extensions_of(machines)):
-        outputs['content/display/openxy_overlay.svg'] = overlay_artwork(machines)
     for e in extensions_of(machines):
         if e.master_processor is not None:
             path = e.root / e.master_processor['artwork']
@@ -997,11 +988,6 @@ def prepare_assets(catalog, profile, machines):
             require(name not in outputs, 'Display asset collision: ' + name)
             outputs[name] = extensions.validate_master_artwork(path)
     return outputs
-
-
-def overlay_artwork(machines):
-    """The SDK's overlay over a page layer's page: its extensions' layers."""
-    return extensions.overlay_artwork(read(ROOT / TEMPLATES / 'extension_overlay.svg'), extensions_of(machines))
 
 
 def linked_in(machines, report):

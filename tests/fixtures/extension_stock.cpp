@@ -124,6 +124,8 @@ void release(u32 pitch=60) { sdk_extensions_live_note_off(0x860c6adc,selected,pi
 namespace opxy { namespace platform {
 // The copies' B3 transport: the probe holds no lfo_copies, so nothing is sent.
 void multi_lfo::send(u32, i32) { failed = true; }
+void multi_lfo::read_stock(u32, Settings&) { failed = true; }
+void multi_lfo::load_stock(u32, const Settings&) { failed = true; }
 Address host_stock_address(Address address) {
     switch (address) {
         case 0x840a0524: return reinterpret_cast<Address>(&project_id);

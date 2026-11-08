@@ -12,6 +12,9 @@
 // The copies' B3 transport: counted, not sent.
 namespace { opxy::u32 lfo_messages; }
 void opxy::platform::multi_lfo::send(opxy::u32, opxy::i32) { ++lfo_messages; }
+// Stock's LFO storage: nothing shows another LFO here.
+void opxy::platform::multi_lfo::read_stock(opxy::u32, Settings&) { __builtin_trap(); }
+void opxy::platform::multi_lfo::load_stock(opxy::u32, const Settings&) { __builtin_trap(); }
 
 // What startup.cpp gives a build without the control service.
 extern "C" opxy::u32 sdk_project_kept(void*) { return 0; }
@@ -91,7 +94,8 @@ int main(int argc, char** argv) {
     const bool two=master && std::strncmp(argv[3],"master-two",10)==0;
     if(two){opxy::platform::master_filter::test_second=true;
         opxy::platform::master_filter::test_reverse=std::strcmp(argv[3],"master-two-reverse")==0;}
-    // lfo: print the LFO copies the GUI tick takes from this load.
+    // lfo: print the LFOs the GUI tick takes from this load: the one shown, then
+    // each slot's LFO and settings.
     const bool lfo = !master && argc > 3 && std::strcmp(argv[3], "lfo") == 0;
     tracks = argc - 3 - (master || lfo ? 1 : 0);
     specs = argv + 3 + (master || lfo ? 1 : 0);
@@ -111,14 +115,16 @@ int main(int argc, char** argv) {
         multi_lfo::Settings stale = {1, 0, {1, 1, 1, 1, 1, 1, 1, 1}};
         multi_lfo::set(0, 0, stale);
         multi_lfo::tick();
-        for (opxy::u32 t = 0; t < multi_lfo::tracks; ++t)
+        for (opxy::u32 t = 0; t < multi_lfo::tracks; ++t) {
+            if (multi_lfo::shown(t)) std::printf("show:%u,%u\n", t, multi_lfo::shown(t));
             for (opxy::u32 c = 0; c < multi_lfo::copies; ++c) {
                 const multi_lfo::Settings& s = multi_lfo::get(t, c);
                 if (!s.on && !s.type && !s.words[0]) continue;
-                std::printf("lfo:%u,%u,%u,%u", t, c, s.on, s.type);
+                std::printf("lfo:%u,%u,%u,%u,%u", t, c, multi_lfo::holder(t, c), s.on, s.type);
                 for (opxy::u32 i = 0; i < multi_lfo::words; ++i) std::printf(",%d", s.words[i]);
                 std::printf("\n");
             }
+        }
     }
     if(master) {
         const auto id=static_cast<opxy::u32>(reinterpret_cast<Address>(project));

@@ -127,9 +127,9 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
-  - `lfo_copies` (requires `lfo_page`) unlocks `Actions::set_lfo` and
-    `Actions::get_lfo`: three copies of stock's LFO per instrument track (see
-    [Copies of stock's LFO](#copies-of-stocks-lfo)).
+  - `lfo_copies` (requires `lfo_page`) unlocks `Actions::show_lfo` and
+    `Actions::shown_lfo`: four of stock's LFOs per instrument track, all
+    running, one at a time on stock's LFO page (see [Four LFOs](#four-lfos)).
 
   Calls outside the callback, with a stale context, or a second write or
   popup in one callback are refused.
@@ -170,40 +170,58 @@ runtime and leaves every one of its stock call sites unchanged.
 
 A claim with a `page` instead of a `key` (`lfo_page`) opens its owner's
 **layer** while that stock page shows on an instrument track. The owner takes
-the `layer` event (`Hooks::with_layer`): `open` and `close`, each key press
-and release and each encoder turn (with Shift), and a `frame` per screen
-frame. Returning true takes a press or turn from stock; its release follows it.
-A layer's actions are granted for that one callback, as for a key claim.
+the `layer` event (`Hooks::with_layer`): `open` and `close`, and each key press
+and release and each encoder turn (with Shift). Returning true takes a press
+or turn from stock; its release follows it. Stock keeps drawing the page. A
+layer's actions are granted for that one callback, as for a key claim. The
+`page_layers` service (the instrument controller's input methods) links only
+with an extension that holds a page claim; the browser builder does not link
+it yet, so such an extension needs a native build.
 
-Its artwork is a `layer.svg.fragment` beside `extension.json`, whose
-`"layer": {"nodes": [...]}` names its nodes in order. They are painted on the
-SDK's overlay screen, each hidden until `Canvas::show` from the `draw` hook
-(`Hooks::with_draw`); `Canvas::text` sets a text node. The `page_layers`
-service (the controller's input methods and the overlay) links only with an
-extension that holds a page claim. The browser builder does not make the
-overlay yet: such an extension needs a native build.
+## Four LFOs
 
-## Copies of stock's LFO
+`lfo_copies` gives each instrument track four of stock's LFOs, all running at
+once. Stock's own LFO storage (the pattern's LFO type, on flag and track words
+24-31) holds the one its LFO page shows; the SDK keeps the other three as
+copies. `Actions::show_lfo(track, lfo)` swaps: stock's settings go to the copy
+slot of the LFO being left, and the target loads through stock's own setters,
+as stock's type list loads a type. Stock's page, its encoders and clicks, M4,
+the Shift + M4 type list, the live display, every destination, Element and
+Duck then work for whichever LFO it shows. `shown_lfo` says which one that is.
 
-`lfo_copies` gives each instrument track three copies of stock's LFO beside
-its own. The audio role runs each copy that is on through stock's own LFO
-code, with the copy's own state per voice and per track and its settings
-(`Lfo`: on, type, the eight words stock keeps in track words 24-31) swapped
-into stock's for that one call: every type and destination, every sample.
-
+- The audio role runs stock's LFO and each copy that is on through stock's own
+  LFO code, with the copy's own state per voice and per track and its
+  settings swapped into stock's for that one call: every type and
+  destination, every sample.
 - Word destinations (engine, envelope, filter) add up: stock keeps one save
   slot per track, so each copy's saved word goes on the SDK's stack and comes
-  back after stock's own restore, last in first out.
-- Per-sample destinations (pitch, amplitude, pan) scale their buffers in place
-  (`buf *= 1 + lfo`), so the copies and stock's LFO compose.
-- Stock's knob telemetry stays its own LFO's. A note start resets each copy's
-  state as stock resets its own.
-- The GUI publishes changed copies to the audio role as B3 transactions (ids
-  160-170, beside the master processor's 128-137).
-- The project companion keeps them in `open-xy.lfo-copies` (version 1: base64
-  of 8 tracks x 3 copies x {on, type, 8 words}), written only when one is set.
-  A load takes them; a project saved without them clears them. A new project
-  keeps the previous project's copies.
+  back after stock's own restore, last in first out. Per-sample destinations
+  (pitch, amplitude, pan) scale their buffers in place (`buf *= 1 + lfo`), so
+  the LFOs compose.
+- A swap reaches the audio role as one B3 transaction (ids 171-190) ahead of
+  stock's own messages in the same queue; changed copies are transactions too
+  (ids 160-170, beside the master processor's 128-137). The render takes them
+  at the start of the track's next block: the slot gets the LFO stock ran,
+  stock's audio-side LFO gets the target (only values that still hold the
+  leaving LFO's, so stock's later messages and newer edits stand), and the two
+  LFOs' state blocks are exchanged in every voice and track state, so neither
+  restarts or doubles. At most one block passes before the swap is heard.
+  The slot is published once more as a copy on the next tick, so a lost
+  swap message heals.
+- Stock's knob telemetry is its own LFO's: the LFO its page shows. A note start
+  resets each copy's state as stock resets its own.
+- An LFO shown for the first time starts as a copy of the one it replaces, off.
+- The project companion keeps them in `open-xy.lfo-copies` (version 2: base64
+  of 8 tracks x {the LFO shown, 3 slots x {the LFO it holds, on, type, 8
+  words}}), written only when a copy is set or an LFO other than LFO 1 shows.
+  Version 1 (from the first test build: 3 copies per track, LFO 1 shown) loads
+  as LFOs 2-4. A project saved without the section loads with LFO 1 shown and
+  the copies off.
+- Limits: stock keeps its LFO per pattern and the SDK keeps the copies per
+  track, so a pattern change shows the new pattern's own LFO under the same
+  LFO number. Preset load, preset save, pattern copy and step locks on LFO
+  parameters act only on the LFO the page shows. A new project keeps the
+  previous project's copies and LFO number.
 
 ## Master processor
 

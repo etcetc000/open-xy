@@ -16,8 +16,6 @@ struct ExtensionEntry {
     const char* id;
     u32 claims, actions;  // Bits in registry order.
     const extensions::Hooks* hooks;
-    // Its layer's nodes in the SDK's overlay (extension_overlay.cpp.in): first and count.
-    u32 layer_first, layer_count;
 };
 struct ExtensionRegistry {
     const u32* claim_keys;
@@ -50,11 +48,6 @@ bool extensions_hold(u32 action);
 // the open page layer takes it.
 bool extensions_page_key(u32 key, bool pressed, bool shift);
 bool extensions_page_turn(u32 encoder, i32 delta, bool shift);
-// The SDK's overlay screen (extension_overlay.cpp.in): whether a layer is open,
-// its nodes there and which opening it is, its frame time, and its painting.
-bool extensions_layer_open(u32& first, u32& count, u32& opening);
-void extensions_layer_frame(u32 elapsed_ms);
-void extensions_layer_draw(const extensions::Canvas& canvas);
 
 // An instrument track's pattern, as notes are written to it.
 struct TrackPattern { u32 pattern, length, scale; bool editable; };
@@ -66,7 +59,8 @@ i32 extension_collision_radius(u32 track);
 bool extension_record_held();
 u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replace);
 void extension_notify(const char* text);
-// Stock's LFO and its copies (the multi-LFO state, multi_lfo.hpp).
-bool extension_set_lfo(u32 track, u32 copy, const extensions::Lfo& lfo);
-bool extension_get_lfo(u32 track, u32 index, extensions::Lfo& lfo);
+// The four LFOs (the multi-LFO state, multi_lfo.hpp): show one on stock's LFO
+// page, and which one it shows.
+bool extension_show_lfo(u32 track, u32 lfo);
+u32 extension_shown_lfo(u32 track);
 }}

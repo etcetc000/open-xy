@@ -1,4 +1,4 @@
-// OS 1.2.1 boundary of the copies' audio evaluation (multi_lfo_audio.hpp), and
+// OS 1.2.1 boundary of the four LFOs' audio evaluation (multi_lfo_audio.hpp), and
 // the C entry points of the hook stubs (multi_lfo_hooks.s).
 #include "multi_lfo_audio.hpp"
 
@@ -25,6 +25,7 @@ void telemetry(u32 track, u32 index, i32 wave, i32 amount) {
     stock<void(u32, u32, i32, i32)>(0x8d4d68b8)(track, index, wave, amount);
 }
 bool on(u32 track) { return track < 16 && byte(kOn + track) != 0; }
+unsigned char& on_flag(u32 track) { return *at<unsigned char>(kOn + track); }
 u32& type(u32 track) { return *at<u32>(kTypes + track * 4); }
 i32* words(u32 track) { return at<i32>(kTrackWords + track * 0xe8); }
 i32& slot_index(u32 track) { return *at<i32>(kSlotIndex + track * 4); }

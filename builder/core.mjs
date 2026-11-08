@@ -684,7 +684,7 @@ export function selectRuntime(objects, candidates, definitions = {}) {
 // Extensions are linked only when named: omitting them builds none.
 export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const extensions = new Set(extensionSelection(kit, extensionIds));
-  // A page layer's artwork is the native build's overlay screen, which this builder does not make yet.
+  // Page layers (the instrument controller's input hooks) link only in a native build for now.
   const layered = (kit.extensions ?? []).find(e => extensions.has(e.id) && e.page_layer);
   check(!layered, (layered?.name ?? '') + ' needs a native build for now.');
   check(Array.isArray(selection) && selection.length > 0 && new Set(selection).size === selection.length &&

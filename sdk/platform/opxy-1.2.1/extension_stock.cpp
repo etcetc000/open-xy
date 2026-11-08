@@ -130,28 +130,8 @@ u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replac
 void extension_notify(const char* text) {
     stock<void(const char*, u32, u32, u32)>(0x8d549168)(text, 1, 0, 0x3f000000u);
 }
-bool extension_set_lfo(u32 track, u32 copy, const extensions::Lfo& lfo) {
-    multi_lfo::Settings s = {lfo.on ? 1u : 0u, lfo.type, {}};
-    for (u32 i = 0; i < multi_lfo::words; ++i) s.words[i] = lfo.words[i];
-    return multi_lfo::set(track, copy, s);
-}
-// Index 0 is stock's own LFO as its page shows it: the pattern's type and on
-// (8d587920, 8d5879c0) and the GUI's live words 24-31 (8d5ac910).
-bool extension_get_lfo(u32 track, u32 index, extensions::Lfo& lfo) {
-    if (track >= 8 || index > multi_lfo::copies) return false;
-    if (index == 0) {
-        lfo.type = stock<u32(u32)>(0x8d587920)(track);
-        lfo.on = stock<u32(u32)>(0x8d5879c0)(track) != 0;
-        for (u32 i = 0; i < multi_lfo::words; ++i)
-            lfo.words[i] = stock<i32(u32, u32, u32)>(0x8d5ac910)(0x86bd027c, track, multi_lfo::first_word + i);
-        return true;
-    }
-    const multi_lfo::Settings& s = multi_lfo::get(track, index - 1);
-    lfo.on = s.on != 0;
-    lfo.type = s.type;
-    for (u32 i = 0; i < multi_lfo::words; ++i) lfo.words[i] = s.words[i];
-    return true;
-}
+bool extension_show_lfo(u32 track, u32 lfo) { return multi_lfo::show(track, lfo); }
+u32 extension_shown_lfo(u32 track) { return multi_lfo::shown(track); }
 }}
 
 using namespace opxy;
@@ -161,8 +141,8 @@ void sdk_extensions_controller_update(u32 controller, u32 elapsed) {
     extensions_sync();
     stock<void(u32, u32)>(0x8d5986b8)(controller, elapsed);
     extensions_sync();
-    // A page layer opens and closes with its page; the copies of stock's LFO
-    // follow the active project and reach the audio role a few per tick.
+    // A page layer opens and closes with its page; the four LFOs follow the
+    // active project and their copies reach the audio role a few per tick.
     extensions_page(page_layer::shown(), byte(kSelectedTrack));
     // Only a build whose extension sets copies links their B3 receiver.
     if (extensions_hold(action_lfo_copies)) multi_lfo::tick();
