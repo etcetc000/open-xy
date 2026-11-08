@@ -3,7 +3,7 @@
 #include "../extension_runtime.hpp"
 #include "note_container.hpp"
 #include "stock.hpp"
-#include "track_control.hpp"
+#include "param_edit.hpp"
 
 extern "C" {
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
@@ -161,7 +161,7 @@ using namespace opxy;
 using namespace opxy::platform;
 
 void sdk_extensions_controller_update(u32 controller, u32 elapsed) {
-    // Encoder edits reach extensions through the control service's edit hook.
+    // Encoder edits reach extensions through the edit hook (param_edit.cpp).
     sdk_parameter_edits = extensions_parameter_edit;
     extensions_sync();
     stock<void(u32, u32)>(0x8d5986b8)(controller, elapsed);

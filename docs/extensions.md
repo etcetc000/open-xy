@@ -96,7 +96,7 @@ only for the callback. The SDK does not sandbox native code.
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
 | `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
-| `parameter_edit` | An encoder edit of any track's parameter (0–15; index 0–7 the engine's controls, then stock's own track parameters as in [`track_control.hpp`](../sdk/include/opxy/track_control.hpp)) with the value stock now holds, plain or locked. Not sequencer locks, LFOs, MIDI input or machines' writes. Linking an extension links the control service, whose edit hook this is | Encoder edit (control service) |
+| `parameter_edit` | An encoder edit of any track's parameter (0–15; index 0–7 the engine's controls, then stock's own track parameters as in [`track_control.hpp`](../sdk/include/opxy/track_control.hpp)) with the value stock now holds, plain or locked. Not sequencer locks, LFOs, MIDI input or machines' writes | Encoder edit (`param_edit` service, shared with track control) |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
 scale 1 has 480 ticks per step. Stock's pickup gives negative positions near

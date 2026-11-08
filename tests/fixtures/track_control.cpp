@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <initializer_list>
 #include <track_control.cpp>
+#include <param_edit.cpp>
 
 namespace {
 using opxy::i32;

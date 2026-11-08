@@ -239,7 +239,7 @@ class TrackControl(unittest.TestCase):
         aux.definition['resources']['trackControl'].update(unique=True, aux=[12])
         hooks = [p for p in config()['patches'] if p.get('service') == 'control' and p['kind'] == 'hook']
         self.assertEqual(sorted(p['symbol'] for p in hooks),
-                         ['sdk_gui_tick', 'sdk_param_edit_set', 'sdk_param_shown_hook'] + ['sdk_param_step_set'] * 3 +
+                         ['sdk_gui_tick', 'sdk_param_shown_hook'] + ['sdk_param_step_set'] * 3 +
                          ['sdk_project_clear',
                           'sdk_project_clear_random'])
         # Aux tracks are a service of their own: its hooks and MTP allowlist edits.
@@ -279,7 +279,8 @@ class TrackControl(unittest.TestCase):
                  if p.get('symbol') in ('sdk_gui_tick', 'sdk_param_edit_set', 'sdk_param_shown_hook')]
         self.assertEqual([(int(p['address'], 16), p['length'], p['call']) for p in hooks],
                          [(0x8c0baade, 8, True), (0x8d5ad5ae, 4, True), (0x8d5aca48, 4, False)])
-        self.assertTrue(all(p.get('service') == 'control' for p in hooks))
+        # The edit hook is its own service, which track control and extensions both link.
+        self.assertEqual([p.get('service') for p in hooks], ['control', 'param_edit', 'control'])
         # CC = R0 == 0; IF CC JUMP 8d5aca80: the getter's choice of live or base value.
         self.assertEqual(hooks[2]['before'], '000c1b18')
         for unit in ('track_control', 'track_control_hooks'):
@@ -299,7 +300,8 @@ class TrackControl(unittest.TestCase):
                 stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
                                       'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
             (folder / 'stock.hpp').write_text(stock, encoding='utf-8')
-            (folder / 'track_control.cpp').write_bytes((platform / 'track_control.cpp').read_bytes())
+            for unit in ('track_control.cpp', 'param_edit.cpp'):  # beside the host stock.hpp
+                (folder / unit).write_bytes((platform / unit).read_bytes())
             binary = folder / ('test.exe' if os.name == 'nt' else 'test')
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
             result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',

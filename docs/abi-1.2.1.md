@@ -491,11 +491,13 @@ base value at track data (`8d587708`) + `0x3864` and passes it to `8d5ad564`.
 Unless a step is held for a parameter lock, that calls the setter `8d5acf28`
 with the new value; the setter writes the live value, the base value for synth
 tracks, and publishes. The call at `8d5ad5ae` routes through
-`sdk_param_edit_set`, which notes the parameter turned (pages show its own
-value for a moment) and always makes the original call. With extensions linked, it then raises
-their `parameter_edit` event through `sdk_parameter_edits`, which the
-extensions adapter sets on its first controller update; the control service is
-linked whenever an extension is.
+`sdk_param_edit_set` ([`param_edit.cpp`](../sdk/platform/opxy-1.2.1/param_edit.cpp)),
+a service of its own that track control and extensions each link without the
+other. It calls `sdk_param_turned` first, which track control sets on its GUI
+tick to note the parameter turned (pages show its own value for a moment),
+always makes the original call, then calls `sdk_parameter_edits`, which the
+extensions adapter sets on its first controller update to raise their
+`parameter_edit` event. Either pointer is null when its service is not linked.
 
 Stock sends MIDI control changes through `8d57a200(channel, cc, value, time)`
 (time null: now), which builds `0xB0 | channel` and queues three bytes only

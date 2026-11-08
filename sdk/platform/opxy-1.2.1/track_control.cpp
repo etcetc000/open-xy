@@ -15,8 +15,8 @@
 // Edits: 8d5ad564, the encoder edit stock's controllers reach through
 // 8d5ad5bc, reads the base value at track data + 0x3864 and, unless a step is
 // held for a lock, calls the setter 8d5acf28 with the new value. That call at
-// 8d5ad5ae routes through sdk_param_edit_set, which notes the parameter turned
-// (Display, below) and makes the call.
+// 8d5ad5ae routes through sdk_param_edit_set (param_edit.cpp), which first calls
+// sdk_param_turned: here, noting the parameter turned (Display, below).
 //
 // Locks win: the sequencer writes a step's parameter locks to the live values in
 // lock_apply_step (8d5936c0), plain or sliding toward the next lock, with three
@@ -141,7 +141,6 @@ i32 shown_words[control::all_tracks][control::display_words];
 }
 
 opxy::platform::AuxService sdk_aux;
-void (*sdk_parameter_edits)(opxy::u32, opxy::u32, opxy::i32);
 
 // A machine that takes over aux tracks runs there only: on tracks 1-8 (from a
 // project or preset that names its engine) it is not a control machine and does
@@ -274,12 +273,10 @@ extern "C" void sdk_param_step_set(u32 project, u32 track, u32 index, i32 value)
     if (Applied* a = find(track, index)) a->underlying = value;
 }
 
-extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value) {
+static void note_turned(u32 track, u32 index) {
     turned_track = track;
     turned_index = index;
     turned_tick = gui_ticks;
-    param_set(project, track, index, value);
-    if (sdk_parameter_edits) sdk_parameter_edits(track, index, value);
 }
 
 // Called by project load/new-project handling before another GUI tick. It
@@ -297,6 +294,7 @@ extern "C" void sdk_control_forget() {
 }
 
 extern "C" void sdk_gui_tick() {
+    sdk_param_turned = note_turned;
     stock<void()>(0x8d580074)();
     ++gui_ticks;
     sdk_synth_pages();

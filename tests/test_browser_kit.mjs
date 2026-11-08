@@ -390,8 +390,9 @@ test('SDK objects of a profile service link only when a selected machine uses it
 });
 test('track control and hidden pages use the control service, whose entry points fall back while unused', () => {
   const k=fixture(), o=k.objects[0];
-  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control']);
-  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['hidePages']}])],['control']);
+  // Both also link the encoder-edit hook's own service, which extensions link without control.
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control','param_edit']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['hidePages']}])],['control','param_edit']);
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth'}])],[]);
   // Shared startup calls the control service's saved data, which only a control build links.
   k.definitions.fallback=k.profile.module_base;

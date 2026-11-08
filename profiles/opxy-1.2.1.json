@@ -131,6 +131,10 @@
     ],
     "control": [
       "trackControl",
+      "hidePages"
+    ],
+    "param_edit": [
+      "trackControl",
       "hidePages",
       "extension"
     ],
@@ -1560,7 +1564,7 @@
       "before": "ffe3bdfc",
       "symbol": "sdk_param_edit_set",
       "call": true,
-      "service": "control",
+      "service": "param_edit",
       "events": [
         "parameter_edit"
       ]

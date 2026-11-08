@@ -2,6 +2,7 @@
 // the GUI-tick overlay lives in track_control.cpp.
 #pragma once
 #include <opxy/track_control.hpp>
+#include "param_edit.hpp"
 
 namespace opxy { namespace platform {
 
@@ -66,11 +67,7 @@ void sdk_aux_startup() __asm__("sdk_aux_startup");
 // The sequencer's parameter-lock writes (track_control.cpp, "Locks win").
 void sdk_param_step_set(opxy::u32 project, opxy::u32 track, opxy::u32 index, opxy::i32 value)
     __asm__("sdk_param_step_set");
-void sdk_param_edit_set(opxy::u32 project, opxy::u32 track, opxy::u32 index, opxy::i32 value)
-    __asm__("sdk_param_edit_set");
-// The extensions service's parameter_edit event, which it sets when linked
-// (extension_stock.cpp), as the aux service sets sdk_aux; null otherwise.
-extern void (*sdk_parameter_edits)(opxy::u32 track, opxy::u32 index, opxy::i32 value) __asm__("sdk_parameter_edits");
+
 // The value stock's displayed-value getter shows before its LFO amount, through
 // the jump hook sdk_param_shown_hook (track_control_hooks.s).
 opxy::i32 sdk_lfo_held_amount(opxy::u32 track, opxy::u32 index, opxy::i32 stock_amount) __asm__("sdk_lfo_held_amount");
