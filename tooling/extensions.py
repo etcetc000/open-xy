@@ -32,20 +32,27 @@ MAX_EXTENSIONS = 16
 HEADER = 'sdk/include/opxy/extension.hpp'
 RUNTIME = 'sdk/platform/extension_runtime.hpp'
 SOURCE_SUFFIXES = ('.cpp', '.cc', '.h', '.hpp', '.inc')
+# A page claim's page, by name, as the runtime's page numbers (extension_runtime.hpp):
+# its owner's layer opens while that stock page shows on an instrument track.
+PAGES = {'lfo': 1}
+# The most nodes one layer may name.
+LAYER_NODES = 96
 
 
 def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
-    data (a label and the key it governs); actions are one bit each in RUNTIME."""
+    data (a label and the key it governs, or the page whose layer it opens); actions
+    are one bit each in RUNTIME."""
     data = document(ROOT / PROFILE)
     require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
     for name, claim in claims.items():
-        require(NAME.fullmatch(name) and isinstance(claim, dict) and set(claim) == {'label', 'key'} and
+        require(NAME.fullmatch(name) and isinstance(claim, dict) and set(claim) in ({'label', 'key'}, {'label', 'page'}) and
                 isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
-                type(claim['key']) is int and 0 <= claim['key'] < 256, 'Invalid claim: ' + name)
+                (type(claim.get('key')) is int and 0 <= claim['key'] < 256 or claim.get('page') in PAGES),
+                'Invalid claim: ' + name)
     for name, action in actions.items():
         require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
                 ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
@@ -61,6 +68,11 @@ class Extension:
     text: dict  # name, description and optional note: the site's row and details
 
     master_processor: dict = None
+    # Its layer's node names (extension.json "layer"), drawn from layer.svg.fragment.
+    layer: tuple = ()
+
+    def layer_ids(self):
+        return tuple(f'{self.id}_{name}' for name in self.layer)
 
     @property
     def master_filter(self):
@@ -79,8 +91,9 @@ def extension_at(folder):
             f'{root}: an extension folder holds extension.json and extension.cpp')
     data = document(root / 'extension.json')
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and optional note and master_processor')
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'layer'},
+            f'{root}: extension.json fields are id, name, description, claims, actions and optional note, '
+            'master_processor and layer')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -116,8 +129,67 @@ def extension_at(folder):
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
-    return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter)
+    layer = data.get('layer')
+    if layer is not None:
+        require(isinstance(layer, dict) and set(layer) == {'nodes'} and isinstance(layer['nodes'], list) and
+                0 < len(layer['nodes']) <= LAYER_NODES and len(set(layer['nodes'])) == len(layer['nodes']) and
+                all(isinstance(n, str) and NAME.fullmatch(n) and n != 'layer' for n in layer['nodes']),
+                f'{name}: layer is {{"nodes": [...]}}: 1 to {LAYER_NODES} distinct names, none "layer"')
+        require(any('page' in claims[c] for c in data['claims']), f'{name}: a layer needs a page claim')
+    extension = Extension(name, root, tuple(data['claims']), tuple(data['actions']),
+                          {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter,
+                          tuple(layer['nodes']) if layer else ())
+    if extension.layer:
+        layer_artwork(extension)
+    return extension
+
+
+def page_claims(extension):
+    """The page claims an extension holds."""
+    claims, _actions = registry()
+    return [c for c in extension.claims if 'page' in claims[c]]
+
+
+def layer_artwork(extension):
+    """An extension's layer artwork (layer.svg.fragment): one <g id="<id>_layer">
+    in the authored SVG subset holding exactly its declared nodes, each a path
+    or text the overlay can show, hide and move."""
+    from .native import panel_root, read
+    from .svg_safety import validate_nodes
+    path = extension.root / 'layer.svg.fragment'
+    require(path.is_file(), f'{extension.id}: a layer needs layer.svg.fragment')
+    fragment = read(path)
+    root = panel_root(fragment, f'{extension.id}/layer.svg.fragment')
+    nodes = list(root.iter())
+    require(root.tag == 'g' and root.get('id') == extension.id + '_layer',
+            f'layer.svg.fragment must be <g id="{extension.id}_layer">')
+    validate_nodes(nodes)
+    ids = [node.get('id') for node in nodes[1:] if node.get('id')]
+    require(len(ids) == len(set(ids)) and set(ids) == set(extension.layer_ids()),
+            f'{extension.id}: layer.svg.fragment must hold exactly the layer nodes: ' + ', '.join(extension.layer_ids()))
+    # The overlay moves path and text leaves (extension_overlay.cpp.in, bind).
+    require(all(node.tag in ('path', 'text') for node in nodes[1:] if node.get('id')),
+            f'{extension.id}: each layer node is a path or text')
+    return fragment
+
+
+def layer_ranges(extensions):
+    """Each extension's first node and count in the SDK's overlay, by ID."""
+    # Every ID in the overlay is unique: one extension's node may not read as another's.
+    ids = [i for e in extensions if e.layer for i in (e.id + '_layer', *e.layer_ids())]
+    require(len(ids) == len(set(ids)), 'Two extensions\' layers share an ID: ' +
+            ', '.join(sorted({i for i in ids if ids.count(i) > 1})))
+    ranges, first = {}, 0
+    for e in extensions:
+        ranges[e.id] = (first, len(e.layer))
+        first += len(e.layer)
+    return ranges
+
+
+def overlay_artwork(template, extensions):
+    """The overlay's artwork: the SDK's empty template, then each extension's layer."""
+    require(template.count(b'</svg>') == 1, 'Unexpected overlay artwork boundary')
+    return template.replace(b'</svg>', b''.join(layer_artwork(e) for e in extensions if e.layer) + b'</svg>')
 
 
 def check_collection(extensions):
@@ -139,6 +211,13 @@ def check_collection(extensions):
     return extensions
 
 
+# A layer's painting comes from the SDK's overlay screen (extension_overlay.cpp.in),
+# which startup registers: a screen, not a patched call.
+SCREEN_EVENTS = {'draw'}
+# Services whose hooks feed extension events.
+EVENT_SERVICES = {'extensions', 'page_layers'}
+
+
 def events():
     """The public events: the Hooks callbacks in HEADER, in order."""
     text = (ROOT / HEADER).read_text(encoding='utf-8')
@@ -149,9 +228,9 @@ def events():
 
 def check_profile(profile):
     """Every extension hook names the events it feeds, and every event has a site."""
-    known, fed = set(events()), set()
+    known, fed = set(events()), set(SCREEN_EVENTS)
     for patch in profile['patches']:
-        if patch.get('service') == 'extensions':
+        if patch.get('service') in EVENT_SERVICES:
             listed = patch.get('events')
             require(patch['kind'] == 'hook' and isinstance(listed, list) and listed and
                     len(set(listed)) == len(listed) and set(listed) <= known,
@@ -164,7 +243,8 @@ def check_profile(profile):
 
 def generate_collection(folder, extensions):
     """The collection and the registry tables the runtime reads: each claim's
-    key, and the claims that grant each action (0: any claim its holder owns)."""
+    key and page (0: none), and the claims that grant each action (0: any claim
+    its holder owns)."""
     claims, actions = registry()
     claim_bit = {name: 1 << i for i, name in enumerate(claims)}
     action_bit = {name: 1 << i for i, name in enumerate(actions)}
@@ -177,19 +257,21 @@ def generate_collection(folder, extensions):
     lines += ['namespace opxy { namespace platform {', 'namespace {',
               'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
-              'const u32 claim_keys[] = {' + table([str(c['key']) for c in claims.values()]) + '};',
+              'const u32 claim_keys[] = {' + table([str(c.get('key', 0)) for c in claims.values()]) + '};',
+              'const u32 claim_pages[] = {' + table([str(PAGES.get(c.get('page'), 0)) for c in claims.values()]) + '};',
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',
-              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d};' % (
+              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d, claim_pages};' % (
                   len(claims), len(actions)),
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
               'const ExtensionEntry* extension_collection(u32& count) {', '    count = 0;']
+    ranges = layer_ranges(extensions)
     for e in extensions:
         lines += ['    if (const auto* hooks = sdk_extension_' + e.id + '_hooks())',
-                  '        collection_entries[count++] = {"%s", %s, %s, hooks};' % (
-                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions))]
+                  '        collection_entries[count++] = {"%s", %s, %s, hooks, %d, %d};' % (
+                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions), *ranges[e.id])]
     lines += ['    return collection_entries;', '}', '}}', '']
     target = folder / 'extension_collection.cpp'
     target.write_text('\n'.join(lines), encoding='utf-8')
@@ -225,6 +307,8 @@ def metadata(extensions, origins):
     rows = [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
     for e, row in zip(extensions, rows):
+        if page_claims(e):
+            row['page_layer'] = True
         if e.master_processor is not None:
             data = validate_master_artwork(e.root / e.master_processor['artwork'])
             row['master_processor'] = dict(state_id=e.master_processor.get('state_id',e.id), asset=Path(e.master_processor['artwork']).name,

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220">
+  <!-- The SDK's overlay over every page. It holds no artwork of its own: each
+       extension with a layer adds its layer.svg.fragment here, and its nodes
+       show only while its layer is open (extension_overlay.cpp.in). -->
+</svg>

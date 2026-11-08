@@ -127,6 +127,9 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
+  - `lfo_copies` (requires `lfo_page`) unlocks `Actions::set_lfo` and
+    `Actions::get_lfo`: three copies of stock's LFO per instrument track (see
+    [Copies of stock's LFO](#copies-of-stocks-lfo)).
 
   Calls outside the callback, with a stale context, or a second write or
   popup in one callback are refused.
@@ -162,6 +165,45 @@ Machines, starts with none selected, saves choices with the layout and omits
 unselected extensions entirely. The SDK's extension hooks form the profile's
 `extensions` service: a build with no extension selected links none of the
 runtime and leaves every one of its stock call sites unchanged.
+
+## Page layers
+
+A claim with a `page` instead of a `key` (`lfo_page`) opens its owner's
+**layer** while that stock page shows on an instrument track. The owner takes
+the `layer` event (`Hooks::with_layer`): `open` and `close`, each key press
+and release and each encoder turn (with Shift), and a `frame` per screen
+frame. Returning true takes a press or turn from stock; its release follows it.
+A layer's actions are granted for that one callback, as for a key claim.
+
+Its artwork is a `layer.svg.fragment` beside `extension.json`, whose
+`"layer": {"nodes": [...]}` names its nodes in order. They are painted on the
+SDK's overlay screen, each hidden until `Canvas::show` from the `draw` hook
+(`Hooks::with_draw`); `Canvas::text` sets a text node. The `page_layers`
+service (the controller's input methods and the overlay) links only with an
+extension that holds a page claim. The browser builder does not make the
+overlay yet: such an extension needs a native build.
+
+## Copies of stock's LFO
+
+`lfo_copies` gives each instrument track three copies of stock's LFO beside
+its own. The audio role runs each copy that is on through stock's own LFO
+code, with the copy's own state per voice and per track and its settings
+(`Lfo`: on, type, the eight words stock keeps in track words 24-31) swapped
+into stock's for that one call: every type and destination, every sample.
+
+- Word destinations (engine, envelope, filter) add up: stock keeps one save
+  slot per track, so each copy's saved word goes on the SDK's stack and comes
+  back after stock's own restore, last in first out.
+- Per-sample destinations (pitch, amplitude, pan) scale their buffers in place
+  (`buf *= 1 + lfo`), so the copies and stock's LFO compose.
+- Stock's knob telemetry stays its own LFO's. A note start resets each copy's
+  state as stock resets its own.
+- The GUI publishes changed copies to the audio role as B3 transactions (ids
+  160-170, beside the master processor's 128-137).
+- The project companion keeps them in `open-xy.lfo-copies` (version 1: base64
+  of 8 tracks x 3 copies x {on, type, 8 words}), written only when one is set.
+  A load takes them; a project saved without them clears them. A new project
+  keeps the previous project's copies.
 
 ## Master processor
 

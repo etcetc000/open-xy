@@ -7,6 +7,10 @@
 #include <project_companion.cpp>
 #include "project_master.hpp"
 #include <track_control_project.cpp>
+#include <multi_lfo_state.cpp>
+// The copies' B3 transport: counted, not sent.
+namespace { opxy::u32 lfo_messages; }
+void opxy::platform::multi_lfo::send(opxy::u32, opxy::i32) { ++lfo_messages; }
 extern "C" void sdk_control_forget() {}
 void opxy::platform::control_loaded(const opxy::platform::ControlMachine&) {}
 
@@ -139,6 +143,11 @@ int main(int argc, char** argv) {
     saving = argv[1];
     save_result = static_cast<unsigned>(std::atoi(argv[2]));
     holding = std::getenv("HOLD") != nullptr;
+    // LFO: track 3's second copy is a ducking LFO, as an extension sets it.
+    if (std::getenv("LFO")) {
+        opxy::platform::multi_lfo::Settings copy = {1, 6, {100, -200, 300, 0, 5, 6, 7, -8}};
+        if (!opxy::platform::multi_lfo::set(2, 1, copy)) return 3;
+    }
     // The aux service, as its startup fills it in (unless NOAUX: a build without it).
     if (!std::getenv("NOAUX")) sdk_aux = opxy::platform::AuxService{nullptr, nullptr, aux_kept, aux_restore, aux_forget};
     if (argc == 3 || master) return sdk_project_save(nullptr, saving) == save_result ? 0 : 1;

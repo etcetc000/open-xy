@@ -26,10 +26,16 @@
 // section first, so the control section before it leaves it room; a load decodes the
 // section's pool into a staged pool, and the locks service then clears every handle the
 // loaded project holds that a valid, matching section did not give values for.
+//
+// The copies of stock's LFO (multi_lfo.hpp) keep their settings in
+// open-xy.lfo-copies, written when any copy is set: a load stages them, and the
+// GUI tick takes them after a load that succeeded.
 #include "project_companion.hpp"
 #include "stock.hpp"
 #include "master_processor.hpp"
+#include "multi_lfo.hpp"
 namespace master_processor = opxy::platform::master_processor;
+namespace multi_lfo = opxy::platform::multi_lfo;
 
 using opxy::u32;
 using opxy::i32;
@@ -147,6 +153,16 @@ public:
     void hex(u32 v) {
         for (int shift = 28; shift >= 0; shift -= 4) byte("0123456789abcdef"[(v >> shift) & 15]);
     }
+    void base64(const unsigned char* data, u32 count) {
+        const char* digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (u32 i = 0; i < count; i += 3) {
+            const u32 n = count - i < 3 ? count - i : 3;
+            u32 bits = static_cast<u32>(data[i]) << 16;
+            if (n > 1) bits |= static_cast<u32>(data[i + 1]) << 8;
+            if (n > 2) bits |= data[i + 2];
+            for (u32 k = 0; k < 4; ++k) byte(k <= n ? digits[(bits >> (18 - 6 * k)) & 63] : '=');
+        }
+    }
 
 private:
     File* file_;
@@ -206,6 +222,13 @@ void write_companion(void* project, u32 bytes, u32 crc) {
             w.number(static_cast<u32>(controls.values[i]));
         }
         w.put("}\n    }");
+    }
+    if (multi_lfo::any()) {
+        static unsigned char copies[multi_lfo::save_bytes];
+        multi_lfo::save(copies);
+        w.put(",\n    \"open-xy.lfo-copies\": {\n      \"copies\": \"");
+        w.base64(copies, multi_lfo::save_bytes);
+        w.put("\",\n      \"version\": 1\n    }");
     }
     w.put("\n  },\n  \"version\": 1\n}\n");
     w.flush();
@@ -824,6 +847,28 @@ bool locks_section(Parser& p, bool& ok) {
     return read;
 }
 
+// open-xy.lfo-copies: like open-xy.locks, version 1's bytes go one by one to the
+// copies' staged section; lfo_ok says it was read whole.
+bool lfo_ok;
+bool lfo_section(Parser& p, bool& ok) {
+    ok = lfo_ok = false;
+    multi_lfo::load_begin();
+    if (p.peek() != '{') return p.skip();
+    bool version_ok = false, copies_ok = false;
+    u32 version = 0;
+    const bool read = p.object([&](const Text& key) {
+        if (key.is("version")) return p.natural(version, version_ok);
+        if (!key.is("copies")) return p.skip();
+        multi_lfo::load_begin();
+        copies_ok = false;
+        if (p.peek() != '"') return p.skip();
+        return p.base64([](u32 byte) { multi_lfo::load_byte(byte); }, copies_ok);
+    });
+    ok = version_ok && version >= 1;
+    lfo_ok = ok && version == 1 && copies_ok;
+    return read;
+}
+
 // Other owners' sections whose last value so far is invalid, by name (at most
 // kKeyBytes, so held whole).
 Text invalid_sections[kInvalidSections];
@@ -892,6 +937,11 @@ bool read_document(File* file, u32& bytes, u32& crc, bool& applies) {
                 if (!note_section(name, ok)) valid = false;
                 return true;
             }
+            if (name.is("open-xy.lfo-copies")) {
+                if (!lfo_section(p, ok)) return false;
+                if (!note_section(name, ok)) valid = false;
+                return true;
+            }
             if(name.is("open-xy.master-filter") && master_processor::processor_count()) {
                 if(!master_section(p,ok))return false;
                 if(!note_section(name,ok))valid=false;
@@ -904,7 +954,8 @@ bool read_document(File* file, u32& bytes, u32& crc, bool& applies) {
         valid = valid && machines_ok && !invalid_count;
         return members;
     });
-    return read && p.end() && format && version && binding && sections && valid && (applies || master_applies);
+    return read && p.end() && format && version && binding && sections && valid &&
+           (applies || master_applies || lfo_ok);
 }
 
 // Rewrites every pattern's machine number on the instrument, CV and send tracks
@@ -924,6 +975,8 @@ void remap(unsigned char* project) {
     }
 }
 
+// The loaded companion's open-xy.lfo-copies section applies to this load.
+bool lfo_applies;
 // Applies the companion; true when its open-xy.locks section is valid and it matches.
 bool apply_companion(void* project, const char* path) {
     if (!companion_path(path, read_companion_path)) return false;
@@ -938,6 +991,7 @@ bool apply_companion(void* project, const char* path) {
         measured_crc != crc)
         return false;
     if(machines_apply)remap(static_cast<unsigned char*>(project));
+    lfo_applies = lfo_ok;
     if(master_applies)master_processor::loaded_state(static_cast<u32>(reinterpret_cast<opxy::platform::Address>(project)),master_state);
     return locks_ok;
 }
@@ -956,10 +1010,13 @@ u32 sdk_project_save(void* project, const char* path) {
 u32 sdk_project_load(void* project, const char* path) {
     master_processor::clear_pending();
     sdk_project_locks_begin();
+    multi_lfo::load_begin();
+    lfo_applies = false;
     const u32 loaded = deserialize(project, path);
     if (loaded && project && path) {
         sdk_project_locks_loaded(project, apply_companion(project, path));
         sdk_project_loaded(path);
     }
+    multi_lfo::load_end(lfo_applies, loaded && project && path);
     return loaded;
 }

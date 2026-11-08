@@ -14,7 +14,7 @@ u32 sdk_master_buttons(void *, const u32 *) __asm__("sdk_master_buttons");
 u32 sdk_master_shift_buttons(void *, const u32 *) __asm__("sdk_master_shift_buttons");
 void sdk_master_turn(void *, u32, const i32 *) __asm__("sdk_master_turn");
 void sdk_master_frame(void *, i32) __asm__("sdk_master_frame");
-void sdk_master_receive(u32, u32, i32) __asm__("sdk_master_receive");
+u32 sdk_master_b3(u32, u32, i32) __asm__("sdk_master_b3");
 void sdk_master_process(void *, i32 *, i32 *) __asm__("sdk_master_process");
 u32 sdk_master_project() __asm__("sdk_master_project");
 void sdk_project_stock_new() __asm__("sdk_project_stock_new");
@@ -22,6 +22,11 @@ u32 sdk_master_stock_buttons(void *, const u32 *) __asm__("sdk_master_stock_butt
 u32 sdk_master_stock_shift_buttons(void *, const u32 *) __asm__("sdk_master_stock_shift_buttons");
 void sdk_master_stock_turn(void *, u32, const i32 *) __asm__("sdk_master_stock_turn");
 void sdk_master_stock_frame(void *, i32) __asm__("sdk_master_stock_frame");
+}
+// The shared B3 receiver (b3_receive.cpp) for the master's messages alone:
+// what the master processor leaves goes on to stock's setter.
+static void sdk_master_receive(u32 base, u32 id, i32 value) {
+    if (!sdk_master_b3(base, id, value)) stock<void(u32, u32, i32)>(0x8d50eb8c)(base, id, value);
 }
 static void require(bool ok, const char *why) {
     if (!ok) {

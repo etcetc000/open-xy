@@ -13,6 +13,10 @@
 #include <vector>
 #include <project_companion.cpp>
 #include "project_master.hpp"
+#include <multi_lfo_state.cpp>
+// The copies' B3 transport: counted, not sent.
+namespace { opxy::u32 lfo_messages; }
+void opxy::platform::multi_lfo::send(opxy::u32, opxy::i32) { ++lfo_messages; }
 #include "lock_handles.hpp"
 
 extern "C" opxy::u32 sdk_project_kept(void*) { return 0; }

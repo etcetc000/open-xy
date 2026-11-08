@@ -302,6 +302,15 @@ def generate_registration_stock(directory):
     return expand('registration_stock.cpp.in', RELOCATED, Path(directory) / 'registration_stock.cpp')
 
 
+def generate_extension_overlay(directory, extensions):
+    """The SDK's overlay screen in the last page slot: every extension's layer
+    nodes, in collection order (extensions.layer_ranges)."""
+    ids = [i for e in extensions for i in e.layer_ids()]
+    rows = ''.join('    "' + i + '",' + chr(10) for i in ids)
+    values = dict(RELOCATED, LAYER_NODES=str(len(ids)), LAYER_IDS=rows)
+    return expand('extension_overlay.cpp.in', values, Path(directory) / 'extension_overlay.cpp')
+
+
 def generate_screen_order(directory):
     """The compositor traversal over the relocated screen slots."""
     return expand('screen_order.cpp.in', RELOCATED, Path(directory) / 'screen_order.cpp')

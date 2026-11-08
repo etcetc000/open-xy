@@ -34,8 +34,13 @@ bool ready() {
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
-            (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count)) ||
-            (entry.claims && !entry.hooks->queued_control)) return false;
+            (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count))) return false;
+        // A page claim reaches its owner's layer hook, any other its queued control.
+        for (u32 c = 0; c < known.claim_count; ++c) {
+            if (!(entry.claims & (1u << c))) continue;
+            const bool page = known.claim_pages && known.claim_pages[c];
+            if (page ? !entry.hooks->layer : !entry.hooks->queued_control) return false;
+        }
         for (u32 a = 0; a < known.action_count; ++a) {
             if (!(entry.actions & (1u << a))) continue;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
@@ -51,18 +56,24 @@ bool ready() {
     return true;
 }
 
-// Actions granted while a claimed key fires and stock accepted it.
-u32 granted(const ExtensionEntry& entry, const extensions::Control& control) {
-    if (!control.accepted) return 0;
-    u32 fired = 0;
-    for (u32 c = 0; c < registry->claim_count; ++c)
-        if ((entry.claims & (1u << c)) && registry->claim_keys[c] == control.key) fired |= 1u << c;
+// Actions an entry's fired claims grant.
+u32 grants(const ExtensionEntry& entry, u32 fired) {
     u32 result = 0;
     for (u32 a = 0; fired && a < registry->action_count; ++a) {
         const u32 needs = registry->action_claims[a] ? registry->action_claims[a] : entry.claims;
         if ((entry.actions & (1u << a)) && (fired & needs)) result |= 1u << a;
     }
     return result;
+}
+bool page_claim(u32 c) { return registry->claim_pages && registry->claim_pages[c]; }
+// Actions granted while a claimed key fires and stock accepted it. A page
+// claim's key is not its gesture: it grants through its layer.
+u32 granted(const ExtensionEntry& entry, const extensions::Control& control) {
+    if (!control.accepted) return 0;
+    u32 fired = 0;
+    for (u32 c = 0; c < registry->claim_count; ++c)
+        if ((entry.claims & (1u << c)) && !page_claim(c) && registry->claim_keys[c] == control.key) fired |= 1u << c;
+    return grants(entry, fired);
 }
 
 // The caller's context must still be current: a stale one means the project,
@@ -99,7 +110,20 @@ u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedN
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes};
+bool valid_lfo_type(u32 type) {
+    using namespace extensions::lfo_types;
+    return type == tremolo || type == value || type == random || type == element || type == duck;
+}
+bool set_lfo(u32 track, u32 copy, const extensions::Lfo& lfo) {
+    if (!(transaction.granted & action_lfo_copies) || track >= 8 || copy >= extensions::lfo_copies ||
+        !valid_lfo_type(lfo.type)) return false;
+    return extension_set_lfo(track, copy, lfo);
+}
+bool get_lfo(u32 track, u32 index, extensions::Lfo& lfo) {
+    if (!(transaction.granted & action_lfo_copies) || track >= 8 || index > extensions::lfo_copies) return false;
+    return extension_get_lfo(track, index, lfo);
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, set_lfo, get_lfo};
 }
 
 void extensions_sync() {
@@ -164,6 +188,108 @@ void extensions_queued_control(const extensions::Control& control) {
         if (entries[i].hooks->queued_control) entries[i].hooks->queued_control(current, control, actions);
         transaction = {0, false, false};
     }
+    dispatching = false;
+}
+
+namespace {
+// The open page layer (extension.hpp, Layer): its entry, claim, page and
+// track, or none. Keys it took from stock: only it hears their release.
+const u32 kNone = ~0u, kKeys = 64;
+u32 layer_entry = kNone, layer_claim, layer_page, layer_track;
+u32 layer_openings;  // counts openings, so a reopening starts with every node hidden
+u32 layer_took[kKeys / 32];
+
+bool layer_send(extensions::Layer::Kind kind, u32 key = 0, bool pressed = false, i32 delta = 0,
+                u32 elapsed = 0, bool shift = false) {
+    if (layer_entry == kNone || dispatching) return false;
+    const ExtensionEntry& entry = entries[layer_entry];
+    const extensions::Layer event = {kind, key, pressed, delta, elapsed, shift, layer_track};
+    dispatching = true;
+    transaction = {grants(entry, 1u << layer_claim), false, false};
+    const bool took = entry.hooks->layer(current, event, actions);
+    transaction = {0, false, false};
+    dispatching = false;
+    return took;
+}
+void close_layer() {
+    if (layer_entry == kNone) return;
+    layer_send(extensions::Layer::close);
+    layer_entry = kNone;
+    layer_took[0] = layer_took[1] = 0;
+}
+// The page claim for `page`, and its owner.
+bool page_owner(u32 page, u32& claim, u32& entry) {
+    if (!page || !ready() || !registry->claim_pages) return false;
+    for (u32 c = 0; c < registry->claim_count; ++c) {
+        if (registry->claim_pages[c] != page) continue;
+        for (u32 i = 0; i < entry_count; ++i)
+            if ((entries[i].claims & (1u << c)) && entries[i].hooks->layer) {
+                claim = c;
+                entry = i;
+                return true;
+            }
+    }
+    return false;
+}
+}
+
+bool extensions_hold(u32 action) {
+    if (!ready()) return false;
+    for (u32 i = 0; i < entry_count; ++i)
+        if (entries[i].actions & action) return true;
+    return false;
+}
+
+void extensions_page(u32 page, u32 track) {
+    if (dispatching) return;
+    if (layer_entry != kNone && layer_page == page && layer_track == track) return;
+    close_layer();
+    u32 claim = 0, entry = 0;
+    if (track >= 8 || !page_owner(page, claim, entry)) return;
+    layer_entry = entry;
+    layer_claim = claim;
+    layer_page = page;
+    layer_track = track;
+    layer_took[0] = layer_took[1] = 0;
+    ++layer_openings;
+    layer_send(extensions::Layer::open);
+}
+
+bool extensions_page_key(u32 key, bool pressed, bool shift) {
+    if (layer_entry == kNone || dispatching || key >= kKeys) return false;
+    u32& took = layer_took[key / 32];
+    const u32 bit = 1u << (key % 32);
+    if (!pressed) {
+        if (!(took & bit)) return false;  // a release of a press stock had
+        took &= ~bit;
+        layer_send(extensions::Layer::keypress, key, false, 0, 0, shift);
+        return true;  // its press was taken, so stock never saw it
+    }
+    const bool taken = layer_send(extensions::Layer::keypress, key, true, 0, 0, shift);
+    if (taken) took |= bit;
+    return taken;
+}
+
+bool extensions_page_turn(u32 encoder, i32 delta, bool shift) {
+    if (layer_entry == kNone || dispatching || encoder >= 4) return false;
+    return layer_send(extensions::Layer::turn, encoder, false, delta, 0, shift);
+}
+
+bool extensions_layer_open(u32& first, u32& count, u32& opening) {
+    if (layer_entry == kNone) return false;
+    first = entries[layer_entry].layer_first;
+    count = entries[layer_entry].layer_count;
+    opening = layer_openings;
+    return true;
+}
+void extensions_layer_frame(u32 elapsed_ms) {
+    if (layer_entry == kNone || dispatching) return;
+    layer_send(extensions::Layer::frame, 0, false, 0, elapsed_ms);
+}
+void extensions_layer_draw(const extensions::Canvas& canvas) {
+    if (layer_entry == kNone || dispatching || !entries[layer_entry].hooks->draw) return;
+    dispatching = true;
+    entries[layer_entry].hooks->draw(canvas);
     dispatching = false;
 }
 }}

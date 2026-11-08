@@ -158,6 +158,16 @@
     ],
     "drum_locks": [
       "padMix"
+    ],
+    "b3": [
+      "master_filter",
+      "lfo_copies"
+    ],
+    "multi_lfo": [
+      "lfo_copies"
+    ],
+    "page_layers": [
+      "page_layer"
     ]
   },
   "patches": [
@@ -1689,7 +1699,8 @@
       "call": true,
       "service": "extensions",
       "events": [
-        "context"
+        "context",
+        "layer"
       ]
     },
     {
@@ -2088,14 +2099,14 @@
     },
     {
       "kind": "hook",
-      "name": "Master EQ parameter receiver: atomic processor snapshot",
+      "name": "B3 parameter receiver: the SDK's virtual parameters (master processor, LFO copies)",
       "address": "0x8d5b145e",
       "file_offset": "0x1e86b6",
       "length": 4,
       "before": "fae397eb",
-      "symbol": "sdk_master_receive",
+      "symbol": "sdk_b3_receive",
       "call": true,
-      "service": "master_filter"
+      "service": "b3"
     },
     {
       "kind": "hook",
@@ -2217,6 +2228,213 @@
       "symbol": "sdk_lock_step",
       "call": true,
       "service": "drum_locks"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: L1 voice renderer pass 0 (stock LFO-on gate)",
+      "address": "0x11a0953e",
+      "file_offset": "0xcbce",
+      "length": 8,
+      "before": "0f600899000c021c",
+      "symbol": "sdk_multi_lfo_a_pass0",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: L1 voice renderer pass 1 (stock LFO-on gate)",
+      "address": "0x11a095f6",
+      "file_offset": "0xcc86",
+      "length": 8,
+      "before": "03600899000c021c",
+      "symbol": "sdk_multi_lfo_a_pass1",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: L1 voice renderer LFO restore",
+      "address": "0x11a09bfc",
+      "file_offset": "0xd28c",
+      "length": 8,
+      "before": "00de518d368d0000",
+      "symbol": "sdk_multi_lfo_voice_restore",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: L1 voice renderer LFO note reset",
+      "address": "0x11a09f32",
+      "file_offset": "0xd5c2",
+      "length": 8,
+      "before": "00de508dfe470000",
+      "symbol": "sdk_multi_lfo_reset",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: voice renderer 8d51b274 pass 0 (stock LFO-on gate)",
+      "address": "0x8d51b3d8",
+      "file_offset": "0x152634",
+      "length": 8,
+      "before": "0899000c021cc923",
+      "symbol": "sdk_multi_lfo_b_pass0",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: voice renderer 8d51b274 pass 1 (stock LFO-on gate)",
+      "address": "0x8d51b520",
+      "file_offset": "0x15277c",
+      "length": 8,
+      "before": "0899000c021c1323",
+      "symbol": "sdk_multi_lfo_b_pass1",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: voice renderer 8d51b274 LFO restore",
+      "address": "0x8d51b8dc",
+      "file_offset": "0x152b38",
+      "length": 4,
+      "before": "ffe32dea",
+      "symbol": "sdk_multi_lfo_voice_restore",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: voice renderer 8d51b274 LFO note reset",
+      "address": "0x8d51bb9e",
+      "file_offset": "0x152dfa",
+      "length": 4,
+      "before": "ffe33046",
+      "symbol": "sdk_multi_lfo_reset",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: audio loop track pass 2 (before voices)",
+      "address": "0x8d510aac",
+      "file_offset": "0x147d08",
+      "length": 8,
+      "before": "000c031c00e2fc0c",
+      "symbol": "sdk_multi_lfo_loop_pass2",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: audio loop track pass 4 (after voices)",
+      "address": "0x8d510c02",
+      "file_offset": "0x147e5e",
+      "length": 8,
+      "before": "010c061c00e23e0c",
+      "symbol": "sdk_multi_lfo_loop_pass4",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: audio loop selected-track fallback pass 3",
+      "address": "0x8d512404",
+      "file_offset": "0x149660",
+      "length": 8,
+      "before": "0410d3baffe24cf4",
+      "symbol": "sdk_multi_lfo_loop_pass3",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: audio loop restore of passes 2 and 3",
+      "address": "0x8d512360",
+      "file_offset": "0x1495bc",
+      "length": 4,
+      "before": "00e3eb34",
+      "symbol": "sdk_multi_lfo_restore_before",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: audio loop restore of pass 4",
+      "address": "0x8d512372",
+      "file_offset": "0x1495ce",
+      "length": 4,
+      "before": "00e3e234",
+      "symbol": "sdk_multi_lfo_restore_after",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: track LFO reset at note start",
+      "address": "0x8d50e8b6",
+      "file_offset": "0x145b12",
+      "length": 4,
+      "before": "ffe3a4af",
+      "symbol": "sdk_multi_lfo_reset",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO copies: stock LFO knob telemetry stays stock LFO's",
+      "address": "0x11a04628",
+      "file_offset": "0x7cb8",
+      "length": 8,
+      "before": "00de4d8db8680000",
+      "symbol": "sdk_multi_lfo_telemetry",
+      "call": true,
+      "service": "multi_lfo"
+    },
+    {
+      "kind": "hook",
+      "name": "Page layers: instrument controller keys entry",
+      "address": "0x8c0b2e4c",
+      "file_offset": "0xea088",
+      "length": 8,
+      "before": "00e80000e305666f",
+      "symbol": "sdk_page_buttons",
+      "call": false,
+      "service": "page_layers",
+      "events": [
+        "layer"
+      ]
+    },
+    {
+      "kind": "hook",
+      "name": "Page layers: instrument controller Shift keys entry",
+      "address": "0x8c0b28a8",
+      "file_offset": "0xe9ae4",
+      "length": 8,
+      "before": "00e80000e3051832",
+      "symbol": "sdk_page_shift_buttons",
+      "call": false,
+      "service": "page_layers",
+      "events": [
+        "layer"
+      ]
+    },
+    {
+      "kind": "hook",
+      "name": "Page layers: instrument controller encoder turn entry",
+      "address": "0x8c0b12e4",
+      "file_offset": "0xe8520",
+      "length": 8,
+      "before": "00e81100e305666f",
+      "symbol": "sdk_page_turn",
+      "call": false,
+      "service": "page_layers",
+      "events": [
+        "layer"
+      ]
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

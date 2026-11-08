@@ -8,6 +8,10 @@
 #include <cstring>
 #include <project_companion.cpp>
 #include "project_master.hpp"
+#include <multi_lfo_state.cpp>
+// The copies' B3 transport: counted, not sent.
+namespace { opxy::u32 lfo_messages; }
+void opxy::platform::multi_lfo::send(opxy::u32, opxy::i32) { ++lfo_messages; }
 
 // What startup.cpp gives a build without the control service.
 extern "C" opxy::u32 sdk_project_kept(void*) { return 0; }
@@ -87,8 +91,10 @@ int main(int argc, char** argv) {
     const bool two=master && std::strncmp(argv[3],"master-two",10)==0;
     if(two){opxy::platform::master_filter::test_second=true;
         opxy::platform::master_filter::test_reverse=std::strcmp(argv[3],"master-two-reverse")==0;}
-    tracks = argc - 3 - (master ? 1 : 0);
-    specs = argv + 3 + (master ? 1 : 0);
+    // lfo: print the LFO copies the GUI tick takes from this load.
+    const bool lfo = !master && argc > 3 && std::strcmp(argv[3], "lfo") == 0;
+    tracks = argc - 3 - (master || lfo ? 1 : 0);
+    specs = argv + 3 + (master || lfo ? 1 : 0);
     project = static_cast<unsigned char*>(std::calloc(kProjectBytes, 1));
     if (!project) return 2;
     if (sdk_project_load(project, argv[1]) != deserialize_result) return 1;
@@ -98,6 +104,21 @@ int main(int argc, char** argv) {
         for (unsigned k = 0; k < *count(track); ++k)
             std::printf(k ? ",%d" : "%d", static_cast<int>(*field(track, k)));
         std::printf("\n");
+    }
+    if (lfo) {
+        namespace multi_lfo = opxy::platform::multi_lfo;
+        // Copies a previous project held: the load replaces them.
+        multi_lfo::Settings stale = {1, 0, {1, 1, 1, 1, 1, 1, 1, 1}};
+        multi_lfo::set(0, 0, stale);
+        multi_lfo::tick();
+        for (opxy::u32 t = 0; t < multi_lfo::tracks; ++t)
+            for (opxy::u32 c = 0; c < multi_lfo::copies; ++c) {
+                const multi_lfo::Settings& s = multi_lfo::get(t, c);
+                if (!s.on && !s.type && !s.words[0]) continue;
+                std::printf("lfo:%u,%u,%u,%u", t, c, s.on, s.type);
+                for (opxy::u32 i = 0; i < multi_lfo::words; ++i) std::printf(",%d", s.words[i]);
+                std::printf("\n");
+            }
     }
     if(master) {
         const auto id=static_cast<opxy::u32>(reinterpret_cast<Address>(project));

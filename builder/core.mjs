@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '047a8d83e0958fa9a797f5de87da7fbed370896f6a41bcac92c3754c04e20a4b';
+export const PROFILE_SHA256 = 'e09a4b4ab202f311fdf267c689d07381e36b3606649bcab6e32536b184590a82';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -684,6 +684,9 @@ export function selectRuntime(objects, candidates, definitions = {}) {
 // Extensions are linked only when named: omitting them builds none.
 export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const extensions = new Set(extensionSelection(kit, extensionIds));
+  // A page layer's artwork is the native build's overlay screen, which this builder does not make yet.
+  const layered = (kit.extensions ?? []).find(e => extensions.has(e.id) && e.page_layer);
+  check(!layered, (layered?.name ?? '') + ' needs a native build for now.');
   check(Array.isArray(selection) && selection.length > 0 && new Set(selection).size === selection.length &&
     selection.every(id => kit.machines.some(m => m.id === id)), 'Choose each machine once.');
   const numbers = assignNumbers(kit, selection, layout);
@@ -691,7 +694,8 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(extensions.size ? [{kind: 'extension'}] : []),
-    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : [])]);
+    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.actions?.includes('lfo_copies')) ? [{kind: 'lfo_copies'}] : [])]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
