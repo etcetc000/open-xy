@@ -70,10 +70,14 @@ def expanded_profile(profile):
 
 
 def selection_services(kit, result):
+    """The services a selection links (builder/core.mjs activeServices)."""
+    selected = [m for m in kit['machines'] if m['id'] in result['selected']]
     chosen = [e for e in kit.get('extensions', []) if e['id'] in result['extensions']]
-    return active_services(kit['profile'], [m['kind'] for m in kit['machines'] if m['id'] in result['selected']] +
+    return active_services(kit['profile'], [m['kind'] for m in selected] +
+                           [f for m in selected for f in m.get('features', [])] +
                            (['extension'] if chosen else []) +
                            (['inputMonitor'] if any('monitor_input' in e.get('actions', []) for e in chosen) else []) +
+                           # kit.json names it master_processor; older kits, master_filter (core.mjs processorOf).
                            (['master_filter'] if any(e.get('master_processor') or e.get('master_filter') for e in chosen) else []) +
                            (['live_input'] if any(e.get('live_input') for e in chosen) else []))
 
@@ -218,6 +222,8 @@ def main():
         selected = [m for m in kit['machines'] if m['id'] in result['selected']]
         catalog = json.loads((content / 'op1_factory.json').read_bytes())
         for machine in selected:
+            if not machine['catalog']:
+                continue  # an aux machine is no instrument: it has no menu entry (builder/core.mjs presetPath)
             key = {'effect': 'fx_types', 'player': 'seq_types'}.get(machine['kind'], 'engine_types')
             entry = json.loads(machine['catalog'].strip().lstrip(','))
             # An effect's or player's menu entry carries this selection's number, which
@@ -231,7 +237,13 @@ def main():
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
         for machine in selected:
-            if machine['kind'] in ('synth', 'drum', 'sample'):
+            if not machine['catalog']:
+                # An aux machine's presets are the files the kit generated (tooling.adapters.aux_preset_files).
+                for name, text in machine.get('auxPresets', {}).items():
+                    data = (prefix / name).read_bytes()
+                    require(json.loads(data) == json.loads(text), 'Aux preset differs: ' + name)
+                    expected_files[name] = data
+            elif machine['kind'] in ('synth', 'drum', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'
                 data = (prefix / name).read_bytes()
                 preset = json.loads(data)

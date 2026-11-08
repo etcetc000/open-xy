@@ -13,6 +13,8 @@ from .formats import require
 # worst_model says; midpoint_percent its heaviest at the middle; kit_percent its own
 # keys at full polyphony; choke_percent retriggers on one key; ceiling_percent full
 # polyphony of the heaviest. Those three are whole kits, against the same budget.
+# Optional for a kit: voice_peak_percent, its worst block over the single-voice runs
+# only, which the builder's CPU-high label uses (whole-kit runs are left out).
 BENCHMARKS = {'synth': 'opxy-synth-c8-sweep-v1', 'effect': 'opxy-effect-callback-v1',
               'sample': 'opxy-sample-callback-v1', 'drum': 'opxy-drum-callback-v1'}
 # Records from before the sweep, kept by entries that have not changed since.
@@ -23,6 +25,29 @@ DRUM_FIELDS = FIELDS | {'midpoint_percent', 'kit_percent', 'choke_percent', 'cei
 # The share of the stock block budget a machine should stay within (docs/profiling.md).
 # Above it a machine is still accepted, with a warning.
 RECOMMENDED_PERCENT = 3.5
+# Above this share of a block, a machine's reported worst case (its worst observed block
+# peak, else its average) gets the builder's CPU-high label (builder/core.mjs
+# CPU_HIGH_PERCENT, which tests compare). The label is derived, never written in an entry.
+HIGH_PERCENT = 4.5
+
+
+def worst_case(value):
+    """The reported worst case: (percent, 'peak') when the record has a peak, else (percent, 'average').
+    A drum kit is judged by its worst single sound, never its whole-kit runs: its
+    single-voice peak when recorded, else its heaviest single voice's average."""
+    peak = 'voice_peak_percent' if value.get('benchmark') == BENCHMARKS['drum'] else 'peak_percent'
+    return (value[peak], 'peak') if peak in value else (value['block_percent'], 'average')
+
+
+def high(value):
+    """The builder's CPU-high note for a record whose worst case exceeds HIGH_PERCENT, else None."""
+    percent, metric = worst_case(value)
+    if percent <= HIGH_PERCENT:
+        return None
+    drum = value.get('benchmark') == BENCHMARKS['drum']
+    what = (('worst single sound peak' if drum else 'worst observed block peak') if metric == 'peak' else
+            'worst single sound average (no single-sound peak recorded)' if drum else 'average (no peak reported)')
+    return f"the builder labels it CPU-high: {what} {percent:.3f}% is above {HIGH_PERCENT}%"
 
 
 def above_recommended(value):
@@ -66,7 +91,8 @@ def validate(value, kind, commit=None, legacy=True):
     require(legacy or 'peak_percent' in value,
             'cpu: average and worst observed block peak are required; rerun sdk.py profile report '
             'with the original captures (docs/profiling.md)')
-    require(set(value) - {'report', 'peak_percent'} == (SWEEP_FIELDS if sweep else DRUM_FIELDS if drum else FIELDS),
+    require(set(value) - {'report', 'peak_percent'} - ({'voice_peak_percent'} if drum else set()) ==
+            (SWEEP_FIELDS if sweep else DRUM_FIELDS if drum else FIELDS),
             'cpu: unexpected measurement fields')
     require(isinstance(value['commit'], str) and re.fullmatch(r'[0-9a-f]{40}', value['commit']),
             'cpu: commit is the full SHA of the measured machine source')
@@ -106,6 +132,12 @@ def validate(value, kind, commit=None, legacy=True):
                 'cpu: peak_percent must be an unsaturated, positive percentage of the stock block budget')
         require(peak >= max(value[field] for field in fields),
                 'cpu: peak_percent must cover every measured run, including whole-kit runs')
+    if 'voice_peak_percent' in value:
+        voice = value['voice_peak_percent']
+        require('peak_percent' in value and type(voice) in (int, float) and math.isfinite(voice) and
+                value['block_percent'] <= voice <= value['peak_percent'],
+                'cpu: voice_peak_percent is the worst block of the single-voice runs: at least block_percent, '
+                'at most peak_percent')
     if 'report' in value:
         require(isinstance(value['report'], str) and len(value['report']) <= 2048 and
                 re.fullmatch(REPORT_URL, value['report']), 'cpu: report must be a public HTTPS evidence URL')

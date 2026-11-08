@@ -25,6 +25,34 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('risk-continue').disabled = true;
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
   const kib = n => (n / 1024).toFixed(1) + ' KiB', mib = n => n / 1024 ** 2 + ' MiB';
+  const cpuWarning = 'Uses more CPU than usual. This may reduce the total number of voices you can play at once.';
+  let cpuTooltip;
+  function cpuBadge(badge, high) {
+    badge.removeAttribute('title');
+    badge.replaceChildren('CPU-high', ...(high ? [node('span', ': ' + cpuWarning, 'sr-only')] : []));
+    const show = () => {
+      if (!high) return;
+      if (!cpuTooltip) {
+        cpuTooltip = document.createElement('div');
+        cpuTooltip.className = 'cpu-high-tooltip';
+        cpuTooltip.setAttribute('role', 'tooltip');
+        cpuTooltip.textContent = cpuWarning; document.body.append(cpuTooltip);
+      }
+      cpuTooltip.hidden = false;
+      const box = badge.getBoundingClientRect(), tip = cpuTooltip.getBoundingClientRect();
+      cpuTooltip.style.left = Math.max(8, Math.min(box.left, window.innerWidth - tip.width - 8)) + 'px';
+      cpuTooltip.style.top = (box.bottom + tip.height + 8 < window.innerHeight
+        ? box.bottom + 6 : Math.max(8, box.top - tip.height - 6)) + 'px';
+    };
+    const hide = () => { if (cpuTooltip) cpuTooltip.hidden = true; };
+    badge.onmouseenter = show; badge.onmouseleave = hide;
+    const focusTarget = badge.closest('button') ?? badge;
+    if (focusTarget === badge) badge.tabIndex = high ? 0 : -1;
+    focusTarget.onfocus = show; focusTarget.onblur = hide;
+    focusTarget.onkeydown = event => { if (event.key === 'Escape') hide(); };
+  }
+  document.addEventListener('scroll', () => { if (cpuTooltip) cpuTooltip.hidden = true; }, true);
+
   const graphicsConfiguration = createGraphicsConfiguration();
   // Experimental 4 MiB module memory (core.memoryKit), chosen on the machines page.
   // Off for every collection until chosen; restoring a 4 MiB build or its layout
@@ -314,6 +342,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       };
       return button;
     }));
+    // Explain the practical voice-count tradeoff immediately on hover or focus.
+    const high = core.cpuHigh(m);
+    field('detail-cpu-high').hidden = !high;
+    cpuBadge(field('detail-cpu-high'), high);
     field('community-notice').hidden = m.origin !== 'catalog';
     // Credit the catalog's maintainer and repository, with the exact release source;
     // Open-XY's own catalog machines (core.ORIGINS) name the project instead.
@@ -571,7 +603,15 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       meta.append(memory);
       const originLabel = {bundled: 'Core', official: 'Core', catalog: 'Community', personal: 'Yours'}[m.origin];
       meta.append(node('span', originLabel, 'machine-origin'));
-      button.append(meta); button.onclick = () => inspect(m.id);
+      const high = core.cpuHigh(m);
+      if (high) {
+        const badge = node('span', 'CPU-high', 'machine-cpu-high');
+        meta.append(badge);
+      }
+      button.append(meta);
+      const cpuMark = meta.querySelector('.machine-cpu-high');
+      if (cpuMark) cpuBadge(cpuMark, high);
+      button.onclick = () => inspect(m.id);
       input.onchange = () => {
         selected = input.checked ? [...selected, m.id] : selected.filter(id => id !== m.id);
         row.classList.toggle('selected', input.checked); invalidate(); recalculate();

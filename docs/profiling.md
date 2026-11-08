@@ -123,6 +123,7 @@ firmware-containing packages.
 | `runs` | 1 to 100 independent, complete captures of the same build and collector (one is enough) |
 | `block_percent` | The run's mean cost (the median across captures when there are several), as a percentage of the stock 580,352-cycle block budget. For a synth, the largest median across midpoint, swept and combined runs; for a drum kit, the largest single-voice median. This is an average, not a spike |
 | `peak_percent` | Required for new measurements: the largest single measured block across **all** settings/workloads and **all** supplied captures, in the same budget units. For drums this includes whole-kit, choke and ceiling runs. Never a median of maxima or the mean of the heaviest setting. The generated report identifies the workload and shows each run's peak |
+| `voice_peak_percent` | Drum kits, optional (written by `profile report` since the CPU-high label): the largest single block across the single-voice runs only, every model and level and every capture, leaving out the whole-kit, choke and ceiling runs. At least `block_percent`, at most `peak_percent` |
 | `midpoint_percent` | Synths: the midpoint run's median, stock's own workload |
 | `combined_percent` | Synths: the median of the run with every control at its heaviest position |
 | `worst_setting` | Synths: the heaviest swept setting: `control` (0-7), its `label`, and its Q31 `value` |
