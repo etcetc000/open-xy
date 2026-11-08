@@ -1686,6 +1686,7 @@
         "firmware_sha256": "dbd5d39e8d93668b86ab925ae834b031bcae0443ecd279eab08be4253a02fbb7",
         "runs": 3,
         "block_percent": 3.132677,
+        "peak_percent": 3.323415,
         "midpoint_percent": 2.317845,
         "combined_percent": 2.384985,
         "worst_setting": {"control": 4, "label": "Crush", "value": 268435455}
