@@ -87,13 +87,15 @@ class Extensions(unittest.TestCase):
         declared = re.findall(r'const u32 action_(\w+) = 1u << (\d+);', header)
         self.assertEqual(declared, [(name, str(i)) for i, name in enumerate(actions)])
         self.assertNotRegex(header, r'const u32 claim_')
-        self.assertTrue(all(type(c['key']) is int for c in claims.values()))
+        # A key claim names its key; a page claim (lfo_page) names its page instead.
+        self.assertTrue(all(type(c['key']) is int if 'key' in c else c['page'] in extensions.PAGES
+                            for c in claims.values()))
 
     def test_every_extension_hook_names_its_events_and_every_event_has_a_site(self):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control', 'layer'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),

@@ -43,8 +43,8 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
                                                     .with_queued_control(edit_control);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0};
-const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2};
+u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0}, claim_pages[] = {0, 0};
+const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2, claim_pages};
 ExtensionEntry collection[] = {{"observer", 0, 0, &first},
                                {"writer", 1u, action_edit_notes | action_notify, &second}};
 }
@@ -63,6 +63,9 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
     ++writes; replaced = replace; written_track = track; return count;
 }
 void extension_notify(const char*) { ++notices; }
+// Neither entry holds lfo_copies (tests/fixtures/page_layer.cpp grants it).
+bool extension_show_lfo(u32, u32) { __builtin_trap(); }
+u32 extension_shown_lfo(u32) { __builtin_trap(); }
 }}
 void control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};

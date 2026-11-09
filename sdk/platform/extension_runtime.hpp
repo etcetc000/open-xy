@@ -10,6 +10,7 @@ using RecordedNote = extensions::Note;
 // each claim's key, and each action the claims that grant it (0: any claim).
 const u32 action_edit_notes = 1u << 0;
 const u32 action_notify = 1u << 1;
+const u32 action_lfo_copies = 1u << 2;
 
 struct ExtensionEntry {
     const char* id;
@@ -21,7 +22,11 @@ struct ExtensionRegistry {
     u32 claim_count;
     const u32* action_claims;
     u32 action_count;
+    // Each claim's page (tooling.extensions.PAGES): 0 none, page_lfo. A page
+    // claim opens its owner's layer while that page shows.
+    const u32* claim_pages;
 };
+const u32 page_lfo = 1;
 // Generated with the collection (tooling.extensions.generate_collection).
 const ExtensionEntry* extension_collection(u32& count);
 const ExtensionRegistry& extension_registry();
@@ -33,6 +38,16 @@ void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity);
 void extensions_selected_note_off(u32 track, u32 pitch);
 void extensions_recording_tick(u32 delta);
 void extensions_queued_control(const extensions::Control& control);
+// The stock page an instrument track shows now (page_lfo, or 0 for any other
+// screen), checked on every controller update; a page claim's layer opens and
+// closes with it.
+void extensions_page(u32 page, u32 track);
+// Whether an extension in the collection holds this action.
+bool extensions_hold(u32 action);
+// A key or encoder turn on the instrument controller, before stock: true when
+// the open page layer takes it.
+bool extensions_page_key(u32 key, bool pressed, bool shift);
+bool extensions_page_turn(u32 encoder, i32 delta, bool shift);
 
 // An instrument track's pattern, as notes are written to it.
 struct TrackPattern { u32 pattern, length, scale; bool editable; };
@@ -44,4 +59,8 @@ i32 extension_collision_radius(u32 track);
 bool extension_record_held();
 u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replace);
 void extension_notify(const char* text);
+// The four LFOs (the multi-LFO state, multi_lfo.hpp): show one on stock's LFO
+// page, and which one it shows.
+bool extension_show_lfo(u32 track, u32 lfo);
+u32 extension_shown_lfo(u32 track);
 }}

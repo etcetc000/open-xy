@@ -221,7 +221,9 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles')
+             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles',
+             'multi_lfo_state', 'multi_lfo_send', 'b3_receive', 'multi_lfo_audio', 'multi_lfo_audio_stock',
+             'multi_lfo_hooks', 'page_layer_stock', 'page_layer_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -247,6 +249,14 @@ UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'tra
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+# The audio role's B3 receiver hook: the master processor's and the LFO copies'
+# virtual parameters. The copies' state (multi_lfo_state) is linked in every build:
+# the project companion reads and writes it.
+UNIT_SERVICES['b3_receive'] = 'b3'
+# Copies of stock's LFO run beside it at stock's LFO sites.
+UNIT_SERVICES.update(dict.fromkeys(('multi_lfo_audio', 'multi_lfo_audio_stock', 'multi_lfo_hooks'), 'multi_lfo'))
+# Page layers take the instrument controller's input first; stock keeps drawing the page.
+UNIT_SERVICES.update(dict.fromkeys(('page_layer_stock', 'page_layer_hooks'), 'page_layers'))
 
 
 def service_users(machines):
@@ -258,7 +268,9 @@ def service_users(machines):
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
-            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
+            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
+            (['lfo_copies'] if any('lfo_copies' in e.actions for e in extensions_of(machines)) else []) +
+            (['page_layer'] if any(extensions.page_claims(e) for e in extensions_of(machines)) else []))
 
 
 def module_bytes(profile):
@@ -383,6 +395,9 @@ def service_fallbacks(services):
         fallbacks['aux'] = {'sdk_aux_startup': 'kit_absent'}
     if 'drum_locks' in services:
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
+    if 'b3' in services:
+        # The B3 receiver asks the master processor first; without it, nothing is its.
+        fallbacks['master_filter'] = {'sdk_master_b3': 'kit_absent'}
     return fallbacks
 
 

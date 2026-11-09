@@ -4,6 +4,7 @@
 #include <extension_probe.cpp>
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
+#include <multi_lfo_state.cpp>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 using namespace opxy;
@@ -34,6 +35,10 @@ i32 get_position(u32 controller, u32 t) {
 }
 u32 scaled_delta(u32 t, u32 delta) { failed |= t != selected; return scale == 5 ? delta / 2 : delta; }
 u32 shift_down() { return shift; }
+// The GUI stack's top controller (the engine page of an instrument track).
+const u32 instrument_vtable = 0x8400dff8;
+u32 instrument_page;
+const u32* top_controller() { return &instrument_vtable; }
 u32 key_down(u32 key) { return other_held && key == other_held; }
 void get_clock(extensions::Time* out) { *out = clock_time; }
 void forward_loop(u32 controller, u32 elapsed) {
@@ -117,6 +122,10 @@ void release(u32 pitch=60) { sdk_extensions_live_note_off(0x860c6adc,selected,pi
 }
 
 namespace opxy { namespace platform {
+// The copies' B3 transport: the probe holds no lfo_copies, so nothing is sent.
+void multi_lfo::send(u32, i32) { failed = true; }
+void multi_lfo::read_stock(u32, Settings&) { failed = true; }
+void multi_lfo::load_stock(u32, const Settings&) { failed = true; }
 Address host_stock_address(Address address) {
     switch (address) {
         case 0x840a0524: return reinterpret_cast<Address>(&project_id);
@@ -151,6 +160,8 @@ Address host_stock_address(Address address) {
         case 0x8d58f24c: return reinterpret_cast<Address>(&insert);
         case 0x8d587668: return reinterpret_cast<Address>(&publish);
         case 0x8d549168: return reinterpret_cast<Address>(&popup);
+        case 0x8c0944b0: return reinterpret_cast<Address>(&top_controller);
+        case 0x080238bc: return reinterpret_cast<Address>(&instrument_page);
     }
     static const u32 ratios[32]={3,1,2,1,4,3,1,1,3,4,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,12,1,16,1,32};
     if (address>=0x840a36e0 && address<0x840a3760) return reinterpret_cast<Address>(ratios)+(address-0x840a36e0);

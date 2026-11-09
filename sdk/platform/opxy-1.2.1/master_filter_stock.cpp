@@ -15,7 +15,7 @@ u32 sdk_master_buttons(void *, const u32 *) __asm__("sdk_master_buttons");
 u32 sdk_master_shift_buttons(void *, const u32 *) __asm__("sdk_master_shift_buttons");
 void sdk_master_turn(void *, u32, const i32 *) __asm__("sdk_master_turn");
 void sdk_master_frame(void *, i32) __asm__("sdk_master_frame");
-void sdk_master_receive(u32, u32, i32) __asm__("sdk_master_receive");
+u32 sdk_master_b3(u32, u32, i32) __asm__("sdk_master_b3");
 void sdk_master_process(void *, i32 *, i32 *) __asm__("sdk_master_process");
 u32 sdk_master_project() __asm__("sdk_master_project");
 u32 sdk_master_stock_buttons(void *, const u32 *) __asm__("sdk_master_stock_buttons");
@@ -152,7 +152,8 @@ void sdk_master_frame(void *object, i32 elapsed) {
     master_processor::frame(elapsed);
 }
 
-void sdk_master_receive(u32 base, u32 id, i32 value) {
+// One B3 global-parameter message (b3_receive.cpp): true when it was ours.
+u32 sdk_master_b3(u32, u32 id, i32 value) {
     // The receiver only publishes bounded state. DSP lifecycle runs at block boundaries.
     static bool staged_reset;
     if(id>=message_id && id<=commit_id) {
@@ -171,12 +172,12 @@ void sdk_master_receive(u32 base, u32 id, i32 value) {
             staging=false;
         } else if(staging && id<commit_id) {
             const u32 slot=id-message_id-1;
-            if(value<0 || slot>=staged_count){staging=false;return;}
+            if(value<0 || slot>=staged_count){staging=false;return 1;}
             staged.values[slot]=value;staged_mask|=1u<<slot;
         }
-        return;
+        return 1;
     }
-    stock<void(u32,u32,i32)>(0x8d50eb8c)(base,id,value);
+    return 0;
 }
 namespace {
 void ramp(i32 target) {

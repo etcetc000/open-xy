@@ -1,8 +1,18 @@
 // Exact 1.2.1 call replacements. Each forwards the original C ABI unchanged.
 // Recovery calls the pattern editor, never the live/audio note dispatcher.
 #include "../extension_runtime.hpp"
+#include "multi_lfo.hpp"
 #include "note_container.hpp"
+#include "page_layer.hpp"
 #include "stock.hpp"
+
+namespace opxy { namespace platform { namespace page_layer {
+u32 shown() {
+    if (byte(kSelectedTrack) >= kTracks) return 0;
+    if (*stock<const u32*()>(0x8c0944b0)() != kInstrumentController) return 0;
+    return word(kInstrumentPage) == kLfoPage ? page_lfo : 0;
+}
+}}}
 
 extern "C" {
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
@@ -120,6 +130,8 @@ u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replac
 void extension_notify(const char* text) {
     stock<void(const char*, u32, u32, u32)>(0x8d549168)(text, 1, 0, 0x3f000000u);
 }
+bool extension_show_lfo(u32 track, u32 lfo) { return multi_lfo::show(track, lfo); }
+u32 extension_shown_lfo(u32 track) { return multi_lfo::shown(track); }
 }}
 
 using namespace opxy;
@@ -129,6 +141,11 @@ void sdk_extensions_controller_update(u32 controller, u32 elapsed) {
     extensions_sync();
     stock<void(u32, u32)>(0x8d5986b8)(controller, elapsed);
     extensions_sync();
+    // A page layer opens and closes with its page; the four LFOs follow the
+    // active project and their copies reach the audio role a few per tick.
+    extensions_page(page_layer::shown(), byte(kSelectedTrack));
+    // Only a build whose extension sets copies links their B3 receiver.
+    if (extensions_hold(action_lfo_copies)) multi_lfo::tick();
 }
 void sdk_extensions_recorder_tick(u32 state, u32 delta) {
     extensions_recording_tick(delta);

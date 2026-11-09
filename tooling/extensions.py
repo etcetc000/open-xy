@@ -32,20 +32,25 @@ MAX_EXTENSIONS = 16
 HEADER = 'sdk/include/opxy/extension.hpp'
 RUNTIME = 'sdk/platform/extension_runtime.hpp'
 SOURCE_SUFFIXES = ('.cpp', '.cc', '.h', '.hpp', '.inc')
+# A page claim's page, by name, as the runtime's page numbers (extension_runtime.hpp):
+# its owner's layer opens while that stock page shows on an instrument track.
+PAGES = {'lfo': 1}
 
 
 def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
-    data (a label and the key it governs); actions are one bit each in RUNTIME."""
+    data (a label and the key it governs, or the page whose layer it opens); actions
+    are one bit each in RUNTIME."""
     data = document(ROOT / PROFILE)
     require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
     for name, claim in claims.items():
-        require(NAME.fullmatch(name) and isinstance(claim, dict) and set(claim) == {'label', 'key'} and
+        require(NAME.fullmatch(name) and isinstance(claim, dict) and set(claim) in ({'label', 'key'}, {'label', 'page'}) and
                 isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
-                type(claim['key']) is int and 0 <= claim['key'] < 256, 'Invalid claim: ' + name)
+                (type(claim.get('key')) is int and 0 <= claim['key'] < 256 or claim.get('page') in PAGES),
+                'Invalid claim: ' + name)
     for name, action in actions.items():
         require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
                 ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
@@ -120,6 +125,12 @@ def extension_at(folder):
                      {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter)
 
 
+def page_claims(extension):
+    """The page claims an extension holds."""
+    claims, _actions = registry()
+    return [c for c in extension.claims if 'page' in claims[c]]
+
+
 def check_collection(extensions):
     """A build's extensions: distinct, within the limit, and no claim held twice."""
     require(len(extensions) <= MAX_EXTENSIONS, f'At most {MAX_EXTENSIONS} extensions')
@@ -139,6 +150,10 @@ def check_collection(extensions):
     return extensions
 
 
+# Services whose hooks feed extension events.
+EVENT_SERVICES = {'extensions', 'page_layers'}
+
+
 def events():
     """The public events: the Hooks callbacks in HEADER, in order."""
     text = (ROOT / HEADER).read_text(encoding='utf-8')
@@ -151,7 +166,7 @@ def check_profile(profile):
     """Every extension hook names the events it feeds, and every event has a site."""
     known, fed = set(events()), set()
     for patch in profile['patches']:
-        if patch.get('service') == 'extensions':
+        if patch.get('service') in EVENT_SERVICES:
             listed = patch.get('events')
             require(patch['kind'] == 'hook' and isinstance(listed, list) and listed and
                     len(set(listed)) == len(listed) and set(listed) <= known,
@@ -164,7 +179,8 @@ def check_profile(profile):
 
 def generate_collection(folder, extensions):
     """The collection and the registry tables the runtime reads: each claim's
-    key, and the claims that grant each action (0: any claim its holder owns)."""
+    key and page (0: none), and the claims that grant each action (0: any claim
+    its holder owns)."""
     claims, actions = registry()
     claim_bit = {name: 1 << i for i, name in enumerate(claims)}
     action_bit = {name: 1 << i for i, name in enumerate(actions)}
@@ -177,11 +193,12 @@ def generate_collection(folder, extensions):
     lines += ['namespace opxy { namespace platform {', 'namespace {',
               'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
-              'const u32 claim_keys[] = {' + table([str(c['key']) for c in claims.values()]) + '};',
+              'const u32 claim_keys[] = {' + table([str(c.get('key', 0)) for c in claims.values()]) + '};',
+              'const u32 claim_pages[] = {' + table([str(PAGES.get(c.get('page'), 0)) for c in claims.values()]) + '};',
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',
-              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d};' % (
+              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d, claim_pages};' % (
                   len(claims), len(actions)),
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
@@ -225,6 +242,8 @@ def metadata(extensions, origins):
     rows = [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
     for e, row in zip(extensions, rows):
+        if page_claims(e):
+            row['page_layer'] = True
         if e.master_processor is not None:
             data = validate_master_artwork(e.root / e.master_processor['artwork'])
             row['master_processor'] = dict(state_id=e.master_processor.get('state_id',e.id), asset=Path(e.master_processor['artwork']).name,
