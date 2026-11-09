@@ -13,8 +13,24 @@ def _declare(name, signature='()'):
     return f'int {name}{signature} __asm__("{name}");'
 
 
+# Every call into the step-lock handles (lock_handles.cpp, the drum_locks service) from
+# units every build links: result, name, parameters and the body without the service.
+# The companion's open-xy.locks (size, write, begin, byte, loaded); a padMix kit's held
+# step, which the Shift row edits and shows (held_value, held_set); and the GUI frame,
+# which expires a step note's handle that no note start took (frame). Without the
+# service each answers 0 or does nothing, as the browser builder's fallback kit_absent does.
+LOCK_CALLS = (('u32', 'size', ('void*', 'u32'), 'return 0;'),
+              ('void', 'write', ('void*',), ''),
+              ('void', 'begin', (), ''),
+              ('void', 'byte', ('u32',), ''),
+              ('void', 'loaded', ('void*', 'u32'), ''),
+              ('u32', 'held_value', ('u32', 'u32', 'u32', 'i32*'), 'return 0;'),
+              ('u32', 'held_set', ('u32', 'u32', 'u32', 'u32', 'i32'), 'return 0;'),
+              ('void', 'frame', (), ''))
+
+
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False):
+           control=False, aux=False, locks=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -22,7 +38,9 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     registers on the GUI role.
     control: the build links the control service. Without it, the companion's
     calls into the service do nothing.
-    aux: the build links the aux service (aux tracks), which starts after it."""
+    aux: the build links the aux service (aux tracks), which starts after it.
+    locks: the build links the step-lock handles (lock_handles.cpp, the drum_locks
+    service). Without them, the companion's open-xy.locks calls do nothing."""
     require(prefixes or effects or player_pages, 'Startup needs at least one machine')
     require(0 <= len(prefixes) <= ENGINE_COUNT and len(set(prefixes)) == len(prefixes),
             'Startup needs distinct engine prefixes')
@@ -70,6 +88,15 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
                          'void sdk_control_kept_load(const char*) __asm__("sdk_control_kept_load");']
         kept = ('u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }\n'
                 'void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }')
+    for result, name, types, empty in LOCK_CALLS:
+        arguments = ', '.join(f'a{i}' for i in range(len(types)))
+        if locks:
+            declarations.append(f'{result} sdk_step_locks_{name}({", ".join(types)}) __asm__("sdk_step_locks_{name}");')
+            parameters = ', '.join(f'{t} a{i}' for i, t in enumerate(types))
+            body = ' ' + ('return ' if result != 'void' else '') + f'sdk_step_locks_{name}({arguments}); '
+        else:
+            parameters, body = ', '.join(types), f' {empty} ' if empty else ''
+        kept += f'\n{result} sdk_project_locks_{name}({parameters}) {{{body}}}'
     if aux:
         require(control, 'The aux service needs the control service')
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
@@ -92,8 +119,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False):
+             control=False, aux=False, locks=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux), encoding='utf-8', newline='\n')
+                                  control, aux, locks), encoding='utf-8', newline='\n')
     return destination

@@ -16,12 +16,13 @@ from pathlib import Path
 import re
 
 from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, paged, shift_parameters, stock_name, validate_definition
+from .contributors import validate_native_assembly
 from .formats import require
 from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources', 'includes', 'icon', 'presetDefaults',
-          'presets', 'dryParameter', 'dryLevel', 'graphics'}
+          'presets', 'samples', 'dryParameter', 'dryLevel', 'graphics'}
 # The public machine contract: headers, definition schema, artwork rules and
 # callbacks. A machine names the version it was written for; the SDK builds a
 # machine of the same major version and an equal or older minor version.
@@ -39,7 +40,15 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
-SDK_VERSION = (1, 9)
+# 1.10 gives display code the track's amp envelope (draw::Input amp); lets Shift on a
+# sample engine's own screen give any encoder to one of the stock sampler page's own
+# controls (resources.stockShift); lets a sample engine ship its own samples
+# (machine.json `samples`), installed in the content folder, and its presets point at
+# them; gives each key of a drum kit a mixer channel of its own on Shift: pan,
+# level, small controls and sends, which lock per hit (resources.padMix and
+# resources.padControls); runs every kit's voices through stock's track filter (M3);
+# and calls a kit's drum_transport with the tempo before every render.
+SDK_VERSION = (1, 10)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -51,6 +60,26 @@ ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
 PRESET_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,23}')
 PRESET_COUNT = 16
 PRESET_BYTES = 16 * 1024
+# A sample engine's own samples (machine.json `samples`): <name>.wav files, 16-bit PCM at
+# 44.1 kHz, mono or stereo, that sdk.py build installs as content/samples/<id>/<name>.wav.
+# They live on the OP-XY's storage, outside the module memory; stock loads one into its
+# sample memory when a preset pointing at it is loaded, as it loads any sample.
+SAMPLE_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,23}')
+SAMPLE_COUNT = 4
+SAMPLE_BYTES = 2 * 1024 * 1024
+SAMPLE_RATE = 44100
+WAVE_FORMAT_PCM, WAVE_FORMAT_EXTENSIBLE = 1, 0xfffe
+# The keys a sampler region holds, as stock saves a sample engine's preset; the first
+# three are required.
+REGION_REQUIRED = {'sample', 'framecount', 'sample.end'}
+REGION_INTEGERS = {'framecount', 'sample.start', 'sample.end', 'loop.start', 'loop.end', 'loop.crossfade',
+                   'hikey', 'pitch.keycenter', 'gain', 'tune', 'pan', 'fade.in', 'fade.out'}
+REGION_FLAGS = {'loop.onrelease', 'loop.enabled', 'reverse'}
+# Saved gain in dB: the stock pad record's signed level byte (platform stock_sample.hpp).
+REGION_GAIN = (-30, 20)
+# Fields whose saved units and range the SDK doesn't record: a preset keeps them at 0,
+# as a newly loaded sample has them. pitch.keycenter tunes a region in semitones.
+REGION_NEUTRAL = ('tune', 'pan', 'fade.in', 'fade.out', 'loop.crossfade')
 # Folders inside a machine that are never its source: version control, caches, tools.
 IGNORED = {'.git', '__pycache__', 'node_modules', '.venv'}
 
@@ -78,11 +107,14 @@ class Machine:
     preset_defaults: dict
     root: Path = None
     presets: dict = None  # name -> preset document, from machine.json `presets`
+    samples: dict = None  # name -> Sample, from machine.json `samples` (SDK 1.10)
     icon: str = ''
     dry_parameter: int | None = None
     dry_level: int | None = None  # a fixed source dry, Q31 (SDK 1.7)
     requested: dict = None  # the numbers machine.json asks for, when a layout gave others
     grayscale: str | None = None
+    native: tuple = ()  # its NativeUnits (native/<name>.s), in name order
+    sdk: tuple = (1, 0)  # the SDK version machine.json declares, (major, minor)
 
     @property
     def sample_page(self):
@@ -140,14 +172,108 @@ def graphics_path(record):
     return path
 
 
-def check_preset(value, identity):
-    """A preset as the device saves it (version 4), for this machine and pointing at no samples."""
+@dataclass(frozen=True)
+class Sample:
+    path: Path
+    frames: int
+    channels: int
+
+
+def sample_path(identity, name):
+    """Where a machine's own sample is installed, and how its presets name it."""
+    return f'content/samples/{identity}/{name}.wav'
+
+
+def wav_format(data):
+    """(format tag, channels, rate, bits per sample, data bytes, block align) of a RIFF
+    WAVE file, from its chunks. Python's wave module isn't used: whether it reads
+    WAVE_FORMAT_EXTENSIBLE depends on the Python version (3.12 added it)."""
+    require(len(data) >= 12 and data[:4] == b'RIFF' and data[8:12] == b'WAVE', 'no RIFF WAVE header')
+    fmt = size = None
+    at = 12
+    while at + 8 <= len(data):
+        tag, length = data[at:at + 4], int.from_bytes(data[at + 4:at + 8], 'little')
+        require(at + 8 + length <= len(data), f'its {tag.decode("latin-1")!r} chunk runs past the end of the file')
+        if tag == b'fmt ':
+            require(fmt is None and length >= 16, 'one fmt chunk of at least 16 bytes')
+            body = data[at + 8:at + 24]
+            fmt = tuple(int.from_bytes(body[a:b], 'little') for a, b in ((0, 2), (2, 4), (4, 8), (14, 16), (12, 14)))
+        elif tag == b'data':
+            require(fmt is not None and size is None, 'one data chunk, after the fmt chunk')
+            size = length
+        at += 8 + length + (length & 1)
+    require(fmt is not None and size is not None, 'no fmt or data chunk')
+    return (*fmt[:4], size, fmt[4])
+
+
+def read_samples(root, folder):
+    """Each <name>.wav in the machine's samples folder, by name: 16-bit PCM (format 1) at
+    44.1 kHz, mono or stereo, at most SAMPLE_BYTES each."""
+    path = root / _relative(root, folder)
+    require(path.is_dir(), 'samples names a folder: ' + folder)
+    files = sorted(p for p in path.iterdir() if p.suffix != '.md' and not p.name.startswith('.'))
+    require(0 < len(files) <= SAMPLE_COUNT, f'A samples folder holds 1 to {SAMPLE_COUNT} samples')
+    samples = {}
+    for file in files:
+        require(file.is_file() and file.resolve() == file and file.suffix == '.wav' and SAMPLE_NAME.fullmatch(file.stem),
+                f'Invalid sample file {file.name}: <name>.wav, the name lowercase letters, digits, - and _, at most 24')
+        require(file.stat().st_size <= SAMPLE_BYTES, f'{file.name}: a sample is at most {SAMPLE_BYTES} bytes')
+        try:
+            tag, channels, rate, bits, size, align = wav_format(file.read_bytes())
+        except ValueError as error:
+            raise ValueError(f'{file.name}: not a PCM WAV file: {error}') from error
+        require(tag != WAVE_FORMAT_EXTENSIBLE,
+                f'{file.name}: WAVE_FORMAT_EXTENSIBLE; save it as plain 16-bit PCM (format 1)')
+        require(tag == WAVE_FORMAT_PCM and bits == 16 and rate == SAMPLE_RATE and channels in (1, 2) and
+                align == channels * 2 and 0 < size and size % align == 0,
+                f'{file.name}: a sample is 16-bit PCM at {SAMPLE_RATE} Hz, mono or stereo')
+        samples[file.stem] = Sample(file, size // align, channels)
+    return samples
+
+
+def check_region(region, identity, samples):
+    """The sampler region of a machine's own preset, as stock saves it, pointing at one of
+    the machine's own samples by its installed path."""
+    require(isinstance(region, dict) and REGION_REQUIRED <= set(region) <=
+            REGION_REQUIRED | REGION_INTEGERS | REGION_FLAGS, 'A sample region holds stock region fields only')
+    require(all(type(region[k]) is int for k in REGION_INTEGERS & set(region)) and
+            all(type(region[k]) is bool for k in REGION_FLAGS & set(region)), 'Invalid sample region values')
+    named = {sample_path(identity, name): sample for name, sample in samples.items()}
+    require(region['sample'] in named, f'A region names one of the machine\'s own samples, as '
+            f'{sample_path(identity, "<name>")}')
+    frames = named[region['sample']].frames
+    start, end = region.get('sample.start', 0), region['sample.end']
+    require(region['framecount'] == frames and 0 <= start < end <= frames,
+            f'A region\'s framecount is its sample\'s ({frames}) and its range lies inside it')
+    if 'loop.start' in region or 'loop.end' in region:
+        require(start <= region.get('loop.start', start) <= region.get('loop.end', end) <= end,
+                f'A region\'s loop lies inside its sample.start..sample.end ({start}..{end})')
+    require(all(0 <= region[k] <= 127 for k in ('hikey', 'pitch.keycenter') if k in region), 'Region keys are 0..127')
+    low, high = REGION_GAIN
+    require(low <= region.get('gain', 0) <= high, f'A region\'s gain is {low}..{high} dB')
+    require(all(region.get(k, 0) == 0 for k in REGION_NEUTRAL),
+            'A region keeps ' + ', '.join(REGION_NEUTRAL) + ' at 0: the SDK doesn\'t record their saved ranges; '
+            'pitch.keycenter tunes it')
+    return region
+
+
+def check_preset(value, identity, samples=None):
+    """A preset as the device saves it (version 4), for this machine, pointing at no samples
+    or, for a sample engine shipping its own (SDK 1.10), at one of them."""
     engine = value.get('engine') if isinstance(value, dict) else None
     params = engine.get('params') if isinstance(engine, dict) else None
+    found = value.get('regions') if isinstance(value, dict) else None
     require(isinstance(value, dict) and value.get('version') == 4 and value.get('platform') == 'OP-XY' and
-            value.get('type') == identity and value.get('regions') == [] and isinstance(params, list) and
+            value.get('type') == identity and isinstance(found, list) and isinstance(params, list) and
             len(params) == 8 and all(type(n) is int and 0 <= n <= 32767 for n in params),
-            f'A preset is a version 4 OP-XY preset of {identity}, with eight engine params and no sample regions')
+            f'A preset is a version 4 OP-XY preset of {identity}, with eight engine params')
+    if samples:
+        require(len(found) <= 1, f'A preset of {identity} has at most 1 sample region')
+        for region in found:
+            check_region(region, identity, samples)
+    else:
+        require(found == [], f'A preset of {identity} has no sample regions: only a sample engine '
+                'shipping its own samples ("samples") points at them')
     return value
 
 
@@ -155,7 +281,7 @@ def reject_constant(name):
     raise ValueError(f'{name} is not JSON')
 
 
-def read_presets(root, folder, identity):
+def read_presets(root, folder, identity, samples=None):
     """Each <name>.json in the machine's presets folder, by name."""
     path = root / _relative(root, folder)
     require(path.is_dir(), 'presets names a folder: ' + folder)
@@ -173,7 +299,7 @@ def read_presets(root, folder, identity):
             value = json.loads(data.decode('utf-8'), parse_constant=reject_constant)
         except ValueError as error:
             raise ValueError(f'{file.name}: invalid JSON: {error}') from error
-        presets[file.stem] = check_preset(value, identity)
+        presets[file.stem] = check_preset(value, identity, samples)
     return presets
 
 
@@ -284,6 +410,75 @@ def require_sdk(version, minimum, feature):
     require(version >= minimum, f'{feature} needs "sdk": "%d.%d" in machine.json' % minimum)
 
 
+# A machine's own Blackfin routines (docs/api.md, "Native routines"): native/<name>.s,
+# described by native/<name>.json. A firmware build assembles each into the machine;
+# every other build runs the C reference its header pairs with it (opxy/native.hpp).
+NATIVE = 'native'
+NATIVE_NAME = re.compile(r'[a-z][a-z0-9_]{0,31}')
+NATIVE_FIELDS = {'symbol', 'stackBytes', 'stateBytes', 'range', 'reference'}
+NATIVE_UNITS = 32
+NATIVE_SOURCE_BYTES = 256 * 1024
+# The most stack one routine may declare: an audio callback runs on stock's stack.
+NATIVE_STACK_BYTES = 2048
+NATIVE_STATE_BYTES = 64 * 1024
+ASSEMBLY_SUFFIXES = ('.s', '.asm', '.sx')
+
+
+@dataclass(frozen=True)
+class NativeUnit:
+    name: str          # native/<name>.s
+    path: Path
+    symbol: str        # its one exported routine, as C names it: <id>_native_...
+    stack_bytes: int   # the most stack it takes below its caller's SP, callees aside
+    state_bytes: int   # writable .data and .bss it may hold (0: none)
+    range: str         # the inputs it supports, for its readers
+    reference: str     # the C reference that defines it, for its readers
+
+
+def read_native(root, identity):
+    """A machine's native units, each checked against its manifest. Assembly lives only
+    in native/ (vendored code, never built, aside)."""
+    folder = root / NATIVE
+    for path in tree(root):
+        parts = path.relative_to(root).parts
+        if path.suffix.lower() in ASSEMBLY_SUFFIXES and parts[0] != 'vendor':
+            require(len(parts) == 2 and parts[0] == NATIVE and path.suffix == '.s',
+                    f'{identity}: assembly lives in native/<name>.s, not {"/".join(parts)}')
+    if not folder.exists():
+        return ()
+    require(folder.is_dir() and folder.resolve() == folder, f'{identity}: native/ is a folder')
+    names = sorted(p.stem for p in folder.iterdir() if p.suffix == '.s')
+    manifests = sorted(p.stem for p in folder.iterdir() if p.suffix == '.json')
+    require(names == manifests, f'{identity}: each native/<name>.s has its manifest native/<name>.json, and only those')
+    require(len(names) <= NATIVE_UNITS, f'{identity}: at most {NATIVE_UNITS} native units')
+    units = []
+    for name in names:
+        source, manifest = folder / (name + '.s'), folder / (name + '.json')
+        where = f'{identity}/native/{name}'
+        require(NATIVE_NAME.fullmatch(name) is not None, where + ': native unit names are lowercase C identifiers')
+        require(source.resolve() == source and manifest.resolve() == manifest and
+                0 < source.stat().st_size <= NATIVE_SOURCE_BYTES, where + ': missing, redirected or oversized')
+        record = json.loads(manifest.read_text(encoding='utf-8'))
+        require(isinstance(record, dict) and {'symbol', 'stackBytes', 'range'} <= set(record) <= NATIVE_FIELDS,
+                where + '.json: symbol, stackBytes and range, and optionally stateBytes and reference')
+        symbol, stack, state = record['symbol'], record['stackBytes'], record.get('stateBytes', 0)
+        require(isinstance(symbol, str) and re.fullmatch(identity + r'_native_[a-z0-9_]+', symbol) and len(symbol) <= 64,
+                where + f'.json: symbol starts with {identity}_native_, its machine\'s own prefix')
+        require(type(stack) is int and 0 <= stack <= NATIVE_STACK_BYTES and stack % 4 == 0,
+                where + f'.json: stackBytes is a multiple of 4 from 0 to {NATIVE_STACK_BYTES}')
+        require(type(state) is int and 0 <= state <= NATIVE_STATE_BYTES,
+                where + f'.json: stateBytes is 0 to {NATIVE_STATE_BYTES}')
+        for field in ('range', 'reference'):
+            require(isinstance(record.get(field, ''), str) and len(record.get(field, '')) <= 400,
+                    where + f'.json: {field} is text of at most 400 characters')
+        require(record['range'].strip(), where + '.json: range says which inputs the routine supports')
+        validate_native_assembly(source.read_text(encoding='utf-8'), where + '.s', identity, symbol, state > 0)
+        units.append(NativeUnit(name=name, path=source, symbol=symbol, stack_bytes=stack, state_bytes=state,
+                                range=record['range'], reference=record.get('reference', '')))
+    require(len({u.symbol for u in units}) == len(units), f'{identity}: each native unit exports its own symbol')
+    return tuple(units)
+
+
 def reads_sample_overview(root):
     """Whether a machine's own C++, its tests and tools aside, includes the overview header."""
     include = re.compile(r'^\s*#\s*include\s*[<"]opxy/sample_overview\.hpp[>"]', re.M)
@@ -318,6 +513,9 @@ def machine_at(root, identity=None):
     icon = value.get('icon', '')
     require(icon == '' or isinstance(icon, str) and ICON.fullmatch(icon), 'icon is SVG path data')
     definition = validate_definition(json.loads((root / 'definition.json').read_text(encoding='utf-8')), kind)
+    if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
+        # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
+        require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:
@@ -328,6 +526,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and 'display' in definition['resources']:
         require_sdk(version, (1, 8), "A sample engine's own screen (resources.display)")
+    if 'stockShift' in definition['resources']:
+        require_sdk(version, (1, 10), "Shift for the stock sampler page's controls (stockShift)")
     if paged(definition):
         require_sdk(version, (1, 3), 'A press that switches the page ("press": "page")')
         if len(definition['parameters']) < 8:
@@ -375,6 +575,7 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root):
         require_sdk(version, (1, 8), 'A sample overview (opxy/sample_overview.hpp)')
         require(kind == 'sample' and display == 'drawing', "Only a sample engine's own screen reads a sample overview")
+    native = read_native(root, identity)
     # The native plan compiles extra translation units only into synths.
     if kind not in ('synth', 'drum'):
         require(not sources and not includes,
@@ -391,11 +592,25 @@ def machine_at(root, identity=None):
     amp = defaults.get('amp', {})
     require(isinstance(amp, dict) and set(amp) <= {'attack', 'decay', 'release', 'sustain'} and
             all(type(v) is int and 0 <= v <= 32767 for v in amp.values()), 'Invalid preset amp defaults')
+    samples = None
+    if 'samples' in value:
+        require_sdk(version, (1, 10), "A sample engine's own samples (samples)")
+        # The sampler plays one sample on every key. The drum sampler's 24 pad regions also
+        # save a play mode and a choke group, which these checks don't cover yet.
+        require(kind == 'sample' and value.get('base') == 'sampler' and isinstance(value['samples'], str),
+                'samples names the sample folder of a sample engine forking the sampler ("base": "sampler")')
+        samples = read_samples(root, value['samples'])
     presets = None
     if 'presets' in value:
         require_sdk(version, (1, 3), "A machine's own presets")
         require(kind in ('synth', 'drum', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
-        presets = read_presets(root, value['presets'], identity)
+        presets = read_presets(root, value['presets'], identity, samples)
+    if samples:
+        # Every sample is there for a preset: one no preset loads only takes up the player's storage.
+        loaded = {region['sample'] for preset in (presets or {}).values() for region in preset['regions']}
+        unused = [name for name in samples if sample_path(identity, name) not in loaded]
+        require(not unused, 'Each of a machine\'s own samples is loaded by one of its presets ("presets"); '
+                'none loads ' + ', '.join(unused))
     if grayscale:
         path = root / grayscale
         require(path.resolve() == path and path.is_file() and 0 < path.stat().st_size <= 65536,
@@ -404,7 +619,8 @@ def machine_at(root, identity=None):
                    display=display, sources=sources, includes=includes,
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
-                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, grayscale=grayscale)
+                   root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, samples=samples,
+                   grayscale=grayscale, native=native, sdk=version)
     if grayscale:
         from .native import validate_panel
         validate_panel(result)
@@ -463,8 +679,11 @@ def occupied(rules, identity):
     return keys
 
 
-def read_layout(path):
-    """A layout file's numbers by machine ID. The builder's saved selection is a layout too."""
+def read_layout(path, build=False):
+    """A layout file's numbers by machine ID. The builder's saved selection is a layout too.
+
+    A build refuses a layout from the builder's experimental memory, which SDK
+    builds do not offer; companions need only the numbers."""
     value = json.loads(Path(path).read_text(encoding='utf-8'))
     profile = config()
     require(isinstance(value, dict) and value.get('format') == LAYOUT_FORMAT and isinstance(value.get('machines'), dict),
@@ -472,6 +691,21 @@ def read_layout(path):
     # Earlier profiles with the same identity rules number machines the same way.
     require(value.get('profile') in (profile['id'], *profile.get('layout_profiles', ())),
             f"{path} is a layout for {value.get('profile')}, not {profile['id']}")
+    # The builder's experimental 4 MiB memory (profile experimental_memory) is
+    # builder-only; an SDK build from its layout would quietly use 2 MiB.
+    # The same shape the builder accepts (builder/core.mjs readLayout): neither member, or both,
+    # reserved_bytes read as JavaScript's JSON.parse reads it (a double, e.g. 4194304.0).
+    reserved = value.get('reserved_bytes')
+    try:
+        reserved = float(reserved) if type(reserved) in (int, float) else None
+    except OverflowError:
+        reserved = None  # JavaScript reads it as Infinity
+    require(('memory' not in value and 'reserved_bytes' not in value) or
+            (value.get('memory') == 'expanded' and reserved is not None and reserved.is_integer() and
+             reserved > 0 and reserved % (1024 * 1024) == 0),
+            f'{path} has an invalid memory choice')
+    require(not build or 'memory' not in value, f"{path} is from a build with the builder's experimental memory; "
+            'sdk.py builds use standard memory. Remove "memory" and "reserved_bytes" from a copy to build with standard memory.')
     return check_layout_numbers(value['machines'], 'the layout')
 
 

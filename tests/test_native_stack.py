@@ -54,6 +54,25 @@ class AudioStack(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Recursive'):
             audio_stack_bounds(text, image(BASE + 0x100, 12), BASE, SYMBOLS, machines)
 
+    def test_native_routine_counts_its_declared_stack(self):
+        # render calls a machine's native routine: its manifest's stackBytes count,
+        # its computed jumps stay inside it, and its measured frame must fit them.
+        def listing(push):
+            return disassembly([('render', ['LINK 0x10;', f'CALL 0x{BASE + 0x108:x} <routine>;', 'UNLINK;', 'RTS;']),
+                                ('routine', [push, 'JUMP (P0);', '(R7:4) = [SP++];', 'RTS;']),
+                                ('deep', ['LINK 0x400;', 'UNLINK;', 'RTS;'])])
+        module = bytearray(image(BASE + 0x100))
+        module[0x40:0x44] = (BASE + 0x110).to_bytes(4, 'little')  # deep's address in data: an indirect target
+        native = {BASE + 0x108: ('m/native/routine', 64)}
+        text = listing('[--SP] = (R7:4);')
+        self.assertEqual(audio_stack_bounds(text, module, BASE, SYMBOLS, MACHINE, native), {'m': 0x18 + 64})
+        # Without its manifest, the jump would reach every function in data.
+        self.assertEqual(audio_stack_bounds(text, module, BASE, SYMBOLS, MACHINE), {'m': 0x18 + 16 + 0x408})
+        with self.assertRaisesRegex(ValueError, 'takes 72 bytes of stack, more than its stackBytes 64'):
+            audio_stack_bounds(listing('LINK 0x40;'), module, BASE, SYMBOLS, MACHINE, native)
+        with self.assertRaisesRegex(ValueError, 'indirect CALL'):
+            audio_stack_bounds(listing('CALL (P1);'), module, BASE, SYMBOLS, MACHINE, native)
+
 
 if __name__ == '__main__':
     unittest.main()
