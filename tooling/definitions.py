@@ -245,8 +245,8 @@ def validate_definition(value, kind):
     names = set()
     for i, parameter in enumerate(parameters):
         alternate = kind in ('synth', 'drum', 'effect', 'master') and i >= SYNTH_POSITIONS
-        require(kind == 'synth' or not (isinstance(parameter, dict) and 'absent' in parameter),
-                'Only a synth leaves a slot absent')
+        require(kind in ('synth', 'player') or not (isinstance(parameter, dict) and 'absent' in parameter),
+                'Only a synth or a note player leaves a slot absent')
         validate_parameter(parameter, alternate, required=kind in ('synth', 'drum'))
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])

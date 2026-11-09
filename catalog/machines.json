@@ -2072,6 +2072,19 @@
         "block_percent": 3.744564,
         "peak_percent": 6.396582
       }
+    },
+    {
+      "id": "splitter_player",
+      "kind": "player",
+      "maintainer": "sebastienbarre",
+      "status": "published",
+      "repository": "https://github.com/sebastienbarre/open-xy-splitter",
+      "tag": "v0.1.0",
+      "commit": "f930ac7e4bb7a85e91f7f94fefa5b4b0c62adc1f",
+      "path": "machines/splitter-player",
+      "keywords": [
+        "experimental"
+      ]
     }
   ]
 }
