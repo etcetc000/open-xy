@@ -1353,6 +1353,8 @@ SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
 Use four parameters, `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+A parameter an encoder doesn't need may be left empty, declared `"absent": true`
+as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 Players have no instrument presets, audio-render CPU estimate or browser audio preview.
 
 Include `<opxy/player.hpp>` and implement, in the machine's namespace:

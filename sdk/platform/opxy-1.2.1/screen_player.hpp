@@ -66,6 +66,8 @@ template <class Machine> struct PlayerPage {
         }
         o->lit = ~0u;  // apply every dot on the first frame
         o->line[0] = 1;
+        // The stock header starts with "0" in each value; an empty first value must still overwrite it.
+        for (u32 i = 0; i < 4; ++i) o->values[i][0] = 1;
     }
 
     static void frame(Object* o, i32) {
