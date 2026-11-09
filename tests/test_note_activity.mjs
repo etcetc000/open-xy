@@ -21,7 +21,7 @@ function signed(value) {
 const vector = items => [...unsigned(items.length), ...items.flat()];
 const section = (id, bytes) => [id, ...unsigned(bytes.length), ...bytes];
 const name = value => [...unsigned(value.length), ...new TextEncoder().encode(value)];
-function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:84, 4:88, 5:104, 6:112}[abi]) {
+function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:84, 4:88, 5:104, 6:112, 7:116}[abi]) {
   const constants = {opxy_display_abi:abi, opxy_display_state_bytes:16,
     opxy_display_input_bytes:inputBytes, opxy_display_frame_bytes:100,
     opxy_display_state:1024, opxy_display_input:2048, opxy_display_frame:4096, opxy_display_valid:1};
@@ -176,4 +176,19 @@ test('ABI 6 publishes a padMix kit key\'s pan, level, pad fields and the encoder
   const five = new PreviewDisplay(fixture(5));
   five.tick(input(), 17, 1, 0, false, null, 0, 0, [0, 0, 0, 0], null, {pan: 50, level: -3}, 1);
   assert.equal(five.input.length, 26);
+});
+
+test('ABI 7 publishes the project tempo after the pad fields, and previews without one pass 0', () => {
+  const display = new PreviewDisplay(fixture(7));
+  const tempo = (...rest) => { display.tick(input(), 34, 0, 1, false, null, 0, 0, [0,0,0,0], null, {pan:0, level:0}, 0, ...rest); return display.input[28]; };
+  assert.equal(tempo(), 0);
+  assert.equal(tempo(1375), 1375);
+  assert.equal(tempo(200), 200);
+  assert.equal(tempo(3000), 3000);
+  for (const bad of [199, 3001, 1.5, -1, '1200']) assert.throws(() => tempo(bad), /tempo/);
+  assert.throws(() => new PreviewDisplay(fixture(7, 112)), /ABI/);
+  // An ABI 6 preview keeps its 112 bytes and never receives a tempo.
+  const six = new PreviewDisplay(fixture(6));
+  six.tick(input(), 34, 0, 1, false, null, 0, 0, [0,0,0,0], null, {pan:0, level:0}, 0, 1375);
+  assert.equal(six.input.length, 28);
 });

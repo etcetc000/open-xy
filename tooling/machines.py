@@ -40,7 +40,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.8 adds note players and their input/output keyboard page, synthesis drum kits, and lets
 # a sample engine forking the sampler draw its own screen and read its sample's overview.
 # 1.9 adds a synth's track control (resources.trackControl) and hidden stock pages (hidePages).
-# 1.10 gives display code the track's amp envelope (draw::Input amp); lets Shift on a
+# 1.10 gives display code the track's amp envelope (draw::Input amp) and the project tempo
+# (draw::Input bpm_x10); lets Shift on a
 # sample engine's own screen give any encoder to one of the stock sampler page's own
 # controls (resources.stockShift); lets a sample engine ship its own samples
 # (machine.json `samples`), installed in the content folder, and its presets point at

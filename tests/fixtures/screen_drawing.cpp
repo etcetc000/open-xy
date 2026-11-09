@@ -24,6 +24,8 @@ int main() {
     require(screen::display_state.ticks == 1);
     // The selected track's amp envelope reaches the drawing input.
     require(screen::display_input.amp.attack == 1 && screen::display_input.amp.release == 4);
+    // So does the project tempo.
+    require(screen::display_input.bpm_x10 == 1375);
     // Same page/track must preserve state and the applied geometry key.
     object.keys[0] = 77;
     Renderer::animate(&object, controls);
