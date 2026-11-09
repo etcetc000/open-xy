@@ -431,6 +431,22 @@ void render(Voice& voice, Shared& shared, opxy::u32 owner,
             opxy::Output output, opxy::Parameters parameters, opxy::Pitch pitch);
 ```
 
+```cpp
+void note(Voice& voice, Shared& shared, opxy::u32 velocity);   // optional (SDK 1.11); in the machine namespace
+```
+
+The adapter calls it once per note onset, between `initialize` and `start`, on
+every begin path (SDK 1.11); `velocity` is the note's raw
+1..127 value as stock's dispatcher received it. A note restarting on the voice
+index it already holds reaches the hook without a fresh `initialize`. The
+function must be in the
+namespace that defines `Voice`, where argument-dependent lookup finds it; one
+elsewhere or with other arguments is never called, and a machine without it
+behaves exactly as before. Stock still applies its own velocity-derived gain,
+envelope, filter and mixing after `render`, so the hook should shape character:
+strike physics, spectrum, noise, brightness. Leave steady-state loudness to
+stock, or the two curves double-apply.
+
 Storage begins zeroed; `owner` is a stable nonzero voice ID, the stock voice
 index plus one. Each of the machine's `voiceCapacity` voices serves one owner at
 a time: `initialize` runs when a voice goes to an owner and establishes all
@@ -444,7 +460,9 @@ silence; no voice index ever fails, whatever the capacity.
 Callbacks run serially per voice. The browser preview's voice stealing and
 panic use the same callbacks, but the preview always keeps 8 voices and takes
 the oldest at once: it does not model `voiceCapacity`, stock's renders, the
-spare or the fade. The SDK adapter owns the firmware object header,
+spare or the fade; a previewed synth's optional `note` hook receives the
+keyboard or phrase velocity, quantized to 1..127. The SDK adapter owns the
+firmware object header,
 method table and voice pool; none of that belongs in `Voice`.
 
 [LeasePool](../sdk/include/opxy/lease_pool.hpp) provides fixed typed resources.
@@ -1206,7 +1224,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.10 and builds 1.0 to 1.10 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.11 and builds 1.0 to 1.11 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

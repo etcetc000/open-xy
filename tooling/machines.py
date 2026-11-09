@@ -48,7 +48,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # level, small controls and sends, which lock per hit (resources.padMix and
 # resources.padControls); runs every kit's voices through stock's track filter (M3);
 # and calls a kit's drum_transport with the tempo before every render.
-SDK_VERSION = (1, 10)
+# 1.11 lets a synth declare an optional note(voice, shared, velocity) hook, dispatched
+# by one SDK header on every harness that starts a voice.
+SDK_VERSION = (1, 11)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}

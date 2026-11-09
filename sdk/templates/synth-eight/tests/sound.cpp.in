@@ -1,6 +1,7 @@
 // The machine's own sound checks, compiled for the host and run by
 // python sdk.py test --machine <folder>. Extend them as the sound grows.
 #include "../engine.cpp"
+#include <opxy/voice_note.hpp>
 #include <cstdio>
 
 int main() {
@@ -11,6 +12,7 @@ int main() {
     for (unsigned i = 0; i < opxy::block_frames; ++i) pitch[i] = 42852281u;  // 440 Hz at 44.1 kHz
     opxy::i32 output[opxy::block_frames];
     @ID@::initialize(voice, shared, 1);
+    sdk_voice_note::call(voice, shared, 127u);
     @ID@::start(voice, shared, 1);
     bool sounding = false, bounded = true;
     for (unsigned block = 0; block < 690; ++block) {
