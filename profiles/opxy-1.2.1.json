@@ -1694,6 +1694,19 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c098d36",
+      "file_offset": "0xcff72",
+      "length": 8,
+      "before": "41641260ffe35ffe",
+      "symbol": "sdk_extensions_settings_pages",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "setting"
+      ]
+    },
+    {
+      "kind": "hook",
       "address": "0x8c0b6184",
       "file_offset": "0xed3c0",
       "length": 12,

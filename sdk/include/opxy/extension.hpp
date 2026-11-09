@@ -60,6 +60,7 @@ using OnSelectedNoteOff = void (*)(const Context&, const NoteOff&);
 using OnRecordingTick = void (*)(const Context&, const Tick&);
 using OnInputActivity = void (*)();
 using OnQueuedControl = void (*)(const Context&, const Control&, const Actions&);
+using OnSetting = void (*)(u32 row, u32 value);
 
 // One callback per event, named for what it delivers. Each event lists its
 // firmware sites in the profile ("events"); docs/extensions.md says how to
@@ -87,31 +88,38 @@ struct Hooks {
     // A queued control (Record and other queued keys; not keyboard keys
     // 26-49) after stock handled it. Actions act only for their claim owner.
     OnQueuedControl queued_control;
+    // A row of the extension's settings page (extension.json "settings") and
+    // its value, an index into the row's values: each row once its saved value
+    // is known, then after every edit. Before any other event in the same update.
+    OnSetting setting;
 
-    constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
+    constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f)
+                    OnInputActivity e, OnQueuedControl f, OnSetting g)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f) {}
+          input_activity(e), queued_control(f), setting(g) {}
 
     constexpr Hooks with_context(OnContext f) const {
-        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, setting);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, setting);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, setting);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, setting);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, setting);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, setting);
+    }
+    constexpr Hooks with_setting(OnSetting f) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f);
     }
 };
 }}

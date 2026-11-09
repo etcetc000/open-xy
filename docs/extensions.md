@@ -72,14 +72,14 @@ filters to that track for it.
 | --- | --- | --- |
 | Events | Something happened | The `Hooks` callbacks |
 | Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify` |
-| Surfaces | Add to the screen | None for extensions yet: menu rows, pages, overlays |
+| Surfaces | Add to the screen | A settings page in stock's settings screen (`settings`); none yet for other pages or overlays |
 | Saved state | Data kept with a project | None for extensions yet |
 
 An event says something happened; an action asks stock to do something. Sending
 a note to a track, clearing a pattern or changing a parameter is an action, not
-an event. A feature that needs a kind with nothing here yet (a setting the user
-chooses, saved state, note input for effect machines) starts with an SDK pull
-request for that interface, which the feature then uses.
+an event. A feature that needs a kind with nothing here yet (saved project
+state, note input for effect machines) starts with an SDK pull request for that
+interface, which the feature then uses.
 
 ## Events
 
@@ -95,6 +95,7 @@ only for the callback. The SDK does not sandbox native code.
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
 | `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
+| `setting` | A row of the extension's settings page and its value, an index into the row's `values`: every row once its saved value is read, then each edit once, before the other events of the next update | Settings screen |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
 scale 1 has 480 ticks per step. Stock's pickup gives negative positions near
@@ -141,7 +142,20 @@ An extension is a folder in a repository of its own, beside this SDK checkout:
    one-line `description` saying what it does and how to use it, 140 characters
    at most, and optionally a `note` for its one limit, 100), and the `claims`
    and `actions` it uses from the registry. People scan this; put the full
-   behavior in your repository's README.
+   behavior in your repository's README. Optionally `settings`, a page in
+   stock's settings screen (COM): after stock's own pages, an **open-xy** page
+   lists the extensions with settings by title; click knob 2 on one to open
+   its page there, and M1 ("back") or knob 1 to go back:
+   `{"title": "bar tools", "rows": [{"label": "loop keys", "values": ["off", "1", "2"], "default": "2"}]}`.
+   A title of 12 characters at most, 1–12 rows, each a label of 16 at most and
+   either 2–8 values of 8 at most and a default among them, or a `text` of 16
+   at most that is shown and never edited (an info row, for example a
+   shortcut; empty for a separator or a heading), all lowercase letters,
+   digits, spaces and `. + / -`, not starting with a space. Stock saves each row like its own settings,
+   under `ext_<id>_<row>`, so a value lasts across projects and power cycles;
+   keep a row's place when adding rows (a saved value a row no longer has is
+   shown, and taken, as its default). At most four extensions with settings
+   per build. The extension gets each row's value through the `setting` event.
 2. `extension.cpp`, exporting `opxy::extensions::<id>::hooks`, naming only the
    events it takes:
    `extern constexpr Hooks hooks = Hooks().with_context(context).with_queued_control(queued_control);`

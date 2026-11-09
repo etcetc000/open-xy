@@ -45,6 +45,22 @@ class KeyQueueHook(unittest.TestCase):
             hook_instruction(dict(patch, call=False), target)
 
 
+def local_includes(text):
+    """A platform unit copied beside the test, including the SDK's shared headers by path."""
+    return text.replace('#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>')
+
+
+def mapped_stock(folder):
+    """stock.hpp with every absolute address mapped through host_stock_address."""
+    stock = (PLATFORM / 'stock.hpp').read_text()
+    stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
+                          'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+    for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
+        stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                              'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
+    (folder / 'stock.hpp').write_text(stock)
+
+
 @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
 class Runtime(unittest.TestCase):
     def run_fixture(self, name, prepare=None):
@@ -59,6 +75,15 @@ class Runtime(unittest.TestCase):
     def test_extension_observers_order_and_write_ownership(self):
         self.run_fixture('extension_runtime')
 
+    def test_settings_rows_reach_their_extension_once_per_change(self):
+        self.run_fixture('extension_settings_runtime')
+
+    def test_settings_pages_follow_stocks_with_their_rows_and_saved_values(self):
+        def prepare(folder):
+            mapped_stock(folder)
+            (folder / 'extension_settings.cpp').write_text(local_includes((PLATFORM / 'extension_settings.cpp').read_text()))
+        self.run_fixture('extension_settings', prepare)
+
     def test_generated_registry_omits_disabled_extensions_and_preserves_order(self):
         from tooling.extensions import Extension, generate_collection
         def prepare(folder):
@@ -71,15 +96,9 @@ class Runtime(unittest.TestCase):
     def test_stock_adapter_events_keys_and_writes_with_the_probe_subscribed(self):
         from tooling.extensions import extension_at, generate_collection, generate_extension
         def prepare(folder):
-            stock = (PLATFORM / 'stock.hpp').read_text()
-            stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
-                                  'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
-            for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
-                stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
-                                      'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
-            (folder / 'stock.hpp').write_text(stock)
-            (folder / 'extension_stock.cpp').write_text((PLATFORM / 'extension_stock.cpp').read_text().replace(
-                '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
+            mapped_stock(folder)
+            for unit in ('extension_stock.cpp', 'extension_settings.cpp'):
+                (folder / unit).write_text(local_includes((PLATFORM / unit).read_text()))
             probe = extension_at(PROBE)
             generate_collection(folder, [probe])
             generate_extension(folder, probe)

@@ -3,5 +3,12 @@
   "name": "Probe",
   "description": "SDK test extension: records the events it receives and writes notes when Record is released.",
   "claims": ["record_double_tap"],
-  "actions": ["edit_notes", "notify"]
+  "actions": ["edit_notes", "notify"],
+  "settings": {
+    "title": "probe",
+    "rows": [
+      {"label": "mode", "values": ["off", "1", "2"], "default": "2"},
+      {"label": "echo", "values": ["off", "on"], "default": "off"}
+    ]
+  }
 }

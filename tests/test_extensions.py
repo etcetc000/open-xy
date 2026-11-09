@@ -62,6 +62,51 @@ class Extensions(unittest.TestCase):
             (folder.root / 'extension.cpp').write_text('#ifdef X\n#endif\n', encoding='utf-8')
             extensions.extension_at(folder.root)
 
+    def test_a_settings_page_is_a_short_title_and_rows_of_values(self):
+        probe = extensions.extension_at(PROBE)
+        self.assertEqual(probe.settings['title'], 'probe')
+        self.assertEqual([r['label'] for r in probe.settings['rows']], ['mode', 'echo'])
+        row = lambda **changes: dict(dict(label='mode', values=['off', 'on'], default='on'), **changes)
+        for settings in (
+            [], dict(title='probe'), dict(rows=[row()]), dict(title='probe', rows=[row()], extra=1),
+            dict(title='', rows=[row()]), dict(title='x' * 13, rows=[row()]), dict(title='Probe', rows=[row()]),
+            dict(title='pro"be', rows=[row()]), dict(title='probe', rows=[]), dict(title='probe', rows=[row()] * 13),
+            dict(title='probe', rows=[row(label='')]), dict(title='probe', rows=[row(label='x' * 17)]),
+            dict(title='probe', rows=[row(label='a\\b')]), dict(title='probe', rows=[row(values=['on'], default='on')]),
+            dict(title='probe', rows=[dict(label=' mode', text='on')]), dict(title='probe', rows=[dict(label='mode', text='x' * 17)]),
+            dict(title='probe', rows=[dict(label='mode', text='on', values=['on'])]),
+            dict(title='probe', rows=[row(values=['on', 'on'])]), dict(title='probe', rows=[row(values=[str(i) for i in range(9)], default='0')]),
+            dict(title='probe', rows=[row(values=['off', 'x' * 9])]), dict(title='probe', rows=[row(default='2')]),
+            dict(title='probe', rows=[row(default=1)]), dict(title='probe', rows=[dict(label='mode', values=['off', 'on'])]),
+        ):
+            with self.subTest(settings=str(settings)), Folder() as folder, self.assertRaises(ValueError):
+                extensions.extension_at(folder.declare(settings=settings))
+        with Folder() as folder:
+            plain = extensions.extension_at(folder.declare(settings=None))
+            self.assertIsNone(plain.settings)
+        with Folder() as folder:
+            info = extensions.extension_at(folder.declare(settings=dict(title='probe', rows=[
+                row(), dict(label='bar+shift+play', text='play+loop bar')])))
+            self.assertEqual(info.settings['rows'][1], {'label': 'bar+shift+play', 'values': ['play+loop bar'],
+                                                        'default': 'play+loop bar'})
+            separator = extensions.extension_at(folder.declare(settings=dict(title='probe', rows=[
+                row(), dict(label='--', text='')])))
+            self.assertEqual(separator.settings['rows'][1]['values'], [''])
+        others = [extensions.Extension('e%d' % i, PROBE, (), (), {}, None, probe.settings) for i in range(5)]
+        extensions.check_collection(others[:4])
+        with self.assertRaisesRegex(ValueError, 'At most 4 extensions with settings'):
+            extensions.check_collection(others)
+
+    def test_a_settings_page_generates_its_rows_and_keys(self):
+        probe = extensions.extension_at(PROBE)
+        with tempfile.TemporaryDirectory() as folder:
+            text = extensions.generate_collection(Path(folder), [probe]).read_text(encoding='utf-8')
+        self.assertIn('const char* const probe_values_0[] = {"off", "1", "2"};', text)
+        self.assertIn('{"mode", probe_values_0, 3, 2, "ext_probe_0"},', text)
+        self.assertIn('{"echo", probe_values_1, 2, 0, "ext_probe_1"},', text)
+        self.assertIn('const ExtensionSettings probe_settings = {"probe", probe_rows, 2};', text)
+        self.assertIn('hooks, &probe_settings};', text)
+
     def test_a_collection_holds_each_extension_and_claim_once(self):
         probe = extensions.extension_at(PROBE)
         with self.assertRaisesRegex(ValueError, 'Duplicate'):
@@ -93,7 +138,7 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control', 'setting'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),

@@ -170,7 +170,8 @@ void sdk_extensions_key(const u32* event) {
     const bool enabled = byte(kInputEnabled) != 0;
     // The clock writes a full 64-bit microsecond value through its argument.
     stock<void(extensions::Time*)>(0x8d5be3a0)(&control.time);
-    stock<void(const u32*)>(0x8c0b5d58)(event);
+    if (extension_settings_key(event)) stock<void(const u32*)>(0x8d5b8100)(event);  // only held
+    else stock<void(const u32*)>(0x8c0b5d58)(event);
     // Stock records Record's held state; other keys are accepted while input is enabled.
     control.accepted = enabled && (control.key != extensions::keys::record ||
         (control.pressed ? extension_record_held() : was_held && !extension_record_held()));
