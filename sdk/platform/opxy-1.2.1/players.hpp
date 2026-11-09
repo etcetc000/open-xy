@@ -13,7 +13,7 @@ struct Player {
     const void* const* vtable;
     const char* page;        // absolute symbol: its own page ID, or null without one
     int (*page_ready)();     // 1 while that page is in its slot
-    u8 steps[4];            // enum choice counts; zero keeps stock editing
+    u8 steps[4];            // enum choice counts; one is an absent slot; zero keeps stock editing
     u32 type() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(type_id)); }
 };
 struct Record;

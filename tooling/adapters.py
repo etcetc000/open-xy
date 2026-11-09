@@ -744,7 +744,8 @@ def generate_player_object(directory, m):
     from .native import player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='')
-    steps = [enum_steps(p) for p in m.definition['parameters']]
+    # One choice marks an absent slot: its encoder turns nothing (players.cpp).
+    steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
     values['STEPS'] = ', '.join(map(str, steps + [0] * (4 - len(steps))))
     if m.display == 'player':
         p = m.prefix
