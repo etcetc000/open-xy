@@ -158,6 +158,7 @@ u32 sdk_player_turn(u32 index, const opxy::i32* event) {
     if (index >= 4 || !event) return 0;
     const Player* p = owned(stock<u32()>(kSelectedType)());
     if (!p) return 0;
+    if (p->steps[index] == 1) return 1;  // an absent slot: the encoder turns nothing
     const u32 track = selected_track();
     if (track >= kTracks) return 0;
     const u32 inherited[4] = {128, 8, 0, 4}; // stock's doubled buckets
