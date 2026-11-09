@@ -2072,6 +2072,184 @@
         "block_percent": 3.744564,
         "peak_percent": 6.396582
       }
+    },
+    {
+      "id": "schedar",
+      "kind": "synth",
+      "maintainer": "frankoooooooo",
+      "status": "published",
+      "repository": "https://github.com/frankoooooooo/cassiopeia",
+      "tag": "v1.0.0",
+      "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+      "path": "schedar",
+      "keywords": [
+        "emulation",
+        "bass",
+        "pad"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+        "firmware_sha256": "6de10ad671beef497bbb8dc28abf32e3c7313ff22c5c0f463cebafa5ab2c57b2",
+        "runs": 3,
+        "block_percent": 2.211032,
+        "peak_percent": 2.514687,
+        "midpoint_percent": 2.203403,
+        "combined_percent": 2.012665,
+        "worst_setting": {
+          "control": 2,
+          "label": "Wave",
+          "value": 1207959551,
+          "option": "SawP"
+        }
+      }
+    },
+    {
+      "id": "caph",
+      "kind": "synth",
+      "maintainer": "frankoooooooo",
+      "status": "published",
+      "repository": "https://github.com/frankoooooooo/cassiopeia",
+      "tag": "v1.0.0",
+      "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+      "path": "caph",
+      "keywords": [
+        "analog",
+        "pad",
+        "bass"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+        "firmware_sha256": "6de10ad671beef497bbb8dc28abf32e3c7313ff22c5c0f463cebafa5ab2c57b2",
+        "runs": 3,
+        "block_percent": 2.870222,
+        "peak_percent": 2.986191,
+        "midpoint_percent": 2.870222,
+        "combined_percent": 2.861067,
+        "worst_setting": {
+          "control": 0,
+          "label": "Shape",
+          "value": 0
+        }
+      }
+    },
+    {
+      "id": "navi",
+      "kind": "synth",
+      "maintainer": "frankoooooooo",
+      "status": "published",
+      "repository": "https://github.com/frankoooooooo/cassiopeia",
+      "tag": "v1.0.0",
+      "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+      "path": "navi",
+      "keywords": [
+        "vocal",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+        "firmware_sha256": "6de10ad671beef497bbb8dc28abf32e3c7313ff22c5c0f463cebafa5ab2c57b2",
+        "runs": 3,
+        "block_percent": 1.605249,
+        "peak_percent": 2.931258,
+        "midpoint_percent": 1.571679,
+        "combined_percent": 1.591516,
+        "worst_setting": {
+          "control": 1,
+          "label": "Inflect",
+          "value": 0
+        }
+      }
+    },
+    {
+      "id": "ruchbah",
+      "kind": "synth",
+      "maintainer": "frankoooooooo",
+      "status": "published",
+      "repository": "https://github.com/frankoooooooo/cassiopeia",
+      "tag": "v1.0.0",
+      "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+      "path": "ruchbah",
+      "keywords": [
+        "physical",
+        "experimental",
+        "ambient"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+        "firmware_sha256": "6de10ad671beef497bbb8dc28abf32e3c7313ff22c5c0f463cebafa5ab2c57b2",
+        "runs": 3,
+        "block_percent": 1.617456,
+        "peak_percent": 1.77615,
+        "midpoint_percent": 1.591516,
+        "combined_percent": 1.596094,
+        "worst_setting": {
+          "control": 0,
+          "label": "Stiff",
+          "value": 0
+        }
+      }
+    },
+    {
+      "id": "segin",
+      "kind": "synth",
+      "maintainer": "frankoooooooo",
+      "status": "published",
+      "repository": "https://github.com/frankoooooooo/cassiopeia",
+      "tag": "v1.0.0",
+      "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+      "path": "segin",
+      "keywords": [
+        "vocal",
+        "lofi"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+        "firmware_sha256": "6de10ad671beef497bbb8dc28abf32e3c7313ff22c5c0f463cebafa5ab2c57b2",
+        "runs": 3,
+        "block_percent": 1.762417,
+        "peak_percent": 1.908904,
+        "midpoint_percent": 1.747158,
+        "combined_percent": 1.762417,
+        "worst_setting": {
+          "control": 0,
+          "label": "Formant",
+          "value": 268435455
+        }
+      }
+    },
+    {
+      "id": "achird",
+      "kind": "synth",
+      "maintainer": "frankoooooooo",
+      "status": "published",
+      "repository": "https://github.com/frankoooooooo/cassiopeia",
+      "tag": "v1.0.0",
+      "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+      "path": "achird",
+      "keywords": [
+        "lofi",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "248e781336fdbff8e7a0e0165d0e23a5b7e12ce4",
+        "firmware_sha256": "6de10ad671beef497bbb8dc28abf32e3c7313ff22c5c0f463cebafa5ab2c57b2",
+        "runs": 3,
+        "block_percent": 2.345312,
+        "peak_percent": 2.475013,
+        "midpoint_percent": 2.331579,
+        "combined_percent": 2.33463,
+        "worst_setting": {
+          "control": 2,
+          "label": "Fold",
+          "value": 1610612735
+        }
+      }
     }
   ]
 }
