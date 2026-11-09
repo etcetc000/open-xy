@@ -14,7 +14,7 @@ class ContributorBoundary(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = generate_voice(directory, fixture('probesynth')).read_text(encoding='utf-8')
         self.assertEqual(re.findall(r'#include "([^"]+)"', source), ['core.h', 'engine.cpp', 'stock.hpp', 'synth_controls.hpp'])
-        self.assertIn('probesynth::render(slot->voice, shared, slot->owner, output, controls, increments);', source)
+        self.assertIn('probesynth::render(voice_of(*slot), shared, slot->owner, output, controls, increments);', source)
         self.assertIn('const opxy::i32* controls = parameters;', source)
         self.assertNotIn('sdk_benchmark', source)
         # A sweep build's voices take the swept controls while their own machine is under test.
