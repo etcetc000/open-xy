@@ -41,10 +41,11 @@ inline i32 with(i32 word, u32 entry, u32 value, const u8* defaults) {
     return static_cast<i32>(out);
 }
 // The Q31 word an entry plays, as render and the display receive it: a continuous
-// field as round(field * 0x7fffffff / 100); a choice as the middle of its bucket
-// (bucket = 0x7fffffff / choices, which the voice adapter keeps as a constant).
+// field as round(field * 0x7fffffff / 100), without a division (n * 5243 >> 19 is
+// n / 100 for every n this takes); a choice as the middle of its bucket (bucket =
+// 0x7fffffff / choices, which the voice adapter keeps as a constant).
 inline i32 amount(u32 f) {
-    return f >= kAmountTop ? 0x7fffffff : static_cast<i32>(f * 21474836u + (f * 47u + 50u) / 100u);
+    return f >= kAmountTop ? 0x7fffffff : static_cast<i32>(f * 21474836u + (((f * 47u + 50u) * 5243u) >> 19));
 }
 inline i32 choice(u32 c, u32 bucket) { return static_cast<i32>(c * bucket + bucket / 2); }
 inline i32 q31(u32 f, u8 choices) {
