@@ -14,8 +14,9 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import (ROOT, SYNTH_POSITIONS, control_positions, hidden_pages, paged, shift_parameters,
-                          stock_shift_codes, validate_definition)
+from .definitions import (ROOT, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+                          shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
+                          validate_definition)
 
 # An effect's shift-row controls follow its eight parameter words (slots 8..11).
 SHIFT_SLOT = 8
@@ -66,7 +67,17 @@ def generate_voice(directory, m, sweep=False):
                     '        const opxy::i32* controls = swept ? swept : parameters;\n')
     else:
         declarations, controls = '', '        const opxy::i32* controls = parameters;\n'
+    shift_row = ''
+    if synth_shift(m.definition):
+        # Parameters 8..15: the Shift row, from words 36 and 37 of the track record stock
+        # renders the voice with, which `parameters` points at (synth_shift.hpp).
+        shift_row = SHIFT_ROW.format(**shift_row_tables(m.definition))
+        controls = (controls.replace('const opxy::i32* controls', 'const opxy::i32* stock_controls', 1) +
+                    '        opxy::i32 controls[2 * opxy::parameter_slots];\n'
+                    '        for (unsigned i = 0; i < opxy::parameter_slots; ++i) controls[i] = stock_controls[i];\n'
+                    '        shift_words(parameters, controls + opxy::parameter_slots);\n')
     values = dict(voice_values(m.definition), SWEEP_DECLARATIONS=declarations, SWEEP_CONTROLS=controls,
+                  SHIFT_ROW=shift_row,
                   PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
                   CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
@@ -102,6 +113,38 @@ def generate_voice(directory, m, sweep=False):
         values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
+
+
+# A synth's Shift row in its voice adapter (SDK 1.13): each entry's default field, its
+# highest one and, for an enum, its bucket, so render's words cost no division.
+SHIFT_ROW = '''#include "synth_shift.hpp"
+// The Shift row (SDK 1.13): each entry's default field, highest field (0 when
+// absent) and, for an enum, its bucket (0x7fffffff / choices; 0 for an amount).
+static const opxy::u8 kShiftDefaults[8] = {{{defaults}}};
+static const opxy::u8 kShiftTops[8] = {{{tops}}};
+static const opxy::u32 kShiftBuckets[8] = {{{buckets}}};
+// The row's eight words as render receives them, from the track record's words 36 and 37.
+static void shift_words(const opxy::i32* record, opxy::i32* out) {{
+    namespace row = opxy::platform::synth_shift;
+    for (opxy::u32 i = 0; i < row::kEntries; ++i) {{
+        opxy::u32 field = row::field(record[row::word_of(i)], i, kShiftDefaults);
+        if (field > kShiftTops[i]) field = kShiftTops[i];
+        out[i] = kShiftBuckets[i] ? row::choice(field, kShiftBuckets[i]) : kShiftTops[i] ? row::amount(field) : 0;
+    }}
+}}
+'''
+
+
+def shift_row_tables(definition):
+    """A synth's Shift row as the runtime's SynthShift and the voice adapter's tables hold it."""
+    shift = synth_shift(definition)
+    pad = lambda values, fill: values + [fill] * (SYNTH_SHIFT_ENTRIES - len(values))
+    choices = pad([shift_choices(p) for p in shift], 1)
+    defaults = pad([shift_field(p, p['default']) for p in shift], 0)
+    tops = [n - 1 if n >= 2 else 0 if n == 1 else 100 for n in choices]
+    buckets = [0x7fffffff // n if n >= 2 else 0 for n in choices]
+    return dict(count=len(shift), choices=', '.join(map(str, choices)), defaults=', '.join(map(str, defaults)),
+                tops=', '.join(map(str, tops)), buckets=', '.join(f'{b}u' for b in buckets))
 
 
 def drum_transport(m):
@@ -169,6 +212,8 @@ def generate_voice_preview(directory, definition, *, kind='synth'):
     """Browser preview voices for a synth or drum definition (curated or local)."""
     require(kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
     values = voice_values(validate_definition(definition, kind))
+    # A synth with a Shift row renders sixteen words: its eight controls, then the row.
+    values['PARAMETER_COUNT'] = '2 * opxy::parameter_slots' if synth_shift(definition) else 'opxy::parameter_slots'
     count = definition['resources'].get('modelCount', 0)
     values['DRUM_SELECT'] = (f"{values['NAMESPACE']}::drum_select(*voice, shared, owner(voice), drum_model < {count} ? drum_model : 0);\n    "
                              if kind == 'drum' else '')
@@ -466,7 +511,7 @@ def generate_synth_controls(directory, machines):
         body = [f'static bool {m.prefix}_format(opxy::u32 slot, opxy::i32 value, char* text) {{', '    switch (slot) {']
         # An effect's shift-row controls caption as slots 8..11.
         captioned = list(enumerate(m.definition['parameters']))
-        captioned += [(SHIFT_SLOT + i, p) for i, p in enumerate(shift_parameters(m.definition))]
+        captioned += [(SHIFT_SLOT + i, p) for i, p in enumerate(shift_parameters(m.definition) or synth_shift(m.definition))]
         for i, p in captioned:
             mapping = p['mapping']
             if p.get('absent'):
@@ -507,6 +552,14 @@ def generate_synth_controls(directory, machines):
             declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
             choices = [len(p['mapping']['labels']) for p in shift] + [1] * (SYNTH_POSITIONS - len(shift))
             extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
+        elif synth_shift(m.definition):
+            # A synth's Shift row (SDK 1.13, synth_controls.hpp SynthShift).
+            tables = shift_row_tables(m.definition)
+            titles = ', '.join(json.dumps('' if p.get('absent') else p['label'].lower()) for p in synth_shift(m.definition))
+            declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
+            declarations.append(f'static const opxy::platform::SynthShift {m.prefix}_shift_row = '
+                                f"{{{tables['count']}, {{{tables['choices']}}}, {{{tables['defaults']}}}, {m.prefix}_shift_titles}};")
+            extra = f', 0, {{1, 1, 1, 1}}, nullptr, {{0, 0, 0, 0}}, &{m.prefix}_shift_row'
         elif own_screen and 'stockShift' in m.definition['resources']:
             # Shift gives these encoders to the stock sampler page (drum_controls_stock.cpp).
             codes = ', '.join(map(str, stock_shift_codes(m.definition)))

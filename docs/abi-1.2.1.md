@@ -39,7 +39,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 2 | Paints a selected owned synth page before stock overlays, and a page-2 sample engine's own screen right after the sampler's page it covers |
 | Sample screen controls | 5 | Routes the sampler page's encoder turns on its engine page (the instrument page word 0) to a page-2 sample engine's own controls through stock's parameter editor, or, for each encoder its `stockShift` names, the Shift turn to one of stock's own eight turns (or a window of two) by replaying it through the page's handler (`8c0b12e4`) as stock's encoder, with the handler's Shift test (`8c0b13e6`) answered for that row, leaving its envelope, filter and LFO pages' turns to stock, saves those edits as a synth's, and keeps them where stock sets a sampler's eight words to neutral: at project load and when a stored track is copied back |
-| Synth and effect controls | 8 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page; extends the track menu's scramble to an owned synth's alternates |
+| Synth and effect controls | 8 | Lets an encoder press on an owned synth's or send effect's page select an alternate parameter, which its turns, titles and values then follow; scales fine turns on owned synth and send-effect pages; steps owned enums one choice per detent; names owned enums' choices, and an owned effect's division values on the send page; extends the track menu's scramble to an owned synth's alternates; turns, names and captions a synth's [Shift row](#a-synths-shift-row) while Shift is held |
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 7 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, gives track control machines what they kept after every load (and nothing after a new project), and shows companions beside projects over MTP |
@@ -1507,6 +1507,66 @@ the value hook's stand-in vector puts the same choices in the bars. The effect's
 keeps its slot from `init(object, slot)`, reads word 36 of track 14 or 15
 from `84eab39c + slot × 0xe8`, and passes the DSP its eight words and each
 control's choice as a ninth to twelfth.
+
+## A synth's Shift row
+
+A synth's Shift row ([API](api.md#a-synths-shift-row)) adds no firmware edit:
+the turn, title and caption hooks of [alternate controls](#alternate-controls)
+act on it, and its values travel in two words of the instrument track.
+
+**Storage.** Entries 0..3 live in word 36 of the track's 58, entries 4..7 in
+word 37: four 7-bit fields each, the first entry lowest, and `0x40000000` as a
+mark ([`synth_shift.hpp`](../sdk/platform/opxy-1.2.1/synth_shift.hpp)). On a
+synth track no stock code uses either word: no accessor call passes index 36
+or 37, no load reads `+0x90` or `+0x94` of a track record, a GUI block or a
+pattern's stored words, no page, modulation or LFO target reaches them, and the
+one reader of words 32..39 (`8d4d7458`) uses only 32..35
+([kit Shift fields](#step-locks-of-a-kits-shift-fields), [step-lock
+handles](#step-lock-handles)). A pattern stores all 58 words at `+0x3864`, and
+the project saves and loads them, as it does word 36 of a send track's
+[shift row](#effect-pages-and-shift-rows). The SDK's other users of the two
+words stay apart: the effect shift row is on send tracks 14 and 15, and a
+`padMix` kit's lock handles and neutral stored words (load `8d588ec8`,
+`sdk_send_refresh`, scramble) touch only patterns and tracks whose machine is
+such a kit, whose handles never carry the mark (at most 2,457, in a word's top
+half).
+
+**Presets.** Stock's preset reader clears the whole 58-word block of its
+preset object (`memset` of `0xe8` bytes from `+0x30`, `8d4e4130`) before it
+fills the words its keys name, and no key names 36 or 37, so a loaded preset
+gives both words 0 and the writer never saves them. A word without the mark
+plays every entry's default, so a preset load, a new project, a project saved
+before the machine and a track newly given the machine all play the defaults.
+
+**Editing.** With Shift held on an owned synth's engine page, the instrument
+controller passes its turn to `sdk_synth_turn` (`8c0b15aa`) with index 4..7.
+For a synth with a Shift row the SDK maps the position to the entry under the
+page the encoders are on (the second once a press has moved any position to
+its alternate), steps its field by the event's detents (word 1, times its
+speed, word 2, plus one, at most four, for an amount), writes the word to the
+selected pattern's stored words (`8d587708(track) + 0x3864`) and live through
+`8d5acea8`, which publishes it to the audio side when it changed. It does not
+call stock's set (`8d5acf28`), which while recording would record the value as
+a lock, and a lock keeps only a word's top 16 bits. With a step held
+(`8d5b7e34`) a turn changes nothing. The sequencer copies stored words into the
+live ones at each step note (`8d5accf8`), so the stored word is the one that
+plays. Whether a project saved after only a Shift-row edit is written as
+modified has not been checked on the device.
+
+**Showing.** The engine-page title hook (`8d5466f6`, `sdk_synth_title`) names
+the entry for each position while Shift is held, and the screen's value text
+(`sdk_synth_value`) captions it through the machine's formatter as slot
+8 + entry; the display reads the row through `opxy_synth_shift`.
+
+**Audio.** Stock's normal renderer gets the voice's track record,
+`8d518d94(0x84eab39c, B[voice + 0x55])`, into R4 (`11a0933e`), keeps it there
+and calls the machine object's render (method table `+8`, `11a0966a`) with
+`R2 = R4` (`11a09652`): the render's parameter pointer is the track's audio
+record of 58 words, of which the machine receives the first eight. For a synth
+with a Shift row the generated adapter also reads words 36 and 37 there,
+decodes them with constant tables (no division) and passes the machine sixteen
+words. In a profiling build's control sweep the eight controls come from the
+sweep and the row still from the track.
 
 ## Master-processor capability
 

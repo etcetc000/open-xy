@@ -24,7 +24,7 @@ fails the build or, for the artwork rule, halts the device's SVG parser.
 | Machine folder | C++ source, metadata, artwork, engine-specific generators and sound tests; Blackfin assembly only as [native routines](#native-routines) in `native/` |
 | C++ | Freestanding C++11: no exceptions, RTTI, static constructors, allocation, OS headers, `#if`, inline assembly or platform macros |
 | Callbacks | Bounded work per 64-sample block; no blocking, logging, file access or graphics from audio callbacks |
-| Synth controls | Four control positions, plus up to four alternates; values arrive as Q31 and the stock menu stores Q15 defaults |
+| Synth controls | Four control positions, plus up to four alternates and a [Shift row](#a-synths-shift-row) of up to eight (SDK 1.13); values arrive as Q31 and the stock menu stores Q15 defaults |
 | Audio | 64 frames at 44.1 kHz, Q31 output peaking at most at half scale; mono by default, optional stereo for synths (SDK 1.12) and sample engines |
 | Identity | The name follows the [identity rules](#identity) and never changes once published; a firmware's [layout](#identity) gives the numbers |
 | Sample engines | The sample is read-only and borrowed for the voice's lifetime |
@@ -55,7 +55,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Module memory | 2032 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
-| Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |
+| Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
 | Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
@@ -271,7 +271,8 @@ Every machine kind keeps its controls in `definition.json` (for example
 | `id` | The machine's name; also its C++ namespace |
 | `name` | Display name |
 | `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), exactly eight for a drum kit, one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
-| `presets` | Named maps containing exactly the declared controls; may be empty |
+| `shift` | Optional: an effect's [shift row](#effect-pages-and-shift-rows) (SDK 1.7) or a synth's [Shift row](#a-synths-shift-row) (SDK 1.13) |
+| `presets` | Named maps containing exactly the declared controls (a Shift row's aside); may be empty |
 | `resources` | What the kind declares about its storage (below) |
 
 Controls are finite numbers in [0, 1]. Mappings support `linear`
@@ -370,7 +371,7 @@ machines with more than four parameters: their saved selector values now
 address eight slots instead of four.
 
 On custom synth engine pages, Shift + turn edits the same visible parameter
-at one tenth of the normal rate. Enum choices keep their one-choice stepping.
+at one tenth of the normal rate, unless the synth has a [Shift row](#a-synths-shift-row). Enum choices keep their one-choice stepping.
 Synth amounts and bounded positive anchor-ratio captions show one decimal
 place; amounts omit the percent suffix. A machine's display can replace them with
 its own [header text](display.md#frame). Custom send effects also
@@ -397,6 +398,63 @@ The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
 Exceptions and allocation are not supported.
 
+### A synth's Shift row
+
+A synth may declare a **Shift row** (SDK 1.13): up to eight more controls,
+which Shift and an encoder turn on its engine page, as Shift reaches the second
+row of a drum kit's or an effect's controls. With two pages
+(`"press": "page"`), that makes sixteen controls: two pages of four, and a
+Shift row under each. List them in `"shift"` in `definition.json`, declared as
+parameters are; entry `i` sits under page `i / 4`, encoder `i % 4`, so a synth
+of four controls may have four entries and a paged synth eight. An entry may be
+`absent` to keep the later ones under their encoders:
+
+```json
+"press": "page",
+"shift": [
+  {"id": "noise", "label": "Noise", "default": 0, "display": "percent",
+   "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}},
+  {"id": "octave", "label": "Octave", "default": 0.5, "display": "enum",
+   "mapping": {"kind": "enum", "labels": ["-2", "-1", "0", "+1", "+2"]}}
+]
+```
+
+`render` then receives sixteen words: the eight controls, then each entry's
+word, in the same Q31 form as the controls, 0 beyond the row:
+
+```cpp
+const opxy::i32 noise = parameters[8];
+const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 15;
+```
+
+- **Steps.** A continuous entry moves in whole steps from 0 to 100, one a
+  detent and up to four when turned fast, and plays step / 100 of full scale;
+  an enum (at most 128 choices) moves one choice a detent and plays the middle
+  of the choice's range, read as any enum control. Without a Shift row, Shift
+  turns a synth's own controls in fine steps; with one, it turns the row.
+- **Where it is kept.** In two words of the instrument track that no stock
+  page, preset key or engine uses, which stock saves and loads with every
+  pattern of the project ([firmware](abi-1.2.1.md#a-synths-shift-row)).
+  A project saved before the machine had its row, a new project and a track
+  newly given the machine play the row's defaults.
+- **Presets don't keep it.** Stock's preset has no place for it: loading a
+  preset, a machine's own included, sets the row to its defaults, and saving
+  one leaves it out. A preset in `definition.json` names the page's controls
+  only.
+- **Not per step.** While a step is held, a Shift turn changes nothing, and
+  recording a Shift turn records nothing: the row has no parameter locks. The
+  LFOs reach the page's eight controls only, and the track menu's scramble
+  leaves the row alone.
+- **Showing it.** While Shift is held, the stock header names and captions the
+  entries under the page the encoders are on. A machine drawing its own header
+  reads the row from [`opxy/synth_shift.hpp`](display.md#a-synths-shift-row),
+  and the [two-page header](display.md#two-page-header) shows it in the bright
+  row. Holding Shift and pressing an encoder does not switch pages: let go of
+  Shift, press, then hold Shift again.
+- **Where it runs.** Instrument tracks 1–8; a synth with track control can't
+  have one. Browser previews show each entry as a control of its own: editing
+  one shows the row, and their audition plays it.
+
 ## Audio buffers and ownership
 
 [opxy/audio.hpp](../sdk/include/opxy/audio.hpp) defines the callback types.
@@ -405,7 +463,7 @@ Exceptions and allocation are not supported.
 | --- | --- |
 | Voice state | SDK-owned, correctly aligned storage; the engine initializes all sound fields |
 | `Output` | Writable signed Q1.31 buffer: 64 mono words, or 128 interleaved words with `stereoOutput: 1`; write every sample |
-| `Parameters` | Read-only normalized Q31 words, eight; the declared controls in order, then zero |
+| `Parameters` | Read-only normalized Q31 words, eight; the declared controls in order, then zero. Sixteen for a synth with a [Shift row](#a-synths-shift-row): then the row's eight |
 | `Pitch` | Read-only 64-word unsigned phase-increment buffer, modulo 2^32 cycles |
 
 Pointers are non-null, aligned and non-overlapping. Do not retain borrowed
@@ -1237,7 +1295,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.12 and builds 1.0 to 1.12 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.13 and builds 1.0 to 1.13 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1269,7 +1327,8 @@ firmware that holds it.
   eight engine `params` from 0 to 32767 and no sample `regions`, since a
   preset never points into a user's sample library. A sample engine shipping
   its [own samples](#own-samples) may point at those instead. Other fields stay
-  as the device saved them.
+  as the device saved them. A synth's [Shift row](#a-synths-shift-row) isn't
+  in a preset: loading one plays the row's defaults.
 
 #### Own samples
 

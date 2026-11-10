@@ -5,6 +5,17 @@
 #include <opxy/types.hpp>
 
 namespace opxy { namespace platform {
+// A synth's Shift row (SDK 1.13, synth_shift.hpp): count entries, entry i under
+// page i / 4 at position i % 4. choices[i] is an enum's choice count (2..128),
+// synth_shift::kContinuous for a 0..100 amount or kAbsent for an empty entry;
+// defaults[i] the field a word without the mark plays; titles name each entry
+// (empty when absent). The machine's format captions entry i as slot 8 + i.
+struct SynthShift {
+    u8 count;
+    u8 choices[8];
+    u8 defaults[8];
+    const char* const* titles;
+};
 // A synth or effect. Pressing a synth encoder moves its
 // position from slot s to next[s]; each position starts on its own slot 0..3,
 // and a slot no position reaches maps to itself. A paged synth's press moves
@@ -32,6 +43,8 @@ struct SynthControls {
     // encoder, 0 keeps Shift's fine turn of the machine's own control, and a
     // stock_shift code below gives the Shift turn to the stock sampler page instead.
     u8 stock_shift[4];
+    // A synth's Shift row, or null (SDK 1.13).
+    const SynthShift* synth_shift;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // The stock sampler page's own turns a stockShift entry names: the page's

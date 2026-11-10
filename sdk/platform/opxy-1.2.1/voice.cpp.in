@@ -21,7 +21,7 @@
 #include "stock.hpp"
 #include "synth_controls.hpp"
 #include <opxy/q31.hpp>
-// Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
+@SHIFT_ROW@// Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
 extern "C" {
 void* @PREFIX@_factory(opxy::u32) __asm__("@PREFIX@_factory");
 const char* @PREFIX@_parameter_name(opxy::u32) __asm__("@PREFIX@_parameter_name");
