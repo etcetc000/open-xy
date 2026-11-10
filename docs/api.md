@@ -24,8 +24,8 @@ fails the build or, for the artwork rule, halts the device's SVG parser.
 | Machine folder | C++ source, metadata, artwork, engine-specific generators and sound tests; Blackfin assembly only as [native routines](#native-routines) in `native/` |
 | C++ | Freestanding C++11: no exceptions, RTTI, static constructors, allocation, OS headers, `#if`, inline assembly or platform macros |
 | Callbacks | Bounded work per 64-sample block; no blocking, logging, file access or graphics from audio callbacks |
-| Synth controls | Four control positions, plus up to four alternates; values arrive as Q31 and the stock menu stores Q15 defaults |
-| Audio | 64 frames at 44.1 kHz, Q31 output peaking at most at half scale; mono by default, optional stereo for sample engines |
+| Synth controls | Four control positions, plus up to four alternates and a [Shift row](#a-synths-shift-row) of up to eight (SDK 1.13); values arrive as Q31 and the stock menu stores Q15 defaults |
+| Audio | 64 frames at 44.1 kHz, Q31 output peaking at most at half scale; mono by default, optional stereo for synths (SDK 1.12) and sample engines |
 | Identity | The name follows the [identity rules](#identity) and never changes once published; a firmware's [layout](#identity) gives the numbers |
 | Sample engines | The sample is read-only and borrowed for the voice's lifetime |
 | Effects | State fits in 476 bytes and holds no resources (no destructor ever runs) |
@@ -55,7 +55,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Module memory | 2032 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
-| Synth controls | 4 positions, at most 8 parameters | The stock four-knob page and eight-word parameter vector |
+| Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
 | Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
@@ -271,7 +271,8 @@ Every machine kind keeps its controls in `definition.json` (for example
 | `id` | The machine's name; also its C++ namespace |
 | `name` | Display name |
 | `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), exactly eight for a drum kit, one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
-| `presets` | Named maps containing exactly the declared controls; may be empty |
+| `shift` | Optional: an effect's [shift row](#effect-pages-and-shift-rows) (SDK 1.7) or a synth's [Shift row](#a-synths-shift-row) (SDK 1.13) |
+| `presets` | Named maps containing exactly the declared controls (a Shift row's aside); may be empty |
 | `resources` | What the kind declares about its storage (below) |
 
 Controls are finite numbers in [0, 1]. Mappings support `linear`
@@ -370,7 +371,7 @@ machines with more than four parameters: their saved selector values now
 address eight slots instead of four.
 
 On custom synth engine pages, Shift + turn edits the same visible parameter
-at one tenth of the normal rate. Enum choices keep their one-choice stepping.
+at one tenth of the normal rate, unless the synth has a [Shift row](#a-synths-shift-row). Enum choices keep their one-choice stepping.
 Synth amounts and bounded positive anchor-ratio captions show one decimal
 place; amounts omit the percent suffix. A machine's display can replace them with
 its own [header text](display.md#frame). Custom send effects also
@@ -388,12 +389,84 @@ A synth declares:
 | `voiceCapacity` | Notes that sound at once, 1..256. Stock plays at most 8 notes per track and fades a note it takes, so 8 keeps a machine on one track within its own voices; allow 8 for each track it plays on at once. Values above 27, stock's voice slots, keep 27 voices plus the spare (28). Stock's 256 voice indices share these voices and one spare ([synth voices](abi-1.2.1.md#synth-voices)) |
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
+| `stereoOutput` | Optional integer 0/1 (SDK 1.12): write 64 interleaved left/right frames, 128 words |
+| `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
 Exceptions and allocation are not supported.
+
+### A synth's Shift row
+
+A synth may declare a **Shift row** (SDK 1.13): up to eight more controls,
+which Shift and an encoder turn on its engine page, as Shift reaches the second
+row of a drum kit's or an effect's controls. With two pages
+(`"press": "page"`), that makes sixteen controls: two pages of four, and a
+Shift row under each. List them in `"shift"` in `definition.json`, declared as
+parameters are; entry `i` sits under page `i / 4`, encoder `i % 4`, so a synth
+of four controls may have four entries and a paged synth eight. An entry may be
+`absent` to keep the later ones under their encoders:
+
+```json
+"press": "page",
+"shift": [
+  {"id": "noise", "label": "Noise", "default": 0, "display": "percent",
+   "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}},
+  {"id": "octave", "label": "Octave", "default": 0.5, "display": "enum",
+   "mapping": {"kind": "enum", "labels": ["-2", "-1", "0", "+1", "+2"]}}
+]
+```
+
+`render` then receives sixteen words: the eight controls, then each entry's
+word, in the same Q31 form as the controls, 0 beyond the row:
+
+```cpp
+const opxy::i32 noise = parameters[8];
+const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 15;
+```
+
+- **Steps.** A continuous entry moves in whole steps from 0 to 100, one a
+  detent and up to four when turned fast, and plays step / 100 of full scale;
+  an enum (at most 128 choices) moves one choice a detent and plays the middle
+  of the choice's range, read as any enum control. Without a Shift row, Shift
+  turns a synth's own controls in fine steps; with one, it turns the row.
+- **Where it is kept.** In two words of the instrument track that no stock
+  page, preset key or engine uses, which stock saves and loads with every
+  pattern of the project ([firmware](abi-1.2.1.md#a-synths-shift-row)).
+  A project saved before the machine had its row, a new project and a track
+  newly given the machine play the row's defaults.
+- **Presets keep it**, as a drum kit's presets keep its keys: a preset saved on
+  the OP-XY carries the row in its regions (Drumline's, with no sample), and
+  loading it plays the row it was saved with. A preset without them, saved
+  before SDK 1.13 or written without the row, plays the row's defaults. A
+  preset in `definition.json` may set any of the row's controls; the rest keep
+  their defaults. A preset file written by other tools carries the row as one
+  region, `{"model": "fm slap", "params": [...]}`, its four `params` from
+  `tooling.definitions.shift_preset_params`; one saved on the device is the
+  surest form ([firmware](abi-1.2.1.md#a-synths-shift-row)).
+- **Locks per step**, as a drum kit's Shift fields lock: hold a step, hold
+  Shift and turn; the step plays that entry at the value turned to, and turning
+  it back to the track's value unlocks it. A lock acts from the step's note
+  start on every voice the track is sounding, as a stock lock does, and copies,
+  pastes and saves with its step. Recording a Shift turn without a step held
+  changes the row, and records nothing. With slide on, the row's locks don't
+  slide. Locks on the page's eight controls, and the LFOs that reach them, are
+  stock's, unchanged; the LFOs don't reach the row, and the track menu's
+  scramble leaves it alone.
+- **What it costs.** Presets and locks use the drum kits' preset hooks and
+  step-lock service, so a build with a Shift-row synth links them: about 86 KiB
+  of module memory, most of it the lock pool, once for the whole build.
+- **Showing it.** While Shift is held, the stock header names and captions the
+  entries under the page the encoders are on. A machine drawing its own header
+  reads the row from [`opxy/synth_shift.hpp`](display.md#a-synths-shift-row),
+  and the [two-page header](display.md#two-page-header) shows it in the bright
+  row. Holding Shift and pressing an encoder does not switch pages: let go of
+  Shift, press, then hold Shift again.
+- **Where it runs.** Instrument tracks 1–8; a synth with track control can't
+  have one. Browser previews show each entry as a control of its own: editing
+  one shows the row, and their audition plays it.
 
 ## Audio buffers and ownership
 
@@ -402,8 +475,8 @@ Exceptions and allocation are not supported.
 | Argument | Contract |
 | --- | --- |
 | Voice state | SDK-owned, correctly aligned storage; the engine initializes all sound fields |
-| `Output` | Writable 64-word mono signed Q1.31 buffer; write every sample |
-| `Parameters` | Read-only normalized Q31 words, eight; the declared controls in order, then zero |
+| `Output` | Writable signed Q1.31 buffer: 64 mono words, or 128 interleaved words with `stereoOutput: 1`; write every sample |
+| `Parameters` | Read-only normalized Q31 words, eight; the declared controls in order, then zero. Sixteen for a synth with a [Shift row](#a-synths-shift-row): then the row's eight |
 | `Pitch` | Read-only 64-word unsigned phase-increment buffer, modulo 2^32 cycles |
 
 Pointers are non-null, aligned and non-overlapping. Do not retain borrowed
@@ -485,6 +558,8 @@ its first call and whenever it arrives on a track.
 | `transport` | The project's tempo in tenths of BPM (0 when unknown), the song position in 96ths of a quarter note, which advances only while playing, and whether the sequencer plays |
 | `page_key` | Last directly handled page key since the last tick: 1..4 for M1..M4, or 0. M1 returns to the machine page; M2/M3 leave the current page alone. With `sharedLfo: true`, M4 belongs to the shared LFO and is not delivered |
 | `muted` | 1 while the machine's track is muted in the current scene (aux + track key, or the mixer). As with stock's brain, a muted machine has no effect: none of its overlays apply. It still runs, so its page can say so |
+| `shift` | 1 while Shift is held |
+| `turn_count`, `turns` | While the copy takes its own turns (below): up to 16 turns of its track's encoders since the last tick, oldest first, each the parameter slot its position shows (0..7, after presses) and a direction: the detents it covers, signed, ±1 for a slow detent and up to ±8 when turned fast (SDK 1.11) |
 
 `overlay` arrives empty; `opxy::control::add` appends up to 64 entries, each a
 track, parameter index and value for this tick. Entries for the machine's own
@@ -505,6 +580,33 @@ Like the display, `control` is bounded
 and allocation-free; it is not an audio callback. Browser previews do not run
 it.
 
+A machine can play notes on instrument tracks (SDK 1.11): `opxy::control::play(overlay,
+track, pitch, velocity, length_us)` appends up to 32 a tick, for tracks 0..7,
+pitches 0..127, velocities 1..127 and lengths above 0; others are dropped. The
+SDK starts each at once through stock's live note-on, as the track's keyboard
+would play it, so the track's own machine sounds it, but stock never records
+it. The SDK ends each note after its length (at most eight seconds), when the
+sequencer stops, when a project loads, or when the copy leaves its track, and
+a note on a track and pitch the copy already holds ends that one first. At
+most 32 notes from every machine sound at once, and none starts while stock's
+table of sounding notes (50, shared with the keyboard and the sequencer)
+holds 32 or more, so the keyboard and sequencer always keep 18; notes over
+either limit are dropped. Stock tells the SDK's notes from the keyboard's only
+by track and pitch: a key held on the same track and pitch can end the
+machine's note, or the machine's note-off can end the key's. A muted machine
+plays no notes, and its sounding notes end. Notes start on GUI ticks, so a
+machine that follows `transport` plays each when the first tick after its
+time arrives.
+
+Setting `overlay.own_turns` to 1 (SDK 1.11) asks for the machine's own encoders
+for the next tick: while it does, a turn of its track's encoders on its page
+edits nothing and arrives in `turns` instead, so the machine can give its pages
+controls of its own (with `hidePages`, the pages it hides can be its own).
+Presses still switch alternates, and Shift does not change the slot. Turns
+wait for the next tick for one track only: turning a second track's encoders
+first drops the first track's. A project load hands the encoders back to stock
+until the machine asks again.
+
 A unique machine can keep data with each project, such as Morphose's states.
 It adds `"savedBytes": n` (1..8192) to `trackControl` and supplies:
 
@@ -523,7 +625,7 @@ arrives on a track only if no load has run since startup: its state is the
 project's, through every pattern change.
 
 A machine's control and display are compiled separately, so they share no
-variables. The control can pass four words to its display each tick in
+variables. The control can pass sixteen words (four before SDK 1.11) to its display each tick in
 `overlay.display`, which the display reads with
 `opxy::control::from_control(index)`: the words of the copy on the selected
 track, 0 when it did not run, and always 0 in browser previews.
@@ -838,6 +940,15 @@ kit declaring an older version. Keep a fallback for when it is not called or
 Kits use the same fixed shared-state and voice-pool rules as synths. Their
 code and state are linked once per machine, shared across tracks; voices
 still require independent state. Machine code and model data need no file loading when notes or patterns change.
+
+### Stock Drumline's second page
+
+A [`drumline_page` extension](drumline-page.md) gives stock's own Drumline
+(engine 4) a second page of per-key settings on every Drumline track: a press
+of any encoder on the engine page switches to it. The extension declares one to
+four parameters and processes each hit's voice; the SDK keeps the page, the
+per-key storage, the per-hit latch, FX I and FX II as a `padMix` key's sends,
+and step locks. Without one, Drumline is stock's.
 
 ## Sample engines
 
@@ -1206,7 +1317,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.10 and builds 1.0 to 1.10 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.13 and builds 1.0 to 1.13 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1238,7 +1349,9 @@ firmware that holds it.
   eight engine `params` from 0 to 32767 and no sample `regions`, since a
   preset never points into a user's sample library. A sample engine shipping
   its [own samples](#own-samples) may point at those instead. Other fields stay
-  as the device saved them.
+  as the device saved them, except that a synth with a
+  [Shift row](#a-synths-shift-row) keeps it in up to 24 regions that point at
+  no sample.
 
 #### Own samples
 
@@ -1353,6 +1466,8 @@ SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
 Use four parameters, `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+A parameter an encoder doesn't need may be left empty, declared `"absent": true`
+as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 Players have no instrument presets, audio-render CPU estimate or browser audio preview.
 
 Include `<opxy/player.hpp>` and implement, in the machine's namespace:

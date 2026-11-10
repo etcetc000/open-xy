@@ -4,8 +4,10 @@ import { headerSvg } from '../sdk/browser/display.mjs';
 // under the machine's own drawing, which can cover it, and above the
 // harness's waveform view. Each of the four positions shows the parameter
 // shown[i] (its own or an alternate); header holds the display's own text for
-// a position, or '' for the formatted value.
-export function renderScreen(values, view, samples = null, graphics = '', controls, shown = [0, 1, 2, 3], header = ['', '', '', '']) {
+// a position, or '' for the formatted value. shiftHeld: a synth's Shift row (SDK 1.13)
+// shows in the header, the entries under the page the positions are on.
+export function renderScreen(values, view, samples = null, graphics = '', controls, shown = [0, 1, 2, 3], header = ['', '', '', ''],
+                             shiftHeld = false) {
   const selected = controls;
   const title = selected.definition.name;
   let drawing;
@@ -20,8 +22,14 @@ export function renderScreen(values, view, samples = null, graphics = '', contro
     drawing = graphics || '<text x="240" y="120" text-anchor="middle" font-size="12" fill="#e9eeee" font-family="monospace">Build and load the C++ preview to see the instrument.</text>';
   }
   const parameters = shown.map(slot => selected.parameters[slot]);
-  const titles = parameters.map(p => p.label.toLowerCase());
-  const shownValues = parameters.map((p, i) => header[i] || selected.displayValue(p.id, values));
+  let titles = parameters.map(p => p.label.toLowerCase());
+  let shownValues = parameters.map((p, i) => header[i] || selected.displayValue(p.id, values));
+  if (shiftHeld && selected.shift?.length) {
+    const line = shown.some(slot => slot >= 4) ? 4 : 0;
+    const entries = [0, 1, 2, 3].map(i => selected.shift[line + i]).map(p => p && !p.absent ? p : null);
+    titles = entries.map(p => p ? p.label.toLowerCase() : '');
+    shownValues = entries.map((p, i) => header[i] || (p ? selected.displayValue(p.id, values) : ''));
+  }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220" role="img" aria-label="${title} ${view} screen">
     <rect width="480" height="220" fill="#000000"/>
     ${view === 'waveform' ? drawing + headerSvg(titles, shownValues) : headerSvg(titles, shownValues) + drawing}

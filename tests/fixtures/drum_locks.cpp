@@ -14,6 +14,14 @@
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
 #include "lock_pool.hpp"
+#include "drumline.hpp"
+// Built without a drumline_page extension: the generated startup's accessor answers null.
+const void* sdk_drumline_get() { return nullptr; }
+#include "synth_controls.hpp"
+// The runtime's synth Shift row (synth_controls.cpp): no synth here.
+bool sdk_synth_shift_engine(opxy::u32) { return false; }
+bool sdk_synth_shift_present() { return false; }
+void sdk_synth_shift_play(opxy::u32, opxy::u32, opxy::u32, const opxy::i32*) {}
 
 extern "C" {
 opxy::u32 sdk_drum_lock_note(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32)

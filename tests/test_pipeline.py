@@ -99,13 +99,25 @@ class Services(unittest.TestCase):
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
         # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
-        # sends or a padMix kit's step locks: those services stay off.
+        # sends or a padMix kit's step locks, and no extension a Drumline page: those
+        # services stay off.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
-                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks')])
+                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks',
+                                           'drumline')])
         self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks'})
         self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
+        # A drumline_page extension uses the drum hooks it extends and its own.
+        self.assertEqual(active_services(profile, ['synth', 'drumline_page']),
+                         {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'drumline'})
+        page = replace(probe, drumline_page=[dict(label='FX I', choices=['TRK'] * 8, default=0, role=1, shift=0, bits=3)])
+        paged = native.Collection(machines, [page])
+        self.assertNotIn('drumline_page', native.service_users(machines))
+        self.assertIn('drumline_page', native.service_users(paged))
+        self.assertEqual(steps(paged), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
+                                        ('control', 'aux', 'players', 'master_filter')])
+        self.assertEqual(native.subset(paged, paged[:1]).extensions, (page,))
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
         self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'drums', 'extensions'})

@@ -10,7 +10,7 @@ import json
 import unittest
 
 from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, default_preset, generate_display,
-                               generate_screen, generate_synth_controls, preset_files, preset_path, screen_bytes)
+                               generate_player_object, generate_screen, generate_synth_controls, preset_files, preset_path, screen_bytes)
 from tooling.definitions import ROOT, control_positions, paged, validate_definition
 from machine_fixtures import FOLDER, fixture
 from tooling.native import display_ids
@@ -244,6 +244,17 @@ class Definitions(unittest.TestCase):
         effect = copy.deepcopy(fixture('probefx').definition)
         effect['parameters'].append(self.absent('none'))
         with self.assertRaisesRegex(ValueError, 'Only a synth'): validate_definition(effect, 'effect')
+        player = dict(schema=1, id='probeplayer', name='Player', resources={}, presets={}, parameters=[
+            dict(id='p%d' % i, label='P%d' % i, default=0, mapping=dict(kind='linear', minimum=0, maximum=1),
+                 display='percent') for i in range(3)] + [self.absent('none')])
+        validate_definition(player, 'player')
+        with tempfile.TemporaryDirectory() as directory:
+            machine = SimpleNamespace(kind='player', prefix='probeplayer', native_name='probeplayer', display='stock',
+                                      identity=dict(player=6, page=90), definition=player)
+            text = generate_player_object(directory, machine).read_text(encoding='utf-8')
+        self.assertIn('{0, 0, 0, 1}', text)
+        player['parameters'][3]['label'] = 'X'
+        with self.assertRaises(ValueError): validate_definition(player, 'player')
         machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
@@ -328,7 +339,9 @@ class Definitions(unittest.TestCase):
                       [dict(enum(0, ['a', 'b']), id='drive')],
                       [enum(i, [f'c{n}' for n in range(256)]) for i in range(3)]):
             rejected.append(dict(effect, shift=shift))
-        synth = copy.deepcopy(self.engine); synth['shift'] = [enum(0, ['a', 'b'])]
+        # A synth's Shift row (SDK 1.13) has rules of its own (test_synth_shift): five entries
+        # need a second page, which a four-control synth lacks.
+        synth = copy.deepcopy(self.engine); synth['shift'] = [enum(i, ['a', 'b']) for i in range(5)]
         for bad, kind in [(r, 'effect') for r in rejected] + [(synth, 'synth')]:
             with self.subTest(kind=kind, shift=len(bad['shift'])), self.assertRaises(ValueError):
                 validate_definition(bad, kind)

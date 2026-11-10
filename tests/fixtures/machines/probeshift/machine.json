@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.13",
+  "kind": "synth",
+  "description": "Test fixture: two pages of four controls and a Shift row under each."
+}

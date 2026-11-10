@@ -2,12 +2,15 @@
 // control index and encoder event. Keep publication on stock's existing route.
 #include "drum_values.hpp"
 #include "synth_controls.hpp"
+#include "drumline.hpp"
 
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine) {
     using namespace opxy;
     using namespace opxy::platform;
     const u32 track = byte(kSelectedTrack);
     const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
+    // Stock Drumline's page 2, with a drumline_page extension (drumline.hpp).
+    if (!machine && drumline_track(track) && drumline_service()->edit(track, key, control, event)) return 0;
     if (!machine) return stock<u32(u32, u32, const u32*, u32)>(0x8d4d5f60)(key, control, event, fine);
     if (!event || control >= kDrumControlCount) return 0;
     void* region = pad_region(track, key);
@@ -136,6 +139,8 @@ opxy::u32 sdk_drum_preset_load(opxy::u32 preset, opxy::u32 flag) {
     if (track >= kTracks) return result;
     const Address pattern = stock<Address(opxy::u32)>(0x8d587708)(track);
     const DrumMachine* machine = pattern ? sdk_drum_machine(*at<const volatile opxy::u32>(pattern + kDrumPatternMachine)) : nullptr;
+    // Not a kit: a synth's Shift row (SDK 1.13) comes back from the first pad record.
+    if (!machine) sdk_synth_shift_import(track);
     if (!machine || !machine->pad_mix) return result;
     for (opxy::u32 k = 0; k < kDrumPatternPads; ++k)
         drum_setup_loaded(at<unsigned char>(pattern + kDrumPatternPadsAt + k * kDrumPatternPadBytes));
