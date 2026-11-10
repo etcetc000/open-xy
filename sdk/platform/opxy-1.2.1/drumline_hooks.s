@@ -1,5 +1,5 @@
 /* Stock Drumline's second page (drumline.hpp): the two
- * hooks of the build option drumlinePage2. Each replaces one whole instruction
+ * hooks of the drumline service (a drumline_page extension). Each replaces one whole instruction
  * pair outside every hardware loop body and replays it.
  */
 .include "sdk/platform/opxy-1.2.1/hook.inc"

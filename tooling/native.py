@@ -29,7 +29,7 @@ from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, 
 from .contributors import validate_source_boundary
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
-from .machines import BUILD_OPTIONS, FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
+from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
 from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
                        fresh_output, host_pins, host_platform,
                        hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
@@ -59,14 +59,12 @@ from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, valida
 
 
 class Collection(list):
-    """A build's machines, in firmware order, the extensions it links, in
-    callback order (`extensions`), and its build options (`options`,
-    machines.BUILD_OPTIONS). A subset of its machines keeps its extensions and options."""
+    """A build's machines, in firmware order, and the extensions it links, in
+    callback order (`extensions`). A subset of its machines keeps its extensions."""
 
-    def __init__(self, machines=(), extensions_=(), options=()):
+    def __init__(self, machines=(), extensions_=()):
         super().__init__(machines)
         self.extensions = tuple(extensions_)
-        self.options = tuple(options)
 
 
 def extensions_of(machines):
@@ -74,14 +72,9 @@ def extensions_of(machines):
     return getattr(machines, 'extensions', ())
 
 
-def options_of(machines):
-    """The build options a machine list carries: none for a plain list."""
-    return getattr(machines, 'options', ())
-
-
 def subset(machines, chosen):
-    """Some of a collection's machines, with all of its extensions and options."""
-    return Collection(chosen, extensions_of(machines), options_of(machines))
+    """Some of a collection's machines, with all of its extensions."""
+    return Collection(chosen, extensions_of(machines))
 
 
 def configuration(entries=None, layout=None):
@@ -93,8 +86,7 @@ def configuration(entries=None, layout=None):
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
-        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]),
-        collection_options(entries))
+        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
     definitions = dict(DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
@@ -124,8 +116,7 @@ def provenance(machines):
     for e in extensions_of(machines):
         hashes.update({f'extension:{e.id}/{name}': sha(read(path)) for name, path in e.sources().items()})
     hashes['collection'] = sha(json.dumps([m.id for m in machines] +
-                                          ['extension:' + e.id for e in extensions_of(machines)] +
-                                          ['option:' + o for o in options_of(machines)]).encode('utf-8'))
+                                          ['extension:' + e.id for e in extensions_of(machines)]).encode('utf-8'))
     return dict(sorted(hashes.items()))
 
 
@@ -247,8 +238,8 @@ UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends
 UNIT_SERVICES['drum_locks'] = 'drum_locks'
 # Their values by handle (lock_handles.cpp): the pool, the step hook and open-xy.locks.
 UNIT_SERVICES['lock_handles'] = 'drum_locks'
-# The build option drumlinePage2: stock Drumline's second page (drumline.hpp). It also
-# uses the drums, samples, drum_sends and drum_locks services' hooks.
+# A drumline_page extension: stock Drumline's second page (drumline.hpp). It also
+# uses the drums, samples, octaves, drum_sends and drum_locks services' hooks.
 UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.
@@ -263,16 +254,16 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
-    they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix'),
-    'extension' when it links extensions (native builds link all of the collection's),
-    and its build options (machines.BUILD_OPTIONS)."""
-    users = ([m.kind for m in machines] + (['extension'] if extensions_of(machines) else []) +
-             list(options_of(machines)))
+    they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix'), 'extension'
+    when it links extensions (native builds link all of the collection's), and the
+    capabilities they declare ('master_filter', 'drumline_page')."""
+    users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
-            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []))
+            (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
+            (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []))
 
 
 def module_bytes(profile):
@@ -388,8 +379,9 @@ def number_suffixes(kind, own_screen=False):
 def service_fallbacks(services):
     """What a selection that does not use a service gets for the service's entry points
     that shared objects (startup's included) import: kit_absent, which answers 0. Track
-    control's saved data, the aux service's start, and every call into the step-lock
-    handles (startup.LOCK_CALLS)."""
+    control's saved data, the aux service's start, every call into the step-lock
+    handles (startup.LOCK_CALLS) and stock Drumline's second page (startup's
+    sdk_drumline_get)."""
     fallbacks = {}
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
@@ -397,6 +389,8 @@ def service_fallbacks(services):
         fallbacks['aux'] = {'sdk_aux_startup': 'kit_absent'}
     if 'drum_locks' in services:
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
+    if 'drumline' in services:
+        fallbacks['drumline'] = {'sdk_drumline_service': 'kit_absent'}
     return fallbacks
 
 
@@ -1116,20 +1110,10 @@ def add_collection_arguments(parser):
                         help='a machine folder to add to the collection; repeatable')
     parser.add_argument('--extension', type=Path, action='append', default=[],
                         help='an extension folder to add to the collection; repeatable')
-    parser.add_argument('--option', action='append', default=[], choices=sorted(BUILD_OPTIONS),
-                        help='a build option to add to the collection (docs/build.md); repeatable')
 
 
 def selected_collection(args):
-    return read_collection(args.collection, args.machine, args.extension, args.option)
-
-
-def collection_options(entries):
-    """The build options a collection's entries name, in order, each once."""
-    options = [e['option'] for e in entries or () if 'option' in e]
-    require(all(o in BUILD_OPTIONS for o in options) and len(set(options)) == len(options),
-            'Unknown or repeated build option')
-    return options
+    return read_collection(args.collection, args.machine, args.extension)
 
 
 COMMANDS = {

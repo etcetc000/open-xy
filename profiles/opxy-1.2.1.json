@@ -128,7 +128,7 @@
     "samples": [
       "sample",
       "drum",
-      "drumlinePage2"
+      "drumline_page"
     ],
     "control": [
       "trackControl",
@@ -145,7 +145,7 @@
     ],
     "drums": [
       "drum",
-      "drumlinePage2"
+      "drumline_page"
     ],
     "players": [
       "player"
@@ -154,18 +154,18 @@
       "sample",
       "player",
       "drum",
-      "drumlinePage2"
+      "drumline_page"
     ],
     "drum_sends": [
       "padMix",
-      "drumlinePage2"
+      "drumline_page"
     ],
     "drum_locks": [
       "padMix",
-      "drumlinePage2"
+      "drumline_page"
     ],
     "drumline": [
-      "drumlinePage2"
+      "drumline_page"
     ]
   },
   "patches": [

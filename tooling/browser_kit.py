@@ -122,8 +122,6 @@ def machine_entry(m, profile, sources, output, preview_cxx):
 
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
     profile, machines, definitions = native.configuration(native.package_collection(package))
-    # A build option changes stock for the whole firmware; the builder's selections carry none.
-    require(not native.options_of(machines), 'A browser kit is exported from a package built without build options')
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])

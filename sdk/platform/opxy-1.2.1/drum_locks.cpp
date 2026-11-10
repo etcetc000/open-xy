@@ -13,9 +13,9 @@
 // the note. Every other caller of the builder (the per-key editor and
 // its previews) publishes the key's own values.
 //
-// With the build option drumlinePage2 the same two hooks serve stock Drumline
+// With a drumline_page extension the same two hooks serve stock Drumline
 // (drumline.hpp): every publication of a Drumline pad carries its page-2
-// fields, and a note's adds its step's locks of them for its key.
+// choices, and a note's its step's locks of them for its key.
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
 #include "drumline.hpp"
@@ -83,17 +83,17 @@ u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
         fold(*note_kit, track, note_key, payload);
     }
     if (payload && drumline_track(track))
-        sdk_drumline->publish(track, kind, payload, track == note_line ? note_handle : 0, note_key);
+        drumline_service()->publish(track, kind, payload, track == note_line ? note_handle : 0, note_key);
     note_track = note_line = kNoTrack;
     return stock<u32(u32, u32, u32, i32*)>(0x8d5ad194)(project, track, kind, payload);
 }
 
 // The step-lock handles' client checks (lock_handles.hpp): an owned padMix kit, on an
-// instrument track or as a pattern's machine, or stock Drumline with the build
-// option drumlinePage2 (its page 2's locks).
+// instrument track or as a pattern's machine, or stock Drumline with a
+// drumline_page extension (its page 2's locks).
 bool opxy::platform::step_locks::pattern_client(u32 engine) {
     const DrumMachine* kit = sdk_drum_machine(engine);
-    return (kit && kit->pad_mix) || (engine == kDrumlineEngine && sdk_drumline);
+    return (kit && kit->pad_mix) || (engine == kDrumlineEngine && drumline_service());
 }
 bool opxy::platform::step_locks::handle_client(u32 track) {
     return track < kTracks && pattern_client(track_engine(track));
