@@ -73,9 +73,11 @@ def extensions_of(machines):
     return getattr(machines, 'extensions', ())
 
 
-def subset(machines, chosen):
-    """Some of a collection's machines, with all of its extensions."""
-    return Collection(chosen, extensions_of(machines))
+def subset(machines, chosen, chosen_extensions=None):
+    """Some of a collection's machines, with all of its extensions, or with those in
+    chosen_extensions when it is given."""
+    carried = extensions_of(machines)
+    return Collection(chosen, carried if chosen_extensions is None else [e for e in carried if e in chosen_extensions])
 
 
 def configuration(entries=None, layout=None):
@@ -397,6 +399,13 @@ def service_fallbacks(services):
     return fallbacks
 
 
+def absent_extension_symbols(e):
+    """The accessors an unselected extension's object defines, each resolving to
+    kit_absent (null), as builder/core.mjs linkKit resolves them."""
+    suffixes = ('hooks',) + (('processor', 'panel') if e.master_processor is not None else ())
+    return {f'sdk_extension_{e.id}_{suffix}': 'kit_absent' for suffix in suffixes}
+
+
 def absent_numbers(absent):
     """Unselected machines have no numbers (builder/core.mjs numberSymbols): each number
     symbol they have, a sample engine's own screen page included, is 0."""
@@ -404,14 +413,20 @@ def absent_numbers(absent):
             for suffix in number_suffixes(m.kind, m.kind == 'sample' and m.display != 'stock')}
 
 
-def link(directory, tools, profile, definitions, machines, selected, name='module', runtime_members=()):
-    """Link the selected machines' objects, compiled in `directory` for the whole collection,
-    as the builder does; None, or how they overflow the shared module memory."""
+def link(directory, tools, profile, definitions, machines, selected, name='module', runtime_members=(),
+         chosen_extensions=None):
+    """Link the selected machines' objects and the chosen extensions' (all of them by
+    default), compiled in `directory` for the whole collection, as the builder does;
+    None, or how they overflow the shared module memory."""
+    chosen = subset(machines, selected, chosen_extensions)
     absent = [m for m in machines if m not in selected]
     aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
+    for e in extensions_of(machines):
+        if e not in extensions_of(chosen):
+            aliases.update(absent_extension_symbols(e))
     # Entry points of services the whole collection's shared objects (startup's
     # included) call into but this selection doesn't link, as the builder resolves them.
-    used = active_services(profile, service_users(subset(machines, selected)))
+    used = active_services(profile, service_users(chosen))
     for service, fallbacks in service_fallbacks(active_services(profile, service_users(machines))).items():
         if service not in used:
             aliases.update(fallbacks)
@@ -421,7 +436,7 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',
                *(f'--defsym={key}={value:#x}' for key, value in definitions.items()),
                *(f'--defsym={key}={value}' for key, value in aliases.items()),
-               *(object_name for object_name, _m, _step in plan(subset(machines, selected), profile)),
+               *(object_name for object_name, _m, _step in plan(chosen, profile)),
                *(runtime.object_name(member) for member in runtime_members)]
     try:
         subprocess.check_output([str(arg) for arg in command], cwd=directory, stderr=subprocess.STDOUT, text=True, timeout=120)
@@ -429,7 +444,7 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
         overflow = re.search(r"region `MODULE' overflowed by (\d+) bytes", error.output or '')
         if not overflow and 'Module overlaps the relocated tables' not in (error.output or ''):
             raise
-        usage, limit = memory_by_owner(directory, subset(machines, selected), profile, runtime_members), module_bytes(profile)
+        usage, limit = memory_by_owner(directory, chosen, profile, runtime_members), module_bytes(profile)
         total = limit + int(overflow.group(1)) if overflow else sum(sum(share.values()) for share in usage.values())
         return memory_summary(usage, total, limit)
     return None
@@ -437,23 +452,28 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
 
 def linked_machines(directory, tools, profile, machines, definitions, runtime_members=()):
     """The machines the module links: all of them when they fit. Otherwise, a collection
-    holding Open-XY's own machines links those, and each other machine must fit beside
-    them, as the builder offers each one; people choose which they install."""
+    holding Open-XY's own machines links those and every extension, and each other
+    machine, and each extension, must fit beside those machines alone, as the builder
+    offers each one; people choose which they install."""
     from .catalog import OFFICIAL
     overflow = link(directory, tools, profile, definitions, machines, machines, runtime_members=runtime_members)
     if overflow is None:
         return machines
     core = [m for m in machines if m.id in OFFICIAL]
-    require(core and len(core) < len(machines), 'Machines exceed the shared module memory, ' + overflow)
+    require(core and (len(core) < len(machines) or extensions_of(machines)),
+            'Machines exceed the shared module memory, ' + overflow)
     for m in machines:
         if m not in core:
             beside = link(directory, tools, profile, definitions, machines,
-                          [x for x in machines if x in core or x is m], 'fit', runtime_members)
+                          [x for x in machines if x in core or x is m], 'fit', runtime_members, ())
             require(beside is None, f'{m.id} does not fit beside the official machines, ' + str(beside))
+    for e in extensions_of(machines):
+        beside = link(directory, tools, profile, definitions, machines, core, 'fit', runtime_members, (e,))
+        require(beside is None, f'The {e.id} extension does not fit beside the official machines, ' + str(beside))
     for leftover in ('fit.elf', 'fit.map'):
         (directory / leftover).unlink(missing_ok=True)
     overflow = link(directory, tools, profile, definitions, machines, core, runtime_members=runtime_members)
-    require(overflow is None, 'The official machines exceed the shared module memory, ' + str(overflow))
+    require(overflow is None, 'The official machines and the extensions exceed the shared module memory, ' + str(overflow))
     return subset(machines, core)
 
 
@@ -1179,8 +1199,8 @@ def main(argv=None, command=None):
             print('Memory ' + memory_summary(report['memory'], report['sizes']['allocated_span_bytes'],
                                             report['module_bytes']))
             if len(report['linked']) < len(machines):
-                print('Not every machine fits at once: linked the official machines; '
-                      'each other machine fits beside them.')
+                print('Not every machine fits at once: linked the official machines and the extensions; '
+                      'each other machine, and each extension, fits beside the official machines.')
             print('Non-bootable development module; not an OS image.')
         elif command == 'verify':
             stock, catalog = read(args.stock_os), read(args.stock_content / 'op1_factory.json')
