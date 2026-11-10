@@ -17,6 +17,7 @@
 #include "synth_controls.hpp"
 // The runtime's synth Shift row (synth_controls.cpp): no synth here.
 bool sdk_synth_shift_engine(opxy::u32) { return false; }
+bool sdk_synth_shift_present() { return false; }
 void sdk_synth_shift_play(opxy::u32, opxy::u32, opxy::u32, const opxy::i32*) {}
 
 extern "C" {

@@ -242,7 +242,15 @@ u32 shift_turn(u32 project, u32 track, const SynthShift& s, const Track& t, u32 
 }
 // While Shift shows the row on the selected track, its title for a page
 // position: the entry's, or empty beyond the row. Null otherwise.
+// Whether the build has a synth with a Shift row, from the table alone (no stock
+// call), so builds and tracks without one take exactly their earlier paths.
+bool any_shift() {
+    for (u32 i = 0; i < sdk_synth_control_count; ++i)
+        if (sdk_synth_controls[i].synth_shift) return true;
+    return false;
+}
 const char* shift_title(u32 engine, u32 position) {
+    if (!any_shift()) return nullptr;
     Track* t;
     const u32 track = byte(kSelectedTrack);
     const SynthControls* m = track < kTracks ? machine(track, t) : nullptr;
@@ -368,10 +376,6 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     // Reinterpret it as fine editing of the same visible position, including
     // an alternate selected by a click. Other pages keep stock routing.
     const bool fine_turn = index >= 4 && index < 8 && word(kInstrumentPage) == 0 && shift_held();
-    // A synth with a Shift row (SDK 1.13): Shift turns the row, not fine steps.
-    if (fine_turn && track < kTracks)
-        if (const SynthControls* m = machine(track, t))
-            if (const SynthShift* s = shift_of(m, track)) return shift_turn(project, track, *s, *t, index - 4, event);
     // A padMix kit shows its Shift row there (DrumMachine::shift). With a step
     // held (only then does stock route a kit's Shift turn here), PAN, LEVEL,
     // the kit's pad controls, FX I and FX II lock the step's hits
@@ -388,6 +392,9 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     const u32 original_index = index;
     if (fine_turn) index -= 4;
     const SynthControls* m = index < opxy::page_controls ? machine(track, t) : nullptr;
+    // A synth with a Shift row (SDK 1.13): Shift turns the row, not fine steps.
+    if (m && fine_turn)
+        if (const SynthShift* s = shift_of(m, track)) return shift_turn(project, track, *s, *t, index, event);
     if (m) {
         index = t->slots[index];
         if (taken(track, index, event)) return 1;
@@ -620,6 +627,7 @@ extern "C" const opxy::draw::ShiftRow* opxy_synth_shift(u32 track) {
 
 // Whether an engine is an owned synth with a Shift row (the drums service's preset
 // hooks, drum_machines.cpp sdk_preset_alias, and the step-lock client, drum_locks.cpp).
+bool sdk_synth_shift_present() { return any_shift(); }
 bool sdk_synth_shift_engine(u32 engine) {
     const SynthControls* m = owned(engine);
     return m && m->synth_shift;
@@ -637,8 +645,10 @@ namespace {
 // synth with a Shift row as Drumline at those sites only (drum_hooks.s), never at
 // import's neutral track offsets (8d4e39c0), so its eight controls load as before.
 unsigned char* shift_record(Address pattern) { return at<unsigned char>(pattern + kDrumPatternPadsAt); }
+// The pattern's machine is read through its pointer, as the kit glue reads it
+// (drum_synthesis_stock.cpp), never truncated to a stock address word.
 const SynthShift* pattern_shift(Address pattern) {
-    const SynthControls* m = pattern ? owned(word(pattern + kDrumPatternMachine)) : nullptr;
+    const SynthControls* m = pattern ? owned(*at<const volatile u32>(pattern + kDrumPatternMachine)) : nullptr;
     return m && !m->effect ? m->synth_shift : nullptr;
 }
 }
@@ -649,7 +659,7 @@ const SynthShift* pattern_shift(Address pattern) {
 u32 sdk_synth_shift_export(u32 engine, u32 object) {
     const Address pattern = static_cast<Address>(object);
     const SynthShift* s = pattern_shift(pattern);
-    if (!s || word(pattern + kDrumPatternMachine) != engine) return engine;
+    if (!s || *at<const volatile u32>(pattern + kDrumPatternMachine) != engine) return engine;
     const volatile opxy::i32* stored = at<const volatile opxy::i32>(pattern + kDrumLockBase);
     u8 fields[row::kEntries];
     for (u32 i = 0; i < row::kEntries; ++i)

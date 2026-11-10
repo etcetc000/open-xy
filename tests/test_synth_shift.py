@@ -177,15 +177,26 @@ class Packing(unittest.TestCase):
         from test_sample_services import HOST_CXX
         if not HOST_CXX:
             self.skipTest('No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
-        p = [amount(0), amount(1, 0.25), enum(2, 5), amount(3)]
-        expected = [shift_q31(e, shift_field(e, e['default'])) for e in p]
+        # The defaults and choices as the generator writes them (adapters.shift_row_tables),
+        # and the words Python says they play.
+        p = [amount(0), amount(1, 0.25), dict(enum(2, 5), default=0.5), amount(3)]
+        defaults = [shift_field(e, e['default']) for e in p] + [0] * 4
+        expected = [shift_q31(e, field) for e, field in zip(p, defaults)]
+        # A preset's region params, as Python writes them and the firmware packs them.
+        definition = fixture('probeshift').definition
+        values = {'noise': 0.3, 'octave': 0.75, 'balance': 0.2}
+        fields = [shift_field(e, values.get(e['id'], e['default'])) for e in synth_shift(definition)]
+        params = shift_preset_params(definition, values)
         source = r'''#include "synth_shift.hpp"
+#include "drum_storage.hpp"
 #include <cstdio>
 using namespace opxy;
 namespace row = opxy::platform::synth_shift;
 int main() {
-    const u8 defaults[8] = {0, 25, 2, 0, 0, 0, 0, 0}, choices[8] = {0, 0, 5, 0, 0, 1, 0, 0};
+    const u8 defaults[8] = {%s}, choices[8] = {0, 0, 5, 0, 0, 1, 0, 0};
     const i32 expected[4] = {%s};
+    const u8 fields[8] = {%s};
+    const u32 params[4] = {%s};
     // A word without the mark plays the defaults.
     for (u32 i = 0; i < 4; ++i)
         if (row::q31(row::field(0, i, defaults), choices[i]) != expected[i]) return 1;
@@ -207,9 +218,19 @@ int main() {
     for (u32 n = 2; n <= 128; ++n)
         for (u32 c = 0; c < n; ++c)
             if ((((static_cast<u32>(row::q31(c, static_cast<u8>(n))) >> 16) * n) >> 15) != c) return 6;
+    // The preset region: drum_pack's words are the params << 16, and unpack gives the fields back.
+    i32 words[4];
+    if (!opxy::platform::drum_pack(0, fields, words)) return 7;
+    for (u32 i = 0; i < 4; ++i)
+        if (static_cast<u32>(words[i]) != params[i] << 16) return 8;
+    u8 model = 9, back[8];
+    if (!opxy::platform::drum_unpack(words, &model, back) || model) return 9;
+    for (u32 i = 0; i < 8; ++i)
+        if (back[i] != fields[i]) return 10;
     return 0;
 }
-''' % ', '.join(map(str, expected))
+''' % (', '.join(map(str, defaults)), ', '.join(map(str, expected)), ', '.join(map(str, fields)),
+       ', '.join(f'{p}u' for p in params))
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             (folder / 'test.cpp').write_text(source)

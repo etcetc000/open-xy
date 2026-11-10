@@ -91,7 +91,8 @@ bool opxy::platform::step_locks::pattern_client(u32 engine) {
 // has just given the handle (synth_controls.cpp sdk_synth_shift_play); a step with
 // none plays the track's own row. A kit takes its step's locks at note start.
 void opxy::platform::step_locks::step_applied(u32 project, u32 track, u32 handle) {
-    if (track >= kTracks || !sdk_synth_shift_engine(track_engine(track))) return;
+    // A build without a Shift-row synth (every kit-only one) asks stock nothing more.
+    if (track >= kTracks || !sdk_synth_shift_present() || !sdk_synth_shift_engine(track_engine(track))) return;
     i32 values[kFields] = {};
     const u32 mask = handle ? handle_fields(handle, kStepWide, values) : 0;
     sdk_synth_shift_play(project, track, mask, values);

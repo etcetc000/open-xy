@@ -134,10 +134,10 @@ opxy::u32 sdk_drum_preset_load(opxy::u32 preset, opxy::u32 flag) {
     const opxy::u32 result = stock<opxy::u32(opxy::u32, opxy::u32)>(0x8d4e35a8)(preset, flag);
     const opxy::u32 track = preset ? *at<const volatile opxy::u32>(static_cast<Address>(preset) + 4) : kTracks;
     if (track >= kTracks) return result;
-    // A synth's Shift row (SDK 1.13) comes back from the first pad record.
-    if (sdk_synth_shift_import(track)) return result;
     const Address pattern = stock<Address(opxy::u32)>(0x8d587708)(track);
     const DrumMachine* machine = pattern ? sdk_drum_machine(*at<const volatile opxy::u32>(pattern + kDrumPatternMachine)) : nullptr;
+    // Not a kit: a synth's Shift row (SDK 1.13) comes back from the first pad record.
+    if (!machine) sdk_synth_shift_import(track);
     if (!machine || !machine->pad_mix) return result;
     for (opxy::u32 k = 0; k < kDrumPatternPads; ++k)
         drum_setup_loaded(at<unsigned char>(pattern + kDrumPatternPadsAt + k * kDrumPatternPadBytes));

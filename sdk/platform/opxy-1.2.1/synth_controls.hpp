@@ -107,6 +107,7 @@ void sdk_synth_queue_page_key(opxy::u32 track, opxy::u32 key) __asm__("sdk_synth
 // region class, 4 for such a synth); after a preset import, the row back from it; and
 // after a step's lock pass, the row as the step plays it (mask and values by entry).
 bool sdk_synth_shift_engine(opxy::u32 engine) __asm__("sdk_synth_shift_engine");
+bool sdk_synth_shift_present() __asm__("sdk_synth_shift_present");
 opxy::u32 sdk_preset_alias(opxy::u32 engine) __asm__("sdk_preset_alias");
 opxy::u32 sdk_synth_shift_export(opxy::u32 engine, opxy::u32 pattern) __asm__("sdk_synth_shift_export");
 bool sdk_synth_shift_import(opxy::u32 track) __asm__("sdk_synth_shift_import");
