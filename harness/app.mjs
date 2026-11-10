@@ -174,7 +174,8 @@ async function enableAudio() {
         const [{ manifest, digest, module }] = await Promise.all([preview, context.resume()]);
         await context.audioWorklet.addModule('/harness/processor.mjs');
         processor = new AudioWorkletNode(context, 'opxy-engine', { numberOfInputs: 0, numberOfOutputs: 1,
-          outputChannelCount: [1], processorOptions: { module, parameters: parameterWords() } });
+          outputChannelCount: [new WebAssembly.Instance(module).exports.opxy_output_channels?.() ?? 1],
+          processorOptions: { module, parameters: parameterWords() } });
         const ready = new Promise((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error('Audio processor did not start.')), 5000);
           processor.onprocessorerror = () => {

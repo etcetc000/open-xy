@@ -48,7 +48,11 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # level, small controls and sends, which lock per hit (resources.padMix and
 # resources.padControls); runs every kit's voices through stock's track filter (M3);
 # and calls a kit's drum_transport with the tempo before every render.
-SDK_VERSION = (1, 10)
+# 1.11 lets a track control play notes on instrument tracks, take its own encoder turns
+# and pass sixteen words to its display.
+# 1.12 adds stereo synths (resources.stereoOutput: 64 interleaved left/right frames)
+# and a synth's voice release callback (resources.releaseCallback).
+SDK_VERSION = (1, 12)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -516,6 +520,9 @@ def machine_at(root, identity=None):
     if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
+    # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
+    if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
+        require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:

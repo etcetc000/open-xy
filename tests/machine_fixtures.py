@@ -8,8 +8,13 @@ no machines of its own; these are small, valid folders, not copies of published 
 - probesample: a drum-page (page 7) sample engine declaring every optional service.
 """
 from pathlib import Path
+import os
+import tempfile
 
 from tooling.machines import machine_at, read_collection
+
+# machine_at rejects a path behind a symlink, and macOS's temp directory (/var) is one.
+tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
 
 FOLDER = Path(__file__).resolve().parent / 'fixtures/machines'
 # Firmware order for a collection holding every kind.

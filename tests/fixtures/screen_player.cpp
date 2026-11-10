@@ -47,4 +47,17 @@ int main() {
     for (u32 i = 0; i < 4; ++i) Page::shown.played[i] = 0;
     Renderer::frame(&object, 0);
     for (u32 i = 0; i < 128; ++i) require(notes[i].leaf.matrix[6] == Renderer::kHidden);
+    // The stock header starts with "0" in each value: an empty first value overwrites it.
+    Renderer::Object fresh = {};
+    screen::Leaf fresh_titles[4] = {}, fresh_values[4] = {};
+    fresh.base.svg = &fresh;
+    Renderer::init(&fresh);
+    for (u32 i = 0; i < 4; ++i) {
+        fresh.base.titles[i] = &fresh_titles[i]; fresh.base.values[i] = &fresh_values[i];
+        std::strcpy(fresh_values[i].text, "0");
+    }
+    Page::shown = {};
+    std::strcpy(Page::shown.values[0], "+0");
+    Renderer::frame(&fresh, 0);
+    require(std::strcmp(fresh_values[0].text, "+0") == 0 && fresh_values[3].text[0] == 0);
 }

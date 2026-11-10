@@ -48,7 +48,8 @@ def voice_values(definition):
     resources = definition['resources']
     return dict(NAMESPACE=definition['id'], VOICE_BYTES=resources['voiceBytes'],
                 VOICE_ALIGNMENT=resources['voiceAlignment'], SHARED_BYTES=resources['sharedBytes'],
-                PEAK=resources['outputPeakQ31'])
+                PEAK=resources['outputPeakQ31'], CHANNELS=2 if resources.get('stereoOutput') else 1,
+                RELEASE_CALLBACK=f"{definition['id']}::release(*voice, shared, owner(voice));" if resources.get('releaseCallback') else '')
 
 
 def generate_voice(directory, m, sweep=False):
@@ -69,6 +70,27 @@ def generate_voice(directory, m, sweep=False):
                   PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
                   CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
+    values.pop('RELEASE_CALLBACK')
+    release = m.definition['resources'].get('releaseCallback', 0)
+    values.update(RELEASE_METHOD=f'{m.prefix}_release' if release else 'noop',
+                  RELEASE_FUNCTION=f'''int {m.prefix}_release(void* self) {{
+    Handle* handle = static_cast<Handle*>(self);
+    if (Slot* slot = held(handle))
+        {m.definition['id']}::release(slot->voice, shared, slot->owner);
+    else if (pending(handle) || handle->wants) handle->released = 1;
+    return 0;
+}}
+''' if release else '')
+    values.update(RELEASE_STATE=', released' if release else '',
+                  RELEASE_CLEAR='    handle->released = 0;' if release else '',
+                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release(slot.voice, shared, id);" if release else '')
+    # Expand to the original mono text when omitted, preserving its native code.
+    values.update(OUTPUT_FRAMES='opxy::block_frames' if values['CHANNELS'] == 1 else '2 * opxy::block_frames',
+                  STEREO_METHOD='zero' if values['CHANNELS'] == 1 else 'stereo',
+                  STEREO_FUNCTION='' if values['CHANNELS'] == 1 else 'static int stereo() { return 1; }\n')
+    values['FADE_OUTPUT'] = ('            for (opxy::i32 i = 0; i < frames; ++i) output[i] = opxy::q31::multiply(output[i], step * (frames - 1 - i));' if values['CHANNELS'] == 1 else
+        '            for (opxy::i32 i = 0; i < frames; ++i) for (opxy::i32 channel = 0; channel < 2; ++channel)\n'
+        '                output[2 * i + channel] = opxy::q31::multiply(output[2 * i + channel], step * (frames - 1 - i));')
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
         values['CHOKE'] = 'true' if m.definition['resources'].get('chokeSameKey', 0) else 'false'
@@ -744,7 +766,8 @@ def generate_player_object(directory, m):
     from .native import player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='')
-    steps = [enum_steps(p) for p in m.definition['parameters']]
+    # One choice marks an absent slot: its encoder turns nothing (players.cpp).
+    steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
     values['STEPS'] = ', '.join(map(str, steps + [0] * (4 - len(steps))))
     if m.display == 'player':
         p = m.prefix
