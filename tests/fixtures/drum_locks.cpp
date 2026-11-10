@@ -15,8 +15,8 @@
 #include "drum_lock_store.hpp"
 #include "lock_pool.hpp"
 #include "drumline.hpp"
-// Built without the build option drumlinePage2: the generated startup defines it null.
-const opxy::platform::Drumline* const sdk_drumline = nullptr;
+// Built without a drumline_page extension: the generated startup's accessor answers null.
+const void* sdk_drumline_get() { return nullptr; }
 
 extern "C" {
 opxy::u32 sdk_drum_lock_note(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32)

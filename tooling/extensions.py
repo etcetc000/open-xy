@@ -69,7 +69,7 @@ class Extension:
     text: dict  # name, description and optional note: the site's row and details
 
     master_processor: dict = None
-    drumline_page: dict = None  # the checked parameters (drumline_page_of)
+    drumline_page: list = None  # the checked parameters (drumline_page_of)
 
     @property
     def master_filter(self):
@@ -143,7 +143,7 @@ def drumline_page_of(name, value):
         require(isinstance(p, dict) and isinstance(p.get('label'), str) and DRUMLINE_TEXT.fullmatch(p['label']),
                 f'{name}: a drumline_page parameter has a label of 1-7 printable ASCII characters')
         if 'role' in p:
-            require(set(p) == {'label', 'role'} and p['role'] in DRUMLINE_ROLES,
+            require(set(p) == {'label', 'role'} and isinstance(p['role'], str) and p['role'] in DRUMLINE_ROLES,
                     f'{name}: a send parameter is {{"label", "role": "send1" or "send2"}}; the SDK gives its choices')
             rows.append(dict(label=p['label'], choices=list(DRUMLINE_SEND_CHOICES), default=0, role=DRUMLINE_ROLES[p['role']]))
             continue

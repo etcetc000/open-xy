@@ -358,9 +358,9 @@ void codes_and_amounts() {
 }
 }
 
-// Stock Drumline voices (the build option drumlinePage2): each sends the codes
+// Stock Drumline voices (a drumline_page extension): each sends the codes
 // its render kept (sdk_drum_send_dbox), mixed exactly as a padSend kit's key
-// with those codes; codes of 0, as every build without the option keeps them,
+// with those codes; codes of 0, as every build without one keeps them,
 // mix as stock does; an object outside stock's 27 follows the track.
 void drumline_voices_send_their_kept_codes() {
     static StockVoice lines[4], kits[4];
@@ -385,7 +385,7 @@ void drumline_voices_send_their_kept_codes() {
     mix(b, 1, kits, 4, start, g, true, false);
     CHECK(same(a, b));
     CHECK(std::memcmp(a.fx1, a.fx2, sizeof a.fx1) != 0);
-    // Without the option every kept code stays 0: the hooks mix as stock.
+    // Without one every kept code stays 0: the hooks mix as stock.
     for (u32 v = 0; v < kDboxVoices; ++v) sdk_drum_send_dbox[v] = 0;
     static Buses stock_buses;
     std::memset(&a, 0, sizeof a);

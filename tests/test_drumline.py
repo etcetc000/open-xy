@@ -1,32 +1,69 @@
-"""Stock Drumline's second page (the build option drumlinePage2, drumline.hpp): the
-shared hooks and this option's own against host doubles, with the option and without
-(M3's filter and filter envelope words stay stock's in both); the build option's wiring;
-and the stock sites it relies on."""
+"""Stock Drumline's second page (drumline.hpp), which a drumline_page extension
+supplies: the shared hooks and the service's own against host doubles, with the
+service and without (M3's filter and filter envelope words stay stock's in both);
+how an extension's declaration turns the service on and becomes its page; and the
+stock sites the service relies on."""
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
 
-from tooling import browser_kit, native, startup
+from tooling import extensions, native, startup
 from tooling.firmware import active_services, decode_branch, patch_active
 from tooling.formats import ldr, mapped_offset, sha
-from tooling.machines import BUILD_OPTIONS, read_collection
+from tooling.machines import read_collection
 from machine_fixtures import FOLDER, fixture_entries
 from test_sample_services import HOST_CXX
 
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 PROFILE = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text(encoding='utf-8'))
-# The option's two sites: the drum renderer's load of a voice's method table,
+PROBE = ROOT / 'tests/fixtures/extension_probe'
+# The service's two sites: the drum renderer's load of a voice's method table,
 # and where both of the dbox page's branches end.
 SITES = {'0x8d51b554': ('sdk_dbox_render_select', '48914130', '0x1527b0'),
          '0x8d531192': ('sdk_drumline_page_hook', 'a0e4b400', '0x1683ee')}
-OPTION = 'drumlinePage2'
-# The services the option turns on: its own and the drum hooks it extends.
+# The profile's user of the service: a collection with a drumline_page extension.
+USER = 'drumline_page'
+# The services a page turns on: its own and the drum hooks it extends.
 SERVICES = {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'drumline'}
+# A page as MD KIT's would declare it, which tests/fixtures/drumline.cpp's table mirrors.
+FILTER = ['L%d' % (16 - i) for i in range(16)] + ['OPEN'] + ['H%d' % i for i in range(1, 16)]
+SRR = ['OFF'] + ['S%d' % i for i in range(1, 16)]
+PAGE = {'parameters': [{'label': 'FILTER', 'choices': FILTER, 'default': 16},
+                       {'label': 'SRR', 'choices': SRR},
+                       {'label': 'FX I', 'role': 'send1'},
+                       {'label': 'FX II', 'role': 'send2'}]}
+SOURCE = """#include <opxy/extension.hpp>
+#include <opxy/drumline_page.hpp>
+
+namespace opxy { namespace extensions { namespace %s {
+namespace {
+void start(drumline::Voice&, const drumline::Choices&) {}
+void process(drumline::Voice&, const drumline::Choices&, i32*) {}
+}
+extern constexpr Hooks hooks = Hooks();
+extern const drumline::Processor drumline_processor = {start, process};
+}}}
+"""
+
+
+def own(label, count):
+    """An own parameter of `count` choices."""
+    return {'label': label, 'choices': ['C%d' % i for i in range(count)]}
+
+
+def page_extension(folder, name='pagetwo', page=PAGE):
+    """An extension folder in `folder` that declares a Drumline page."""
+    root = Path(folder) / name
+    root.mkdir()
+    (root / 'extension.json').write_text(json.dumps(dict(
+        id=name, name='Page two', description='SDK test extension: a second Drumline page.',
+        claims=[], actions=[], drumline_page=page)), encoding='utf-8')
+    (root / 'extension.cpp').write_text(SOURCE % name, encoding='utf-8')
+    return root
 
 
 def run(command, **kwargs):
@@ -40,7 +77,7 @@ def words(data):
 
 class Drumline(unittest.TestCase):
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
-    def test_the_hooks_with_the_option_and_stock_without_it(self):
+    def test_the_hooks_with_the_service_and_stock_without_it(self):
         with tempfile.TemporaryDirectory(prefix='drumline-') as folder:
             folder = Path(folder)
             # Stock's addresses reach host doubles, as test_drum_services maps them.
@@ -65,12 +102,12 @@ class Drumline(unittest.TestCase):
                          'drum_values_stock.cpp'):
                 (folder / name).write_text((PLATFORM / name).read_text())
                 sources.append(str(folder / name))
-            for option, expected in ((True, 'render ok'), (False, 'stock behaviour ok')):
-                with self.subTest(option=option):
-                    binary = folder / (('on' if option else 'off') + ('.exe' if os.name == 'nt' else ''))
+            for linked, expected in ((True, 'render ok'), (False, 'stock behaviour ok')):
+                with self.subTest(linked=linked):
+                    binary = folder / (('on' if linked else 'off') + ('.exe' if os.name == 'nt' else ''))
                     built = run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(folder),
                                  '-I' + str(ROOT / 'sdk/include'), '-I' + str(PLATFORM),
-                                 *(['-DDRUMLINE_ON'] if option else []),
+                                 *(['-DDRUMLINE_ON'] if linked else []),
                                  str(ROOT / 'tests/fixtures/drumline.cpp'), *sources, '-o', str(binary)], timeout=180)
                     self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
                     result = run([str(binary)], timeout=60)
@@ -78,11 +115,11 @@ class Drumline(unittest.TestCase):
                     self.assertIn(expected, result.stdout)
                     self.assertIn('packing ok', result.stdout)
 
-    def test_the_profile_reviews_two_sites_of_the_options_own_service(self):
+    def test_the_profile_reviews_two_sites_of_the_pages_own_service(self):
         services = PROFILE['services']
-        self.assertEqual(services['drumline'], [OPTION])
+        self.assertEqual(services['drumline'], [USER])
         for name in SERVICES - {'drumline'}:
-            self.assertIn(OPTION, services[name], name)
+            self.assertIn(USER, services[name], name)
         hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') == 'drumline'}
         self.assertEqual(set(hooks), set(SITES))
         stubs = (PLATFORM / 'drumline_hooks.s').read_text(encoding='utf-8')
@@ -108,56 +145,173 @@ class Drumline(unittest.TestCase):
         self.assertEqual(native.UNIT_SERVICES['drumline'], 'drumline')
         self.assertEqual(native.UNIT_SERVICES['drumline_hooks'], 'drumline')
 
-    def test_the_option_is_off_unless_a_collection_names_it(self):
-        self.assertIn(OPTION, BUILD_OPTIONS)
+    def test_a_drumline_page_extension_turns_the_service_on(self):
         for kinds in (['synth'], ['drum'], ['drum', 'padMix', 'hidePages'], ['sample', 'extension']):
             services = active_services(PROFILE, kinds)
             self.assertNotIn('drumline', services)
             for patch_ in PROFILE['patches']:
                 if patch_.get('service') == 'drumline':
                     self.assertFalse(patch_active(patch_, services))
-        self.assertEqual(active_services(PROFILE, ['synth', OPTION]), SERVICES)
-        # The option reaches a collection from its file or the command line, each once.
-        with tempfile.TemporaryDirectory() as folder:
-            listing = Path(folder) / 'collection.json'
-            listing.write_text(json.dumps({'schema': 1, 'machines': [{'path': str(FOLDER / 'probesynth')}],
-                                           'options': [OPTION]}))
-            self.assertEqual(read_collection(listing)[-1], {'option': OPTION})
-            self.assertEqual(read_collection(listing, (), (), [OPTION]).count({'option': OPTION}), 1)
-            listing.write_text(json.dumps({'schema': 1, 'machines': [], 'options': ['drumline']}))
-            with self.assertRaises(ValueError):
-                read_collection(listing)
-        with self.assertRaises(ValueError):
-            read_collection(None, [FOLDER / 'probesynth'], (), ['padMix'])
-        entries = fixture_entries('probesynth')
-        _profile, plain, _definitions = native.configuration(entries)
-        _profile, optioned, _definitions = native.configuration(entries + [{'option': OPTION}])
-        self.assertEqual((native.options_of(plain), native.options_of(optioned)), ((), (OPTION,)))
-        self.assertNotIn(OPTION, native.service_users(plain))
-        self.assertIn(OPTION, native.service_users(optioned))
+        self.assertEqual(active_services(PROFILE, ['synth', USER]), SERVICES)
         units = lambda machines: [step for _name, m, step in native.plan(machines) if m is None]
-        self.assertNotIn('drumline', units(plain))
-        self.assertIn('drumline', units(optioned))
-        self.assertIn('drumline_hooks', units(optioned))
-        # The package records it (its collection), and so does the provenance hash.
-        self.assertNotEqual(native.provenance(plain)['collection'], native.provenance(optioned)['collection'])
-        args = native.argparse.ArgumentParser()
-        native.add_collection_arguments(args)
-        parsed = args.parse_args(['--machine', str(FOLDER / 'probesynth'), '--option', OPTION])
-        self.assertEqual(native.selected_collection(parsed)[-1], {'option': OPTION})
-        # The generated startup names the service only with the option.
-        with_option = startup.render(['probesynth'], drumline=True)
+        with tempfile.TemporaryDirectory(prefix='drumline-page-') as folder:
+            root = page_extension(folder)
+            # The extension reaches a collection as any other does (--extension).
+            entries = read_collection(None, [FOLDER / 'probesynth'], [root])
+            self.assertEqual(entries[-1], {'extension': str(root.resolve())})
+            _profile, plain, _definitions = native.configuration(fixture_entries('probesynth'))
+            _profile, probed, _definitions = native.configuration(fixture_entries('probesynth') + [{'extension': str(PROBE)}])
+            _profile, paged, _definitions = native.configuration(entries)
+            self.assertEqual([e.id for e in paged.extensions], ['pagetwo'])
+            self.assertEqual([r['label'] for r in paged.extensions[0].drumline_page], ['FILTER', 'SRR', 'FX I', 'FX II'])
+            # Only an extension that declares a page uses the service; any other leaves it off.
+            for machines in (plain, probed):
+                self.assertNotIn(USER, native.service_users(machines))
+                self.assertNotIn('drumline', native.active_services(PROFILE, native.service_users(machines)))
+                self.assertNotIn('drumline', units(machines))
+                self.assertNotIn('drumline_hooks', units(machines))
+            self.assertIn(USER, native.service_users(paged))
+            self.assertLessEqual(SERVICES, native.active_services(PROFILE, native.service_users(paged)))
+            self.assertIn('drumline', units(paged))
+            self.assertIn('drumline_hooks', units(paged))
+            self.assertIn('extension:pagetwo', units(paged))
+            # A subset of the machines keeps the page with its extension.
+            self.assertIn(USER, native.service_users(native.subset(paged, [])))
+            self.assertIn('extension:pagetwo/extension.json', native.provenance(paged))
+            # The extension's own object carries the page's table.
+            generated = extensions.generate_extension(Path(folder), paged.extensions[0]).read_text(encoding='utf-8')
+            self.assertTrue(generated.endswith(extensions.generate_drumline_page(paged.extensions[0])))
+            self.assertIn('return &opxy::extensions::pagetwo::hooks;', generated)
+            generated = extensions.generate_extension(Path(folder), probed.extensions[0]).read_text(encoding='utf-8')
+            self.assertNotIn('sdk_drumline_page_extension', generated)
+
+    def test_the_shared_hooks_reach_the_service_through_the_startups_accessor(self):
+        with_page = startup.render(['probesynth'], drumline=True)
         without = startup.render(['probesynth'])
-        self.assertIn('const void* const sdk_drumline = sdk_drumline_service;', with_option)
-        self.assertIn('const void* const sdk_drumline = nullptr;', without)
+        for text in (with_page, without):
+            self.assertIn('const void* sdk_drumline_get() __asm__("sdk_drumline_get");', text)
+        self.assertIn('const void* sdk_drumline_service() __asm__("sdk_drumline_service");', with_page)
+        self.assertIn('const void* sdk_drumline_get() { return sdk_drumline_service(); }', with_page)
+        self.assertIn('const void* sdk_drumline_get() { return nullptr; }', without)
         self.assertNotIn('sdk_drumline_service', without)
-        # A browser kit builds no build options.
-        with patch.object(native, 'package_collection', return_value=entries + [{'option': OPTION}]):
-            with self.assertRaisesRegex(ValueError, 'without build options'):
-                browser_kit.export(Path('unused'), Path('unused'), {}, stock_catalog=b'')
+        self.assertNotIn('return nullptr', with_page[with_page.index('sdk_drumline_get() {'):][:80])
+        # A browser selection without the extension leaves the service's objects out:
+        # startup's import of it resolves to kit_absent, so the accessor answers null.
+        self.assertEqual(native.service_fallbacks({'drumline'})['drumline'], {'sdk_drumline_service': 'kit_absent'})
+        self.assertNotIn('drumline', native.service_fallbacks({'drums', 'drum_sends', 'drum_locks'}))
+        header = (PLATFORM / 'drumline.hpp').read_text(encoding='utf-8')
+        self.assertIn('const void* sdk_drumline_get() __asm__("sdk_drumline_get");', header)
+        self.assertIn('sdk_drumline_page_extension() __asm__("sdk_drumline_page_extension");', header)
+        self.assertNotIn('sdk_drumline_page_extension', (PLATFORM / 'drum_locks.cpp').read_text(encoding='utf-8'))
+
+    def test_a_page_declaration_is_checked_and_packed(self):
+        rows = extensions.drumline_page_of('pagetwo', PAGE)
+        # Sends take the low bits, FX I first, then the own parameters in declaration order.
+        self.assertEqual([(r['label'], r['role'], r['default'], r['shift'], r['bits'], len(r['choices'])) for r in rows],
+                         [('FILTER', 0, 16, 6, 5, 32), ('SRR', 0, 0, 11, 4, 16),
+                          ('FX I', 1, 0, 0, 3, 8), ('FX II', 2, 0, 3, 3, 8)])
+        self.assertEqual(rows[0]['choices'], FILTER)
+        self.assertEqual(rows[2]['choices'], rows[3]['choices'])
+        self.assertEqual(rows[2]['choices'], ['TRK', '0', '17', '33', '50', '67', '83', '100'])
+        # A two-choice parameter takes one bit; the default defaults to the first choice.
+        [row] = extensions.drumline_page_of('pagetwo', {'parameters': [{'label': 'MODE', 'choices': ['A', 'B']}]})
+        self.assertEqual((row['default'], row['shift'], row['bits'], row['role']), (0, 0, 1, 0))
+        # Three 32-choice parameters and a two-choice one fill the 16 bits exactly.
+        full = [own('P%d' % i, 32) for i in range(3)] + [own('Q', 2)]
+        self.assertEqual(sum(r['bits'] for r in extensions.drumline_page_of('pagetwo', {'parameters': full})), 16)
+        send = {'label': 'FX I', 'role': 'send1'}
+        bad = {
+            'no parameters': {'parameters': []},
+            'five parameters': {'parameters': [own('P%d' % i, 2) for i in range(5)]},
+            'not a list': {'parameters': own('P', 2)},
+            'an extra key': {'parameters': [own('P', 2)], 'title': 'page'},
+            'no label': {'parameters': [{'choices': ['A', 'B']}]},
+            'an empty label': {'parameters': [own('', 2)]},
+            'a long label': {'parameters': [own('LONGEST', 2), own('LONGEST1', 2)]},
+            'a non-ASCII label': {'parameters': [own('FILTÉR', 2)]},
+            'a numeric label': {'parameters': [own(5, 2)]},
+            'one choice': {'parameters': [own('P', 1)]},
+            'thirty-three choices': {'parameters': [own('P', 33)]},
+            'an empty choice': {'parameters': [{'label': 'P', 'choices': ['A', '']}]},
+            'a long choice': {'parameters': [{'label': 'P', 'choices': ['A', 'ABCDEFGH']}]},
+            'a numeric choice': {'parameters': [{'label': 'P', 'choices': ['A', 2]}]},
+            'a default past the choices': {'parameters': [own('P', 4) | {'default': 4}]},
+            'a negative default': {'parameters': [own('P', 4) | {'default': -1}]},
+            'a boolean default': {'parameters': [own('P', 4) | {'default': True}]},
+            'a text default': {'parameters': [own('P', 4) | {'default': '1'}]},
+            'an unknown key': {'parameters': [own('P', 4) | {'step': 1}]},
+            'a send with choices': {'parameters': [send | {'choices': ['A', 'B']}]},
+            'a send with a default': {'parameters': [send | {'default': 1}]},
+            'an unknown role': {'parameters': [{'label': 'FX III', 'role': 'send3'}]},
+            'a duplicate send': {'parameters': [send, {'label': 'FX 1', 'role': 'send1'}]},
+            'seventeen bits': {'parameters': [own('P%d' % i, 32) for i in range(3)] + [own('Q', 3)]},
+            'twenty bits': {'parameters': [own('P%d' % i, 32) for i in range(4)]},
+        }
+        for case, value in bad.items():
+            with self.subTest(case), self.assertRaises(ValueError):
+                extensions.drumline_page_of('pagetwo', value)
+        with tempfile.TemporaryDirectory(prefix='drumline-page-') as folder:
+            self.assertEqual(extensions.extension_at(page_extension(folder)).drumline_page, rows)
+            with self.assertRaises(ValueError):
+                extensions.extension_at(page_extension(folder, 'pagebad', bad['seventeen bits']))
+        self.assertIsNone(extensions.extension_at(PROBE).drumline_page)
+
+    def test_one_extension_owns_the_page(self):
+        with tempfile.TemporaryDirectory(prefix='drumline-page-') as folder:
+            two, three = (extensions.extension_at(page_extension(folder, name)) for name in ('pagetwo', 'pagethree'))
+            probe = extensions.extension_at(PROBE)
+            self.assertEqual(extensions.check_collection([probe, two]), [probe, two])
+            with self.assertRaisesRegex(ValueError, 'Drumline page 2 has multiple owners: pagetwo, pagethree'):
+                extensions.check_collection([two, probe, three])
+            with self.assertRaisesRegex(ValueError, 'multiple owners'):
+                native.configuration(read_collection(None, [FOLDER / 'probesynth'], [two.root, three.root]))
+            # The kit marks it, as an exclusive use the builder lets one selection hold.
+            rows = extensions.metadata([probe, two], {'probe': 'official', 'pagetwo': 'personal'})
+            self.assertNotIn('drumline_page', rows[0])
+            self.assertIs(rows[1]['drumline_page'], True)
+            self.assertEqual((rows[1]['claims'], rows[1]['claim_labels'], rows[1]['origin']), ([], {}, 'personal'))
+            self.assertEqual(extensions.DRUMLINE_PAGE_LABEL, 'Drumline page 2')
+
+    def test_the_owner_tag_and_the_generated_table(self):
+        def fnv(name):
+            h = 0x811c9dc5
+            for b in name.encode('ascii'):
+                h = ((h ^ b) * 0x01000193) & 0xffffffff
+            return ((h >> 16) ^ h) & 0xffff or 1
+        # A pad keeps its tag across builds and SDK versions: it is FNV-1a of the ID, folded.
+        self.assertEqual(extensions.drumline_tag('pagetwo'), 0x580a)
+        for name in ('pagetwo', 'pagethree', 'probe', 'a', 'z' * 32):
+            tag = extensions.drumline_tag(name)
+            self.assertTrue(0 < tag <= 0xffff, name)
+            self.assertEqual(tag, fnv(name))
+            self.assertEqual(tag, extensions.drumline_tag(name))
+        self.assertNotEqual(extensions.drumline_tag('pagetwo'), extensions.drumline_tag('pagethree'))
+        with tempfile.TemporaryDirectory(prefix='drumline-page-') as folder:
+            page = extensions.extension_at(page_extension(folder))
+            source = extensions.generate_drumline_page(page)
+            self.assertIn('#include "' + (ROOT / 'sdk/platform/opxy-1.2.1/drumline_page.hpp').as_posix() + '"', source)
+            self.assertIn('const char* const sdk_drumline_choices_0[] = {%s};' % ', '.join('"%s"' % c for c in FILTER), source)
+            self.assertIn('const char* const sdk_drumline_choices_1[] = {%s};' % ', '.join('"%s"' % c for c in SRR), source)
+            self.assertIn('const char* const sdk_drumline_choices_3[] = {"TRK", "0", "17", "33", "50", "67", "83", "100"};',
+                          source)
+            self.assertIn('const opxy::platform::DrumlinePageParameter sdk_drumline_parameters[] = {'
+                          '{"FILTER", sdk_drumline_choices_0, 32u, 16u, 0u, 6u, 5u}, '
+                          '{"SRR", sdk_drumline_choices_1, 16u, 0u, 0u, 11u, 4u}, '
+                          '{"FX I", sdk_drumline_choices_2, 8u, 0u, 1u, 0u, 3u}, '
+                          '{"FX II", sdk_drumline_choices_3, 8u, 0u, 2u, 3u, 3u}};', source)
+            self.assertIn('const opxy::platform::DrumlinePage sdk_drumline_page_table = {%du, '
+                          '&opxy::extensions::pagetwo::drumline_processor, sdk_drumline_parameters, 4u};' % 0x580a, source)
+            self.assertIn('extern "C" const opxy::platform::DrumlinePage* sdk_drumline_page_extension() '
+                          '{ return &sdk_drumline_page_table; }', source)
+            # Captions are C strings: quotes and backslashes escaped.
+            quoted = extensions.extension_at(page_extension(folder, 'quoted', {'parameters': [
+                {'label': 'Q"T', 'choices': ['a"b', 'c\\d']}]}))
+            source = extensions.generate_drumline_page(quoted)
+            self.assertIn(r'const char* const sdk_drumline_choices_0[] = {"a\"b", "c\\d"};', source)
+            self.assertIn(r'{"Q\"T", sdk_drumline_choices_0, 2u, 0u, 0u, 0u, 1u}', source)
 
     @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
-    def test_stock_sites_hold_what_the_option_relies_on(self):
+    def test_stock_sites_hold_what_the_page_relies_on(self):
         stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
         self.assertEqual(sha(stock), PROFILE['stock_sha256'])
         image = ldr(stock)
