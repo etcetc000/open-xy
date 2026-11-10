@@ -51,6 +51,10 @@ In `extension.json`, beside the usual fields:
 - Each parameter needs the bits for its choices (a send 3), and all of them
   together at most 16.
 
+Saved pads carry an owner tag made from the extension's ID. To rename the
+extension and keep saved settings, add `"state_id"` with the old ID beside
+`"parameters"`.
+
 The layout is part of every saved project that uses it. Keep a released
 extension's parameters, their order and their choices' meaning; add choices
 only at the end of a list, and keep each default.
@@ -90,7 +94,7 @@ on the other.
 ## Projects and presets
 
 The settings live in each pad's record, behind an owner tag made from the
-extension's ID. A pad without that tag, from before or from another extension,
+extension's ID (or its `state_id`). A pad without that tag, from before or from another extension,
 plays every default. A project saved with them opens on other firmware as a
 stock Drumline project, the settings ignored. Stock's Drumline presets don't
 keep them.

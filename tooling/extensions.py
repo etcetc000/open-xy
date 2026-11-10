@@ -114,6 +114,8 @@ def extension_at(folder):
         require((root/'display.h').is_file() and (root/'display.cpp').is_file(), 'Master processor needs shared display.h/display.cpp')
         validate_master_artwork(root / artwork, definition)
     drumline_page = drumline_page_of(name, data['drumline_page']) if 'drumline_page' in data else None
+    require(drumline_page is None or re.search(r'\bdrumline_processor\b', (root / 'extension.cpp').read_text(encoding='utf-8')),
+            f'{name}: a drumline_page extension exports opxy::extensions::{name}::drumline_processor from extension.cpp')
     claims, actions = registry()
     for field, known in (('claims', claims), ('actions', actions)):
         values = data[field]
@@ -136,8 +138,11 @@ def drumline_page_of(name, value):
     with its label, choices, default choice, role (0 own, 1 FX I, 2 FX II) and its
     code's shift and bits. Sends take the SDK's choices and the low bits, so a page
     whose own parameters are all at their defaults carries nothing past bit 6."""
-    require(isinstance(value, dict) and set(value) == {'parameters'} and isinstance(value['parameters'], list) and
-            1 <= len(value['parameters']) <= 4, f'{name}: drumline_page declares 1-4 parameters')
+    require(isinstance(value, dict) and {'parameters'} <= set(value) <= {'parameters', 'state_id'} and
+            isinstance(value['parameters'], list) and 1 <= len(value['parameters']) <= 4,
+            f'{name}: drumline_page declares 1-4 parameters and optionally a state_id')
+    require(isinstance(value.get('state_id', name), str) and NAME.fullmatch(value.get('state_id', name)),
+            f'{name}: drumline_page state_id is an extension ID')
     rows = []
     for p in value['parameters']:
         require(isinstance(p, dict) and isinstance(p.get('label'), str) and DRUMLINE_TEXT.fullmatch(p['label']),
@@ -164,6 +169,9 @@ def drumline_page_of(name, value):
         r['shift'] = shift
         shift += r['bits']
     require(shift <= DRUMLINE_CODE_BITS, f'{name}: drumline_page parameters need at most {DRUMLINE_CODE_BITS} bits')
+    # The owner tag's source: the ID unless state_id keeps saved pads across a rename.
+    for r in rows:
+        r['state_id'] = value.get('state_id', name)
     return rows
 
 
@@ -189,7 +197,7 @@ def generate_drumline_page(extension):
             quote(r['label']), i, len(r['choices']), r['default'], r['role'], r['shift'], r['bits'])
         for i, r in enumerate(rows)) + '};')
     lines += ['const opxy::platform::DrumlinePage sdk_drumline_page_table = {%du, &opxy::extensions::%s::drumline_processor, '
-              'sdk_drumline_parameters, %du};' % (drumline_tag(extension.id), extension.id, len(rows)), '}',
+              'sdk_drumline_parameters, %du};' % (drumline_tag(rows[0]['state_id']), extension.id, len(rows)), '}',
               'extern "C" const opxy::platform::DrumlinePage* sdk_drumline_page_extension() __asm__("sdk_drumline_page_extension");',
               'extern "C" const opxy::platform::DrumlinePage* sdk_drumline_page_extension() { return &sdk_drumline_page_table; }', '']
     return '\n'.join(lines)

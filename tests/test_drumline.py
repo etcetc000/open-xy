@@ -246,10 +246,16 @@ class Drumline(unittest.TestCase):
             'a duplicate send': {'parameters': [send, {'label': 'FX 1', 'role': 'send1'}]},
             'seventeen bits': {'parameters': [own('P%d' % i, 32) for i in range(3)] + [own('Q', 3)]},
             'twenty bits': {'parameters': [own('P%d' % i, 32) for i in range(4)]},
+            'a malformed state_id': {'parameters': [own('P', 2)], 'state_id': 'Page-2'},
+            'a numeric state_id': {'parameters': [own('P', 2)], 'state_id': 2},
         }
         for case, value in bad.items():
             with self.subTest(case), self.assertRaises(ValueError):
                 extensions.drumline_page_of('pagetwo', value)
+        # The owner tag follows the ID, or a state_id kept across a rename.
+        self.assertEqual({r['state_id'] for r in rows}, {'pagetwo'})
+        kept = extensions.drumline_page_of('renamed', {'parameters': [own('P', 2)], 'state_id': 'pagetwo'})
+        self.assertEqual(kept[0]['state_id'], 'pagetwo')
         with tempfile.TemporaryDirectory(prefix='drumline-page-') as folder:
             self.assertEqual(extensions.extension_at(page_extension(folder)).drumline_page, rows)
             with self.assertRaises(ValueError):

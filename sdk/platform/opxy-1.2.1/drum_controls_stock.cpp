@@ -4,7 +4,6 @@
 // Machine policy is in the generated sample callbacks.
 #include "sample_machines.hpp"
 #include "drum_machines.hpp"
-#include "drumline.hpp"
 #include "keyboard_octaves.hpp"
 #include "stock.hpp"
 #include "synth_controls.hpp"
