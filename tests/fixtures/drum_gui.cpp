@@ -9,6 +9,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
+#include "drumline.hpp"
+// Built without a drumline_page extension: the generated startup's accessor answers null.
+const void* sdk_drumline_get() { return nullptr; }
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
