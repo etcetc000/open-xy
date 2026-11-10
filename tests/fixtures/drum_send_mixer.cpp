@@ -379,9 +379,7 @@ void drumline_voices_send_their_kept_codes() {
     std::memset(&a, 0, sizeof a);
     std::memset(&b, 0, sizeof b);
     sdk_drum_send_dbox[0] = static_cast<opxy::u8>(pair(7, 7));
-    sdk_drum_send_state.level_known = 0;
     mix(a, 1, lines, 4, start, g, true, false);
-    sdk_drum_send_state.level_known = 0;
     mix(b, 1, kits, 4, start, g, true, false);
     CHECK(same(a, b));
     CHECK(std::memcmp(a.fx1, a.fx2, sizeof a.fx1) != 0);
