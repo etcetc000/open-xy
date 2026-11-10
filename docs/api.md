@@ -25,7 +25,7 @@ fails the build or, for the artwork rule, halts the device's SVG parser.
 | C++ | Freestanding C++11: no exceptions, RTTI, static constructors, allocation, OS headers, `#if`, inline assembly or platform macros |
 | Callbacks | Bounded work per 64-sample block; no blocking, logging, file access or graphics from audio callbacks |
 | Synth controls | Four control positions, plus up to four alternates; values arrive as Q31 and the stock menu stores Q15 defaults |
-| Audio | 64 frames at 44.1 kHz, Q31 output peaking at most at half scale; mono by default, optional stereo for sample engines |
+| Audio | 64 frames at 44.1 kHz, Q31 output peaking at most at half scale; mono by default, optional stereo for synths (SDK 1.12) and sample engines |
 | Identity | The name follows the [identity rules](#identity) and never changes once published; a firmware's [layout](#identity) gives the numbers |
 | Sample engines | The sample is read-only and borrowed for the voice's lifetime |
 | Effects | State fits in 476 bytes and holds no resources (no destructor ever runs) |
@@ -388,6 +388,8 @@ A synth declares:
 | `voiceCapacity` | Notes that sound at once, 1..256. Stock plays at most 8 notes per track and fades a note it takes, so 8 keeps a machine on one track within its own voices; allow 8 for each track it plays on at once. Values above 27, stock's voice slots, keep 27 voices plus the spare (28). Stock's 256 voice indices share these voices and one spare ([synth voices](abi-1.2.1.md#synth-voices)) |
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
+| `stereoOutput` | Optional integer 0/1 (SDK 1.12): write 64 interleaved left/right frames, 128 words |
+| `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
 
@@ -402,7 +404,7 @@ Exceptions and allocation are not supported.
 | Argument | Contract |
 | --- | --- |
 | Voice state | SDK-owned, correctly aligned storage; the engine initializes all sound fields |
-| `Output` | Writable 64-word mono signed Q1.31 buffer; write every sample |
+| `Output` | Writable signed Q1.31 buffer: 64 mono words, or 128 interleaved words with `stereoOutput: 1`; write every sample |
 | `Parameters` | Read-only normalized Q31 words, eight; the declared controls in order, then zero |
 | `Pitch` | Read-only 64-word unsigned phase-increment buffer, modulo 2^32 cycles |
 
@@ -1235,7 +1237,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.11 and builds 1.0 to 1.11 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.12 and builds 1.0 to 1.12 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
