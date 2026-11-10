@@ -165,6 +165,8 @@ def authenticate(manifest, artifacts):
 
 # Machine kinds sdk.py new starts, each from sdk/templates/<kind>/.
 STARTERS = ('synth', 'effect')
+# The parts of the repository's device checklist (QA.md) that differ by kind.
+QA_PARTS = ('setup', 'listed', 'playing', 'lfo', 'presets')
 
 
 def scaffold(out, identity, name, kind='synth', repository=False, controls=None, overwrite=False):
@@ -185,9 +187,16 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None,
                 if kind == 'synth' else
                 'Effects have no browser preview. Run the host tests below, then audition on your XY\n'
                 'using the hardware workflow linked below.')
+    # The device checklist's parts for this kind (sdk/templates/qa/<kind>/), each in place of its
+    # placeholder's line: a part the kind lacks leaves the line out.
+    qa = {part: (ROOT / 'sdk/templates/qa' / kind / (part + '.md')) for part in QA_PARTS}
+    qa = {part: path.read_text(encoding='utf-8') if path.is_file() else '' for part, path in qa.items()}
     for starter in starters:
         for template in sorted(starter.rglob('*.in')):
             text = template.read_text(encoding='utf-8').replace('@AUDITION@', audition)
+            for part, part_text in qa.items():
+                text = text.replace('@QA_' + part.upper() + '@\n', part_text)
+            text = text.replace('@KIND@', kind)
             text = text.replace('@ID@', identity).replace('@NAME@', name)
             text = text.replace('@CONTROLS@', str(controls))
             text = text.replace('@PAGE_SLOTS@', ', '.join(str(i + 4 if i + 4 < controls else i) for i in range(4)))
@@ -196,7 +205,7 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None,
             destination.write_text(text, encoding='utf-8', newline='\n')
     if repository:
         shutil.copyfile(ROOT / 'LICENSE', out / 'LICENSE')
-        print('Repository-ready source: README.md, AGENTS.md and CI included; Git is not initialized.')
+        print('Repository-ready source: README.md, AGENTS.md, QA.md and CI included; Git is not initialized.')
     from .machines import SDK_VERSION
     python = 'python3' if Path(sys.executable).name.startswith('python3') else 'python'
     if kind == 'effect':

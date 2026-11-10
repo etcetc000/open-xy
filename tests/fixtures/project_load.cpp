@@ -7,10 +7,17 @@
 #include <cstdlib>
 #include <cstring>
 #include <project_companion.cpp>
+#include "project_master.hpp"
 
 // What startup.cpp gives a build without the control service.
 extern "C" opxy::u32 sdk_project_kept(void*) { return 0; }
 extern "C" void sdk_project_loaded(const char*) {}
+// What startup.cpp gives a build without the step-lock handles.
+extern "C" opxy::u32 sdk_project_locks_size(void*, opxy::u32) { return 0; }
+extern "C" void sdk_project_locks_write(void*) {}
+extern "C" void sdk_project_locks_begin() {}
+extern "C" void sdk_project_locks_byte(opxy::u32) {}
+extern "C" void sdk_project_locks_loaded(void*, opxy::u32) {}
 
 using opxy::platform::Address;
 
@@ -73,8 +80,15 @@ Address opxy::platform::host_stock_address(Address address) {
 int main(int argc, char** argv) {
     if (argc < 3) return 2;
     deserialize_result = static_cast<unsigned>(std::atoi(argv[2]));
-    tracks = argc - 3;
-    specs = argv + 3;
+    const bool master=argc>3 && (std::strcmp(argv[3],"master")==0 || std::strcmp(argv[3],"master-multi")==0 || std::strncmp(argv[3],"master-two",10)==0);
+    if(master)opxy::platform::master_filter::test_enable(512);
+    const bool multi=master && std::strcmp(argv[3],"master-multi")==0;
+    if(multi)opxy::platform::master_filter::test_parameter_count=5;
+    const bool two=master && std::strncmp(argv[3],"master-two",10)==0;
+    if(two){opxy::platform::master_filter::test_second=true;
+        opxy::platform::master_filter::test_reverse=std::strcmp(argv[3],"master-two-reverse")==0;}
+    tracks = argc - 3 - (master ? 1 : 0);
+    specs = argv + 3 + (master ? 1 : 0);
     project = static_cast<unsigned char*>(std::calloc(kProjectBytes, 1));
     if (!project) return 2;
     if (sdk_project_load(project, argv[1]) != deserialize_result) return 1;
@@ -84,6 +98,20 @@ int main(int argc, char** argv) {
         for (unsigned k = 0; k < *count(track); ++k)
             std::printf(k ? ",%d" : "%d", static_cast<int>(*field(track, k)));
         std::printf("\n");
+    }
+    if(master) {
+        const auto id=static_cast<opxy::u32>(reinterpret_cast<Address>(project));
+        if(multi || two) {
+            const auto state=opxy::platform::master_filter::restore_state(id);
+            std::printf("parameters:%u",state.type);
+            for(unsigned i=0;i<5;++i)std::printf(",%d",state.values[i]);
+            std::printf("\n");std::free(project);return 0;
+        }
+        const auto restored=opxy::platform::master_filter::restore_state(id);
+        const auto packet=(restored.type<<30)|(static_cast<opxy::u32>(restored.values[0])>>21);
+        const auto defaults=opxy::platform::master_filter::restore_state(id);
+        const auto consumed=(defaults.type<<30)|(static_cast<opxy::u32>(defaults.values[0])>>21);
+        std::printf("master:%u,%u\n",packet,consumed);
     }
     std::free(project);
     return 0;

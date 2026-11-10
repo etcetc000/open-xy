@@ -51,8 +51,8 @@ must differ from every [catalog](catalog.md) machine's.
 the shared two-page header. Unused second-page columns repeat first-page
 controls with one saved value. `--kind effect` starts a four-control send effect instead
 (effects have no browser preview). Every starter has a sound check in
-`tests/sound.cpp`. `--repository` also writes README.md, AGENTS.md, LICENSE,
-.gitignore and a GitHub Actions workflow beside the machine. It creates files without running
+`tests/sound.cpp`. `--repository` also writes README.md, AGENTS.md, a device
+checklist (QA.md), LICENSE, .gitignore and a GitHub Actions workflow beside the machine. It creates files without running
 `git init`, committing or contacting GitHub. Initialize Git in that folder when
 ready. Omit the flag to create just a machine folder in an existing repository.
 The workflow checks the root-level machine against SDK `staging`; pin a compatible
@@ -155,10 +155,22 @@ content outside every checkout and use a fresh output folder. Preserve machine
 numbers with the previous build's `--layout`. A
 [personal kit](builder.md#export-a-kit) supplies the browser installation guide.
 
+Host tests can't hear the sound or see the screen. Check the machine's behavior
+on the device with a checklist run as one pass, top to bottom, in one project:
+`--repository` writes one, QA.md, with the checks every synth or effect needs
+(its page and controls, parameter locks, LFOs, patterns, scenes and songs,
+presets, mute, saving and loading). Name the machine's controls in it, add its
+own sections, and run it before each release; note the SDK commit and firmware
+each pass used. A repository made before QA.md existed can copy one from a new
+`sdk.py new --repository` folder.
+
 Follow [hardware profiling](profiling.md) before claiming measured CPU cost or
 preparing a catalog submission. Commit the machine, build with profiling enabled,
 install when authorized, confirm the device has rebooted, then collect a run
-([one is enough](profiling.md#collect-a-run)) and generate the readout. Host estimates are useful during iteration;
+([one is enough](profiling.md#collect-a-run)) and generate the readout. Include both
+average CPU (`block_percent`) and worst observed block CPU (`peak_percent`),
+and copy the generated `cpu` member into the catalog submission. This is required
+before calling the machine ready for submission. Host estimates are useful during iteration;
 they do not establish device timings. If hardware is unavailable, keep hardware
 validation pending and ask a maintainer to measure it.
 

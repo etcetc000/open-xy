@@ -51,6 +51,11 @@ struct Frame {
     Text texts[Texts > 0 ? Texts : 1];
     char header[page_controls][header_capacity];
 };
+// The track's stock amplitude envelope as Q31 words, 0..0x7fffffff, on the
+// scale of slots: a larger attack or decay is a longer stage, but a larger
+// release is a shorter one (stock reads it mirrored). Sustain is a linear
+// gain. These are control positions, not times; stock uses only word >> 24.
+struct Envelope { i32 attack, decay, sustain, release; };
 struct Input {
     i32 parameters[page_controls];
     i32 elapsed;             // Q10 seconds; the author clamps late/invalid frames.
@@ -69,16 +74,45 @@ struct Input {
     u32 shift;
     u8 choices[4];
     u32 model;               // A drum kit's selected key's model (its machine); 0 for other kinds.
+    Envelope amp;            // The track's amp envelope (SDK 1.10); every word envelope_unavailable if unknown.
+    // A padMix drum kit's selected key (SDK 1.10): its pan, -100..100 with 0
+    // centred, and its level in whole dB, -30..0, as it plays; 0 otherwise.
+    // line: the row the encoders (and on a drum kit Shift) edit, 0 the first
+    // and 1 the second. The key's choke group stays in choices.
+    i8 pan;
+    i8 level;
+    u8 line;
+    u8 reserved;             // 0
+    // A padMix drum kit's selected key's pad fields (SDK 1.10): its pad
+    // controls (resources.padControls) in 0 and 1, a signed one negative below
+    // 0, then FX I and FX II, 0..7 (0 follows the track's send); 0 when
+    // neutral, not declared, and for other machines.
+    i8 pad[4];
 };
 const u32 notes_unavailable = 0xffffffffu;
-static_assert(sizeof(Input) == 88 && __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
+const i32 envelope_unavailable = -1;
+inline bool envelope_known(const Envelope& envelope) {
+    return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
+}
+static_assert(sizeof(Input) == 112 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
+              __builtin_offsetof(Input, line) == 106 && __builtin_offsetof(Input, pad) == 108 &&
+              __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
               __builtin_offsetof(Input, held_notes) == 68 && __builtin_offsetof(Input, note_off_serial) == 72 &&
               __builtin_offsetof(Input, shift) == 76 && __builtin_offsetof(Input, choices) == 80 &&
-              __builtin_offsetof(Input, model) == 84,
+              __builtin_offsetof(Input, model) == 84 && __builtin_offsetof(Input, amp) == 88,
               "Drawing input layout (display.mjs)");
 static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (display.mjs)");
+
+// Optional shared GUI lifecycle callback; ADL finds the display owner's overload.
+// Existing displays need not implement it. Never called by an audio callback.
+namespace detail {
+template<class S> auto parameter_reset(S& state,u32 slot,int)
+    -> decltype(display_parameter_reset(state,slot),void()) { display_parameter_reset(state,slot); }
+template<class S> void parameter_reset(S&,u32,...) {}
+}
+template<class S> void parameter_reset(S& state,u32 slot) { detail::parameter_reset(state,slot,0); }
 
 // Store a zero-initialized NoteTracker in DisplayState. Events describe changes
 // between frames, not a queue. Reset/track changes establish a baseline, even

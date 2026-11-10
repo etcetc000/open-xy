@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from tooling.browser_kit import write_builder
+from tooling.definitions import ROOT
 from tooling.formats import sha
 from tooling.screen import template
 
@@ -30,7 +31,7 @@ class BrowserBundleTests(unittest.TestCase):
             self.assertIn('const {presetFiles, sha256} = Core;', html)
             self.assertNotRegex(html, r"import \* as \w+ from")
             inline = re.search(r'<script type="module">(.*?)</script>', html, re.S).group(1)
-            subprocess.run(['node', '--input-type=module', '--check'], input=inline, text=True,
+            subprocess.run(['node', '--input-type=module', '--check'], input=inline, text=True, encoding='utf-8',
                            check=True, capture_output=True, timeout=30)
             # Run the offline modules without mounting the UI. Their factories
             # must be present in file:// exports as well as the hosted builder.
@@ -44,7 +45,7 @@ if (!config.setAll([machine], 'colorful') || config.summary([machine]).enabled)
   throw new Error('Offline bulk configuration differs');
 if (typeof createSnapshotService !== 'function' || typeof createGraphicsDialog !== 'function')
   throw new Error('Offline preview factories missing');
-''', text=True, check=True, capture_output=True, timeout=30)
+''', text=True, encoding='utf-8', check=True, capture_output=True, timeout=30)
             # The file:// installer must expose the same converter its app and
             # previews call, rather than only including it inside Core's closure.
             core = html.split('const Graphics = (() => {', 1)[1].split(
@@ -59,7 +60,13 @@ const variant = '<circle fill="#bbbbbb" stroke="#777777"/>';
 if (Core.selectArtwork({artwork:svg, grayscaleArtwork:variant}, 'grayscale') !== variant)
   throw new Error('Offline authored grayscale differs');
 '''
-            subprocess.run(['node', '--input-type=module'], input=core + check, text=True,
+            # Every core function the app calls must be in the closed file:// namespace.
+            # Drop line comments, not '//' inside strings such as URLs.
+            app = re.sub(r'(^|\s)//.*', r'\1', (ROOT / 'builder/app.mjs').read_text(encoding='utf-8'), flags=re.M)
+            used = sorted(set(re.findall(r'\bcore\.(\w+)', app)) - {'mjs'})
+            self.assertIn('memoryKit', used)
+            check += 'for (const name of %s) if (!(name in Core)) throw new Error("Offline Core lacks " + name);\n' % json.dumps(used)
+            subprocess.run(['node', '--input-type=module'], input=core + check, text=True, encoding='utf-8',
                            check=True, capture_output=True, timeout=30)
 
     def test_modified_menu_cannot_produce_an_export(self):

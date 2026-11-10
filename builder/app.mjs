@@ -24,8 +24,55 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('risk-acknowledgement').disabled = !browserAllowed;
   $('risk-continue').disabled = true;
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
-  const kib = n => (n / 1024).toFixed(1) + ' KiB';
+  const kib = n => (n / 1024).toFixed(1) + ' KiB', mib = n => n / 1024 ** 2 + ' MiB';
+  const cpuWarning = 'Uses more CPU than usual. This may reduce the total number of voices you can play at once.';
+  let cpuTooltip;
+  function cpuBadge(badge, high) {
+    badge.removeAttribute('title');
+    badge.replaceChildren('CPU-high', ...(high ? [node('span', ': ' + cpuWarning, 'sr-only')] : []));
+    const show = () => {
+      if (!high) return;
+      if (!cpuTooltip) {
+        cpuTooltip = document.createElement('div');
+        cpuTooltip.className = 'cpu-high-tooltip';
+        cpuTooltip.setAttribute('role', 'tooltip');
+        cpuTooltip.textContent = cpuWarning; document.body.append(cpuTooltip);
+      }
+      cpuTooltip.hidden = false;
+      const box = badge.getBoundingClientRect(), tip = cpuTooltip.getBoundingClientRect();
+      cpuTooltip.style.left = Math.max(8, Math.min(box.left, window.innerWidth - tip.width - 8)) + 'px';
+      cpuTooltip.style.top = (box.bottom + tip.height + 8 < window.innerHeight
+        ? box.bottom + 6 : Math.max(8, box.top - tip.height - 6)) + 'px';
+    };
+    const hide = () => { if (cpuTooltip) cpuTooltip.hidden = true; };
+    badge.onmouseenter = show; badge.onmouseleave = hide;
+    const focusTarget = badge.closest('button') ?? badge;
+    if (focusTarget === badge) badge.tabIndex = high ? 0 : -1;
+    focusTarget.onfocus = show; focusTarget.onblur = hide;
+    focusTarget.onkeydown = event => { if (event.key === 'Escape') hide(); };
+  }
+  document.addEventListener('scroll', () => { if (cpuTooltip) cpuTooltip.hidden = true; }, true);
+
   const graphicsConfiguration = createGraphicsConfiguration();
+  // Experimental 4 MiB module memory (core.memoryKit), chosen on the machines page.
+  // Off for every collection until chosen; restoring a 4 MiB build or its layout
+  // turns it on. The checkbox is the state; expandedKit is derived once per
+  // collection, null when not offered.
+  let expandedKit = null;
+  const memoryInput = $('expanded-memory');
+  memoryInput.checked = false; memoryInput.disabled = true;
+  const expandedMemory = () => memoryInput.checked;
+  const kitFor = expanded => expanded ? expandedKit : kit, chosenKit = () => kitFor(expandedMemory());
+  const expandedSize = () => mib(expandedKit.profile.reserved_bytes);
+  // A does-not-fit message, pointing to the larger option when this site offers it and
+  // the selection would fit it (any failure there means no hint).
+  // Only after a selection fails to fit: one more in-browser link, under a millisecond.
+  const fitsLarger = (selection, layoutNumbers, extensions) => {
+    try { return Boolean(expandedKit && core.linkKit(expandedKit, selection, layoutNumbers, extensions)); } catch { return false; }
+  };
+  // No hint while an OS is being checked: it sets the option itself.
+  const roomHint = (message, then, ...selection) => (/[.!?]$/.test(message) ? message : message + '.') +
+    (!checkingOs && fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
   let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
@@ -48,6 +95,17 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   function toggleFavorite(id) {
     if (!favorites.delete(id)) favorites.add(id);
     try { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites])); } catch {}
+  }
+  // Named machine selections, kept in this browser only (core.readPresets). A preset
+  // chooses machines; their numbers still come from the layout.
+  const PRESETS_KEY = 'open-xy-machine-presets';
+  let presets = [];
+  try { presets = core.readPresets(JSON.parse(localStorage.getItem(PRESETS_KEY) ?? '[]')); } catch {}
+  function storePresets(next) {
+    presets = next;
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); }
+    catch { $('preset-message').textContent = 'This browser could not keep the preset; it lasts until you leave the page.'; }
+    renderPresets();
   }
   let stopPreview = () => {}, previewRevision = 0;
   let stopAudio = () => {};
@@ -182,6 +240,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     facts($('build-selection'), {
       Machines: selectedMachines().map(m => m.name).join(', ') || 'None',
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
+      ...(expandedKit ? {Memory: expandedMemory() ? expandedSize() + ' (experimental)' : 'Standard'} : {}),
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
     });
   }
@@ -196,29 +255,47 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   });
   window.addEventListener('pagehide', graphicsDialog.clear);
   $('preview-selected').onclick = () => graphicsDialog.open({machines:selectedMachines(), screenTemplate:kit?.screenTemplate});
-  let ticket = 0;
+  // osApplied counts OS loads that set the memory and selection (layout restores wait for them).
+  let ticket = 0, checkingOs = false, osApplied = 0;
+  // An OS check is over (or abandoned): the option and layouts can change memory again.
+  const endOsCheck = () => { checkingOs = false; memoryInput.disabled = !expandedKit; $('restore').disabled = false; };
   async function acceptFirmware(file, isCurrent = () => true) {
     if (!file || !kit || !isCurrent()) return false;
     wizard.clearSourceBackup();
     const current = ++ticket; invalidate();
     stock = null; ready();
-    wizard.setFirmwareState('checking');
-    $('firmware-result').textContent = 'Verifying ' + file.name + '…';
     try {
+      // The OS sets the memory choice, so neither it nor a layout can change it while it is checked.
+      memoryInput.disabled = $('restore').disabled = true; checkingOs = true;
+      wizard.setFirmwareState('checking');
+      $('firmware-result').textContent = 'Verifying ' + file.name + '…';
       const recovered = await core.recoverFirmware(kit, await readBounded(file, 16 * 1024 ** 2), numbers);
       if (current !== ticket || !isCurrent()) return false;
       stock = recovered.stock;
+      // An open-xy OS whose module base and heap edits match a layout sets the choice
+      // to it, even when its machines cannot be rebuilt here. Stock OS, or an OS of
+      // no known layout, keeps the current one. A change is said, never silent.
+      const memoryChange = recovered.memory ? setExpandedMemory(recovered.memory === 'expanded') : '';
+      const memoryNote = memoryChange && ' · ' + memoryChange;
       if (recovered.selected) {
+        osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
         selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
-        renderMachines(); renderExtensions(); recalculate();
+        renderMachines(); renderExtensions();
         $('firmware-result').textContent = '✓ open-xy OS with ' +
-          selectionNames().join(' + ');
-      } else if (recovered.earlier) {
-        $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again';
-      } else $('firmware-result').textContent = '✓ OP–XY OS 1.2.1 verified · ' + file.name;
+          selectionNames().join(' + ') + memoryNote;
+      } else {
+        $('firmware-result').textContent = (recovered.earlier
+          ? '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again'
+          : '✓ OP–XY OS 1.2.1 verified · ' + file.name) + memoryNote;
+      }
       wizard.setFirmwareState('loaded');
       $('files-title').focus();
-      status(); ready();
+      // One link for what this OS set, after clearing the status so a selection
+      // that cannot be built says why.
+      // The check is over: the option can change again, and the link below may suggest it.
+      endOsCheck();
+      status(); recalculate();
+      ready();
       return true;
     } catch (error) {
       if (current !== ticket || !isCurrent()) return false;
@@ -226,6 +303,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       fail(error); ready();
       return false;
     } finally {
+      if (current === ticket) endOsCheck();
       if (current === ticket && !stock) {
         wizard.setFirmwareState('empty');
         $('firmware-result').textContent = 'OS not loaded';
@@ -264,6 +342,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       };
       return button;
     }));
+    // Explain the practical voice-count tradeoff immediately on hover or focus.
+    const high = core.cpuHigh(m);
+    field('detail-cpu-high').hidden = !high;
+    cpuBadge(field('detail-cpu-high'), high);
     field('community-notice').hidden = m.origin !== 'catalog';
     // Credit the catalog's maintainer and repository, with the exact release source;
     // Open-XY's own catalog machines (core.ORIGINS) name the project instead.
@@ -415,8 +497,48 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('machine-sort').value = browsing.sort;
     document.querySelectorAll('[data-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.filter === browsing.kind)));
     $('favorites-filter').setAttribute('aria-pressed', String(browsing.favoritesOnly));
-    for (const chip of $('keyword-filters').children) chip.setAttribute('aria-pressed', String(browsing.keywords.includes(chip.dataset.keyword)));
+    for (const chip of $('keyword-filters').querySelectorAll('.keyword-filter')) chip.setAttribute('aria-pressed', String(browsing.keywords.includes(chip.dataset.keyword)));
+    fitKeywords();
   }
+  // Keyword filters take at most three lines, still in alphabetical order: the least used
+  // (core.keywordsByUse) give way first, a keyword in use as a filter always shows, and
+  // "+N more" shows the rest. Fitted again when the row's width changes, including when the
+  // Machines step first appears (a hidden row has no width to measure).
+  const KEYWORD_LINES = 3;
+  let keywordsExpanded = false, keywordsWidth = 0;
+  function fitKeywords() {
+    const row = $('keyword-filters'), more = row.querySelector?.('.keyword-more');
+    if (!more) return;
+    const chips = [...row.querySelectorAll('.keyword-filter')];
+    chips.forEach(chip => chip.hidden = false);
+    more.hidden = true;
+    keywordsWidth = row.clientWidth;
+    if (!keywordsWidth || !chips.length) return;
+    const gap = parseFloat(getComputedStyle(row).rowGap) || 0;
+    const limit = KEYWORD_LINES * chips[0].offsetHeight + (KEYWORD_LINES - 1) * gap + 1;
+    if (row.offsetHeight <= limit) return;
+    // Least used first, keeping the ones filtering the list.
+    const giving = core.keywordsByUse(kit.machines).map(k => k.keyword).reverse()
+      .filter(keyword => !browsing.keywords.includes(keyword));
+    const hidden = [];
+    more.hidden = false;
+    const label = () => {
+      more.textContent = keywordsExpanded ? 'Fewer' : '+' + hidden.length + ' more';
+      more.setAttribute('aria-expanded', String(keywordsExpanded));
+      more.setAttribute('aria-label', keywordsExpanded ? 'Show fewer keywords' : 'Show ' + hidden.length + ' more keywords');
+    };
+    label();
+    for (const keyword of giving) {
+      if (row.offsetHeight <= limit && hidden.length) break;
+      chips.find(chip => chip.dataset.keyword === keyword).hidden = true;
+      hidden.push(keyword);
+      label();
+    }
+    if (keywordsExpanded) { chips.forEach(chip => chip.hidden = false); label(); }
+  }
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => {
+    if ($('keyword-filters').clientWidth !== keywordsWidth) fitKeywords();
+  }).observe($('keyword-filters'));
   function clearBrowsing() {
     Object.assign(browsing, {query: '', kind: 'all', keywords: [], favoritesOnly: false});
     syncBrowsing(); renderMachines();
@@ -440,6 +562,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       };
       return chip;
     }));
+    const more = node('button', undefined, 'keyword-more'); more.type = 'button'; more.hidden = true;
+    more.onclick = () => { keywordsExpanded = !keywordsExpanded; fitKeywords(); more.focus(); };
+    $('keyword-filters').append(more);
     syncBrowsing();
   }
   function renderMachines() {
@@ -478,7 +603,15 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       meta.append(memory);
       const originLabel = {bundled: 'Core', official: 'Core', catalog: 'Community', personal: 'Yours'}[m.origin];
       meta.append(node('span', originLabel, 'machine-origin'));
-      button.append(meta); button.onclick = () => inspect(m.id);
+      const high = core.cpuHigh(m);
+      if (high) {
+        const badge = node('span', 'CPU-high', 'machine-cpu-high');
+        meta.append(badge);
+      }
+      button.append(meta);
+      const cpuMark = meta.querySelector('.machine-cpu-high');
+      if (cpuMark) cpuBadge(cpuMark, high);
+      button.onclick = () => inspect(m.id);
       input.onchange = () => {
         selected = input.checked ? [...selected, m.id] : selected.filter(id => id !== m.id);
         row.classList.toggle('selected', input.checked); invalidate(); recalculate();
@@ -562,25 +695,31 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('memory-map').replaceChildren(); $('memory-legend').replaceChildren();
     try {
       if (!selected.length) { $('room-value').textContent = 'Choose at least one machine'; $('capacity-details').replaceChildren(); ready(); return; }
-      linked = core.linkKit(kit, selected, numbers, selectedExtensions);
+      const memory = chosenKit();
+      linked = core.linkKit(memory, selected, numbers, selectedExtensions);
       const allocations = kit.machines.filter(m => selected.includes(m.id)).map(m => ({name: m.name,
         size: linked.segments.filter(s => s.owner === m.id).reduce((n, s) => n + s.size, 0),
         color: colors[kit.machines.indexOf(m) % colors.length]}));
       allocations.push({name: 'Shared', size: linked.sizes.allocated - allocations.reduce((n, a) => n + a.size, 0), color: 'var(--shared)'},
-        {name: 'Available', size: linked.sizes.available, color: 'var(--paper)'}, {name: 'System', size: kit.profile.table_bytes, color: 'var(--tables)'});
+        {name: 'Available', size: linked.sizes.available, color: 'var(--paper)'}, {name: 'System', size: memory.profile.table_bytes, color: 'var(--tables)'});
       for (const a of allocations) {
-        const segment = node('div', undefined, 'memory-segment'); segment.style.width = a.size / kit.profile.reserved_bytes * 100 + '%';
+        const segment = node('div', undefined, 'memory-segment'); segment.style.width = a.size / memory.profile.reserved_bytes * 100 + '%';
         segment.style.background = a.color; segment.title = a.name + ': ' + kib(a.size); $('memory-map').append(segment);
         const legend = node('span', a.name + ' ' + kib(a.size)); legend.style.setProperty('--swatch', a.color); $('memory-legend').append(legend);
       }
-      $('room-value').textContent = kib(linked.sizes.allocated) + ' of ' + kib(core.moduleBytes(kit.profile)) + ' used';
+      $('room-value').textContent = kib(linked.sizes.allocated) + ' of ' + kib(core.moduleBytes(memory.profile)) + ' used';
       $('extension-memory').textContent = $('room-value').textContent;
       $('memory-map').setAttribute('aria-label', allocations.map(a => a.name + ': ' + kib(a.size)).join(', '));
       facts($('capacity-details'), {'Code and data': kib(linked.sizes.initialized),
         'Working memory': kib(linked.sizes.bss),
         'Available': kib(linked.sizes.available)});
       status();
-    } catch (error) { $('room-value').textContent = 'Selection cannot be built'; $('extension-memory').textContent = error.message; fail(error); }
+    } catch (error) {
+      // A selection that does not fit standard memory points to the larger option this site offers.
+      if (error.capacity === true && !expandedMemory())
+        error.message = roomHint(error.message, 'to make room', selected, numbers, selectedExtensions);
+      $('room-value').textContent = 'Selection cannot be built'; $('extension-memory').textContent = error.message; fail(error);
+    }
     ready();
   }
   async function build() {
@@ -588,23 +727,25 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const ticket = revision; $('build').disabled = true; status('Linking and checking your build…');
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
-      const result = core.linkKit(kit, selection, numbers, extensions);
-      const files = await core.buildAssets(kit, selection, catalog, result.numbers, settings);
-      files['os.ldr'] = await core.patchFirmware(kit, result, stock, {profiling: false});
+      const expanded = expandedMemory(), memory = kitFor(expanded), result = core.linkKit(memory, selection, numbers, extensions);
+      const files = await core.buildAssets(memory, selection, catalog, result.numbers, settings, result.extensions);
+      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
-      const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers};
+      const nextLayout = {format: 'opxy-layout/1', profile: kit.profile.id, selected: selection, extensions, machines: result.numbers,
+        ...(expanded ? {memory: 'expanded', reserved_bytes: memory.profile.reserved_bytes} : {})};
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
-        settings, sizes: result.sizes, files: hashes, hardware_qualified: false, cpu_measured: false});
+        settings, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
       if (ticket !== revision) return;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));
       $('download').href = $('flow-download').href = downloadUrl;
       const modes = new Set(kit.machines.filter(machine => selection.includes(machine.id) && machine.artwork).map(machine => core.graphicsForMachine(machine, settings)));
-      $('download-summary').textContent = selectionNames().concat(modes.has('grayscale') ? ['Grayscale machine graphics'] : []).join(' + ');
+      $('download-summary').textContent = selectionNames().concat(modes.has('grayscale') ? ['Grayscale machine graphics'] : [],
+        expanded ? [expandedSize() + ' experimental memory (may be unstable)'] : []).join(' + ');
       $('download-graphics').textContent = modes.size > 1 ? 'Machine graphics: per-machine settings' : modes.has('grayscale')
         ? 'Machine graphics: grayscale' : modes.size ? 'Machine graphics: original designs' : 'Machine graphics: stock screens unchanged';
       $('bundle-art').replaceChildren(visuals.bundle(Object.keys(files)));
@@ -623,6 +764,22 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   $('choose-extensions').onclick = () => { navigate(3); recalculate(); };
   $('build').onclick = build;
+  // Sets the memory choice (only offered memory can be chosen) and describes a
+  // change for the caller's message, or returns '' when it stays the same.
+  function setExpandedMemory(value) {
+    const before = expandedMemory();
+    memoryInput.checked = value && expandedKit !== null;
+    $('capacity-foot').textContent = kib(core.moduleBytes(chosenKit().profile)) + ' for machines' +
+      (memoryInput.checked ? ' (experimental)' : '') + '; CPU load is not measured';
+    // A collection without the option clears it with nothing to say.
+    return memoryInput.checked === before || !expandedKit ? '' : memoryInput.checked
+      ? 'it uses ' + expandedSize() + ' experimental memory, now turned on'
+      : 'it uses standard memory, so ' + expandedSize() + ' is turned off';
+  }
+  memoryInput.onchange = () => {
+    setExpandedMemory(memoryInput.checked);
+    invalidate(); recalculate();
+  };
   $('firmware').onchange = e => acceptFirmware(e.target.files[0]);
   const drop = $('firmware-drop');
   for (const type of ['dragover', 'dragleave', 'drop']) drop.addEventListener(type, e => {
@@ -635,9 +792,85 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('favorites-filter').onclick = () => { browsing.favoritesOnly = !browsing.favoritesOnly; syncBrowsing(); renderMachines(); };
   $('machine-search').oninput = e => { browsing.query = e.target.value; renderMachines(); };
   $('machine-sort').onchange = e => { browsing.sort = e.target.value; renderMachines(); };
+  // Each saved preset: choose it, update it to the current selection, or delete it. A machine
+  // this collection lacks is counted apart, since choosing the preset cannot select it here.
+  // Rendered again whenever the menu opens, so Update reflects the selection made since.
+  function renderPresets() {
+    $('presets-empty').hidden = presets.length > 0;
+    $('presets-list').hidden = !presets.length;
+    $('presets-list').replaceChildren(...presets.map(preset => {
+      const {selected: offered, missing} = kit ? core.applyPreset(kit, preset) : {selected: preset.machines, missing: []};
+      const item = node('li', undefined, 'preset');
+      const choose = node('button', undefined, 'preset-apply'); choose.type = 'button';
+      choose.append(node('span', preset.name, 'preset-name'),
+        node('span', offered.length + (offered.length === 1 ? ' machine' : ' machines') +
+          (missing.length ? ' · ' + missing.length + ' not here' : ''), 'preset-count'));
+      choose.title = [...offered.map(id => kit?.machines.find(m => m.id === id)?.name ?? id), ...missing].join(', ');
+      choose.onclick = () => choosePreset(preset);
+      // Saves the current selection into this preset; nothing to do when it already matches.
+      const update = node('button', 'Update', 'preset-update'); update.type = 'button';
+      update.setAttribute('aria-label', 'Update preset ' + preset.name + ' to the selected machines');
+      update.disabled = !selected.length || core.presetMatches(preset, selected);
+      update.title = !selected.length ? 'Select machines to update this preset'
+        : update.disabled ? 'Already the selected machines'
+        : selected.length === 1 ? 'Replace with the selected machine' : 'Replace with the ' + selected.length + ' selected machines';
+      update.onclick = () => {
+        storePresets(core.savePreset(presets, preset.name, selected));
+        $('preset-message').textContent = 'Updated “' + preset.name + '”: ' + selected.length +
+          (selected.length === 1 ? ' machine.' : ' machines.');
+        // Its row is drawn again; keep focus on it.
+        [...$('presets-list').querySelectorAll('.preset-apply')].find(b => b.querySelector('.preset-name').textContent === preset.name)?.focus();
+      };
+      const remove = node('button', '✕', 'preset-delete'); remove.type = 'button';
+      remove.setAttribute('aria-label', 'Delete preset ' + preset.name);
+      remove.onclick = () => {
+        storePresets(core.deletePreset(presets, preset.name));
+        $('preset-message').textContent = 'Deleted “' + preset.name + '”.';
+        $('preset-name').focus();
+      };
+      item.append(choose, update, remove);
+      return item;
+    }));
+  }
+  $('machine-presets').addEventListener('toggle', () => {
+    if ($('machine-presets').open) { $('preset-message').textContent = ''; renderPresets(); }
+  });
+  // Choosing a preset replaces the selection, as ticking its machines would.
+  function choosePreset(preset) {
+    const {selected: chosen, missing} = core.applyPreset(kit, preset);
+    selected = chosen;
+    invalidate(); renderMachines(); recalculate();
+    $('machine-presets').open = false;
+    status('Preset “' + preset.name + '”: ' + chosen.length + (chosen.length === 1 ? ' machine' : ' machines') + ' selected.' +
+      (missing.length ? ' Not in this collection: ' + missing.join(', ') + '.' : ''));
+  }
+  // The menu closes as menus do: Escape returns to its button, and a click elsewhere leaves it.
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !$('machine-presets').open) return;
+    $('machine-presets').open = false; $('machine-presets').querySelector('summary').focus();
+  });
+  document.addEventListener('pointerdown', event => {
+    if ($('machine-presets').open && !$('machine-presets').contains(event.target)) $('machine-presets').open = false;
+  });
+  $('preset-form').onsubmit = event => {
+    event.preventDefault();
+    try {
+      const name = $('preset-name').value;
+      const replaced = presets.some(p => p.name.localeCompare(name.trim(), undefined, {sensitivity: 'base'}) === 0);
+      storePresets(core.savePreset(presets, name, selected));
+      $('preset-name').value = '';
+      $('preset-message').textContent = (replaced ? 'Updated “' : 'Saved “') + name.trim().replace(/\s+/g, ' ') + '”: ' +
+        selected.length + (selected.length === 1 ? ' machine.' : ' machines.');
+    } catch (error) { $('preset-message').textContent = error.message; }
+  };
   $('restore').onchange = async e => {
     try {
+      // The input is disabled while an OS is checked. An OS check that started, or even
+      // finished, during the read set the memory and selection, so this layout waits.
+      const applied = osApplied, collection = kit, memoryBefore = expandedMemory();
       const saved = JSON.parse(new TextDecoder().decode(await readBounded(e.target.files[0], 65536)));
+      core.requireThat(!checkingOs && osApplied === applied && kit === collection && expandedMemory() === memoryBefore,
+        'Your OS file, the machines or the memory choice changed meanwhile. Load the layout again if you still want it.');
       const loaded = core.readLayout(kit, saved);
       // A layout keeps its machine numbers even when an extension it names is no
       // longer offered; that extension is left out and named.
@@ -645,14 +878,49 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const offered = new Set((kit.extensions ?? []).map(e => e.id));
       const extensions = core.extensionSelection(kit, requested.filter(id => offered.has(id)));
       const missing = requested.filter(id => !offered.has(id));
-      if (loaded.selected) core.linkKit(kit, loaded.selected, loaded.machines, extensions);
+      // Nothing is applied unless the selection links. A numbers-only layout leaves the
+      // current memory choice alone. A layout with a selection restores with the memory
+      // it records, or, for an experimental size this site lacks, the current choice. A
+      // selection that needs more uses this site's larger option when it is on, and
+      // otherwise the error says to turn it on.
+      const context = loaded.memoryUnavailable
+        ? `This layout used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer. ` : '';
+      let wanted = loaded.selected && !loaded.memoryUnavailable ? loaded.expanded === true : expandedMemory(), grown = false;
+      if (loaded.selected) {
+        const link = memory => core.linkKit(kitFor(memory), loaded.selected, loaded.machines, extensions);
+        try { link(wanted); }
+        catch (error) {
+          if (error.capacity !== true) throw error;
+          if (wanted || !expandedKit || !expandedMemory()) {
+            error.message = context + (wanted ? error.message
+              : roomHint(error.message, 'and load the layout again', loaded.selected, loaded.machines, extensions));
+            throw error;
+          }
+          try { link(true); } catch (larger) { if (larger.capacity === true) larger.message = context + larger.message; throw larger; }
+          wanted = grown = true;
+        }
+      }
+      const memoryChange = setExpandedMemory(wanted);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
       if (loaded.selected) selected = [...loaded.selected];
       invalidate(); renderMachines(); renderExtensions(); recalculate();
+      // A selection that cannot be built (a numbers-only layout is not linked first) says
+      // why after the layout's own message.
+      const unbuildable = !linked && selected.length ? ' ' + $('extension-memory').textContent : '';
+      // A layout from an experimental size this site lacks gets one message, not two.
+      const unavailable = loaded.memoryUnavailable && loaded.selected;
       status('Layout loaded: your machines keep their numbers.' +
-        (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : ''));
-    } catch (error) { fail(error); }
+        (unavailable ? ` It used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer; it ${
+            wanted ? `uses this site’s experimental ${expandedSize()}` : 'builds with standard memory'}.`
+          : grown ? ` Its machines need more than the standard memory it used, so they use the experimental ${expandedSize()} you turned on.`
+          : memoryChange && ' ' + memoryChange[0].toUpperCase() + memoryChange.slice(1) + '.') +
+        // A numbers-only layout keeps the current memory choice; its own is named, not applied.
+        (!loaded.selected && (loaded.expanded || loaded.memoryUnavailable)
+          ? ' It lists no machines, so its experimental memory choice is not applied; the current one stays.' : '') +
+        (missing.length ? ' Extensions this site no longer offers: ' + missing.join(', ') + '.' : '') + unbuildable,
+        Boolean(unbuildable));
+    } catch (error) { fail(error); } finally { e.target.value = ''; }  // the same file can be chosen again
   };
   $('save-layout').onclick = () => {
     if (!layout) return;
@@ -661,10 +929,21 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   async function loadCollectionData(data) {
     const next = await core.openKit(data);
+    const hadOs = stock != null || checkingOs;
     invalidate(); stock = null; kit = next;
+    // A loaded or still-checking OS was for the previous collection: it is loaded again.
+    if (hadOs) {
+      ticket++; endOsCheck();
+      wizard.setFirmwareState('empty'); $('firmware-result').textContent = 'OS not loaded';
+      $('firmware').value = '';  // the same os.ldr can be chosen again
+    }
     // A tap opens the memory breakdown on screens without hover.
     $('builder-version').textContent = 'v' + kit.version;
-    $('capacity-foot').textContent = kib(core.moduleBytes(kit.profile)) + ' for machines; CPU load is not measured';
+    expandedKit = core.offersExpandedMemory(kit.profile) ? core.memoryKit(kit, true) : null;
+    memoryInput.disabled = !expandedKit;
+    $('expanded-memory-option').hidden = !expandedKit;
+    if (expandedKit) $('expanded-memory-size').textContent = expandedSize();
+    setExpandedMemory(false);
     selected = kit.machines.filter(core.chosenByDefault).map(machine => machine.id);
     try {
       const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');
@@ -673,7 +952,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     catalog = core.decode64(kit.stockCatalog);
     $('notices').textContent = kit.notices;
     $('notices').closest('details').hidden = false;
-    sizeMachineSummary(); renderBrowsing(); renderMachines(); renderExtensions(); inspect(kit.machines[0].id); recalculate();
+    sizeMachineSummary(); renderBrowsing(); renderMachines(); renderPresets(); renderExtensions(); inspect(kit.machines[0].id); recalculate();
   }
   document.querySelector('.memory-bar').onclick = e => e.currentTarget.classList.toggle('open');
   try {

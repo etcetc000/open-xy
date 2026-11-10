@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .benchmark import append_callback
 from .definitions import (ROOT, SYNTH_POSITIONS, control_positions, hidden_pages, paged, shift_parameters,
-                          validate_definition)
+                          stock_shift_codes, validate_definition)
 
 # An effect's shift-row controls follow its eight parameter words (slots 8..11).
 SHIFT_SLOT = 8
@@ -72,12 +72,36 @@ def generate_voice(directory, m, sweep=False):
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
         values['CHOKE'] = 'true' if m.definition['resources'].get('chokeSameKey', 0) else 'false'
+        values['PAD_MIX'] = 'true' if m.definition['resources'].get('padMix', 0) else 'false'
+        pads = m.definition['resources'].get('padControls', [])
+        values['PAD_COUNT'] = len(pads)
+        values['PAD_BITS'] = ', '.join(str(f['bits']) for f in pads) or '1'
+        values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
+        values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
 
 
+def drum_transport(m):
+    """Whether a drum kit's adapter passes the tempo to its drum_transport: a kit declaring
+    SDK 1.10 or later. Older kits never get the call, whatever their source defines."""
+    return m.kind == 'drum' and getattr(m, 'sdk', (1, 0)) >= (1, 10)
+
+
+def pad_mix(m):
+    """Whether a drum kit's Shift row is each key's mixer channel (resources.padMix), whose
+    pan, level, pad controls and sends also lock per hit (drum_locks.hpp)."""
+    return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
+
+
+def sends_per_key(m):
+    """Whether a drum kit's keys keep their own share of the track's sends: padMix, whose
+    Shift row edits FX I and FX II."""
+    return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
+
+
 def generate_drum_callbacks(directory, machines):
-    declarations, rows = [], []
+    declarations, rows, sends = [], [], []
     for m in machines:
         if m.kind != 'drum':
             continue
@@ -89,16 +113,31 @@ def generate_drum_callbacks(directory, machines):
                          f'const char* {p}_drum_model_name(opxy::u32) __asm__("{p}_drum_model_name");',
                          f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");']
         groups = m.definition['resources'].get('modelGroups', [])
+        pads = m.definition['resources'].get('padControls', [])
+        if pads:
+            declarations += [f'bool {p}_drum_pad_text(opxy::u32, opxy::i32, char*) __asm__("{p}_drum_pad_text");',
+                             f'static const opxy::u8 {p}_pad_bits[] = {{{", ".join(str(f["bits"]) for f in pads)}}};',
+                             f'static const char* const {p}_pad_labels[] = {{{", ".join(json.dumps(f["label"]) for f in pads)}}};']
         if groups:
             declarations += [f'static const opxy::u8 {p}_group_sizes[] = {{{", ".join(str(g["count"]) for g in groups)}}};',
                              f'static const char* const {p}_group_names[] = {{{", ".join(json.dumps(g["label"]) for g in groups)}}};']
         # Audio classification must not require a screen constructed on the GUI role.
         rows.append(f'    {{{p}_engine_id, {p}_record_ready, {m.definition["resources"]["modelCount"]}, '
                     f'{p}_drum_defaults, {p}_drum_label, {p}_drum_model_name, {p}_drum_count, {len(groups)}, '
-                    f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}}},')
-    source = '#include "drum_machines.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
+                    f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}, '
+                    f'{1 if m.definition["resources"].get("padMix", 0) else 0}, {len(pads)}, '
+                    f'{p + "_pad_bits" if pads else "nullptr"}, {sum(1 << i for i, f in enumerate(pads) if f.get("signed"))}, '
+                    f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}}},')
+        if sends_per_key(m):
+            # The mixer's send hooks (drum_send.cpp) know a kit's voices by its method table.
+            declarations += [f'extern const void* const {p}_vtable[];',
+                             f'opxy::u32 {p}_drum_send(const void*) __asm__("{p}_drum_send");']
+            sends.append(f'    {{{p}_vtable, {p}_drum_send}},')
+    source = '#include "drum_machines.hpp"\n#include "drum_send.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
     source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'
+    source += 'const opxy::platform::DrumSendKit sdk_drum_send_kits[] = {\n' + ('\n'.join(sends) or '    {},') + '\n};\n'
+    source += f'const opxy::u32 sdk_drum_send_kit_count = {len(sends)};\n'
     destination = Path(directory) / 'drum_callbacks.cpp'
     destination.write_text(source, encoding='utf-8', newline='\n')
     return destination
@@ -138,14 +177,14 @@ def screen_bytes(m):
     return 76 + 4 * words
 
 
-def generate_display(directory, *, machine=None, definition=None, kind='synth'):
+def generate_display(directory, *, machine=None, definition=None, kind="synth", namespace=None, symbol_prefix=None, binding_namespace="binding"):
     """Same authored display callback for host, WebAssembly and native wrappers."""
     if definition is None:
         definition, assignment = machine.definition, stock_identity(machine)
     else:
         validate_definition(definition, kind)
         assignment = {'symbol_prefix': 'local_preview'}
-    namespace, prefix = definition['id'], assignment['symbol_prefix']
+    namespace, prefix = namespace or definition['id'], symbol_prefix or assignment['symbol_prefix']
     display = definition['resources']['display']
     layout = drawing_layout(display)
     frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**layout)
@@ -206,6 +245,8 @@ extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
 }}
 '''
     directory = Path(directory)
+    header = header.replace('namespace binding', 'namespace '+binding_namespace).replace('opxy::binding', 'opxy::'+binding_namespace)
+    source = source.replace('opxy::binding', 'opxy::'+binding_namespace)
     (directory / 'display_binding.hpp').write_text(header, encoding='utf-8', newline='\n')
     (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
 
@@ -444,6 +485,10 @@ def generate_synth_controls(directory, machines):
             declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
             choices = [len(p['mapping']['labels']) for p in shift] + [1] * (SYNTH_POSITIONS - len(shift))
             extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
+        elif own_screen and 'stockShift' in m.definition['resources']:
+            # Shift gives these encoders to the stock sampler page (drum_controls_stock.cpp).
+            codes = ', '.join(map(str, stock_shift_codes(m.definition)))
+            extra = f', 0, {{1, 1, 1, 1}}, nullptr, {{{codes}}}'
         rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
                     f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
                     f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {hidden_pages(m.definition)}, {absent}{extra}}},")
@@ -699,7 +744,8 @@ def generate_player_object(directory, m):
     from .native import player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='')
-    steps = [enum_steps(p) for p in m.definition['parameters']]
+    # One choice marks an absent slot: its encoder turns nothing (players.cpp).
+    steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
     values['STEPS'] = ', '.join(map(str, steps + [0] * (4 - len(steps))))
     if m.display == 'player':
         p = m.prefix
@@ -755,8 +801,9 @@ def default_preset(m):
 
 def preset_files(m):
     """The machine's init preset, then its own presets (tooling.machines.read_presets):
-    each a version 4 preset of this machine, pointing at no samples. Its own
-    default replaces the generated init preset (builder/core.mjs presetFiles)."""
+    each a version 4 preset of this machine, pointing at no samples or, for a sample
+    engine shipping its own (SDK 1.10), at one of those. Its own default replaces the
+    generated init preset (builder/core.mjs presetFiles)."""
     path = preset_path(m)
     if not path:
         return {}

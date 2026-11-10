@@ -1,4 +1,5 @@
 """Strict schema for a machine's definition.json, shared by every kind."""
+import json
 import math
 from pathlib import Path
 import re
@@ -63,6 +64,7 @@ RESOURCES = {
     'drum': ('voiceBytes', 'voiceAlignment', 'voiceCapacity', 'sharedBytes', 'outputPeakQ31', 'display', 'modelCount'),
     'sample': ('voiceCapacity',),
     'effect': (),
+    'master': ('display',),
     'player': (),
 }
 # A synth's own screen: one drawing contract (opxy/draw.hpp); the machine
@@ -78,14 +80,28 @@ SDK_1_7_NODES = 256
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
 # A sample engine's optional services: integer 0/1 flags and the analysis budget.
 SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming')
-SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS, 'display')   # display: its own screen
+# display: its own screen; stockShift: what Shift and each encoder edit there.
+SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS, 'display', 'stockShift')
+# The stock sampler page's turns a stockShift entry names, as the SDK's codes
+# (synth_controls.hpp): its encoders 1..4 unshifted, then with Shift, then the
+# two windows. An empty name keeps Shift's fine turn of the machine's control.
+# Shift + encoder 3, the loop crossfade (7), is left out: SampleBlock does not
+# carry it, so the engine could not hear it.
+STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
+               'direction': 5, 'tune': 6, 'gain': 8, 'window': 9, 'loopWindow': 10}
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
 EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
-# A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose;
-# and chokeSameKey 1 for a note to cut the voices still sounding its track's same key.
-DRUM_OPTIONS = ('modelGroups', 'chokeSameKey')
+# A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
+# (with padMix, which takes Shift's first row, they only title the models);
+# chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
+# padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level and its own FX I
+# and FX II sends; and padControls (SDK 1.10, with padMix), up to two small fields of
+# each key's own on Shift's second row.
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls')
+# Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
+PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
 EFFECT_BUFFER_LIMIT = 524288
 # A synth's optional GUI-side track control (opxy/track_control.hpp): its state.
 CONTROL_FIELDS = ('stateBytes', 'stateAlignment')
@@ -101,7 +117,7 @@ DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum
 # A synth's first four fill the four-control page; up to four more are alternates
 # (see control_positions). Sample engines and effects use one to eight; an
 # effect's after the first four are alternates on the send page.
-CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'player': (4, 4)}
+CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8), 'player': (4, 4)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
 SYNTH_POSITIONS = 4
@@ -129,8 +145,10 @@ HIDDEN_PAGES = {'envelope': 1, 'filter': 2}
 
 
 def hidden_pages(definition):
-    """The stock instrument pages a synth hides, as a bitmask of page indices (SDK 1.4)."""
-    return sum(1 << HIDDEN_PAGES[p] for p in definition.get('hidePages', ()))
+    """The stock instrument pages a synth or drum kit hides, as a bitmask of page indices
+    (SDK 1.4). A drum kit's M3 is stock's track filter, which runs on its voices
+    (drum_filter.hpp), so no kit hides it unless it says so."""
+    return sum(1 << HIDDEN_PAGES[p] for p in set(definition.get('hidePages', ())))
 
 
 def paged(definition):
@@ -142,13 +160,15 @@ def validate_definition(value, kind):
     optional = tuple(k for k in ('press', 'hidePages', 'shift') if k in value)
     keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *optional), 'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
-    stock_name(value['id']); label(value['name'])
+    if kind == 'master': identifier(value['id'])
+    else: stock_name(value['id'])
+    label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
                'synth': ('trackControl',)}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
-    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl')),
+    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls')),
             'Numeric resource requirements must be integers')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
@@ -170,6 +190,8 @@ def validate_definition(value, kind):
                 'sliceTiming needs drumControls')
         if 'display' in resources:
             validate_display(resources['display'])
+        if 'stockShift' in resources:
+            validate_stock_shift(resources)
     if kind == 'effect' and 'bufferBytes' in resources:
         size = resources['bufferBytes']
         require(4 <= size <= EFFECT_BUFFER_LIMIT and size % 4 == 0,
@@ -181,9 +203,30 @@ def validate_definition(value, kind):
             validate_display(resources['display'])
     if kind in ('synth', 'drum'):
         validate_synth_resources(resources)
+    if kind == 'master':
+        validate_display(resources['display'])
     if kind == 'drum':
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
         require(resources.get('chokeSameKey', 0) in (0, 1), 'chokeSameKey must be 0 or 1')
+        require(resources.get('padMix', 0) in (0, 1), 'padMix must be 0 or 1')
+        if 'padControls' in resources:
+            fields = resources['padControls']
+            require(resources.get('padMix', 0) == 1, 'padControls needs padMix')
+            require(isinstance(fields, list) and 1 <= len(fields) <= PAD_CONTROL_FIELDS,
+                    'padControls lists 1..%d fields' % PAD_CONTROL_FIELDS)
+            for field in fields:
+                require(isinstance(field, dict) and set(field) <= {'label', 'bits', 'signed'} and {'label', 'bits'} <= set(field),
+                        'A pad control has a label, bits and optionally signed')
+                require(isinstance(field['label'], str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 -]{0,7}', field['label']),
+                        'A pad control label is at most eight letters, digits, spaces or hyphens')
+                # The display's draw::Input::pad holds each value in a signed byte.
+                require(type(field.get('signed', False)) is bool, 'A pad control is signed or not')
+                if field.get('signed'):
+                    require(type(field['bits']) is int and 2 <= field['bits'] <= 8, 'A signed pad control has 2..8 bits')
+                else:
+                    require(type(field['bits']) is int and 1 <= field['bits'] <= 7, 'An unsigned pad control has 1..7 bits')
+            require(sum(f['bits'] for f in fields) <= PAD_CONTROL_BITS,
+                    'Pad controls share at most %d bits' % PAD_CONTROL_BITS)
         if 'modelGroups' in resources:
             groups = resources['modelGroups']
             require(isinstance(groups, list) and 2 <= len(groups) <= 16, 'modelGroups lists 2..16 groups')
@@ -201,9 +244,9 @@ def validate_definition(value, kind):
             f'Control count outside {low}..{high} for this kind')
     names = set()
     for i, parameter in enumerate(parameters):
-        alternate = kind in ('synth', 'drum', 'effect') and i >= SYNTH_POSITIONS
-        require(kind == 'synth' or not (isinstance(parameter, dict) and 'absent' in parameter),
-                'Only a synth leaves a slot absent')
+        alternate = kind in ('synth', 'drum', 'effect', 'master') and i >= SYNTH_POSITIONS
+        require(kind in ('synth', 'player') or not (isinstance(parameter, dict) and 'absent' in parameter),
+                'Only a synth or a note player leaves a slot absent')
         validate_parameter(parameter, alternate, required=kind in ('synth', 'drum'))
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
@@ -221,11 +264,11 @@ def validate_definition(value, kind):
                 "a drum kit's press always pages its row")
     if 'shift' in value:
         validate_shift(value['shift'], kind, set(names))
-    # Stock instrument pages a synth hides: M2 (envelope), M3 (filter) and M4 (LFO).
+    # Stock instrument pages a synth or drum kit hides: M2 (envelope) and M3 (filter).
     if 'hidePages' in value:
         pages = value['hidePages']
-        require(kind == 'synth' and isinstance(pages, list) and pages and len(set(pages)) == len(pages) and
-                all(p in HIDDEN_PAGES for p in pages), '"hidePages" lists "envelope" and/or "filter" for a synth')
+        require(kind in ('synth', 'drum') and isinstance(pages, list) and pages and len(set(pages)) == len(pages) and
+                all(p in HIDDEN_PAGES for p in pages), '"hidePages" lists "envelope" and/or "filter" for a synth or drum kit')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     present = {p['id'] for p in parameters if not p.get('absent')}
     for name, preset in value['presets'].items():
@@ -247,6 +290,28 @@ def validate_shift(shift, kind, names):
         names.add(parameter['id'])
         count *= len(parameter['mapping']['labels'])
     require(count <= SHIFT_STATES, 'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
+
+
+def validate_stock_shift(resources):
+    names = resources['stockShift']
+    require(isinstance(names, list) and 1 <= len(names) <= SYNTH_POSITIONS and all(type(n) is str for n in names),
+            'stockShift lists, for encoders 1..4 in order, what Shift and that encoder edit: at most four names')
+    require('crossfade' not in names,
+            "stockShift can't name crossfade: SampleBlock doesn't carry stock's loop crossfade, so the engine couldn't hear it")
+    unknown = [n for n in names if n not in STOCK_SHIFT]
+    require(not unknown, "stockShift names %s; it takes %s, or '' for the machine's own fine turn"
+            % (', '.join(map(json.dumps, unknown)), ', '.join(n for n in STOCK_SHIFT if n)))
+    named = [n for n in names if n]
+    require(named, 'stockShift names no stock control: leave it out instead')
+    require(len(set(named)) == len(named), 'stockShift names a stock control twice')
+    require('display' in resources,
+            "stockShift gives Shift on a sample engine's own screen to the stock sampler page: it needs resources.display")
+
+
+def stock_shift_codes(definition):
+    """The SDK's code for each encoder's Shift turn on a sample engine's own screen."""
+    names = definition.get('resources', {}).get('stockShift', [])
+    return [STOCK_SHIFT[n] for n in names] + [0] * (SYNTH_POSITIONS - len(names))
 
 
 def shift_parameters(definition):

@@ -1,0 +1,4 @@
+- [ ] With track 1's send at 0 the effect is silent; raising it brings the effect in smoothly
+- [ ] Its Dry control, if it has one, sets how much of track 1's own sound stays as the send rises
+- [ ] Stop the sequencer while a note rings: the effect's tail ends naturally, with no click
+- [ ] The same effect on track 16, at the same time as on track 15: each keeps its own values

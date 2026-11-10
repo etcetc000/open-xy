@@ -41,16 +41,29 @@ Its `OPEN_XY_REF` starts at `staging`; pin a compatible SDK commit for a release
 
 ## Hardware and publication
 
+Check the machine on the device with [QA.md](QA.md): one pass, top to bottom,
+in one project. Host tests can't hear the sound or see the screen. Keep it in
+step with the machine: its controls, and sections for its own behavior.
+
 Follow the SDK's [firmware build guide](https://github.com/etcetc000/open-xy/blob/staging/docs/build.md)
 and [hardware profiling workflow](https://github.com/etcetc000/open-xy/blob/staging/docs/profiling.md).
 Keep firmware and stock content outside every checkout. Commit the machine,
 build with profiling enabled, install when authorized and collect a run
-(see its "Collect a run" section).
+(see its "Collect a run" section). Run `sdk.py profile report` and inspect both
+average CPU (`block_percent`) and worst observed block CPU (`peak_percent`).
+The peak is the largest measured block across all settings and captures, never
+an average of peaks. A clipped peak cannot be published as an exact measurement.
+Aim for at most 3.5% of the block budget for both average and peak CPU;
+exceeding either recommendation warns but does not reject the submission.
 The host estimate printed by `test` cannot substitute for those measurements.
 
 For the builder, follow [catalog submission](https://github.com/etcetc000/open-xy/blob/staging/docs/catalog.md#submit-a-machine).
 Every new or changed draft/published entry needs a hardware CPU record tied to
-its pinned commit. Hardware validation may be performed by a maintainer if you
+its pinned commit, including average and peak CPU. Copy the complete `cpu` member
+from the generated `catalog-cpu.json` into the catalog entry before submitting.
+Existing captures can be reprocessed offline to add the peak; no new device run
+is needed if the exact source and measured package still match.
+Hardware validation may be performed by a maintainer if you
 do not own an XY. Publication remains pending until that evidence is available.
 
 The generated starter is covered by [LICENSE](LICENSE). Preserve notices for

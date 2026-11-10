@@ -51,19 +51,32 @@ Adjust that path if the user already has the SDK elsewhere.
    across the full animation palette, including after palette changes.
    `sdk.py test --machine .` validates both declared SVGs and their bindings;
    browser appearance still needs visual review.
-4. After local testing and audition, propose hardware validation. Follow the SDK's
+4. After local testing and audition, propose hardware validation. Keep QA.md, the
+   device checklist, in step with the machine with every change you make, not only
+   at the end: name its controls, add sections for its own behavior, remove lines
+   that no longer apply, and ask the user to run it as one pass on the device. Follow the SDK's
    [build guide](https://github.com/etcetc000/open-xy/blob/staging/docs/build.md)
    and [hardware profiling guide](https://github.com/etcetc000/open-xy/blob/staging/docs/profiling.md).
    Prepare a profiling-enabled build from committed source, request a device test
    if not already authorized, and wait for confirmation of installation/reboot.
    Collect a complete run (hardware profiling's "Collect a run"), generate the
-   report and explain its scope.
+   report and explain its scope. Report both average CPU (`block_percent`) and
+   worst observed block CPU (`peak_percent`), including the workload that spiked.
+   Profiling and adding the results are mandatory before declaring the machine
+   ready for catalog submission. Never call a heaviest-setting average a peak.
+   Aim for at most 3.5% each for average and peak CPU. Explain either warning;
+   exceeding the recommendation does not reject the submission.
    Never invent a CPU number from host checks. If hardware is unavailable, report
    that validation remains pending; a maintainer can run the batch.
-5. If publication is requested, follow
+5. When the user is getting ready to publish, recommend a full QA.md pass on the
+   device first, on a build of the exact commit the entry will pin, unless one
+   already passed for that commit. If publication is requested, follow
    [catalog submission](https://github.com/etcetc000/open-xy/blob/staging/docs/catalog.md#submit-a-machine).
+   Once the entry is released, remind the user of QA.md's "In the builder" checks.
    New or changed draft/published entries require the hardware `cpu` record for
-   the exact pinned commit. A new machine revision needs a new measurement.
+   the exact pinned commit, with both average and peak CPU. Run `sdk.py profile report`
+   and copy the complete `cpu` member from `catalog-cpu.json` into the entry;
+   do not leave this as a suggested follow-up. A new machine revision needs a new measurement.
    The catalog PR targets `staging` and changes only `catalog/machines.json`.
 
 Keep generated outputs outside this repository. Firmware, stock content and

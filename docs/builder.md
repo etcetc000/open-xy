@@ -4,6 +4,38 @@ Open-XY builds OP-XY firmware in the browser. It runs as a website or from a
 single `opxy-builder.html` file, including offline from `file://`. Firmware never
 leaves the browser.
 
+## MTP troubleshooting on macOS
+
+Select **I’m having trouble connecting to MTP** in either the OS-copy guide or
+build-upload guide. The same help is available before connecting and after a
+failed transfer, including when copying manually.
+
+The help button opens the fresh-install guide directly, assuming you have
+already closed other transfer apps and checked the connection.
+
+For a fresh installation, **Start fresh with OS 1.2.1** guides a full drive
+format and official OS reinstall before installing Open-XY. It erases user content and
+soundpacks; verify backups and obtain the official OS 1.2.1 update before
+proceeding. If you cannot back up data you need, stop. The guide requires an
+explicit acknowledgement before showing the format instructions and never
+formats the device itself.
+
+With the dev menu enabled, **5. format drive** is in **te-boot**, not the factory
+menu (where track 5 writes the OS). Follow the device prompts and wait for
+completion. Hold COM while switching on, then select **1. upload firmware**.
+The guide links to official OS 1.2.1 and walks through copying the `.tfw` file
+and ejecting the removable disk to start the update. After reinstalling,
+it returns to the original copy or install flow. See the
+[official update instructions](https://teenage.engineering/guides/op-xy/te-boot).
+
+A format and reinstall resolved a reported persistent MTP failure on a device
+with soundpacks installed. Soundpacks have **not** been established as the cause,
+and this procedure is not a guaranteed fix.
+
+If MTP connects but `os.ldr` is missing, use **The OS file is missing · Help me
+recover it** instead. That separate path guides an official reinstall without
+directing you to format.
+
 ## Using the builder
 
 1. Use a desktop browser exposing both Web MIDI and WebUSB, such as Chrome, Edge
@@ -44,13 +76,23 @@ leaves the browser.
    link to the machine's code at the commit the catalog pins. Open-XY's own
    example machines from the catalog are labelled as Open-XY machines. A
    [personal kit](#export-a-kit)'s own machines are marked **Yours**.
+   A machine whose catalog CPU measurement is above 4.5% of an audio block is
+   marked **CPU-high**, in its row and details; hover or focus the mark for an immediate explanation of its effect on voice count
+   ([catalog](catalog.md)).
    Above the list, search by name, maintainer, repository (such as a collection's
    name), description, kind or keyword, sort by name, maintainer or kind, and
    filter by kind, by the catalog's [keywords](catalog.md#keywords) or by your
-   favorites. Star a row to make it a
+   favorites. Keyword filters take up to three lines, in alphabetical order:
+   when they don't all fit, the most used ones show, with any you are filtering
+   by, and **+N more** shows the rest. Star a row to make it a
    favorite; favorites are kept in this browser only. Filtering never changes
    the selection: the count under the filters says how many selected machines
-   it hides.
+   it hides. **Presets**, beside the selection count, saves the selected
+   machines under a name and chooses them again in one step, replacing the
+   selection. **Update** on a preset replaces its machines with the current
+   selection, as saving its name again does. Presets are kept in this browser
+   only and name machines by ID: a machine the collection no longer offers is
+   left out and named.
 4. Choose optional extensions using the same checkbox rows as machines. Select
    a row to read what it does and how to use it in the details panel.
    Firmware extensions start off; continuing with none is valid. The summary lists your
@@ -160,6 +202,23 @@ The firmware reserves **2 MiB** of the application heap: 2032 KiB that every
 selected machine shares for code, data and state, and 16 KiB for relocated stock
 tables. The memory meter shows each machine's share; see
 [memory and limits](api.md#memory-and-limits). CPU headroom is not measured.
+
+Below the meter, **Use 4 MiB for machines** is an experimental option, off by
+default. It grows the reservation to 4 MiB (4080 KiB for machines) by
+shortening the application heap from 18 MiB to 16 MiB, using the profile's
+reviewed `experimental_memory` layout: the module starts 2 MiB lower and the two
+heap edits write the smaller size, while the tables, hooks and every other edit
+are unchanged. The stock OS needs that heap for its interface, projects,
+presets, file browsing and MTP, and running out of it is fatal, so this build
+may be unstable under heavy use. The selection summary shows the choice,
+`build.json` and `layout.json` record it (`reserved_bytes`, and
+`"memory": "expanded"` in the layout). Loading an open-xy OS sets the option to what that OS
+used (a stock OS keeps the current choice), and so does restoring a `layout.json`
+that lists machines. A layout from an experimental size this site doesn't offer
+keeps the current choice; machines that need more than the memory chosen use
+this site's option when it is on, and otherwise the builder says to turn it on.
+`sdk.py build` uses only the standard layout and refuses a 4 MiB `layout.json`;
+`sdk.py project write` accepts it.
 
 Projects save each track's machine by number, so a machine keeps its numbers
 in your firmware for good ([layouts](api.md#identity)). The builder remembers
