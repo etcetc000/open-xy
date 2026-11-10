@@ -4,6 +4,7 @@
 #include <extension_probe.cpp>
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
+#include <extension_loop.cpp>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 using namespace opxy;
@@ -13,7 +14,7 @@ u32 project_id = 1, selected = 0, input_enabled = 1, screen = 0;
 u32 pattern_id = 2, track_length = 16, scale = 3, quantization = 0;
 i32 position = 0;
 u32 playing = 0, counting = 0, held_record = 0, recorder_mode = 0, recorder_alt = 0;
-u32 other_held = 0, shift = 0;
+u32 other_held = 0, shift = 0, bar_down = 0, bar_lock = 0;
 extensions::Time clock_time;
 alignas(4) unsigned char pattern_notes[0x788];
 u32 on_calls, off_calls, tick_calls, loop_calls, stop_calls, event_calls, writes, publishes, popups, resets, undos;
@@ -25,8 +26,17 @@ bool failed, consume_record, reject_note, step_entry;
 // Any instrument track has a pattern; writes may target another than the selected one.
 u32 last_track, last_delta;
 u32 get_pattern(u32 t) { failed |= t >= 8; last_track = t; return pattern_id; }
-u32 get_length(u32 t) { failed |= t >= 8; return track_length; }
-u32 get_scale(u32 t) { failed |= t >= 8; return scale; }
+// The sequencer view reads all 16 tracks; writes stay on instrument tracks (get_pattern).
+u32 get_length(u32 t) { failed |= t >= 16; return track_length; }
+u32 get_scale(u32 t) { failed |= t >= 16; return scale; }
+u32 shown_bar = 0, bar_count = 4, refreshed = 0;
+unsigned char follow = 1;
+u32 get_shown(u32 t) { failed |= t >= 16; return shown_bar; }
+u32 get_bars(u32 t) { failed |= t != selected; return bar_count; }
+void show_bar(u32 t, u32 bar) { failed |= t != selected || bar >= bar_count; shown_bar = bar; }
+Address bar_view() { return 0x1234; }
+void refresh_bar(Address view, u32 bar) { failed |= view != 0x1234 || bar != shown_bar; ++refreshed; }
+alignas(4) unsigned char track_objects[16][0x290];
 u32 get_quantization(u32 t) { failed |= t != selected; return quantization; }
 i32 get_position(u32 controller, u32 t) {
     failed |= controller != 0x860c6adc || t != selected;
@@ -34,7 +44,7 @@ i32 get_position(u32 controller, u32 t) {
 }
 u32 scaled_delta(u32 t, u32 delta) { failed |= t != selected; return scale == 5 ? delta / 2 : delta; }
 u32 shift_down() { return shift; }
-u32 key_down(u32 key) { return other_held && key == other_held; }
+u32 key_down(u32 key) { return (other_held && key == other_held) || (bar_down && key == 25); }
 void get_clock(extensions::Time* out) { *out = clock_time; }
 void forward_loop(u32 controller, u32 elapsed) {
     failed |= controller != 0x860c6adc || elapsed != 17; ++loop_calls;
@@ -43,6 +53,12 @@ void forward_tick(u32 state, u32 delta) {
     failed |= state != 0x860c072c; last_delta = delta; ++tick_calls;
 }
 void forward_stop(u32 controller) { failed |= controller != 0x860c6adc; ++stop_calls; }
+// Stock's held-key record, which the bar menu's claimed Play and a held-back
+// BAR press reach directly, and its press dispatch, which gets that BAR press
+// at BAR's release.
+u32 held_keys, replays;
+void key_held(const u32* e) { failed |= !e[1] || (e[0] != 51 && e[0] != 25); ++held_keys; }
+void replay(const u32* e) { failed |= !e[1] || e[0] != 25 || e[2] != 123 || e[3] != 456; ++replays; }
 void forward_event(const u32* e) {
     ++event_calls;
     if (!input_enabled) return;
@@ -141,6 +157,9 @@ Address host_stock_address(Address address) {
         case 0x8d590b0a: return reinterpret_cast<Address>(&forward_tick);
         case 0x8d591964: return reinterpret_cast<Address>(&forward_stop);
         case 0x8c0b5d58: return reinterpret_cast<Address>(&forward_event);
+        case 0x8d5b8100: return reinterpret_cast<Address>(&key_held);
+        case 0x8c0b5b10: return reinterpret_cast<Address>(&replay);
+        case 0x0801ec09: return reinterpret_cast<Address>(&bar_lock);
         case 0x8d595738: return reinterpret_cast<Address>(&forward_on);
         case 0x8d5b7d54: return reinterpret_cast<Address>(&accepted_note);
         case 0x8d5b7e34: return reinterpret_cast<Address>(&steps_held);
@@ -151,7 +170,18 @@ Address host_stock_address(Address address) {
         case 0x8d58f24c: return reinterpret_cast<Address>(&insert);
         case 0x8d587668: return reinterpret_cast<Address>(&publish);
         case 0x8d549168: return reinterpret_cast<Address>(&popup);
+        case 0x8d585fb4: return reinterpret_cast<Address>(&get_shown);
+        case 0x8d585fe4: return reinterpret_cast<Address>(&get_bars);
+        case 0x8d587458: return reinterpret_cast<Address>(&show_bar);
+        case 0x8d54b438: return reinterpret_cast<Address>(&bar_view);
+        case 0x8d54addc: return reinterpret_cast<Address>(&refresh_bar);
+        case 0x860c9b50: return reinterpret_cast<Address>(&follow);
     }
+    const Address objects = 0x860c6adc + 0x108;
+    if (address >= objects && address < objects + sizeof(track_objects))
+        return reinterpret_cast<Address>(&track_objects[0][0]) + (address - objects);
+    static const u32 factors[16] = {5040, 3360, 2240, 1680, 1260, 840, 560, 420, 336, 280, 240, 210, 210, 140, 105, 105};
+    if (address >= 0x840aa47c && address < 0x840aa4bc) return reinterpret_cast<Address>(factors) + (address - 0x840aa47c);
     static const u32 ratios[32]={3,1,2,1,4,3,1,1,3,4,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,12,1,16,1,32};
     if (address>=0x840a36e0 && address<0x840a3760) return reinterpret_cast<Address>(ratios)+(address-0x840a36e0);
     __builtin_trap();
@@ -205,8 +235,64 @@ int main() {
     record(); CHECK(seen.control.key==50 && !seen.control.pressed && seen.control.accepted);
     CHECK(seen.control.unmodified && seen.control.time==clock_time && event_calls==4);
     key(10,true); CHECK(seen.control.key==10 && seen.control.accepted);
-    other_held=55; key(50,true); CHECK(!seen.control.unmodified); key(50,false); other_held=0;
-    shift=1; key(50,true); CHECK(!seen.control.unmodified && !seen.control.accepted); key(50,false); shift=0;
+    CHECK(seen.control.held==extensions::keys::none && !seen.control.shift && seen.control.screen == 0);
+    screen=0x23; key(8,true); CHECK(seen.control.screen==extensions::screens::bar_menu); key(8,false); screen=0;
+    // The probe claims bar_menu: Play in the bar menu with BAR held, with or
+    // without Shift, is only recorded held (stock's never runs) and reaches the
+    // probe as taken. Releases, the M keys, Play without BAR (the menu locked
+    // open), other screens and disabled input keep stock's dispatch.
+    {
+        const u32 events = event_calls, held = held_keys, started = playing;
+        screen=0x23; bar_down=1; key(51,true);
+        CHECK(event_calls==events && held_keys==held+1 && playing==started && seen.control.key==51 && seen.control.pressed);
+        CHECK(seen.control.accepted && seen.control.taken && seen.control.screen==extensions::screens::bar_menu);
+        key(51,false); CHECK(event_calls==events+1 && seen.control.key==51 && !seen.control.pressed && !seen.control.taken);
+        shift=1; key(51,true); CHECK(event_calls==events+1 && held_keys==held+2 && seen.control.shift && seen.control.taken);
+        key(51,false); shift=0; CHECK(event_calls==events+2);
+        key(6,true); CHECK(event_calls==events+3 && held_keys==held+2 && !seen.control.taken); key(6,false);
+        input_enabled=0; key(51,true); CHECK(event_calls==events+5 && held_keys==held+2 && !seen.control.accepted);
+        CHECK(!seen.control.taken); key(51,false); input_enabled=1;
+        bar_down=0; key(51,true); CHECK(event_calls==events+7 && held_keys==held+2 && playing && !seen.control.taken);
+        key(51,false); playing=started;
+        screen=0; bar_down=1; key(51,true); CHECK(event_calls==events+9 && held_keys==held+2 && playing && !seen.control.taken);
+        key(51,false); playing=started; bar_down=0;
+        CHECK(!failed);
+    }
+    // The bar menu locked open (Shift + BAR): a BAR press is only recorded held.
+    // Released with no other key pressed, BAR alone shows the next bar (wrapping;
+    // playing, stock's byte at kPlaying + 0x17 cleared), and Shift + BAR gets
+    // stock's press (it unlocks and closes the menu). With Play (taken) or any
+    // other key pressed meanwhile, neither. Unlocked, on another screen or
+    // without input, BAR is stock's.
+    {
+        u32 events = event_calls, held = held_keys;
+        screen=0x23; bar_lock=1;
+        key(25,true); CHECK(event_calls==events && held_keys==held+1 && !seen.control.taken && shown_bar==0);
+        key(25,false); CHECK(shown_bar==1 && refreshed==1 && follow==1 && !replays && event_calls==events+1);
+        shown_bar=3; playing=1; key(25,true); key(25,false); playing=0;
+        CHECK(shown_bar==0 && refreshed==2 && follow==0 && !replays && event_calls==events+2);
+        follow=1;
+        key(25,true); bar_down=1; key(51,true); CHECK(seen.control.taken && held_keys==held+4 && event_calls==events+2);
+        key(51,false); bar_down=0; key(25,false); CHECK(!replays && shown_bar==0 && event_calls==events+4);
+        key(25,true); key(6,true); key(6,false); key(25,false); CHECK(!replays && shown_bar==0 && event_calls==events+7);
+        shift=1; key(25,true); key(25,false); shift=0; CHECK(replays==1 && shown_bar==0 && event_calls==events+8);
+        shift=1; key(25,true); key(6,true); key(6,false); key(25,false); shift=0;
+        CHECK(replays==1 && refreshed==2 && event_calls==events+11);
+        events = event_calls; held = held_keys;
+        bar_lock=0; key(25,true); key(25,false); shift=1; key(25,true); key(25,false); shift=0;
+        CHECK(event_calls==events+4 && held_keys==held); bar_lock=1;
+        screen=0; key(25,true); key(25,false); CHECK(event_calls==events+6 && held_keys==held); screen=0x23;
+        input_enabled=0; key(25,true); key(25,false); CHECK(event_calls==events+8 && held_keys==held); input_enabled=1;
+        // Locked meanwhile closed another way: the release alone reaches stock.
+        key(25,true); bar_lock=0; key(25,false); CHECK(replays==1 && shown_bar==0 && event_calls==events+9);
+        screen=0; bar_lock=0;
+        CHECK(!failed);
+    }
+    other_held=55; key(50,true); CHECK(!seen.control.unmodified && seen.control.held==55); key(50,false); other_held=0;
+    // The sequencer view reaches the context: one bar of 16 steps at scale 3 (1680).
+    CHECK(seen.context.sequencer.track[0].bars==1 && seen.context.sequencer.track[15].bar_ticks==7680);
+    CHECK(seen.context.sequencer.track[0].loop==extensions::no_bar);
+    shift=1; other_held=25; key(50,true); CHECK(!seen.control.unmodified && !seen.control.accepted && seen.control.held==extensions::keys::none && seen.control.shift); key(50,false); shift=0; other_held=0;
     consume_record=true; key(50,true); CHECK(!seen.control.accepted); key(50,false); consume_record=false;
     input_enabled=0; key(10,true); CHECK(!seen.control.accepted); input_enabled=1;
     CHECK(!writes && !undos && !popups);

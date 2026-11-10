@@ -7,12 +7,32 @@ const ExtensionEntry* entries;
 const ExtensionRegistry* registry;
 u32 entry_count;
 bool initialized, dispatching;
-char notification[32];
+char notification[64];
 
 // The actions one callback may take, and what it has done with them: one stock
 // undo transaction and at most one notification per callback.
-struct Transaction { u32 granted; bool attempted, notified; };
+// moving: a sequencer_change callback, where loops that hold may move.
+struct Transaction { u32 granted, declared; bool attempted, notified, looped, started, moving; };
 Transaction transaction;
+// Each track's bar count and song-time bar length at the last sync.
+struct Shape { u8 bars[extensions::sequencer_tracks]; u32 ticks[extensions::sequencer_tracks]; };
+Shape shape;
+
+bool any_loop(const extensions::Sequencer& s) {
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t)
+        if (s.track[t].loop != extensions::no_bar) return true;
+    return false;
+}
+// Whether any track's bar count or scale changed since the last sync.
+bool reshaped(const extensions::Sequencer& s) {
+    bool changed = false;
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
+        changed |= shape.bars[t] != s.track[t].bars || shape.ticks[t] != s.track[t].bar_ticks;
+        shape.bars[t] = s.track[t].bars;
+        shape.ticks[t] = s.track[t].bar_ticks;
+    }
+    return changed;
+}
 
 bool same_text(const char* a, const char* b) {
     if (!a || !b) return false;
@@ -29,7 +49,10 @@ bool ready() {
     u32 count = 0;
     const ExtensionEntry* list = extension_collection(count);
     const ExtensionRegistry& known = extension_registry();
-    if (!list || count > 16 || known.claim_count > 32 || known.action_count > 32) return false;
+    if (!list || count > 16 || known.claim_count > 32 || known.claim_key_count > 32 ||
+        known.action_count > 32) return false;
+    for (u32 k = 0; k < known.claim_key_count; ++k)
+        if (known.claim_keys[k].claim >= known.claim_count) return false;
     u32 claimed = 0;
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
@@ -55,8 +78,10 @@ bool ready() {
 u32 granted(const ExtensionEntry& entry, const extensions::Control& control) {
     if (!control.accepted) return 0;
     u32 fired = 0;
-    for (u32 c = 0; c < registry->claim_count; ++c)
-        if ((entry.claims & (1u << c)) && registry->claim_keys[c] == control.key) fired |= 1u << c;
+    for (u32 k = 0; k < registry->claim_key_count; ++k) {
+        const ClaimKey& pair = registry->claim_keys[k];
+        if ((entry.claims & (1u << pair.claim)) && pair.key == control.key) fired |= 1u << pair.claim;
+    }
     u32 result = 0;
     for (u32 a = 0; fired && a < registry->action_count; ++a) {
         const u32 needs = registry->action_claims[a] ? registry->action_claims[a] : entry.claims;
@@ -84,14 +109,22 @@ u32 write_notes(const extensions::Context& expected, u32 track, const RecordedNo
     transaction.attempted = true; // One undo transaction per callback, including failures.
     return extension_write(track, notes, count, replace);
 }
-void notify(const char* text) {
-    if (!(transaction.granted & action_notify) || transaction.notified || !text) return;
+// A popup's text: 1 to `limit` characters, copied, once per callback.
+bool take_notice(const char* text, u32 limit) {
+    if (!(transaction.granted & action_notify) || transaction.notified || !text) return false;
     u32 length = 0;
-    while (length < 32 && text[length]) ++length;
-    if (!length || length == 32) return;
+    while (length <= limit && text[length]) ++length;
+    if (!length || length > limit) return false;
     for (u32 i = 0; i <= length; ++i) notification[i] = text[i];
     transaction.notified = true;
-    extension_notify(notification);
+    return true;
+}
+void notify(const char* text) {
+    if (take_notice(text, 31)) extension_notify(notification);
+}
+void notify_for(const char* text, u32 milliseconds) {
+    if (milliseconds < 100 || milliseconds > 10000) return;
+    if (take_notice(text, 63)) extension_notify_for(notification, milliseconds);
 }
 u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, false);
@@ -99,16 +132,104 @@ u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedN
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes};
+// Ending a loop only gives playback back to stock, so a holder of the action
+// may do it in any queued_control callback; holding bars needs the grant, or
+// a sequencer_change callback while bars already loop (moving them, never
+// starting a loop). Bars must exist in the playing pattern of a context that
+// is still current.
+// The context is still current, and the loop's bars exist in the playing
+// patterns as the context saw them. `sequencer` receives the tracks now.
+bool loop_fits(const extensions::Context& expected, const extensions::BarLoop& loop,
+               extensions::Sequencer& sequencer) {
+    bool playing = false;
+    const RecordingContext now = extension_context(playing);
+    if (!(now == expected.recording) || playing != expected.playing ||
+        !(now == current.recording) || playing != current.playing) return false;
+    extension_sequencer(sequencer);
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
+        const u8 bar = loop.bar[t];
+        if (bar != extensions::no_bar && (bar >= sequencer.track[t].bars ||
+            sequencer.track[t].bars != expected.sequencer.track[t].bars)) return false;
+    }
+    return true;
+}
+bool loop_bars(const extensions::Context& expected, const extensions::BarLoop& loop) {
+    if (!(transaction.declared & action_loop_bars) || transaction.looped) return false;
+    bool any = false;
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) any |= loop.bar[t] != extensions::no_bar;
+    extensions::Sequencer sequencer;
+    if (!loop_fits(expected, loop, sequencer)) return false;
+    if (any && !(transaction.granted & action_loop_bars) && !(transaction.moving && any_loop(sequencer)))
+        return false;
+    transaction.looped = true;  // One loop change per callback, including failures.
+    return extension_loop(loop);
+}
+// Both grants, while playing, once for the callback's loop change and start.
+bool loop_at_bar_end(const extensions::Context& expected, const extensions::BarLoop& loop, u32 song_tick) {
+    const u32 needs = action_loop_bars | action_play_from;
+    if ((transaction.granted & needs) != needs || transaction.looped || transaction.started) return false;
+    extensions::Sequencer sequencer;
+    if (!expected.playing || !loop_fits(expected, loop, sequencer)) return false;
+    transaction.looped = transaction.started = true;
+    return extension_loop_at_bar_end(loop, song_tick, current.recording.track);
+}
+// Starting (or, playing, restarting) playback needs the grant, once per
+// callback, from a current context.
+bool play_from(const extensions::Context& expected, u32 song_tick) {
+    if (!(transaction.granted & action_play_from) || transaction.started) return false;
+    bool playing = false;
+    const RecordingContext now = extension_context(playing);
+    if (playing != expected.playing || !(now == expected.recording) || !(now == current.recording) ||
+        playing != current.playing) return false;
+    transaction.started = true;
+    return extension_play_from(song_tick);
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, loop_bars, play_from, notify_for,
+                                     loop_at_bar_end};
 }
 
 void extensions_sync() {
     if (dispatching || !ready()) return;
     current.recording = extension_context(current.playing);
+    extension_sequencer(current.sequencer);
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
         if (entries[i].hooks->context) entries[i].hooks->context(current);
+    if (reshaped(current.sequencer) && any_loop(current.sequencer)) {
+        for (u32 i = 0; i < entry_count; ++i) {
+            if (!entries[i].hooks->sequencer_change) continue;
+            transaction = {0, entries[i].actions, false, false, false, false, true};
+            entries[i].hooks->sequencer_change(current, actions);
+            transaction = {0, 0, false, false, false, false, false};
+        }
+        current.recording = extension_context(current.playing);
+        extension_sequencer(current.sequencer);
+    }
     dispatching = false;
+}
+namespace {
+bool owned(u32 claim) {
+    for (u32 i = 0; i < entry_count; ++i)
+        if (entries[i].claims & (1u << claim)) return true;
+    return false;
+}
+}
+bool extensions_takes(u32 key, u32 screen) {
+    if (!ready() || !screen) return false;
+    for (u32 k = 0; k < registry->claim_key_count; ++k) {
+        const ClaimKey& pair = registry->claim_keys[k];
+        if (pair.key == key && pair.screen == screen && owned(pair.claim) &&
+            (pair.held == extensions::keys::none || extension_key_held(pair.held))) return true;
+    }
+    return false;
+}
+bool extensions_needs_held(u32 held, u32 screen) {
+    if (!ready() || !screen || held == extensions::keys::none) return false;
+    for (u32 k = 0; k < registry->claim_key_count; ++k) {
+        const ClaimKey& pair = registry->claim_keys[k];
+        if (pair.held == held && pair.screen == screen && owned(pair.claim)) return true;
+    }
+    return false;
 }
 void extensions_input_activity() {
     if (dispatching || !ready()) return;
@@ -160,9 +281,9 @@ void extensions_queued_control(const extensions::Control& control) {
     if (!entries) return;
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i) {
-        transaction = {granted(entries[i], control), false, false};
+        transaction = {granted(entries[i], control), entries[i].actions, false, false, false, false, false};
         if (entries[i].hooks->queued_control) entries[i].hooks->queued_control(current, control, actions);
-        transaction = {0, false, false};
+        transaction = {0, 0, false, false, false, false, false};
     }
     dispatching = false;
 }

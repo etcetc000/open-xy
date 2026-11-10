@@ -44,16 +44,24 @@ DRUMLINE_CODE_BITS = 16
 
 def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
-    data (a label and the key it governs); actions are one bit each in RUNTIME."""
+    data (a label, the keys it governs and optionally the stock screen where its
+    holder takes them, and a key that must be held for it to); actions are one
+    bit each in RUNTIME."""
     data = document(ROOT / PROFILE)
     require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
     for name, claim in claims.items():
-        require(NAME.fullmatch(name) and isinstance(claim, dict) and set(claim) == {'label', 'key'} and
+        require(NAME.fullmatch(name) and isinstance(claim, dict) and {'label', 'keys'} <= set(claim) <=
+                {'label', 'keys', 'screen', 'held'} and
+                (type(claim.get('screen', 1)) is int and 0 < claim.get('screen', 1) < 256) and
+                ('held' not in claim or ('screen' in claim and type(claim['held']) is int and
+                                         0 <= claim['held'] < 256 and claim['held'] not in claim['keys'])) and
                 isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
-                type(claim['key']) is int and 0 <= claim['key'] < 256, 'Invalid claim: ' + name)
+                isinstance(claim['keys'], list) and 0 < len(claim['keys']) <= 8 and
+                all(type(k) is int and 0 <= k < 256 for k in claim['keys']) and
+                len(set(claim['keys'])) == len(claim['keys']), 'Invalid claim: ' + name)
     for name, action in actions.items():
         require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
                 ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
@@ -233,23 +241,28 @@ def events():
 
 
 def check_profile(profile):
-    """Every extension hook names the events it feeds, and every event has a site."""
+    """Every extension hook names the events it feeds or the actions it serves,
+    and every event has a site."""
     known, fed = set(events()), set()
+    _claims, actions = registry()
     for patch in profile['patches']:
         if patch.get('service') == 'extensions':
-            listed = patch.get('events')
-            require(patch['kind'] == 'hook' and isinstance(listed, list) and listed and
-                    len(set(listed)) == len(listed) and set(listed) <= known,
-                    'An extension hook names the events it feeds: ' + str(patch.get('symbol')))
+            listed, served = patch.get('events', []), patch.get('actions', [])
+            require(patch['kind'] == 'hook' and isinstance(listed, list) and isinstance(served, list) and
+                    (listed or served) and len(set(listed)) == len(listed) and set(listed) <= known and
+                    len(set(served)) == len(served) and set(served) <= set(actions),
+                    'An extension hook names the events it feeds or the actions it serves: ' +
+                    str(patch.get('symbol')))
             fed |= set(listed)
         else:
-            require('events' not in patch, 'Only extension hooks name events')
+            require('events' not in patch and 'actions' not in patch,
+                    'Only extension hooks name events or actions')
     require(fed == known, 'Events without a firmware site: ' + ', '.join(sorted(known - fed)))
 
 
 def generate_collection(folder, extensions):
     """The collection and the registry tables the runtime reads: each claim's
-    key, and the claims that grant each action (0: any claim its holder owns)."""
+    keys, and the claims that grant each action (0: any claim its holder owns)."""
     claims, actions = registry()
     claim_bit = {name: 1 << i for i, name in enumerate(claims)}
     action_bit = {name: 1 << i for i, name in enumerate(actions)}
@@ -262,12 +275,14 @@ def generate_collection(folder, extensions):
     lines += ['namespace opxy { namespace platform {', 'namespace {',
               'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
-              'const u32 claim_keys[] = {' + table([str(c['key']) for c in claims.values()]) + '};',
+              'const ClaimKey claim_keys[] = {' + (', '.join(
+                  '{%d, %d, %d, %s}' % (i, k, c.get('screen', 0), '%du' % c['held'] if 'held' in c else '0xffffffffu')
+                  for i, c in enumerate(claims.values()) for k in c['keys']) or '{0, 0, 0, 0xffffffffu}') + '};',
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',
-              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d};' % (
-                  len(claims), len(actions)),
+              'const ExtensionRegistry registry_tables = {claim_keys, %d, %d, action_claims, %d};' % (
+                  sum(len(c['keys']) for c in claims.values()), len(claims), len(actions)),
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
               'const ExtensionEntry* extension_collection(u32& count) {', '    count = 0;']

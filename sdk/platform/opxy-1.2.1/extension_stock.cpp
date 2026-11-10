@@ -41,6 +41,83 @@ bool unmodified(u32 key) {
         if (other != key && stock<u32(u32)>(0x8d5b7d7c)(other)) return false;
     return true;
 }
+// The one other key held, without Shift (a hold-menu such as the bar menu).
+u32 held_with(u32 key) {
+    if (shift_held()) return extensions::keys::none;
+    u32 found = extensions::keys::none;
+    for (u32 other = 0; other < 56; ++other) {
+        if (other == key || !stock<u32(u32)>(0x8d5b7d7c)(other)) continue;
+        if (found != extensions::keys::none) return extensions::keys::none;
+        found = other;
+    }
+    return found;
+}
+}
+
+namespace {
+const u32 kBarMenuLocked = 0x0801ebec + 0x1d;  // byte: global controller's bar menu lock
+const u32 kBar = extensions::keys::bar;
+const u32 kBarMenu = extensions::screens::bar_menu;
+// A BAR press held back on the locked bar menu: the event, whether Shift was
+// held, and whether another key was pressed before BAR's release.
+struct HeldBar { bool active, shift, other; u32 event[4]; };
+HeldBar held_bar;
+void record_held(const u32* event) { stock<void(const u32*)>(0x8d5b8100)(event); }
+// The selected track's next bar shown, wrapping, as a BAR tap on the unlocked
+// menu shows it (stock's bar menu key handler, 8c0845e0-8c08464c, which skips
+// it while locked): 8d585fb4 the shown bar, 8d585fe4 the bar count, 8d587458
+// shows one; playing, it clears the byte at kPlaying + 0x17 as stock does, and
+// 8d54addc refreshes the view (8d54b438's object, the bar).
+void show_next_bar() {
+    const u32 track = byte(kSelectedTrack);
+    const u32 bars = stock<u32(u32)>(0x8d585fe4)(track);
+    if (!bars) return;
+    const u32 shown = stock<u32(u32)>(0x8d585fb4)(track) + 1;
+    const u32 next = shown < bars ? shown : 0;
+    stock<void(u32, u32)>(0x8d587458)(track, next);
+    if (byte(kPlaying) || byte(kPlaying + 1)) *at<volatile unsigned char>(kPlaying + 0x17) = 0;
+    stock<void(Address, u32)>(0x8d54addc)(stock<Address()>(0x8d54b438)(), next);
+}
+
+// Stock's key dispatch (8c0b5d58), with a claim's keys on its screen given to
+// its holder, with or without Shift, while its held key (if any) is held
+// (bar_menu: Play with BAR held in the bar menu). Stock dispatches a press to
+// the screen's controller and its global handler (8c0b5b10; with Shift
+// 8c0b5b80), then records the key as held (8d5b8100); a taken press is only
+// recorded as held, so the holder gets the key and stock's action never runs.
+// Releases, other screens and every other key keep stock's dispatch.
+//
+// Shift + BAR locks the bar menu open (the lock byte), so Play there without
+// BAR stays stock's (playback starts). While a claim needs BAR held there, a
+// BAR press on the locked menu (stock: closes it, 8c09291c; with Shift, locks
+// it again) is held back until BAR's release, so BAR + Play keeps the menu
+// open. Released with no other key pressed meanwhile, BAR alone shows the next
+// bar, as a BAR tap does on the unlocked menu, and Shift + BAR gets stock's
+// BAR press, which unlocks and closes the menu. Released with the lock set,
+// stock's BAR release leaves the menu alone (8c093030).
+bool dispatch_key(const u32* event) {
+    const bool enabled = byte(kInputEnabled) != 0;
+    if (event[1] && held_bar.active && event[0] != kBar) held_bar.other = true;
+    if (event[1] && enabled && event[0] == kBar && byte(kBarMenuLocked) &&
+        word(kScreen) == kBarMenu && extensions_needs_held(kBar, kBarMenu)) {
+        held_bar = {true, shift_held(), false, {event[0], event[1], event[2], event[3]}};
+        record_held(event);
+        return false;
+    }
+    if (!event[1] && event[0] == kBar && held_bar.active) {
+        held_bar.active = false;
+        if (!held_bar.other && enabled && byte(kBarMenuLocked) && word(kScreen) == kBarMenu) {
+            if (held_bar.shift) stock<void(const u32*)>(0x8c0b5b10)(held_bar.event);
+            else show_next_bar();
+        }
+    }
+    if (event[1] && enabled && extensions_takes(event[0], word(kScreen))) {
+        record_held(event);
+        return true;
+    }
+    stock<void(const u32*)>(0x8c0b5d58)(event);
+    return false;
+}
 }
 
 TrackPattern extension_pattern(u32 track) {
@@ -82,6 +159,7 @@ u32 extension_scaled_delta(u32 track, u32 delta) {
     return stock<u32(u32, u32)>(0x8d5950e0)(track, delta << 8);
 }
 bool extension_record_held() { return byte(kRecordHeld) != 0; }
+bool extension_key_held(u32 key) { return stock<u32(u32)>(0x8d5b7d7c)(key) != 0; }
 
 i32 extension_collision_radius(u32 track) {
     const u32 scale = stock<u32(u32)>(0x8d586b50)(track);
@@ -117,8 +195,23 @@ u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replac
     if (written || replace) stock<void(u32)>(0x8d587668)(track);  // A cleared pattern is a change too.
     return written;
 }
+// Stock's popup (8d549168: text, 1, 0, seconds as a float); stock's own last
+// 2 or 5 seconds, the SDK's half a second unless asked.
 void extension_notify(const char* text) {
     stock<void(const char*, u32, u32, u32)>(0x8d549168)(text, 1, 0, 0x3f000000u);
+}
+// Seconds as an IEEE single, without float arithmetic (the module links none):
+// the time in Q18 seconds, normalized. 100-10000 ms fits in 32 bits.
+u32 seconds_bits(u32 milliseconds) {
+    const u32 q18 = (milliseconds << 18) / 1000;
+    if (!q18) return 0;
+    u32 top = 31;
+    while (!(q18 & (1u << top))) --top;
+    const u32 mantissa = (top > 23 ? q18 >> (top - 23) : q18 << (23 - top)) & 0x7fffffu;
+    return ((top - 18 + 127) << 23) | mantissa;
+}
+void extension_notify_for(const char* text, u32 milliseconds) {
+    stock<void(const char*, u32, u32, u32)>(0x8d549168)(text, 1, 0, seconds_bits(milliseconds));
 }
 }}
 
@@ -165,12 +258,13 @@ void sdk_extensions_live_note_off(u32 controller, u32 track, u32 note, u32 a3, u
 }
 void sdk_extensions_key(const u32* event) {
     extensions_sync();
-    extensions::Control control = {event[0], event[1] != 0, false, unmodified(event[0]), 0};
+    extensions::Control control = {event[0], event[1] != 0, false, unmodified(event[0]), 0, held_with(event[0]),
+                                   shift_held(), word(kScreen), false};
     const bool was_held = extension_record_held();
     const bool enabled = byte(kInputEnabled) != 0;
     // The clock writes a full 64-bit microsecond value through its argument.
     stock<void(extensions::Time*)>(0x8d5be3a0)(&control.time);
-    stock<void(const u32*)>(0x8c0b5d58)(event);
+    control.taken = dispatch_key(event);
     // Stock records Record's held state; other keys are accepted while input is enabled.
     control.accepted = enabled && (control.key != extensions::keys::record ||
         (control.pressed ? extension_record_held() : was_held && !extension_record_held()));
