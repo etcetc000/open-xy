@@ -126,7 +126,7 @@ __UINT64_TYPE__ stock_note_time(u32 c) {
     require(c == kNoteController, "Clock asked of another controller");
     return kNoteTime;
 }
-u32 stock_shift() { return shift; }
+u32 stock_shift_key() { return shift; }
 void notes(std::initializer_list<control::Note> list) {
     note_script_count = 0;
     for (const control::Note& n : list) note_script[note_script_count++] = n;
@@ -239,7 +239,7 @@ opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Addre
     if (address == 0x8d595420) return reinterpret_cast<Address>(&stock_note_off);
     if (address == 0x8d59357c) return reinterpret_cast<Address>(&stock_note_time);
     if (address == 0x860c6adc + 0x3048) return reinterpret_cast<Address>(&table_count);
-    if (address == 0x8d51f184) return reinterpret_cast<Address>(&stock_shift);
+    if (address == 0x8d51f184) return reinterpret_cast<Address>(&stock_shift_key);
     if (address == 0x86bd0080) return reinterpret_cast<Address>(&ticks96);
     if (address == 0x860c9b39) return reinterpret_cast<Address>(&playing[0]);
     if (address == 0x860c9b3a) return reinterpret_cast<Address>(&playing[1]);
