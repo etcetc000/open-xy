@@ -422,7 +422,8 @@ test('Extensions graphics defaults to original designs without firmware extensio
       }},
     window:{addEventListener() {}}, location,
     history:{replaceState() { location.hash = ''; }},
-    localStorage:{setItem(key, value) { savedBrowserState.set(key, value); }},
+    localStorage:{getItem(key) { return savedBrowserState.get(key) ?? null; },
+      setItem(key, value) { savedBrowserState.set(key, value); }},
     matchMedia:() => ({matches:true}), requestAnimationFrame:() => 1, cancelAnimationFrame() {},
   };
   for (const [key, value] of Object.entries(globals)) {
@@ -461,6 +462,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
     visuals:{reveal() {}, icon:() => new Element(), bundle:() => new Element(),
       graphicsExamples:() => ({elements:[], setGraphics:mode => previewModes.push(mode)})}, supportsBrowser:() => true});
   const api = {async configure(value) {
+    savedBrowserState.delete('open-xy-selection');
     currentFixture = value;
     await builder.loadCollection(value.kit);
     $('risk-acknowledgement').checked = true;
@@ -767,6 +769,19 @@ test('Extensions graphics defaults to original designs without firmware extensio
   await $('build').onclick();
   assert.deepEqual(manifest().settings, {graphics:'colorful'});
   assert.doesNotMatch($('download-summary').textContent, /Grayscale machine graphics/);
+  // Visiting without editing must leave firmware free to restore its selection after reload.
+  savedBrowserState.delete('open-xy-selection');
+  await builder.loadCollection(currentFixture.kit);
+  assert.ok(wizardOptions.getSelected().length > 0);
+  assert.equal(savedBrowserState.has('open-xy-selection'), false);
+  await builder.loadCollection(currentFixture.kit);
+  recoverResult = {stock:Uint8Array.of(1), selected:[], extensions:[]};
+  assert.equal(await wizardOptions.onFirmware({name:'Recovered empty selection', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.deepEqual(wizardOptions.getSelected(), []);
+  assert.equal(savedBrowserState.has('open-xy-selection'), false);
+  recoverResult = null;
+  await builder.loadCollection(currentFixture.kit);
   // Loading verified firmware must preserve the user's edited empty selection.
   for (const row of $('machines').children) {
     const checkbox = row.children[0].children[0];
@@ -774,7 +789,8 @@ test('Extensions graphics defaults to original designs without firmware extensio
   }
   assert.deepEqual(wizardOptions.getSelected(), []);
   assert.deepEqual(JSON.parse(savedBrowserState.get('open-xy-selection')).selected, []);
-  fakeCore.recoverFirmware = async () => ({stock:Uint8Array.of(1), selected:['probe'], extensions:[]});
+  await builder.loadCollection(currentFixture.kit);
+  recoverResult = {stock:Uint8Array.of(1), selected:['probe'], extensions:[]};
   assert.equal(await wizardOptions.onFirmware({name:'Recovered selection', size:1,
     arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
   assert.deepEqual(wizardOptions.getSelected(), []);
