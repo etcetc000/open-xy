@@ -145,7 +145,8 @@
     ],
     "drums": [
       "drum",
-      "drumline_page"
+      "drumline_page",
+      "synthShift"
     ],
     "players": [
       "player"
@@ -162,7 +163,8 @@
     ],
     "drum_locks": [
       "padMix",
-      "drumline_page"
+      "drumline_page",
+      "synthShift"
     ],
     "drumline": [
       "drumline_page"
@@ -1391,7 +1393,7 @@
       "file_offset": "0x11e70c",
       "length": 4,
       "before": "21600808",
-      "symbol": "extensions_drum_compare_r0",
+      "symbol": "extensions_preset_export_regions",
       "service": "drums",
       "call": true
     },

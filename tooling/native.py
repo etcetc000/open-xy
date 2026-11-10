@@ -27,6 +27,7 @@ from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, 
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
+from .definitions import synth_shift
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
@@ -254,14 +255,16 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
-    they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix'), 'extension'
-    when it links extensions (native builds link all of the collection's), and the
-    capabilities they declare ('master_filter', 'drumline_page')."""
+    they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
+    Shift row, whose presets and step locks use the drums and drum_locks services),
+    'extension' when it links extensions (native builds link all of the collection's),
+    and the capabilities they declare ('master_filter', 'drumline_page')."""
     users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
+            ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []))
 

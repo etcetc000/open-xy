@@ -6,6 +6,8 @@
 #include "synth_controls.hpp"
 #include <opxy/effect.hpp>
 #include "shift_row.hpp"
+#include "synth_shift.hpp"
+#include <opxy/synth_shift.hpp>
 #include "stock.hpp"
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
@@ -23,6 +25,7 @@ const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 }
 opxy::u32 (*sdk_aux_engine)(opxy::u32) = nullptr;
 bool (*sdk_aux_owns_page)(opxy::u32) = nullptr;
+bool (*sdk_control_turn)(opxy::u32, opxy::u32, const opxy::i32*) = nullptr;
 
 namespace {
 using opxy::u32;
@@ -163,6 +166,100 @@ const u32 kProjectLoading = 0x840a0528;  // nonzero while stock loads a project
 opxy::i32 stored_value(u32 track, u32 slot) {
     return *reinterpret_cast<const volatile opxy::i32*>(kProject + 0x4080 + track * 0xe8 + slot * 4);
 }
+
+// A detent the track's machine takes as its own (track control), which then
+// edits nothing.
+bool taken(u32 track, u32 slot, u32 event) {
+    return sdk_control_turn && sdk_control_turn(track, slot, reinterpret_cast<const opxy::i32*>(event));
+}
+
+// A synth's Shift row (SDK 1.13, synth_shift.hpp), on instrument tracks 0..7 only.
+namespace row = opxy::platform::synth_shift;
+const SynthShift* shift_of(const SynthControls* m, u32 track) {
+    return m && !m->effect && track < kTracks ? m->synth_shift : nullptr;
+}
+// The page the track's encoders are on: a paged synth's second once a press has
+// moved any position to its alternate.
+u32 shift_page(const Track& t) {
+    for (u32 i = 0; i < opxy::page_controls; ++i)
+        if (t.slots[i] != i) return 1;
+    return 0;
+}
+// Whether the encoders turn the row: Shift held on the selected instrument
+// track's engine page.
+bool shift_shown(u32 track) {
+    return track == byte(kSelectedTrack) && top_controller_vtable() == kInstrumentController &&
+           word(kInstrumentPage) == 0 && shift_held();
+}
+// An entry's field, as the track's stored word (its selected pattern's) holds it.
+u32 shift_field(const SynthShift& s, u32 track, u32 entry) {
+    return row::bounded(row::field(current_value(track, row::word_of(entry)), entry, s.defaults), s.choices[entry]);
+}
+// While a step is held, the field that step plays: its lock (a step-wide entry
+// of its step-lock handle, lock_handles.hpp), else the track's.
+const u32 kStepWide = opxy::platform::step_locks::kStepWide;
+bool shift_lock(u32 track, u32 entry, u32& field) {
+    opxy::i32 value;
+    if (!step_held() || !sdk_project_locks_held_value(track, kStepWide, entry, &value) || value < 0) return false;
+    field = static_cast<u32>(value);
+    return true;
+}
+u32 shift_played(const SynthShift& s, u32 track, u32 entry) {
+    u32 locked;
+    return shift_lock(track, entry, locked) ? row::bounded(locked, s.choices[entry]) : shift_field(s, track, entry);
+}
+// The row's entry under a position on the page the encoders are on, or count.
+u32 shift_entry(const SynthShift& s, const Track& t, u32 position) {
+    const u32 entry = opxy::page_controls * shift_page(t) + position;
+    return position < opxy::page_controls && entry < s.count ? entry : s.count;
+}
+// A Shift turn of a position: its entry moves by the turn's detents (event[1]),
+// an amount (speed + 1) a detent up to four (event[2]), a choice one. With a step
+// held, the turn locks the entry at that step, as the kit's Shift fields lock
+// (lock_handles.hpp): a step-wide entry of the step's handle, field = the entry,
+// unlocked when it is turned back to the track's own value. Otherwise the word
+// goes to the track's stored words, which projects save, and live through
+// 8d5acea8, which sends it to the audio side; not through stock's set, which
+// while recording would record it as a lock, and a lock keeps only a word's top
+// half.
+u32 shift_turn(u32 project, u32 track, const SynthShift& s, const Track& t, u32 position, u32 event) {
+    const u32 entry = shift_entry(s, t, position);
+    if (!event || entry >= s.count || s.choices[entry] == row::kAbsent) return 0;
+    const opxy::i32* turn = reinterpret_cast<const opxy::i32*>(event);
+    opxy::i32 delta = turn[1] > 127 ? 127 : turn[1] < -127 ? -127 : turn[1];
+    if (s.choices[entry] == row::kContinuous) delta *= turn[2] < 0 ? 1 : turn[2] > 3 ? 4 : turn[2] + 1;
+    const opxy::i32 own = static_cast<opxy::i32>(shift_field(s, track, entry));
+    const bool held = step_held();
+    const opxy::i32 now = held ? static_cast<opxy::i32>(shift_played(s, track, entry)) : own;
+    const opxy::i32 top = static_cast<opxy::i32>(row::top(s.choices[entry]));
+    const opxy::i32 next = now + delta < 0 ? 0 : now + delta > top ? top : now + delta;
+    if (next == now) return 0;
+    if (held) return sdk_project_locks_held_set(track, kStepWide, entry, next != own, next) ? 1 : 0;
+    const u32 index = row::word_of(entry);
+    const opxy::i32 value = row::with(current_value(track, index), entry, static_cast<u32>(next), s.defaults);
+    *reinterpret_cast<volatile opxy::i32*>(stock<u32(u32)>(0x8d587708)(track) + 0x3864 + index * 4) = value;
+    stock<void(u32, u32, u32, opxy::i32)>(0x8d5acea8)(project, track, index, value);
+    return 1;
+}
+// While Shift shows the row on the selected track, its title for a page
+// position: the entry's, or empty beyond the row. Null otherwise.
+// Whether the build has a synth with a Shift row, from the table alone (no stock
+// call), so builds and tracks without one take exactly their earlier paths.
+bool any_shift() {
+    for (u32 i = 0; i < sdk_synth_control_count; ++i)
+        if (sdk_synth_controls[i].synth_shift) return true;
+    return false;
+}
+const char* shift_title(u32 engine, u32 position) {
+    if (!any_shift()) return nullptr;
+    Track* t;
+    const u32 track = byte(kSelectedTrack);
+    const SynthControls* m = track < kTracks ? machine(track, t) : nullptr;
+    const SynthShift* s = shift_of(m, track);
+    if (!s || m->engine() != engine || position >= opxy::page_controls || !shift_shown(track)) return nullptr;
+    const u32 entry = shift_entry(*s, *t, position);
+    return entry < s->count ? s->titles[entry] : "";
+}
 }
 
 void sdk_synth_shown(u32 track, u8* slots) {
@@ -184,6 +281,7 @@ u32 sdk_synth_title_slot(u32 engine, u32 index) {
 // holds is the machine's.
 const char* sdk_synth_title(u32 engine, u32 index) {
     if (const u32 held = aux_engine(byte(kSelectedTrack))) engine = held;
+    if (const char* title = shift_title(engine, index)) return title;
     return stock<const char*(u32, u32)>(0x8d506c4c)(engine, sdk_synth_title_slot(engine, index));
 }
 
@@ -307,8 +405,12 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     const u32 original_index = index;
     if (fine_turn) index -= 4;
     const SynthControls* m = index < opxy::page_controls ? machine(track, t) : nullptr;
+    // A synth with a Shift row (SDK 1.13): Shift turns the row, not fine steps.
+    if (m && fine_turn)
+        if (const SynthShift* s = shift_of(m, track)) return shift_turn(project, track, *s, *t, index, event);
     if (m) {
         index = t->slots[index];
+        if (taken(track, index, event)) return 1;
         // An absent slot (an empty placeholder) turns nothing: stock gets a turn of no detents.
         if (event && index < opxy::parameter_slots && (m->absent & (1u << index))) {
             const opxy::i32 still[3] = {0, 0, 0};
@@ -333,6 +435,7 @@ u32 sdk_effect_turn(u32 project, u32 track, u32 index, u32 event) {
     Track* t;
     const SynthControls* m = nullptr;
     if (index < opxy::page_controls) m = aux_engine(track) ? machine(track, t) : send_effect(track, t);
+    if (m && !m->effect && taken(track, t->slots[index], event)) return 1;
     // With Shift, an effect's shift row: one choice per detent, packed into
     // the send track's shift-row word through stock's set.
     if (m && m->shift && shift_held()) {
@@ -502,7 +605,132 @@ u32 sdk_synth_scramble(u32 project, u32 track, u32 index, opxy::i32 value) {
 bool sdk_synth_value(u32 track, u32 slot, opxy::i32 value, char* text) {
     Track* t;
     const SynthControls* m = machine(track, t);
+    // While Shift shows a synth's row, the position showing `slot` captions its
+    // entry (slot 8 + entry of the machine's format); beyond the row it is blank.
+    if (const SynthShift* s = shift_of(m, track)) {
+        if (shift_shown(track)) {
+            u32 position = 0;
+            while (position < opxy::page_controls && t->slots[position] != slot) ++position;
+            const u32 entry = shift_entry(*s, *t, position);
+            text[0] = 0;
+            if (entry < s->count && s->choices[entry] != row::kAbsent)
+                m->format(8 + entry, row::q31(shift_played(*s, track, entry), s->choices[entry]), text);
+            return true;
+        }
+    }
     return m && m->format(slot, value, text);
+}
+
+// The synth's Shift row as its display reads it (opxy/synth_shift.hpp). GUI only.
+extern "C" const opxy::draw::ShiftRow* opxy_synth_shift(u32 track) {
+    static opxy::draw::ShiftRow view;
+    view.held = 0;
+    view.line = 0;
+    for (u32 i = 0; i < opxy::draw::shift_entries; ++i) view.values[i] = 0;
+    Track* t;
+    const SynthControls* m = track < kTracks ? machine(track, t) : nullptr;
+    const SynthShift* s = shift_of(m, track);
+    if (!s) return &view;
+    view.line = shift_page(*t);
+    view.held = shift_shown(track) ? 1 : 0;
+    for (u32 i = 0; i < s->count && i < opxy::draw::shift_entries; ++i)
+        view.values[i] = row::q31(shift_played(*s, track, i), s->choices[i]);
+    return &view;
+}
+
+// Whether an engine is an owned synth with a Shift row (the drums service's preset
+// hooks, drum_machines.cpp sdk_preset_alias, and the step-lock client, drum_locks.cpp).
+bool sdk_synth_shift_present() { return any_shift(); }
+bool sdk_synth_shift_engine(u32 engine) {
+    const SynthControls* m = owned(engine);
+    return m && m->synth_shift;
+}
+// The preset sites' class (drum_hooks.s): an owned kit, and a synth whose Shift row a
+// preset keeps in its first pad record, as Drumline (4).
+u32 sdk_preset_alias(u32 engine) { return sdk_drum_machine(engine) || sdk_synth_shift_engine(engine) ? 4 : engine; }
+
+namespace {
+// Presets keep the row as a drum kit's preset keeps a key (drum_storage.hpp): the
+// pattern's first pad record (key 53), its model byte marked type 7 and its four
+// parameter words holding the eight 7-bit fields, which stock's preset writer
+// exports as a region's `model` and `params` (top halves) for a Drumline-classified
+// track and its import restores (<< 16). The drums service's preset hooks classify a
+// synth with a Shift row as Drumline at those sites only (drum_hooks.s), never at
+// import's neutral track offsets (8d4e39c0), so its eight controls load as before.
+unsigned char* shift_record(Address pattern) { return at<unsigned char>(pattern + kDrumPatternPadsAt); }
+// The pattern's machine is read through its pointer, as the kit glue reads it
+// (drum_synthesis_stock.cpp), never truncated to a stock address word.
+const SynthShift* pattern_shift(Address pattern) {
+    const SynthControls* m = pattern ? owned(*at<const volatile u32>(pattern + kDrumPatternMachine)) : nullptr;
+    return m && !m->effect ? m->synth_shift : nullptr;
+}
+}
+
+// 8d4e74b0 (drum_hooks.s): the preset writer about to choose a pattern's regions.
+// A synth with a Shift row gets its row in the first pad record, from the stored
+// words, before stock serializes it; then it is classified as Drumline (4).
+u32 sdk_synth_shift_export(u32 engine, u32 object) {
+    const Address pattern = static_cast<Address>(object);
+    const SynthShift* s = pattern_shift(pattern);
+    if (!s || *at<const volatile u32>(pattern + kDrumPatternMachine) != engine) return engine;
+    const volatile opxy::i32* stored = at<const volatile opxy::i32>(pattern + kDrumLockBase);
+    u8 fields[row::kEntries];
+    for (u32 i = 0; i < row::kEntries; ++i)
+        fields[i] = static_cast<u8>(row::bounded(row::field(stored[row::word_of(i)], i, s->defaults), s->choices[i]));
+    unsigned char* record = shift_record(pattern);
+    opxy::i32 words[kDrumStorageWords];
+    if (drum_pack(0, fields, words)) {
+        for (u32 i = 0; i < kDrumStorageWords; ++i) reinterpret_cast<opxy::i32*>(record)[1 + i] = words[i];
+        record[24] = drum_mark(record[24]);
+    }
+    return 4;
+}
+
+// After stock's preset import (the drums service's hooks of its three callers,
+// drum_synthesis_stock.cpp): a synth with a Shift row takes the row its first pad
+// record now holds, when marked, into the stored words and live through 8d5acea8.
+// A preset without one (saved before SDK 1.13, or on stock) leaves the words import
+// cleared, which play the defaults.
+bool sdk_synth_shift_import(u32 track) {
+    if (track >= kTracks) return false;
+    const Address pattern = stock<Address(u32)>(0x8d587708)(track);
+    const SynthShift* s = pattern_shift(pattern);
+    if (!s) return false;
+    const unsigned char* record = shift_record(pattern);
+    u8 model, fields[row::kEntries];
+    if (!drum_marked(record[24]) || !drum_unpack(reinterpret_cast<const opxy::i32*>(record) + 1, &model, fields)) return true;
+    for (u32 w = 0; w < 2; ++w) {
+        opxy::i32 value = 0;
+        for (u32 i = 0; i < row::kPerWord; ++i)
+            value = row::with(value, w * row::kPerWord + i, row::bounded(fields[w * row::kPerWord + i], s->choices[w * row::kPerWord + i]), s->defaults);
+        const u32 index = row::kFirstWord + w;
+        *at<volatile opxy::i32>(pattern + kDrumLockBase + index * 4) = value;
+        stock<void(u32, u32, u32, opxy::i32)>(0x8d5acea8)(kProject, track, index, value);
+    }
+    return true;
+}
+
+// The sequencer's step hook (lock_handles.cpp sdk_lock_step, through the step-lock
+// client, drum_locks.cpp), after stock's lock pass for a note's step: the track's
+// live words 36 and 37 become the row as that step plays it, each field its lock
+// (mask, values by entry) or the track's own, and are published (8d5acea8) before
+// the note starts. The pass has just written the handle into live word 37; stock's
+// copy of the stored words into the live ones at the next step note (8d5accf8)
+// brings back the track's own row.
+void sdk_synth_shift_play(u32 project, u32 track, u32 mask, const opxy::i32* values) {
+    if (track >= kTracks) return;
+    const Address pattern = stock<Address(u32)>(0x8d587708)(track);
+    const SynthShift* s = pattern_shift(pattern);
+    if (!s) return;
+    const volatile opxy::i32* stored = at<const volatile opxy::i32>(pattern + kDrumLockBase);
+    for (u32 w = 0; w < 2; ++w) {
+        const u32 index = row::kFirstWord + w;
+        opxy::i32 value = stored[index];
+        for (u32 i = w * row::kPerWord; i < (w + 1) * row::kPerWord; ++i)
+            if (mask >> i & 1u)
+                value = row::with(value, i, row::bounded(values[i] < 0 ? 0u : static_cast<u32>(values[i]), s->choices[i]), s->defaults);
+        stock<void(u32, u32, u32, opxy::i32)>(0x8d5acea8)(project, track, index, value);
+    }
 }
 
 // Once a frame on the GUI: when an owned effect is new on a send, its controls

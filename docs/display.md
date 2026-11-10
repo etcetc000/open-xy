@@ -194,6 +194,38 @@ controls in its edited row while `shift` is 1, as the stock header does. The
 previews use drawing ABI 6, a 112-byte input: ABI 5 (104 bytes) ends after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
 
+### A synth's Shift row (SDK 1.13)
+
+A synth with a [Shift row](api.md#a-synths-shift-row) reads it on its page
+through [`opxy/synth_shift.hpp`](../sdk/include/opxy/synth_shift.hpp), which
+leaves the drawing input unchanged:
+
+| `draw::shift_row(input)` field | Meaning |
+| --- | --- |
+| `held` | 1 while Shift is held on the engine page, when the encoders turn the row |
+| `line` | The page the encoders are on, 0 or 1: Shift turns entries `4 * line` to `4 * line + 3` |
+| `values` | Each entry's Q31 word, as `render` receives it in `parameters[8 + i]`; 0 beyond the row and for an absent entry |
+
+`input.shift` stays 0 for a synth. The values hold whether or not Shift is
+held, so the drawing can follow them either way. Including the header needs
+`"sdk": "1.13"` and a Shift row. Browser hosts pass the row as the optional
+thirteenth argument to `PreviewDisplay.tick`, `{held, line, values}`, after
+`line`; a preview module of a synth with a Shift row exports
+`opxy_display_shift` for it.
+
+The [two-page header](#two-page-header) shows the row in its bright row while
+Shift is held: pass the row with its titles and captions, by entry.
+
+```cpp
+const opxy::draw::ShiftRow& row = opxy::draw::shift_row(input);
+const char* const shift_titles[8] = {"noise", "drift", "octave", "lowcut", "slide", "", "ratio", "balance"};
+char shift_values[8][opxy::draw::header_capacity];
+for (opxy::u32 i = 0; i < 8; ++i)
+    opxy::draw::header_amount(shift_values[i], sizeof(shift_values[i]), row.values[i]);
+opxy::draw::page_header(state.header, input, frame, titles, values, first_node, pages,
+                        row, shift_titles, shift_values);
+```
+
 ## Frame
 
 The frame persists between calls; the first call after reset must set every

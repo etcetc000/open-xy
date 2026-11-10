@@ -2079,8 +2079,8 @@
       "maintainer": "sebastienbarre",
       "status": "published",
       "repository": "https://github.com/sebastienbarre/open-xy-splitter",
-      "tag": "v0.1.1",
-      "commit": "12d7b7c16c32753b73286c99bebd6858ea243f6d",
+      "tag": "v0.1.2",
+      "commit": "ac574dfd6c63479c2d8af711ecf0db1918ea5e68",
       "path": "machines/splitter-player",
       "keywords": [
         "experimental"
