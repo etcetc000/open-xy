@@ -170,6 +170,13 @@ and an authored panel through the SDK's shared master-processor capability, with
 It uses the stock selector and the project companion service; it does not
 intercept the controller recording events listed above.
 
+## Drumline page
+
+A [Drumline-page extension](drumline-page.md) gives stock Drumline a second page
+of one to four per-key parameters, with step locks, and processes each hit's
+voice through the SDK's `drumline_page` capability. One extension per build owns
+it; the builder offers it like a claim.
+
 ## Change the SDK for an extension
 
 Reuse first: read the events table. Most needs are a subscriber that filters an

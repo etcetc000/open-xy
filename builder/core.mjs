@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '8464309d12ced7109ba4c50a133fc06302d1bd907c49a2cece841c811088117a';
+export const PROFILE_SHA256 = '00fb4a52a670b74283f0b952dc54eb0f5c433137177eb07a1aea8afb5494cc5e';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -478,10 +478,14 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
   return selected.map(e => e.id); // Collection order, never checkbox order.
 }
 
+// What an extension holds exclusively: its claims, and stock Drumline's second
+// page when it supplies it (tooling.extensions.check_collection allows one).
+const exclusiveUses = e => [...(e.claims ?? []), ...(e.drumline_page ? ['drumline_page'] : [])];
+
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
 export function sharedClaim(extensions) {
   const seen = new Set();
-  for (const e of extensions) for (const claim of e.claims ?? []) {
+  for (const e of extensions) for (const claim of exclusiveUses(e)) {
     if (seen.has(claim)) return claim;
     seen.add(claim);
   }
@@ -490,7 +494,8 @@ export function sharedClaim(extensions) {
 
 // The registry's label for a claim, as the kit carries it with each extension.
 export const claimLabel = (extensions, claim) =>
-  extensions.map(e => e.claim_labels?.[claim]).find(Boolean) ?? claim.replaceAll('_', ' ');
+  extensions.map(e => e.claim_labels?.[claim]).find(Boolean) ??
+  (claim === 'drumline_page' ? 'Drumline page 2' : claim.replaceAll('_', ' '));
 
 // Every extension choice a build can make, in collection order: each subset
 // in which no two extensions share a claim. Recovery and release checks try each.
@@ -589,7 +594,8 @@ export async function openKit(kit) {
       Object.keys(e.claim_labels).sort().join() === [...(e.claims ?? [])].sort().join() &&
       Object.values(e.claim_labels).every(l => typeof l === 'string' && l.length > 0 && l.length <= 40) &&
       ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
-        new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))),
+        new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))) &&
+      (e.drumline_page === undefined || e.drumline_page === true),
       'Invalid extension metadata');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
@@ -691,7 +697,8 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(extensions.size ? [{kind: 'extension'}] : []),
-    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : [])]);
+    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : [])]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));

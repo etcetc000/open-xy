@@ -941,6 +941,15 @@ Kits use the same fixed shared-state and voice-pool rules as synths. Their
 code and state are linked once per machine, shared across tracks; voices
 still require independent state. Machine code and model data need no file loading when notes or patterns change.
 
+### Stock Drumline's second page
+
+A [`drumline_page` extension](drumline-page.md) gives stock's own Drumline
+(engine 4) a second page of per-key settings on every Drumline track: a press
+of any encoder on the engine page switches to it. The extension declares one to
+four parameters and processes each hit's voice; the SDK keeps the page, the
+per-key storage, the per-hit latch, FX I and FX II as a `padMix` key's sends,
+and step locks. Without one, Drumline is stock's.
+
 ## Sample engines
 
 [sample_engine.hpp](../sdk/include/opxy/sample_engine.hpp) defines the sample
