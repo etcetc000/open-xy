@@ -300,34 +300,27 @@ unless recording was disarmed first. Such a start places its tracks already at p
 back to zero for the count-in, so a note played just before the count-in ends
 is picked up on the start's bar.
 
-The bar menu's controller (a singleton at `0x08014b7c`, vtable `0x0803f35c`)
-handles BAR (25: the next bar is shown), M1, M2 and M4; it does not handle M3,
-and stock's global M-key handler (`0x8c091008`) acts only on screens 5, 8, 11
-and 38. Stock's key dispatch (`0x8c0b5d58`) sends a press to the screen's
-controller, through its Shift handler while Shift is held (`0x8c0b5b80`) or its
-plain one (`0x8c0b5b10`), then records the key as held (`0x8d5b8100`). The bar
-menu's plain handler (`0x8c08425c`) only marks M1, M2 or M4 pressed (bytes
-`+0x9` to `+0xc`); its update (`0x8c0847e0`) clears once the key has been held
-800 ms: notes for M1 and M4 (`0x8d5940a4`), parameter locks for M2 and M4
-(`0x8d593484`). Its Shift handler ignores them. While an extension claims
-`bar_menu`, [`extension_stock.cpp`](../sdk/platform/opxy-1.2.1/extension_stock.cpp)
-dispatches a plain M1, M2 or M4 press in the bar menu only to the held-key
-record, and one with Shift to the plain handler, so the clears move to Shift
-with their hold; releases keep stock's dispatch. Each sequencer track's bar
-length in song ticks is `16 * 480 * 1680 / factor[scale]`, with the factors at
-`0x840aa47c`.
+Stock's key dispatch (`0x8c0b5d58`) sends a press to the screen's controller
+and the global handler (`0x8c0b5b10`; with Shift `0x8c0b5b80`), then records
+the key as held (`0x8d5b8100`).
+[`extension_stock.cpp`](../sdk/platform/opxy-1.2.1/extension_stock.cpp)
+dispatches a press that a claim's holder takes on the current screen (the bar
+menu's Play with BAR held, with or without Shift) only to the held-key record,
+so stock's Play never runs there; releases keep stock's dispatch. Shift + BAR
+locks the bar menu open (byte `0x0801ebec + 0x1d`, the global controller's;
+`0x8c09257a`); a BAR press with the lock set closes it (`0x8c09291c`), and a
+BAR release with the lock set leaves it open (`0x8c093030`). While a claim
+needs BAR held there, the adapter only records that press as held and
+dispatches it (`0x8c0b5b10`) at BAR's release, unless another key was pressed
+meanwhile. Each sequencer track's
+bar length in song ticks is `16 * 480 * 1680 / factor[scale]`, with the factors
+at `0x840aa47c`.
 
-Stock menus label M1–M4 through one object per screen:
-`0x8d56a758(labels, slot, text, shown, enabled)`; a label shown but not enabled
-is drawn greyed out. The bar menu builds its labels once (`0x8d546de8`): "clr
-notes" (`0x8d546fca`), "clr params" (`0x8d546fe6`), M3 empty, hidden and
-disabled (`0x8d547004`), "clr all" (`0x8d547020`). Those four calls are replaced
-by `sdk_extensions_bar_label`
-([`extension_label.cpp`](../sdk/platform/opxy-1.2.1/extension_label.cpp)). It
-records the menu's label object and stock's arguments for each slot, and shows
-the `bar_menu` holder's `key_label` instead, if there is one. Later changes go
-through the same stock call; a slot given back (Shift held) shows stock's
-arguments again.
+The bar menu builds its M-key labels once (`0x8d546de8`) through its label
+object (`0x8d56a758(labels, slot, text, shown, enabled)`), M1's first
+(`0x8d546fca`). That call goes to `sdk_extensions_bar_menu_built`
+([`extension_loop.cpp`](../sdk/platform/opxy-1.2.1/extension_loop.cpp)), which
+passes it on and redraws the bar numbers (the playing bar's dot) from scratch.
 
 ## Startup
 

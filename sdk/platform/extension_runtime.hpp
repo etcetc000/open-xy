@@ -18,8 +18,10 @@ struct ExtensionEntry {
     u32 claims, actions;  // Bits in registry order.
     const extensions::Hooks* hooks;
 };
-// One key a claim governs (a claim may govern several).
-struct ClaimKey { u32 claim, key; };
+// One key a claim governs (a claim may govern several), the stock screen
+// where its holder takes the key from stock (0: none; the key only fires the
+// claim's actions), and a key that must be held for it to (keys::none: none).
+struct ClaimKey { u32 claim, key, screen, held; };
 struct ExtensionRegistry {
     const ClaimKey* claim_keys;
     u32 claim_key_count, claim_count;
@@ -37,9 +39,13 @@ void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity);
 void extensions_selected_note_off(u32 track, u32 pitch);
 void extensions_recording_tick(u32 delta);
 void extensions_queued_control(const extensions::Control& control);
-// Whether an extension in the build claims the key: the adapter then moves the
-// stock control the claim takes (bar_menu: the bar menu's M keys to Shift).
-bool extensions_claimed(u32 key);
+// Whether, on this screen, a claim's holder takes the key, with or without
+// Shift, its claim's held key (if any) being held: the adapter then keeps stock
+// from it. Only claims with a screen take keys.
+bool extensions_takes(u32 key, u32 screen);
+// Whether a claim its holder owns takes a key on this screen only while `held`
+// is held.
+bool extensions_needs_held(u32 held, u32 screen);
 
 // An instrument track's pattern, as notes are written to it.
 struct TrackPattern { u32 pattern, length, scale; bool editable; };
@@ -49,18 +55,18 @@ i32 extension_position(u32 track);
 u32 extension_scaled_delta(u32 track, u32 delta);
 i32 extension_collision_radius(u32 track);
 bool extension_record_held();
+bool extension_key_held(u32 key);
 u32 extension_write(u32 track, const RecordedNote* notes, u32 count, bool replace);
 void extension_notify(const char* text);
+void extension_notify_for(const char* text, u32 milliseconds);
 // The sequencer's tracks, and the bars they are held in (no_bar: none).
 void extension_sequencer(extensions::Sequencer& sequencer);
-bool extension_shift();
 bool extension_loop(const extensions::BarLoop& loop);
 // Start playback with the song clock at a point of the scene.
 bool extension_play_from(u32 song_tick);
-// Whether a claimed key has a stock label slot, and the label for it: text
-// nullptr for stock's own, "" for an empty slot; greyed out when not enabled.
-bool extension_labels(u32 key);
-void extension_key_label(u32 key, const char* text, bool enabled);
+// Playing: at the end of `track`'s playing bar, the loop and the start from
+// `song_tick`; a later loop change, start or stop drops it.
+bool extension_loop_at_bar_end(const extensions::BarLoop& loop, u32 song_tick, u32 track);
 // The bar menu was built again (its texts are stock's again).
 void extension_bar_menu_built();
 }}

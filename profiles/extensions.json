@@ -2,7 +2,7 @@
   "schema": 3,
   "claims": {
     "record_double_tap": {"label": "Record double-tap", "keys": [50]},
-    "bar_menu": {"label": "Bar menu M1-M4", "keys": [6, 7, 8, 9]},
+    "bar_menu": {"label": "BAR + Play", "keys": [51], "screen": 35, "held": 25},
     "shift_play": {"label": "Shift + Play", "keys": [51]}
   },
   "actions": {

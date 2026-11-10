@@ -33,6 +33,8 @@ void sdk_extensions_loop_shown(opxy::u32, opxy::u32) __asm__("sdk_extensions_loo
 void sdk_extensions_play_reset(opxy::u32, opxy::u32) __asm__("sdk_extensions_play_reset");
 void sdk_extensions_count_in_end(opxy::u32, opxy::u32) __asm__("sdk_extensions_count_in_end");
 void sdk_extensions_bar_color(opxy::u32, opxy::u32, const opxy::u8*) __asm__("sdk_extensions_bar_color");
+void sdk_extensions_bar_menu_built(opxy::u32, opxy::u32, const char*, opxy::u32, opxy::u32)
+    __asm__("sdk_extensions_bar_menu_built");
 }
 
 namespace opxy { namespace platform {
@@ -70,6 +72,10 @@ const u32 kTransport = 0x86bd0064;
 // disarmed first.
 struct Start { u32 tick; bool pending, counting, armed; };
 Start start;
+// loop_at_bar_end's request: when `track` next crosses a bar line, `loop` is
+// held and every track placed from `tick`, as play_from would start there.
+struct AtBarEnd { bool active; u32 track, tick; extensions::BarLoop loop; };
+AtBarEnd at_bar_end;
 // The scene's length in song ticks: its longest track.
 u32 scene_ticks() {
     u32 longest = 0;
@@ -164,6 +170,7 @@ void extension_sequencer(extensions::Sequencer& sequencer) {
         const u32 scale = stock<u32(u32)>(0x8d586b50)(t);
         const u32 factor = scale < 16 ? word(kTimeScale + scale * 4) : 0;
         k.bar_ticks = factor ? bar_loop::bar_time / factor : 0;
+        k.offset = factor ? (word(object_of(t) + kTime) % bar_loop::bar_time) / factor : 0;
         const u32 length = factor ? n * bar_loop::step_time / factor : 0;
         if (length > longest.length) longest = {t, factor, length};
         bar_loop::Range r;
@@ -180,6 +187,7 @@ void extension_sequencer(extensions::Sequencer& sequencer) {
 // once; the start that follows takes the place.
 bool extension_play_from(u32 song_tick) {
     using namespace loop_stock;
+    at_bar_end.active = false;
     const bool playing = byte(kSequencer + 0x305d) || byte(kSequencer + 0x305e);
     const u8 count_in = byte(kSequencer + 0x305f);
     if (!word(kProjectWord) || song_tick >= scene_ticks()) return false;
@@ -202,6 +210,7 @@ bool extension_play_from(u32 song_tick) {
 // top, where stock's play starts.
 bool extension_loop(const extensions::BarLoop& loop) {
     using namespace loop_stock;
+    at_bar_end.active = false;
     const bool stopped = !byte(kSequencer + 0x305d) && !byte(kSequencer + 0x305e);
     bool was[extensions::sequencer_tracks];
     for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
@@ -257,10 +266,32 @@ void follow(u32 track) {
 void advance(u32 object, u32 time, u32 events, u32 steps_on, u32 edit);
 }}}
 
+bool opxy::platform::extension_loop_at_bar_end(const extensions::BarLoop& loop, u32 song_tick, u32 track) {
+    using namespace loop_stock;
+    const bool playing = byte(kSequencer + 0x305d) || byte(kSequencer + 0x305e);
+    if (!playing || !word(kProjectWord) || track >= extensions::sequencer_tracks || !steps(track) ||
+        song_tick >= scene_ticks()) return false;
+    at_bar_end = {true, track, song_tick, loop};
+    return true;
+}
 void sdk_extensions_loop_advance(u32 object, u32 time, u32 events, u32 steps_on, u32 edit) {
     using namespace loop_stock;
+    const u32 track = byte(object + kIndex);
+    // The waiting track is about to cross a bar line (or wrap its looped bar):
+    // the loop and the place take over from here, as a start there would.
+    if (at_bar_end.active && track == at_bar_end.track) {
+        const u32 now = field(object, kTime);
+        if (time < now || time / bar_loop::bar_time != now / bar_loop::bar_time) {
+            const AtBarEnd request = at_bar_end;
+            extension_loop(request.loop);
+            start.tick = request.tick;
+            place(kTransport, false);
+            follow(track);
+            return;
+        }
+    }
     advance(object, time, events, steps_on, edit);
-    follow(byte(object + kIndex));
+    follow(track);
 }
 void opxy::platform::loop_stock::advance(u32 object, u32 time, u32 events, u32 steps_on, u32 edit) {
     const u32 track = byte(object + kIndex);
@@ -349,6 +380,7 @@ void place(u32 transport, bool counting) {
 // its place here, or, with a count-in, when the count-in ends.
 void sdk_extensions_play_reset(u32 transport, u32 count_in) {
     using namespace loop_stock;
+    at_bar_end.active = false;  // A start or restart drops a waiting change.
     stock<void(u32, u32)>(0x8d5aaa38)(transport, count_in);
     if (!start.pending) return;
     // A start after a count-in that never ended (stopped during it), or after
@@ -397,6 +429,13 @@ void number(u32 screen, u32 bar, bool dot) {
 }
 }}}
 void opxy::platform::extension_bar_menu_built() { opxy::platform::loop_stock::numbers = {}; }
+// The bar menu sets its M1 label (8d56a758: labels, slot, text, shown,
+// enabled) first as it builds (8d546fca): the call goes on to stock, and the
+// numbers start over.
+void sdk_extensions_bar_menu_built(u32 labels, u32 slot, const char* text, u32 shown, u32 enabled) {
+    opxy::platform::extension_bar_menu_built();
+    stock<void(u32, u32, const char*, u32, u32)>(0x8d56a758)(labels, slot, text, shown, enabled);
+}
 void sdk_extensions_bar_color(u32 screen, u32 node, const u8* color) {
     using namespace loop_stock;
     using SetColor = void(u32, u32, const u8*);

@@ -36,14 +36,20 @@ SOURCE_SUFFIXES = ('.cpp', '.cc', '.h', '.hpp', '.inc')
 
 def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
-    data (a label and the keys it governs); actions are one bit each in RUNTIME."""
+    data (a label, the keys it governs and optionally the stock screen where its
+    holder takes them, and a key that must be held for it to); actions are one
+    bit each in RUNTIME."""
     data = document(ROOT / PROFILE)
     require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
     for name, claim in claims.items():
-        require(NAME.fullmatch(name) and isinstance(claim, dict) and set(claim) == {'label', 'keys'} and
+        require(NAME.fullmatch(name) and isinstance(claim, dict) and {'label', 'keys'} <= set(claim) <=
+                {'label', 'keys', 'screen', 'held'} and
+                (type(claim.get('screen', 1)) is int and 0 < claim.get('screen', 1) < 256) and
+                ('held' not in claim or ('screen' in claim and type(claim['held']) is int and
+                                         0 <= claim['held'] < 256 and claim['held'] not in claim['keys'])) and
                 isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
                 isinstance(claim['keys'], list) and 0 < len(claim['keys']) <= 8 and
                 all(type(k) is int and 0 <= k < 256 for k in claim['keys']) and
@@ -185,7 +191,8 @@ def generate_collection(folder, extensions):
               'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
               'const ClaimKey claim_keys[] = {' + (', '.join(
-                  '{%d, %d}' % (i, k) for i, c in enumerate(claims.values()) for k in c['keys']) or '{0, 0}') + '};',
+                  '{%d, %d, %d, %s}' % (i, k, c.get('screen', 0), '%du' % c['held'] if 'held' in c else '0xffffffffu')
+                  for i, c in enumerate(claims.values()) for k in c['keys']) or '{0, 0, 0, 0xffffffffu}') + '};',
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',

@@ -43,7 +43,7 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
                                                     .with_queued_control(edit_control);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-const ClaimKey claim_keys[] = {{0, 50}, {1, 51}};
+const ClaimKey claim_keys[] = {{0, 50, 0, extensions::keys::none}, {1, 51, 7, extensions::keys::none}};
 u32 action_claims[] = {1u, 0};
 const ExtensionRegistry tables = {claim_keys, 2, 2, action_claims, 2};
 ExtensionEntry collection[] = {{"observer", 0, 0, &first},
@@ -64,16 +64,15 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
     ++writes; replaced = replace; written_track = track; return count;
 }
 void extension_notify(const char*) { ++notices; }
-bool shift_down;
-bool extension_shift() { return shift_down; }
+void extension_notify_for(const char*, u32) { ++notices; }
+bool extension_loop_at_bar_end(const extensions::BarLoop&, u32, u32) { return false; }
 void extension_sequencer(extensions::Sequencer& s) { s = extensions::Sequencer(); }
 bool extension_loop(const extensions::BarLoop&) { return false; }
-bool extension_labels(u32) { return false; }
-void extension_key_label(u32, const char*, bool) {}
 bool extension_play_from(u32) { return false; }
+bool extension_key_held(u32) { return false; }
 }}
 void control(u32 key, bool accepted) {
-    const extensions::Control event = {key, false, accepted, true, 100, extensions::keys::none, false, 0};
+    const extensions::Control event = {key, false, accepted, true, 100, extensions::keys::none, false, 0, false};
     extensions_queued_control(event);
 }
 int main() {
@@ -126,6 +125,8 @@ int main() {
     control(50, true); CHECK(writes == before);
     control(51, true); CHECK(writes == before + 1);
     control(51, false); CHECK(writes == before + 1);
+    // A claimed key is its holder's on the claim's screen only.
+    CHECK(extensions_takes(51, 7) && !extensions_takes(51, 8) && !extensions_takes(50, 0) && !extensions_takes(50, 7));
     // An action whose claim its holder lacks disables the collection.
     initialized = false; entries = nullptr; action_claims[0] = 1u;
     control(51, true); CHECK(writes == before + 1);

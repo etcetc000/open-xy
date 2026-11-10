@@ -52,7 +52,7 @@ u32 call(u32 i, u32 track, u32 time, u32 events, u32 steps_on) {
     return calls[i].track == track && calls[i].time == time && calls[i].events == events && calls[i].steps == steps_on;
 }
 extensions::BarLoop loop_of(u32 track, u8 bar) {
-    extensions::BarLoop l;
+    extensions::BarLoop l = {};
     for (u32 t = 0; t < 16; ++t) l.bar[t] = extensions::no_bar;
     l.bar[track] = bar;
     return l;
@@ -157,6 +157,7 @@ int main() {
     field_of(2, 0x198) = 33 * st; shown_of[2] = 3; scale_of[3] = 0;
     extension_sequencer(s);
     CHECK(s.track[2].bars == 4 && s.track[2].bar == 2 && s.track[2].shown == 3 && s.track[2].bar_ticks == 7680);
+    CHECK(s.track[2].offset == 480 && s.track[0].offset == 0);  // a step into its third bar
     CHECK(s.track[3].bars == 3 && s.track[3].bar_ticks == 7680 * 1680 / 5040 && s.track[0].bars == 0);
     CHECK(s.track[2].loop == extensions::no_bar);
     scale_of[3] = 3;
@@ -437,6 +438,48 @@ int main() {
         CHECK(extension_loop(loop_of(2, extensions::no_bar)) && field_of(2, 0x198) == 5 * st);
         controller_byte(0x305e) = 0;
     }
+
+    // loop_at_bar_end, playing: nothing changes inside the bar; the waiting
+    // track's next bar line holds the loop and places every track from the
+    // tick, as a start there would. Track 2 (64 steps) in its first bar asks
+    // for its third bar, song tick 2 * 7680.
+    controller_byte(0x305e) = 1;
+    CHECK(extension_loop(loop_of(2, extensions::no_bar)));
+    field_of(2, 0x198) = 5 * st;
+    CHECK(extension_loop_at_bar_end(loop_of(2, 2), 2 * 7680, 2));
+    call_count = 0;
+    sdk_extensions_loop_advance(object(2), 10 * st, 1, 1, 0);
+    CHECK(call_count == 1 && call(0, 2, 10 * st, 1, 1));
+    extension_sequencer(s); CHECK(s.track[2].loop == extensions::no_bar);
+    const u32 placed = resyncs;
+    call_count = 0;
+    sdk_extensions_loop_advance(object(2), 16 * st + 3, 1, 1, 0);
+    extension_sequencer(s);
+    CHECK(s.track[2].loop == 2 && resyncs > placed && field_of(2, 0x198) == 32 * st && call_count == 0);
+    CHECK(transport_words[1] == 2 * 7680);
+    // Done once: the next bar line is the loop's own.
+    sdk_extensions_loop_advance(object(2), 33 * st, 1, 1, 0);
+    CHECK(field_of(2, 0x198) == 33 * st);
+    // A loop wrapping its bar is a bar line too.
+    CHECK(extension_loop_at_bar_end(loop_of(2, 0), 0, 2));
+    sdk_extensions_loop_advance(object(2), 48 * st + 2, 1, 1, 0);
+    extension_sequencer(s); CHECK(s.track[2].loop == 0 && field_of(2, 0x198) == 0);
+    // Another loop change, or a start, drops a waiting request.
+    CHECK(extension_loop_at_bar_end(loop_of(2, 3), 3 * 7680, 2));
+    CHECK(extension_loop(loop_of(2, 1)));
+    field_of(2, 0x198) = 20 * st;
+    sdk_extensions_loop_advance(object(2), 32 * st, 1, 1, 0);
+    extension_sequencer(s); CHECK(s.track[2].loop == 1);
+    CHECK(extension_loop_at_bar_end(loop_of(2, 3), 3 * 7680, 2));
+    sdk_extensions_play_reset(0x86bd0064, 0);
+    field_of(2, 0x198) = 20 * st;
+    sdk_extensions_loop_advance(object(2), 32 * st, 1, 1, 0);
+    extension_sequencer(s); CHECK(s.track[2].loop == 1);
+    // Refused stopped, for a track without steps, or past the scene's end.
+    CHECK(!extension_loop_at_bar_end(loop_of(2, 3), 0, 0) && !extension_loop_at_bar_end(loop_of(2, 3), 64 * 480, 2));
+    controller_byte(0x305e) = 0;
+    CHECK(!extension_loop_at_bar_end(loop_of(2, 3), 0, 2));
+    CHECK(extension_loop(loop_of(2, extensions::no_bar)));
     CHECK(!failed);
     return 0;
 }

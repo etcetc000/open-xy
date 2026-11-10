@@ -7,11 +7,7 @@ const ExtensionEntry* entries;
 const ExtensionRegistry* registry;
 u32 entry_count;
 bool initialized, dispatching;
-char notification[32];
-// The label last drawn for each claimed key (registry pair order): the
-// holder's text and state, or stock's own while Shift is held.
-struct Label { char text[16]; bool enabled, stock, drawn; };
-Label labels[32];
+char notification[64];
 
 // The actions one callback may take, and what it has done with them: one stock
 // undo transaction and at most one notification per callback.
@@ -113,14 +109,22 @@ u32 write_notes(const extensions::Context& expected, u32 track, const RecordedNo
     transaction.attempted = true; // One undo transaction per callback, including failures.
     return extension_write(track, notes, count, replace);
 }
-void notify(const char* text) {
-    if (!(transaction.granted & action_notify) || transaction.notified || !text) return;
+// A popup's text: 1 to `limit` characters, copied, once per callback.
+bool take_notice(const char* text, u32 limit) {
+    if (!(transaction.granted & action_notify) || transaction.notified || !text) return false;
     u32 length = 0;
-    while (length < 32 && text[length]) ++length;
-    if (!length || length == 32) return;
+    while (length <= limit && text[length]) ++length;
+    if (!length || length > limit) return false;
     for (u32 i = 0; i <= length; ++i) notification[i] = text[i];
     transaction.notified = true;
-    extension_notify(notification);
+    return true;
+}
+void notify(const char* text) {
+    if (take_notice(text, 31)) extension_notify(notification);
+}
+void notify_for(const char* text, u32 milliseconds) {
+    if (milliseconds < 100 || milliseconds > 10000) return;
+    if (take_notice(text, 63)) extension_notify_for(notification, milliseconds);
 }
 u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, false);
@@ -133,25 +137,41 @@ u32 replace_notes(const extensions::Context& expected, u32 track, const Recorded
 // a sequencer_change callback while bars already loop (moving them, never
 // starting a loop). Bars must exist in the playing pattern of a context that
 // is still current.
-bool loop_bars(const extensions::Context& expected, const extensions::BarLoop& loop) {
-    if (!(transaction.declared & action_loop_bars) || transaction.looped) return false;
-    bool any = false;
-    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) any |= loop.bar[t] != extensions::no_bar;
+// The context is still current, and the loop's bars exist in the playing
+// patterns as the context saw them. `sequencer` receives the tracks now.
+bool loop_fits(const extensions::Context& expected, const extensions::BarLoop& loop,
+               extensions::Sequencer& sequencer) {
     bool playing = false;
     const RecordingContext now = extension_context(playing);
     if (!(now == expected.recording) || playing != expected.playing ||
         !(now == current.recording) || playing != current.playing) return false;
-    extensions::Sequencer sequencer;
     extension_sequencer(sequencer);
-    if (any && !(transaction.granted & action_loop_bars) && !(transaction.moving && any_loop(sequencer)))
-        return false;
     for (u32 t = 0; t < extensions::sequencer_tracks; ++t) {
         const u8 bar = loop.bar[t];
         if (bar != extensions::no_bar && (bar >= sequencer.track[t].bars ||
             sequencer.track[t].bars != expected.sequencer.track[t].bars)) return false;
     }
+    return true;
+}
+bool loop_bars(const extensions::Context& expected, const extensions::BarLoop& loop) {
+    if (!(transaction.declared & action_loop_bars) || transaction.looped) return false;
+    bool any = false;
+    for (u32 t = 0; t < extensions::sequencer_tracks; ++t) any |= loop.bar[t] != extensions::no_bar;
+    extensions::Sequencer sequencer;
+    if (!loop_fits(expected, loop, sequencer)) return false;
+    if (any && !(transaction.granted & action_loop_bars) && !(transaction.moving && any_loop(sequencer)))
+        return false;
     transaction.looped = true;  // One loop change per callback, including failures.
     return extension_loop(loop);
+}
+// Both grants, while playing, once for the callback's loop change and start.
+bool loop_at_bar_end(const extensions::Context& expected, const extensions::BarLoop& loop, u32 song_tick) {
+    const u32 needs = action_loop_bars | action_play_from;
+    if ((transaction.granted & needs) != needs || transaction.looped || transaction.started) return false;
+    extensions::Sequencer sequencer;
+    if (!expected.playing || !loop_fits(expected, loop, sequencer)) return false;
+    transaction.looped = transaction.started = true;
+    return extension_loop_at_bar_end(loop, song_tick, current.recording.track);
 }
 // Starting (or, playing, restarting) playback needs the grant, once per
 // callback, from a current context.
@@ -164,48 +184,14 @@ bool play_from(const extensions::Context& expected, u32 song_tick) {
     transaction.started = true;
     return extension_play_from(song_tick);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes, loop_bars, play_from};
-
-// A label is 1-15 printable characters; anything else leaves the slot empty.
-void take_label(char* label, const char* text) {
-    u32 length = 0;
-    while (text && length < 16 && text[length] >= ' ' && text[length] <= '~') ++length;
-    if (!text || length == 16 || text[length]) length = 0;
-    for (u32 i = 0; i < length; ++i) label[i] = text[i];
-    label[length] = 0;
-}
-// Only a claim's holder labels its keys, and only where the adapter has a
-// slot; while Shift is held the slots show stock's own labels.
-void update_labels() {
-    for (u32 i = 0; i < entry_count; ++i) {
-        const ExtensionEntry& entry = entries[i];
-        for (u32 k = 0; k < registry->claim_key_count; ++k) {
-            const ClaimKey& pair = registry->claim_keys[k];
-            if (!(entry.claims & (1u << pair.claim)) || !extension_labels(pair.key)) continue;
-            Label next = {};
-            next.stock = current.shift;
-            next.enabled = true;
-            if (!next.stock && entry.hooks->key_label) {
-                const extensions::KeyLabel label = entry.hooks->key_label(current, pair.key);
-                take_label(next.text, label.text);
-                next.enabled = label.enabled;
-            }
-            Label& last = labels[k];
-            if (last.drawn && last.stock == next.stock && last.enabled == next.enabled &&
-                same_text(last.text, next.text)) continue;
-            last = next;
-            last.drawn = true;
-            extension_key_label(pair.key, last.stock ? nullptr : last.text, last.enabled);
-        }
-    }
-}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, loop_bars, play_from, notify_for,
+                                     loop_at_bar_end};
 }
 
 void extensions_sync() {
     if (dispatching || !ready()) return;
     current.recording = extension_context(current.playing);
     extension_sequencer(current.sequencer);
-    current.shift = extension_shift();
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
         if (entries[i].hooks->context) entries[i].hooks->context(current);
@@ -219,15 +205,29 @@ void extensions_sync() {
         current.recording = extension_context(current.playing);
         extension_sequencer(current.sequencer);
     }
-    update_labels();
     dispatching = false;
 }
-bool extensions_claimed(u32 key) {
-    if (!ready()) return false;
+namespace {
+bool owned(u32 claim) {
+    for (u32 i = 0; i < entry_count; ++i)
+        if (entries[i].claims & (1u << claim)) return true;
+    return false;
+}
+}
+bool extensions_takes(u32 key, u32 screen) {
+    if (!ready() || !screen) return false;
     for (u32 k = 0; k < registry->claim_key_count; ++k) {
-        if (registry->claim_keys[k].key != key) continue;
-        for (u32 i = 0; i < entry_count; ++i)
-            if (entries[i].claims & (1u << registry->claim_keys[k].claim)) return true;
+        const ClaimKey& pair = registry->claim_keys[k];
+        if (pair.key == key && pair.screen == screen && owned(pair.claim) &&
+            (pair.held == extensions::keys::none || extension_key_held(pair.held))) return true;
+    }
+    return false;
+}
+bool extensions_needs_held(u32 held, u32 screen) {
+    if (!ready() || !screen || held == extensions::keys::none) return false;
+    for (u32 k = 0; k < registry->claim_key_count; ++k) {
+        const ClaimKey& pair = registry->claim_keys[k];
+        if (pair.held == held && pair.screen == screen && owned(pair.claim)) return true;
     }
     return false;
 }

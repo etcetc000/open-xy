@@ -30,10 +30,10 @@ struct SequencerTrack {
     u8 shown;      // The bar shown and edited on the bar menu.
     u8 loop;       // The bar loop_bars holds the track in, or no_bar.
     u32 bar_ticks; // One bar in scale-1 pattern ticks (7680 at scale 1): its length in song time.
+    u32 offset;    // How far the playhead is into its bar, in the same ticks.
 };
 struct Sequencer { SequencerTrack track[sequencer_tracks]; };
-// shift: Shift held at this update.
-struct Context { RecordingContext recording; bool playing; Sequencer sequencer; bool shift; };
+struct Context { RecordingContext recording; bool playing; Sequencer sequencer; };
 // The bar each track repeats, or no_bar to leave it to stock.
 struct BarLoop { u8 bar[sequencer_tracks]; };
 struct Note { i32 position; u32 length; u8 pitch, velocity; };
@@ -68,6 +68,9 @@ struct Control {
     bool shift;
     // Stock's screen when the event arrived (screens::bar_menu, ...).
     u32 screen;
+    // A press the SDK took from stock for a claim its holder owns: stock's own
+    // action did not run (bar_menu: Play with BAR held in the bar menu).
+    bool taken;
 };
 
 // Each action needs its permission (profiles/extensions.json) and works only in
@@ -102,6 +105,15 @@ struct Actions {
     // Loops hold as usual. Needs play_from.
     // Returns whether playback was asked for.
     bool (*play_from)(const Context&, u32 song_tick);
+    // notify, shown for `milliseconds` (100-10000) instead of half a second,
+    // with up to 63 characters. Needs notify; one popup per callback either way.
+    void (*notify_for)(const char* text, u32 milliseconds);
+    // Playing: when the selected track's playing bar ends, play_from
+    // `song_tick` with `loop` held, as both would do then, so a loop moves at
+    // the bar line. A later loop change, start or stop drops it. Needs
+    // loop_bars and play_from; counts as this callback's loop change and start.
+    // Returns whether it was taken.
+    bool (*loop_at_bar_end)(const Context&, const BarLoop&, u32 song_tick);
 };
 
 using OnContext = void (*)(const Context&);
@@ -110,10 +122,6 @@ using OnSelectedNoteOff = void (*)(const Context&, const NoteOff&);
 using OnRecordingTick = void (*)(const Context&, const Tick&);
 using OnInputActivity = void (*)();
 using OnQueuedControl = void (*)(const Context&, const Control&, const Actions&);
-// A claimed key's label: 1-15 printable characters (nullptr: the slot is
-// empty), drawn greyed out when not enabled.
-struct KeyLabel { const char* text; bool enabled; };
-using OnKeyLabel = KeyLabel (*)(const Context&, u32 key);
 using OnSequencerChange = void (*)(const Context&, const Actions&);
 
 // One callback per event, named for what it delivers. Each event lists its
@@ -126,7 +134,7 @@ using OnSequencerChange = void (*)(const Context&, const Actions&);
 // All callbacks are synchronous on the controller path, in collection order.
 // Arguments are borrowed for the callback. No allocation, blocking or I/O.
 // Observers cannot transform live input or consume stock controls; only a
-// claim may move a stock control (bar_menu: the bar menu's M keys go to Shift).
+// claim may take a stock control (bar_menu: Play with BAR held in the bar menu).
 struct Hooks {
     // Selected-track recording context and play state; before every other event.
     OnContext context;
@@ -143,11 +151,6 @@ struct Hooks {
     // A queued control (Record and other queued keys; not keyboard keys
     // 26-49) after stock handled it. Actions act only for their claim owner.
     OnQueuedControl queued_control;
-    // The label over a claimed key in stock's menu (bar_menu: the bar menu's
-    // M1-M4 slots). While Shift is held the menu shows stock's own labels, as
-    // Shift gives the keys back to stock. Asked after every context callback;
-    // the SDK redraws a slot when its label changes.
-    OnKeyLabel key_label;
     // A track's bar count or step scale changed while bars loop (or are
     // armed), after the context callback. loop_bars may move those loops
     // here, as for a claimed key, but not start one.
@@ -156,42 +159,37 @@ struct Hooks {
     constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f, OnKeyLabel g = nullptr,
-                    OnSequencerChange h = nullptr)
+                    OnInputActivity e, OnQueuedControl f, OnSequencerChange g = nullptr)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f), key_label(g), sequencer_change(h) {}
+          input_activity(e), queued_control(f), sequencer_change(g) {}
 
     constexpr Hooks with_context(OnContext f) const {
         return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity,
-                     queued_control, key_label, sequencer_change);
+                     queued_control, sequencer_change);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
         return Hooks(context, f, selected_note_off, recording_tick, input_activity,
-                     queued_control, key_label, sequencer_change);
+                     queued_control, sequencer_change);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
         return Hooks(context, recordable_note_on, f, recording_tick, input_activity,
-                     queued_control, key_label, sequencer_change);
+                     queued_control, sequencer_change);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
         return Hooks(context, recordable_note_on, selected_note_off, f, input_activity,
-                     queued_control, key_label, sequencer_change);
+                     queued_control, sequencer_change);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
         return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f,
-                     queued_control, key_label, sequencer_change);
+                     queued_control, sequencer_change);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
         return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity,
-                     f, key_label, sequencer_change);
-    }
-    constexpr Hooks with_key_label(OnKeyLabel f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity,
-                     queued_control, f, sequencer_change);
+                     f, sequencer_change);
     }
     constexpr Hooks with_sequencer_change(OnSequencerChange f) const {
         return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity,
-                     queued_control, key_label, f);
+                     queued_control, f);
     }
 };
 }}

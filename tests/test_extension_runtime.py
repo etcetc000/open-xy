@@ -86,12 +86,6 @@ class Runtime(unittest.TestCase):
             (folder / 'extension_loop.cpp').write_text(local_includes((PLATFORM / 'extension_loop.cpp').read_text()))
         self.run_fixture('extension_loop', prepare)
 
-    def test_bar_menu_label_hook_shows_the_holders_label_on_m3(self):
-        def prepare(folder):
-            mapped_stock(folder)
-            (folder / 'extension_label.cpp').write_text(local_includes((PLATFORM / 'extension_label.cpp').read_text()))
-        self.run_fixture('extension_label', prepare)
-
     def test_generated_registry_omits_disabled_extensions_and_preserves_order(self):
         from tooling.extensions import Extension, generate_collection
         def prepare(folder):
@@ -105,7 +99,7 @@ class Runtime(unittest.TestCase):
         from tooling.extensions import extension_at, generate_collection, generate_extension
         def prepare(folder):
             mapped_stock(folder)
-            for unit in ('extension_stock.cpp', 'extension_loop.cpp', 'extension_label.cpp'):
+            for unit in ('extension_stock.cpp', 'extension_loop.cpp'):
                 (folder / unit).write_text(local_includes((PLATFORM / unit).read_text()))
             probe = extension_at(PROBE)
             generate_collection(folder, [probe])

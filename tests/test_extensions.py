@@ -76,6 +76,13 @@ class Extensions(unittest.TestCase):
                        lambda d: d.update(extensions=[]), lambda d: d.update(schema=2),
                        lambda d: d['claims']['shift_play'].update(keys=[]),
                        lambda d: d['claims']['shift_play'].update(keys=[51, 51]),
+                       lambda d: d['claims']['shift_play'].update(screen=0),
+                       lambda d: d['claims']['shift_play'].update(screen=256),
+                       lambda d: d['claims']['shift_play'].update(screen='bar'),
+                       lambda d: d['claims']['shift_play'].update(held=25),
+                       lambda d: d['claims']['bar_menu'].update(held=51),
+                       lambda d: d['claims']['bar_menu'].update(held=256),
+                       lambda d: d['claims']['bar_menu'].update(held='bar'),
                        lambda d: d['claims'].update(old={'label': 'Old', 'key': 50})):
             data = document(ROOT / extensions.PROFILE)
             mutate(data)
@@ -91,21 +98,20 @@ class Extensions(unittest.TestCase):
         self.assertEqual(declared, [(name, str(i)) for i, name in enumerate(actions)])
         self.assertNotRegex(header, r'const u32 claim_')
         self.assertTrue(all(c['keys'] and all(type(k) is int for k in c['keys']) for c in claims.values()))
-        self.assertEqual(claims['bar_menu']['keys'], [6, 7, 8, 9])
+        self.assertEqual((claims['bar_menu']['keys'], claims['bar_menu']['screen'], claims['bar_menu']['held']), ([51], 35, 25))
+        self.assertNotIn('screen', claims['shift_play'])
 
     def test_every_extension_hook_names_its_events_and_every_event_has_a_site(self):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
                                                'recording_tick', 'input_activity', 'queued_control',
-                                               'key_label', 'sequencer_change'])
-        self.assertEqual({x['address'] for x in profile['patches'] if 'key_label' in x.get('events', [])},
-                         {'0x8c0baaf0', '0x8d546fca', '0x8d546fe6', '0x8d547004', '0x8d547020'})
+                                               'sequencer_change'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         served = lambda p: next(x for x in p['patches'] if x.get('actions'))
         self.assertEqual({x['address'] for x in profile['patches'] if x.get('actions') == ['loop_bars']},
                          {'0x8d5ab84c', '0x8d5ab7d0', '0x8d5ac000', '0x8d5ac76e', '0x8d598038',
-                          '0x8d5474ee'})
+                          '0x8d5474ee', '0x8d546fca'})
         self.assertEqual({x['address'] for x in profile['patches'] if x.get('actions') == ['play_from']},
                          {'0x8d597ffc', '0x11a0aa80'})
         for mutate in (
@@ -128,7 +134,7 @@ class Extensions(unittest.TestCase):
         probe = extensions.extension_at(PROBE)
         [entry] = extensions.metadata([probe], {'probe': 'personal'})
         self.assertEqual(entry['origin'], 'personal')
-        self.assertEqual(entry['claim_labels'], {'record_double_tap': 'Record double-tap', 'bar_menu': 'Bar menu M1-M4'})
+        self.assertEqual(entry['claim_labels'], {'record_double_tap': 'Record double-tap', 'bar_menu': 'BAR + Play'})
         self.assertLessEqual(len(entry['description']), extensions.TEXT_LIMITS['description'])
 
     def test_extensions_reach_a_build_through_its_collection(self):
