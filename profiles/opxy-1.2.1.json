@@ -143,7 +143,8 @@
       "master_filter"
     ],
     "drums": [
-      "drum"
+      "drum",
+      "synthShift"
     ],
     "players": [
       "player"
@@ -157,7 +158,8 @@
       "padMix"
     ],
     "drum_locks": [
-      "padMix"
+      "padMix",
+      "synthShift"
     ]
   },
   "patches": [
@@ -1383,7 +1385,7 @@
       "file_offset": "0x11e70c",
       "length": 4,
       "before": "21600808",
-      "symbol": "extensions_drum_compare_r0",
+      "symbol": "extensions_preset_export_regions",
       "service": "drums",
       "call": true
     },

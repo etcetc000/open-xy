@@ -339,7 +339,9 @@ class Definitions(unittest.TestCase):
                       [dict(enum(0, ['a', 'b']), id='drive')],
                       [enum(i, [f'c{n}' for n in range(256)]) for i in range(3)]):
             rejected.append(dict(effect, shift=shift))
-        synth = copy.deepcopy(self.engine); synth['shift'] = [enum(0, ['a', 'b'])]
+        # A synth's Shift row (SDK 1.13) has rules of its own (test_synth_shift): five entries
+        # need a second page, which a four-control synth lacks.
+        synth = copy.deepcopy(self.engine); synth['shift'] = [enum(i, ['a', 'b']) for i in range(5)]
         for bad, kind in [(r, 'effect') for r in rejected] + [(synth, 'synth')]:
             with self.subTest(kind=kind, shift=len(bad['shift'])), self.assertRaises(ValueError):
                 validate_definition(bad, kind)

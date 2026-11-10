@@ -16,7 +16,7 @@ extern "C" {
 opxy::u32 opxy_preview_abi() { return 1; }
 opxy::u32 opxy_state_bytes() { return sizeof(Voice); }
 opxy::u32 opxy_state_alignment() { return alignof(Voice); }
-opxy::u32 opxy_parameter_count() { return opxy::parameter_slots; }
+opxy::u32 opxy_parameter_count() { return @PARAMETER_COUNT@; }
 opxy::u32 opxy_block_frames() { return 64; }
 opxy::u32 opxy_output_channels() { return @CHANNELS@; }
 opxy::u32 opxy_sample_rate() { return 44100; }
