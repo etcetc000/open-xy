@@ -575,6 +575,43 @@ test('expert build failures and cancellation before completion cannot write any 
   assert.match(f.$('flow-title').textContent, /Files verified/);
 });
 
+test('retry waits for a cancelled USB claim to finish and release the interface', async t => {
+  const fake = fakeDevice(), {device, state} = fake;
+  const claim = device.claimInterface.bind(device), open = device.open.bind(device);
+  const {promise: claiming, resolve: claimStarted} = Promise.withResolvers();
+  const {promise: releaseClaim, resolve: finishClaim} = Promise.withResolvers();
+  let opens = 0;
+  device.open = async () => {
+    opens++;
+    if (state.opened) throw new DOMException('USB is already open', 'InvalidStateError');
+    await open();
+  };
+  device.claimInterface = async number => {
+    if (opens === 1) { claimStarted(); await releaseClaim; }
+    assert.equal(state.opened, true);
+    await claim(number);
+  };
+  const files = {'os.ldr': Uint8Array.of(1)};
+  const f = sourceFlow(t, {fake, bytes: new Uint8Array(1), hash: '', files});
+  const first = f.wizard.quickInstall(async () => true);
+  await claiming;
+  f.$('dev-cancel').onclick();
+  const retry = f.click('mtp-send');
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(opens, 1);
+    assert.equal(state.opened, true);
+    assert.equal(state.read('os.ldr'), undefined);
+  } finally {
+    finishClaim();
+    await Promise.all([first, retry]);
+  }
+  assert.equal(opens, 2);
+  assert.deepEqual(state.read('os.ldr'), files['os.ldr']);
+  assert.match(f.$('flow-title').textContent, /Files verified/);
+  assert.equal(state.opened, false);
+});
+
 test('expert copy stops on corrupt readback before writing the OS', async t => {
   const fake = fakeDevice({corrupt: bytes => { bytes[12] ^= 1; }});
   const files = {'content/op1_factory.json': Uint8Array.of(4, 5), 'os.ldr': Uint8Array.of(1)};

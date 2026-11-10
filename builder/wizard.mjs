@@ -23,15 +23,33 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
   // Installing from this page: the chosen device, progress through the build,
   // a log of what happened, and whether every file arrived. `manual` means the user chose to copy.
   let mtp = null, sending = null, log = [], delivered = false, manual = false, downloaded = false;
-  // Closing finishes before the device is opened again.
-  let closing = Promise.resolve();
+  // Finish opening or closing a USB interface before another attempt can use it.
+  let opening = null, closing = Promise.resolve();
   let sourceBackupUrl = null;
   let firmwareState = 'empty';
   function clearSourceBackup() {
     if (sourceBackupUrl) URL.revokeObjectURL(sourceBackupUrl);
     sourceBackupUrl = null; $('source-backup').hidden = true; $('source-backup').removeAttribute('href');
   }
-  const stopSending = () => { sending = null; if (mtp) closing = mtp.close(); };
+  async function openTransfer(device, ticket) {
+    await closing;
+    if (ticket !== revision) return false;
+    opening = device.open();
+    try { await opening; }
+    finally { opening = null; }
+    return ticket === revision;
+  }
+  function closeTransfer(device) {
+    if (device) {
+      const pendingOpen = opening;
+      closing = closing.then(async () => {
+        if (pendingOpen) await pendingOpen.catch(() => {});
+        await device.close();
+      });
+    }
+    return closing;
+  }
+  const stopSending = () => { sending = null; closeTransfer(mtp); };
   const release = () => { stopSending(); mtp = null; log = []; delivered = false; };
   const sendsDirectly = () => computer === 'mac' && (previewMode || Mtp.supported()) && !manual;
   const isDisabling = () => ['disable', 'recover'].includes(purpose);
@@ -349,18 +367,16 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
     busy = true; log = []; render(); status(mtp ? '' : 'Choose your OP–XY when your browser asks…');
     let device;
     try {
-      device = mtp = await request;
+      device = await request;
       if (ticket !== revision) return;
+      mtp = device;
       if (prepare && !await prepare()) throw new Error('Build failed. Return to expert mode and check your configuration.');
       if (ticket !== revision) return;
       const files = Object.entries(getFiles() ?? {}).sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b));
       const total = files.reduce((n, [, bytes]) => n + bytes.length, 0);
       if (!files.length) throw new Error('This build is no longer available. Build it again, then send it.');
       status(); note('Connecting to your OP–XY…');
-      await closing;
-      await device.open();
-      // Stopped while connecting: Stop sending couldn't close a device that wasn't open yet.
-      if (ticket !== revision) { await device.close(); return; }
+      if (!await openTransfer(device, ticket)) return;
       note('Connected. Sending ' + files.length + ' files, ' + size(total) + '.');
       const started = performance.now();
       let before = 0;
@@ -396,7 +412,8 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
       mtp = null;
     } finally {
       // A cancelled attempt was already closed by Stop sending or leaving the step.
-      if (ticket === revision) { closing = device?.close() ?? closing; await closing; busy = false; sending = null; render(); }
+      if (ticket === revision) await closeTransfer(device);
+      if (ticket === revision) { busy = false; sending = null; render(); }
     }
   }
   async function readOriginal() {
@@ -411,9 +428,7 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
       device = await request;
       if (ticket !== revision) return;
       mtp = device;
-      await closing;
-      await device.open();
-      if (ticket !== revision) { await device.close(); return; }
+      if (!await openTransfer(device, ticket)) return;
       status(); note('Connected. Reading the original OS…');
       sending = {path, index: 0, count: 1, done: 0, total, fileDone: 0, fileSize: total, started: performance.now()};
       renderDirect();
@@ -432,7 +447,8 @@ export function createWizard({getKit, getSelected, hasDownload, getFiles, onFirm
       const message = !device && error.name === 'NotFoundError' ? 'No OP–XY chosen.' : error.message || String(error);
       note(message, 'error'); status(message, true);
     } finally {
-      if (ticket === revision) { closing = device?.close() ?? closing; await closing; mtp = null; }
+      if (ticket === revision) await closeTransfer(device);
+      if (ticket === revision) mtp = null;
     }
     if (ticket !== revision) return;
     if (file) {
