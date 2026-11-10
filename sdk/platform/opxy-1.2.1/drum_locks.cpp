@@ -16,6 +16,7 @@
 #include "drum_lock_store.hpp"
 #include "drum_values.hpp"
 #include "stock.hpp"
+#include "synth_controls.hpp"
 
 extern "C" {
 opxy::u32 sdk_drum_lock_note(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32)
@@ -79,11 +80,22 @@ u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
     return stock<u32(u32, u32, u32, i32*)>(0x8d5ad194)(project, track, kind, payload);
 }
 
-// The step-lock handles' client checks (lock_handles.hpp): an owned padMix kit, on an
-// instrument track or as a pattern's machine.
+// The step-lock handles' client checks (lock_handles.hpp): an owned padMix kit, or a
+// synth with a Shift row (SDK 1.13), on an instrument track or as a pattern's machine.
 bool opxy::platform::step_locks::pattern_client(u32 engine) {
     const DrumMachine* kit = sdk_drum_machine(engine);
-    return kit && kit->pad_mix;
+    return (kit && kit->pad_mix) || sdk_synth_shift_engine(engine);
+}
+// After a step's lock pass: a synth with a Shift row plays the step's locks of its row
+// (its handle's step-wide entry, field = entry) from its live words, which the pass
+// has just given the handle (synth_controls.cpp sdk_synth_shift_play); a step with
+// none plays the track's own row. A kit takes its step's locks at note start.
+void opxy::platform::step_locks::step_applied(u32 project, u32 track, u32 handle) {
+    // A build without a Shift-row synth (every kit-only one) asks stock nothing more.
+    if (track >= kTracks || !sdk_synth_shift_present() || !sdk_synth_shift_engine(track_engine(track))) return;
+    i32 values[kFields] = {};
+    const u32 mask = handle ? handle_fields(handle, kStepWide, values) : 0;
+    sdk_synth_shift_play(project, track, mask, values);
 }
 bool opxy::platform::step_locks::handle_client(u32 track) {
     return track < kTracks && pattern_client(track_engine(track));

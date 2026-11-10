@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '18e8e1b1f36d77d530d02e67c117e647b4924f993f570013ab2227cf3078f635';
+export const PROFILE_SHA256 = '2a05e2218289b3d40d83a68e8c663dab1fe5f2a1d72cd5ad13e1480358672735';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -1073,7 +1073,11 @@ export function presetFiles(machine) {
     const params = preset?.engine?.params;
     check(/^[a-z0-9][a-z0-9_-]{0,23}$/.test(name) && preset && typeof preset === 'object' &&
       preset.version === 4 && preset.platform === 'OP-XY' && preset.type === machine.id &&
-      Array.isArray(preset.regions) && preset.regions.length === 0 && Array.isArray(params) && params.length === 8 &&
+      Array.isArray(preset.regions) && (preset.regions.length === 0 ||
+        // A synth's Shift row (SDK 1.13) rides in sample-less regions, as Drumline's keys do.
+        machine.shiftRow === true && preset.regions.length <= 24 &&
+        preset.regions.every(r => r && typeof r === 'object' && !Array.isArray(r) && !r.sample)) &&
+      Array.isArray(params) && params.length === 8 &&
       params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767), 'Invalid machine preset: ' + name);
     files[`content/presets/${machine.id}/${name}.json`] = preset;
   }
