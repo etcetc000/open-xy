@@ -148,6 +148,12 @@ namespace sdk_drum_transport {
 struct Absent {};
 template <class V, class S> Absent drum_transport(V&, S&, opxy::u32, const opxy::Transport&) { return Absent(); }
 }
+// An engine may narrow the range the track menu's scramble draws a control
+// from with `void scramble_range(u32 model, u32 slot, u8* low, u8* high)` in its
+// namespace (both 0..127); a kit without one scrambles each control over 0..127.
+namespace sdk_drum_scramble_ranges {
+template <class M, class S, class B> void scramble_range(M, S, B*, B*) {}
+}
 extern "C" {
 extern const void* const @PREFIX@_vtable[];
 // A note keeps its handle's voice or takes one: a free voice, else the one
@@ -375,6 +381,12 @@ opxy::u32 @PREFIX@_drum_send(const void* self) {
     if (!kPadMix) return 0;
     if (const Slot* slot = held(handle)) return slot->send;
     return handle->slot && voices[handle->slot - 1].faded == owner(handle) ? voices[handle->slot - 1].send : 0;
+}
+void @PREFIX@_drum_scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high) __asm__("@PREFIX@_drum_scramble_range");
+void @PREFIX@_drum_scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high) {
+    using namespace sdk_drum_scramble_ranges;
+    using namespace @NAMESPACE@;
+    scramble_range(model, slot, low, high);
 }
 const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&@PREFIX@_destroy), reinterpret_cast<const void*>(&@PREFIX@_destroy),

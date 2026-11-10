@@ -111,7 +111,8 @@ def generate_drum_callbacks(directory, machines):
                          f'void {p}_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_defaults");',
                          f'const char* {p}_drum_label(opxy::u32, opxy::u32) __asm__("{p}_drum_label");',
                          f'const char* {p}_drum_model_name(opxy::u32) __asm__("{p}_drum_model_name");',
-                         f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");']
+                         f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");',
+                         f'void {p}_drum_scramble_range(opxy::u32, opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_scramble_range");']
         groups = m.definition['resources'].get('modelGroups', [])
         pads = m.definition['resources'].get('padControls', [])
         if pads:
@@ -127,7 +128,8 @@ def generate_drum_callbacks(directory, machines):
                     f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}, '
                     f'{1 if m.definition["resources"].get("padMix", 0) else 0}, {len(pads)}, '
                     f'{p + "_pad_bits" if pads else "nullptr"}, {sum(1 << i for i, f in enumerate(pads) if f.get("signed"))}, '
-                    f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}}},')
+                    f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}, '
+                    f'{p}_drum_scramble_range}},')
         if sends_per_key(m):
             # The mixer's send hooks (drum_send.cpp) know a kit's voices by its method table.
             declarations += [f'extern const void* const {p}_vtable[];',

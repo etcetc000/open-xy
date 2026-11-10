@@ -1524,6 +1524,28 @@
     },
     {
       "kind": "hook",
+      "name": "Track menu scramble: the selected track's engine, an owned kit's as Drumline's",
+      "address": "0x8c0b5314",
+      "file_offset": "0xec550",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_scramble_engine",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Track menu scramble, its Drumline branch: an owned kit re-rolls each key's model and controls",
+      "address": "0x8c0b5430",
+      "file_offset": "0xec66c",
+      "length": 8,
+      "before": "00de4d8d2c620000",
+      "symbol": "sdk_drum_scramble",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "LFO Value effective destination label",
       "address": "0x8d543970",
       "file_offset": "0x17abcc",

@@ -30,7 +30,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sampler page | 9 | Shows an owned page-2 engine's track as the stock sampler's page, with its one sample in region 0 for every key |
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
-| Synthesis drum transport | 17 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
+| Synthesis drum transport | 19 | Classifies owned drum kits for per-key editing, lookup, note start, project load, preset persistence and the track menu's scramble while retaining their registered engine IDs |
 | Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit |
 | Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts; linked only with a `padMix` kit |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
@@ -352,6 +352,21 @@ Holding the track key and choosing scramble randomizes the track's parameters
 0..3 and its other preset groups, but never 4..7. Its last stock write is
 hooked: for an owned synth, every alternate except an empty placeholder then
 gets a value from the same stock generator.
+
+On a drum track scramble takes another branch. It asks the selected track's
+engine at `8c0b5314` and, for Drumline (4), calls `8d4d622c`, which re-rolls
+each of the 24 pads' instrument type and settings, keeping its choke group,
+publishing each pad through `8d4d5f18` and the change through `8d585ee8`.
+An owned kit's engine ID failed that check, so stock took the synth branch:
+it randomized the track's parameters 0..3, which a kit reads as offsets, and
+left every key's stored settings as they were. The SDK aliases the check, as
+it does the editor's, and at `8d4d622c`'s call re-rolls an owned kit's keys
+instead: each key's model, and each control that model uses within its
+scramble range, packed as the editor packs them, the pad marked with its
+choke group kept, then published the same way. A key's pan, level and pad
+fields (sends included) stay; a `padMix` kit's key it had not set up is set up
+as its first edit would set it up, so it plays as before apart from the
+scramble. Other tracks keep stock's.
 
 The auxiliary-track controller already folds Shift into positions 0..3; owned
 send effects on tracks 14/15 get the same fine scaling. Encoder turns clear the
@@ -885,10 +900,10 @@ inside the effect. See the [effect API](api.md#effects).
 
 An owned `drum` registration uses flag 1, its own engine ID and drawing page.
 The SDK aliases only the local Drumline classification branches to engine 4;
-stock and occupied registrations retain their behavior. Seventeen exact hooks cover
+stock and occupied registrations retain their behavior. Nineteen exact hooks cover
 the drum predicate, region lookup, note start, project load, editor dispatch, the
-editor's key ([below](#step-locks-of-a-kits-shift-fields)), preset import/export
-and preset load (below). Project load's track check at `8d588ec8` resets a
+editor's key ([below](#step-locks-of-a-kits-shift-fields)), preset import/export,
+preset load and the track menu's scramble (below). Project load's track check at `8d588ec8` resets a
 Drumline track's eight parameters to neutral offsets (`0x40000000`); without
 the alias a loaded kit kept zero offsets and every note decoded 64 below its
 stored values. Note start tests for Drumline at `8d595a4c`; only that branch
@@ -1260,9 +1275,11 @@ plays. Words 36 and 38 carry nothing.
 - **Stored base.** Project load's track check (`8d588ec8`, the `drums`
   service's alias hook) also stores 0 in words 36 and 37 and `0x40000000` in 38
   of each pattern's track object (`+0x3864`), as stock stores a Drumline track's
-  words 0..7 just after (`8d588dfe`). The track menu's scramble (`8c0b52fc`)
-  randomizes words 0..3, 8..11, 32..35, 16..19 and 24..31 and leaves 36..41;
-  after its last write (13, `8c0b541c`, `sdk_synth_scramble`) the SDK sets the
+  words 0..7 just after (`8d588dfe`). The track menu's scramble takes its
+  Drumline branch on an owned kit (above), which writes none of the track
+  object's words. Its synth branch (`8c0b52fc`) randomizes words 0..3, 8..11,
+  32..35, 16..19 and 24..31 and leaves 36..41; should it run on a kit, after
+  its last write (13, `8c0b541c`, `sdk_synth_scramble`) the SDK sets the
   three back all the same. Once a frame (`sdk_send_refresh`), outside a project
   load (the word at `840a0528`), the selected kit's are set back if they differ:
   the stored word directly and the live one through `8d5acea8`, which publishes

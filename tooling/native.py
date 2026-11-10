@@ -324,7 +324,8 @@ def absent_symbols(m):
         if m.kind == 'drum':
             # The shared drum table names these.
             absent.update({m.prefix + suffix: 'kit_absent' for suffix in
-                           ('_drum_defaults', '_drum_label', '_drum_model_name', '_drum_count')})
+                           ('_drum_defaults', '_drum_label', '_drum_model_name', '_drum_count',
+                            '_drum_scramble_range')})
             if m.definition['resources'].get('padControls'):
                 absent[m.prefix + '_drum_pad_text'] = 'kit_absent'
             if sends_per_key(m):

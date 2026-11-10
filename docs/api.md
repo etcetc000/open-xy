@@ -802,6 +802,21 @@ choke groups Shift chooses, which stock applies to keys sharing a group. A
 synth or an effect cannot declare it; sample engines have their own
 `chokeSameKey` (see [Services](#services)).
 
+Holding the track key and choosing scramble re-rolls every key of a kit, as on
+Drumline: its model, from all the kit's models, and each control that model
+uses. The key's choke group, pan, level and pad fields (sends included) stay;
+a `padMix` key never edited is set up as an edit would set it up, at 0 dB with
+its fields neutral. A sounding voice plays the new values from
+its next block. A kit may keep scramble musical by narrowing the range a
+control is drawn from:
+
+```cpp
+void scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high);   // optional; in the machine namespace
+```
+
+`low` and `high` arrive as 0 and 127; narrow either, inclusive. A kit without
+it draws every control from 0..127.
+
 A kit's engine may also report that a voice's sound has ended, so stock
 retires its note and the voice is free for the next one before stock's
 amplitude envelope ends:
