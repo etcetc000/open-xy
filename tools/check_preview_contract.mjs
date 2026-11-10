@@ -21,8 +21,12 @@ assert.throws(() => engine.api.memory.grow(1), RangeError);
 assert.throws(() => display.api.memory.grow(1), RangeError);
 assert.equal(engine.api.opxy_voice_state(engine.voices.length), 0, 'Factory bound');
 const samples = new Float32Array(257);
-engine.render(samples);
+const right = engine.outputChannels === 2 ? new Float32Array(samples.length) : undefined;
+const render = (left, rightOutput = right) => engine.render(left, rightOutput);
+const silent = left => left.every(value => value === 0);
+render(samples);
 assert.ok(samples.every(value => value === 0), 'Inactive voices are silent');
+assert.ok(!right || silent(right), 'Inactive right channel is silent');
 const peak = engine.api.opxy_output_peak_q31();
 for (let corner = 0; corner < 16; ++corner) {
   // Every slot at both extremes: the four controls, then their alternates inverted.
@@ -31,8 +35,9 @@ for (let corner = 0; corner < 16; ++corner) {
   for (let voice = 0; voice < engine.voices.length + 2; ++voice) engine.noteOn(48 + voice * 2);
   const pitches = engine.voices.map(voice => Array.from(voice.pitch));
   for (let block = 0; block < 8; ++block) {
-    engine.render(samples);
+    render(samples);
     assert.ok(samples.every(value => Number.isFinite(value)), 'Finite audition output');
+    assert.ok(!right || right.every(Number.isFinite), 'Finite right-channel output');
     assert.deepEqual(Array.from(engine.parameters), controls, 'Read-only controls');
     for (const [i, voice] of engine.voices.entries()) {
       assert.deepEqual(Array.from(voice.pitch), pitches[i], 'Read-only pitch');
@@ -47,11 +52,14 @@ for (let corner = 0; corner < 16; ++corner) {
   }
   for (const voice of engine.voices) engine.noteOff(voice.note);
   const release = new Float32Array(8192);
-  engine.render(release);
+  const releaseRight = right ? new Float32Array(release.length) : undefined;
+  render(release, releaseRight);
   assert.ok(engine.voices.every(voice => !voice.active), 'Release completes');
   assert.ok(release.subarray(6000).every(value => value === 0), 'Release ends in silence');
-  engine.noteOn(60); engine.render(samples); engine.panic(); engine.render(samples);
+  assert.ok(!releaseRight || silent(releaseRight.subarray(6000)), 'Right release ends in silence');
+  engine.noteOn(60); render(samples); engine.panic(); render(samples);
   assert.ok(samples.every(value => value === 0), 'Panic clears voices');
+  assert.ok(!right || silent(right), 'Panic clears right channel');
 }
 // A warning, not a failure, while published machines still draw such outlines.
 for (const fault of outlines) {
