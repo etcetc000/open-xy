@@ -75,7 +75,8 @@ def generate_voice(directory, m, sweep=False):
         controls = (controls.replace('const opxy::i32* controls', 'const opxy::i32* stock_controls', 1) +
                     '        opxy::i32 controls[2 * opxy::parameter_slots];\n'
                     '        for (unsigned i = 0; i < opxy::parameter_slots; ++i) controls[i] = stock_controls[i];\n'
-                    '        shift_words(parameters, controls + opxy::parameter_slots);\n')
+                    '        static opxy::i32 shift_kept[kVoices][2];\n'
+                    '        shift_words(parameters, controls + opxy::parameter_slots, shift_kept[slot - voices]);\n')
     values = dict(voice_values(m.definition), SWEEP_DECLARATIONS=declarations, SWEEP_CONTROLS=controls,
                   SHIFT_ROW=shift_row,
                   PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
@@ -123,11 +124,21 @@ SHIFT_ROW = '''#include "synth_shift.hpp"
 static const opxy::u8 kShiftDefaults[8] = {{{defaults}}};
 static const opxy::u8 kShiftTops[8] = {{{tops}}};
 static const opxy::u32 kShiftBuckets[8] = {{{buckets}}};
-// The row's eight words as render receives them, from the track record's words 36 and 37.
-static void shift_words(const opxy::i32* record, opxy::i32* out) {{
+// The row's eight words as render receives them, from the track record's words 36 and
+// 37. A word without the mark that isn't 0 is a step-lock handle stock's lock pass has
+// just written there, which the SDK replaces with the step's row before the note
+// starts (synth_controls.cpp sdk_synth_shift_play): the voice keeps playing the last
+// row it read until then.
+static void shift_words(const opxy::i32* record, opxy::i32* out, opxy::i32* kept) {{
     namespace row = opxy::platform::synth_shift;
+    opxy::i32 words[2];
+    for (opxy::u32 w = 0; w < 2; ++w) {{
+        words[w] = record[row::kFirstWord + w];
+        if (words[w] & row::kMark) kept[w] = words[w];
+        else if (words[w]) words[w] = kept[w];
+    }}
     for (opxy::u32 i = 0; i < row::kEntries; ++i) {{
-        opxy::u32 field = row::field(record[row::word_of(i)], i, kShiftDefaults);
+        opxy::u32 field = row::field(words[i / row::kPerWord], i, kShiftDefaults);
         if (field > kShiftTops[i]) field = kShiftTops[i];
         out[i] = kShiftBuckets[i] ? row::choice(field, kShiftBuckets[i]) : kShiftTops[i] ? row::amount(field) : 0;
     }}

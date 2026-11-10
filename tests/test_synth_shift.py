@@ -11,9 +11,12 @@ import tempfile
 import unittest
 
 from tooling import adapters
-from tooling.definitions import (shift_choices, shift_field, shift_q31, shift_words, synth_shift,
+from tooling import native
+from tooling.definitions import (shift_choices, shift_field, shift_preset_params, shift_q31, shift_words, synth_shift,
                                  validate_definition)
-from tooling.machines import machine_at
+from tooling.firmware import active_services
+from tooling.machines import check_preset, machine_at
+from tooling.pipeline import config
 from machine_fixtures import FOLDER, fixture
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,10 +77,57 @@ class Definition(unittest.TestCase):
             with self.subTest(name), self.assertRaises(ValueError):
                 validate_definition(definition, 'synth')
 
-    def test_presets_name_the_page_controls_only(self):
-        preset = dict(next(iter(self.paged['presets'].values())), noise=0.5)
+    def test_presets_may_set_the_row(self):
+        page = next(iter(self.paged['presets'].values()))
+        validate_definition(dict(self.paged, presets={'Row': dict(page, noise=0.5, octave=1)}), 'synth')
+        for extra in (dict(gap=0), dict(unknown=0.5)):
+            with self.subTest(extra), self.assertRaises(ValueError):
+                validate_definition(dict(self.paged, presets={'Bad': dict(page, **extra)}), 'synth')
+        # An effect's shift row stays out of its presets.
+        effect = dict(fixture('probefx').definition, shift=[enum(0, 3)])
+        preset = dict({p['id']: p['default'] for p in effect['parameters']}, e0=0)
         with self.assertRaises(ValueError):
-            validate_definition(dict(self.paged, presets={'Bad': preset}), 'synth')
+            validate_definition(dict(effect, presets={'Bad': preset}), 'effect')
+
+    def test_the_preset_region_holds_the_row_as_a_drum_key(self):
+        definition = fixture('probeshift').definition
+        values = {'noise': 0.3, 'octave': 0.75, 'balance': 0.2}
+        params = shift_preset_params(definition, values)
+        self.assertEqual(len(params), 4)
+        self.assertTrue(all(0 <= p <= 0x7fff for p in params))
+        # drum_storage.hpp drum_put/drum_get: 15 bits a word, 7 a field, model 0 in 56..59.
+        bits = sum(p << (15 * w) for w, p in enumerate(params))
+        fields = [bits >> (7 * i) & 127 for i in range(8)]
+        self.assertEqual(fields, [shift_field(p, values.get(p['id'], p['default'])) for p in synth_shift(definition)])
+        self.assertEqual(bits >> 56, 0)
+
+    def test_own_presets_keep_the_row_in_sample_less_regions(self):
+        preset = dict(version=4, platform='OP-XY', type='probeshift', engine=dict(params=[0] * 8),
+                      regions=[dict(model='fm slap', params=[1, 2, 3, 4], sample='')] * 24)
+        check_preset(preset, 'probeshift', shift=True)
+        for bad in ([dict(sample='content/samples/a.wav')], [dict()] * 25):
+            with self.subTest(len(bad)), self.assertRaises(ValueError):
+                check_preset(dict(preset, regions=bad), 'probeshift', shift=True)
+        with self.assertRaises(ValueError):
+            check_preset(preset, 'probeshift')
+
+    def test_its_presets_and_locks_use_the_kits_services(self):
+        profile = config()
+        users = native.service_users([fixture('probeshift')])
+        self.assertIn('synthShift', users)
+        self.assertTrue({'drums', 'drum_locks'} <= active_services(profile, users))
+        self.assertFalse({'drums', 'drum_locks'} & active_services(profile, native.service_users([fixture('probesynth')])))
+        symbols = {p['address']: p['symbol'] for p in profile['patches'] if p.get('service') == 'drums'}
+        # Export's region choice packs the row first; import's neutral offsets stay a kit's.
+        self.assertEqual(symbols['0x8d4e74b0'], 'extensions_preset_export_regions')
+        self.assertEqual(symbols['0x8d4e39c0'], 'extensions_drum_compare_r0')
+        hooks = (ROOT / 'sdk/platform/opxy-1.2.1/drum_hooks.s').read_text()
+        for stub in ('extensions_drum_preset_import', 'extensions_drum_export_empty',
+                     'extensions_drum_export_parameters', 'extensions_drum_export_gain'):
+            body = hooks[hooks.index(stub + ':'):hooks.index('.size ' + stub)]
+            self.assertIn('PRESET_ALIAS_R0', body, stub)
+        compare = hooks[hooks.index('extensions_drum_compare_r0:'):hooks.index('.size extensions_drum_compare_r0')]
+        self.assertIn('DRUM_ALIAS_R0', compare)
 
     def test_it_needs_sdk_1_13(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -183,7 +233,7 @@ class Generation(unittest.TestCase):
         self.assertIn('static const opxy::u8 kShiftTops[8] = {100, 100, 4, 100, 100, 0, 100, 100};', text)
         self.assertIn('static const opxy::u32 kShiftBuckets[8] = {0u, 0u, 429496729u, 0u, 0u, 0u, 0u, 0u};', text)
         self.assertIn('        opxy::i32 controls[2 * opxy::parameter_slots];\n', text)
-        self.assertIn('        shift_words(parameters, controls + opxy::parameter_slots);\n', text)
+        self.assertIn('        shift_words(parameters, controls + opxy::parameter_slots, shift_kept[slot - voices]);\n', text)
         # A synth without a row keeps its adapter as before.
         self.assertNotIn('shift', plain.lower().replace('shifted', ''))
         self.assertIn('        const opxy::i32* controls = parameters;\n', plain)
@@ -192,7 +242,7 @@ class Generation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             text = adapters.generate_voice(Path(directory), fixture('probeshift'), sweep=True).read_text()
         self.assertIn('const opxy::i32* stock_controls = swept ? swept : parameters;', text)
-        self.assertIn('shift_words(parameters, controls + opxy::parameter_slots);', text)
+        self.assertIn('shift_words(parameters, controls + opxy::parameter_slots, shift_kept[slot - voices]);', text)
 
     def test_the_control_table_describes_the_row(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -14,6 +14,10 @@
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
 #include "lock_pool.hpp"
+#include "synth_controls.hpp"
+// The runtime's synth Shift row (synth_controls.cpp): no synth here.
+bool sdk_synth_shift_engine(opxy::u32) { return false; }
+void sdk_synth_shift_play(opxy::u32, opxy::u32, opxy::u32, const opxy::i32*) {}
 
 extern "C" {
 opxy::u32 sdk_drum_lock_note(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32)

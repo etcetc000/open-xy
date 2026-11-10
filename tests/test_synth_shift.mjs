@@ -20,7 +20,7 @@ test('the row renders as parameters 8..15, stored as the device stores it', () =
   assert.equal(controls.displayValue('octave', {...values, octave: 0.99}), '+2');
 });
 
-test('a value may leave the row out; a preset holds none and plays its defaults', () => {
+test('a value may leave the row out, and a preset without it plays its defaults', () => {
   const controls = createControls(definition);
   const page = Object.fromEntries(definition.parameters.map(p => [p.id, p.default]));
   assert.deepEqual(controls.validateParameters(page), controls.defaults());
@@ -29,6 +29,13 @@ test('a value may leave the row out; a preset holds none and plays its defaults'
   const [name, preset] = Object.entries(definition.presets)[0];
   assert.deepEqual(controls.presets[name], {...preset, ...Object.fromEntries(
     definition.shift.filter(p => !p.absent).map(p => [p.id, p.default]))});
+});
+
+test('a preset may set the row; the rest of the row plays its defaults', () => {
+  const controls = createControls(definition);
+  assert.equal(controls.presets.Pulse.noise, 0.3);
+  assert.equal(controls.presets.Pulse.drift, 0.25);
+  assert.equal(controls.q31(controls.presets.Pulse)[10], shiftWord(definition.shift[2], 0.75));
 });
 
 test('a synth without a row keeps eight words and its exact controls', () => {

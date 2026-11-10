@@ -279,8 +279,10 @@ def validate_definition(value, kind):
                 all(p in HIDDEN_PAGES for p in pages), '"hidePages" lists "envelope" and/or "filter" for a synth or drum kit')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     present = {p['id'] for p in parameters if not p.get('absent')}
+    # A synth's Shift row entries are optional in a preset (their defaults otherwise).
+    row = {p['id'] for p in synth_shift(value) if not p.get('absent')} if kind == 'synth' else set()
     for name, preset in value['presets'].items():
-        label(name); keys(preset, present, 'preset')
+        label(name); keys(preset, present | (row & set(preset) if isinstance(preset, dict) else set()), 'preset')
         for default in preset.values(): number(default, 0, 1, 'preset value')
     return value
 
@@ -366,6 +368,19 @@ def shift_words(definition, values=None):
     shift = synth_shift(definition)
     words = [shift_q31(p, shift_field(p, (values or {}).get(p['id'], p['default']))) for p in shift]
     return words + [0] * (SYNTH_SHIFT_ENTRIES - len(words)) if shift else []
+
+
+def shift_preset_params(definition, values=None):
+    """The four `params` of the region that keeps a synth's Shift row in a preset: the
+    eight 7-bit fields of the row at its defaults (or at `values[id]`, normalized), first
+    entry lowest, 15 bits a word, as stock's preset writer exports a Drumline key's four
+    parameter words (sdk/platform/opxy-1.2.1/drum_storage.hpp drum_pack, model 0). The
+    region names `"model": "fm slap"`; see docs/api.md#a-synths-shift-row."""
+    shift = synth_shift(definition)
+    fields = [shift_field(p, (values or {}).get(p['id'], p['default'])) for p in shift]
+    fields += [0] * (SYNTH_SHIFT_ENTRIES - len(fields))
+    bits = sum(field << (7 * i) for i, field in enumerate(fields))
+    return [bits >> (15 * w) & 0x7fff for w in range(4)]
 
 
 def synth_shift(definition):

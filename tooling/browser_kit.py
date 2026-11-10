@@ -120,6 +120,10 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         # A synth's Shift row (SDK 1.13): the eight words its preview renders after the controls.
         if synth_shift(m.definition):
             entry['preview']['shift'] = shift_words(m.definition)
+    # A synth with a Shift row: its own presets keep the row in sample-less regions
+    # (builder/core.mjs presetFiles).
+    if m.kind == 'synth' and synth_shift(m.definition):
+        entry['shiftRow'] = True
     return entry
 
 

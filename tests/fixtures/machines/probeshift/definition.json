@@ -211,7 +211,10 @@
       "drive": 0,
       "crush": 0,
       "rectify": 0,
-      "smooth": 0
+      "smooth": 0,
+      "noise": 0.3,
+      "octave": 0.75,
+      "balance": 0.2
     }
   },
   "resources": {

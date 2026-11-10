@@ -437,14 +437,27 @@ const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 
   pattern of the project ([firmware](abi-1.2.1.md#a-synths-shift-row)).
   A project saved before the machine had its row, a new project and a track
   newly given the machine play the row's defaults.
-- **Presets don't keep it.** Stock's preset has no place for it: loading a
-  preset, a machine's own included, sets the row to its defaults, and saving
-  one leaves it out. A preset in `definition.json` names the page's controls
-  only.
-- **Not per step.** While a step is held, a Shift turn changes nothing, and
-  recording a Shift turn records nothing: the row has no parameter locks. The
-  LFOs reach the page's eight controls only, and the track menu's scramble
-  leaves the row alone.
+- **Presets keep it**, as a drum kit's presets keep its keys: a preset saved on
+  the OP-XY carries the row in its regions (Drumline's, with no sample), and
+  loading it plays the row it was saved with. A preset without them, saved
+  before SDK 1.13 or written without the row, plays the row's defaults. A
+  preset in `definition.json` may set any of the row's controls; the rest keep
+  their defaults. A preset file written by other tools carries the row as one
+  region, `{"model": "fm slap", "params": [...]}`, its four `params` from
+  `tooling.definitions.shift_preset_params`; one saved on the device is the
+  surest form ([firmware](abi-1.2.1.md#a-synths-shift-row)).
+- **Locks per step**, as a drum kit's Shift fields lock: hold a step, hold
+  Shift and turn; the step plays that entry at the value turned to, and turning
+  it back to the track's value unlocks it. A lock acts from the step's note
+  start on every voice the track is sounding, as a stock lock does, and copies,
+  pastes and saves with its step. Recording a Shift turn without a step held
+  changes the row, and records nothing. With slide on, the row's locks don't
+  slide. Locks on the page's eight controls, and the LFOs that reach them, are
+  stock's, unchanged; the LFOs don't reach the row, and the track menu's
+  scramble leaves it alone.
+- **What it costs.** Presets and locks use the drum kits' preset hooks and
+  step-lock service, so a build with a Shift-row synth links them: about 86 KiB
+  of module memory, most of it the lock pool, once for the whole build.
 - **Showing it.** While Shift is held, the stock header names and captions the
   entries under the page the encoders are on. A machine drawing its own header
   reads the row from [`opxy/synth_shift.hpp`](display.md#a-synths-shift-row),
@@ -1327,8 +1340,9 @@ firmware that holds it.
   eight engine `params` from 0 to 32767 and no sample `regions`, since a
   preset never points into a user's sample library. A sample engine shipping
   its [own samples](#own-samples) may point at those instead. Other fields stay
-  as the device saved them. A synth's [Shift row](#a-synths-shift-row) isn't
-  in a preset: loading one plays the row's defaults.
+  as the device saved them, except that a synth with a
+  [Shift row](#a-synths-shift-row) keeps it in up to 24 regions that point at
+  no sample.
 
 #### Own samples
 

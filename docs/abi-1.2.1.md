@@ -32,7 +32,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 17 | Classifies owned drum kits for per-key editing, lookup, note start, project load and preset persistence while retaining their registered engine IDs |
 | Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit |
-| Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts; linked only with a `padMix` kit |
+| Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts, or a synth's [Shift row](#a-synths-shift-row) locks to its live words; linked only with a `padMix` kit or a Shift-row synth |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
@@ -56,10 +56,11 @@ The sample rows (sample dispatch, analysis, drum-page services and recorder)
 form the profile's `samples` service (apart from octave publication,
 which is shared with players and drum kits): a build applies those edits, and links
 the SDK code behind them, only when it includes a sample engine or synthesis drum
-kit. Synthesis drum transport is the `drums` service, used only by drum kits, and
+kit. Synthesis drum transport is the `drums` service, used by drum kits and,
+for its preset sites, by a synth with a [Shift row](#a-synths-shift-row), and
 per-key sends the `drum_sends` service, used only by a kit declaring `padMix`.
-The step locks of a kit's Shift fields are the `drum_locks` service, used only
-by a `padMix` kit. The [track filter](#the-track-filter-on-kit-voices) on kit
+The step locks of a kit's Shift fields are the `drum_locks` service, used by a
+`padMix` kit and by a synth with a Shift row. The [track filter](#the-track-filter-on-kit-voices) on kit
 voices needs no hook: it is in every kit's adapter.
 Otherwise their sites stay stock. The track control rows (and the project read of the
 project companion rows) form the `control` service in the same way: a build
@@ -1306,8 +1307,10 @@ fields than the 42 slots a step has
 [`lock_pool.hpp`](../sdk/platform/opxy-1.2.1/lock_pool.hpp)). The step keeps a
 16-bit **handle** as an ordinary stock lock on word 37; the values live in an SDK
 pool under that handle. It is the `drum_locks` service's, so a build links it only
-with a `padMix` kit, and asks its client two things, `handle_client(track)` and
-`pattern_client(engine)`, which the kit glue answers for an owned `padMix` kit
+with a `padMix` kit or a synth with a [Shift row](#a-synths-shift-row), and asks its
+client three things, `handle_client(track)`, `pattern_client(engine)` and, after
+each step's lock pass, `step_applied(project, track, handle)`, which the glue
+answers for an owned `padMix` kit and such a synth
 (stock Drumline can answer them too later). Units every build links reach it only
 through startup's calls (`sdk_project_locks_*`), which forward to it or, in a build
 without it, answer 0; a browser selection without it resolves them to
@@ -1510,9 +1513,12 @@ control's choice as a ninth to twelfth.
 
 ## A synth's Shift row
 
-A synth's Shift row ([API](api.md#a-synths-shift-row)) adds no firmware edit:
-the turn, title and caption hooks of [alternate controls](#alternate-controls)
-act on it, and its values travel in two words of the instrument track.
+A synth's Shift row ([API](api.md#a-synths-shift-row)) adds no firmware edit of
+its own: the turn, title and caption hooks of [alternate controls](#alternate-controls)
+act on it, its values travel in two words of the instrument track, and its
+presets and step locks use the hooks of the `drums` and `drum_locks` services,
+which a build links for such a synth (profile user `synthShift`), as a drum
+kit's keys and Shift fields do.
 
 **Storage.** Entries 0..3 live in word 36 of the track's 58, entries 4..7 in
 word 37: four 7-bit fields each, the first entry lowest, and `0x40000000` as a
@@ -1533,10 +1539,32 @@ half).
 
 **Presets.** Stock's preset reader clears the whole 58-word block of its
 preset object (`memset` of `0xe8` bytes from `+0x30`, `8d4e4130`) before it
-fills the words its keys name, and no key names 36 or 37, so a loaded preset
-gives both words 0 and the writer never saves them. A word without the mark
-plays every entry's default, so a preset load, a new project, a project saved
-before the machine and a track newly given the machine all play the defaults.
+fills the words its keys name, and no key names 36 or 37, so the words
+themselves never reach a preset. A preset keeps the row as it keeps a drum
+kit's key instead ([synthesis drum transport](#synthesis-drum-transport)): in
+the pattern's first pad record (`+0x394c`, key 53), its model byte marked type
+7 and its four parameter words holding the eight fields, 15 bits each, as
+`drum_pack` packs a key's eight controls with model 0. The writer exports a
+pattern's 24 pad records as regions only for a sampler or a Drumline-classified
+machine: its switch at `8d4e6a7e` (`CC = R0 == 3`, else `8d4e74b0`) and, for 4,
+its region loop's empty-filename test (`8d4e6aa8`), the `model`/`params`/`random`
+export (`8d4e6bd0`) and the gain (`8d4e6e08`). The `drums` service's stubs at
+those sites, and at import's region parse (`8d4e36a8`), now ask
+`sdk_preset_alias`, which answers 4 for an owned kit and for a synth with a
+Shift row. At `8d4e74b0`, where `P1` is the pattern's track object and `R0` its
+machine, `sdk_synth_shift_export` first packs the stored words 36 and 37 into
+that record, so the writer exports the row as region `params` (each word's top
+half). Import's neutral track offsets (`8d4e39c0`, which set a Drumline track's
+words 0..7 to `0x40000000`) still alias kits only, so the eight controls load as
+any synth's. After stock's import (its three callers, `sdk_drum_preset_load`),
+`sdk_synth_shift_import` reads the first record back: marked, its fields go to
+the stored words 36 and 37 and live through `8d5acea8`; unmarked (a preset
+saved before SDK 1.13, on stock, or by a firmware without the machine, whose
+import took the default kit's entry, never type 7), the words stay as import
+cleared them and play the defaults. A preset with these regions loaded on a
+firmware without the hooks loads its eight controls as before and ignores the
+regions, which import parses only for Drumline. The synth's pad records serve
+nothing else. Not yet checked on the device: a save and load of such a preset.
 
 **Editing.** With Shift held on an owned synth's engine page, the instrument
 controller passes its turn to `sdk_synth_turn` (`8c0b15aa`) with index 4..7.
@@ -1547,10 +1575,32 @@ speed, word 2, plus one, at most four, for an amount), writes the word to the
 selected pattern's stored words (`8d587708(track) + 0x3864`) and live through
 `8d5acea8`, which publishes it to the audio side when it changed. It does not
 call stock's set (`8d5acf28`), which while recording would record the value as
-a lock, and a lock keeps only a word's top 16 bits. With a step held
-(`8d5b7e34`) a turn changes nothing. The sequencer copies stored words into the
-live ones at each step note (`8d5accf8`), so the stored word is the one that
-plays. Whether a project saved after only a Shift-row edit is written as
+a lock, and a lock keeps only a word's top 16 bits. The sequencer copies
+stored words into the live ones at each step note (`8d5accf8`), so the stored
+word is the one that plays.
+
+**Step locks.** With a step held (`8d5b7e34`) a turn locks the entry at that
+step through the [step-lock handles](#step-lock-handles), whose client a synth
+with a Shift row now is (`pattern_client`, `drum_locks.cpp`): the step's handle,
+a stock lock on word 37, and in the SDK pool its step-wide entry, field = the
+entry, value = the field. Turned back to the track's own field, it is unlocked.
+Stock's lock pass writes the handle into live word 37 (`handle << 16`, through
+`8d5acea8`); the step hook `sdk_lock_step` (`8d5939aa`), which runs after the
+pass and before the note starts, then calls the client's `step_applied`, which
+for such a synth writes live words 36 and 37 as the step plays the row (each
+locked field the lock's, the others the stored ones) through `8d5acea8`, or the
+stored row when the step has no handle (undoing any slide of word 37), so both
+reach the audio side before the note-on. The next step note's copy of the
+stored words (`8d5accf8`) restores the track's own row. Stored word 37 holds
+the row, not 0 as on a kit, which the hook's gate test (`now == stored`) needs
+only to differ from `handle << 16`, and does: a stored row has bit 30 set, a
+handle (at most 2,457) never. The audio adapter reads a word without the mark
+that isn't 0 as that handle, between the two writes, and keeps playing the row
+it last read until the step's row arrives. With slide on, the hook rewrites
+both words at every step note, so the row's locks don't slide; whether stock
+also moves word 37 between step notes while sliding toward a step with a handle
+has not been traced, and such a word would play wrong values for entries 4..7
+until the next note. Whether a project saved after only a Shift-row edit is written as
 modified has not been checked on the device.
 
 **Showing.** The engine-page title hook (`8d5466f6`, `sdk_synth_title`) names

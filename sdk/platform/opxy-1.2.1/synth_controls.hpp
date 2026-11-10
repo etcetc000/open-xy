@@ -102,6 +102,16 @@ void sdk_synth_pages() __asm__("sdk_synth_pages");
 // selected, once, or 0.
 opxy::u32 sdk_synth_page_key(opxy::u32 track) __asm__("sdk_synth_page_key");
 void sdk_synth_queue_page_key(opxy::u32 track, opxy::u32 key) __asm__("sdk_synth_queue_page_key");
+// A synth's Shift row (SDK 1.13, synth_controls.cpp): whether an engine has one; a
+// preset export's pattern, its row into the first pad record (returns the engine's
+// region class, 4 for such a synth); after a preset import, the row back from it; and
+// after a step's lock pass, the row as the step plays it (mask and values by entry).
+bool sdk_synth_shift_engine(opxy::u32 engine) __asm__("sdk_synth_shift_engine");
+opxy::u32 sdk_preset_alias(opxy::u32 engine) __asm__("sdk_preset_alias");
+opxy::u32 sdk_synth_shift_export(opxy::u32 engine, opxy::u32 pattern) __asm__("sdk_synth_shift_export");
+bool sdk_synth_shift_import(opxy::u32 track) __asm__("sdk_synth_shift_import");
+void sdk_synth_shift_play(opxy::u32 project, opxy::u32 track, opxy::u32 mask, const opxy::i32* values)
+    __asm__("sdk_synth_shift_play");
 // The send page's value text for position `index` of an owned effect, through
 // the hook in screen_hooks.s; every other caption reaches stock unchanged.
 opxy::u32 sdk_fx_value_text(opxy::u32 widget, const char* text, opxy::u32 index, opxy::i32 value)
