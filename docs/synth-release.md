@@ -10,8 +10,8 @@ void release(Voice& voice, Shared& shared, opxy::u32 owner);
 This callback has the same stable owner ID and state as `start` and `render`.
 It runs on the audio thread and must be bounded and allocation-free. Omitted
 or integer zero does not require the callback and preserves existing behavior.
-Booleans and values outside 0/1 are rejected. Sample engines and effects do not
-accept this resource.
+Booleans and values outside 0/1 are rejected. Sample engines, effects and drum
+kits do not accept this resource.
 
 On OP-XY 1.2.1, stock release dispatch at `0x8d51a928` calls engine vtable slot 7.
 The adapter forwards that event only to the handle's own voice. If a note is
@@ -25,6 +25,11 @@ the previous owner, then zeroes and initializes the new owner's storage and
 calls `start`. Neither stealing nor destruction invents a release event.
 The adapter forwards every actual stock release invocation; stock decides
 whether a note transition releases or retriggers a voice.
+
+A synth's voices have no choke: one ends only by release, a steal or
+`destroy`. Choking belongs to drum kits (`chokeSameKey` and choke groups),
+whose adapter fades a choked voice and destroys it without a release event,
+and a kit cannot declare `releaseCallback`.
 
 Host/WASM adapters export `opxy_release`. Browser note-off invokes it once per
 active gate closure before the existing audition release envelope. Already

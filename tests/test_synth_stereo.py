@@ -1,5 +1,6 @@
 """Opt-in synth stereo contract: real adapters and asymmetric L/R audio."""
 import copy
+import json
 import os
 from pathlib import Path
 import shutil
@@ -10,6 +11,7 @@ import unittest
 
 from tooling.adapters import generate_voice, generate_voice_preview
 from tooling.definitions import validate_definition
+from tooling.machines import machine_at
 from tooling.preview import VOICE_EXPORTS, FLAGS, MEMORY
 from tooling import cpu
 from machine_fixtures import fixture
@@ -93,6 +95,22 @@ class StereoSynth(unittest.TestCase):
                 validate_definition(value, 'synth')
         del value['resources']['stereoOutput']
         validate_definition(value, 'synth')
+
+    def test_explicit_mono_needs_no_new_sdk(self):
+        # stereoOutput 0 is the default spelled out: a 1.1 machine may declare it.
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp).resolve() / 'probesynth'
+            shutil.copytree(fixture('probesynth').root, folder)
+            path = folder / 'definition.json'
+            value = json.loads(path.read_text())
+            for flag in (0, 1):
+                value['resources']['stereoOutput'] = flag
+                path.write_text(json.dumps(value))
+                if flag:
+                    with self.assertRaisesRegex(ValueError, '1.12'):
+                        machine_at(folder)
+                else:
+                    machine_at(folder)
 
     def test_omitted_stereo_flag_matches_explicit_mono(self):
         # Mono uses the current upstream allocator, exercised by test_voices.
