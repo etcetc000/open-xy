@@ -504,7 +504,8 @@ extensions' accepted-note hook applies the same gate), so flags 0 is not
 recorded. Stock keeps sounding
 notes in a 50-entry table at `controller + 0x2a08` (count at `+ 0x3048`,
 32-byte entries: track at `+ 0xc`, pitch at `+ 0xd`, source at `+ 0x11`) and
-drops a note-on when it is full. The SDK's note-off is `8d595420(controller,
+drops a note-on when it is full; the SDK starts a note only while the count
+is below 32. The SDK's note-off is `8d595420(controller,
 track, pitch, source, flags, event)` with source 1, flags 0 and no event,
 which ends the table's note of that source. The SDK calls both from
 `sdk_gui_tick`, in the main loop that also calls the controller update.
@@ -513,7 +514,8 @@ The turn hooks of the instrument controller (`8c0b15aa`) and the aux
 controller (`8c08fade`) offer each event of an owned synth's position, at its
 shown slot, to `sdk_control_turn` (set by the control service's GUI tick)
 before stock's editor sees it; while the track's machine takes its own turns,
-the hook records the sign of the event's first word (stock's step) and returns
+the hook records the sign of the event's first word (stock's step) with the
+detents in its second, as the LFO's pick reads them (1..8), and returns
 without calling stock.
 
 Every page shows a parameter's value through `8d5ac9dc(project, track, index,

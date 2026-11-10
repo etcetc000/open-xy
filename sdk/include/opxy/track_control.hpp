@@ -35,7 +35,7 @@ const u32 display_words = 16;
 // Notes a machine may start in one tick, and notes every machine together
 // may hold sounding; the longest a note sounds.
 const u32 note_capacity = 32;
-const u32 held_capacity = 48;
+const u32 held_capacity = 32;
 const u32 longest_note_us = 8000000;
 // Turns of the machine's own encoders one tick can deliver.
 const u32 turn_capacity = 16;
@@ -54,8 +54,9 @@ struct Entry { u8 track, index; u16 reserved; i32 value; };
 // A note to play on instrument track `track` (0..7): MIDI pitch 0..127,
 // velocity 1..127, sounding for length_us.
 struct Note { u8 track, pitch, velocity, reserved; u32 length_us; };
-// A detent of one of the machine's own encoders: the parameter slot its page
-// position shows (0..7) and the direction, +1 or -1.
+// A turn of one of the machine's own encoders: the parameter slot its page
+// position shows (0..7) and the detents it covers, signed: +1 or -1 for a slow
+// detent, up to 8 either way when turned fast.
 struct Turn { u8 slot, reserved; i16 direction; };
 
 struct Input {
@@ -80,8 +81,9 @@ struct Input {
     u32 muted;
     // 1 while Shift is held.
     u32 shift;
-    // While this copy takes its own turns (Overlay::own_turns): detents of
-    // its track's encoders since the last tick, oldest first.
+    // While this copy takes its own turns (Overlay::own_turns): turns of
+    // its track's encoders since the last tick, oldest first. Only the last
+    // track turned keeps its turns between ticks.
     u32 turn_count;
     Turn turns[turn_capacity];
 };
@@ -106,8 +108,9 @@ struct Overlay {
     // track's keyboard would play them but never recorded. Each ends after
     // its length (at most longest_note_us), when the sequencer stops, or when
     // the copy leaves its track; one on a track and pitch this copy already
-    // holds ends that one first. A note outside the ranges, or beyond
-    // held_capacity sounding notes from every machine, is dropped.
+    // holds ends that one first. A note outside the ranges, of length 0, or
+    // beyond held_capacity sounding notes from every machine (or while stock's
+    // table of sounding notes is that full), is dropped.
     u32 note_count;
     Note notes[note_capacity];
     // 0 on entry. 1 asks for the next tick's turns of the machine's own

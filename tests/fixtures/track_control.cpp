@@ -53,6 +53,10 @@ control::Turn seen_turns[control::turn_capacity];
 struct Sounding { u32 track, pitch; };
 Sounding sounding[64];
 u32 sounding_count, note_ons, note_offs, last_velocity;
+// Stock's table count (controller + 0x3048): the notes above, plus those the
+// keyboard and sequencer hold.
+u32 others;
+unsigned char table_count;
 
 void require(bool condition, const char* message) {
     if (!condition) { std::fprintf(stderr, "%s\n", message); std::exit(1); }
@@ -105,6 +109,7 @@ void stock_note_on(u32 c, u32 track, u32 pitch, u32 a3, u32 a4, u32 velocity, u3
     require(track < control::tracks && pitch < 128 && velocity >= 1 && velocity <= 127, "Invalid note played");
     require(sounding_count < 64, "Too many notes sounding");
     sounding[sounding_count++] = Sounding{track, pitch};
+    table_count = static_cast<unsigned char>(sounding_count + others);
     ++note_ons;
     last_velocity = velocity;
 }
@@ -114,6 +119,7 @@ void stock_note_off(u32 c, u32 track, u32 pitch, u32 source, u32 flags, const vo
     while (i < sounding_count && !(sounding[i].track == track && sounding[i].pitch == pitch)) ++i;
     require(i < sounding_count, "Note-off for a note not sounding");
     sounding[i] = sounding[--sounding_count];
+    table_count = static_cast<unsigned char>(sounding_count + others);
     ++note_offs;
 }
 __UINT64_TYPE__ stock_note_time(u32 c) {
@@ -232,6 +238,7 @@ opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Addre
     if (address == 0x8d595738) return reinterpret_cast<Address>(&stock_note_on);
     if (address == 0x8d595420) return reinterpret_cast<Address>(&stock_note_off);
     if (address == 0x8d59357c) return reinterpret_cast<Address>(&stock_note_time);
+    if (address == 0x860c6adc + 0x3048) return reinterpret_cast<Address>(&table_count);
     if (address == 0x8d51f184) return reinterpret_cast<Address>(&stock_shift);
     if (address == 0x86bd0080) return reinterpret_cast<Address>(&ticks96);
     if (address == 0x860c9b39) return reinterpret_cast<Address>(&playing[0]);
@@ -743,10 +750,44 @@ int main() {
     playing[1] = 0;
     tick(0, "Stop wrote an overlay");
     require(sounding_count == 0, "Bounded notes not ended");
+    // The keyboard and sequencer keep 18 of stock's 50 entries.
+    others = 20;
+    table_count = 20;
+    note_script_count = control::note_capacity;
+    for (u32 i = 0; i < control::note_capacity; ++i)
+        note_script[i] = control::Note{static_cast<opxy::u8>(i % 8), static_cast<opxy::u8>(i), 90, 0, 1000000};
+    tick(0, "Notes wrote an overlay");
+    require(sounding_count == 12, "Notes took the keyboard's and sequencer's entries");
+    notes({});
+    playing[1] = 1;
+    tick(0, "Start wrote an overlay");
+    playing[1] = 0;
+    tick(0, "Stop wrote an overlay");
+    require(sounding_count == 0, "Table-bounded notes not ended");
+    others = 0;
+    table_count = 0;
+    // A project load ends the old project's notes on the first tick after it,
+    // even where the new project has no machine.
+    notes({{6, 64, 90, 0, 1000000}});
+    tick(0, "Note wrote an overlay");
+    notes({});
+    require(sounding_count == 1, "Note before the load not held");
+    project_loading = 1;
+    sdk_control_forget();
+    require(sounding_count == 1, "Notes ended while the project loads");
+    engines[2] = 0;
+    tick(0, "Loading wrote an overlay");
+    require(sounding_count == 1, "Notes ended while the project loads");
+    project_loading = 0;
+    tick(0, "Load wrote an overlay");
+    require(sounding_count == 0, "The old project's notes kept sounding");
+    engines[2] = 40;
+    tick(0, "Arrival wrote an overlay");
 
     // Own turns: while the copy asks, its track's detents edit nothing and
     // reach it next tick, one direction each; other tracks' pass to stock.
-    const i32 up[3] = {3, 1, 0}, down[3] = {-2, 1, 0}, still[3] = {0, 0, 0};
+    const i32 up[3] = {3, 1, 0}, down[3] = {-2, 1, 0}, still[3] = {0, 0, 0}, fast[3] = {30, 3, 1},
+              wild[3] = {-90, -40, 1};
     require(!sdk_control_turn_offer(2, 5, up), "Turn taken before the copy asked");
     own_turns = 1;
     shift = 1;
@@ -754,13 +795,22 @@ int main() {
     require(seen_shift == 1, "Shift not given");
     require(sdk_control_turn == sdk_control_turn_offer, "Turn hooks not given the control service's offer");
     require(sdk_control_turn_offer(2, 5, up) && sdk_control_turn_offer(2, 1, down) &&
-            sdk_control_turn_offer(2, 1, still), "Own turn not taken");
+            sdk_control_turn_offer(2, 1, still) && sdk_control_turn_offer(2, 3, fast) &&
+            sdk_control_turn_offer(2, 3, wild), "Own turn not taken");
     require(!sdk_control_turn_offer(3, 5, up) && !sdk_control_turn_offer(2, 8, up), "Another track's turn taken");
     tick(0, "Own turns wrote an overlay");
-    require(seen_turn_count == 2 && seen_turns[0].slot == 5 && seen_turns[0].direction == 1 &&
-            seen_turns[1].slot == 1 && seen_turns[1].direction == -1, "Own turns not given");
+    require(seen_turn_count == 4 && seen_turns[0].slot == 5 && seen_turns[0].direction == 1 &&
+            seen_turns[1].slot == 1 && seen_turns[1].direction == -1 && seen_turns[2].slot == 3 &&
+            seen_turns[2].direction == 3 && seen_turns[3].direction == -8, "Own turns not given");
     tick(0, "Own turns wrote an overlay");
     require(seen_turn_count == 0, "Own turns given twice");
+    // A project load hands the encoders back to stock until the copy asks again.
+    sdk_control_forget();
+    require(!sdk_control_turn_offer(2, 5, up), "Turn taken during a load");
+    tick(0, "Own turns wrote an overlay");
+    require(sdk_control_turn_offer(2, 5, up), "Own turn not taken after the load");
+    tick(0, "Own turns wrote an overlay");
+    require(seen_turn_count == 1, "Own turn after the load not given");
     own_turns = 0;
     shift = 0;
     tick(0, "End of own turns wrote an overlay");

@@ -486,7 +486,7 @@ its first call and whenever it arrives on a track.
 | `page_key` | Last directly handled page key since the last tick: 1..4 for M1..M4, or 0. M1 returns to the machine page; M2/M3 leave the current page alone. With `sharedLfo: true`, M4 belongs to the shared LFO and is not delivered |
 | `muted` | 1 while the machine's track is muted in the current scene (aux + track key, or the mixer). As with stock's brain, a muted machine has no effect: none of its overlays apply. It still runs, so its page can say so |
 | `shift` | 1 while Shift is held |
-| `turn_count`, `turns` | While the copy takes its own turns (below): up to 16 detents of its track's encoders since the last tick, oldest first, each the parameter slot its position shows (0..7, after presses) and a direction, +1 or -1 |
+| `turn_count`, `turns` | While the copy takes its own turns (below): up to 16 turns of its track's encoders since the last tick, oldest first, each the parameter slot its position shows (0..7, after presses) and a direction: the detents it covers, signed, ±1 for a slow detent and up to ±8 when turned fast (SDK 1.11) |
 
 `overlay` arrives empty; `opxy::control::add` appends up to 64 entries, each a
 track, parameter index and value for this tick. Entries for the machine's own
@@ -507,23 +507,32 @@ Like the display, `control` is bounded
 and allocation-free; it is not an audio callback. Browser previews do not run
 it.
 
-A machine can play notes on instrument tracks: `opxy::control::play(overlay,
+A machine can play notes on instrument tracks (SDK 1.11): `opxy::control::play(overlay,
 track, pitch, velocity, length_us)` appends up to 32 a tick, for tracks 0..7,
-pitches 0..127 and velocities 1..127; others are dropped. The SDK starts each
-at once through stock's live note-on, as the track's keyboard would play it,
-so the track's own machine sounds it, but stock never records it. The SDK
-ends each note after its length (at most eight seconds), when the sequencer
-stops, or when the copy leaves its track, and a note on a track and pitch the
-copy already holds ends that one first. At most 48 notes from every machine
-sound at once; more are dropped. A muted machine plays no notes, and its
-sounding notes end. Notes start on GUI ticks, so a machine that
-follows `transport` plays each when the first tick after its time arrives.
+pitches 0..127, velocities 1..127 and lengths above 0; others are dropped. The
+SDK starts each at once through stock's live note-on, as the track's keyboard
+would play it, so the track's own machine sounds it, but stock never records
+it. The SDK ends each note after its length (at most eight seconds), when the
+sequencer stops, when a project loads, or when the copy leaves its track, and
+a note on a track and pitch the copy already holds ends that one first. At
+most 32 notes from every machine sound at once, and none starts while stock's
+table of sounding notes (50, shared with the keyboard and the sequencer)
+holds 32 or more, so the keyboard and sequencer always keep 18; notes over
+either limit are dropped. Stock tells the SDK's notes from the keyboard's only
+by track and pitch: a key held on the same track and pitch can end the
+machine's note, or the machine's note-off can end the key's. A muted machine
+plays no notes, and its sounding notes end. Notes start on GUI ticks, so a
+machine that follows `transport` plays each when the first tick after its
+time arrives.
 
-Setting `overlay.own_turns` to 1 asks for the machine's own encoders for the
-next tick: while it does, a turn of its track's encoders on its page edits
-nothing and arrives in `turns` instead, so the machine can give its pages
-controls of its own (with `hidePages`, the pages it hides can be its own). Presses still
-switch alternates, and Shift does not change the slot.
+Setting `overlay.own_turns` to 1 (SDK 1.11) asks for the machine's own encoders
+for the next tick: while it does, a turn of its track's encoders on its page
+edits nothing and arrives in `turns` instead, so the machine can give its pages
+controls of its own (with `hidePages`, the pages it hides can be its own).
+Presses still switch alternates, and Shift does not change the slot. Turns
+wait for the next tick for one track only: turning a second track's encoders
+first drops the first track's. A project load hands the encoders back to stock
+until the machine asks again.
 
 A unique machine can keep data with each project, such as Morphose's states.
 It adds `"savedBytes": n` (1..8192) to `trackControl` and supplies:
@@ -543,7 +552,7 @@ arrives on a track only if no load has run since startup: its state is the
 project's, through every pattern change.
 
 A machine's control and display are compiled separately, so they share no
-variables. The control can pass sixteen words to its display each tick in
+variables. The control can pass sixteen words (four before SDK 1.11) to its display each tick in
 `overlay.display`, which the display reads with
 `opxy::control::from_control(index)`: the words of the copy on the selected
 track, 0 when it did not run, and always 0 in browser previews.

@@ -150,10 +150,17 @@ i32 shown_words[control::all_tracks][control::display_words];
 // machine that played it and the time it has left.
 const u32 kController = 0x860c6adc;
 const u32 kNoteSource = 1;
+// Stock's table of sounding notes holds 50, shared with the keyboard and the
+// sequencer; its count is at controller + 0x3048. SDK notes start only while
+// it holds fewer than 32, so the keyboard and sequencer always keep 18.
+const u32 kNoteTableCount = kController + 0x3048;
+const u32 kNoteTableLimit = 32;
 struct Held { u8 track, pitch, host, reserved; u32 remaining_us; };
 Held held[control::held_capacity];
 u32 held_count;
 bool was_playing;
+// Set when a project loads: the old project's notes end on the next tick.
+bool release_all;
 
 // The tracks whose machine takes its own turns, and the turns of the one
 // track that had some since its machine last ran.
@@ -262,7 +269,7 @@ void play_notes(u32 host) {
                 break;
             }
         }
-        if (held_count >= control::held_capacity) continue;
+        if (held_count >= control::held_capacity || byte(kNoteTableCount) >= kNoteTableLimit) continue;
         note_on(note.track, note.pitch, note.velocity);
         Held& h = held[held_count++];
         h.track = note.track;
@@ -279,6 +286,12 @@ extern "C" bool sdk_control_turn_offer(u32 track, u32 slot, const i32* event) {
     if (track >= control::all_tracks || !owning[track] || slot >= kEngineControls) return false;
     const i32 step = event ? event[0] : 0;
     if (!step) return true;
+    // Stock's event: the step, then the detents it covers (as the LFO's pick
+    // reads them, sdk_lfo_step), so a fast turn arrives as one event of
+    // several detents. The direction carries the detents, 1..8, signed.
+    i32 detents = event[1] < 0 ? -event[1] : event[1];
+    if (detents < 1) detents = 1;
+    if (detents > 8) detents = 8;
     if (turn_track != track) {
         turn_track = track;
         turn_count = 0;
@@ -287,7 +300,7 @@ extern "C" bool sdk_control_turn_offer(u32 track, u32 slot, const i32* event) {
         control::Turn& turn = turns[turn_count++];
         turn.slot = static_cast<u8>(slot);
         turn.reserved = 0;
-        turn.direction = static_cast<opxy::i16>(step > 0 ? 1 : -1);
+        turn.direction = static_cast<opxy::i16>(step > 0 ? detents : -detents);
     }
     return true;
 }
@@ -378,8 +391,14 @@ extern "C" void sdk_control_forget() {
     for (u32 t = 0; t < control::all_tracks; ++t) {
         hosts[t] = nullptr;
         timed[t] = false;
+        owning[t] = false;
         for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = 0;
     }
+    // Turns go back to stock while the project loads. Notes end on the first
+    // tick after it, not here, while stock is still reading the project.
+    turn_track = kNoTrack;
+    turn_count = 0;
+    release_all = held_count != 0;
 }
 
 extern "C" void sdk_gui_tick() {
@@ -431,8 +450,9 @@ extern "C" void sdk_gui_tick() {
     const u32 now = opxy::benchmark::cycles(), us = (now - last_cycles) / kCyclesPerMicrosecond;
     last_cycles = now;
     age_notes(us);
-    if (was_playing && !playing)
+    if (release_all || (was_playing && !playing))
         while (held_count) release(held_count - 1);
+    release_all = false;
     was_playing = playing;
     wanted_count = 0;
     bool loaded = false;
