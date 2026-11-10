@@ -121,8 +121,9 @@ DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
 # A synth's first four fill the four-control page; up to four more are alternates
 # (see control_positions). Sample engines and effects use one to eight; an
-# effect's after the first four are alternates on the send page.
-CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8), 'player': (4, 4)}
+# effect's after the first four are alternates on the send page. A note player's
+# after the first four are its second page (SDK 1.16).
+CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8), 'player': (4, 8)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
 SYNTH_POSITIONS = 4
@@ -277,10 +278,13 @@ def validate_definition(value, kind):
             'Only a paged synth puts an absent slot on a position')
     if 'press' in value:
         alternates = [p for p in control_positions(value)[SYNTH_POSITIONS:] if p is not None]
-        require(kind in ('synth', 'effect') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+        require(kind in ('synth', 'effect', 'player') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 alternates and len(set(alternates)) == len(alternates),
-                '"press": "page" needs five to eight synth or effect parameters and at most one alternate per position; '
+                '"press": "page" needs five to eight synth, effect or player parameters and at most one alternate per position; '
                 "a drum kit's press always pages its row")
+    # A player's encoders have no alternates of their own: a press shows its second four.
+    require(kind != 'player' or len(parameters) <= SYNTH_POSITIONS or 'press' in value,
+            'A note player with more than four parameters pages them: "press": "page"')
     if 'shift' in value:
         validate_shift(value['shift'], kind, set(names), value)
     # Stock instrument pages a synth or drum kit hides: M2 (envelope) and M3 (filter).

@@ -844,19 +844,24 @@ def catalog_entry(m):
 
 def generate_player_object(directory, m):
     """A player's stock object methods around its press and release, and its own page when it has one."""
-    from .native import player_page_ids
+    from .native import player_header_ids, player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
-                  PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='')
+                  PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='',
+                  PAGED='true' if paged(m.definition) else 'false')
     # One choice marks an absent slot: its encoder turns nothing (players.cpp).
+    # So do the second page's slots a player leaves out.
     steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
-    values['STEPS'] = ', '.join(map(str, steps + [0] * (4 - len(steps))))
+    values['STEPS'] = ', '.join(map(str, steps + [1] * (8 - len(steps))))
     if m.display == 'player':
         p = m.prefix
         page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
         titles = [json.dumps(parameter['label'].lower()) for parameter in m.definition['parameters']]
-        titles += ['""'] * (4 - len(titles))
-        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in player_page_ids(p)),
-                               TITLES=', '.join(titles), PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
+        titles += ['""'] * (8 - len(titles))
+        # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
+        ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
+        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)),
+                               PAGED=values['PAGED'], TITLES=', '.join(titles),
+                               PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
                                NAMESPACE=m.definition['id'], NAME=m.native_name).items():
             page = page.replace('@' + key + '@', value)
         values.update(PAGE=f'{p}_page_id', PAGE_READY=f'{p}_screen_ready', PAGE_UNIT=page,

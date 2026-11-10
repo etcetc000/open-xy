@@ -73,6 +73,57 @@ class PlayerContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Note players needs.*1.8'):
             machine_at(self.root)
 
+    def test_press_pages_a_player_with_more_than_four_parameters(self):
+        path = self.root / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['parameters'] += [
+            dict(id='p4', label='P4', default=0, mapping=dict(kind='enum', labels=['a', 'b', 'c']), display='enum'),
+            dict(id='p5', label='P5', default=0, mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')]
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'more than four parameters pages them'):
+            machine_at(self.root)
+        definition['press'] = 'page'
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'press switches the page.*1.16'):
+            machine_at(self.root)
+        machine = json.loads((self.root / 'machine.json').read_text(encoding='utf-8'))
+        machine['sdk'] = '1.16'
+        (self.root / 'machine.json').write_text(json.dumps(machine), encoding='utf-8')
+        paged = assign_numbers([machine_at(self.root)])[0][0]
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_player_object(directory, paged).read_text(encoding='utf-8')
+        # The second page's missing slots are absent: one choice, an empty title.
+        self.assertIn('{0, 0, 0, 0, 3, 0, 1, 1}, true};', text)
+        self.assertIn('titles[8] = {"p0", "p1", "p2", "p3", "p4", "p5", "", ""};', text)
+        # Its page also binds the two-row header's eight bars and sixteen texts.
+        self.assertIn('static const bool paged = true;', text)
+        self.assertIn('Page::ids[305] = {', text)
+        self.assertLess(text.index('"probeplayer_played_127"'), text.index('"probeplayer_header_node_0"'))
+        self.assertIn('"probeplayer_header_text_15"', text)
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_player_object(directory, self.machine).read_text(encoding='utf-8')
+        self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false};', text)
+        self.assertIn('static const bool paged = false;', text)
+        self.assertIn('Page::ids[281] = {', text)
+        self.assertNotIn('_header_', text)
+
+    def test_paged_player_artwork_gains_the_two_row_header(self):
+        nodes = ''.join(f'<circle id="probeplayer_dot_{i}" transform="matrix(1 0 0 1 20 80)" '
+                        'r="4" fill="#000000" stroke="#000000" stroke-width="1"/>' for i in range(24))
+        nodes += ('<text id="probeplayer_text" transform="matrix(1 0 0 1 240 215)" '
+                  'fill="#FFFFFF" font-family="UniversNextPro-Light" font-size="22">chords</text>')
+        fragment = '<g id="probeplayer_panel">' + nodes + '</g>'
+        (self.root / 'panel.svg.fragment').write_text(fragment, encoding='utf-8')
+        self.assertEqual(native.page_artwork(self.machine), fragment.encode('utf-8'))
+        paged = replace(self.machine, definition=dict(self.machine.definition, press='page'))
+        artwork = native.page_artwork(paged).decode('utf-8')
+        # First in the root group: one root still, and the player's own nodes paint over it.
+        self.assertTrue(artwork.startswith('<g id="probeplayer_panel">\n<!-- SDK two-page header'))
+        self.assertTrue(artwork.endswith('</text>' + nodes + '</g>'))
+        for name in native.player_header_ids('probeplayer_header'):
+            self.assertEqual(artwork.count(f'id="{name}"'), 1)
+        self.assertIn(artwork.encode('utf-8'), native.screen.compose(artwork.encode('utf-8')))
+
     def test_layout_keeps_player_types_and_shares_page_pool(self):
         m = self.machine
         rules = config()['identities']
@@ -257,7 +308,7 @@ template<class F> F* stock(u32 address) { return reinterpret_cast<F*>(const_cast
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
-    def test_real_renderer_keeps_header_and_fits_output_notes(self):
+    def test_real_renderer_draws_either_header_and_fits_output_notes(self):
         shutil.copy(PLATFORM / 'screen_player.hpp', self.root)
         shutil.copy(ROOT / 'tests/fixtures/screen_player_host.hpp', self.root / 'screen.hpp')
         binary = self.root / ('screen.exe' if os.name == 'nt' else 'screen')
@@ -294,6 +345,46 @@ class StockPlayer(unittest.TestCase):
         # Handled enums skip stock's mode-transition helper and return through
         # the original frame: SP+=12, restore registers, UNLINK, RTS.
         self.assertEqual(read_at(0x8c084d46, 10), bytes.fromhex('666ca50501e800001000'))
+
+    def test_click_hook_replaces_the_hold_mode_query_of_an_encoder_4_click(self):
+        from tooling.formats import sha
+        from tooling.firmware import absolute_target, decode_branch
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        blocks = ldr(data)
+
+        def read_at(address, size):
+            offset = mapped_offset(blocks, address, size)
+            return data[offset:offset + size]
+
+        patch = next(p for p in config()['patches'] if p.get('symbol') == 'extensions_player_click')
+        self.assertTrue(patch['call'])
+        self.assertEqual(patch['length'], 8)
+        site = int(patch['address'], 16)
+        self.assertEqual(site, 0x8c084e14)
+        # The call before it leaves the track's player in R0 for the query.
+        self.assertEqual(decode_branch(site - 4, read_at(site - 4, 4)), (0x8c084bc8, True))
+        self.assertEqual(absolute_target(read_at(site, 8)), 0x8d57d478)
+        # A paged player returns through the handler's own exit: R0 = 0,
+        # restore R7, UNLINK, RTS.
+        self.assertEqual(read_at(0x8c084e44, 14), bytes.fromhex('04cc0040f7a0000001e800001000'))
+
+    def test_selecting_a_type_stores_eight_catalog_defaults(self):
+        from tooling.formats import sha
+        from tooling.firmware import absolute_target
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        blocks = ldr(data)
+
+        def read_at(address, size):
+            offset = mapped_offset(blocks, address, size)
+            return data[offset:offset + size]
+
+        # The player controller's selection loop: R4 = 8 bounds it, and each
+        # pass calls the parameter setter with (track, index, default << 16).
+        self.assertEqual(read_at(0x8c0af366, 2), bytes.fromhex('4460'))
+        self.assertEqual(absolute_target(read_at(0x8c0af380, 8)), 0x8d586474)
+        self.assertEqual(read_at(0x8c0af388, 4), bytes.fromhex('a508ef1f'))
 
     def test_effective_keyboard_octave_scales_the_stored_value(self):
         from tooling.formats import sha

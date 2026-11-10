@@ -58,7 +58,9 @@ is the reference for each of them.
   alternate, repeat its first-page control in the second row; both edit the
   same saved parameter. Do not add filler parameters to reach eight. A drum
   kit's eight controls page the same way, always: a press switches the row
-  between the key's first four controls and its last four.
+  between the key's first four controls and its last four. A
+  [note player](api.md#note-players) with five to eight parameters pages the
+  same way; the SDK draws its header.
 - **A Shift row for more.** A synth that needs more than eight controls
   declares a [Shift row](api.md#a-synths-shift-row) (SDK 1.13): up to four
   more under each page, which Shift and that page's encoders turn. Holding
