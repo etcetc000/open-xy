@@ -456,7 +456,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
       return blockPatch ? new Promise(resolve => { finishPatch = resolve; }) : Uint8Array.of(1, 2, 3); },
   };
   const wizard = {invalidate() { invalidations++; }, navigate() {}, previewLink:() => false,
-    clearSourceBackup() {}, setFirmwareState() {}};
+    clearSourceBackup() {}, setFirmwareState() {}, supportsQuickInstall:() => false};
   const builder = await createBuilder({core:fakeCore,
     wizardApi:{createWizard:options => { wizardOptions = options; return wizard; }},
     visuals:{reveal() {}, icon:() => new Element(), bundle:() => new Element(),
