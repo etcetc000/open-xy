@@ -163,7 +163,10 @@ const void* sdk_drumline_service() { return &service; }
 u32 sdk_dbox_render(unsigned char* self, i32* out, const i32* region, const i32* parameters) {
     typedef u32 Render(unsigned char*, i32*, const i32*, const i32*);
     const u32 index = dbox_index(static_cast<u32>(reinterpret_cast<Address>(self)));
-    if (index >= kDboxVoices || !region) return stock<Render>(0x11a06d28)(self, out, region, parameters);
+    if (index >= kDboxVoices || !region) {
+        if (index < kDboxVoices) sdk_drum_send_dbox[index] = 0;
+        return stock<Render>(0x11a06d28)(self, out, region, parameters);
+    }
     Voice& v = voices[index];
     const DrumlinePage& page = page_of();
     const opxy::drumline::Processor* processor = page.processor;
