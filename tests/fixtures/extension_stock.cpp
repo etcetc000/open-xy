@@ -4,6 +4,7 @@
 #include <extension_probe.cpp>
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
+#include <extension_settings.cpp>
 
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 using namespace opxy;
@@ -166,6 +167,8 @@ int main() {
     fill_pattern(0);
     // The controller update forwards and refreshes the context.
     sdk_extensions_controller_update(0x860c6adc,17); CHECK(loop_calls==1 && seen.contexts>=1);
+    // No settings page was built here, so the probe's rows arrive at their defaults.
+    CHECK(seen.settings == 2 && seen.setting[0] == 2 && seen.setting[1] == 0);
     const extensions::RecordingContext& c = seen.context.recording;
     CHECK(c.project==1 && c.pattern==2 && c.track==0 && c.length==16*480 && c.scale==3);
     CHECK(c.editable && c.recordable && !seen.context.playing);

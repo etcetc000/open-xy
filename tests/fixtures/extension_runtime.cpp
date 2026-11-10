@@ -45,8 +45,8 @@ const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(sec
 // set to 0); notify needs any claim its holder owns.
 u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0};
 const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2};
-ExtensionEntry collection[] = {{"observer", 0, 0, &first},
-                               {"writer", 1u, action_edit_notes | action_notify, &second}};
+ExtensionEntry collection[] = {{"observer", 0, 0, &first, nullptr},
+                               {"writer", 1u, action_edit_notes | action_notify, &second, nullptr}};
 }
 namespace opxy { namespace platform {
 const ExtensionEntry* extension_collection(u32& count) { count = 2; return collection; }
@@ -63,6 +63,7 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
     ++writes; replaced = replace; written_track = track; return count;
 }
 void extension_notify(const char*) { ++notices; }
+void extension_settings_load() {}
 }}
 void control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};

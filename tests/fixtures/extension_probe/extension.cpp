@@ -4,7 +4,8 @@
 // reads what it saw. It is a test fixture, not a shipped extension.
 namespace opxy { namespace extensions { namespace probe {
 struct Seen {
-    u32 contexts, notes_on, notes_off, ticks, activity, controls;
+    u32 contexts, notes_on, notes_off, ticks, activity, controls, settings;
+    u32 setting[2];  // each settings row's value, as last delivered
     Context context;
     LiveNote note;
     NoteOff off;
@@ -22,6 +23,7 @@ void recordable_note_on(const Context&, const LiveNote& n) { ++seen.notes_on; se
 void selected_note_off(const Context&, const NoteOff& n) { ++seen.notes_off; seen.off = n; }
 void recording_tick(const Context&, const Tick& t) { ++seen.ticks; seen.tick = t; }
 void input_activity() { ++seen.activity; }
+void setting(u32 row, u32 value) { ++seen.settings; if (row < 2) seen.setting[row] = value; }
 void queued_control(const Context& c, const Control& k, const Actions& actions) {
     ++seen.controls;
     seen.control = k;
@@ -37,5 +39,6 @@ extern constexpr Hooks hooks = Hooks()
     .with_selected_note_off(selected_note_off)
     .with_recording_tick(recording_tick)
     .with_input_activity(input_activity)
-    .with_queued_control(queued_control);
+    .with_queued_control(queued_control)
+    .with_setting(setting);
 }}}

@@ -179,7 +179,7 @@ named for the stock calls they replace; they are adapter entry points, not
 extension APIs. Capture ([open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture)) is the first
 subscriber: it owns the bounded current-track ghost pattern and the Record gesture.
 
-The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key
+The seven event hooks replace the controller-update call at `0x8c0baaf0`, queued key
 dispatch at `0x8c0b6184`, normalized live onset/release at `0x8d594376` and
 `0x8d59420a`, accepted-note bookkeeping at `0x8d595844`, recorder tick at
 `0x8d59819c`, and Stop cleanup at `0x8d597db8`.
@@ -216,6 +216,51 @@ retains at most 120 notes and 20 simultaneously held notes; it is cleared
 after a successful insertion, on track/context changes and on a new playback
 start. Stop preserves the partial take. Host adapter tests use stock doubles;
 they do not establish device scheduling or timing.
+
+Settings pages ([`extension_settings.cpp`](../sdk/platform/opxy-1.2.1/extension_settings.cpp))
+add an "open-xy" page to stock's settings screen (COM), listing the extensions
+that declare `settings`; each one's page opens in its place. Stock builds the
+screen once at boot. `8c098ccc` makes its "system" and
+"midi" pages, each a 0xb8-byte object from stock's `new` (`8d4d2900`) built by
+`8c097d00(page, title, menu)`, keeps both at its frame + 8, and passes them to
+`8c0989f8(pages, array, 2)`, which assigns them to the screen's page vector.
+An absolute call replaces `R1 += 8; R2 = 2; CALL 8c0989f8` at `0x8c098d36`
+with `sdk_extensions_settings_pages(pages, frame)`, which passes stock's two
+pages and then the open-xy page to the same call. A menu is a word stock leaves
+alone and a vector of 16-byte rows `{label, setting, display, setter}`, filled
+by `8c097f0c(menu, rows, count)`. A setting is a 0x18-byte object built by
+`8c089110(setting, key, initial, min, max)`; it keeps the key's address (+8)
+and is saved and loaded under it, like stock's own. `8c088da0` loads it and
+`8c088caa` returns its value; loading (`8c089238`, the setting's method +0x10)
+keeps the saved value without checking min and max, so the adapter checks it.
+The open-xy list's rows and the info rows share one setting, `sdk_ext_list`
+(0 only). The menu shows a value through
+`display(text, value)`, which builds the text with stock's string constructor
+`8c041788(text, chars)` (as stock's on/off display `8c098cae` does), and calls
+`setter(value)` after an edit. The adapter makes each extension's settings and
+menu once, the first time the screen is built, and reads the saved values once,
+on the controller path, before the first event: at boot, stock builds the
+screen before its settings can be read.
+
+COM is `prefs_ctl` (method table `0x8400c234`, the top controller
+`0x8c0944b0` returns while it is open). Its pages are subscreens: a vector at
+`0x0801eff0` (begin +4, end +8), the one shown at index `0x0801efe4`; knob 1
+moves between them and its other knobs and keys go to the one shown (M1, key 6,
+opens screen 13 on every page). A page (`8c097d00`) holds its method table
+(+0), title (+0xc), selected row (+0x10) and menu (+0x14), and draws the title
+and menu from those fields each frame; knob 2 moves a position (+0x30) by a
+step per row (+0x24) and the row is position / step, knobs 3 and 4 edit the
+row's setting, and activate (method +0x10, `8c097cc4`) selects row 0. Its
+other methods ignore key presses. A knob click is a knob pressed and let go
+without a turn: its pending byte at `0x08023c4c + knob` is still set at the
+release, and stock (`8c0b5c90`) then dispatches it as a press of keys 10–13.
+The open-xy page is a stock page with a copy of stock's method table whose
+activate starts it on its list. On the queued release of such a click, while
+COM shows that page, knob 2 sets its title and menu to the selected
+extension's and activates it; knob 1 sets the list back and selects the row it
+came from. M1 does the same there: the adapter only records its press as held
+(`0x8d5b8100`), so stock's screen 13 doesn't open; on the list it stays
+stock's.
 
 ## Startup
 

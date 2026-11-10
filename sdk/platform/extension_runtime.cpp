@@ -6,8 +6,13 @@ extensions::Context current;
 const ExtensionEntry* entries;
 const ExtensionRegistry* registry;
 u32 entry_count;
-bool initialized, dispatching;
+bool initialized, dispatching, settings_loaded;
 char notification[32];
+// Each entry's settings rows: the value last given and the rows changed since
+// the last delivery (stock's setter and deliver_settings both run on the GUI
+// and controller thread, so no lock).
+u8 setting_values[16][kSettingRows];
+u32 setting_changed[16];
 
 // The actions one callback may take, and what it has done with them: one stock
 // undo transaction and at most one notification per callback.
@@ -21,6 +26,21 @@ bool same_text(const char* a, const char* b) {
 }
 u32 bits(u32 count) { return count >= 32 ? ~0u : (1u << count) - 1; }
 
+// A settings page as the build checked it: a title, 1-12 rows, each with a
+// label, a key, 1-8 values (one: an info row) and a starting value among them.
+bool valid_settings(const ExtensionSettings& page) {
+    if (!page.title || !*page.title || !page.rows || !page.row_count || page.row_count > kSettingRows) return false;
+    for (u32 r = 0; r < page.row_count; ++r) {
+        const SettingRow& row = page.rows[r];
+        // A key for an edited row, none for an info row (never saved).
+        if (!row.label || !*row.label || !row.values || !row.value_count || row.value_count > kSettingValues ||
+            row.initial >= row.value_count || (row.value_count > 1) != (row.key && *row.key)) return false;
+        for (u32 v = 0; v < row.value_count; ++v)
+            if (!row.values[v] || (!*row.values[v] && row.value_count > 1)) return false;
+    }
+    return true;
+}
+
 // The collection must agree with the registry, whatever the build checked:
 // claims exclusive and known, every action backed by a claim its holder owns.
 bool ready() {
@@ -30,12 +50,13 @@ bool ready() {
     const ExtensionEntry* list = extension_collection(count);
     const ExtensionRegistry& known = extension_registry();
     if (!list || count > 16 || known.claim_count > 32 || known.action_count > 32) return false;
-    u32 claimed = 0;
+    u32 claimed = 0, pages = 0;
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
             (entry.claims & ~bits(known.claim_count)) || (entry.actions & ~bits(known.action_count)) ||
-            (entry.claims && !entry.hooks->queued_control)) return false;
+            (entry.claims && !entry.hooks->queued_control) ||
+            (entry.settings && (!valid_settings(*entry.settings) || ++pages > kSettingPages))) return false;
         for (u32 a = 0; a < known.action_count; ++a) {
             if (!(entry.actions & (1u << a))) continue;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
@@ -48,7 +69,28 @@ bool ready() {
     entries = list;
     registry = &known;
     entry_count = count;
+    for (u32 i = 0; i < count; ++i)
+        for (u32 r = 0; list[i].settings && r < list[i].settings->row_count; ++r)
+            setting_values[i][r] = static_cast<u8>(list[i].settings->rows[r].initial);
     return true;
+}
+
+// Saved values first (once), then each changed row to its extension.
+void deliver_settings() {
+    if (!settings_loaded) {
+        settings_loaded = true;
+        extension_settings_load();
+        for (u32 i = 0; i < entry_count; ++i)
+            for (u32 r = 0; entries[i].settings && r < entries[i].settings->row_count; ++r)
+                if (entries[i].settings->rows[r].value_count > 1) setting_changed[i] |= 1u << r;
+    }
+    for (u32 i = 0; i < entry_count; ++i) {
+        const u32 changed = setting_changed[i];
+        setting_changed[i] = 0;
+        for (u32 r = 0; changed && r < kSettingRows; ++r)
+            if ((changed & (1u << r)) && entries[i].hooks->setting)
+                entries[i].hooks->setting(r, setting_values[i][r]);
+    }
 }
 
 // Actions granted while a claimed key fires and stock accepted it.
@@ -102,10 +144,28 @@ u32 replace_notes(const extensions::Context& expected, u32 track, const Recorded
 const extensions::Actions actions = {insert_notes, notify, replace_notes};
 }
 
+const ExtensionSettings* extensions_settings_page(u32 page, u32& entry) {
+    if (!ready()) return nullptr;
+    for (u32 i = 0; i < entry_count; ++i)
+        if (entries[i].settings && !page--) {
+            entry = i;
+            return entries[i].settings;
+        }
+    return nullptr;
+}
+void extensions_setting(u32 entry, u32 row, u32 value) {
+    if (!ready() || entry >= entry_count || !entries[entry].settings ||
+        row >= entries[entry].settings->row_count || value >= entries[entry].settings->rows[row].value_count ||
+        setting_values[entry][row] == value) return;
+    setting_values[entry][row] = static_cast<u8>(value);
+    setting_changed[entry] |= 1u << row;
+}
+
 void extensions_sync() {
     if (dispatching || !ready()) return;
     current.recording = extension_context(current.playing);
     dispatching = true;
+    deliver_settings();
     for (u32 i = 0; i < entry_count; ++i)
         if (entries[i].hooks->context) entries[i].hooks->context(current);
     dispatching = false;

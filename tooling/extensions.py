@@ -28,6 +28,10 @@ RESERVED = {'runtime', 'collection', 'stock', *'''alignas alignof and and_eq asm
 # The site's row and details: one line saying what it does and how, and an
 # optional note for its one limit. Short on purpose: people scan, not read.
 TEXT_LIMITS = {'name': 32, 'description': 140, 'note': 100}
+# A settings page in stock's settings screen (COM): a title and 1-12 rows, each
+# a label and 2-8 values, or a label and a text shown beside it (an info row). Stock's own text is short and lowercase.
+SETTING_TEXT = re.compile(r'[a-z0-9.+/-][a-z0-9 .+/-]*')
+SETTING_LIMITS = {'title': 12, 'label': 16, 'value': 8, 'text': 16, 'rows': 12, 'values': 8, 'pages': 4}
 MAX_EXTENSIONS = 16
 HEADER = 'sdk/include/opxy/extension.hpp'
 RUNTIME = 'sdk/platform/extension_runtime.hpp'
@@ -69,6 +73,7 @@ class Extension:
     text: dict  # name, description and optional note: the site's row and details
 
     master_processor: dict = None
+    settings: dict = None  # {'title': str, 'rows': [{'label', 'values', 'default'}]}
     drumline_page: list = None  # the checked parameters (drumline_page_of)
 
     @property
@@ -88,9 +93,10 @@ def extension_at(folder):
             f'{root}: an extension folder holds extension.json and extension.cpp')
     data = document(root / 'extension.json')
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'drumline_page'},
+    require(isinstance(data, dict) and
+            keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'settings', 'drumline_page'},
             f'{root}: extension.json fields are id, name, description, claims, actions and optional note, '
-            'master_processor and drumline_page')
+            'master_processor, settings and drumline_page')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -129,8 +135,53 @@ def extension_at(folder):
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
+    settings = check_settings(name, data['settings']) if 'settings' in data else None
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, drumline_page)
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter,
+                     settings=settings, drumline_page=drumline_page)
+
+
+def check_settings(name, settings):
+    """A settings page: {"title", "rows": [{"label", "values", "default"} or
+    {"label", "text"}]}, its text short lowercase (letters, digits, spaces,
+    . + / -, not starting with a space), the default one of the values. An info
+    row shows its text (empty for a separator or a heading) and is never edited;
+    it is kept as a row with that one value."""
+    def text(value, limit):
+        return isinstance(value, str) and len(value) <= limit and SETTING_TEXT.fullmatch(value) is not None
+    require(isinstance(settings, dict) and set(settings) == {'title', 'rows'} and
+            text(settings['title'], SETTING_LIMITS['title']),
+            f'{name}: settings are a title (1-{SETTING_LIMITS["title"]} characters) and rows')
+    rows = settings['rows']
+    require(isinstance(rows, list) and 0 < len(rows) <= SETTING_LIMITS['rows'],
+            f'{name}: settings have 1-{SETTING_LIMITS["rows"]} rows')
+    kept = []
+    for row in rows:
+        require(isinstance(row, dict) and set(row) in ({'label', 'values', 'default'}, {'label', 'text'}) and
+                text(row['label'], SETTING_LIMITS['label']),
+                f'{name}: a settings row is a label (1-{SETTING_LIMITS["label"]} characters) and values and a '
+                'default, or a text')
+        if 'text' in row:
+            require(row['text'] == '' or text(row['text'], SETTING_LIMITS['text']),
+                    f'{name}: {row["label"]} shows 0-{SETTING_LIMITS["text"]} characters')
+            kept.append({'label': row['label'], 'values': [row['text']], 'default': row['text']})
+            continue
+        values = row['values']
+        require(isinstance(values, list) and 2 <= len(values) <= SETTING_LIMITS['values'] and
+                len(set(values)) == len(values) and all(text(v, SETTING_LIMITS['value']) for v in values),
+                f'{name}: {row["label"]} has 2-{SETTING_LIMITS["values"]} distinct values of '
+                f'1-{SETTING_LIMITS["value"]} characters')
+        require(row['default'] in values, f'{name}: {row["label"]} defaults to one of its values')
+        require(all(setting_key(r['label']) != setting_key(row['label']) for r in kept if len(r['values']) > 1),
+                f'{name}: two rows save under {setting_key(row["label"])}; give them different labels')
+        kept.append(dict(row, values=list(values)))
+    return {'title': settings['title'], 'rows': kept}
+
+
+def setting_key(label):
+    """A row's saved key after ext_<id>_: its label, other characters than
+    letters and digits as _, so reordering rows keeps their values."""
+    return re.sub(r'[^a-z0-9]', '_', label)
 
 
 def drumline_page_of(name, value):
@@ -206,6 +257,8 @@ def generate_drumline_page(extension):
 def check_collection(extensions):
     """A build's extensions: distinct, within the limit, and no claim held twice."""
     require(len(extensions) <= MAX_EXTENSIONS, f'At most {MAX_EXTENSIONS} extensions')
+    require(sum(e.settings is not None for e in extensions) <= SETTING_LIMITS['pages'],
+            f'At most {SETTING_LIMITS["pages"]} extensions with settings')
     ids, owners = set(), {}
     claims, _actions = registry()
     for e in extensions:
@@ -259,8 +312,22 @@ def generate_collection(folder, extensions):
     for e in extensions:
         symbol = 'sdk_extension_' + e.id + '_hooks'
         lines.append('extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");')
+    quote = lambda text: '"' + text + '"'  # Settings text is checked: no quotes or escapes.
     lines += ['namespace opxy { namespace platform {', 'namespace {',
-              'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
+              'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];']
+    for e in extensions:
+        if e.settings is None: continue
+        rows = e.settings['rows']
+        for r, row in enumerate(rows):
+            lines.append('const char* const %s_values_%d[] = {%s};' % (e.id, r, ', '.join(map(quote, row['values']))))
+        lines += ['const SettingRow %s_rows[] = {' % e.id] + [
+            '    {%s, %s_values_%d, %d, %d, %s},' % (
+                quote(row['label']), e.id, r, len(row['values']), row['values'].index(row['default']),
+                quote('ext_%s_%s' % (e.id, setting_key(row['label']))) if len(row['values']) > 1 else 'nullptr')
+            for r, row in enumerate(rows)] + [
+            '};', 'const ExtensionSettings %s_settings = {%s, %s_rows, %d};' % (
+                e.id, quote(e.settings['title']), e.id, len(rows))]
+    lines += [
               '// ' + ', '.join(claims) if claims else '// no claims',
               'const u32 claim_keys[] = {' + table([str(c['key']) for c in claims.values()]) + '};',
               '// ' + ', '.join(actions) if actions else '// no actions',
@@ -273,8 +340,9 @@ def generate_collection(folder, extensions):
               'const ExtensionEntry* extension_collection(u32& count) {', '    count = 0;']
     for e in extensions:
         lines += ['    if (const auto* hooks = sdk_extension_' + e.id + '_hooks())',
-                  '        collection_entries[count++] = {"%s", %s, %s, hooks};' % (
-                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions))]
+                  '        collection_entries[count++] = {"%s", %s, %s, hooks, %s};' % (
+                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions),
+                      'nullptr' if e.settings is None else '&' + e.id + '_settings')]
     lines += ['    return collection_entries;', '}', '}}', '']
     target = folder / 'extension_collection.cpp'
     target.write_text('\n'.join(lines), encoding='utf-8')
