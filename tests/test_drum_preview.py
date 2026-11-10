@@ -93,8 +93,7 @@ class DrumPreviewTests(unittest.TestCase):
                 self.assertIn('kit_drum_count, 0, nullptr, nullptr, %d, 0, nullptr, 0, nullptr, nullptr},' % value, table)
                 # padMix implies the per-key sends: its Shift row edits FX I and FX II.
                 self.assertEqual('{kit_vtable, kit_drum_send},' in table, bool(value))
-                self.assertIn('const bool kPadSend = %s;' % ('true' if value else 'false'),
-                              adapters.generate_voice(folder, machine).read_text())
+                self.assertNotIn('kPadSend', adapters.generate_voice(folder, machine).read_text())
         for value in (2, -1, True, '1'):
             definition = self.definition('drum')
             definition['resources']['padMix'] = value
@@ -124,7 +123,13 @@ class DrumPreviewTests(unittest.TestCase):
         bad = ([], fields + [dict(label='SEND', bits=3)], [dict(label='WIDE', bits=9), dict(label='B', bits=1)],
                [dict(label='A', bits=5), dict(label='B', bits=5)], [dict(label='TOO', bits=9, extra=0)],
                [dict(label='one', bits=1, signed=True)], [dict(label='bad_name', bits=2)], [dict(label='NINE CHAR', bits=2)],
-               [dict(label='X', bits=2, extra=1)], [dict(label='X', bits=True)], [dict(bits=2)], 'FILTER')
+               [dict(label='X', bits=2, extra=1)], [dict(label='X', bits=True)], [dict(bits=2)], 'FILTER',
+               # The display's pad input is a signed byte: an unsigned field fits 7 bits.
+               [dict(label='WIDE', bits=8)], [dict(label='X', bits=2, signed=1)])
+        for good in ([dict(label='S8', bits=8, signed=True)], [dict(label='U7', bits=7), dict(label='B', bits=2)]):
+            definition['resources']['padControls'] = good
+            with self.subTest(good=good):
+                validate_definition(definition, 'drum')
         for value in bad:
             definition['resources']['padControls'] = value
             with self.subTest(value=value), self.assertRaises(ValueError):

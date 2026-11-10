@@ -104,8 +104,8 @@ class Services(unittest.TestCase):
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
                                           ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks',
                                            'drumline')])
-        self.assertEqual(active_services(profile, ['drum', 'padSend']), {'samples', 'octaves', 'drums', 'drum_sends'})
-        self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padSend', 'padMix']),
+        self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks'})
+        self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
         # The build option drumlinePage2 uses the drum hooks it extends and its own.

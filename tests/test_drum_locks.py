@@ -89,11 +89,10 @@ class DrumLocks(unittest.TestCase):
             self.assertIn('(0x%08x)' % target, source)
             self.assertIn('__asm__("%s")' % symbol, source)
         self.assertEqual(native.UNIT_SERVICES['drum_locks'], 'drum_locks')
-        with_mix, plain, sending = kit(), kit(0), kit(0, padSend=1)
+        with_mix, plain = kit(), kit(0)
         self.assertIn('padMix', native.service_users([with_mix]))
         self.assertIn('drum_locks', active_services(PROFILE, native.service_users([with_mix])))
-        for other in (plain, sending):
-            self.assertNotIn('drum_locks', active_services(PROFILE, native.service_users([other])))
+        self.assertNotIn('drum_locks', active_services(PROFILE, native.service_users([plain])))
 
     def test_a_padmix_kit_shows_m3_and_may_hide_pages_itself(self):
         # M3 is every kit's track filter (drum_filter.hpp): no kit hides it unless it says so.
@@ -170,6 +169,24 @@ class DrumLocks(unittest.TestCase):
         self.assertEqual(load(0x8d4d6cb0), (1, 0x080379f0))
         self.assertEqual(load(0x8d4d6c98), (1, 0x08037a00))
         self.assertIn('0x8400dfc8', (PLATFORM / 'stock.hpp').read_text(encoding='utf-8'))
+        # The turn reaches the last played key twice when none is held: to latch it
+        # (8c0b1678..8c0b168a) and for the per-key editor (8c0b14b2..8c0b14bc, after the
+        # check at 8c0b1450). Both calls are hooked for owned kits, so the SDK never
+        # writes the held key: the latch keeps -1, the editor gets the selected key.
+        call = '00de4d8db06c0000'   # CALL.A 0x8d4d6cb0
+        self.assertEqual(at(0x8c0b1450, 4).hex(), '380c3018')   # CC = R0 == -1; IF CC JUMP 8c0b14b2
+        for site in (0x8c0b14b2, 0x8c0b1678):
+            self.assertEqual(at(site, 2).hex(), '1899')             # R0 = B[P3] (Z), the selected track
+            self.assertEqual(at(site + 2, 8).hex(), call)
+        self.assertEqual(at(0x8c0b14bc, 2).hex(), 'cc2f')           # back to 8c0b1454 with the key
+        hooks = {p['address']: p for p in PROFILE['patches'] if p.get('symbol') in ('sdk_drum_unheld_key', 'sdk_drum_latch_key')}
+        self.assertEqual({a: (p['symbol'], p['before'], p['length'], p['call'], p['service']) for a, p in hooks.items()},
+                         {'0x8c0b14b4': ('sdk_drum_unheld_key', call, 8, True, 'drums'),
+                          '0x8c0b167a': ('sdk_drum_latch_key', call, 8, True, 'drums')})
+        values = (PLATFORM / 'drum_synthesis_stock.cpp').read_text(encoding='utf-8')   # the drums unit
+        self.assertIn('opxy::u32 sdk_drum_latch_key(opxy::u32 track) {', values)
+        self.assertIn('opxy::u32 sdk_drum_unheld_key(opxy::u32 track) {', values)
+        self.assertNotIn('kDrumEditKey) =', (PLATFORM / 'stock.hpp').read_text(encoding='utf-8'))
         # The turn event (8d5ad2e8): word 1 its detents ([P5 + 0x4], 8d5ad346), word 2 its
         # speed ([P5 + 0x8], 8d5ad31a); word 0, the continuous motion (8d5ad28e: R0 = [P1]),
         # is added to a Q31 word.
@@ -234,16 +251,9 @@ class DrumLocks(unittest.TestCase):
         # The writer stores the halfword at +0x258 + step x 0x54 + index x 2 (8d586fd0..8d586fda).
         self.assertEqual(at(0x8d586fd0, 4).hex(), '2ae15802')   # P2 = 0x258
         self.assertEqual(at(0x8d586fda, 2).hex(), '928b')       # W[P2] = R6.L
-        # Stock's note-start pan (8d51a688), which drum_pan_push recomputes for the screen:
-        # above 0x40000000 the term pushes right by 2 (term - 1/2) x (1 - pan), else scales by 2 x term.
-        self.assertEqual(load(0x8d51a688), (2, 0x40000000))
-        self.assertEqual(load(0x8d51a698), (2, 0xc0000000))
-        self.assertEqual(load(0x8d51a6a8), (2, 0x7fffffff))
-        self.assertEqual(at(0x8d51a6b4, 4).hex(), '82c60942')   # R1 = R1 << 1 (S)
-        self.assertEqual(at(0x8d51a6b8, 4).hex(), '31c24a20')   # R1 = R1 * R2 (T)
-        self.assertEqual(at(0x8d51a6cc, 4).hex(), '31c20120')   # R0 = R0 * R1 (T)
-        # The kit voice's constructor reads the term, word 38, once (8d51af24: [P5 + 0x98]),
-        # with the pad's pan word (8d51af28), into the voice's pan (8d51af2e).
+        # The kit voice's constructor reads stock's note-start pan term, word 38, once
+        # (8d51af24: [P5 + 0x98]), with the pad's pan word (8d51af28), into the voice's
+        # pan through 8d51a688 (8d51af2e): kept centred, it leaves the pad's pan.
         self.assertEqual(at(0x8d51af24, 4).hex(), '29e42600')
         self.assertEqual(at(0x8d51af28, 2).hex(), '40a1')
         self.assertEqual(decode_branch(0x8d51af2a, at(0x8d51af2a, 4)), (0x8d51a688, True))

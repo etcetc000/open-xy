@@ -8,10 +8,9 @@
 // first notes the note's track, engine and key, and takes the step the
 // sequencer's step hook noted for it (drum_lock_store_take); the second folds
 // that step's locks for the key (drum_lock_store_note) into the payload on the
-// way, after publishing
-// the track's live words that changed (8d5acb9c), so a word the sequencer
-// restored without publishing, PAN's 38 among them, reaches the audio side
-// before the note. Every other caller of the builder (the per-key editor and
+// way, after publishing the track's live words that changed (8d5acb9c), so a
+// word the sequencer restored without publishing reaches the audio side before
+// the note. Every other caller of the builder (the per-key editor and
 // its previews) publishes the key's own values.
 //
 // With the build option drumlinePage2 the same two hooks serve stock Drumline
@@ -48,14 +47,16 @@ void fold(const DrumMachine& kit, u32 track, u32 key, i32* payload) {
     if (!locks.any()) return;
     const unsigned char* record = static_cast<const unsigned char*>(pad_region(track, key));
     if (!record) return;
-    if (drum_lock_needs_mark(locks) && !drum_marked_q31(payload[0])) {
+    const bool ready = drum_ready(record);
+    if (!ready && drum_lock_needs_setup(locks)) {
         u8 model, controls[kDrumControlCount];
         const bool known = drum_region_values(kit, track, key, record, &model, controls) &&
-                           drum_lock_mark(payload, record[24], model, controls, drum_codec(kit.model_count, kit.count));
+                           drum_lock_setup(payload, record[24], model, controls, drum_codec(kit.model_count, kit.count),
+                                           stock_gain(0));
         if (!known)
-            for (u32 field = kHitPad1; field < kHitFields; ++field) locks.offset[field] = 0;
+            for (u32 field = kHitLevel; field < kHitFields; ++field) locks.offset[field] = 0;
     }
-    drum_lock_fold(kit, locks, drum_pan(record), drum_level(record), payload, stock_gain);
+    drum_lock_fold(kit, locks, drum_pan(record), ready ? drum_level(record) : 0, payload, stock_gain);
 }
 }
 
@@ -87,9 +88,13 @@ u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
     return stock<u32(u32, u32, u32, i32*)>(0x8d5ad194)(project, track, kind, payload);
 }
 
-// The step-lock handles' client check (lock_handles.hpp): an owned padMix kit,
-// or stock Drumline with the build option drumlinePage2 (its page 2's locks).
+// The step-lock handles' client checks (lock_handles.hpp): an owned padMix kit, on an
+// instrument track or as a pattern's machine, or stock Drumline with the build
+// option drumlinePage2 (its page 2's locks).
+bool opxy::platform::step_locks::pattern_client(u32 engine) {
+    const DrumMachine* kit = sdk_drum_machine(engine);
+    return (kit && kit->pad_mix) || (engine == kDrumlineEngine && sdk_drumline);
+}
 bool opxy::platform::step_locks::handle_client(u32 track) {
-    const DrumMachine* kit = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
-    return (kit && kit->pad_mix) || drumline_track(track);
+    return track < kTracks && pattern_client(track_engine(track));
 }

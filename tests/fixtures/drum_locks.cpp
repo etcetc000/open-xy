@@ -143,14 +143,14 @@ Address opxy::platform::host_stock_address(Address address) {
 
 int main() {
     pool.clear();
-    // Key 53: marked (type 7, choke group mute1), pan 70, level -6 dB, FILTER
-    // -3, SRR 9, FX I code 5, FX II 6 and stock's low half.
+    // Key 53: set up (type 7, choke group mute1, the set-up value in its pad
+    // word's low half), pan 70, level -6 dB, FILTER -3, SRR 9, FX I code 5, FX II 6.
     const u8 stored[8] = {1, 2, 3, 4, 5, 6, 7, 8};
     CHECK(drum_pack(2, stored, records[0] + 1));
     bytes(53)[24] = drum_mark(0x20);
     bytes(53)[0x1e] = 70;
     bytes(53)[0x1d] = static_cast<unsigned char>(-6);
-    records[0][5] = static_cast<i32>(((32u - 3u) << 16) | (9u << 21) | (5u << 25) | (6u << 28) | 0x1234u);
+    records[0][5] = static_cast<i32>(((32u - 3u) << 16) | (9u << 21) | (5u << 25) | (6u << 28) | kDrumPadReady);
     // Key 54: unmarked, a stock Drumline pad (type 3, group 4) with stock's own
     // values in its words and its pad word.
     for (u32 i = 1; i < 5; ++i) records[1][i] = 0x0abc0000 * static_cast<i32>(i);
@@ -175,7 +175,7 @@ int main() {
     CHECK(published[7] == gain(-16));                                  // -6 - 10
     CHECK(drum_field_get(published[6], 16, 5, true) == 15);            // -3 + 31, at the top
     CHECK(drum_field_get(published[6], 21, 4, false) == 0);            // 9 - 15, at the bottom
-    CHECK((published[6] & ~static_cast<i32>(0x1ffu << 16)) == (base[6] & ~static_cast<i32>(0x1ffu << 16)));  // sends, low half
+    CHECK((published[6] & ~static_cast<i32>(0x1ffu << 16)) == (base[6] & ~static_cast<i32>(0x1ffu << 16)));  // sends, the mark
     CHECK(!std::memcmp(published, base, 5 * sizeof(i32)));            // the model and its controls
     lock(10, -5, 3, 0, 0, -50);
     note(41, 53);
@@ -215,13 +215,19 @@ int main() {
     CHECK(published[7] == gain(-2) && published[5] == drum_pan_word(-20));
     unlock();
 
-    // An unmarked pad: level needs nothing else; its words stay stock's.
-    lock(-2, 0, 0);
+    // An unmarked pad: a level, pad-control or send lock gives the payload a
+    // set-up key's form: the key's defaults packed, stock's choke group kept,
+    // the pad word the set-up value with every field neutral and 0 dB, before
+    // the lock. It plays as before, plus the lock. A PAN lock needs none.
+    unlock();
+    lock(0, 0, 0, 0, 0, 10);
     note(41, 54);
     CHECK(!drum_marked_q31(published[0]) && published[1] == records[1][1] && published[6] == 0x7a5a1234);
-    // A pad-control or send lock gives the payload a marked pad's form: the
-    // key's defaults packed, stock's choke group kept, the pad fields and sends
-    // cleared before the lock. It plays as before, plus the lock.
+    CHECK(published[5] == drum_pan_word(-10));
+    unlock();
+    lock(-2, 0, 0);
+    note(41, 54);
+    CHECK(drum_marked_q31(published[0]) && published[6] == static_cast<i32>(kDrumPadReady) && published[7] == gain(-2));
     unlock();
     lock(0, -4, 2, 0, 3);
     note(41, 54);
@@ -230,8 +236,22 @@ int main() {
     CHECK(drum_unpack(published + 1, &model, controls) && model == 1);
     for (u32 i = 0; i < 8; ++i) CHECK(controls[i] == 30 + i);
     CHECK(drum_field_get(published[6], 16, 5, true) == -4 && drum_field_get(published[6], 21, 4, false) == 2);
-    CHECK(drum_send_codes(published) == (0u | 2u << 3) && (published[6] & 0xffff) == 0x1234);
+    CHECK(drum_send_codes(published) == (0u | 2u << 3) && drum_pad_ready(published[6]) && published[7] == gain(0));
     CHECK(records[1][1] == 0x0abc0000 && bytes(54)[24] == 0x43);       // the record itself is untouched
+    // A key an SDK 1.9 kit marked but never set up (key 55): stock's default
+    // kit's level and pad word play as 0 dB and neutral; its locks start there,
+    // its stored words stay.
+    const u8 old_controls[8] = {9, 9, 9, 9, 9, 9, 9, 9};
+    CHECK(drum_pack(3, old_controls, records[2] + 1));
+    bytes(55)[24] = drum_mark(0x10);
+    bytes(55)[0x1d] = static_cast<unsigned char>(-5);
+    records[2][5] = 0x26660000;
+    unlock();
+    lock(-4, 3, 0, 0, 2);
+    note(41, 55);
+    CHECK(!std::memcmp(published + 1, records[2] + 1, 4 * sizeof(i32)) && published[7] == gain(-4));
+    CHECK(drum_field_get(published[6], 16, 5, true) == 3 && drum_field_get(published[6], 21, 4, false) == 0);
+    CHECK(drum_send_codes(published) == (0u | 1u << 3) && drum_pad_ready(published[6]));
 
     // A note played live takes no step: the key's own values.
     unlock();

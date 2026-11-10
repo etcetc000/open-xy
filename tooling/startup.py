@@ -13,13 +13,20 @@ def _declare(name, signature='()'):
     return f'int {name}{signature} __asm__("{name}");'
 
 
-# The companion's calls into the step-lock handles: result, name, parameters, arguments
-# and the body without them.
+# Every call into the step-lock handles (lock_handles.cpp, the drum_locks service) from
+# units every build links: result, name, parameters and the body without the service.
+# The companion's open-xy.locks (size, write, begin, byte, loaded); a padMix kit's held
+# step, which the Shift row edits and shows (held_value, held_set); and the GUI frame,
+# which expires a step note's handle that no note start took (frame). Without the
+# service each answers 0 or does nothing, as the browser builder's fallback kit_absent does.
 LOCK_CALLS = (('u32', 'size', ('void*', 'u32'), 'return 0;'),
               ('void', 'write', ('void*',), ''),
               ('void', 'begin', (), ''),
               ('void', 'byte', ('u32',), ''),
-              ('void', 'loaded', ('void*', 'u32'), ''))
+              ('void', 'loaded', ('void*', 'u32'), ''),
+              ('u32', 'held_value', ('u32', 'u32', 'u32', 'i32*'), 'return 0;'),
+              ('u32', 'held_set', ('u32', 'u32', 'u32', 'u32', 'i32'), 'return 0;'),
+              ('void', 'frame', (), ''))
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),

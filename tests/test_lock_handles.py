@@ -163,8 +163,9 @@ class LockHandles(unittest.TestCase):
         # twelve halfwords before it, though such loads of 38..41 and smaller indices are
         # there to find. And no imm32 names words 36 or 37 of track 0's audio record
         # (0x84eab39c), its GUI live words (0x86bd42fc) or a pattern's stored words
-        # (+0x3864). Engines that read the record by a register index are not covered:
-        # listening is the first device check (docs/abi-1.2.1.md).
+        # (+0x3864). Engines that read the record by a register index are not covered;
+        # on hardware, patterns with these locks copied onto a stock synth track and a
+        # stock Drumline track played as the same patterns without them.
         stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
         self.assertEqual(sha(stock), PROFILE['stock_sha256'])
         targets = {0x8d518d78, 0x8d518d94, 0x8d5acf28, 0x8d5acea8, 0x8d5ad5bc}
@@ -196,6 +197,46 @@ class LockHandles(unittest.TestCase):
         self.assertTrue({38, 39, 40, 41} <= indices, indices)
         self.assertFalse({36, 37} & indices)
         self.assertEqual(named, [])
+
+    @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
+    def test_the_audio_sides_loads_at_words_36_and_37_are_of_other_records(self):
+        # Every 32-bit load at +0x90 or +0x94 (words 36, 37) from a pointer register in
+        # the audio code (8d4e0000..8d520000: engines, the mixer, voices and renderers)
+        # and stock's L1 code (11a00000..11a0c000), found by encoding: `[Preg + imm16 * 4]`
+        # is 0xe4/0xe5 then the word index. None reads a track record (58 words, 0xe8
+        # bytes): each base is another record, its own state written by the same code.
+        stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(stock), PROFILE['stock_sha256'])
+        found = set()
+        for block in ldr(stock):
+            if block['fill'] or not block['stored']:
+                continue
+            body = stock[block['offset'] + 16:block['offset'] + 16 + block['stored']]
+            halves = struct.unpack('<%dH' % (len(body) // 2), body[:len(body) // 2 * 2])
+            for i in range(len(halves) - 1):
+                address = block['target'] + 2 * i
+                if not (0x8d4e0000 <= address < 0x8d520000 or 0x11a00000 <= address < 0x11a0c000):
+                    continue
+                first, index = halves[i], halves[i + 1]
+                if first & 0xffc0 in (0xe400, 0xe500) and index in (36, 37) and (first >> 3) & 7 < 6:  # not SP, FP
+                    found.add(address)
+        voice_machine = {  # a voice's machine object (+0x94), called through its method table next
+            0x8d51a93e, 0x8d51a990, 0x8d51aeec, 0x8d51af20, 0x8d51b00a, 0x8d51b182, 0x8d51b53e, 0x8d51b66c,
+            0x8d51b68e, 0x8d51b8a8, 0x11a0964e, 0x11a0977c, 0x11a099ae}
+        voice_other = {0x8d51b1fc, 0x8d51c78c}   # a voice's +0x90, in the voice loop (8d51c708)
+        own_state = {  # an object's own fields, which the same function writes
+            0x8d4f4a0c, 0x8d4f5fb8, 0x8d4f6064, 0x8d4ffb8c, 0x8d4ffbaa, 0x8d5165c8, 0x8d516732, 0x8d5167a8,
+            0x8d5020f4,   # 8d501cc8's this: +0x124 is past a track record
+            0x8d4fd62c}   # a count at +0x90 beside its array at +0x8c
+        self.assertEqual(found, voice_machine | voice_other | own_state)
+        # A voice's machine object is a voice record's +0x94, as the drum renderer reads it
+        # (8d51b53e, docs/abi-1.2.1.md per-key sends), and stock reads a track record's
+        # words from the record itself: word 38 at 8d51af24 ([P5 + 0x98]).
+        def at(address, length):
+            offset = mapped_offset(ldr(stock), address, length)
+            return stock[offset:offset + length].hex()
+        self.assertEqual(at(0x8d51b53e, 4), '21e52500')
+        self.assertEqual(at(0x8d51af24, 4), '29e42600')
 
 
 if __name__ == '__main__':

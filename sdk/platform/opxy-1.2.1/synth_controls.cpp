@@ -73,7 +73,7 @@ Track* state(u32 track, u32 engine) {
 
 // Whether the track's drum kit, if it is one, names a slot in 4..7 for the
 // selected key's model. Any other machine has its second row, and so has every
-// key of a padMix kit with groups: its Shift row there holds the choke group.
+// key of a padMix kit: its second Shift row holds the key's pad fields.
 bool second_row(u32 engine, u32 track) {
     const DrumMachine* drum = sdk_drum_machine(engine);
     u8 model, values[kDrumControlCount];
@@ -263,13 +263,6 @@ bool sdk_drum_shift_press(u32 track, u32 encoder) {
 // when turned fast), and stores the bucket's centre. An owned machine's enum
 // slot answers its choice count with scale 1: one choice per detent.
 u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
-    // A word a padMix kit's per-hit locks leave to stock's editor (PAN's): one
-    // unit a detent (drum_lock_store.hpp).
-    if (const DrumMachine* kit = pad_kit(track))
-        if (const u32 buckets = drum_lock_store_steps(*kit, index)) {
-            *scale = 1;
-            return buckets;
-        }
     const SynthControls* m = index < opxy::parameter_slots ? editor(track) : nullptr;
     if (m && m->steps[index]) {
         *scale = 1;
@@ -521,11 +514,8 @@ void sdk_send_refresh() {
     // whatever put another there (a track newly the kit); never while a project loads.
     const u32 selected = byte(kSelectedTrack);
     if (!word(kProjectLoading) && pad_kit(selected)) drum_lock_store_neutral(kProject, selected);
-    // An owned kit's per-key edits act on the key its screen shows (stock.hpp
-    // drum_edit_key): stock's controller holds the selected key, not the last
-    // played, when nothing else is held.
-    static u32 held_by_sdk = 0xffffffffu;
-    if (selected < kTracks && sdk_drum_machine(track_engine(selected))) drum_hold_selected(selected, held_by_sdk);
+    // A step note's step-lock handle that no note start took expires (lock_handles.cpp).
+    sdk_project_locks_frame();
     for (u32 s = 0; s < 2; ++s) {
         Track* t;
         const u32 track = kSendTracks + s;

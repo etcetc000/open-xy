@@ -15,6 +15,11 @@
   "stock_records": 984,
   "linker_sha256": "5f1e26c9d592459035519a905e2305c92165600e6626ba0ddd5bc360d4effd69",
   "table_bytes": 16384,
+  "experimental_memory": {
+    "module_base": 2366440320,
+    "reserved_bytes": 4194304,
+    "heap_after": "01da000100000000"
+  },
   "identities": {
     "engines": 256,
     "engine_none": 33,
@@ -152,7 +157,7 @@
       "drumlinePage2"
     ],
     "drum_sends": [
-      "padSend",
+      "padMix",
       "drumlinePage2"
     ],
     "drum_locks": [
@@ -1467,6 +1472,61 @@
       "length": 8,
       "before": "00de4d8d605f0000",
       "symbol": "sdk_drum_edit",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset load, its first call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
+      "address": "0x8d4dda96",
+      "file_offset": "0x114cf2",
+      "length": 4,
+      "before": "00e3892d",
+      "symbol": "sdk_drum_preset_load",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset load, its second call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
+      "address": "0x8d4ddb84",
+      "file_offset": "0x114de0",
+      "length": 4,
+      "before": "00e3122d",
+      "symbol": "sdk_drum_preset_load",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset load, its third call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
+      "address": "0x8d4dde44",
+      "file_offset": "0x1150a0",
+      "length": 4,
+      "before": "00e3b22b",
+      "symbol": "sdk_drum_preset_load",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Instrument turn: the key the per-key editor gets when none is held, an owned kit's selected key",
+      "address": "0x8c0b14b4",
+      "file_offset": "0xe86f0",
+      "length": 8,
+      "before": "00de4d8db06c0000",
+      "symbol": "sdk_drum_unheld_key",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Instrument turn: the key it latches when none is held, none on an owned kit",
+      "address": "0x8c0b167a",
+      "file_offset": "0xe88b6",
+      "length": 8,
+      "before": "00de4d8db06c0000",
+      "symbol": "sdk_drum_latch_key",
       "service": "drums",
       "call": true
     },

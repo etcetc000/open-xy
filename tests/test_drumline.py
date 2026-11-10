@@ -110,7 +110,7 @@ class Drumline(unittest.TestCase):
 
     def test_the_option_is_off_unless_a_collection_names_it(self):
         self.assertIn(OPTION, BUILD_OPTIONS)
-        for kinds in (['synth'], ['drum'], ['drum', 'padSend', 'padMix', 'hidePages'], ['sample', 'extension']):
+        for kinds in (['synth'], ['drum'], ['drum', 'padMix', 'hidePages'], ['sample', 'extension']):
             services = active_services(PROFILE, kinds)
             self.assertNotIn('drumline', services)
             for patch_ in PROFILE['patches']:

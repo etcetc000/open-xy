@@ -117,14 +117,23 @@ const char* sdk_drum_choke(opxy::u32 track) __asm__("sdk_drum_choke");
 // The same as a choice, 0 (none) to 3.
 opxy::u32 sdk_drum_choke_choice(opxy::u32 track) __asm__("sdk_drum_choke_choice");
 // The selected key's stock pan, -100..100 (0 centre), and its level in whole
-// dB as a padMix kit plays it, -30..0; 0 when the track is not an owned kit.
+// dB as a padMix kit plays it, -30..0; 0 when the track is not an owned kit
+// (and the level 0 when the kit has not set the key up, drum_storage.hpp).
 opxy::i32 sdk_drum_pan(opxy::u32 track) __asm__("sdk_drum_pan");
 opxy::i32 sdk_drum_level(opxy::u32 track) __asm__("sdk_drum_level");
 // The selected key's four pad fields (the kit's pad controls, FX I, FX II),
-// each 0 when the key is not marked or the field is not there.
+// each 0 when the kit has not set the key up or the field is not there.
 void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) __asm__("sdk_drum_pad_values");
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine)
     __asm__("sdk_drum_edit");
+// The instrument turn's key when it holds none (8c0b14b4) and the key it latches
+// then (8c0b167a): on an owned kit's track the selected key and none (-1), so
+// the SDK never holds a key itself (stock.hpp drum_edit_key); else stock's.
+opxy::u32 sdk_drum_unheld_key(opxy::u32 track) __asm__("sdk_drum_unheld_key");
+opxy::u32 sdk_drum_latch_key(opxy::u32 track) __asm__("sdk_drum_latch_key");
+// Stock's preset import (8d4e35a8, its three calls hooked), then a padMix kit's
+// loaded keys set up as the preset holds them (drum_synthesis_stock.cpp).
+opxy::u32 sdk_drum_preset_load(opxy::u32 preset, opxy::u32 flag) __asm__("sdk_drum_preset_load");
 // A Shift press of encoder 0..3 on a kit with a second Shift row
 // (synth_controls.cpp): moves the encoders, and Shift with them, to the other row.
 // True when it did.

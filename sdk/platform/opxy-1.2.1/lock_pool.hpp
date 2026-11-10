@@ -1,8 +1,8 @@
 // SDK step-lock values kept by handle (lock_handles.cpp, docs/abi-1.2.1.md "Step-lock
 // handles"). A step that holds SDK locks carries a 16-bit handle in one of stock's own
-// lock slots; the values live here, in a sparse pool: any number of 16-bit fields per
-// handle, for every key the step plays (a step-wide entry) and, optionally, for one key
-// (a per-key entry, which wins field by field).
+// lock slots; the values live here, in a sparse pool: up to 16 fields of 16 bits per
+// handle, for every key the step plays (a step-wide entry) and, optionally, for up to 24
+// keys (per-key entries, which win field by field).
 //
 // The pool is an arena of 16-bit words holding one block per handle:
 //   handle, entry count, then each entry: field mask, key, one value per mask bit
@@ -17,8 +17,11 @@
 #include <opxy/types.hpp>
 
 namespace opxy { namespace platform { namespace step_locks {
-const u32 kHandles = 4096;           // handles 1..4095; 0 is "none"
 const u32 kArenaWords = 12288;       // 24 KiB of blocks a pool
+// The smallest block (handle, entry count, mask, key, one value) is 5 words, so the
+// arena holds at most 2,457 blocks: handles 1..2457 (0 is "none") are enough.
+const u32 kSmallestBlock = 5;
+const u32 kHandles = kArenaWords / kSmallestBlock + 1;
 const u32 kFields = 16;              // fields a handle may lock, 0..15
 const u32 kStepWide = 0xffff;        // an entry's key for every key the step plays
 const u32 kKeys = 128;               // a per-key entry's key: the played note, 0..127
@@ -176,7 +179,7 @@ public:
     }
 
     // Reading a saved form: begin, each byte, then finish, which checks every block
-    // (handles ascending in 1..4095, 1..kEntries entries, keys ascending and valid,
+    // (handles ascending in 1..kHandles - 1, 1..kEntries entries, keys ascending and valid,
     // masks non-zero) and indexes them. Anything invalid leaves the pool empty.
     void begin() {
         clear();
@@ -277,8 +280,18 @@ private:
         const u16* block = has(h) ? arena_ + head_[h] - 1 : nullptr;
         const u32 count = block ? block[1] : 0;
         u32 at = 2;
+        // The key's new entry, where it has none: only `field`, when it is set.
+        auto put_new = [&]() {
+            if (!present) return;
+            scratch_[out] = static_cast<u16>(1u << field);
+            scratch_[out + 1] = static_cast<u16>(key);
+            scratch_[out + 2] = static_cast<u16>(value);
+            out += 3;
+            ++entries;
+        };
+        // An entry of the block, `e`, with `field` set or removed when it is the key's.
         auto put_entry = [&](const u16* e, u32 entry_key) {
-            u32 mask = e ? e[0] : 0;
+            u32 mask = e[0];
             const u32 old_mask = mask;
             if (entry_key == key) {
                 if (present) mask |= 1u << field;
@@ -304,14 +317,14 @@ private:
             const u16* e = block + at;
             const u32 entry_key = e[1];
             if (!placed && key < entry_key) {
-                put_entry(nullptr, key);
+                put_new();
                 placed = true;
             }
             if (entry_key == key) placed = true;
             put_entry(e, entry_key);
             at += 2 + popcount16(e[0]);
         }
-        if (!placed) put_entry(nullptr, key);
+        if (!placed) put_new();
         if (entries > kEntries) return false;
         if (!entries) {
             free(h);

@@ -134,7 +134,9 @@ def audio_changes(entry, previous, allow_carried_cpu=False):
     Changing only keywords is not an update: it needs no new measurement."""
     if entry['status'] not in ('draft', 'published') or release_fields(entry) == release_fields(previous):
         return
-    require('cpu' in entry, f"{entry['id']}: new or updated submissions require hardware cpu measurements (docs/profiling.md)")
+    require('cpu' in entry, f"{entry['id']}: new or updated submissions require hardware cpu measurements "
+            "of average and worst observed block peak; run sdk.py profile report and copy its cpu member "
+            "into the catalog entry (docs/profiling.md)")
     earlier = (previous or {}).get('cpu')
     # With a maintainer's approval, an update may carry its previous measurement over
     # unchanged, still naming the commit it measured; otherwise it measures the pinned commit.
@@ -142,7 +144,7 @@ def audio_changes(entry, previous, allow_carried_cpu=False):
     unchanged = measured(entry['cpu']) == measured(earlier)
     # Carrying a record over takes the record exactly as it was, evidence link included.
     carried = allow_carried_cpu and entry['cpu'] == earlier
-    # A fresh synth measurement is a control sweep; an unchanged one may predate it.
+    # Fresh measurements include peaks and synth control sweeps; unchanged records may predate them.
     cpu_measurement.validate(entry['cpu'], entry['kind'], legacy=unchanged)
     require(carried or entry['cpu']['commit'] == entry['commit'],
             f"{entry['id']}: cpu must measure the pinned commit; remeasure when updating "
@@ -393,6 +395,9 @@ def main(argv=None):
                     warning = 'cpu' in entry and cpu_measurement.above_recommended(entry['cpu'])
                     if warning:
                         print(f"WARNING: {entry['id']}: {warning}")
+                    labelled = 'cpu' in entry and cpu_measurement.high(entry['cpu'])
+                    if labelled:
+                        print(f"NOTE: {entry['id']}: {labelled}")
                 print(f'PASS: {len(entries)} {listed[:-1]} entr{"y" if len(entries) == 1 else "ies"}; '
                       'IDs are unique.')
             return 0

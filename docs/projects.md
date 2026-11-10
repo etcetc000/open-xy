@@ -147,7 +147,7 @@ project opens with CV on track 12, playing the machine's values as its controls.
 
 Version 1. `pool` holds the values of the project's
 [step-lock handles](abi-1.2.1.md#step-lock-handles), as base64 of their blocks in
-handle order, each a run of little-endian 16-bit words: the handle (1..4095,
+handle order, each a run of little-endian 16-bit words: the handle (1..2457,
 ascending), the entry count (1..25), then each entry's field mask (non-zero),
 its key (a note 0..127, ascending, or 65535 for every key the step plays, last)
 and one value per mask bit, lowest field first, as a signed 16-bit number. The
@@ -155,10 +155,12 @@ fields' meaning is the client's (a `padMix` kit's Shift row). The pool takes at
 most 24 KiB before base64.
 
 The project itself holds which step carries which handle, in lock word 37. When
-the firmware loads a project, every handle a matching, valid section does not
-give values for is cleared from it, and with no matching companion every handle
-is. A pool that is not valid base64, or whose blocks break these rules, counts as
-none; the rest of the companion still applies.
+the firmware loads a project whose companion matches it and holds a valid
+version 1 section, every handle the section does not give values for is cleared
+from it. Without one (no companion, a mismatched one, a newer version, or a pool
+that is not valid base64 or whose blocks break these rules) the handles stay as
+saved and play nothing; the rest of the companion still applies. The section is
+sized before `open-xy.control`, which gets the room it leaves.
 
 ## `open-xy.master-filter`
 

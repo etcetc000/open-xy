@@ -77,10 +77,15 @@ def generate_voice(directory, m, sweep=False):
         values['PAD_COUNT'] = len(pads)
         values['PAD_BITS'] = ', '.join(str(f['bits']) for f in pads) or '1'
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
-        # padMix implies the per-key sends: its Shift row edits FX I and FX II.
-        values['PAD_SEND'] = 'true' if sends_per_key(m) else 'false'
+        values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
+
+
+def drum_transport(m):
+    """Whether a drum kit's adapter passes the tempo to its drum_transport: a kit declaring
+    SDK 1.10 or later. Older kits never get the call, whatever their source defines."""
+    return m.kind == 'drum' and getattr(m, 'sdk', (1, 0)) >= (1, 10)
 
 
 def pad_mix(m):
@@ -90,10 +95,9 @@ def pad_mix(m):
 
 
 def sends_per_key(m):
-    """Whether a drum kit's keys keep their own share of the track's sends: padSend, or
-    padMix, whose Shift row edits FX I and FX II."""
-    resources = m.definition['resources']
-    return m.kind == 'drum' and bool(resources.get('padSend', 0) or resources.get('padMix', 0))
+    """Whether a drum kit's keys keep their own share of the track's sends: padMix, whose
+    Shift row edits FX I and FX II."""
+    return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
 
 
 def generate_drum_callbacks(directory, machines):
@@ -740,7 +744,8 @@ def generate_player_object(directory, m):
     from .native import player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='')
-    steps = [enum_steps(p) for p in m.definition['parameters']]
+    # One choice marks an absent slot: its encoder turns nothing (players.cpp).
+    steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
     values['STEPS'] = ', '.join(map(str, steps + [0] * (4 - len(steps))))
     if m.display == 'player':
         p = m.prefix
@@ -796,8 +801,9 @@ def default_preset(m):
 
 def preset_files(m):
     """The machine's init preset, then its own presets (tooling.machines.read_presets):
-    each a version 4 preset of this machine, pointing at no samples. Its own
-    default replaces the generated init preset (builder/core.mjs presetFiles)."""
+    each a version 4 preset of this machine, pointing at no samples or, for a sample
+    engine shipping its own (SDK 1.10), at one of those. Its own default replaces the
+    generated init preset (builder/core.mjs presetFiles)."""
     path = preset_path(m)
     if not path:
         return {}

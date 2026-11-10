@@ -71,18 +71,64 @@ inline i32 drum_level(const void* record) {
 // the kit's pad controls (resources.padControls), up to two small fields
 // packed from bit 16 in declaration order, at most 9 bits; then two 3-bit
 // sends, FX I at bits 25..27 and FX II at 28..30, for every padMix kit (0
-// follows the track's send). Stock edits that word only on its own Drumline
-// (Shift's second encoder, 8d4d6098), saves it in projects and delivers it as
-// the note payload's word 6 (8d5ad73e), which an owned kit's adapter otherwise
-// ignores. 0 in every field is neutral. A field may be signed, two's
-// complement in its bits. A pad the kit has not marked reads neutral, and the
-// SDK clears the fields when it first marks a pad, so a value stock left
-// there plays nothing.
+// follows the track's send). 0 in every field is neutral. A field may be
+// signed, two's complement in its bits.
+//
+// Stock saves the pad record in projects byte for byte (8d598ce8 writes the
+// pattern's 24 pad entries, +0x394c, as one block) and delivers the word as the
+// note payload's word 6, max(word, 0) on a kit (8d5ad738), which an owned kit
+// otherwise ignores. Stock fills the word itself. Preset import (8d4e35a8)
+// first copies the preset object's 24 entries over the pattern's (8d4e3690):
+// stock's preset reader (8d4e4074) cleared them (8d4e47b2) and gave each
+// region's word 0 unless the region holds a sample's framecount or fades
+// (8d4e49f0..8d4e4a04, 8d4e4cba). For each region it then parses, import
+// writes `random` as max(random << 16, 0) (8d4e3558, stored at 8d4e3b9e) only
+// when the region names it (8d4e38b4), so a kit's region without one keeps 0.
+// A key with no region, or with one import rejects (no `model` or `params`),
+// takes its default kit's whole entry instead (8d4e391c..8d4e3960): the word
+// (table 8403a7b4: 0x26660000 on the last key, 0 on the rest) and a stock
+// model byte, never type 7, so such a key is never marked. Stock's preset
+// writer names `random`, the word >> 16, whenever the word is nonzero
+// (8d4e7322), so on every key the SDK has set up. Its Drumline editor writes
+// a Q31 of 200 steps, b * 10737418 + 5368709 (8d4d6098, 8d4d6cc8). Kits
+// before SDK 1.10 never wrote the word and ignored
+// the level byte, so their keys hold whatever stock left in both. The SDK
+// marks a key it has set up with kDrumPadReady in the word's low half and bit
+// 31 clear. No stock writer gives that: each leaves a low half of 0 or one of
+// the editor's 200, and none of those is the mark. Only a ready key plays its
+// level, pad controls and sends; any other plays as before SDK 1.10, at 0 dB
+// with every field neutral. A padMix kit's first edit of a key sets it up:
+// fields and level neutral, so it sounds as it did, and the mark. Presets
+// keep the word's top half (`random`), the level (`gain`) and pan but not the
+// mark, so a padMix kit's preset load sets up every key it marked
+// (drum_setup_loaded): a preset plays the per-key settings it was saved with.
 const u32 kDrumPadWord = 0x14, kDrumPadPayload = 6;
+// A pattern's machine word and its 24 pad entries (8d58781c, 8d58926c).
+const u32 kDrumPatternMachine = 0x18, kDrumPatternPadsAt = 0x394c, kDrumPatternPadBytes = 0x80, kDrumPatternPads = 24;
+const u32 kDrumPadReady = 0x4d4b;
 const u32 kDrumPadFields = 4;              // the second Shift row's positions
 const u32 kDrumKitPadFields = 2, kDrumKitPadBits = 9, kDrumPadShift = 16;
 const u32 kDrumSendLow = 25, kDrumSendBits = 3;   // FX I at 25, FX II at 28
 const u32 kDrumPadMask = 0x7fffu << kDrumPadShift;   // bits 16..30
+// A pad word the SDK set up, as the record holds it or as payload word 6.
+inline bool drum_pad_ready(i32 word) { return (static_cast<u32>(word) & 0x8000ffffu) == kDrumPadReady; }
+// A key's record the SDK set up: marked, with the mark in its pad word.
+inline bool drum_ready(const void* record) {
+    const unsigned char* bytes = static_cast<const unsigned char*>(record);
+    return record && drum_marked(bytes[24]) && drum_pad_ready(static_cast<const i32*>(record)[kDrumPadWord / 4]);
+}
+// A key a padMix kit's preset has just loaded: set up as the preset holds it.
+// Preset import writes `random` as max(random << 16, 0), or leaves 0 for a
+// region without one, so bits 16..30 are the preset's fields (0 for none) and
+// bit 31 is clear; the mark goes in the low half. Level and
+// pan stay as imported. An unmarked key (not the kit's) or one set up stays.
+inline bool drum_setup_loaded(void* record) {
+    unsigned char* bytes = static_cast<unsigned char*>(record);
+    if (!record || !drum_marked(bytes[24]) || drum_ready(record)) return false;
+    i32* word = static_cast<i32*>(record) + kDrumPadWord / 4;
+    *word = static_cast<i32>((static_cast<u32>(*word) & kDrumPadMask) | kDrumPadReady);
+    return true;
+}
 inline u32 drum_pad_low(u32 field, const u8* bits) {
     u32 low = kDrumPadShift;
     for (u32 i = 0; i < field; ++i) low += bits[i];

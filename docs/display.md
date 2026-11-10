@@ -70,7 +70,9 @@ or an [alternate](api.md#alternate-controls)), `slots`, the Q31 value of
 every declared parameter by index (0 beyond the declared ones), note activity
 and the track's amp envelope. A serial is a
 snapshot, not a queue: several note starts between frames can coalesce.
-Initializing or changing track must not fabricate a note.
+Initializing or changing track must not fabricate a note. It counts per track,
+not per key: where keys play different sounds, as a drum kit's do, an
+animation started by the serial alone also plays for keys that weren't hit.
 
 ### Note activity (SDK 1.1)
 
@@ -110,6 +112,8 @@ const bool held = input.held_notes <= 128 && input.held_notes != 0;
 The first update, an update after reset, and a track change establish a
 baseline and emit no events, even if notes are already held. While `held` is
 true, accumulate `elapsed` in the machine's state to measure animation time.
+Animate for as long as notes are held, then release: an animation of fixed
+length after a note start stops while a long note still sounds.
 These are frame snapshots: a complete press/release between frames can leave
 the held count unchanged, while both serials advance. Such a release still
 sets `note_released`; hold edges only describe the observed frames.
@@ -132,11 +136,19 @@ Rebuild old preview modules to use the new fields.
 
 `amp` holds the track's stock amplitude envelope, the one its envelope page
 edits, on a synth's page or a sample engine's own screen: `attack`, `decay`, `sustain` and `release`, each a Q31 word from 0 to
-`0x7fffffff` on the same scale as `slots`. A larger attack, decay or release
-is a longer stage, as stock's envelope page draws it; these are control
-positions, not times, and stock maps them to times along its own curves. The
-values are the ones stock's envelope page draws, read once per frame on the
-GUI side: a snapshot for drawing, not a measurement of a voice's envelope.
+`0x7fffffff` on the same scale as `slots`. Stock uses only each word's top
+seven bits (`word >> 24`). A larger attack or decay is a longer stage, and a
+larger sustain a higher level, as a linear gain. Release runs the other way: a
+larger release is a shorter release. Stock reads it through decay's table,
+mirrored, and its envelope page draws a larger release as a later start to a
+shorter slope, so a preset's `release: 32767` is stock's shortest release.
+These are control positions, not times, and stock maps them to times along its
+own curves. The values are the ones stock's envelope page draws, read once per
+frame on the GUI side: a snapshot for drawing, not a measurement of a voice's
+envelope. A drum kit's voices play no amp envelope: stock's drum renderer
+ignores these words, so a kit's voice plays until `finished`, a choke or a
+steal, whatever its envelope page shows, and a kit's screen shouldn't follow
+`amp`.
 
 When the envelope cannot be read, every word is `envelope_unavailable` (-1);
 `envelope_known(input.amp)` tests for it. Treat an unknown envelope as the
@@ -171,11 +183,11 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | Field | Meaning |
 | --- | --- |
 | `shift` | 1 while Shift is held on a page with Shift controls (a drum kit's), else 0. |
-| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. They hold whether or not Shift is held, so a screen can show them in its header either way. |
+| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. A [`padMix`](api.md#synthesis-drum-kits) kit gives the same, by whether it has groups, though its Shift row is the model, the choke group, pan and level: read `model`, `pan` and `level` for those. They hold whether or not Shift is held, so a screen can show them in its header either way. |
 | `model` | A drum kit's selected key's model. |
-| `pan`, `level` | A [`padMix`](api.md#synthesis-drum-kits) kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10); while a step is held, as that step plays them with its locks (pan through stock's note-start push); 0 for other machines. |
+| `pan`, `level` | A `padMix` kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10; 0 dB on a key the kit has not set up); while a step is held, as that step plays them with its locks; 0 for other machines. |
 | `line` | The row the encoders edit, 0 the first and 1 the second; on a drum kit, also the Shift row (SDK 1.10). |
-| `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0..7, 0 following the track's send); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral and for other machines (SDK 1.10). |
+| `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0..7, 0 following the track's send); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls in its edited row while `shift` is 1, as the stock header does. The
@@ -282,6 +294,7 @@ engine plays it.
 | `frames`, `rate`, `channels` | The whole sample's length, rate and channels |
 | `begin`, `end`, `reverse` | The outer markers, in frames, as the engine plays them, and 1 if it plays backwards. These follow edits in any frame |
 | `low`, `high` | 96 bins of equal length across the whole sample: the smallest and largest 16-bit value of any channel in each |
+| `gain` | SDK 1.10: the sample's gain, the one Shift + encoder 4 edits on the stock sampler's page (or a [`stockShift`](api.md#own-screen) `gain` encoder), in stock's whole steps: -30 at the bottom of its travel, +20 at the top, 0 as a sample is assigned. It follows edits in any frame. The level the engine receives (`SampleBlock.region.level`) follows it along stock's own curve. `gain_unavailable` while the track holds no sample |
 
 The file worker reads the sample in the background; the screen only copies the
 result, so a long sample never stalls a frame, and the overview follows the sample
@@ -303,16 +316,9 @@ Mutable paths may have an explicit `#RRGGBB` fill when their authored geometry e
 Use a nonzero initial fill for shapes that must stay opaque: both renderers
 preserve `fill="none"` as disabled when applying palette changes.
 
-Every outline a frame draws must enclose area. A line traced out and back over
-itself, or an outline that turns straight back at a point, has none there, and the
-OP-XY draws streaks from its ends. Draw a line as a thin closed ribbon: one edge
-out, the other back a fraction of a pixel away, every point distinct. `sdk.py test`
-warns about outlines that break this in its preview frames.
-
 Every frame sets a bound element's whole transform, so its authored transform
 is `matrix(1 0 0 1 x y)` or none: the pose before the first frame, which the
-frame then replaces. Fill-and-stroke paint changes a node's fill
-only when the artwork gives it one.
+frame then replaces.
 
 Use unique IDs, explicit paint on each leaf and the expected path topology.
 Authored numbers allow at most four fractional digits; exponent notation and
@@ -341,6 +347,39 @@ See [2op display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/ma
 [Macro display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/display.cpp) (segment characters,
 glow, dials and header text) for implementations.
 How screens reach stock is described in the [firmware ABI](abi-1.2.1.md#screens).
+
+### Drawing on the device
+
+The OP-XY draws some artwork differently from the browser preview. Each of
+these was found on hardware:
+
+- **Outlines enclose area.** A line traced out and back over itself, or an
+  outline that turns straight back at a point, has none there, and the OP-XY
+  draws streaks from its ends. Draw a line as a thin closed ribbon: one edge
+  out, the other back a fraction of a pixel away, every point distinct.
+  `sdk.py test` warns about outlines that break this in its preview frames.
+- **Avoid turns close to straight back.** A nearly reversing turn can draw too: on
+  the device, one thin tooth sent a long line up the screen. We treat under about
+  2.5° from straight back as a fault, an inferred limit: 2.57° has drawn fine. Thin,
+  tall shapes are the usual cause, so give a sharp tip a small flat end.
+- **Points stay 1/8 px apart.** Neighbouring points closer than 1/8 px merge,
+  as repeated points do, and the outline then stops reshaping. This holds for
+  a ribbon's two edges too.
+- **Start an outline where both edges are long.** A closing edge, from the
+  last point back to the first, shorter than 1/4 px draws as a long sliver
+  along the next edge.
+- **Fills come from the artwork.** Only an element authored with a fill is
+  ever filled. Fill-and-stroke paint recolours that fill but never adds or
+  removes one, so author solid parts with a fill. A mutable outline authored
+  `fill="none"` always draws hollow; one authored with a fill stays filled
+  (see above).
+- **One subpath, at most 64 points.** Keep every authored `path`, bound or
+  not, to one subpath of at most 64 points: artwork with dozens of subpaths
+  and hundreds of points in a path stopped the device at launch. Split a large
+  part into several elements.
+- **Parts that meet share an outline or a pivot.** Separately transformed
+  parts that touch in the preview can land apart on the device. Draw them as
+  one outline, or as nodes with the same origin and transform.
 
 ## Grayscale artwork
 
