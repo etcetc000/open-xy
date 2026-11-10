@@ -2085,6 +2085,12 @@
       "keywords": [
         "experimental"
       ]
+    },
+    {
+      "id": "conductor",
+      "kind": "synth",
+      "maintainer": "mmockett",
+      "status": "reserved"
     }
   ]
 }
