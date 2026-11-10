@@ -315,9 +315,15 @@ so stock's Play never runs there; releases keep stock's dispatch. Shift + BAR
 locks the bar menu open (byte `0x0801ebec + 0x1d`, the global controller's;
 `0x8c09257a`); a BAR press with the lock set closes it (`0x8c09291c`), and a
 BAR release with the lock set leaves it open (`0x8c093030`). While a claim
-needs BAR held there, the adapter only records that press as held and
-dispatches it (`0x8c0b5b10`) at BAR's release, unless another key was pressed
-meanwhile. Each sequencer track's
+needs BAR held there, the adapter only records a BAR press as held, and acts
+at BAR's release unless another key was pressed meanwhile. With Shift held at
+the press, it dispatches the press without Shift (`0x8c0b5b10`), which unlocks
+and closes the menu. Without, it shows the selected track's next bar, as a BAR
+tap does on the unlocked menu (the bar menu's key handler,
+`0x8c0845e0`–`0x8c08464c`, skipped while locked): the shown bar (`0x8d585fb4`)
+plus one, wrapping at the bar count (`0x8d585fe4`), shown with
+`0x8d587458(track, bar)`; playing, the byte at `0x860c9b39 + 0x17` cleared;
+then `0x8d54addc(0x8d54b438(), bar)`. Each sequencer track's
 bar length in song ticks is `16 * 480 * 1680 / factor[scale]`, with the factors
 at `0x840aa47c`.
 

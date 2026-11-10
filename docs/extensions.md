@@ -120,9 +120,10 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   key, only while that key is held. Elsewhere its keys only fire its actions.
   `record_double_tap` is capture's. `bar_menu` is Play (51) with BAR (25) held
   in stock's bar menu; its owner checks `taken`. With the bar menu locked open
-  (Shift + BAR), Play alone stays stock's, and a BAR press there closes the
-  menu on BAR's release rather than its press, unless another key was pressed
-  meanwhile, so BAR + Play keeps it open. `shift_play` is Play (51) with Shift
+  (Shift + BAR), Play alone stays stock's, and BAR acts on its release, only
+  if no other key was pressed meanwhile (so BAR + Play keeps the menu open): a
+  BAR tap shows the next bar, as on the unlocked menu, and Shift + BAR unlocks
+  and closes the menu. `shift_play` is Play (51) with Shift
   held, which stock ignores; its owner checks `shift`.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,

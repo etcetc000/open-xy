@@ -58,11 +58,26 @@ namespace {
 const u32 kBarMenuLocked = 0x0801ebec + 0x1d;  // byte: global controller's bar menu lock
 const u32 kBar = extensions::keys::bar;
 const u32 kBarMenu = extensions::screens::bar_menu;
-// A BAR press held back on the locked bar menu: the event, and whether another
-// key was pressed before BAR's release.
-struct HeldBar { bool active, other; u32 event[4]; };
+// A BAR press held back on the locked bar menu: the event, whether Shift was
+// held, and whether another key was pressed before BAR's release.
+struct HeldBar { bool active, shift, other; u32 event[4]; };
 HeldBar held_bar;
 void record_held(const u32* event) { stock<void(const u32*)>(0x8d5b8100)(event); }
+// The selected track's next bar shown, wrapping, as a BAR tap on the unlocked
+// menu shows it (stock's bar menu key handler, 8c0845e0-8c08464c, which skips
+// it while locked): 8d585fb4 the shown bar, 8d585fe4 the bar count, 8d587458
+// shows one; playing, it clears the byte at kPlaying + 0x17 as stock does, and
+// 8d54addc refreshes the view (8d54b438's object, the bar).
+void show_next_bar() {
+    const u32 track = byte(kSelectedTrack);
+    const u32 bars = stock<u32(u32)>(0x8d585fe4)(track);
+    if (!bars) return;
+    const u32 shown = stock<u32(u32)>(0x8d585fb4)(track) + 1;
+    const u32 next = shown < bars ? shown : 0;
+    stock<void(u32, u32)>(0x8d587458)(track, next);
+    if (byte(kPlaying) || byte(kPlaying + 1)) *at<volatile unsigned char>(kPlaying + 0x17) = 0;
+    stock<void(Address, u32)>(0x8d54addc)(stock<Address()>(0x8d54b438)(), next);
+}
 
 // Stock's key dispatch (8c0b5d58), with a claim's keys on its screen given to
 // its holder, with or without Shift, while its held key (if any) is held
@@ -73,24 +88,28 @@ void record_held(const u32* event) { stock<void(const u32*)>(0x8d5b8100)(event);
 // Releases, other screens and every other key keep stock's dispatch.
 //
 // Shift + BAR locks the bar menu open (the lock byte), so Play there without
-// BAR stays stock's (playback starts). A BAR press on the locked menu closes it
-// in stock (8c09291c); while a claim needs BAR held there, that press is held
-// back until BAR's release and then dispatched, unless another key was pressed
-// meanwhile (BAR + Play on the locked menu keeps it open). Released with the
-// lock set, stock's BAR release leaves the menu alone (8c093030).
+// BAR stays stock's (playback starts). While a claim needs BAR held there, a
+// BAR press on the locked menu (stock: closes it, 8c09291c; with Shift, locks
+// it again) is held back until BAR's release, so BAR + Play keeps the menu
+// open. Released with no other key pressed meanwhile, BAR alone shows the next
+// bar, as a BAR tap does on the unlocked menu, and Shift + BAR gets stock's
+// BAR press, which unlocks and closes the menu. Released with the lock set,
+// stock's BAR release leaves the menu alone (8c093030).
 bool dispatch_key(const u32* event) {
     const bool enabled = byte(kInputEnabled) != 0;
     if (event[1] && held_bar.active && event[0] != kBar) held_bar.other = true;
-    if (event[1] && enabled && event[0] == kBar && !shift_held() && byte(kBarMenuLocked) &&
+    if (event[1] && enabled && event[0] == kBar && byte(kBarMenuLocked) &&
         word(kScreen) == kBarMenu && extensions_needs_held(kBar, kBarMenu)) {
-        held_bar = {true, false, {event[0], event[1], event[2], event[3]}};
+        held_bar = {true, shift_held(), false, {event[0], event[1], event[2], event[3]}};
         record_held(event);
         return false;
     }
     if (!event[1] && event[0] == kBar && held_bar.active) {
         held_bar.active = false;
-        if (!held_bar.other && enabled && byte(kBarMenuLocked) && word(kScreen) == kBarMenu)
-            stock<void(const u32*)>(0x8c0b5b10)(held_bar.event);
+        if (!held_bar.other && enabled && byte(kBarMenuLocked) && word(kScreen) == kBarMenu) {
+            if (held_bar.shift) stock<void(const u32*)>(0x8c0b5b10)(held_bar.event);
+            else show_next_bar();
+        }
     }
     if (event[1] && enabled && extensions_takes(event[0], word(kScreen))) {
         record_held(event);
