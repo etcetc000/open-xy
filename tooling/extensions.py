@@ -158,8 +158,16 @@ def check_settings(name, settings):
                 f'{name}: {row["label"]} has 2-{SETTING_LIMITS["values"]} distinct values of '
                 f'1-{SETTING_LIMITS["value"]} characters')
         require(row['default'] in values, f'{name}: {row["label"]} defaults to one of its values')
+        require(all(setting_key(r['label']) != setting_key(row['label']) for r in kept if len(r['values']) > 1),
+                f'{name}: two rows save under {setting_key(row["label"])}; give them different labels')
         kept.append(dict(row, values=list(values)))
     return {'title': settings['title'], 'rows': kept}
+
+
+def setting_key(label):
+    """A row's saved key after ext_<id>_: its label, other characters than
+    letters and digits as _, so reordering rows keeps their values."""
+    return re.sub(r'[^a-z0-9]', '_', label)
 
 
 def check_collection(extensions):
@@ -227,8 +235,9 @@ def generate_collection(folder, extensions):
         for r, row in enumerate(rows):
             lines.append('const char* const %s_values_%d[] = {%s};' % (e.id, r, ', '.join(map(quote, row['values']))))
         lines += ['const SettingRow %s_rows[] = {' % e.id] + [
-            '    {%s, %s_values_%d, %d, %d, "ext_%s_%d"},' % (quote(row['label']), e.id, r, len(row['values']),
-                                                            row['values'].index(row['default']), e.id, r)
+            '    {%s, %s_values_%d, %d, %d, %s},' % (
+                quote(row['label']), e.id, r, len(row['values']), row['values'].index(row['default']),
+                quote('ext_%s_%s' % (e.id, setting_key(row['label']))) if len(row['values']) > 1 else 'nullptr')
             for r, row in enumerate(rows)] + [
             '};', 'const ExtensionSettings %s_settings = {%s, %s_rows, %d};' % (
                 e.id, quote(e.settings['title']), e.id, len(rows))]

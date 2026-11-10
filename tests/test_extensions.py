@@ -92,6 +92,13 @@ class Extensions(unittest.TestCase):
             separator = extensions.extension_at(folder.declare(settings=dict(title='probe', rows=[
                 row(), dict(label='--', text='')])))
             self.assertEqual(separator.settings['rows'][1]['values'], [''])
+            # Rows are saved by label: two edited rows can't share a key; info rows aren't saved.
+            for labels in (('mode', 'mode'), ('a b', 'a+b')):
+                with self.subTest(labels=labels), self.assertRaisesRegex(ValueError, 'save under'):
+                    extensions.extension_at(folder.declare(settings=dict(title='probe', rows=[
+                        row(label=labels[0]), row(label=labels[1])])))
+            extensions.extension_at(folder.declare(settings=dict(title='probe', rows=[
+                row(), dict(label='--', text=''), dict(label='--', text=''), dict(label='mode', text='x')])))
         others = [extensions.Extension('e%d' % i, PROBE, (), (), {}, None, probe.settings) for i in range(5)]
         extensions.check_collection(others[:4])
         with self.assertRaisesRegex(ValueError, 'At most 4 extensions with settings'):
@@ -102,8 +109,8 @@ class Extensions(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             text = extensions.generate_collection(Path(folder), [probe]).read_text(encoding='utf-8')
         self.assertIn('const char* const probe_values_0[] = {"off", "1", "2"};', text)
-        self.assertIn('{"mode", probe_values_0, 3, 2, "ext_probe_0"},', text)
-        self.assertIn('{"echo", probe_values_1, 2, 0, "ext_probe_1"},', text)
+        self.assertIn('{"mode", probe_values_0, 3, 2, "ext_probe_mode"},', text)
+        self.assertIn('{"echo", probe_values_1, 2, 0, "ext_probe_echo"},', text)
         self.assertIn('const ExtensionSettings probe_settings = {"probe", probe_rows, 2};', text)
         self.assertIn('hooks, &probe_settings};', text)
 

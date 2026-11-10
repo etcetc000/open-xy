@@ -15,9 +15,9 @@ const extensions::Hooks configured = extensions::Hooks().with_context(context).w
 const char* keys_values[] = {"off", "1", "2"};
 const char* const loops_values[] = {"off", "on"};
 const char* info_values[] = {"play from bar"};
-SettingRow rows[] = {{"loop keys", keys_values, 3, 2, "ext_tools_0"},
-                     {"shift+play", loops_values, 2, 1, "ext_tools_1"},
-                     {"shift+play", info_values, 1, 0, "ext_tools_2"}};
+SettingRow rows[] = {{"loop keys", keys_values, 3, 2, "ext_tools_loop_keys"},
+                     {"shift+play", loops_values, 2, 1, "ext_tools_shift_play"},
+                     {"shift+play", info_values, 1, 0, nullptr}};
 ExtensionSettings page = {"tools", rows, 3};
 u32 claim_keys[] = {0}, action_claims[] = {0};
 const ExtensionRegistry tables = {claim_keys, 0, action_claims, 0};
@@ -99,7 +99,9 @@ int main() {
     CHECK(!extensions_settings_page(0, entry));
     reset(); rows[1].values = loops_values; rows[1].key = nullptr;
     CHECK(!extensions_settings_page(0, entry));
-    reset(); rows[1].key = "ext_tools_1"; page.title = "";
+    reset(); rows[1].key = "ext_tools_shift_play"; rows[2].key = "ext_tools_info";
+    CHECK(!extensions_settings_page(0, entry));
+    reset(); rows[2].key = nullptr; page.title = "";
     CHECK(!extensions_settings_page(0, entry));
     // At most four pages per build.
     reset(); page.title = "tools";

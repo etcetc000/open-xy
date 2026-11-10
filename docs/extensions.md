@@ -152,9 +152,14 @@ An extension is a folder in a repository of its own, beside this SDK checkout:
    at most that is shown and never edited (an info row, for example a
    shortcut; empty for a separator or a heading), all lowercase letters,
    digits, spaces and `. + / -`, not starting with a space. Stock saves each row like its own settings,
-   under `ext_<id>_<row>`, so a value lasts across projects and power cycles;
-   keep a row's place when adding rows (a saved value a row no longer has is
-   shown, and taken, as its default). At most four extensions with settings
+   under `ext_<id>_<label>` (other characters than letters and digits as `_`;
+   two rows can't share one), so a value lasts across projects and power
+   cycles, and rows can move. Renaming a row starts it again at its default.
+   The value saved is its place in `values`: add values at the end and never
+   reorder them (a saved value a row no longer has is shown, and taken, as its
+   default). Info rows aren't saved. Saved values stay in stock's settings
+   after a row or an extension is removed, unused; going back to an older
+   firmware isn't tested. At most four extensions with settings
    per build. The extension gets each row's value through the `setting` event.
 2. `extension.cpp`, exporting `opxy::extensions::<id>::hooks`, naming only the
    events it takes:

@@ -9,7 +9,8 @@ u32 entry_count;
 bool initialized, dispatching, settings_loaded;
 char notification[32];
 // Each entry's settings rows: the value last given and the rows changed since
-// the last delivery.
+// the last delivery (stock's setter and deliver_settings both run on the GUI
+// and controller thread, so no lock).
 u8 setting_values[16][kSettingRows];
 u32 setting_changed[16];
 
@@ -31,8 +32,9 @@ bool valid_settings(const ExtensionSettings& page) {
     if (!page.title || !*page.title || !page.rows || !page.row_count || page.row_count > kSettingRows) return false;
     for (u32 r = 0; r < page.row_count; ++r) {
         const SettingRow& row = page.rows[r];
-        if (!row.label || !*row.label || !row.key || !*row.key || !row.values || !row.value_count ||
-            row.value_count > kSettingValues || row.initial >= row.value_count) return false;
+        // A key for an edited row, none for an info row (never saved).
+        if (!row.label || !*row.label || !row.values || !row.value_count || row.value_count > kSettingValues ||
+            row.initial >= row.value_count || (row.value_count > 1) != (row.key && *row.key)) return false;
         for (u32 v = 0; v < row.value_count; ++v)
             if (!row.values[v] || (!*row.values[v] && row.value_count > 1)) return false;
     }

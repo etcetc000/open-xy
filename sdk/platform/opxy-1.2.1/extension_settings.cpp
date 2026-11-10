@@ -129,20 +129,24 @@ void shown_again(Page* page) {
     activate(page);
 }
 // Once: each page's settings and menu, which live as long as stock's own, and
-// the list of them.
+// the list of them. The list's rows and info rows, which nothing edits, share
+// one setting, sdk_ext_list (0 only).
 void build() {
     built = true;
     u32 entry = 0;
+    if (!extensions_settings_page(0, entry) || !(list_setting = allocate(0x18))) return;
+    stock<void(void*, const char*, i32, i32, i32)>(0x8c089110)(list_setting, "sdk_ext_list", 0, 0, 0);
     for (const ExtensionSettings* page; page_count < kSettingPages &&
          (page = extensions_settings_page(page_count, entry));) {
         MenuRow rows[kSettingRows];
         u32 count = 0;
         for (; count < page->row_count; ++count) {
             const SettingRow& spec = page->rows[count];
-            void* setting = allocate(0x18);
+            void* setting = spec.key ? allocate(0x18) : list_setting;
             if (!setting) break;
-            stock<void(void*, const char*, i32, i32, i32)>(0x8c089110)(
-                setting, spec.key, static_cast<i32>(spec.initial), 0, static_cast<i32>(spec.value_count - 1));
+            if (spec.key)
+                stock<void(void*, const char*, i32, i32, i32)>(0x8c089110)(
+                    setting, spec.key, static_cast<i32>(spec.initial), 0, static_cast<i32>(spec.value_count - 1));
             slots[slot_count] = {entry, count, &spec, setting};
             rows[count] = {spec.label, setting, displays[slot_count], setters[slot_count]};
             ++slot_count;
@@ -151,11 +155,7 @@ void build() {
         stock<void(Menu*, const MenuRow*, u32)>(0x8c097f0c)(&menus[page_count], rows, count);
         titles[page_count++] = page->title;
     }
-    if (!page_count || !(list_setting = allocate(0x18))) {
-        page_count = 0;
-        return;
-    }
-    stock<void(void*, const char*, i32, i32, i32)>(0x8c089110)(list_setting, "sdk_ext_list", 0, 0, 0);
+    if (!page_count) return;
     MenuRow rows[kSettingPages];
     for (u32 p = 0; p < page_count; ++p) rows[p] = {titles[p], list_setting, hint, nothing};
     stock<void(Menu*, const MenuRow*, u32)>(0x8c097f0c)(&list, rows, page_count);
@@ -204,6 +204,7 @@ bool extension_settings_key(const u32* event) {
 void extension_settings_load() {
     using namespace settings_stock;
     for (u32 n = 0; n < slot_count; ++n) {
+        if (!slots[n].spec->key) continue;  // an info row: never saved
         stock<void(void*)>(0x8c088da0)(slots[n].setting);
         const i32 value = stock<i32(void*)>(0x8c088caa)(slots[n].setting);
         if (value >= 0) extensions_setting(slots[n].entry, slots[n].row, static_cast<u32>(value));

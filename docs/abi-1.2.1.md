@@ -226,7 +226,10 @@ alone and a vector of 16-byte rows `{label, setting, display, setter}`, filled
 by `8c097f0c(menu, rows, count)`. A setting is a 0x18-byte object built by
 `8c089110(setting, key, initial, min, max)`; it keeps the key's address (+8)
 and is saved and loaded under it, like stock's own. `8c088da0` loads it and
-`8c088caa` returns its value. The menu shows a value through
+`8c088caa` returns its value; loading (`8c089238`, the setting's method +0x10)
+keeps the saved value without checking min and max, so the adapter checks it.
+The open-xy list's rows and the info rows share one setting, `sdk_ext_list`
+(0 only). The menu shows a value through
 `display(text, value)`, which builds the text with stock's string constructor
 `8c041788(text, chars)` (as stock's on/off display `8c098cae` does), and calls
 `setter(value)` after an edit. The adapter makes each extension's settings and

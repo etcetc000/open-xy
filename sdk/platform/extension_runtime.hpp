@@ -13,8 +13,9 @@ const u32 action_notify = 1u << 1;
 
 // An extension's settings page (extension.json "settings"): a title and rows,
 // each a label and the text of its values, the value it starts at, and the key
-// stock saves it under (ext_<id>_<row>). A row with one value is an info row:
-// its text is shown and never edited, and it raises no event.
+// stock saves it under (ext_<id>_<label>, the label's other characters than letters
+// and digits as _). A row with one value is an info row: its text is shown and
+// never edited, it raises no event, and it has no key (null): nothing is saved.
 const u32 kSettingPages = 4, kSettingRows = 12, kSettingValues = 8;
 struct SettingRow {
     const char* label;

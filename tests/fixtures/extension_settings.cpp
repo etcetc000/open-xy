@@ -14,8 +14,8 @@ using opxy::platform::settings_stock::Menu;
 using opxy::platform::settings_stock::Page;
 using opxy::platform::settings_stock::Subscreens;
 namespace {
-// The extensions: one without settings, one with a page of two rows, one with a
-// page of one row.
+// The extensions: one without settings, one with a page of two rows and an info
+// row, one with a page of one row.
 struct Delivery { u32 row, value; };
 Delivery delivered[16];
 u32 delivered_count;
@@ -24,12 +24,14 @@ const extensions::Hooks plain = extensions::Hooks();
 const extensions::Hooks configured = extensions::Hooks().with_setting(setting);
 const char* const keys_values[] = {"off", "1", "2"};
 const char* const loops_values[] = {"off", "on"};
-const SettingRow rows[] = {{"loop keys", keys_values, 3, 2, "ext_tools_0"},
-                           {"shift+play", loops_values, 2, 1, "ext_tools_1"}};
-const ExtensionSettings page = {"tools", rows, 2};
+const char* const info_values[] = {"play"};
+const SettingRow rows[] = {{"loop keys", keys_values, 3, 2, "ext_tools_loop_keys"},
+                           {"shift+play", loops_values, 2, 1, "ext_tools_shift_play"},
+                           {"play", info_values, 1, 0, nullptr}};
+const ExtensionSettings page = {"tools", rows, 3};
 void more_setting(u32, u32) {}
 const extensions::Hooks more = extensions::Hooks().with_setting(more_setting);
-const SettingRow more_rows[] = {{"speed", loops_values, 2, 0, "ext_mores_0"}};
+const SettingRow more_rows[] = {{"speed", loops_values, 2, 0, "ext_mores_speed"}};
 const ExtensionSettings more_page = {"more", more_rows, 1};
 const u32 claim_keys[] = {0}, action_claims[] = {0};
 const ExtensionRegistry tables = {claim_keys, 0, action_claims, 0};
@@ -111,7 +113,7 @@ void load(void* setting) {
     Setting& s = *static_cast<Setting*>(setting);
     ++loads;
     s.loaded = true;
-    s.value = saved[s.key[10] - '0'];
+    s.value = saved[s.key == rows[1].key ? 1 : 0];
 }
 i32 value(void* setting) { return static_cast<Setting*>(setting)->value; }
 
@@ -178,15 +180,15 @@ int main() {
     for (u32 i = 0; i < 9; ++i) CHECK((open.methods[i] == stock_methods[2 + i]) == (i != 4));
 
     // The extension's menu: each row its label and a stock setting keyed
-    // ext_<id>_<row>, starting at its default, ranging over its values.
+    // ext_<id>_<label>, starting at its default, ranging over its values.
     const Menu& tools = settings_stock::menus[0];
     const MenuRow* menu_rows = tools.begin;
-    CHECK(tools.end - tools.begin == 2);
+    CHECK(tools.end - tools.begin == 3);
     const Setting& keys = *static_cast<const Setting*>(menu_rows[0].setting);
     const Setting& loops = *static_cast<const Setting*>(menu_rows[1].setting);
-    CHECK(same(menu_rows[0].label, "loop keys") && same(keys.key, "ext_tools_0") &&
+    CHECK(same(menu_rows[0].label, "loop keys") && same(keys.key, "ext_tools_loop_keys") &&
           keys.value == 2 && keys.min == 0 && keys.max == 2);
-    CHECK(same(menu_rows[1].label, "shift+play") && same(loops.key, "ext_tools_1") &&
+    CHECK(same(menu_rows[1].label, "shift+play") && same(loops.key, "ext_tools_shift_play") &&
           loops.value == 1 && loops.min == 0 && loops.max == 1);
     // Rows show their values' text; a value out of range (saved by an earlier
     // version of the row) shows the default.
@@ -194,6 +196,9 @@ int main() {
     menu_rows[1].display(shown, 0); CHECK(same(shown, "off"));
     menu_rows[1].display(shown, 2); CHECK(same(shown, "on"));
     menu_rows[0].display(shown, -1); CHECK(same(shown, "2"));
+    // An info row shows its text and has no key: it shares the list's setting.
+    CHECK(same(menu_rows[2].label, "play") && menu_rows[2].setting == settings_stock::list_setting);
+    menu_rows[2].display(shown, 0); CHECK(same(shown, "play"));
 
     // On COM with the open-xy page shown, a knob 2 click opens the selected
     // extension's page in place, on its first row; knob 2 does nothing more there.
@@ -232,7 +237,8 @@ int main() {
     reinterpret_cast<void (*)(Page*)>(open.methods[4])(&open);
     CHECK(same(open.title, "open-xy") && open.menu == &list_menu() && open.row == 0);
 
-    // The first update reads the saved values and delivers every row once.
+    // The first update reads the saved values and delivers every row once (not
+    // the info row, never saved).
     saved[0] = 0;
     saved[1] = 1;
     menu_rows[0].setter(1);  // stock's menu may apply a value before then
