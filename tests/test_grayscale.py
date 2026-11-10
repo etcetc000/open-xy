@@ -62,6 +62,19 @@ class GrayscaleTests(unittest.TestCase):
         with patch.object(Path, 'resolve', redirected), self.assertRaisesRegex(ValueError, 'redirected'):
             machine_at(self.source)
 
+    def test_an_effect_needs_its_own_page_for_grayscale_artwork(self):
+        effect = self.root / 'effect'
+        with redirect_stdout(io.StringIO()):
+            custom_preview.scaffold(effect, 'grayeffect', 'Gray Effect', kind='effect', repository=True)
+        record = json.loads((effect / 'machine.json').read_bytes())
+        (effect / 'panel.grayscale.svg.fragment').write_bytes(self.gray)
+        record['graphics'] = {'grayscale': 'panel.grayscale.svg.fragment'}
+        (effect / 'machine.json').write_text(json.dumps(record))
+        definition = json.loads((effect / 'definition.json').read_bytes())
+        self.assertNotIn('display', definition['resources'])  # the starter uses the stock page
+        with self.assertRaisesRegex(ValueError, 'its own page'):
+            machine_at(effect)
+
     def test_colored_decorations_palettes_and_incompatible_bindings_are_rejected(self):
         cases = [self.gray.replace(b'</g>', b'<circle r="2" fill="#ff0000"/></g>'),
                  self.gray.replace(b'fill="#000000"', b'fill="#00ff00"', 1),
