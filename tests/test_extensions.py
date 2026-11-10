@@ -99,7 +99,7 @@ class Extensions(unittest.TestCase):
                         row(label=labels[0]), row(label=labels[1])])))
             extensions.extension_at(folder.declare(settings=dict(title='probe', rows=[
                 row(), dict(label='--', text=''), dict(label='--', text=''), dict(label='mode', text='x')])))
-        others = [extensions.Extension('e%d' % i, PROBE, (), (), {}, None, probe.settings) for i in range(5)]
+        others = [extensions.Extension('e%d' % i, PROBE, (), (), {}, settings=probe.settings) for i in range(5)]
         extensions.check_collection(others[:4])
         with self.assertRaisesRegex(ValueError, 'At most 4 extensions with settings'):
             extensions.check_collection(others)

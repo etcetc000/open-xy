@@ -74,6 +74,14 @@ inline void update_controls(Base* o, u32 track, const Parameters* p) {
 inline u32 note_serial(u32 track) { return stock<u32(u32)>(0x8d4d6c08)(track); }
 inline void set_matrix(Leaf* node, const i32* matrix) { stock<void(Leaf*, const i32*)>(0x8d5f06a6)(node, matrix); }
 inline void set_text(Leaf* node, const char* text) { platform::set_text(node, text); }
+// Anchors a text leaf at the middle of its x, as text-anchor="middle". Stock keeps the anchor at
+// +96 (0 start, 1 middle, 2 end) and measures the shown text when it draws. The low half of +88 is
+// the x adjustment of an earlier anchor, cleared as the drum page does.
+inline void anchor_middle(Leaf* node) {
+    unsigned char* bytes = reinterpret_cast<unsigned char*>(node);
+    *reinterpret_cast<word*>(bytes + 88) &= 0xffff0000u;
+    *reinterpret_cast<word*>(bytes + 96) = 1;
+}
 inline void set_fill(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa986)(node, id); }
 inline void set_stroke(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa966)(node, id); }
 inline void invalidate(PathNode* node) { stock<void(PathNode*)>(0x8d5fa9c4)(node); }

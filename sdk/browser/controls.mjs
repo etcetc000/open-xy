@@ -70,6 +70,20 @@ export function inputWords(input) {
   return [...parameters, shown, ...slots];
 }
 
+// A synth's Shift row entry (SDK 1.13) as the device stores and plays it: an amount in
+// whole steps of 0..100, an enum's choice at the middle of its bucket
+// (sdk/platform/opxy-1.2.1/synth_shift.hpp; tooling.definitions.shift_q31).
+export function shiftWord(parameter, value) {
+  if (parameter.absent) return 0;
+  if (parameter.mapping.kind === 'enum') {
+    const choices = parameter.mapping.labels.length, bucket = Math.floor(0x7fffffff / choices);
+    const choice = Math.min(choices - 1, Math.floor((Math.floor(value * 0x7fffffff + 0.5) >>> 16) * choices / 32768));
+    return choice * bucket + Math.floor(bucket / 2);
+  }
+  const field = Math.min(100, Math.floor(value * 100 + 0.5));
+  return field === 100 ? 0x7fffffff : field * 21474836 + Math.floor((field * 47 + 50) / 100);
+}
+
 // Screen views of the browser preview.
 export const VIEWS = Object.freeze(['routing', 'waveform']);
 
@@ -77,19 +91,27 @@ export function createControls(input) {
   const descriptor = freeze(input);
   const parameters = descriptor.parameters;
   const definition = freeze({ id: descriptor.id, name: descriptor.name });
-  const defaults = () => Object.fromEntries(parameters.map(p => [p.id, p.default]));
+  // A synth's Shift row (SDK 1.13): render's parameters 8..15. Its present entries are
+  // controls too, which a value may leave out (they keep their defaults).
+  const shift = descriptor.resources?.voiceBytes !== undefined ? descriptor.shift ?? [] : [];
+  const shifted = shift.filter(p => !p.absent);
+  const defaults = () => Object.fromEntries([...parameters, ...shifted].map(p => [p.id, p.default]));
   function validateParameters(value) {
+    const valid = p => Object.hasOwn(value, p.id) && Number.isFinite(value[p.id]) && value[p.id] >= 0 && value[p.id] <= 1;
     if (!value || typeof value !== 'object' || Array.isArray(value) ||
-        Object.keys(value).length !== parameters.length || parameters.some(p =>
-          !Object.hasOwn(value, p.id) || !Number.isFinite(value[p.id]) || value[p.id] < 0 || value[p.id] > 1)) {
+        Object.keys(value).length !== parameters.length + shifted.filter(p => Object.hasOwn(value, p.id)).length ||
+        parameters.some(p => !valid(p)) || shifted.some(p => Object.hasOwn(value, p.id) && !valid(p))) {
       throw new Error('Expected exactly the defined normalized controls between 0 and 1.');
     }
-    return Object.fromEntries(parameters.map(p => [p.id, value[p.id]]));
+    return Object.fromEntries([...parameters.map(p => [p.id, value[p.id]]),
+                               ...shifted.map(p => [p.id, Object.hasOwn(value, p.id) ? value[p.id] : p.default])]);
   }
   const physical = value => Object.fromEntries(parameters.map(p => [p.id, physicalValue(p.mapping, value[p.id])]));
   function displayValue(id, value) {
-    const parameter = parameters.find(p => p.id === id);
+    const parameter = parameters.find(p => p.id === id) ?? shifted.find(p => p.id === id);
     if (!parameter) throw new Error('Unknown control');
+    // A Shift row entry shows the value the device stores: whole steps, or a choice.
+    if (!parameters.includes(parameter)) value = { [id]: shiftWord(parameter, value[id] ?? parameter.default) / 0x7fffffff };
     const v = physicalValue(parameter.mapping, value[id]);
     if (parameter.display === 'enum') return parameter.mapping.labels[v];
     if (parameter.display === 'ratio') return `${v.toFixed(1)}:1`;
@@ -101,8 +123,10 @@ export function createControls(input) {
     return (value[id] * 100).toFixed(1);
   }
   function q31(value) {
-    validateParameters(value);
-    return [...parameters.map(p => Math.round(value[p.id] * 0x7fffffff)), ...Array(8 - parameters.length).fill(0)];
+    const all = validateParameters(value);
+    const words = [...parameters.map(p => Math.round(value[p.id] * 0x7fffffff)), ...Array(8 - parameters.length).fill(0)];
+    if (!shift.length) return words;
+    return [...words, ...shift.map(p => p.absent ? 0 : shiftWord(p, all[p.id])), ...Array(8 - shift.length).fill(0)];
   }
   function makePatch(value, view = VIEWS[0]) {
     if (!VIEWS.includes(view)) throw new Error('Unknown screen view.');
@@ -120,9 +144,11 @@ export function createControls(input) {
     return canonical;
   }
   // Presets name the present controls; an absent one (an empty slot) stays 0.
+  // A preset holds no Shift row: loading one plays the row's defaults, as on the device.
   const absent = Object.fromEntries(parameters.filter(p => p.absent).map(p => [p.id, 0]));
+  const rowDefaults = Object.fromEntries(shifted.map(p => [p.id, p.default]));
   const presets = descriptor.presets &&
-    Object.fromEntries(Object.entries(descriptor.presets).map(([name, values]) => [name, { ...absent, ...values }]));
-  return Object.freeze({ definition, parameters, positions: Object.freeze(controlPositions(parameters)),
+    Object.fromEntries(Object.entries(descriptor.presets).map(([name, values]) => [name, { ...absent, ...rowDefaults, ...values }]));
+  return Object.freeze({ definition, parameters, shift: freeze([...shift]), positions: Object.freeze(controlPositions(parameters)),
     defaults, presets, physical, displayValue, q31, validateParameters, makePatch, readPatch });
 }
