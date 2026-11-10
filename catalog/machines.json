@@ -2072,6 +2072,30 @@
         "block_percent": 3.744564,
         "peak_percent": 6.396582
       }
+    },
+    {
+      "id": "comet",
+      "kind": "effect",
+      "maintainer": "akadanieljoshua",
+      "status": "published",
+      "repository": "https://github.com/akadanieljoshua/comet",
+      "tag": "v1.0.0",
+      "commit": "67071ffe7ff7bf4aaca7973f33bcccf952b33a26",
+      "path": ".",
+      "keywords": [
+        "delay",
+        "reverb",
+        "ambient",
+        "physical"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "67071ffe7ff7bf4aaca7973f33bcccf952b33a26",
+        "firmware_sha256": "7372a79a53d8d7f2a29fe670943cb11943ee8a70ce3b4958add9f523dfe3ffa1",
+        "runs": 1,
+        "block_percent": 3.323415,
+        "peak_percent": 5.004959
+      }
     }
   ]
 }
