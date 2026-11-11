@@ -117,8 +117,12 @@ sdk_drum_send_source_2:
 /* 8d511116: P0 = [SP + 0x48], just after FX II's loop has stored its last word
  * (8d51110e). Adds the track's own-amount sums into the FX buses at the
  * engine's level for the track ([FP - 0x68], written once at 8d510d38, the
- * gain stock gives the track's dry mix and sends alike), then replays the
- * load. HOOK_SAVE's LINK keeps the engine's frame pointer at [FP]. */
+ * gain stock gives the track's dry mix and sends alike), and the voices with
+ * their own amounts into the engine's main out at the dry those amounts give,
+ * before stock's dry loop (8d511122..8d51117e) adds the whole sum at the
+ * track's; then replays the load. HOOK_SAVE's LINK keeps the engine's frame
+ * pointer at [FP], which the C++ side also gets (R2) to read the engine's
+ * FX I gain, dry smoother and main out. */
 .global sdk_drum_send_own
 .type sdk_drum_send_own, STT_FUNC
 sdk_drum_send_own:
@@ -126,6 +130,7 @@ sdk_drum_send_own:
     P0 = [FP];
     R0 = [P0 + 8];
     R1 = [P0 + -0x68];
+    R2 = P0;
     CALL sdk_drum_send_own_mix;
     HOOK_RESTORE
     P0 = [SP + 0x48];

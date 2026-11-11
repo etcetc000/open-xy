@@ -1125,7 +1125,16 @@ it (50 is `0x40002e00`). With `L` the track's level (`[FP - 0x68]`,
 the dry gain `L (1 - t (1 - d1)) - L k (1 - d2)` (`[FP - 0x50]`,
 `8d510da2`..`8d510e44`, applied from `8d511122`),
 `t` FX I's taper and `d1`, `d2` the dry queries of slots 14 and 15 (method
-`+0x1c`, given the effect track's record; `0x7fffffff` for an empty slot). A track stock
+`+0x1c`, given the effect track's record; `0x7fffffff` for an empty slot). That
+is `D = L - G1 (1 - d1) - G2 (1 - d2)` with `G1`, `G2` the send gains, each
+subtraction saturating: the sends add, and with both at 100 into effects that
+keep no dry, `D` is `-L`, the dry inverted. From `8d511122` the engine scales
+`D` by the track's dry word (`0x84c696fc + 4 + 4 * track`, `0x7fffffff` from
+`8d50e6f6`), smooths that target with the smoother at `[FP - 0x34]` (the
+current gain stepping by `(target - current) >>> W[+8]` every word, or the
+target held when `B[+0xa]` is set) and adds the scaled sum into the engine's
+main out (`[SP + 0x58]`, `8d51114a`..`8d51117e`; the engine's SP is `FP - 0xe4`
+after `LINK 0xb4`, seven registers and `SP += -0x14`). A track stock
 finds silent (`8d51237a`) skips every bus.
 
 A `padMix` kit keeps each key's two send codes in bits 25..30 of its pad
@@ -1165,14 +1174,26 @@ loop body and replaying it:
   sends what the track's knob at N sends, and the track's gain (engine
   volume, scene mute, group level) and level still apply. The level is this block's, as stock's own send gains are: FX I's loop
   adds a step to its gain each word (`8d5110aa`), but the step is always 0
-  (`R4`, cleared at `8d5107a8`, stored at `8d510d74`).
+  (`R4`, cleared at `8d5107a8`, stored at `8d510d74`). Then, before stock's dry
+  loop, the hook gives each own-amount key the dry its own amounts give: for
+  each send it overrides, `(1 - d) (G - L c)` of its voice at the track's dry
+  word, `c` its curve, so the key plays at `D` with its curves in place of the
+  track's knobs on those sends, both sends combined as stock combines them
+  (`D` below 0 included). The voice loop hook keeps a third sum per send for
+  this, the overriding voices unweighted, which the track gain ramps too. It
+  asks the slots' dry queries as the engine does (`0x11b01d88 + 0x38` and
+  `+ 0x3c`, method word 7, the send track's record), reads FX I's gain at
+  `[FP - 0x8]` (`8d510db6`, stored back by its loop with a step of 0), works FX
+  II's out as `8d510e0a` does, and runs the two gains through smoothers of its
+  own with the dry smoother's shift and reset, so while knobs move stock's
+  smoothed `D` and the correction still add up to the key's own dry. A key at 0
+  under the track's send at 100 into an effect that keeps no dry plays dry at
+  the level instead of falling silent.
 
 Stock's loops do the followers' mixing, and the main mix always reads stock's
 sum. A send every voice follows, every stock track and every block of a kit
-whose keys all follow are mixed bit for bit as stock mixes them. The source
-dry reduction (`1 - s(1 - d)`) stays the track's and takes no account of
-own amounts: an own-amount key's dry is ducked by the track's knob, not its
-own amount, which matters only for an effect whose dry query is below 100%.
+whose keys all follow are mixed bit for bit as stock mixes them: the dry
+correction runs only on a track with an own-amount key.
 
 ### The track filter on kit voices
 
