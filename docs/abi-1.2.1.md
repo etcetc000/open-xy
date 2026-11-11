@@ -31,7 +31,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 19 | Classifies owned drum kits for per-key editing, lookup, note start, project load, preset persistence and the track menu's scramble while retaining their registered engine IDs |
-| Per-key sends | 5 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit |
+| Per-key sends | 6 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit |
 | Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts, or a synth's [Shift row](#a-synths-shift-row) locks to its live words; linked only with a `padMix` kit or a Shift-row synth |
 | Drumline's second page | 2 | Shows stock Drumline's second page and wraps its voices' render for an extension's per-hit processor and settings; linked only with a [`drumline_page` extension](drumline-page.md) |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
@@ -1100,7 +1100,17 @@ Stock mixes a track in the engine block `8d510760`, one instrument track at a
 time. Its voice loop `8d51c708`, called only at `8d510bea`, renders each voice
 into `0x11b01548` (64 interleaved stereo frames, after stock's per-voice pan
 and gain) and adds it with a saturating add into the track's stereo sum at
-`0x11903600` (`8d51c7b0`..`8d51c7d8`). The engine then scales that sum into
+`0x11903600` (`8d51c7b0`..`8d51c7d8`). Before any bus reads it, the engine
+scales that sum in place by the track's gain `g` (`8d510e14`..`8d510e98`): the
+track's engine volume (record word 15, `+0x3c`) × its scene
+mute (eight words copied from `0x8404cb78` at `8d51084a`, each × the mute bit)
+× the group level of drum or synth tracks (`0x84c696fc + 0x44` for a drum or
+Drumline track by `8d50ec46`, `+ 0x48` otherwise). A one-pole
+smoother ramps it: the step is `(target - gain) >>> 8` (`8d510e54`; the shift is
+set at `8d50e61c`), or 0 with the gain at the target on the smoother's first
+block (`8d510e4a`), and frame n of the block is scaled by the gain stepped
+n + 1 times (`8d510e60`..`8d510e98`, the loop ending at `8d510e8e`); `8d510eb0`
+keeps the gain reached. The engine then scales that sum into
 the main mix at a constant gain (`8d511038`), into FX I's bus `0x84caa140` at a
 gain stepped every word by a step of 0 (`8d511088`..`8d5110c8`) and into FX
 II's bus `0x84caa340` at a constant gain (`8d5110ca`..`8d51110e`); `8d50f594`
@@ -1125,7 +1135,7 @@ voice reports them (or one whose voice its own choke fade freed in that
 block); a handle whose voice went to another note rendered silence and reports
 0. Code 0 (`TRK`) follows the
 track's send; codes 1..7 send the key's own amount, 0..100 percent of a full
-send, whatever the track's send knob. Five hooks, each replacing one whole
+send, whatever the track's send knob. Six hooks, each replacing one whole
 instruction outside every hardware
 loop body and replaying it:
 
@@ -1138,6 +1148,12 @@ loop body and replaying it:
   stock voice) goes into the followers' sum, and an own-amount voice into the
   other, scaled by its amount. The voice record's machine object (`+0x94`,
   `8d51b53e`) identifies a kit's voice by its method table.
+- `8d510ea8`, `P2 = 0x11903600` just after the track gain's in-place loop: with
+  the gain the ramp reached (R0) and its step (R2), gives each sum the track
+  kept the same ramp, so the followers and the own-amount keys take the
+  track's gain once, as stock's sum does. The step never carries the gain past
+  its target by more than its rounding, so no add saturates and the ramp's
+  start is the gain less 64 steps.
 - `8d511088` and `8d5110ca`, `P1 = 0x11903600` before FX I's and FX II's
   loops: the track's followers' sum for that send when it kept one (the track
   index is the engine's `[FP + 8]`), otherwise stock's address. Only P1 changes.
@@ -1146,8 +1162,8 @@ loop body and replaying it:
   `8d510d38`), which both send gains are built from (FX I's as
   level × (0.8x² + 0.2x) of its knob x, FX II's as level × x). A key's amount N
   goes through the same curve as its send's knob at N (`kDrumSendGains`), so it
-  sends what the track's knob at N sends, and the track's mute and level still
-  apply. The level is this block's, as stock's own send gains are: FX I's loop
+  sends what the track's knob at N sends, and the track's gain (engine
+  volume, scene mute, group level) and level still apply. The level is this block's, as stock's own send gains are: FX I's loop
   adds a step to its gain each word (`8d5110aa`), but the step is always 0
   (`R4`, cleared at `8d5107a8`, stored at `8d510d74`).
 
@@ -1155,7 +1171,8 @@ Stock's loops do the followers' mixing, and the main mix always reads stock's
 sum. A send every voice follows, every stock track and every block of a kit
 whose keys all follow are mixed bit for bit as stock mixes them. The source
 dry reduction (`1 - s(1 - d)`) stays the track's and takes no account of
-own amounts.
+own amounts: an own-amount key's dry is ducked by the track's knob, not its
+own amount, which matters only for an effect whose dry query is below 100%.
 
 ### The track filter on kit voices
 

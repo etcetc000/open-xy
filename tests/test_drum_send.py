@@ -20,9 +20,10 @@ from test_sample_services import HOST_CXX
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 PROFILE = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text(encoding='utf-8'))
-# The five reviewed sites, as drum_send_hooks.s describes them.
+# The six reviewed sites, as drum_send_hooks.s describes them.
 SITES = {'0x8d510bea': ('sdk_drum_send_track', '00e38f5d'),
          '0x8d51c7b2': ('sdk_drum_send_voice_hook', '0adab01148150000'),
+         '0x8d510ea8': ('sdk_drum_send_gain_hook', '0ada901100360000'),
          '0x8d511088': ('sdk_drum_send_source_1', '09da901100360000'),
          '0x8d5110ca': ('sdk_drum_send_source_2', '09da901100360000'),
          '0x8d511116': ('sdk_drum_send_own', '30e51200')}
@@ -240,7 +241,7 @@ class DrumSend(unittest.TestCase):
         self.assertEqual(native.UNIT_SERVICES['drum_send'], 'drum_sends')
         self.assertEqual(native.UNIT_SERVICES['drum_send_hooks'], 'drum_sends')
 
-    def test_the_profile_reviews_five_call_sites_outside_hardware_loops(self):
+    def test_the_profile_reviews_six_call_sites_outside_hardware_loops(self):
         hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') == 'drum_sends'}
         self.assertEqual(set(hooks), set(SITES))
         for address, (symbol, before) in SITES.items():
@@ -255,6 +256,11 @@ class DrumSend(unittest.TestCase):
         self.assertIn('P0.H = 0x8d51; P0.L = 0xc708;\n    JUMP (P0);', stubs)
         self.assertIn('P2.H = 0x11b0; P2.L = 0x1548;', stubs)
         self.assertIn('P1.H = 0x1190; P1.L = 0x3600;', stubs)
+        # The track gain's hook hands C++ the track, then the gain R0 and the step R2
+        # (sdk_drum_send_gain(track, gain, step)), and replays P2's load of the sum.
+        body = stubs[stubs.index('sdk_drum_send_gain_hook:\n'):]
+        self.assertIn('    HOOK_SAVE\n    R1 = R0;\n    P0 = [FP];\n    R0 = [P0 + 8];\n    CALL sdk_drum_send_gain;\n'
+                      '    HOOK_RESTORE\n    P2.H = 0x1190; P2.L = 0x3600;\n    RTS;', body[:body.index('.size')])
 
     def test_each_stub_replays_the_immediate_its_site_held(self):
         # An early hardware test replayed P1 = 0x11900000 where stock loads 0x11903600 (a decimal
@@ -275,7 +281,8 @@ class DrumSend(unittest.TestCase):
             body = body[:body.index('.size ' + symbol)]
             self.assertIn('%s.H = 0x%04x; %s.L = 0x%04x;' % (register, value >> 16, register, value & 0xffff), body,
                           '%s must replay %s = 0x%08x' % (symbol, register, value))
-        self.assertEqual(loads, {'0x8d51c7b2': 0x11b01548, '0x8d511088': 0x11903600, '0x8d5110ca': 0x11903600})
+        self.assertEqual(loads, {'0x8d51c7b2': 0x11b01548, '0x8d510ea8': 0x11903600, '0x8d511088': 0x11903600,
+                                 '0x8d5110ca': 0x11903600})
         buses = []
         for before in BUS_LOADS.values():
             words = [int.from_bytes(bytes.fromhex(before)[i:i + 2], 'little') for i in range(0, 8, 2)]

@@ -2186,6 +2186,17 @@
     },
     {
       "kind": "hook",
+      "name": "Mixer: after the track gain's in-place loop, the per-key sums at the same gain",
+      "address": "0x8d510ea8",
+      "file_offset": "0x148104",
+      "length": 8,
+      "before": "0ada901100360000",
+      "symbol": "sdk_drum_send_gain_hook",
+      "call": true,
+      "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
       "name": "Mixer: FX I bus reads the track sum, or the per-key sum of FX I's shares",
       "address": "0x8d511088",
       "file_offset": "0x1482e4",

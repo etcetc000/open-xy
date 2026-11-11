@@ -10,6 +10,7 @@ using namespace opxy::platform;
 extern "C" {
 void sdk_drum_send_begin() __asm__("sdk_drum_send_begin");
 void sdk_drum_send_voice(const unsigned char* voice, u32 track) __asm__("sdk_drum_send_voice");
+void sdk_drum_send_gain(u32 track, i32 gain, i32 step) __asm__("sdk_drum_send_gain");
 void sdk_drum_send_own_mix(u32 track, i32 level) __asm__("sdk_drum_send_own_mix");
 // Read by sdk_drum_send_source_1 and _2: per send, the track plus one and its source.
 extern DrumSendState sdk_drum_send_state __asm__("sdk_drum_send_state");
@@ -63,6 +64,13 @@ void sdk_drum_send_begin() { drum_send_begin(sdk_drum_send_state); }
 // the sum of `track`.
 void sdk_drum_send_voice(const unsigned char* voice, u32 track) {
     drum_send_voice(sdk_drum_send_state, follow, own, track, kTrackSum, kVoiceOutput, codes_of(voice));
+}
+
+// 8d510ea8: stock has just scaled the sum of `track` in place by the track's
+// gain (8d510e60..8d510e98); `gain` is where its ramp ended (R0), `step` its
+// step per frame (R2).
+void sdk_drum_send_gain(u32 track, i32 gain, i32 step) {
+    drum_send_track_gain(sdk_drum_send_state, follow, own, track, gain, step);
 }
 
 // 8d511116: stock's send loops for `track` are done; `level` is the engine's
