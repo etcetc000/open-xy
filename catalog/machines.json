@@ -1546,8 +1546,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Trigon",
-      "tag": "v1.1.0",
-      "commit": "3965292bd0300ca37057ac63fbdbb7c22f5b3692",
+      "tag": "v1.1.1",
+      "commit": "cbb383e9695595c3710b3bea9c6b2c6b8ef0aa69",
       "path": "felt",
       "keywords": [
         "physical",
@@ -1579,8 +1579,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Trigon",
-      "tag": "v1.1.0",
-      "commit": "3965292bd0300ca37057ac63fbdbb7c22f5b3692",
+      "tag": "v1.1.1",
+      "commit": "cbb383e9695595c3710b3bea9c6b2c6b8ef0aa69",
       "path": "flicker",
       "keywords": [
         "percussion",
@@ -1612,8 +1612,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Trigon",
-      "tag": "v1.1.0",
-      "commit": "3965292bd0300ca37057ac63fbdbb7c22f5b3692",
+      "tag": "v1.1.1",
+      "commit": "cbb383e9695595c3710b3bea9c6b2c6b8ef0aa69",
       "path": "dust",
       "keywords": [
         "percussion",
