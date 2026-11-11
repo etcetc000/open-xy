@@ -1650,6 +1650,15 @@ keeps its slot from `init(object, slot)`, reads word 36 of track 14 or 15
 from `84eab39c + slot × 0xe8`, and passes the DSP its eight words and each
 control's choice as a ninth to twelfth.
 
+**Send meters (SDK 1.14).** Stock's FX page (`8d53b676`) moves its two meter
+lines by the GUI's level table at `080376e4`, a word per meter that the setter
+at `8d4d666a` writes and flags. Entry 26 + send is the send's input and
+28 + send its return (send A 0, B 1); the page converts each word as a signed
+Q31 value and moves its `vu_in` and `vu_out` lines by `trunc(70 × word / 2^31)`
+px, down when positive and up when negative. On an effect's own page the SDK
+reads the same two words for the selected send each frame (`sdk_send_view`)
+and passes them to the display as `level_in` and `level_out`.
+
 ## A synth's Shift row
 
 A synth's Shift row ([API](api.md#a-synths-shift-row)) adds no firmware edit of
