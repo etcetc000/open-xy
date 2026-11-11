@@ -45,6 +45,9 @@ struct SynthControls {
     u8 stock_shift[4];
     // A synth's Shift row, or null (SDK 1.13).
     const SynthShift* synth_shift;
+    // A synth's saved encoder-press action (definition `"press": "action"`):
+    // GUI only, edits the track's eight saved Q31 words; null for other rows.
+    void (*press)(u32 encoder, i32* parameters);
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // The stock sampler page's own turns a stockShift entry names: the page's

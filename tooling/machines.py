@@ -55,7 +55,7 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # and a synth's voice release callback (resources.releaseCallback).
 # 1.13 gives a synth a Shift row: up to eight more controls under its pages ("shift"),
 # kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
-SDK_VERSION = (1, 13)
+SDK_VERSION = (1, 14)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -534,6 +534,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
+    if definition['resources'].get('noteStart') or definition.get('press') == 'action':
+        require_sdk(version, (1, 14), 'Synth note identity and saved press actions (noteStart, "press": "action")')
     if 'bufferBytes' in definition['resources']:
         require_sdk(version, (1, 2), 'An effect buffer (bufferBytes)')
     if definition['resources'].get('transport'):

@@ -43,7 +43,7 @@ class SynthVoices(unittest.TestCase):
             with self.subTest(capacity=capacity), self.assertRaisesRegex(ValueError, '256'):
                 validate_definition(definition, 'sample')
 
-    def run_fixture(self, capacity, source):
+    def run_fixture(self, capacity, source, note=False):
         definition = copy.deepcopy(fixture('probesynth').definition)
         definition['id'] = 'probe'
         for i in range(4):
@@ -53,13 +53,16 @@ class SynthVoices(unittest.TestCase):
             for preset in definition['presets'].values():
                 preset[parameter['id']] = parameter['default']
         definition['resources'].update(voiceBytes=12, voiceAlignment=4, voiceCapacity=capacity, sharedBytes=0)
+        if note:
+            definition['resources']['noteStart'] = 1
         validate_definition(definition, 'synth')
         m = SimpleNamespace(kind='synth', definition=definition, prefix='probe', native_name='probe', identity=dict(engine=5, page=85))
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             generate_voice(folder, m)
             (folder / 'core.h').write_text(CORE, encoding='utf-8')
-            (folder / 'engine.cpp').write_text(ENGINE, encoding='utf-8')
+            engine = ENGINE.replace('opxy::u32) { ++voice.notes; }', 'opxy::u32, opxy::u32 key) { voice.notes = key; }') if note else ENGINE
+            (folder / 'engine.cpp').write_text(engine, encoding='utf-8')
             (folder / 'test.cpp').write_text(source, encoding='utf-8')
             binary = folder / ('test.exe' if os.name == 'nt' else 'test')
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
@@ -91,6 +94,43 @@ opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
 opxy::u32 sdk_voice_ticks() { return 0; }
 int main() { return sizeof(voices) / sizeof(voices[0]) == 2 ? 0 : 1; }
 ''')
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_note_identity_survives_waiting_for_a_voice(self):
+        self.run_fixture(2, r'''#include "voice.cpp"
+#include <cstdlib>
+int destroyed[257];
+opxy::u32 sdk_voice_ticks() { return 0; }
+void require(bool condition) { if (!condition) std::abort(); }
+int main() {
+    for (unsigned i = 0; i < 3; ++i) {
+        Handle* handle = static_cast<Handle*>(probe_factory(i));
+        probe_start(handle, 53 + 12 * i);
+        require(held(handle)->voice.notes == 53 + 12 * i);
+    }
+    Handle* waiting = static_cast<Handle*>(probe_factory(3));
+    probe_start(waiting, 60);
+    Slot* previous = pending(waiting);
+    require(previous && waiting->key == 60);
+    release(*previous, 0);
+    require(held(waiting)->voice.notes == 60);
+    probe_start(waiting, 127);
+    require(held(waiting)->voice.notes == 127);
+    probe_start(waiting, 999);
+    require(held(waiting)->voice.notes == 128);
+}
+''', note=True)
+
+    @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS fixture required')
+    def test_stock_onset_passes_parent_key_in_r1(self):
+        from tooling.formats import ldr, mapped_offset
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        # R1 = B[P4+0x50], R2 = B[P4+0x54]; method +16; CALL(P0).
+        for address, expected in ((0x8d51b188, 'a1e45000a2e45400'),
+                                  (0x8d51b1a4, '00ad'), (0x8d51b1ae, '6000')):
+            raw = bytes.fromhex(expected)
+            offset = mapped_offset(ldr(data), address, len(raw))
+            self.assertEqual(data[offset:offset + len(raw)], raw)
 
 if __name__ == '__main__':
     unittest.main()
