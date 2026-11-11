@@ -30,7 +30,7 @@ LOCK_CALLS = (('u32', 'size', ('void*', 'u32'), 'return 0;'),
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False, extensions=False, monitor=False, locks=False, input_overlay=False):
+           control=False, aux=False, locks=False, drumline=False, extensions=False, monitor=False, input_overlay=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -40,7 +40,12 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     calls into the service do nothing.
     aux: the build links the aux service (aux tracks), which starts after it.
     locks: the build links the step-lock handles (lock_handles.cpp, the drum_locks
-    service). Without them, the companion's open-xy.locks calls do nothing."""
+    service). Without them, the companion's open-xy.locks calls do nothing.
+    drumline: the collection links the drumline service (a drumline_page extension,
+    stock Drumline's second page). The shared hooks reach it through
+    sdk_drumline_get, defined here: without the service it answers null; with it,
+    the service's sdk_drumline_service, which the browser builder resolves to
+    kit_absent (null) when the selection leaves the extension out."""
     require(prefixes or effects or player_pages, 'Startup needs at least one machine')
     require(0 <= len(prefixes) <= ENGINE_COUNT and len(set(prefixes)) == len(prefixes),
             'Startup needs distinct engine prefixes')
@@ -112,6 +117,12 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
         declarations.append('void sdk_input_monitor_startup() __asm__("sdk_input_monitor_startup");')
         screens.append('    sdk_input_monitor_startup();')
     kept += '\n' + '\n'.join(menu_fallbacks)
+    declarations.append('const void* sdk_drumline_get() __asm__("sdk_drumline_get");')
+    if drumline:
+        declarations.append('const void* sdk_drumline_service() __asm__("sdk_drumline_service");')
+        declarations.append('const void* sdk_drumline_get() { return sdk_drumline_service(); }')
+    else:
+        declarations.append('const void* sdk_drumline_get() { return nullptr; }')
     owned += [f'    if (page == value({prefix}_fx_page_id)) return {prefix}_ready() == 1;' for prefix in effect_screens]
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
@@ -130,8 +141,9 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False, extensions=False, monitor=False, locks=False, input_overlay=False):
+             control=False, aux=False, locks=False, drumline=False, extensions=False, monitor=False, input_overlay=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux, extensions, monitor, locks, input_overlay), encoding='utf-8', newline='\n')
+                                  control=control, aux=aux, extensions=extensions, monitor=monitor, locks=locks,
+                                  input_overlay=input_overlay, drumline=drumline), encoding='utf-8', newline='\n')
     return destination

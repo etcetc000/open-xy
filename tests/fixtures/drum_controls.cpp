@@ -4,6 +4,16 @@
 static void host_barrier() {}
 #include <drum_controls_stock.cpp>
 #include <keyboard_octaves.cpp>
+#include "drumline.hpp"
+// Built with a drumline_page extension: the generated startup's accessor
+// answers a stand-in service that only records presses (drumline.cpp's switch
+// the pages, from sdk_synth_press; the sample page's press hook never does).
+static unsigned drumline_presses, drumline_track_pressed, drumline_button;
+static void drumline_press(opxy::u32 track, opxy::u32 button) {
+    ++drumline_presses; drumline_track_pressed = track; drumline_button = button;
+}
+static const opxy::platform::Drumline drumline_stand_in = {nullptr, nullptr, drumline_press, nullptr, nullptr};
+const void* sdk_drumline_get() { return &drumline_stand_in; }
 // This fixture has no synthesis drum kits.
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
 // A kit's second Shift row (synth_controls.cpp), as the press hook asks it:
@@ -529,6 +539,23 @@ int main() {
     check(sdk_sample_page_shift() == 1);
     shifted = false;
     check(sdk_sample_page_shift() == 0);
+    // Stock Drumline with a drumline_page extension: the sample page's press
+    // hook (8c0b2730) leaves its pages alone (a plain press switches them, in
+    // sdk_synth_press), with Shift or not; Shift and encoder 1 keep stock's
+    // play-mode cycle, and every press returns what stock acts on, as before.
+    selected_track_value = 0;
+    for (unsigned id : {4u, 3u, 2u, 30u}) {
+        engine = id;
+        for (bool shift : {false, true}) {
+            shifted = shift;
+            for (unsigned button = 4; button < 8; ++button) {
+                const unsigned presses = drumline_presses;
+                check(sdk_sample_press_engine_owned(0, button) == sdk_sample_alias(id));
+                check(drumline_presses == presses);
+            }
+        }
+    }
+    shifted = false;
 
     // Encoder presses (8c0b2730, button 4..7): a Shift press that a kit's
     // second Shift row takes ends there; every other press, and a Shift press

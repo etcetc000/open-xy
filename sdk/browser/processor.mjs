@@ -15,13 +15,13 @@ export class PreviewProcessor extends AudioWorkletProcessor {
       } catch (error) { this.port.postMessage({ error: error.message }); }
     };
     this.port.postMessage({ ready: true, backend: 'cpp-wasm', sampleRate,
-      blockFrames: this.engine.blockFrames, stateBytes: this.engine.stateBytes });
+      blockFrames: this.engine.blockFrames, outputChannels: this.engine.outputChannels, stateBytes: this.engine.stateBytes });
   }
   process(_inputs, outputs) {
     const channels = outputs[0];
     if (channels?.length) {
-      this.engine.render(channels[0]);
-      for (let i = 1; i < channels.length; ++i) channels[i].set(channels[0]);
+      // A stereo module fills both channels; a mono one is copied to the right.
+      this.engine.render(channels[0], channels[1]);
     }
     return true;
   }

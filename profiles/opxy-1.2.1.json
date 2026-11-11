@@ -127,7 +127,8 @@
   "services": {
     "samples": [
       "sample",
-      "drum"
+      "drum",
+      "drumline_page"
     ],
     "control": [
       "trackControl",
@@ -146,7 +147,9 @@
       "master_filter"
     ],
     "drums": [
-      "drum"
+      "drum",
+      "drumline_page",
+      "synthShift"
     ],
     "players": [
       "player"
@@ -154,13 +157,17 @@
     "octaves": [
       "sample",
       "player",
-      "drum"
+      "drum",
+      "drumline_page"
     ],
     "drum_sends": [
-      "padMix"
+      "padMix",
+      "drumline_page"
     ],
     "drum_locks": [
-      "padMix"
+      "padMix",
+      "drumline_page",
+      "synthShift"
     ],
     "input_audio": [
       "inputMonitor",
@@ -177,6 +184,9 @@
       "auxTrack",
       "inputMonitor",
       "live_input"
+    ],
+    "drumline": [
+      "drumline_page"
     ]
   },
   "patches": [
@@ -1402,7 +1412,7 @@
       "file_offset": "0x11e70c",
       "length": 4,
       "before": "21600808",
-      "symbol": "extensions_drum_compare_r0",
+      "symbol": "extensions_preset_export_regions",
       "service": "drums",
       "call": true
     },
@@ -1538,6 +1548,28 @@
       "length": 8,
       "before": "00de4d8db06c0000",
       "symbol": "sdk_drum_latch_key",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Track menu scramble: the selected track's engine, an owned kit's as Drumline's",
+      "address": "0x8c0b5314",
+      "file_offset": "0xec550",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_scramble_engine",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Track menu scramble, its Drumline branch: an owned kit re-rolls each key's model and controls",
+      "address": "0x8c0b5430",
+      "file_offset": "0xec66c",
+      "length": 8,
+      "before": "00de4d8d2c620000",
+      "symbol": "sdk_drum_scramble",
       "service": "drums",
       "call": true
     },
@@ -2259,6 +2291,28 @@
       "symbol": "sdk_live_input_exit",
       "call": false,
       "service": "live_input"
+    },
+    {
+      "kind": "hook",
+      "name": "Drum renderer: a stock Drumline voice's render through the SDK's wrapper (SRR, its payload from its first block)",
+      "address": "0x8d51b554",
+      "file_offset": "0x1527b0",
+      "length": 4,
+      "before": "48914130",
+      "symbol": "sdk_dbox_render_select",
+      "call": true,
+      "service": "drumline"
+    },
+    {
+      "kind": "hook",
+      "name": "Drumline page: page 2's titles and values after stock sets its own",
+      "address": "0x8d531192",
+      "file_offset": "0x1683ee",
+      "length": 4,
+      "before": "a0e4b400",
+      "symbol": "sdk_drumline_page_hook",
+      "call": true,
+      "service": "drumline"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

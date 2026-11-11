@@ -15,8 +15,11 @@ export function createSnapshotService({compile = bytes => WebAssembly.compile(by
         requireThat(await sha256(wasm) === machine.preview.sha256, 'Preview module hash mismatch');
         const display = new PreviewDisplay(await compile(wasm));
         const parameters = Object.assign(Array(8).fill(0), machine.preview.defaults);
+        // A synth's Shift row (SDK 1.13) at its defaults, not held.
+        const row = machine.preview.shift ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
+          {held:0, line:0, values:machine.preview.shift}] : [];
         const frame = display.tick(shownControls(parameters, [0, 1, 2, 3]), 0, 0, 0, true,
-          {held_notes:0, note_off_serial:0}).slice();
+          {held_notes:0, note_off_serial:0}, ...row).slice();
         return {frame, parameters};
       })();
       cached = {frame, artwork:new Map()}; machineSnapshots.set(machine, cached);

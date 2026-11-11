@@ -251,6 +251,13 @@ buses. Stock controls source selection, monitoring, feedback protection and
 routing. This capability covers the Aux 5 monitoring path. The raw sampler
 input uses its own path.
 
+## Drumline page
+
+A [Drumline-page extension](drumline-page.md) gives stock Drumline a second page
+of one to four per-key parameters, with step locks, and processes each hit's
+voice through the SDK's `drumline_page` capability. One extension per build owns
+it; the builder offers it like a claim.
+
 ## Change the SDK for an extension
 
 Reuse first: read the events table. Most needs are a subscriber that filters an

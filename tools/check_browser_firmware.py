@@ -79,7 +79,8 @@ def selection_services(kit, result):
                            (['inputMonitor'] if any('monitor_input' in e.get('actions', []) for e in chosen) else []) +
                            # kit.json names it master_processor; older kits, master_filter (core.mjs processorOf).
                            (['master_filter'] if any(e.get('master_processor') or e.get('master_filter') for e in chosen) else []) +
-                           (['live_input'] if any(e.get('live_input') for e in chosen) else []))
+                           (['live_input'] if any(e.get('live_input') for e in chosen) else []) +
+                           (['drumline_page'] if any(e.get('drumline_page') for e in chosen) else []))
 
 
 def assembled(stock, module, symbols, reviewed, services, profiling):

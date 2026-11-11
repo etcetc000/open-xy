@@ -12,10 +12,16 @@
 // word the sequencer restored without publishing reaches the audio side before
 // the note. Every other caller of the builder (the per-key editor and
 // its previews) publishes the key's own values.
+//
+// With a drumline_page extension the same two hooks serve stock Drumline
+// (drumline.hpp): every publication of a Drumline pad carries its page-2
+// choices, and a note's its step's locks of them for its key.
 #include "drum_locks.hpp"
 #include "drum_lock_store.hpp"
+#include "drumline.hpp"
 #include "drum_values.hpp"
 #include "stock.hpp"
+#include "synth_controls.hpp"
 
 extern "C" {
 opxy::u32 sdk_drum_lock_note(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::u32)
@@ -31,7 +37,7 @@ using namespace opxy::platform;
 
 // The note the builder is filling, while it is.
 const u32 kNoTrack = 0xffffffffu;
-u32 note_track = kNoTrack, note_key, note_handle;
+u32 note_track = kNoTrack, note_key, note_handle, note_line = kNoTrack;
 const DrumMachine* note_kit;
 
 i32 stock_gain(i32 db) { return stock<i32(i32)>(0x8d5ad604)(db); }
@@ -63,27 +69,44 @@ u32 sdk_drum_lock_note(u32 project, u32 track, u32 key, u32 engine, u32 a, u32 b
     note_kit = kit && kit->pad_mix ? kit : nullptr;
     note_track = note_kit ? track : kNoTrack;
     note_key = key;
-    note_handle = note_kit ? drum_lock_store_take(track) : 0;
+    note_line = drumline_track(track) ? track : kNoTrack;
+    note_handle = note_kit || note_line != kNoTrack ? drum_lock_store_take(track) : 0;
     const u32 result = stock<u32(u32, u32, u32, u32, u32, u32, u32)>(0x8d5ad660)(project, track, key, engine, a, b, c);
-    note_track = kNoTrack;
+    note_track = note_line = kNoTrack;
     return result;
 }
 
-// 8d5ad776: the builder's one publication of the payload it filled.
+// 8d5ad776: the builder's one publication of the payload it filled. `kind` is
+// the pad's slot, as the region lookup 8d58926c gave it (8d5ad766).
 u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
     if (payload && note_kit && track == note_track) {
         stock<void(u32, u32)>(0x8d5acb9c)(project, track);
         fold(*note_kit, track, note_key, payload);
     }
-    note_track = kNoTrack;
+    if (payload && drumline_track(track))
+        drumline_service()->publish(track, kind, payload, track == note_line ? note_handle : 0, note_key);
+    note_track = note_line = kNoTrack;
     return stock<u32(u32, u32, u32, i32*)>(0x8d5ad194)(project, track, kind, payload);
 }
 
-// The step-lock handles' client checks (lock_handles.hpp): an owned padMix kit, on an
-// instrument track or as a pattern's machine.
+// The step-lock handles' client checks (lock_handles.hpp): an owned padMix kit, or a
+// synth with a Shift row (SDK 1.13), on an instrument track or as a pattern's machine,
+// or stock Drumline with a drumline_page extension (its page 2's locks).
 bool opxy::platform::step_locks::pattern_client(u32 engine) {
     const DrumMachine* kit = sdk_drum_machine(engine);
-    return kit && kit->pad_mix;
+    return (kit && kit->pad_mix) || sdk_synth_shift_engine(engine) ||
+           (engine == kDrumlineEngine && drumline_service());
+}
+// After a step's lock pass: a synth with a Shift row plays the step's locks of its row
+// (its handle's step-wide entry, field = entry) from its live words, which the pass
+// has just given the handle (synth_controls.cpp sdk_synth_shift_play); a step with
+// none plays the track's own row. A kit takes its step's locks at note start.
+void opxy::platform::step_locks::step_applied(u32 project, u32 track, u32 handle) {
+    // A build without a Shift-row synth (every kit-only one) asks stock nothing more.
+    if (track >= kTracks || !sdk_synth_shift_present() || !sdk_synth_shift_engine(track_engine(track))) return;
+    i32 values[kFields] = {};
+    const u32 mask = handle ? handle_fields(handle, kStepWide, values) : 0;
+    sdk_synth_shift_play(project, track, mask, values);
 }
 bool opxy::platform::step_locks::handle_client(u32 track) {
     return track < kTracks && pattern_client(track_engine(track));

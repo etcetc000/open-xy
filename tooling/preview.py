@@ -8,14 +8,14 @@ import sys
 from xml.etree.ElementTree import ParseError
 
 from .formats import require, sha
-from .definitions import ROOT
+from .definitions import ROOT, synth_shift
 from .machines import machine_at
 from .pipeline import NO_WINDOW, add_overwrite_argument, fresh_output
 
 
 VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment', 'opxy_parameter_count',
-                 'opxy_block_frames', 'opxy_sample_rate', 'opxy_output_peak_q31', 'opxy_voice_capacity',
-                 'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_destroy', 'opxy_render', 'opxy_preview_model',
+                 'opxy_block_frames', 'opxy_output_channels', 'opxy_sample_rate', 'opxy_output_peak_q31', 'opxy_voice_capacity',
+                 'opxy_voice_state', 'opxy_initialize', 'opxy_start', 'opxy_release', 'opxy_destroy', 'opxy_render', 'opxy_preview_model',
                  '__heap_base')
 DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
                                                             'input', 'frame', 'reset', 'render', 'valid', 'sample'))
@@ -43,9 +43,11 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
     paths = [ROOT, ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', root,
              *(root / extra for extra in includes), out]
     memory = MEMORY
+    # A synth with a Shift row (SDK 1.13) also exports the row its display reads.
+    exports = VOICE_EXPORTS + DISPLAY_EXPORTS + (('opxy_display_shift',) if kind == 'synth' and synth_shift(definition) else ())
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={memory}',
-               f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS)]
+               f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in exports)]
     result = subprocess.run([str(x) for x in command], capture_output=True, text=True, timeout=120,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
