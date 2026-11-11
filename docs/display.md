@@ -203,7 +203,7 @@ leaves the drawing input unchanged:
 | `draw::shift_row(input)` field | Meaning |
 | --- | --- |
 | `held` | 1 while Shift is held on the engine page, when the encoders turn the row |
-| `line` | The page the encoders are on, 0 or 1: Shift turns entries `4 * line` to `4 * line + 3` |
+| `line` | The page the encoders are on, 0 or 1: Shift turns entries `4 * line` to `4 * line + 3`. A press moves it, with Shift held too |
 | `values` | Each entry's Q31 word, as `render` receives it in `parameters[8 + i]`; 0 beyond the row and for an absent entry |
 
 `input.shift` stays 0 for a synth. The values hold whether or not Shift is

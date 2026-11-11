@@ -462,11 +462,14 @@ const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 
   entries under the page the encoders are on. A machine drawing its own header
   reads the row from [`opxy/synth_shift.hpp`](display.md#a-synths-shift-row),
   and the [two-page header](display.md#two-page-header) shows it in the bright
-  row. Holding Shift and pressing an encoder does not switch pages: let go of
-  Shift, press, then hold Shift again.
+  row. A press of any encoder switches pages with Shift held too, and the row
+  follows, so Shift and a press reach page 2's entries without letting go, as
+  on a `padMix` kit.
 - **Where it runs.** Instrument tracks 1–8; a synth with track control can't
   have one. Browser previews show each entry as a control of its own: editing
-  one shows the row, and their audition plays it.
+  one shows the row, and their audition plays it. The workbench's **Shift**
+  holds the row in the header and **Press** switches pages, with Shift on or
+  off, as on the device.
 
 ## Audio buffers and ownership
 

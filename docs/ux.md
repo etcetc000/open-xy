@@ -64,7 +64,9 @@ is the reference for each of them.
   more under each page, which Shift and that page's encoders turn. Holding
   Shift turns the bright row of the header into the Shift controls, as on a
   drum kit; keep what is played on the pages and what is set less often on
-  the row. Presets and step locks keep the row as they keep the pages.
+  the row. A press switches pages with Shift held too, and the row follows,
+  so the player reaches the other page's entries without letting go. Presets
+  and step locks keep the row as they keep the pages.
 - **Use the shared header.** New synths with five to eight controls use
   [`opxy/page_header.hpp`](display.md#two-page-header), already wired up by
   `sdk.py new` when `--controls` is 5, 6, 7 or 8. Choose the actual parameter
