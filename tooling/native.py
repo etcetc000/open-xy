@@ -758,10 +758,12 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
         require(entry in body, 'Master audio entry is not a function start')
         bounds['sdk:master_filter'] = depth(entry)
     if 'sdk_drum_send_voice_hook' in symbols:
-        # Entered from stock's voice loop after the voice has rendered (8d51c7b2).
-        entry = symbols['sdk_drum_send_voice_hook']['value']
-        require(entry in body, 'Per-key send entry is not a function start')
-        bounds['sdk:drum_sends'] = depth(entry)
+        # Entered from stock's mixer: the voice loop after a voice has rendered
+        # (8d51c7b2), and after the track gain's in-place loop (8d510ea8).
+        entries = [symbols[name]['value'] for name in ('sdk_drum_send_voice_hook', 'sdk_drum_send_gain_hook')
+                   if name in symbols]
+        require(all(entry in body for entry in entries), 'Per-key send entry is not a function start')
+        bounds['sdk:drum_sends'] = max(depth(entry) for entry in entries)
     return bounds
 
 
