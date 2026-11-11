@@ -2188,13 +2188,13 @@
       }
     },
     {
-      "id": "veffchord",
+      "id": "veffchords",
       "kind": "player",
       "maintainer": "galfaroth",
       "status": "published",
       "repository": "https://github.com/galfaroth/open-xy-chord-builder",
-      "tag": "v1.0.0",
-      "commit": "b686107a79c1768f7f5108b5b75d68f4915b9270",
+      "tag": "v1.0.1",
+      "commit": "a02909d099d15923ecde5ed8ae21a692572293c5",
       "path": ".",
       "keywords": [
         "chord"
