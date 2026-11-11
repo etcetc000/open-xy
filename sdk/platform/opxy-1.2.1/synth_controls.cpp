@@ -17,6 +17,7 @@
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
+void sdk_synth_shift_press(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_synth_shift_press");
 opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_synth_turn");
 opxy::u32 sdk_effect_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_effect_turn");
 opxy::u32 sdk_synth_scramble(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("sdk_synth_scramble");
@@ -353,6 +354,31 @@ bool sdk_drum_shift_press(u32 track, u32 encoder) {
         if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
     }
     return true;
+}
+
+// A synth with a Shift row (SDK 1.13), as a kit above: its stub (synth_shift_hooks.s,
+// the synth_shift service) replaces the shifted key handler's call of that action,
+// 8c0b2a5e (codes 10..13 reach it through the handler's jump table, 8400e344..
+// 8400e350 -> 8c0b2a56), with R0 = track (B[840a0534]), R1 = code and R2 = the
+// controller + 12, where the action keeps its last Shift press. Stock's call comes
+// first, as before; it does nothing for a synth. Then, on the selected track's engine
+// page, the press switches the synth's pages as an unshifted press does
+// (sdk_synth_press), and the row shown and turned follows (shift_page): Shift and a
+// press reach page 2's entries without letting go.
+void sdk_synth_shift_press(u32 track, u32 code, u32 last) {
+    stock<void(u32, u32, u32)>(0x8c0b270e)(track, code, last);
+    const u32 encoder = code - 10;
+    Track* t;
+    const SynthControls* m;
+    if (encoder >= opxy::page_controls || track >= kTracks || track != byte(kSelectedTrack) ||
+        top_controller_vtable() != kInstrumentController || word(kInstrumentPage) != 0 ||
+        !(m = machine(track, t)) || !shift_of(m, track))
+        return;
+    for (u32 i = 0; i < opxy::page_controls; ++i) {
+        if (i != encoder && !m->page) continue;
+        const u32 next = m->next[t->slots[i]];
+        if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
+    }
 }
 
 // 8d5ad306: stock's encoder step 8d5ad2e8, which plain and lock edits share,
