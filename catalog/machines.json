@@ -2072,6 +2072,12 @@
         "block_percent": 3.744564,
         "peak_percent": 6.396582
       }
+    },
+    {
+      "id": "oread",
+      "kind": "effect",
+      "maintainer": "michinger",
+      "status": "reserved"
     }
   ]
 }
