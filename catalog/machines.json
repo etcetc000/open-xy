@@ -2077,7 +2077,25 @@
       "id": "oread",
       "kind": "effect",
       "maintainer": "michinger",
-      "status": "reserved"
+      "status": "draft",
+      "repository": "https://github.com/michinger/open-xy-oread",
+      "tag": "v1.0.0",
+      "commit": "5acc1c21a885412381fd0d236c4d0eec4fc1cde9",
+      "path": ".",
+      "keywords": [
+        "delay",
+        "reverb",
+        "emulation",
+        "lofi"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "5acc1c21a885412381fd0d236c4d0eec4fc1cde9",
+        "firmware_sha256": "cf27b8324097727adb4a623f497c059c27e970981e0d5ee27ba0037351d5e953",
+        "runs": 1,
+        "block_percent": 4.470893,
+        "peak_percent": 6.953536
+      }
     }
   ]
 }
