@@ -168,6 +168,9 @@
     ],
     "drumline": [
       "drumline_page"
+    ],
+    "synth_shift": [
+      "synthShift"
     ]
   },
   "patches": [
@@ -918,6 +921,16 @@
       "length": 8,
       "before": "00de518dfcf10000",
       "symbol": "sdk_synth_press",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c0b2a5e",
+      "file_offset": "0xe9c9a",
+      "length": 8,
+      "before": "ffe358fe0160492f",
+      "symbol": "sdk_synth_shift_press_hook",
+      "service": "synth_shift",
       "call": true
     },
     {

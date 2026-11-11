@@ -10,11 +10,14 @@
 #include <cstring>
 #include <initializer_list>
 #include "drumline.hpp"
+#include <opxy/synth_shift.hpp>
 // Built without a drumline_page extension: the generated startup's accessor answers null.
 const void* sdk_drumline_get() { return nullptr; }
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
+void sdk_synth_shift_press(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_synth_shift_press");
+const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_synth_turn");
 opxy::u32 sdk_synth_scramble(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("sdk_synth_scramble");
 opxy::u32 sdk_scramble_engine(opxy::u32) __asm__("sdk_scramble_engine");
@@ -122,6 +125,11 @@ u32 get_shift() { return shifted; }
 u32 canonical(u32 selected, u32 note) { require(selected == track); return shifted_octave && note == 53 ? 65 : note; }
 const u32* top() { return &controller; }
 void press(u32) { ++clicks; }
+// Stock's Shift-press action (8c0b270e), as the shifted key handler calls it.
+u32 shift_actions, shift_track, shift_code, shift_last;
+void shift_action(u32 selected, u32 code, u32 last) {
+    ++shift_actions; shift_track = selected; shift_code = code; shift_last = last;
+}
 void* region(u32 selected, u32 note, u32* scratch, u32 nearest) {
     note = canonical(selected, note);
     require(selected == track && note >= 53 && note < 77 && !nearest);
@@ -163,15 +171,22 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
      2, pad_bits, 1, pad_labels, pad_text}
 };
 const opxy::u32 sdk_drum_machine_count = 6;
+// Engine 50: a paged synth with a Shift row of eight amounts (SDK 1.13); engine 51
+// the same synth without one.
+static const char* const probe_shift_titles[] = {"s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"};
+static const opxy::platform::SynthShift probe_shift = {8, {0, 0, 0, 0, 0, 0, 0, 0}, {10, 11, 12, 13, 14, 15, 16, 17}, probe_shift_titles};
 const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(37), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(38), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(39), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(40), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
-    {reinterpret_cast<const char*>(41), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
+    {reinterpret_cast<const char*>(41), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+    {reinterpret_cast<const char*>(50), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true, 0, 0,
+     0, {1, 1, 1, 1}, nullptr, {0, 0, 0, 0}, &probe_shift},
+    {reinterpret_cast<const char*>(51), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
 };
-const opxy::u32 sdk_synth_control_count = 6;
+const opxy::u32 sdk_synth_control_count = 8;
 }
 
 namespace {
@@ -224,6 +239,7 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case 0x8d51f184: return reinterpret_cast<Address>(&get_shift);
     case 0x8c0944b0: return reinterpret_cast<Address>(&top);
     case 0x8d51f1fc: return reinterpret_cast<Address>(&press);
+    case 0x8c0b270e: return reinterpret_cast<Address>(&shift_action);
     case 0x8d58926c: return reinterpret_cast<Address>(&region);
     case 0x8d589210: return reinterpret_cast<Address>(&canonical);
     case 0x8d585ee8: return reinterpret_cast<Address>(&changed);
@@ -1069,6 +1085,58 @@ int main() {
         std::memcpy(regions, saved, sizeof(regions));
         engine = saved_engine; key = saved_key; publications = saved_publications; dirty = saved_dirty;
         last_key = saved_last;
+    }
+
+    {
+        // A synth with a Shift row (engine 50): with Shift held, a press (stock's
+        // shifted key handler, through the hook at 8c0b2a5e) switches its pages as a
+        // press without Shift does, and the row the header names and the display's
+        // line follow. Stock's Shift-press action still runs first, with its
+        // arguments, and the press recorder never sees it. Another track, encoder,
+        // page or controller, a synth without a row and a kit keep stock's alone.
+        const u32 saved_engine = engine, saved_key = key;
+        engine = 50; shifted = true;
+        const u32 clicks_before = clicks;
+        u32 actions = shift_actions;
+        shown(0,1,2,3);
+        require(opxy_synth_shift(0)->held == 1 && opxy_synth_shift(0)->line == 0);
+        require(std::strcmp(sdk_synth_title(50, 1), "s1") == 0);
+        sdk_synth_shift_press(0, 12, 0x2000); shown(4,5,6,7);
+        require(shift_actions == ++actions && shift_track == 0 && shift_code == 12 && shift_last == 0x2000);
+        require(opxy_synth_shift(0)->held == 1 && opxy_synth_shift(0)->line == 1);
+        require(std::strcmp(sdk_synth_title(50, 1), "s5") == 0);
+        sdk_synth_shift_press(0, 10, 0x2000); shown(0,1,2,3);
+        require(shift_actions == ++actions && opxy_synth_shift(0)->line == 0);
+        require(std::strcmp(sdk_synth_title(50, 3), "s3") == 0);
+        sdk_synth_shift_press(1, 10, 0x2000);                   // another track
+        sdk_synth_shift_press(0, 14, 0x2000);                   // no such encoder
+        sdk_synth_shift_press(0, 9, 0x2000);
+        page = 1;
+        sdk_synth_shift_press(0, 10, 0x2000);
+        page = 0;
+        controller = 0x1234;
+        sdk_synth_shift_press(0, 10, 0x2000);
+        controller = 0x8400dff8;
+        shown(0,1,2,3);
+        require(shift_actions == actions + 5 && clicks == clicks_before);
+        actions = shift_actions;
+        // Without Shift, a press pages it as before; the row keeps the page.
+        shifted = false;
+        sdk_synth_press(1); ++presses; shown(4,5,6,7);
+        require(opxy_synth_shift(0)->held == 0 && opxy_synth_shift(0)->line == 1);
+        sdk_synth_press(2); ++presses; shown(0,1,2,3);
+        require(opxy_synth_shift(0)->line == 0 && shift_actions == actions);
+        // A synth without a row, and a kit: a Shift press reaches stock's action only.
+        shifted = true;
+        engine = 51;
+        shown(0,1,2,3);
+        sdk_synth_shift_press(0, 11, 0x2000); shown(0,1,2,3);
+        require(opxy_synth_shift(0)->held == 0 && opxy_synth_shift(0)->line == 0);
+        engine = 39; key = 54;
+        shown(0,1,2,3);
+        sdk_synth_shift_press(0, 11, 0x2000); shown(0,1,2,3);
+        require(shift_actions == actions + 2 && clicks == clicks_before + 2);
+        engine = saved_engine; key = saved_key; shifted = false;
     }
 
     ownership = 0;

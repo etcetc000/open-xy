@@ -224,7 +224,8 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks')
+             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
+             'synth_shift_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -244,6 +245,9 @@ UNIT_SERVICES['lock_handles'] = 'drum_locks'
 # A drumline_page extension: stock Drumline's second page (drumline.hpp). It also
 # uses the drums, samples, octaves, drum_sends and drum_locks services' hooks.
 UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
+# A synth's Shift row (SDK 1.13): Shift and an encoder press switch its pages, as a
+# press does without Shift (synth_controls.cpp sdk_synth_shift_press).
+UNIT_SERVICES['synth_shift_hooks'] = 'synth_shift'
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.
 UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
