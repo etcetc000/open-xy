@@ -1690,12 +1690,12 @@ control's choice as a ninth to twelfth.
 
 ## A synth's Shift row
 
-A synth's Shift row ([API](api.md#a-synths-shift-row)) adds no firmware edit of
-its own: the turn, title and caption hooks of [alternate controls](#alternate-controls)
-act on it, its values travel in two words of the instrument track, and its
-presets and step locks use the hooks of the `drums` and `drum_locks` services,
-which a build links for such a synth (profile user `synthShift`), as a drum
-kit's keys and Shift fields do.
+A synth's Shift row ([API](api.md#a-synths-shift-row)) adds one firmware edit
+of its own, for paging with Shift held (below): the turn, title and caption
+hooks of [alternate controls](#alternate-controls) act on it, its values travel
+in two words of the instrument track, and its presets and step locks use the
+hooks of the `drums` and `drum_locks` services, which a build links for such a
+synth (profile user `synthShift`), as a drum kit's keys and Shift fields do.
 
 **Storage.** Entries 0..3 live in word 36 of the track's 58, entries 4..7 in
 word 37: four 7-bit fields each, the first entry lowest, and `0x40000000` as a
@@ -1784,6 +1784,30 @@ modified has not been checked on the device.
 the entry for each position while Shift is held, and the screen's value text
 (`sdk_synth_value`) captions it through the machine's formatter as slot
 8 + entry; the display reads the row through `opxy_synth_shift`.
+
+**Paging with Shift held.** An encoder click released while Shift is held never
+reaches the press hook (`8c0b5b72`, `sdk_synth_press`): stock's key layer sends
+it to the top controller's shifted key handler (`8c0b5c90` -> `8c0b5b80`, which
+calls vtable `+16`; the instrument controller's vtable `8400dff8` holds
+`8c0b28a8` there). That handler reads the selected track (`B[840a0534]`) into
+`R4`, and its jump table at `8400e324` (code - 2) sends codes 10..13 to
+`8c0b2a56`, which calls stock's Shift-press action
+`8c0b270e(track, code, controller + 12)` at `8c0b2a5e` and leaves through
+`R1 = 0; JUMP.S 8c0b28f6`, eight bytes no stock branch enters. The action
+toggles its last Shift press in the controller's word `+12`, asks the track's
+engine (`8c0b2730`, the `samples` service's hook, where a `padMix` kit switches
+its row) and acts only for the samplers and Drumline: for a synth it does
+nothing. The `synth_shift` service, which a build links only for a synth with a
+Shift row (profile user `synthShift`), replaces those eight bytes with an
+absolute call of `sdk_synth_shift_press_hook` (`synth_shift_hooks.s`). The stub
+passes `R0`..`R2` to `sdk_synth_shift_press`, which makes stock's call first and
+then, on the selected track's engine page of a synth with a Shift row (the
+instrument controller on top, page word `080238bc` 0), switches the synth's
+pages as an unshifted press does. The stub then sets `R1 = 0` and jumps to
+`8c0b28f6` through `P0`, which that path reads only after a call. The title,
+caption and `opxy_synth_shift` all follow the page the press moved to. Every
+other press, track, page and machine gets stock's action alone, and a build
+without such a synth leaves the site stock.
 
 **Audio.** Stock's normal renderer gets the voice's track record,
 `8d518d94(0x84eab39c, B[voice + 0x55])`, into R4 (`11a0933e`), keeps it there

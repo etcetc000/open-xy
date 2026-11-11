@@ -42,6 +42,24 @@ export function editedShown(shown, positions, slot, pages = false) {
   return next;
 }
 
+// The parameters the four positions show after a press of encoder `position`, as on
+// the device (sdk_synth_press): on a paged synth every position switches to the
+// other page; otherwise the pressed position moves to its next parameter, and from
+// its last alternate back to its own. Holding Shift changes nothing, so a synth's
+// Shift row (SDK 1.13) follows the page a press moves to.
+export function pressedShown(shown, positions, position, pages = false) {
+  if (pages) {
+    const second = !shown.some(s => s >= 4);
+    const next = [0, 1, 2, 3];
+    positions.forEach((p, s) => { if (p !== null && (s >= 4) === second) next[p] = s; });
+    return next;
+  }
+  const cycle = positions.flatMap((p, s) => p === position ? [s] : []);
+  if (!cycle.length) return [...shown];
+  const at = cycle.indexOf(shown[position]);
+  return shown.map((s, i) => i === position ? cycle[(at + 1) % cycle.length] : s);
+}
+
 // The display input (draw.hpp) for the eight parameter words in
 // parameter order, when shown[i] is the parameter position i shows (initially
 // its own; on the device an encoder press selects an alternate, in a preview
