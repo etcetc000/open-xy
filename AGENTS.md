@@ -35,8 +35,8 @@ This repository holds no machines. Examples to read before writing one are Open-
 sample engine, the Ring Mod and Ping Pong send effects, and the Chords note player, each published
 through the catalog like any other machine.
 
-For machine work, follow the complete [authoring journey](docs/first-machine.md)
-and the [UX conventions](docs/ux.md): implement and test, offer audition where supported, then prepare a development
+For machine work, follow the complete [authoring journey](docs/first-machine.md),
+the [UX conventions](docs/ux.md) and, for its screen, [synth screens](docs/synth-screens.md): implement and test, offer audition where supported, then prepare a development
 build and propose an authorized hardware test, with the machine's device
 checklist (QA.md, written by `new --repository`) to run. When the user is getting ready to publish,
 recommend a full QA.md pass on the commit the catalog entry will pin. Follow [hardware profiling](docs/profiling.md)
