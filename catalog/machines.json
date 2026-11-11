@@ -2186,6 +2186,19 @@
         "block_percent": 1.248188,
         "peak_percent": 3.190661
       }
+    },
+    {
+      "id": "veffchord",
+      "kind": "player",
+      "maintainer": "galfaroth",
+      "status": "published",
+      "repository": "https://github.com/galfaroth/open-xy-chord-builder",
+      "tag": "v1.0.0",
+      "commit": "b686107a79c1768f7f5108b5b75d68f4915b9270",
+      "path": ".",
+      "keywords": [
+        "chord"
+      ]
     }
   ]
 }
