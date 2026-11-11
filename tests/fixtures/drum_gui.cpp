@@ -10,7 +10,6 @@
 #include <cstring>
 #include <initializer_list>
 #include "drumline.hpp"
-#include <opxy/synth_shift.hpp>
 // Built without a drumline_page extension: the generated startup's accessor answers null.
 const void* sdk_drumline_get() { return nullptr; }
 
@@ -1090,24 +1089,26 @@ int main() {
     {
         // A synth with a Shift row (engine 50): with Shift held, a press (stock's
         // shifted key handler, through the hook at 8c0b2a5e) switches its pages as a
-        // press without Shift does, and the row the header names and the display's
-        // line follow. Stock's Shift-press action still runs first, with its
-        // arguments, and the press recorder never sees it. Another track, encoder,
-        // page or controller, a synth without a row and a kit keep stock's alone.
+        // press without Shift does, and the row the header names follows (the
+        // display's line is the same page, shift_page). Stock's Shift-press action
+        // still runs first, with its arguments, and the press recorder never sees it.
+        // Another track, encoder, page or controller, a synth without a row and a kit
+        // keep stock's alone. (The row's values read the track's words directly, which
+        // this double doesn't map, so the titles stand for the row shown.)
         const u32 saved_engine = engine, saved_key = key;
+        auto titled = [](u32 machine, u32 position, const char* expected) {
+            return std::strcmp(sdk_synth_title(machine, position), expected) == 0;
+        };
         engine = 50; shifted = true;
         const u32 clicks_before = clicks;
         u32 actions = shift_actions;
         shown(0,1,2,3);
-        require(opxy_synth_shift(0)->held == 1 && opxy_synth_shift(0)->line == 0);
-        require(std::strcmp(sdk_synth_title(50, 1), "s1") == 0);
+        require(titled(50, 1, "s1") && titled(50, 3, "s3"));
         sdk_synth_shift_press(0, 12, 0x2000); shown(4,5,6,7);
         require(shift_actions == ++actions && shift_track == 0 && shift_code == 12 && shift_last == 0x2000);
-        require(opxy_synth_shift(0)->held == 1 && opxy_synth_shift(0)->line == 1);
-        require(std::strcmp(sdk_synth_title(50, 1), "s5") == 0);
+        require(titled(50, 0, "s4") && titled(50, 1, "s5"));
         sdk_synth_shift_press(0, 10, 0x2000); shown(0,1,2,3);
-        require(shift_actions == ++actions && opxy_synth_shift(0)->line == 0);
-        require(std::strcmp(sdk_synth_title(50, 3), "s3") == 0);
+        require(shift_actions == ++actions && titled(50, 1, "s1"));
         sdk_synth_shift_press(1, 10, 0x2000);                   // another track
         sdk_synth_shift_press(0, 14, 0x2000);                   // no such encoder
         sdk_synth_shift_press(0, 9, 0x2000);
@@ -1120,18 +1121,22 @@ int main() {
         shown(0,1,2,3);
         require(shift_actions == actions + 5 && clicks == clicks_before);
         actions = shift_actions;
-        // Without Shift, a press pages it as before; the row keeps the page.
+        // Without Shift, a press pages it as before and the header is stock's; the
+        // row keeps the page, so Shift then names page 2's entries.
         shifted = false;
         sdk_synth_press(1); ++presses; shown(4,5,6,7);
-        require(opxy_synth_shift(0)->held == 0 && opxy_synth_shift(0)->line == 1);
+        require(titled(50, 1, "stock"));
+        shifted = true;
+        require(titled(50, 1, "s5"));
+        shifted = false;
         sdk_synth_press(2); ++presses; shown(0,1,2,3);
-        require(opxy_synth_shift(0)->line == 0 && shift_actions == actions);
+        require(shift_actions == actions);
         // A synth without a row, and a kit: a Shift press reaches stock's action only.
         shifted = true;
         engine = 51;
         shown(0,1,2,3);
         sdk_synth_shift_press(0, 11, 0x2000); shown(0,1,2,3);
-        require(opxy_synth_shift(0)->held == 0 && opxy_synth_shift(0)->line == 0);
+        require(titled(51, 1, "stock"));
         engine = 39; key = 54;
         shown(0,1,2,3);
         sdk_synth_shift_press(0, 11, 0x2000); shown(0,1,2,3);
