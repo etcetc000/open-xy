@@ -6,9 +6,13 @@
 // the main mix at a constant gain (8d511038..8d511084), FX I at a gain stepped
 // every word (8d511088..8d5110c8; on the device the step is 0, 8d510d74) and FX
 // II at a constant gain (8d5110ca..8d51110e), then the own-amount hook
-// (8d511116). A skipped track (8d51237a) mixes nothing.
-// The test substitutes host buffers for stock's 0x11903600, 0x11b01548 and the
-// send buses 0x84caa140 and 0x84caa340.
+// (8d511116), then the dry: D = L - G1 (1 - d1) - G2 (1 - d2) from the send
+// effects' dry queries (8d510d0a..8d510e44), times the track's dry word,
+// smoothed, into the main out (8d511122..8d51117e). A skipped track (8d51237a)
+// mixes nothing.
+// The test substitutes host buffers for stock's 0x11903600, 0x11b01548, the
+// send buses 0x84caa140 and 0x84caa340, the send slots' effect objects
+// (0x11b01dc0), the track records (0x84eab39c) and the dry words (0x84c69700).
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -17,7 +21,9 @@
 #include <initializer_list>
 #include <opxy/q31.hpp>
 // The stock buffers drum_send.cpp names, as the test substitutes them.
-extern opxy::i32 host_sum[], host_voice[], host_fx1[], host_fx2[];
+extern opxy::i32 host_sum[], host_voice[], host_fx1[], host_fx2[], host_dry_words[];
+extern void* host_effects[];
+extern unsigned char host_records[];
 // A stock dbox voice's method table (0x8404ce3c) and its object's index, as
 // the test substitutes them for stock's addresses.
 extern const void* host_dbox_table[];
@@ -29,6 +35,9 @@ using opxy::u32;
 namespace q31 = opxy::q31;
 
 i32 host_sum[kDrumSendWords], host_voice[kDrumSendWords], host_fx1[kDrumSendWords], host_fx2[kDrumSendWords];
+i32 host_dry_words[16];
+void* host_effects[2];
+alignas(8) unsigned char host_records[16 * 0xe8];
 
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "line %d: %s\n", __LINE__, #condition); std::exit(1); } } while (0)
 
@@ -81,8 +90,12 @@ u32 host_dbox_index_of(const void* handle) { return static_cast<const Handle*>(h
 // The engine's gains for one track: main, FX I's start and step, FX II's, the
 // level ([FP-0x68]) both sends are scaled from, and the track gain's ramp: the
 // gain its smoother held before the block ([s + 4], or the target on its first
-// block) and its step (8d510e4a..8d510e5e).
-struct Gains { i32 main, fx1, step, fx2, level, track, track_step; };
+// block) and its step (8d510e4a..8d510e5e). Then for the dry: FX II's knob
+// (record word 23, from which the hook works FX II's gain out as 8d510e0a does:
+// tests that set it set fx2 to level x k2), what the effects on the two sends
+// answer to their dry query, the track's dry word, and which slots are empty
+// (bit 0 FX I's, bit 1 FX II's). Left 0, the dry word mutes the dry.
+struct Gains { i32 main, fx1, step, fx2, level, track, track_step, k2, dry1, dry2, x; u32 empty; };
 // Track gains: engine volume 50% x the drum group level's reset value (0.1375),
 // the preset default, held; and a smoother part way from 0.125 down to it.
 const i32 kTrackHeld = 147639501, kTrackFrom = 0x10000000, kTrackStep = (kTrackHeld >> 8) - (kTrackFrom >> 8);
@@ -92,7 +105,34 @@ i32 track_gain(const Gains& g, u32 frame) {
     for (u32 n = 0; n <= frame; ++n) gain = q31::add(gain, g.track_step);
     return gain;
 }
-struct Buses { i32 main[kDrumSendWords], fx1[kDrumSendWords], fx2[kDrumSendWords]; };
+struct Buses { i32 main[kDrumSendWords], fx1[kDrumSendWords], fx2[kDrumSendWords], dry[kDrumSendWords]; };
+
+// A send slot's effect: method word 7 is its dry query, which must be asked
+// with the send track's record, as the engine asks it (8d510d44..8d510d5e).
+struct FakeEffect { const void* const* table; i32 dry; u32 slot; };
+i32 fake_dry(void* object, const void* record) {
+    const FakeEffect* effect = static_cast<const FakeEffect*>(object);
+    CHECK(record == host_records + (14 + effect->slot) * 0xe8);
+    return effect->dry;
+}
+const void* fake_effect_table[8] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                    reinterpret_cast<const void*>(&fake_dry)};
+// Stock's dry smoother per track ([FP-0x34]: step, current, shift, reset flag),
+// one set for the stock model and one for the hooked mixer, so the two evolve
+// alike; stock starts each with shift 8 and the flag set (8d50e60e).
+struct DrySmoother { i32 step, current; int16_t shift; uint8_t reset; };
+DrySmoother host_smoothers[2][8];
+void reset_smoothers() {
+    for (u32 side = 0; side < 2; ++side)
+        for (u32 t = 0; t < 8; ++t) host_smoothers[side][t] = DrySmoother{0, 0, 8, 1};
+}
+template <typename T> void put(unsigned char* at, T value) { std::memcpy(at, &value, sizeof value); }
+// Stock's dry for the track's gains (8d510d0a..8d510e44).
+i32 stock_dry(const Gains& g) {
+    const i32 w1 = (g.empty & 1) ? 0 : drum_send_subtract(q31::maximum, g.dry1);
+    const i32 w2 = (g.empty & 2) ? 0 : drum_send_subtract(q31::maximum, g.dry2);
+    return drum_send_subtract(drum_send_subtract(g.level, q31::multiply(g.fx1, w1)), q31::multiply(g.fx2, w2));
+}
 
 u32 seed = 12345;
 i32 noise() { seed = seed * 1664525u + 1013904223u; return static_cast<i32>(seed); }
@@ -133,9 +173,42 @@ void mix(Buses& buses, u32 track, StockVoice* voices, u32 count, const i32* star
     // 8d5110ca: FX II's source.
     source = hooks ? drum_send_source(sdk_drum_send_state, 1, track, host_sum) : host_sum;
     for (u32 i = 0; i < kDrumSendWords; ++i) host_fx2[i] = q31::add(host_fx2[i], q31::multiply(g.fx2, source[i]));
-    if (hooks) sdk_drum_send_own_mix(track, g.level);          // 8d511116
+    // What the dry needs: the send slots' effects, FX II's knob and the dry word.
+    static FakeEffect effects[2];
+    for (u32 s = 0; s < 2; ++s) {
+        effects[s] = FakeEffect{fake_effect_table, s ? g.dry2 : g.dry1, s};
+        host_effects[s] = (g.empty >> s & 1) ? nullptr : &effects[s];
+    }
+    put(host_records + track * 0xe8 + 0x5c, g.k2);
+    host_dry_words[track] = g.x;
+    DrySmoother& smoother = host_smoothers[hooks ? 1 : 0][track];
+    if (hooks) {
+        // The engine's frame as the hook reads it: FX I's gain where its loop
+        // left it, the dry smoother and the main out ([SP + 0x58], SP = FP - 0xe4).
+        alignas(8) static unsigned char frame[0x100];
+        unsigned char* fp = frame + 0xf0;
+        put(fp - 0x8, gain);
+        put(fp - 0x34, &smoother);
+        put(fp - 0xe4 + 0x58, static_cast<i32*>(buses.dry));
+        sdk_drum_send_own_mix(track, g.level, fp);              // 8d511116
+    }
     std::memcpy(buses.fx1, host_fx1, sizeof host_fx1);
     std::memcpy(buses.fx2, host_fx2, sizeof host_fx2);
+    // 8d511122..8d51117e: the dry target D x, smoothed, every word of the sum into the main out.
+    const i32 target = q31::multiply(stock_dry(g), g.x);
+    i32 dry = target, step = 0;
+    if (smoother.reset) {
+        smoother.reset = 0;
+    } else {
+        step = drum_send_subtract(target, smoother.current) >> smoother.shift;
+        dry = smoother.current;
+    }
+    for (u32 i = 0; i < kDrumSendWords; ++i) {
+        dry = q31::add(dry, step);
+        buses.dry[i] = q31::add(buses.dry[i], q31::multiply(dry, host_sum[i]));
+    }
+    smoother.current = dry;
+    smoother.step = step;
 }
 
 bool same(const Buses& a, const Buses& b) { return !std::memcmp(&a, &b, sizeof a); }
@@ -187,7 +260,8 @@ void stock_and_followers_are_unchanged() {
         // or held (the smoother's first block, step 0) every fifth round.
         const i32 from = noise() & 0x7fffffff, to = noise() & 0x7fffffff;
         const Gains g = {noise(), noise() & 0x7fffffff, noise() >> 10, noise() & 0x7fffffff, noise() & 0x7fffffff,
-                         round % 5 == 0 ? to : from, round % 5 == 0 ? 0 : (to >> 8) - (from >> 8)};
+                         round % 5 == 0 ? to : from, round % 5 == 0 ? 0 : (to >> 8) - (from >> 8),
+                         noise() & 0x7fffffff, noise(), noise(), noise() & 0x7fffffff, round % 4};
         static Buses stock_buses, hooked;
         fill(stock_buses.main, 4); fill(stock_buses.fx1, 4); fill(stock_buses.fx2, 4);
         hooked = stock_buses;
@@ -511,7 +585,139 @@ void drumline_voices_send_their_kept_codes() {
     sdk_drum_send_dbox[0] = 0;
 }
 
+// A key's own amounts give it the dry stock gives a track whose knobs sit at
+// those amounts (D = L - G1 (1 - d1) - G2 (1 - d2), both sends together, D
+// below 0 included), while its TRK sends keep the track's knob: one key at
+// codes (c1, c2) on a track with knobs (k1, k2), against the same voice as TRK
+// on a track whose knobs sit at (c1 ? position(c1) : k1, c2 ? ... : k2), for
+// every pair of codes, several knob settings, effect dry levels and empty
+// slots. Smoothers held (each run starts them on their reset). Every side
+// floors a few times: dry, FX I and FX II agree within 6 LSB a word.
+void own_amounts_take_their_own_dry() {
+    static StockVoice voice;
+    static i32 start[kDrumSendWords];
+    static Buses knob, own;
+    std::memset(start, 0, sizeof start);
+    const i32 level = 0x5a827999, x = 0x7fffffff;
+    const i32 knobs[4][2] = {{0, 0}, {q31::maximum, 0}, {q31::maximum, q31::maximum}, {0x40002e00, 0x2aaaaaab}};
+    const i32 drys[3] = {0, 0x40000000, q31::maximum};
+    for (u32 c1 = 0; c1 < kDrumSendCodes; ++c1)
+        for (u32 c2 = 0; c2 < kDrumSendCodes; ++c2)
+            for (u32 k = 0; k < 4; ++k)
+                for (u32 d = 0; d < 3; ++d)
+                    for (u32 empty = 0; empty < 4; empty += 3) {
+                        if (!c1 && !c2) continue;   // a TRK key: stock's path, tested elsewhere
+                        fill(voice.audio, 1 << (1 + (c1 + c2 + k) % 3));
+                        const i32 p1 = c1 ? kDrumSendPositions[c1] : knobs[k][0];
+                        const i32 p2 = c2 ? kDrumSendPositions[c2] : knobs[k][1];
+                        const Gains at_knobs = {0, q31::multiply(level, drum_send_curve(0, knobs[k][0])), 0,
+                                                q31::multiply(level, knobs[k][1]), level, kTrackHeld, 0,
+                                                knobs[k][1], drys[d], drys[(d + 1) % 3], x, empty};
+                        const Gains at_amounts = {0, q31::multiply(level, drum_send_curve(0, p1)), 0,
+                                                  q31::multiply(level, p2), level, kTrackHeld, 0,
+                                                  p2, drys[d], drys[(d + 1) % 3], x, empty};
+                        reset_smoothers();
+                        std::memset(&own, 0, sizeof own);
+                        std::memset(&knob, 0, sizeof knob);
+                        bind(voice, true, pair(c1, c2));
+                        mix(own, 6, &voice, 1, start, at_knobs, true, false);
+                        bind(voice, true, 0);
+                        mix(knob, 7, &voice, 1, start, at_amounts, true, false);
+                        for (u32 i = 0; i < kDrumSendWords; ++i) {
+                            const int64_t a = int64_t(own.dry[i]) - knob.dry[i];
+                            const int64_t b = int64_t(own.fx1[i]) - knob.fx1[i];
+                            const int64_t c = int64_t(own.fx2[i]) - knob.fx2[i];
+                            CHECK(a >= -6 && a <= 6 && b >= -6 && b <= 6 && c >= -6 && c <= 6);
+                        }
+                    }
+    // The report: the track's FX I at 100 into an effect that keeps no dry, so
+    // the track's dry is 0; a key at 0 on FX I (TRK on FX II, at 0) plays dry at
+    // the level, not silent, and a TRK key beside it stays silent as on stock.
+    static StockVoice keys[2];
+    fill(keys[0].audio, 1 << 3);
+    std::memcpy(keys[1].audio, keys[0].audio, sizeof keys[0].audio);
+    bind(keys[0], true, pair(1, 0));
+    bind(keys[1], true, 0);
+    const Gains full = {0, level, 0, 0, level, kTrackHeld, 0, 0, 0, 0, x, 0};
+    CHECK(stock_dry(full) >= 0 && stock_dry(full) <= 1);   // L less L at full, floored
+    reset_smoothers();
+    std::memset(&own, 0, sizeof own);
+    std::memset(&knob, 0, sizeof knob);
+    mix(own, 2, keys, 1, start, full, true, false);
+    mix(knob, 3, keys + 1, 1, start, full, true, false);
+    for (u32 i = 0; i < kDrumSendWords; ++i) {
+        CHECK(knob.dry[i] == 0);
+        const int64_t want = q31::multiply(q31::multiply(level, x), q31::multiply(kTrackHeld, keys[0].audio[i]));
+        CHECK(own.dry[i] - want >= -4 && own.dry[i] - want <= 4);
+    }
+    // Both sends at 100 into effects that keep no dry: stock's TRK dry is the
+    // level inverted; a key at 0 on both plays it upright.
+    const Gains both = {0, level, 0, level, level, kTrackHeld, 0, q31::maximum, 0, 0, x, 0};
+    CHECK(stock_dry(both) < 0);
+    bind(keys[0], true, pair(1, 1));
+    reset_smoothers();
+    std::memset(&own, 0, sizeof own);
+    std::memset(&knob, 0, sizeof knob);
+    mix(own, 2, keys, 1, start, both, true, false);
+    mix(knob, 3, keys + 1, 1, start, both, true, false);
+    for (u32 i = 0; i < kDrumSendWords; ++i) {
+        const int64_t sum = int64_t(own.dry[i]) + knob.dry[i];
+        CHECK(sum >= -6 && sum <= 6);
+    }
+}
+
+// While the track's knob moves, stock glides its dry (the smoother, a 256th of
+// the gap a word) and the key's correction glides by the same rule: a key at 0
+// under a knob going from 0 to 100 into an effect that keeps no dry keeps the
+// level, block after block, as a key on a track whose knob stays at 0, within
+// the two smoothers' flooring (a few hundred LSB of gain, under -120 dB); a TRK
+// key glides down as stock's. The key's dry also starts right on a track whose
+// smoother has settled without it (its gains start at their targets).
+void own_dry_glides_with_stocks() {
+    static StockVoice key, trk;
+    static i32 start[kDrumSendWords];
+    static Buses own, held, follower;
+    std::memset(start, 0, sizeof start);
+    fill(key.audio, 1 << 3);
+    std::memcpy(trk.audio, key.audio, sizeof key.audio);
+    bind(key, true, pair(1, 0));
+    bind(trk, true, 0);
+    const i32 level = 0x60000000, x = 0x7fffffff;
+    const Gains at_0 = {0, 0, 0, 0, level, kTrackHeld, 0, 0, 0, 0, x, 0};
+    const Gains at_100 = {0, level, 0, 0, level, kTrackHeld, 0, 0, 0, 0, x, 0};
+    reset_smoothers();
+    // Settle tracks 1..3 at the knob's 0 with no own key, then the key arrives on track 1.
+    for (u32 block = 0; block < 4; ++block) {
+        std::memset(&own, 0, sizeof own);
+        mix(own, 1, &trk, 1, start, at_0, true, false);
+        mix(own, 3, &trk, 1, start, at_0, true, false);
+    }
+    for (u32 block = 0; block < 40; ++block) {
+        std::memset(&own, 0, sizeof own);
+        std::memset(&held, 0, sizeof held);
+        std::memset(&follower, 0, sizeof follower);
+        mix(own, 1, &key, 1, start, block ? at_100 : at_0, true, false);
+        mix(held, 2, &trk, 1, start, at_0, true, false);
+        mix(follower, 3, &trk, 1, start, block ? at_100 : at_0, true, false);
+        for (u32 i = 0; i < kDrumSendWords; ++i) {
+            const int64_t d = int64_t(own.dry[i]) - held.dry[i];
+            CHECK(d >= -256 && d <= 256);
+        }
+        if (block == 1) {
+            // The TRK key glided, not jumped: by the block's last word stock's
+            // dry gain has come about half way down.
+            u32 at = kDrumSendWords - 8;   // the loudest of the block's last words
+            for (u32 i = at; i < kDrumSendWords; ++i)
+                if (std::abs(held.dry[i] / 2) > std::abs(held.dry[at] / 2)) at = i;
+            const int64_t f = follower.dry[at], h = held.dry[at];
+            CHECK(h != 0 && (f > 0) == (h > 0));
+            CHECK(4 * (f < 0 ? -f : f) > (h < 0 ? -h : h) && 4 * (f < 0 ? -f : f) < 3 * (h < 0 ? -h : h));
+        }
+    }
+}
+
 int main() {
+    reset_smoothers();
     drumline_voices_send_their_kept_codes();
     codes_and_amounts();
     stock_and_followers_are_unchanged();
@@ -522,6 +728,8 @@ int main() {
     followers_send_as_stock_beside_an_own_key();
     level_is_each_blocks();
     state_ends_with_its_track();
+    own_amounts_take_their_own_dry();
+    own_dry_glides_with_stocks();
     std::puts("drum sends ok");
     return 0;
 }
