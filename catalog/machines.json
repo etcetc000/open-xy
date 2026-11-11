@@ -2072,6 +2072,120 @@
         "block_percent": 3.744564,
         "peak_percent": 6.396582
       }
+    },
+    {
+      "id": "granular",
+      "kind": "sample",
+      "maintainer": "galfaroth",
+      "status": "published",
+      "repository": "https://github.com/galfaroth/open-xy-granular",
+      "tag": "v1.0.0",
+      "commit": "31f001fc2daa5930800fb8b2fe3822b698f95c5d",
+      "path": ".",
+      "keywords": [
+        "granular",
+        "ambient",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v1",
+        "commit": "31f001fc2daa5930800fb8b2fe3822b698f95c5d",
+        "firmware_sha256": "24108c38e840986166798bf5f53462b75f2f7cabc911bef67cf0a639d4f58d02",
+        "runs": 1,
+        "block_percent": 1.61593,
+        "peak_percent": 3.915465
+      }
+    },
+    {
+      "id": "transient",
+      "kind": "effect",
+      "maintainer": "galfaroth",
+      "status": "published",
+      "repository": "https://github.com/galfaroth/open-xy-transient-shaper",
+      "tag": "v1.0.0",
+      "commit": "ef4cab1b74b8050aa6790130e5b7fd134140fd29",
+      "path": ".",
+      "keywords": [
+        "percussion",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "ef4cab1b74b8050aa6790130e5b7fd134140fd29",
+        "firmware_sha256": "24108c38e840986166798bf5f53462b75f2f7cabc911bef67cf0a639d4f58d02",
+        "runs": 1,
+        "block_percent": 3.039597,
+        "peak_percent": 4.971389
+      }
+    },
+    {
+      "id": "formantdist",
+      "kind": "effect",
+      "maintainer": "galfaroth",
+      "status": "published",
+      "repository": "https://github.com/galfaroth/open-xy-formant-distortion",
+      "tag": "v1.0.0",
+      "commit": "bbab6faf6dc706227ce0f869dc112d99d0e8cd31",
+      "path": ".",
+      "keywords": [
+        "vocal",
+        "modulation",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "bbab6faf6dc706227ce0f869dc112d99d0e8cd31",
+        "firmware_sha256": "a09b959587ad7c1908e88f7af419982469ad6c65384152227b25cdf87c98b099",
+        "runs": 1,
+        "block_percent": 0.990311,
+        "peak_percent": 2.661173
+      }
+    },
+    {
+      "id": "spectralsmear",
+      "kind": "effect",
+      "maintainer": "galfaroth",
+      "status": "published",
+      "repository": "https://github.com/galfaroth/open-xy-spectral-smear",
+      "tag": "v1.0.0",
+      "commit": "f86c33e9e1a024081314970413eef3fa6b5644fc",
+      "path": ".",
+      "keywords": [
+        "ambient",
+        "drone",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "f86c33e9e1a024081314970413eef3fa6b5644fc",
+        "firmware_sha256": "a09b959587ad7c1908e88f7af419982469ad6c65384152227b25cdf87c98b099",
+        "runs": 1,
+        "block_percent": 0.816358,
+        "peak_percent": 2.684062
+      }
+    },
+    {
+      "id": "graindelay",
+      "kind": "effect",
+      "maintainer": "galfaroth",
+      "status": "published",
+      "repository": "https://github.com/galfaroth/open-xy-granular-delay",
+      "tag": "v1.0.0",
+      "commit": "01114037998358fdb97db5e1d7936bec898f8a25",
+      "path": ".",
+      "keywords": [
+        "granular",
+        "delay",
+        "ambient"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "01114037998358fdb97db5e1d7936bec898f8a25",
+        "firmware_sha256": "a09b959587ad7c1908e88f7af419982469ad6c65384152227b25cdf87c98b099",
+        "runs": 1,
+        "block_percent": 1.248188,
+        "peak_percent": 3.190661
+      }
     }
   ]
 }
