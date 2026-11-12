@@ -8,6 +8,7 @@
 #include "note_activity.hpp"
 #include "amp_envelope.hpp"
 #include "drum_send.hpp"
+#include "stock.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 // Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
@@ -93,7 +94,8 @@ template <class Machine> struct Drawing {
         display_input.pan = static_cast<i8>(controls.pan);
         display_input.level = static_cast<i8>(controls.level);
         display_input.line = static_cast<u8>(controls.line);
-        display_input.reserved = 0;
+        // A kit's held pad (SDK 1.16), for its header's hold menu.
+        display_input.held_pad = static_cast<u8>(Machine::held_pad ? platform::drum_held_pad() : 0);
         const u32 pads = sizeof(controls.pads) / sizeof(controls.pads[0]);
         for (u32 i = 0; i < 4; ++i) display_input.pad[i] = static_cast<i8>(i < pads ? controls.pads[i] : 0);
         // FX I and FX II: a send's index (drum_send.hpp) as the kit's SDK reads it.

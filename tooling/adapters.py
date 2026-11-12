@@ -402,6 +402,7 @@ struct Machine {{
     static const char* const ids[{len(ids)}];
     static const bool sample = {'true' if getattr(m, 'kind', 'synth') == 'sample' else 'false'};   // reads its sample's overview
     static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};   // pad[2..3] as percent + 1 (SDK 1.15)
+    static const bool held_pad = {'true' if getattr(m, 'kind', 'synth') == 'drum' and getattr(m, 'sdk', (1, 0)) >= (1, 16) else 'false'};   // held_pad (SDK 1.16)
 }};
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};

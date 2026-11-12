@@ -90,6 +90,15 @@ inline u32 drum_edit_key(u32 track) {
     const u32 held = drum_held_key();
     return held < 128 ? held : drum_selected_key(track);
 }
+// The instrument controller (0x8400dfbc, whose +0xc is kDrumEditKey) keeps its
+// held-pad mode in the byte at +0x2c: 8c0b2068 sets it at a drum pad's key-down and
+// clears it at its key-up, and M1..M4 then act on the held key (0x8400e36c). The held
+// pad while it is on, 53..76, else 0.
+const u32 kDrumHeldPadMode = 0x8400dfe8;
+inline u32 drum_held_pad() {
+    const u32 key = drum_held_key();
+    return byte(kDrumHeldPadMode) && key >= 53 && key < 77 ? key : 0;
+}
 inline void set_text(void* node, const char* text) { stock<void(void*, const char*)>(0x8d6011f0)(node, text); }
 inline void* find_node(void* page, const char* id) { return stock<void*(void*, const char*, u32)>(0x8d520308)(page, id, 1); }
 }}

@@ -82,7 +82,11 @@ struct Input {
     i8 pan;
     i8 level;
     u8 line;
-    u8 reserved;             // 0
+    // A drum kit's pad held for its hold menu (SDK 1.16): with a pad held, M1..M4
+    // scramble, copy, paste and reset that key, as on stock Drumline, and the kit's
+    // header may show those four over M1..M4. The held key, 53..76; 0 when none, for
+    // other machines and for a kit declaring an older SDK.
+    u8 held_pad;
     // A padMix drum kit's selected key's pad fields (SDK 1.10): its pad
     // controls (resources.padControls) in 0 and 1, a signed one negative below
     // 0, then FX I and FX II, 0 when it follows the track's send: for a kit
@@ -97,7 +101,7 @@ inline bool envelope_known(const Envelope& envelope) {
     return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
 }
 static_assert(sizeof(Input) == 112 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
-              __builtin_offsetof(Input, line) == 106 && __builtin_offsetof(Input, pad) == 108 &&
+              __builtin_offsetof(Input, line) == 106 && __builtin_offsetof(Input, held_pad) == 107 && __builtin_offsetof(Input, pad) == 108 &&
               __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
