@@ -21,7 +21,8 @@ opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sd
 opxy::u32 sdk_synth_scramble(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("sdk_synth_scramble");
 opxy::u32 sdk_scramble_engine(opxy::u32) __asm__("sdk_scramble_engine");
 void sdk_drum_scramble() __asm__("sdk_drum_scramble");
-opxy::u32 sdk_drum_pad_action(opxy::u32) __asm__("sdk_drum_pad_action");
+opxy::u32 sdk_drum_held_pad_engine(opxy::u32) __asm__("sdk_drum_held_pad_engine");
+opxy::u32 sdk_drum_pad_reset(opxy::u32, opxy::u32) __asm__("sdk_drum_pad_reset");
 void sdk_drum_pad_scramble(opxy::u32) __asm__("sdk_drum_pad_scramble");
 opxy::u32 sdk_drum_shift_pad(opxy::u32) __asm__("sdk_drum_shift_pad");
 }
@@ -100,6 +101,9 @@ i32 track_octave(u32 selected) { require(selected == track); return octave; }
 u32 canonical_pad(u32 code, i32 shift) { return static_cast<u32>(static_cast<i32>(code) + 27 + 12 * shift); }
 u32 key_held(u32 code) { return held_code && code == held_code; }
 void stock_pad_scramble(u32 pad) { ++stock_pad_scrambles; stock_pad_scrambled = pad; }
+// Stock's default kit (8d582048 reads its choke groups at 0x8409fce0) and its reset.
+u32 default_groups[24], stock_resets;
+u32 stock_reset(u32, u32) { ++stock_resets; return 7; }
 // The 33-model kit narrows its first control to 100 and its third to 40..50.
 void narrow(u32, u32 slot, u8* low, u8* high) {
     require(*low == 0 && *high == 127);
@@ -275,6 +279,7 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case 0x8d5b89ac: return reinterpret_cast<Address>(&canonical_pad);
     case 0x8d5b7d7c: return reinterpret_cast<Address>(&key_held);
     case 0x8d4d60f4: return reinterpret_cast<Address>(&stock_pad_scramble);
+    case 0x8d582048: return reinterpret_cast<Address>(&stock_reset);
     case 0x860c9b39: return reinterpret_cast<Address>(playing);
     case 0x860c9b3a: return reinterpret_cast<Address>(playing + 1);
     case 0x8c0b2468: return reinterpret_cast<Address>(&stock_steps);
@@ -283,6 +288,8 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     default:
         if (address >= kObject && address < kObject + sizeof(object))
             return reinterpret_cast<Address>(object) + (address - kObject);
+        if (address >= 0x8409fce0 && address < 0x8409fce0 + sizeof(default_groups))
+            return reinterpret_cast<Address>(default_groups) + (address - 0x8409fce0);
         if (address >= reinterpret_cast<Address>(preset_pattern) &&
             address < reinterpret_cast<Address>(preset_pattern) + sizeof(preset_pattern)) return address;
         std::abort();
@@ -1154,17 +1161,14 @@ int main() {
         const u32 saved_publications = publications, saved_dirty = dirty, saved_last = last_key;
         rolling = true;
         engine = 41;
-        held_code = 0;
-        require(!sdk_drum_pad_action(41));          // no pad held
-        // Holding M1 (code 6) or another key past the pads is no held pad: M1 keeps its
-        // menu (kit-pads-001 asked codes 53..76 and took such keys for pads).
-        for (u32 other_key : {6u, 13u, 25u, 50u, 53u, 54u, 55u, 76u}) {
-            held_code = other_key;
-            require(!sdk_drum_pad_action(41));
+        // 8c0b2068 shows an owned kit's held pad on Drumline's page (4), never the drum
+        // sampler's; every other engine keeps its own.
+        require(sdk_drum_held_pad_engine(0) == 4);
+        for (u32 other : {3u, 4u, 34u + 43u}) {
+            engine = other;
+            require(sdk_drum_held_pad_engine(0) == other);
         }
-        held_code = 31;                             // pad 58
-        require(sdk_drum_pad_action(41) && !sdk_drum_pad_action(4) && !sdk_drum_pad_action(3));
-        require(!sdk_drum_pad_action(40));          // another kit than the track's
+        engine = 41;
         const u32 before = publications, changes = dirty;
         bool moved = false;
         for (u32 round = 0; round < 6; ++round) {
@@ -1178,7 +1182,25 @@ int main() {
             require(drum_marked(reinterpret_cast<const u8*>(regions[5])[24]) && drum_ready(regions[5]));
         }
         require(moved && !stock_pad_scrambles);
+        // M4's reset: the key back to the kit's defaults (defaults(): model 1 for key 58,
+        // controls 20 + slot, the last the key), marked with stock's default choke group, every pad field
+        // neutral, its sends TRK, 0 dB and centred; the pads beside it untouched.
+        u8* pad = reinterpret_cast<u8*>(regions[5]);
+        regions[5][kDrumPadWord / 4] = static_cast<i32>((7u << 16) | (5u << 25) | kDrumPadReady);
+        pad[0x19] = 40; pad[0x1b] = 9; pad[kDrumLevel] = static_cast<u8>(-12); pad[kDrumPan] = 33;
+        default_groups[5] = 2;
+        i32 beside[32];
+        std::memcpy(beside, regions[6], sizeof(beside));
+        const u32 resets_before = publications;
+        require(sdk_drum_pad_reset(0, 58) == 1 && publications == resets_before + 1 && last_key == 58);
+        u8 reset_model = 99, reset_controls[8];
+        require(drum_unpack(regions[5] + 1, &reset_model, reset_controls) && reset_model == 1);
+        for (u32 slot = 0; slot < 8; ++slot) require(reset_controls[slot] == (slot == 7 ? 58u : 20u + slot));
+        require(drum_marked(pad[24]) && drum_choke(pad[24]) == 1 && (pad[24] >> 4) == 2);
+        require(regions[5][kDrumPadWord / 4] == static_cast<i32>(kDrumPadReady) && !pad[0x19] && !pad[0x1b]);
+        require(!pad[kDrumLevel] && !pad[kDrumPan] && !std::memcmp(beside, regions[6], sizeof(beside)));
         engine = 4;
+        require(sdk_drum_pad_reset(0, 60) == 7 && stock_resets == 1);
         sdk_drum_pad_scramble(60);
         require(stock_pad_scrambles == 1 && stock_pad_scrambled == 60);
         held_code = 0;

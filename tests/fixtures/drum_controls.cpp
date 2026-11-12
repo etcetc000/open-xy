@@ -15,7 +15,9 @@ static void drumline_press(opxy::u32 track, opxy::u32 button) {
 static const opxy::platform::Drumline drumline_stand_in = {nullptr, nullptr, drumline_press, nullptr, nullptr};
 const void* sdk_drumline_get() { return &drumline_stand_in; }
 // This fixture has no synthesis drum kits.
-const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
+// Engine 41 is an owned drum kit; nothing else is.
+const opxy::platform::DrumMachine kit41 = {};
+const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32 engine) { return engine == 41 ? &kit41 : nullptr; }
 // A kit's second Shift row (synth_controls.cpp), as the press hook asks it:
 // whether it takes a Shift press, and what it was asked.
 static bool shift_press_takes;
@@ -258,6 +260,9 @@ int main() {
         check(sdk_sample_pad_key_engine(0) == id);
         ready = true;
     }
+    // An owned kit's pads answer as Drumline's (4), so stock keeps its held-pad mode for them.
+    engine = 41;
+    check(sdk_sample_pad_key_engine(0) == 4);
     // Unique bytes exercise markers, tuning, play mode, reverse, gain and path.
     for (unsigned i = 0; i < 32; ++i) source[i] = 1000 + i;
     source[pad_record::kFade] = sample_store_settings(123456);

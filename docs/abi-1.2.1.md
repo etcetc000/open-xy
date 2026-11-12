@@ -929,11 +929,11 @@ inside the effect. See the [effect API](api.md#effects).
 
 An owned `drum` registration uses flag 1, its own engine ID and drawing page.
 The SDK aliases only the local Drumline classification branches to engine 4;
-stock and occupied registrations retain their behavior. Twenty-four exact hooks cover
+stock and occupied registrations retain their behavior. Twenty-five exact hooks cover
 the drum predicate, region lookup, note start, project load, editor dispatch, the
 editor's key ([below](#step-locks-of-a-kits-shift-fields)), Shift and a pad, preset
 import/export (the regions' `random` included), preset load, the track menu's
-scramble and a held pad's scramble (below). Project load's track check at `8d588ec8` resets a
+scramble and a held pad's actions (below). Project load's track check at `8d588ec8` resets a
 Drumline track's eight parameters to neutral offsets (`0x40000000`); without
 the alias a loaded kit kept zero offsets and every note decoded 64 below its
 stored values. Note start tests for Drumline at `8d595a4c`; only that branch
@@ -1365,19 +1365,23 @@ plays. Words 36 and 38 carry nothing.
   the encoders to it, as on Drumline. Before, the last plain press stayed held
   until a track or page change cleared the word. Other tracks keep stock's
   answers.
-- **A held pad's scramble.** With a pad held, key code 6 runs the key-down
-  handler's held-pad action (table `0x8400e36c`): for Drumline (its engine 4,
-  with the held-pad overlay `B[P5 + 0x2c]` that `8c0b2068` sets only for stock's
-  drum pages) `8c0b3168` scrambles the held key alone, `8d4d60f4(key)` at
-  `8c0b3170`, and auditions it. The opening test, `8c0b309c`..`8c0b30a7`, is
-  replaced by an absolute call (`extensions_drum_pad_action`): for an owned kit
-  on the selected track with one of its pads held (stock's held-key list
-  `8d5b7d7c`, pad codes 26..49 as `8d5b8814` takes them) it returns to
-  `8c0b3168`; otherwise it replays the
-  five instructions, stock's jump to `8c0b30aa` as a return there. The call at
-  `8c0b3170` is hooked (`sdk_drum_pad_scramble`): on an owned kit's track the held
-  key alone is re-rolled as the track menu's scramble rolls each key; elsewhere
-  stock's.
+- **A held pad's actions.** With a pad held, M1..M4 run the key-down handler's
+  held-pad actions (table `0x8400e36c`): scramble, copy, paste and reset of the held
+  key. Stock runs them only for its drum pages (engine 3 or 4) with its held-pad
+  overlay on (controller `+0x2c`, which `8c0b2068` sets at a pad's key-down and clears
+  at its key-up); otherwise M1..M4 switch pages. The engine both handlers ask
+  (`8c0b2e68`, `8c0b214e`, `sdk_sample_pad_key_engine`) is 4 for an owned kit, so a
+  kit's held pad gets the same mode, and `8c0b2068`'s own query (`8c0b20a2`,
+  `sdk_drum_held_pad_engine`), which picks the page it marks, is 4 too, never the drum
+  sampler's. Copy and paste (`8d581f34`, `8d581f90`, through `sdk_sample_pad_copy` and
+  `sdk_sample_pad_paste`) move the whole 128-byte entry, the key's sends included.
+  M1's one-pad scramble (`8d4d60f4` at `8c0b3170`, `sdk_drum_pad_scramble`) re-rolls a
+  kit's key as the track menu's scramble rolls each key, and M4's reset (`8d582048(track,
+  key)` at `8c0b32d6`, `sdk_drum_pad_reset`), which writes Drumline's default kit entry,
+  gives a kit's key its default model and controls, stock's default choke group for the
+  pad (`0x8409fce0 + 4 * slot`), every pad field neutral, its sends `TRK`, 0 dB and
+  centre pan. Both then audition the pad as stock does. Stock draws the held-pad menu
+  on its own drum pages only (Drumline's at page `+0xbc`), so a kit shows none.
 - **Latching.** Note start's Drumline branch calls the pad payload builder
   `8d5ad660` at `8d595b50` (`00e388bd`) with the project, track, key, the track's
   engine and three of its own pointers. The builder fills the eight words at

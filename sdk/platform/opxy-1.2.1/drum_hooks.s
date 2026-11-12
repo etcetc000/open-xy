@@ -10,7 +10,6 @@
 .extern sdk_synth_shift_export
 .extern sdk_drum_load_engine
 .extern stock_drum_classify_tail
-.extern sdk_drum_pad_action
 .extern sdk_drum_export_random
 .extern sdk_drum_import_random
 
@@ -180,43 +179,6 @@ extensions_drum_region_lookup:
     B[P5] = R1;
     RTS;
 .size extensions_drum_region_lookup, .-extensions_drum_region_lookup
-
-/* 8c0b309c..8c0b30a7 (an absolute call, 8c0b30a4 its return): the instrument
- * key-down handler's action for key code 6 (table 0x8400e36c) opens with Drumline's
- * test before its held-pad scramble: R0 = 4; CC = R7 == R0 (R7 the track's engine);
- * IF !CC JUMP 8c0b30aa; R0 = B[P5 + 0x2c] (Z), its held-pad overlay; CC = R0 == 0;
- * then 8c0b30a8 is IF !CC JUMP 8c0b3168, the scramble. For an owned kit with a pad
- * held (sdk_drum_pad_action) return to 8c0b3168 itself, which scrambles the held pad
- * (8c0b3170, sdk_drum_pad_scramble) and auditions it; R0, R1 and CC are free there.
- * Otherwise replay the five instructions, the jump as a return to 8c0b30aa. */
-.global extensions_drum_pad_action
-.type extensions_drum_pad_action, STT_FUNC
-extensions_drum_pad_action:
-    HOOK_SAVE
-    R0 = R7;
-    CALL sdk_drum_pad_action;
-    HOOK_RESULT R0
-    HOOK_RESTORE
-    CC = R0 == 0;
-    IF CC JUMP .Ldrum_pad_action_stock;
-    R0 = RETS;
-    R1 = 0xc4 (X);
-    R0 = R0 + R1;
-    RETS = R0;
-    RTS;
-.Ldrum_pad_action_stock:
-    R0 = 4;
-    CC = R7 == R0;
-    IF CC JUMP .Ldrum_pad_action_overlay;
-    R0 = RETS;
-    R0 += 6;
-    RETS = R0;
-    RTS;
-.Ldrum_pad_action_overlay:
-    R0 = B[P5 + 0x2c] (Z);
-    CC = R0 == 0;
-    RTS;
-.size extensions_drum_pad_action, .-extensions_drum_pad_action
 
 /* 8c0b1456: the absolute eight-byte call also displaces IF !CC JUMP 0x30
  * at 8c0b145c. Fallthrough is the call's return address 8c0b145e; stock's
