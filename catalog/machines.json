@@ -2114,7 +2114,33 @@
       "id": "nexus",
       "kind": "synth",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Nexus",
+      "tag": "v1.0.0",
+      "commit": "231e0a3e65af8781a7335329f4678ca25f633066",
+      "path": "nexus",
+      "keywords": [
+        "analog",
+        "pad",
+        "emulation",
+        "bell",
+        "bass"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "231e0a3e65af8781a7335329f4678ca25f633066",
+        "firmware_sha256": "9f091f1dddb59a5d46d3c63e55c3ae32b88fcec980507cc3caffd0ec442a5d79",
+        "runs": 1,
+        "block_percent": 4.345769,
+        "peak_percent": 4.483101,
+        "midpoint_percent": 3.231861,
+        "combined_percent": 3.234913,
+        "worst_setting": {
+          "control": 0,
+          "label": "Shape",
+          "value": 1342177279
+        }
+      }
     }
   ]
 }
