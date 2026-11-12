@@ -822,9 +822,11 @@ through stock's editor, as on a synth, and act on every voice the track is
 sounding during the step. With M3 switched off, as a kit's init preset has it
 (stock's `fx`, `active: false`), the kit sounds exactly as without the filter
 and costs one test a voice; switched on it costs about 1,300 to 2,600
-instructions a voice a block depending on the type (the ladder and svf most),
-and a kit's profiling workload runs the ladder on every voice so its catalog
-figure includes it ([firmware](abi-1.2.1.md#the-track-filter-on-kit-voices)).
+instructions a voice a block depending on the type (the ladder and svf most).
+A kit's profiling workload plays it with M3 off, as it starts, then once more
+at full polyphony with the ladder on every voice, so its catalog record gives
+both ([profiling](profiling.md),
+[firmware](abi-1.2.1.md#the-track-filter-on-kit-voices)).
 A resonant peak more than 6 dB above a kit's half-scale ceiling clips.
 
 A `padMix` kit's steps lock its keys' PAN, LEVEL, pad controls, FX I and FX II
