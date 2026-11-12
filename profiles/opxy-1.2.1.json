@@ -1442,6 +1442,28 @@
     },
     {
       "kind": "hook",
+      "name": "Preset export, random's converter: a padMix kit's key also exports its send amounts above bit 16",
+      "address": "0x8d4e73ac",
+      "file_offset": "0x11e608",
+      "length": 4,
+      "before": "ffe391e5",
+      "symbol": "extensions_drum_export_random",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset import, random's converter: the send amounts above bit 16 into the pad record's bytes",
+      "address": "0x8d4e3b9a",
+      "file_offset": "0x11adf6",
+      "length": 4,
+      "before": "ffe3dffc",
+      "symbol": "extensions_drum_import_random",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8d589296",
       "file_offset": "0x1c04f2",
       "length": 4,

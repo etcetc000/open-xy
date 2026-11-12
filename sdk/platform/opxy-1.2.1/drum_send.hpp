@@ -2,7 +2,8 @@
 // Machinedrum track's own delay and reverb sends. Stock mixes a track's voices
 // into one stereo sum and scales that sum into the two send buses by the
 // track's send amounts. On a padMix kit, a key either follows the track's send
-// (TRK) or sends its own amount, whatever the track's send knob says:
+// (TRK) or sends its own amount, 0..100 percent in 1% steps (SDK 1.15), whatever
+// the track's send knob says:
 // - followers still go through stock's send loop at the track's send amount,
 //   which then reads a sum of the followers alone;
 // - a key with its own amount goes into a second sum, each voice scaled by its

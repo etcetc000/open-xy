@@ -756,10 +756,13 @@ Shift and a press reach the second row without letting go.
 
 Each key of a `padMix` kit has its own FX I and FX II sends, as a Machinedrum
 track has its own delay and reverb sends: a kick can stay dry while the snare
-is wet, even with the track's send knobs at 0. A send at 0 (`TRK`) follows the
-track's send exactly; 1..7 send the key's own amount, shown as 0, 17, 33, 50,
-67, 83 or 100, whatever the track's send knob says: a key at N sends what the
-track's knob at N would, through the same curve stock gives that send's knob.
+is wet, even with the track's send knobs at 0. A send at `TRK` follows the
+track's send exactly; below it, 0..100 send the key's own amount, whatever the
+track's send knob says: a key at N sends what the track's knob at N would,
+through the same curve stock gives that send's knob. A turn moves it a percent
+a detent, more when turned fast (SDK 1.15). A key set before SDK 1.15 keeps one
+of seven steps (0, 17, 33, 50, 67, 83, 100), which plays exactly as it did; its
+first turn continues in percents from the step it shows.
 An amount scales the voice after stock's pan, level and envelope, and the
 track's level and mute still apply to it. The track's own mix is unchanged,
 and so is the source dry reduction of a send effect with a Dry control. The
@@ -774,8 +777,11 @@ before. Projects keep a key's settings, and copying a pad copies them. A
 preset keeps all of a key's settings too: loading one on a `padMix` kit sets
 up every key the preset stores (its regions marked `fm slap`), with the level,
 pad controls and sends the preset holds (a region's `gain`, and its `random`,
-the pad word's top half: pad controls from bit 0, FX I's code at bits 9..11 and
-FX II's at 12..14) ([firmware](abi-1.2.1.md#synthesis-drum-kits)). A region
+the pad word's top half: pad controls from bit 0, FX I's step at bits 9..11 and
+FX II's at 12..14, and from SDK 1.15 FX I's amount + 1 at bits 16..22 and FX II's
+at 23..29, 0 for none) ([firmware](abi-1.2.1.md#synthesis-drum-kits)). The
+OP-XY ignores `random` from bit 16, so older firmware plays each amount's
+nearest step. A region
 without `random` loads every pad field at 0; the OP-XY's own preset writer
 names it on every key the kit has set up, and a kit preset written by other
 tools should name it on every region, `"random": 0` included.
@@ -798,8 +804,11 @@ bool pad_control_text(opxy::u32 field, opxy::i32 value, char* text);        // o
 
 in the machine namespace; `pad_control_text` captions a value for the stock
 header (without it, or when it returns false, the number shows). The display's
-`pad` holds the selected key's pad fields. A kit's own header captions them
-itself.
+`pad` holds the selected key's pad fields: `pad[0]` and `pad[1]` its pad
+controls, `pad[2]` and `pad[3]` its FX I and FX II. For a kit declaring SDK 1.15
+or later a send is 0 for `TRK` and its percent + 1 (1..101); for an older kit
+it is 0 for `TRK` and 1..7 for the seven steps, an amount as its nearest step. A
+kit's own header captions them itself.
 
 Every kit's track runs stock's own track filter on its voices, as a synth
 track does (SDK 1.10). M3 is the filter, with stock's types (svf, ladder, z
@@ -826,8 +835,9 @@ Shift, else the selected key), one unit a detent (PAN faster when turned fast,
 as without a step held). PAN (-100..100),
 LEVEL (-30..30 dB) and a pad control (as far as its whole span, at most 127)
 lock an offset to the key's own value, clamped to the field (LEVEL stays a cut,
--30..0); FX I and FX II lock the send itself, TRK or 0..100, starting from what
-the key sends. A field turned back to 0 is unlocked. Each note the step plays
+-30..0); FX I and FX II lock the send itself, TRK or 0..100 a percent a detent
+(more when turned fast), starting from what the key sends. Any other field
+turned back to 0 is unlocked. Each note the step plays
 gets its own key's locks from the moment it starts: it keeps them for as long as
 it sounds, and voices still sounding from earlier hits keep theirs. Other keys
 on the same step play their own locks, or none: select each key to lock it.

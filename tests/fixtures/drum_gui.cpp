@@ -532,13 +532,16 @@ int main() {
         sdk_drum_edit(54, 4, up, 0);   // no pad controls here: positions 0 and 1 turn nothing
         sdk_drum_edit(54, 5, up, 0);
         require(publications == before);
-        sdk_drum_edit(54, 6, up, 0);   // FX I
-        sdk_drum_edit(54, 7, ten, 0);  // FX II, to its top
+        sdk_drum_edit(54, 6, up, 0);   // FX I: TRK to 0
+        sdk_drum_edit(54, 7, ten, 0);  // FX II: TRK to 9, a percent a detent
         require(publications == before + 2 && drum_marked(other[24]));
-        require(((static_cast<u32>(*other_word) >> 25) & 7) == 1 && ((static_cast<u32>(*other_word) >> 28) & 7) == 7);
+        // Each amount in its byte (FX I +0x19, FX II +0x1b), its code the nearest
+        // old step (0: 1, 9: 2), which older firmware plays.
+        require(other[0x19] == drum_send_index_of_amount(0) && other[0x1b] == drum_send_index_of_amount(9));
+        require(((static_cast<u32>(*other_word) >> 25) & 7) == 1 && ((static_cast<u32>(*other_word) >> 28) & 7) == 2);
         i32 values[4];
         sdk_drum_pad_values(0, values);
-        require(!values[0] && !values[1] && values[2] == 1 && values[3] == 7);
+        require(!values[0] && !values[1] && values[2] == 1 && values[3] == 10);
         sdk_drum_edit(54, 6, back, 0);   // back to 0: TRK, the track's send
         sdk_drum_pad_values(0, values);
         require(!values[2] && other[0x1e] == 0 && other[0x1d] == 0);
@@ -598,10 +601,18 @@ int main() {
         require(values[0] == -16);
         sdk_drum_edit(57, 4, far, 0);
         sdk_drum_edit(57, 5, far, 0);
-        sdk_drum_edit(57, 6, far, 0);
+        sdk_drum_edit(57, 6, far, 0);    // FX I from TRK: 99
         sdk_drum_edit(57, 7, up, 0);
         sdk_drum_pad_values(0, values);
-        require(values[0] == 15 && values[1] == 15 && values[2] == 7 && values[3] == 1);
+        require(values[0] == 15 && values[1] == 15 && values[2] == static_cast<i32>(drum_send_index_of_amount(99)) &&
+                values[3] == static_cast<i32>(drum_send_index_of_amount(0)));
+        // A fast turn: (speed + 1) a detent, so 0..100 takes a few detents.
+        const u32 fast[3] = {0, 1, 4};
+        sdk_drum_edit(57, 7, fast, 0);
+        sdk_drum_pad_values(0, values);
+        require(values[3] == static_cast<i32>(drum_send_index_of_amount(5)) && pad[0x1b] == drum_send_index_of_amount(5));
+        sdk_drum_edit(57, 7, back, 0);
+        sdk_drum_edit(57, 7, up, 0);
         require((static_cast<u32>(*word) >> 16 & 31) == 15 && (static_cast<u32>(*word) >> 21 & 15) == 15 &&
                 (static_cast<u32>(*word) >> 25 & 7) == 7 && (static_cast<u32>(*word) >> 28 & 7) == 1);
         before = publications;
@@ -699,7 +710,8 @@ int main() {
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitPad1] == 2 && shown.offset[kHitPad2] == -1 && shown.offset[kHitLevel] == -30);
         // A send lock starts from what the key plays: key 57, set up, plays FX I
-        // at code 3 (lock 4), so a detent up locks 4 + 1; FX II from TRK (lock 1).
+        // at its old code 3 (33), so a detent up locks 34; FX II from TRK, 0. A send
+        // lock is kDrumSendLockBase + its index (drum_locks.hpp).
         u8* pad = reinterpret_cast<u8*>(regions[4]);
         pad[24] = drum_mark(0x20);
         regions[4][5] = static_cast<i32>((3u << 25) | kDrumPadReady);
@@ -708,21 +720,27 @@ int main() {
         require(writes == 6 && written_index == kHitSend1);
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
-        require(shown.offset[kHitSend1] == 5 && shown.offset[kHitSend2] == 2 && shown.offset[kHitLevel] == -30);
-        turn_by(20);    // at most 100 (lock 8)
+        require(shown.offset[kHitSend1] == drum_send_lock_of(drum_send_index_of_amount(34)) &&
+                shown.offset[kHitSend2] == drum_send_lock_of(drum_send_index_of_amount(0)) && shown.offset[kHitLevel] == -30);
+        turn_by(20, 9);    // fast: 10 a detent, at most 100
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
-        require(shown.offset[kHitSend2] == 8);
+        require(shown.offset[kHitSend2] == drum_send_lock_of(drum_send_index_of_amount(100)));
+        turn_by(-30);
+        sdk_synth_turn(project, 0, 7, event);
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(shown.offset[kHitSend2] == drum_send_lock_of(drum_send_index_of_amount(70)));
         // The Shift row shows what the step plays: the pad controls with their
-        // offsets, a send with its override (code = lock - 1).
+        // offsets, a send with its override.
         i32 values[4];
         sdk_drum_pad_values(0, values);
-        require(values[0] == 2 && values[1] == 0 && values[2] == 4 && values[3] == 7);   // SRR clamps at its 0
+        require(values[0] == 2 && values[1] == 0 && values[2] == static_cast<i32>(drum_send_index_of_amount(34)) &&
+                values[3] == static_cast<i32>(drum_send_index_of_amount(70)));   // SRR clamps at its 0
         // Turned back to 0, a field is unlocked: FILTER from 2 by -2.
         turn_by(-2);
         sdk_synth_turn(project, 0, 4, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
-        require(writes == 9 && !shown.offset[kHitPad1] && shown.offset[kHitPad2] == -1);
+        require(writes == 10 && !shown.offset[kHitPad1] && shown.offset[kHitPad2] == -1);
         i32 stored_value;
         require(!lock_pool.own(step_handle[37], 57, kHitPad1, stored_value));
         // Per key: another selected key shows and locks its own.
@@ -888,7 +906,7 @@ int main() {
         held = false;
         require(sdk_drum_pan(0) == -20 && sdk_drum_level(0) == -12);
         sdk_drum_pad_values(0, values);
-        require(values[0] == 0 && values[2] == 3 && values[3] == 0);
+        require(values[0] == 0 && values[2] == static_cast<i32>(drum_send_index_of_code(3)) && values[3] == 0);
         pad[0x1e] = pad[0x1d] = 0;
         pad[24] = 0; regions[4][5] = 0;
 
