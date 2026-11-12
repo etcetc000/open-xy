@@ -936,8 +936,10 @@ it draws every control from 0..127.
 As on Drumline, holding a pad and pressing M1, M2, M3 or M4 scrambles, copies,
 pastes or resets that key: scramble re-rolls its controls alone, keeping its model, copy and paste
 carry all of its settings (its sends included), and reset gives it the kit's
-defaults with every pad field neutral and its sends `TRK`. Holding Shift and
-pressing a pad moves the Shift row and the encoders to that pad ([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
+defaults with every pad field neutral and its sends `TRK`. While the pad is
+held, stock's strip naming the four slides up over the bottom of the kit's screen,
+as on Drumline and as on a held track key ([display](display.md#shift-and-a-drum-kits-machine-sdk-18)).
+Holding Shift and pressing a pad moves the Shift row and the encoders to that pad ([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
 
 A kit's engine may also report that a voice's sound has ended, so stock
 retires its note and the voice is free for the next one before stock's

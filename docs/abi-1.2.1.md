@@ -1381,8 +1381,26 @@ plays. Words 36 and 38 carry nothing.
   key)` at `8c0b32d6`, `sdk_drum_pad_reset`), which writes Drumline's default kit entry,
   gives a kit's key its default model and controls, stock's default choke group for the
   pad (`0x8409fce0 + 4 * slot`), every pad field neutral, its sends `TRK`, 0 dB and
-  centre pan. Both then audition the pad as stock does. Stock draws the held-pad menu
-  on its own drum pages only (Drumline's at page `+0xbc`), so a kit shows none.
+  centre pan. Both then audition the pad as stock does.
+- **A held pad's strip.** Stock draws the held-pad menu, the strip that slides up
+  naming scramble, copy, paste and reset, from its own drum pages' frames only.
+  Drumline's page (`8d531ccc`, a static object `8d531d64` builds once: guard byte
+  `0x84eb3dd4`, object `0x84eb3ddc`) embeds a strip widget at `+0xbc` (`8d56a790`,
+  `tbuttons.svg`, the track-hold menu's widget). `8c0b2068` marks the page with
+  `8d52dc12(page, on)`: on is the pad's key-down without Shift (`8d51f184`); a
+  rising edge sets the delay at `+0xb8` to `0x133` (0.3 s, Q10) and the flag byte
+  `+0xb4` follows on. Drumline's frame (`8d531192..8d531260`) then, while the flag
+  is on or the strip is still sliding in (`8d56a308`), waits out the delay, sets the
+  four items (`8d56a758(strip, i, text, 1, 1)`, texts at `0x8405488c` + `0x20`,
+  `0x2c`, `0x34`, `0x3c`) and animates it (`8d56ae28(strip, elapsed)`, which draws the
+  strip's own screen object, `8d56abcc` -> `8d51fe1c`); otherwise it parks it
+  (`8d56a2f4`). An owned kit's held pad marks Drumline's page (above), but that frame
+  does not run on a kit's track, so the SDK runs the same steps on the same strip from
+  the kit's own frame, after it draws the page, so the strip covers the kit's art as
+  the track-hold strip covers a track's page
+  ([`drum_hold_strip.hpp`](../sdk/platform/opxy-1.2.1/drum_hold_strip.hpp)). It does
+  nothing until stock has built Drumline's page, which stock does at a kit's first
+  pad press.
 - **Latching.** Note start's Drumline branch calls the pad payload builder
   `8d5ad660` at `8d595b50` (`00e388bd`) with the project, track, key, the track's
   engine and three of its own pointers. The builder fills the eight words at

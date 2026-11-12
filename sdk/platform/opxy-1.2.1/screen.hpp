@@ -10,6 +10,7 @@
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
 #include "drum_send.hpp"
+#include "drum_hold_strip.hpp"
 
 namespace opxy { namespace screen { namespace {
 
@@ -67,6 +68,12 @@ inline void bind_controls(Base* o) { stock<void(Leaf**, Base*, u32)>(0x8d521704)
 inline void* find(Base* o, const char* id) { return platform::find_node(o, id); }
 inline void draw(Base* o) { stock<void(Base*, u32)>(0x8d51fe1c)(o, 0); }
 inline u32 selected_track() { return platform::selected_track(); }
+// On an owned drum kit's track, a held pad's strip over the page just drawn
+// (drum_hold_strip.hpp); elapsed is the frame's, in Q10 seconds.
+inline void draw_hold_strip(u32 track, i32 elapsed) {
+    if (track < platform::kTracks && sdk_drum_machine(platform::track_engine(track)))
+        platform::drum_hold_strip(elapsed);
+}
 inline const Parameters* parameters(u32 track) { return stock<const Parameters*(u32)>(0x8d4d72a8)(track); }
 inline void update_controls(Base* o, u32 track, const Parameters* p) {
     stock<void(Leaf**, u32, const Parameters*)>(0x8d5466ac)(o->values, track, p);

@@ -123,6 +123,8 @@ template <class Machine> struct Drawing {
         if (!refresh_controls(&o->base, controls)) return;
         animate(o, controls);
         draw(&o->base);
+        // A drum kit's held pad: Drumline's slide-up strip, over the page.
+        draw_hold_strip(controls.track, elapsed);
     }
 };
 }}} // namespace opxy::screen::<unnamed>
