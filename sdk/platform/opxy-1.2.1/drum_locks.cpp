@@ -13,6 +13,10 @@
 // the note. Every other caller of the builder (the per-key editor and
 // its previews) publishes the key's own values.
 //
+// Every publication of a padMix kit's pad also carries the key's two sends (its
+// own amounts or TRK, drum_send.hpp) in the payload's word 0, a note's with its
+// step's send locks in their place: the kit's adapter reads them there.
+//
 // With a drumline_page extension the same two hooks serve stock Drumline
 // (drumline.hpp): every publication of a Drumline pad carries its page-2
 // choices, and a note's its step's locks of them for its key.
@@ -42,12 +46,22 @@ const DrumMachine* note_kit;
 
 i32 stock_gain(i32 db) { return stock<i32(i32)>(0x8d5ad604)(db); }
 
-void fold(const DrumMachine& kit, u32 track, u32 key, i32* payload) {
+// The pad record the builder publishes: slot `slot` (0..23) of the track's current
+// pattern, as the region lookup 8d58926c found it (track object + 0x394c + slot * 0x80).
+const unsigned char* slot_record(u32 track, u32 slot) {
+    const Address object = stock<Address(u32)>(0x8d587708)(track);
+    return object && slot < kDrumPatternPads ? at<const unsigned char>(object + kDrumPatternPadsAt + slot * kDrumPatternPadBytes)
+                                              : nullptr;
+}
+
+// A note's locks into its payload; returns the hit's send pair.
+u32 fold(const DrumMachine& kit, u32 track, u32 key, i32* payload) {
     DrumHitLocks locks;
     drum_lock_store_note(kit, note_handle, key, locks);
-    if (!locks.any()) return;
     const unsigned char* record = static_cast<const unsigned char*>(pad_region(track, key));
-    if (!record) return;
+    if (!record) return 0;
+    const u32 pair = drum_send_record_pair(record);
+    if (!locks.any()) return pair;
     const bool ready = drum_ready(record);
     if (!ready && drum_lock_needs_setup(locks)) {
         u8 model, controls[kDrumControlCount];
@@ -58,6 +72,7 @@ void fold(const DrumMachine& kit, u32 track, u32 key, i32* payload) {
             for (u32 field = kHitLevel; field < kHitFields; ++field) locks.offset[field] = 0;
     }
     drum_lock_fold(kit, locks, drum_pan(record), ready ? drum_level(record) : 0, payload, stock_gain);
+    return drum_lock_sends(locks, pair);
 }
 }
 
@@ -81,7 +96,14 @@ u32 sdk_drum_lock_note(u32 project, u32 track, u32 key, u32 engine, u32 a, u32 b
 u32 sdk_drum_lock_publish(u32 project, u32 track, u32 kind, i32* payload) {
     if (payload && note_kit && track == note_track) {
         stock<void(u32, u32)>(0x8d5acb9c)(project, track);
-        fold(*note_kit, track, note_key, payload);
+        drum_send_carry(payload, fold(*note_kit, track, note_key, payload));
+    } else if (payload && track < kTracks) {
+        // Any other publication of a padMix kit's pad: the key's own sends.
+        const DrumMachine* kit = sdk_drum_machine(track_engine(track));
+        if (kit && kit->pad_mix) {
+            const unsigned char* record = slot_record(track, kind);
+            drum_send_carry(payload, record ? drum_send_record_pair(record) : 0);
+        }
     }
     if (payload && drumline_track(track))
         drumline_service()->publish(track, kind, payload, track == note_line ? note_handle : 0, note_key);

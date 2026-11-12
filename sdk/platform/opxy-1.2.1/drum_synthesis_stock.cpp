@@ -32,6 +32,9 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     const bool setup = machine->pad_mix && !drum_ready(record);
     i32 pad = setup ? static_cast<i32>(kDrumPadReady) : *pad_word;
     i32 pan = drum_pan(record), level = setup ? 0 : drum_level(record);
+    // A send's new index (drum_send.hpp), kept in the record's byte and the pad
+    // word's code once the rest is written; kDrumSends when the edit is no send.
+    u32 send = kDrumSends, send_index = 0;
     // Shift's encoders (stock's indices 4..7) choose what DrumMachine::shift
     // names for their position and the row the encoders are on.
     u8 shown[page_controls];
@@ -75,8 +78,16 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         if (next > last) next = last;
         if (next == model) return 0;
         model = static_cast<u8>(next);
+    } else if (choice >= DrumMachine::kShiftPad + kDrumKitPadFields && choice - DrumMachine::kShiftPad < kDrumPadFields) {
+        // FX I or FX II: TRK, then 0..100 a percent a step, (speed + 1) steps a
+        // detent; a key's old code turns from the percent it shows, so its first
+        // edit makes it an amount (drum_send_turn).
+        send = choice - DrumMachine::kShiftPad - kDrumKitPadFields;
+        const u32 now = setup ? 0 : drum_send_index(drum_send_record_pair(record), send);
+        send_index = drum_send_turn(now, drum_send_steps(delta, static_cast<i32>(event[2])));
+        if (send_index == now) return 0;
     } else if (choice >= DrumMachine::kShiftPad) {
-        // One of the key's pad fields: one step a detent within its bits.
+        // One of the key's pad controls: one step a detent within its bits.
         u32 low, bits;
         bool sign;
         if (!machine->pad_field(choice - DrumMachine::kShiftPad, low, bits, sign)) return 0;
@@ -109,6 +120,7 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, drum_codec(machine->model_count, machine->count))) return 0;
     record[24] = mark;
     *pad_word = pad;
+    if (send < kDrumSends) drum_send_record_set(record, send, send_index);
     // Pan and level only when they are the edit, or the level as the key is
     // set up: drum_level reads a stored boost as 0 dB, so writing it back on
     // any other edit would replace the boost stock saved.

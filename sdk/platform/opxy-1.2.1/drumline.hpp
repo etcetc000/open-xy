@@ -165,9 +165,9 @@ extern "C" {
 const void* sdk_drumline_get() __asm__("sdk_drumline_get");
 // The linked drumline_page extension's page (tooling/extensions.py).
 const opxy::platform::DrumlinePage* sdk_drumline_page_extension() __asm__("sdk_drumline_page_extension");
-// Each stock dbox voice's send codes of its last block (drum_send.cpp), as the
-// render wrapper keeps them; 0 (TRK) in a build without the service.
-extern opxy::u8 sdk_drum_send_dbox[opxy::platform::kDboxVoices] __asm__("sdk_drum_send_dbox");
+// Each stock dbox voice's send pair (drum_send_pair) of its last block
+// (drum_send.cpp), as the render wrapper keeps it; 0 (TRK) in a build without the service.
+extern opxy::u16 sdk_drum_send_dbox[opxy::platform::kDboxVoices] __asm__("sdk_drum_send_dbox");
 }
 
 namespace opxy { namespace platform {

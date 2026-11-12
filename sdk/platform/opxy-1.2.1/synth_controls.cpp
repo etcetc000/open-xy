@@ -112,11 +112,12 @@ const DrumMachine* pad_kit(u32 track) {
 }
 // Whether a step is held for parameter locks (8d5b7e34: its step word is not -1).
 bool step_held() { return stock<u32()>(0x8d5b7e34)() != 0; }
-// What the selected key's send `send` plays, as a send lock starts from: 1 + its code.
+// What the selected key's send `send` plays, as a send lock starts from: its index
+// in lock form (drum_locks.hpp drum_send_lock_of).
 opxy::i32 key_send(u32 track, u32 send) {
     opxy::i32 values[kDrumPadFields];
     sdk_drum_pad_values(track, values);
-    return 1 + values[kDrumKitPadFields + send];
+    return drum_send_lock_of(static_cast<u32>(values[kDrumKitPadFields + send]));
 }
 }  // namespace
 

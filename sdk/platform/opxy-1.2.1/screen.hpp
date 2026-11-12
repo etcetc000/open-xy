@@ -313,15 +313,16 @@ inline bool refresh_controls(Base* o, Controls& controls) {
             case platform::DrumMachine::kShiftNone: break;
             default: {
                 // A pad field: its label, and the kit's caption or the number;
-                // a send at 0 follows the track's (TRK).
+                // a send TRK or its percent.
                 const u32 field = drum->shift(i, controls.line != 0) - platform::DrumMachine::kShiftPad;
                 if (field >= platform::kDrumPadFields) break;
                 titles[i] = drum->pad_label(field);
                 const i32 value = controls.pads[field];
                 if (field >= platform::kDrumKitPadFields) {
-                    // A send's code as the key's own amount (drum_send.hpp):
-                    // 1..7 are 0..100 percent of a full send.
-                    if (value) drum_number(values[i], platform::drum_send_percent(static_cast<u32>(value)), "");
+                    // A send's index (drum_send.hpp): the key's own amount, 0..100
+                    // percent of a full send, or TRK, following the track's.
+                    const i32 percent = platform::drum_send_percent(static_cast<u32>(value));
+                    if (percent >= 0) drum_number(values[i], percent, "");
                     else copy_text(values[i], "TRK");
                 } else if (!drum->pad_text || !drum->pad_text(field, value, values[i])) {
                     drum_number(values[i], value, "");

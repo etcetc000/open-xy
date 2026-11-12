@@ -95,6 +95,9 @@ template <class Machine> struct Drawing {
         display_input.reserved = 0;
         const u32 pads = sizeof(controls.pads) / sizeof(controls.pads[0]);
         for (u32 i = 0; i < 4; ++i) display_input.pad[i] = static_cast<i8>(i < pads ? controls.pads[i] : 0);
+        // FX I and FX II: a send's index (drum_send.hpp) as the kit's SDK reads it.
+        for (u32 i = platform::kDrumKitPadFields; i < 4 && i < pads; ++i)
+            display_input.pad[i] = static_cast<i8>(platform::drum_send_shown(static_cast<u32>(controls.pads[i]), Machine::percent_sends));
         display_input.shift = controls.choosing ? 1 : controls.shift;
         for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         display_input.elapsed = o->delta;
