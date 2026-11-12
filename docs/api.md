@@ -461,8 +461,9 @@ const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 
 - **Showing it.** While Shift is held, the stock header names and captions the
   entries under the page the encoders are on. A machine drawing its own header
   reads the row from [`opxy/synth_shift.hpp`](display.md#a-synths-shift-row),
-  and the [two-page header](display.md#two-page-header) shows it in the bright
-  row. A press of any encoder switches pages with Shift held too, and the row
+  and the [two-page header](display.md#two-page-header) shows all of it in both
+  rows, as a drum kit's header shows its two Shift rows: page 1's entries on
+  top, page 2's under them, the page the encoders are on bright. A press of any encoder switches pages with Shift held too, and the row
   follows, so Shift and a press reach page 2's entries without letting go, as
   on a `padMix` kit.
 - **Where it runs.** Instrument tracks 1–8; a synth with track control can't
