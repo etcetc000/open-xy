@@ -9,7 +9,7 @@ opxy::u32 sdk_screen_activation(opxy::u32 page, opxy::u32) { return page == 84 ?
 void sdk_display_note_activity(opxy::u32, opxy::draw::Input*) {}
 void sdk_note_pitches(opxy::u32, opxy::u8*, opxy::u8*) {}
 void sdk_sample_overview_update(opxy::u32) {}
-struct Machine { static const bool sample = false; static const char* const ids[2]; };
+struct Machine { static const bool sample = false, stock_artwork = false; static const char* const ids[2]; };
 const char* const Machine::ids[2] = {"node", "palette"};
 
 int main() {
@@ -41,5 +41,19 @@ int main() {
     token = 0; object.keys[0] = 77;
     Renderer::animate(&object, controls);
     require(binding::resets == 3 && object.keys[0] == 77);
+    // Stock artwork: elements by name, and by child index through a named group.
+    using Retained = screen::RetainedDrawing<binding::Frame>;
+    require(Retained::element(&object, "group") == static_cast<void*>(screen::group_child));
+    require(Retained::element(&object, "group/3") == static_cast<void*>(&screen::group_child[3]));
+    require(!Retained::element(&object, "group/4") && !Retained::element(&object, "group/3/0"));
+    require(!Retained::element(&object, "other") && !Retained::element(&object, "other/1"));
+    // A drumline voice's loop re-hit on the shown track strikes as a note start;
+    // one posted for another track doesn't.
+    controls.track = 2;
+    const u32 before = screen::display_note_serial(controls);
+    screen::posted_hit = 1u << 16 | 2u << 8 | 60;
+    require(screen::display_note_serial(controls) == before + 1 && screen::display_note_serial(controls) == before + 1);
+    screen::posted_hit = 2u << 16 | 3u << 8 | 60;
+    require(screen::display_note_serial(controls) == before + 1);
     std::puts("native display activation resets state and geometry caches only on a new active token");
 }

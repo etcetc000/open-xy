@@ -205,6 +205,9 @@ def plan(machines, profile=None):
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
+    # A stock engine's voice binding (stock_<engine>.cpp), once, only when a machine runs its voices.
+    engines = {m.definition['resources'].get('stockVoice') for m in machines if m.kind == 'synth'} - {None}
+    units += [(f'sdk/stock_{engine}.o', None, 'stock_' + engine) for engine in sorted(engines)]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
@@ -486,7 +489,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     require(profiling or not sweep, 'A control sweep needs a profiling build')
     directory = Path(directory)
     for m in machines:
-        if m.display != 'stock':
+        if own_artwork(m):
             validate_panel(m)
     check_sources(machines)
     tools = tool_paths(toolchain)
@@ -849,9 +852,17 @@ def player_page_ids(prefix):
             [f'{prefix}_key_{i}' for i in range(128)] + [f'{prefix}_played_{i}' for i in range(128)])
 
 
+def own_artwork(m):
+    """Whether a machine draws on artwork of its own (panel.svg.fragment), not on a
+    stock page or a stock asset it binds (resources.display.artwork)."""
+    return m.display != 'stock' and 'artwork' not in m.definition['resources'].get('display', {})
+
+
 def display_ids(prefix, display):
     """Artwork IDs of a display: its nodes (the first are the mutable paths), its
-    text slots, then its palette entries."""
+    text slots, then its palette entries. Stock artwork names its own."""
+    if 'artwork' in display:
+        return list(display['artwork']['ids'])
     return ([f'{prefix}_node_{i}' for i in range(display['nodes'])] +
             [f'{prefix}_text_{i}' for i in range(display['texts'])] +
             [f'{prefix}_palette_{i}' for i in range(display['palette'])])
@@ -993,7 +1004,8 @@ def prepare_assets(catalog, profile, machines):
     require(sha(catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     outputs = {'content/op1_factory.json': extend_catalog(catalog, profile, machines)}
     for m in machines:
-        if m.display != 'stock':
+        # Stock artwork is the device's own file; only a machine's own is installed.
+        if own_artwork(m):
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')

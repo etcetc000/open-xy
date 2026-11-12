@@ -413,6 +413,30 @@ these was found on hardware:
   parts that touch in the preview can land apart on the device. Draw them as
   one outline, or as nodes with the same origin and transform.
 
+## Stock artwork
+
+A synth's screen can instead bind a stock display asset by that asset's own
+element IDs (SDK 1.16), so its page draws the OP-XY's artwork without the
+machine shipping a copy:
+
+```json
+"display": {"stateBytes": 4, "stateAlignment": 4, "paths": 0, "points": 0,
+            "nodes": 12, "texts": 0, "palette": 1,
+            "artwork": {"stock": "dbox", "ids": ["model_kick_a", "...", "bg"]}}
+```
+
+`ids` names the asset's element for every node, text slot and palette entry, in
+binding order, as `<prefix>_...` IDs do for a machine's own artwork. An element
+without an ID of its own is reached through a group that has one: `name/i` is
+child `i` of `name`, counted from 0 in the asset's order, and `name/i/j` goes a
+level deeper (up to four levels). The screen loads `<stock>.svg` from the
+device's `/content/display/`, and the build installs no artwork. Stock outlines
+are not reshaped (`paths` is 0); a node may be a group, which the frame moves,
+scales, turns or hides as a whole, and paint applies only to path nodes. The
+stock `titles` and `values` show the controls as on any synth page. The
+supported asset is drumline's `dbox`. Browser previews draw a plain stand-in
+holding the bound IDs, since only the device has the artwork.
+
 ## Grayscale artwork
 
 A synth targeting SDK 1.5 can offer its own grayscale design:

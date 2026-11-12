@@ -399,7 +399,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         const compiled = await WebAssembly.compile(wasm);
         if (ticket !== previewRevision) return;
         const display = new retained.PreviewDisplay(compiled);
-        const renderer = new retained.SvgDisplay(core.selectArtwork(m, graphicsConfiguration.modeFor(m)), m.preview.graphics);
+        // Stock artwork is the device's own: the preview draws the kit's stand-in.
+        const renderer = new retained.SvgDisplay(m.artwork === undefined ? m.preview.artwork : core.selectArtwork(m, graphicsConfiguration.modeFor(m)), m.preview.graphics);
         const ns = 'http://www.w3.org/2000/svg', canvas = document.createElementNS(ns, 'svg');
         canvas.setAttribute('viewBox', '0 0 480 220'); canvas.setAttribute('aria-label', m.name + ' display preview');
         // The device page: the stock four-control header under the machine's drawing,

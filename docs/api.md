@@ -393,6 +393,7 @@ A synth declares:
 | `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
+| `stockVoice` | Optional (SDK 1.16): `"drumline"`, a stock engine whose voices the synth runs inside its own ([stock voices](#stock-voices)) |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -965,6 +966,72 @@ four parameters and processes each hit's voice; the SDK keeps the page, the
 per-key storage, the per-hit latch, FX I and FX II as a `padMix` key's sends,
 and step locks. Without one, Drumline is stock's.
 
+## Stock voices
+
+A synth declaring `"stockVoice": "drumline"` (SDK 1.16) runs stock drumline
+voices inside its own, through
+[stock_drumline.hpp](../sdk/include/opxy/stock_drumline.hpp). The machine owns
+each `opxy::stock_drumline::Voice`, inside its `Voice`, and the whole sound; the
+user's own firmware renders it. No stock code or data is part of the machine or
+the SDK: the SDK calls drumline at addresses pinned to the authenticated stock
+OS ([firmware ABI](abi-1.2.1.md#stock-voices)).
+
+```cpp
+void construct(Voice&);              // in initialize
+void start(Voice&, const Patch&);    // in start
+void render(Voice&, const Patch&, i32* output, const i32* parameters, const u32* increments);
+void note_off(Voice&);               // in the machine's release
+void end(Voice&);                    // in destroy, so a note whose voice is taken ends in stock's slot too
+```
+
+The machine declares `"releaseCallback": 1` and calls `note_off` in its
+[`release`](synth-release.md), which the SDK calls when the note's key goes up.
+It also defines `const char* parameter_title(u32 index)`, a parameter's name on the engine page
+and among the LFO's destinations, or `nullptr` for its declared label. On the
+GUI side, `control_name(model, control)` gives stock's name for a model's
+control and `selected_word(index)` the selected track's word as its pages show
+it (a held step's lock included), so titles can follow the track's model.
+
+`Patch` selects one of the eleven stock models (`opxy::stock_drumline::models`, in
+stock order: kick, snare, hihat, shaker, clap, congas, fm, fm slap, pitch,
+tambourine, resonator), stock's per-hit `random` amount (`keep_pitch` keeps it
+off the first control) and the model's four controls, each Q31 0..max and
+clamped by stock to the model's range. The first control is the model's pitch
+(shaker, clap and tambourine: its colour), the second its length; the last two
+are the model's own, such as a kick's punch and tone. Every key plays the same
+patch: pitch follows the note through the synth's own pitch increments, with C4
+at the model's own tuning (`tuning` scales it), so transpose and modulation
+apply as for any synth.
+
+The track's amp envelope words play as loop, attack, gate and length instead:
+
+- **Loop** (one-shot, loop, sync, by thirds of the word): loop re-hits a held
+  note each time it falls to about -30 dB, so length sets the rate; sync
+  re-hits at the tempo division nearest that time (1/64 to 4 bars, triplets
+  included), or under 1/64 at the played key's pitch, in its longest octave
+  under 1/64 and an octave up for each octave shorter that time is.
+- **Attack** and **length** are drumline's own; length 50 is nominal.
+- **Gate** fades the hit once the key goes up, faster as gate rises (10 ms at
+  the top). At 0 a hit plays out as a one-shot; gate turned to 0 mid-release
+  holds the level reached.
+
+On M2, stock's amp envelope page edits these words under its own labels. Its
+first knob steps one loop choice per ten detents, so a nudge doesn't change the
+mode, and gate turns the other way, its whole range in two thirds of stock's
+detents. The LFO names them loop, attack, gate and length.
+
+A note ends when its hit has died away or faded, except the device's latest
+gated release: to keep the OP-XY's output from popping as it switches off after
+silence, that note stays open 1.25 s from its release under an inaudible 22 kHz
+tone at -80 dB, which recordings show; an earlier release fades its tone out
+within 93 ms. Output is mono, at drumline's own engine level in stock's mix, so
+it plays as loud as stock drumline at the same track volume. Stock's filter, pan
+and mixing follow, as for any synth.
+
+Host builds have no firmware: there a voice renders silence, so machine tests,
+the browser preview and the CPU estimate cover the machine's own code only.
+Judge sound and CPU on the device.
+
 ## Sample engines
 
 [sample_engine.hpp](../sdk/include/opxy/sample_engine.hpp) defines the sample
@@ -1332,7 +1399,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.13 and builds 1.0 to 1.13 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.16 and builds 1.0 to 1.16 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

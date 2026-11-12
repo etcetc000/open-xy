@@ -5,6 +5,7 @@
 // track menu's scramble also randomizes the alternates. Everything else reaches stock as before.
 #include "synth_controls.hpp"
 #include <opxy/effect.hpp>
+#include <opxy/stock_drumline.hpp>
 #include "shift_row.hpp"
 #include "synth_shift.hpp"
 #include <opxy/synth_shift.hpp>
@@ -359,8 +360,16 @@ bool sdk_drum_shift_press(u32 track, u32 encoder) {
 // asks 8c0b2468(track, index, &scale) for a parameter's step count, or -1 when
 // it is continuous. It then moves scale * count buckets, one per detent (two
 // when turned fast), and stores the bucket's centre. An owned machine's enum
-// slot answers its choice count with scale 1: one choice per detent.
+// slot answers its choice count with scale 1: one choice per detent; so does a
+// drumline-voice synth's loop word (8).
 u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
+    if (index == 8) {
+        const SynthControls* d = editor(track);
+        if (d && d->stock_drumline) {
+            *scale = 1;
+            return opxy::stock_drumline::loop_choices;
+        }
+    }
     const SynthControls* m = index < opxy::parameter_slots ? editor(track) : nullptr;
     if (m && m->steps[index]) {
         *scale = 1;
@@ -378,8 +387,58 @@ u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
 // of the selected track through stock, which owns stepping, parameter locks
 // and publication. Indices 0..3 come only from the engine page's unshifted
 // encoders, so an owned synth's position edits the parameter it shows.
+// On M2, a drumline-voice synth's loop word (8) has three choices (one-shot, loop,
+// sync; sdk_param_steps) and moves one choice per kLoopDetents detents, counted per
+// track; turns past either end do nothing. Its gate word (10) turns the other way.
+namespace {
+const u32 kLoopWord = 8, kGateWord = 10;
+// Gate's continuous step a detent, as a fraction of stock's: 3/2.
+const opxy::i32 kGateTurnMultiplier = 3, kGateTurnDivisor = 2;
+// M2's toggle word: 0 on the envelope page M2 opens on, set while an encoder click
+// has moved to the next one.
+const u32 kM2Toggle = 0x8400dfe0;
+// Ten detents a choice, so a mode doesn't change at a nudge.
+const int kLoopDetents = 10;
+signed char loop_detents[kTracks];
+u32 loop_turn(u32 project, u32 track, u32 event) {
+    const opxy::i32* source = reinterpret_cast<const opxy::i32*>(event);
+    // The choice as the page shows it: a held step's lock, else the track's.
+    const opxy::i32 shown = stock<opxy::i32(u32, u32, u32, u32)>(0x8d5ac9dc)(kProject, track, kLoopWord, 1);
+    const int setting = opxy::stock_drumline::tempo_synced(shown) ? 2 : opxy::stock_drumline::looping(shown) ? 1 : 0;
+    int count = loop_detents[track] + (source[0] > 0 ? 1 : source[0] < 0 ? -1 : 0);
+    if ((setting == 2 && count > 0) || (setting == 0 && count < 0)) count = 0;
+    opxy::i32 step = 0;
+    if (count >= kLoopDetents || count <= -kLoopDetents) {
+        step = count > 0 ? 1 : -1;
+        count = 0;
+    }
+    loop_detents[track] = static_cast<signed char>(count);
+    // Every detent goes to stock's editor, those that move no choice as a turn of
+    // none: with a step held, the editor (8d5ad42c) writes the step's lock
+    // (8d586f40) on every call, so a nudge locks the step at its shown choice, as a
+    // wavetable synth's knob 1 does.
+    const opxy::i32 turn[3] = {step, step, 0};
+    return stock<u32(u32, u32, u32, const opxy::i32*)>(0x8d5ad5bc)(project, track, kLoopWord, turn);
+}
+}
+
 u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
     Track* t;
+    if (event && (index == kLoopWord || index == kGateWord) && track < kTracks &&
+        word(kInstrumentPage) == 1 && !*reinterpret_cast<const volatile u32*>(kM2Toggle)) {
+        const SynthControls* owner = machine(track, t);
+        if (owner && owner->stock_drumline) {
+            if (index == kLoopWord) return loop_turn(project, track, event);
+            // Clockwise lowers gate, toward a longer ring, and moves half as far again
+            // a detent, so its range takes two thirds of the detents. Only the knob's
+            // travel changes: the word, locks and LFOs keep its full range. Stock's
+            // editor adds the step saturating and clamps at 0, so a fast turn can't
+            // wrap, and makes the edit, locks included.
+            const opxy::i32* source = reinterpret_cast<const opxy::i32*>(event);
+            const opxy::i32 reversed[3] = {-(source[0] / kGateTurnDivisor * kGateTurnMultiplier), source[1], source[2]};
+            return stock<u32(u32, u32, u32, const opxy::i32*)>(0x8d5ad5bc)(project, track, index, reversed);
+        }
+    }
     // The instrument controller maps Shift's engine-page row to slots 4..7.
     // Reinterpret it as fine editing of the same visible position, including
     // an alternate selected by a click. Other pages keep stock routing.
@@ -782,3 +841,12 @@ u32 control_ratio(i32 value, const u32* anchors, u32 count) {
     return anchors[index] + ((anchors[index + 1] - anchors[index]) * (position & 32767) + 16384) / 32768;
 }
 }}
+
+// The LFO's names for a drumline-voice synth's envelope words 8..11, as its voice
+// plays them; null for any other engine.
+const char* sdk_synth_envelope_label(opxy::u32 engine, opxy::u32 slot) __asm__("sdk_synth_envelope_label");
+const char* sdk_synth_envelope_label(opxy::u32 engine, opxy::u32 slot) {
+    static const char* const names[4] = {"loop", "attack", "gate", "length"};
+    const SynthControls* m = slot < 4 ? owned(engine) : nullptr;
+    return m && m->stock_drumline ? names[slot] : nullptr;
+}

@@ -45,6 +45,9 @@ struct SynthControls {
     u8 stock_shift[4];
     // A synth's Shift row, or null (SDK 1.13).
     const SynthShift* synth_shift;
+    // A synth running stock drumline's voices (resources.stockVoice "drumline"): its
+    // envelope words 8..11 play as loop, attack, gate and length.
+    bool stock_drumline;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // The stock sampler page's own turns a stockShift entry names: the page's
