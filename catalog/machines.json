@@ -2109,6 +2109,12 @@
       "kind": "synth",
       "maintainer": "mmockett",
       "status": "reserved"
+    },
+    {
+      "id": "nexus",
+      "kind": "synth",
+      "maintainer": "mmockett",
+      "status": "reserved"
     }
   ]
 }
