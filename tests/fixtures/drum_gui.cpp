@@ -21,6 +21,9 @@ opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sd
 opxy::u32 sdk_synth_scramble(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("sdk_synth_scramble");
 opxy::u32 sdk_scramble_engine(opxy::u32) __asm__("sdk_scramble_engine");
 void sdk_drum_scramble() __asm__("sdk_drum_scramble");
+opxy::u32 sdk_drum_pad_action(opxy::u32) __asm__("sdk_drum_pad_action");
+void sdk_drum_pad_scramble(opxy::u32) __asm__("sdk_drum_pad_scramble");
+opxy::u32 sdk_drum_shift_pad(opxy::u32) __asm__("sdk_drum_shift_pad");
 }
 namespace {
 using namespace opxy;
@@ -86,6 +89,17 @@ i32 scrambled(u32 slot, u32 flag) {
 }
 u32 stock_scrambles;
 void stock_scramble() { ++stock_scrambles; }
+// A pad's key-layer doubles: pads are codes 53..76; the track's octave shifts a
+// pad's canonical key by 12 a step; one code may be held; stock's playing bytes;
+// stock Drumline's one-pad scramble.
+u32 held_code, stock_pad_scrambles, stock_pad_scrambled;
+i32 octave;
+unsigned char playing[2];
+u32 is_pad(u32 code) { return code >= 53 && code < 77; }
+i32 track_octave(u32 selected) { require(selected == track); return octave; }
+u32 canonical_pad(u32 code, i32 shift) { return static_cast<u32>(static_cast<i32>(code) + 12 * shift); }
+u32 key_held(u32 code) { return held_code && code == held_code; }
+void stock_pad_scramble(u32 pad) { ++stock_pad_scrambles; stock_pad_scrambled = pad; }
 // The 33-model kit narrows its first control to 100 and its third to 40..50.
 void narrow(u32, u32 slot, u8* low, u8* high) {
     require(*low == 0 && *high == 127);
@@ -256,6 +270,13 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case 0x8d5acf28: return reinterpret_cast<Address>(&set);
     case 0x8c0b5230: return reinterpret_cast<Address>(&scrambled);
     case 0x8d4d622c: return reinterpret_cast<Address>(&stock_scramble);
+    case 0x8d5b8814: return reinterpret_cast<Address>(&is_pad);
+    case 0x8d58f65c: return reinterpret_cast<Address>(&track_octave);
+    case 0x8d5b89ac: return reinterpret_cast<Address>(&canonical_pad);
+    case 0x8d5b7d7c: return reinterpret_cast<Address>(&key_held);
+    case 0x8d4d60f4: return reinterpret_cast<Address>(&stock_pad_scramble);
+    case 0x860c9b39: return reinterpret_cast<Address>(playing);
+    case 0x860c9b3a: return reinterpret_cast<Address>(playing + 1);
     case 0x8c0b2468: return reinterpret_cast<Address>(&stock_steps);
     case 0x840a0528: return reinterpret_cast<Address>(&loading);
     case 0x1000: return reinterpret_cast<Address>(turn_event);
@@ -1102,6 +1123,62 @@ int main() {
         std::memcpy(regions, saved, sizeof(regions));
         engine = saved_engine; key = saved_key; publications = saved_publications; dirty = saved_dirty;
         last_key = saved_last;
+    }
+
+    {
+        // Shift and a pad (the shifted key handler's pad check, 8c0b2978): on an owned
+        // kit the pad is held for per-key editing, its canonical key at the track's
+        // octave, as stock holds a Drumline pad; not while playing, not for a key that
+        // is no pad, and never on another engine (stock holds Drumline's itself).
+        const u32 saved_engine = engine, saved_latch = edit_latch;
+        engine = 41; edit_latch = 60;
+        require(sdk_drum_shift_pad(57) == 1 && edit_latch == 57 && drum_edit_key(0) == 57);
+        octave = 1;
+        require(sdk_drum_shift_pad(54) == 1 && edit_latch == 66);
+        octave = 0;
+        require(sdk_drum_shift_pad(12) == 0 && edit_latch == 66);
+        playing[1] = 1;
+        require(sdk_drum_shift_pad(58) == 1 && edit_latch == 66);
+        playing[1] = 0;
+        for (u32 other : {4u, 3u, 34u + 43u}) {
+            engine = other;
+            require(sdk_drum_shift_pad(59) == 1 && edit_latch == 66);
+        }
+
+        // A pad held and key code 6 (the key-down handler's held-pad action, 8c0b309c):
+        // an owned kit's held key alone is re-rolled, as its track scramble rolls each
+        // key; Drumline and every other engine keep stock's own test and scramble.
+        i32 saved[24][32];
+        std::memcpy(saved, regions, sizeof(regions));
+        const u32 saved_publications = publications, saved_dirty = dirty, saved_last = last_key;
+        rolling = true;
+        engine = 41;
+        held_code = 0;
+        require(!sdk_drum_pad_action(41));          // no pad held
+        held_code = 58;
+        require(sdk_drum_pad_action(41) && !sdk_drum_pad_action(4) && !sdk_drum_pad_action(3));
+        require(!sdk_drum_pad_action(40));          // another kit than the track's
+        const u32 before = publications, changes = dirty;
+        bool moved = false;
+        for (u32 round = 0; round < 6; ++round) {
+            i32 was[24][32];
+            std::memcpy(was, regions, sizeof(regions));
+            sdk_drum_pad_scramble(58);
+            require(publications == before + round + 1 && dirty == changes + round + 1 && last_key == 58);
+            for (u32 pad = 0; pad < 24; ++pad)
+                if (pad != 5) require(!std::memcmp(regions[pad], was[pad], sizeof(was[pad])));
+            moved = moved || std::memcmp(regions[5], was[5], sizeof(was[5]));
+            require(drum_marked(reinterpret_cast<const u8*>(regions[5])[24]) && drum_ready(regions[5]));
+        }
+        require(moved && !stock_pad_scrambles);
+        engine = 4;
+        sdk_drum_pad_scramble(60);
+        require(stock_pad_scrambles == 1 && stock_pad_scrambled == 60);
+        held_code = 0;
+        rolling = false;
+        std::memcpy(regions, saved, sizeof(regions));
+        engine = saved_engine; edit_latch = saved_latch;
+        publications = saved_publications; dirty = saved_dirty; last_key = saved_last;
     }
 
     {

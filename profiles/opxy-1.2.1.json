@@ -1442,6 +1442,39 @@
     },
     {
       "kind": "hook",
+      "name": "Instrument shifted key handler, its pad check: Shift and a pad hold the pad on an owned kit, as on Drumline",
+      "address": "0x8c0b2978",
+      "file_offset": "0xe9bb4",
+      "length": 8,
+      "before": "00de5b8d14880000",
+      "symbol": "sdk_drum_shift_pad",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Instrument key-down, the held-pad action for key code 6: an owned kit's held pad runs Drumline's pad scramble",
+      "address": "0x8c0b309c",
+      "file_offset": "0xea2d8",
+      "length": 12,
+      "before": "206007080510a8e42c00000c",
+      "symbol": "extensions_drum_pad_action",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "That action's call of Drumline's one-pad scramble: an owned kit re-rolls the held key as its track scramble does",
+      "address": "0x8c0b3170",
+      "file_offset": "0xea3ac",
+      "length": 8,
+      "before": "00de4d8df4600000",
+      "symbol": "sdk_drum_pad_scramble",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "Preset export, random's converter: a padMix kit's key also exports its send amounts above bit 16",
       "address": "0x8d4e73ac",
       "file_offset": "0x11e608",

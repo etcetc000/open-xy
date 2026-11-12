@@ -230,14 +230,52 @@ opxy::u32 sdk_scramble_engine(opxy::u32 track) {
     return sdk_drum_alias(opxy::platform::stock<opxy::u32(opxy::u32)>(0x8d58781c)(track));
 }
 
+// A kit's key re-rolled as the track menu's scramble rolls it: a model and a value
+// for every control that model uses, within the kit's scramble range, packed as an
+// edit packs them; its choke group, pan, level and pad fields stay, and a padMix key
+// the kit had not set up is set up as its first edit would be (sdk_drum_edit), so it
+// sounds as before apart from the scramble. `seed` is the xorshift state. False when
+// the key has no record.
+static bool scramble_key(const opxy::platform::DrumMachine& machine, const opxy::platform::DrumCodec& codec,
+                         opxy::u32 track, opxy::u32 key, opxy::u32& seed) {
+    using namespace opxy;
+    using namespace opxy::platform;
+    const auto next = [&seed](u32 span) {
+        seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+        return ((seed >> 16) * span) >> 16;   // 0 .. span - 1, without a divide
+    };
+    void* region = pad_region(track, key);
+    u8 model, controls[kDrumControlCount];
+    if (!drum_region_values(machine, track, key, region, &model, controls)) return false;
+    model = static_cast<u8>(next(machine.model_count));
+    for (u32 slot = 0; slot < kDrumControlCount; ++slot) {
+        if (!machine.used(model, slot)) continue;
+        u8 low = 0, high = 127;
+        if (machine.scramble_range) machine.scramble_range(model, slot, &low, &high);
+        if (high > 127) high = 127;
+        if (low > high) low = high;
+        controls[slot] = static_cast<u8>(low + next(high - low + 1u));
+    }
+    unsigned char* record = static_cast<unsigned char*>(region);
+    const bool setup = machine.pad_mix && !drum_ready(record);
+    if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, codec)) return false;
+    record[24] = drum_mark(record[24]);
+    if (setup) {
+        static_cast<i32*>(region)[kDrumPadWord / 4] = static_cast<i32>(kDrumPadReady);
+        record[kDrumLevel] = 0;
+    }
+    stock<void(u32)>(0x8d4d5f18)(key);
+    return true;
+}
+// Stock's own generator seeds a scramble, so each one differs.
+static opxy::u32 scramble_seed() {
+    return static_cast<opxy::u32>(opxy::platform::stock<opxy::i32(opxy::u32, opxy::u32)>(0x8c0b5230)(0, 0)) | 1u;
+}
+
 // 8c0b5430: the drum branch's one call. Stock's (8d4d622c) re-rolls each of the
 // 24 pads' instrument type and settings, keeping its choke group, publishes
 // each pad (8d4d5f18) and then the change (8d585ee8). On an owned kit each key
-// gets a model and a value for every control that model uses, within the
-// kit's scramble range, packed as an edit packs them. Its choke group, pan,
-// level and pad fields stay; a padMix key the kit had not set up is set up as
-// its first edit would be (sdk_drum_edit), so it sounds as before apart from
-// the scramble. Other tracks keep stock's.
+// is re-rolled as scramble_key does. Other tracks keep stock's.
 void sdk_drum_scramble() {
     using namespace opxy;
     using namespace opxy::platform;
@@ -246,34 +284,59 @@ void sdk_drum_scramble() {
     if (!machine) return stock<void()>(0x8d4d622c)();
     const DrumCodec codec = drum_codec(machine->model_count, machine->count);
     if (!codec.fits() || !machine->model_count) return;
-    // Stock's own generator seeds it, so each scramble differs.
-    u32 seed = static_cast<u32>(stock<i32(u32, u32)>(0x8c0b5230)(0, 0)) | 1u;
-    const auto next = [&seed](u32 span) {
-        seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
-        return ((seed >> 16) * span) >> 16;   // 0 .. span - 1, without a divide
-    };
-    for (u32 key = 53; key < 77; ++key) {
-        void* region = pad_region(track, key);
-        u8 model, controls[kDrumControlCount];
-        if (!drum_region_values(*machine, track, key, region, &model, controls)) continue;
-        model = static_cast<u8>(next(machine->model_count));
-        for (u32 slot = 0; slot < kDrumControlCount; ++slot) {
-            if (!machine->used(model, slot)) continue;
-            u8 low = 0, high = 127;
-            if (machine->scramble_range) machine->scramble_range(model, slot, &low, &high);
-            if (high > 127) high = 127;
-            if (low > high) low = high;
-            controls[slot] = static_cast<u8>(low + next(high - low + 1u));
-        }
-        unsigned char* record = static_cast<unsigned char*>(region);
-        const bool setup = machine->pad_mix && !drum_ready(record);
-        if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, codec)) continue;
-        record[24] = drum_mark(record[24]);
-        if (setup) {
-            static_cast<i32*>(region)[kDrumPadWord / 4] = static_cast<i32>(kDrumPadReady);
-            record[kDrumLevel] = 0;
-        }
-        stock<void(u32)>(0x8d4d5f18)(key);
-    }
+    u32 seed = scramble_seed();
+    for (u32 key = 53; key < 77; ++key) scramble_key(*machine, codec, track, key, seed);
     stock<void()>(0x8d585ee8)();
+}
+
+// 8c0b309c (drum_hooks.s): the instrument key-down handler's action for key code 6
+// with a pad held (its table 0x8400e36c) runs Drumline's pad scramble only for engine
+// 4 (R7, the track's engine as 8c0b2e68 asks it) with its held-pad overlay on (B[P5 +
+// 0x2c], which 8c0b2068 sets only for stock's drum pages). True for an owned kit on
+// the selected track while one of its pads is held (stock's held-key list, 8d5b7d7c,
+// pad codes 53..76): the hook then runs that action's body (8c0b3168), whose scramble
+// call (8c0b3170) is sdk_drum_pad_scramble, and which then auditions the pad.
+opxy::u32 sdk_drum_pad_action(opxy::u32 engine) {
+    using namespace opxy;
+    using namespace opxy::platform;
+    const u32 track = byte(kSelectedTrack);
+    if (track >= kTracks || !sdk_drum_machine(engine) || track_engine(track) != engine) return 0;
+    for (u32 code = 53; code < 77; ++code)
+        if (stock<u32(u32)>(0x8d5b7d7c)(code)) return 1;
+    return 0;
+}
+
+// 8c0b3170: that action's call of Drumline's one-pad scramble 8d4d60f4(key), the held
+// key (0x8400dfc8, which a pad's key-down stores whatever the engine, 8c0b2ff4). On an
+// owned kit's track that key alone is re-rolled as the track menu's scramble rolls
+// each key; elsewhere stock's.
+void sdk_drum_pad_scramble(opxy::u32 key) {
+    using namespace opxy;
+    using namespace opxy::platform;
+    const u32 track = byte(kSelectedTrack);
+    const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
+    if (!machine) return stock<void(u32)>(0x8d4d60f4)(key);
+    const DrumCodec codec = drum_codec(machine->model_count, machine->count);
+    if (key >= 128 || !codec.fits() || !machine->model_count) return;
+    u32 seed = scramble_seed();
+    if (scramble_key(*machine, codec, track, key, seed)) stock<void()>(0x8d585ee8)();
+}
+
+// 8c0b2978: the instrument controller's shifted key handler (8c0b28a8) asks whether a
+// key is a pad (8d5b8814) and then, for stock's drum pages only (the track's engine
+// 3 or 4, 8c0b2986, unaliased), not while playing (0x860c9b39), holds the pad for
+// per-key editing: its canonical key (8d5b89ac with the track's octave, 8d58f65c) into
+// 0x8400dfc8 (8c0b29ce). On an owned kit's track the SDK holds it the same way, so
+// Shift and a pad move the Shift row and the encoders to that pad, as on Drumline;
+// before, only a plain pad press held one (8c0b2ff4), and a Shift press left the last
+// one held until a track or page change cleared it. The rest is stock's.
+opxy::u32 sdk_drum_shift_pad(opxy::u32 code) {
+    using namespace opxy;
+    using namespace opxy::platform;
+    const u32 pad = stock<u32(u32)>(0x8d5b8814)(code);
+    const u32 track = byte(kSelectedTrack);
+    if (!pad || !owned_kit(track) || byte(kPlaying) || byte(kPlaying + 1)) return pad;
+    const i32 octave = stock<i32(u32)>(0x8d58f65c)(track);
+    *at<volatile u32>(kDrumEditKey) = stock<u32(u32, i32)>(0x8d5b89ac)(code, octave);
+    return pad;
 }
