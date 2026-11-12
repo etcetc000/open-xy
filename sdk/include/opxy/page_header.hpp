@@ -13,7 +13,17 @@ struct PageHeader {
 const u32 page_header_nodes = 8, page_header_texts = 16;
 const u8 page_header_slots[2][4] = {{0, 1, 2, 3}, {4, 5, 6, 7}};
 
-// Rounded 0..100 caption without a percent sign. The underlying Q31 is unchanged.
+// A control's place in its travel as two digits, 00..99, exactly as the stock
+// pages caption it: floor(100 * value / 2^31). A quarter of travel reads 25,
+// full scale 99. The underlying Q31 is unchanged.
+static inline void header_number(char* out, u32 capacity, i32 value) {
+    const u32 n = value < 0 ? 0 : ((static_cast<u32>(value) >> 8) * 100) >> 23;
+    const char number[3] = {static_cast<char>('0' + n / 10), static_cast<char>('0' + n % 10), 0};
+    copy(out, capacity, number);
+}
+
+// Rounded 0..100 caption without a percent sign, for machines that already use
+// it; new ones count with header_number. The underlying Q31 is unchanged.
 static inline void header_amount(char* out, u32 capacity, i32 value) {
     const u32 n = value < 0 ? 0 : ((static_cast<u32>(value) >> 10) * 100 + (1u << 20)) >> 21;
     char number[4];

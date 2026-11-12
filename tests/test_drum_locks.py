@@ -33,7 +33,7 @@ def kit(pad_mix=1, **resources):
     definition = test_drum_preview.DrumPreviewTests.definition(None, 'drum')
     definition['resources'].update(padMix=pad_mix, **resources)
     return SimpleNamespace(kind='drum', id='probe', prefix='probe', native_name='probe', definition=definition,
-                           sdk='1.10', preset_defaults={}, engine=None)
+                           sdk=(1, 10), preset_defaults={}, engine=None)
 
 
 def run(command, **kwargs):

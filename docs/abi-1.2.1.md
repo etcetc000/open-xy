@@ -406,24 +406,107 @@ continuous one, with `scale` preset to 2. A stepped parameter moves
 `scale × count` buckets, one per detent at speed 0 (`event[2]`, else two, and
 more from 100 steps), from the bucket the current word falls in
 (`word × buckets >> 31`), and stores the bucket's centre; the product must stay
-below 256. The hook answers an owned synth's or send effect's enum slot with
-its choice count and `scale` 1, so a detent selects the next choice, and passes
-every other query to stock.
+below 256. For a synth or send effect targeting an SDK before 1.15, or a drum kit, the hook answers an
+owned enum slot with its choice count and `scale` 1, so a detent selects the next choice. It
+passes every other query to stock, so from SDK 1.15 an enum turns through 00 to 99 as Prism's
+ratio does.
 
 Stock draws each position's title from the engine record's parameter-name
-callback and its value as a percentage of the vector word. The adapter
+callback and its value as [00 to 99](#control-values-and-captions) of the vector word. The adapter
 passes the selected track to the screen's parameter-vector getter after
 refreshing alternate-control selection.
 The engine-page title call maps the position to its shown slot; the record's
 parameter-name callback always names the raw slot, including when called by
 an LFO page. The screen shell passes stock a copy
 of the vector with each position's shown word in place. Generated metadata
-then supplies one-decimal amounts (0.0–100.0 without a suffix) and bounded positive
-anchor-ratio captions on custom synth screens; enums and machine text overrides remain
-discrete. FX pages retain their stock captions, except that a send page
+then supplies the same 00 to 99 on the screens of custom synths targeting SDK 1.15, not sample engines;
+earlier ones keep one-decimal amounts (0.0–100.0 without a suffix) and bounded positive
+anchor-ratio captions. Enums and machine text overrides remain discrete. FX pages retain their stock captions, except that a send page
 hook (`8d53b636`, the value-text call in its loop over positions) lets an owned
 effect name a `division` control's value, as stock does only for its delay
 (effect 0, table `0x84056aa0`).
+
+### Control values and captions
+
+The evidence behind [stock's synth engines](ux.md#stock-synth-engines) and [send effects](ux.md#stock-send-effects). Each fact is marked by how
+it's known: **firmware** (read in place from the device's `os.ldr`, with nothing extracted
+committed), **catalog** (`op1_factory.json`), **guide** (Teenage Engineering's
+[synth engine guide](https://teenage.engineering/guides/op-xy/synth-engines)) or **scan**
+(a search for a code pattern that found none). Listening on a device, Axis's `tremolo`, Dissolve's `swarm` and E-piano's `punch` change smoothly,
+Hardsync's whole multiples don't stand out, and the controls under "Not confirmed" turn without
+jumps. Wavetable's `table` takes several clicks per table. Unless a note says otherwise, nothing else has been measured on a device;
+[#252](https://github.com/etcetc000/open-xy/issues/252) tracks those checks.
+
+#### Numbers (firmware)
+
+The send FX, reverb, delay, FX filter and synth pages caption a number as
+`floor(100 × word / 2^31)`, computed as `((word >>> 8) * 100) >>> 23` and printed with
+`%02i` (for a synth, `8d5466ac` and `8d5640d6`). So 0.25 of travel reads exactly 25, a word
+just below it reads 24 and full scale reads 99. Prism's default, 16704, reads 50 and would
+read 51 if rounded. An inactive control shows empty text. Prism's `ratio` is the one exception found on a synth page:
+its screen replaces the number with a ratio (below), through `8d5467e8`, which has no other caller.
+Organ's screen is another: it draws `faders` and shows no values, with no text in `organ.svg`
+and no call to the shared header routine `8d5466ac`, which Prism, Dissolve, E-piano, Hardsync
+and Wavetable screens call. Simple's screen has its own `values` text. A centred variant reading −99 to
++99 (`8d56565c`) is only on a legacy screen.
+
+`%02i` is the only number format in the send effect pages' code (`8d538bda..8d53bf2c`), and the
+generic page's loop (`8d53b5d8..8d53b652`) captions all four of chorus's, phaser's, dist's and lofi's controls. Their
+artwork's `10 ms` and `10 us` are placeholders, as chorus's artwork has them too.
+
+#### Names
+
+Stock's synth pages draw a 10 px title at x `5 + 120 i` and its value at `65 + 120 i`
+([template](../sdk/platform/opxy-1.2.1/screen.svg)). The value's grey box starts before that: on a
+device, `mmmmmm` (53.6 px of advance, its last `m` inked from 45.5 to 52.8 px) runs a little under
+half of that `m` into the box, and `mmmmmr` (48.5 px) stops just before it, so a title has about 49 px. On the FX page's wider columns `mmmmmm` fits. Measured in the device's font at 10 px, stock's widest synth names are
+`position` (36 px) and `tremolo` (35 px). Its widest names overall are on the FX page, whose columns are
+100 px: `frequency` (45 px) and `feedback` (41 px). Every stock name is lower case in the firmware's
+string table. The SDK can't ship the font, so its check uses each letter's advance, rounded up to half a pixel.
+Stock's text call (`8d6011f0`) takes the whole string without shortening it, so a too-wide name
+isn't cut off: on a device it overlaps the value's box.
+
+#### Stepped controls (firmware)
+
+`8c0b2468(track, index, &scale)` gives a control's steps, and a stepped control stores its
+bucket's centre. It lists Wavetable's `table` (engine 31, 9 steps, several clicks each on a device), the only synth control there, along
+with MIDI's first control (engine 29, 16), and the drum sampler's fourth (engine 3, 4). Delay and
+reverb size instead take a name from `word >> 28` (tables `0x84056aa0` and `0x84056ac0`), which
+[`opxy::division`](api.md#effects) matches.
+
+#### Controls that aren't a plain line
+
+| Control | What the value does | Known from |
+| --- | --- | --- |
+| Prism `shape` | Four overlapping ramps, over 0 to 0.25, 0.25 to 0.5, 0.5 to 0.75 and 0.75 to 1 (`8d5178f0..8d5179a2`, ramp `8d517830`), smoothed, with no jumps | Firmware |
+| Prism `ratio` | Ten steps, `floor(10 × value)` into a table at `84050750` (`8d5177cc`, `8d5177e0`), shown with `%d:%d` in whole numbers (`8d525b1a..8d525b40`), which the voice also uses as a frequency multiple (`8d517b06`). | Firmware |
+| Dissolve `swarm` | `min(2v, 1)` times fixed weights, plus `2 × max(v − 0.5, 0)`, so two stages meet at 0.5 (`8d51593c..8d515998`) | Firmware |
+| Axis `ratio` | `floor(10 × 2 × max(v − 0.5, 0))` into a table at `8405002c`: 0, 2, 3, 4, 6, 8, 12, 16, 24, 32 (`8d516da2..8d516e46`). Only step 0 keeps the detune, `min(2v, 1)`, so detune holds from 50 to 54 and the first interval is at 55. The guide says "a detune (from 0–50)" and "ascending fifths (from 51–100)" | Firmware, against the guide |
+| Axis `tremolo` | Amount `min(2v, 1) × (1 − max(v − 0.5, 0))`; speed uses `0.5 + max(v − 0.5, 0)` (`8d516c84..8d516cb8`) | Firmware |
+| Organ `tone` | The guide calls this control type, and says it switches organ types. One of 8 presets by `word >> 28` (`8d5174da`, `8d517208`; table `840500d8`), with rows that differ for notes up to 72 and above. It isn't in the step table, so it has no detents | Firmware; the presets' contents weren't interpreted |
+| Organ `shape` | Moves up to four of the type's fields, with weights r² and (1−r)² around each entry's midpoint (`8d517240..8d5172fc`; entries at `84050518`, filled at start-up by `8d517598`). Each oscillator also has a fixed detune in cents (`8d51736a..8d51738a`, `8d5ba68c`) | Firmware; what most fields do to the sound wasn't interpreted |
+| Hardsync `freq` | `base × (1 + 7v)` (`8d5170e8..8d517100`), so a whole multiple every seventh of travel | Firmware |
+| Delay `fine` | `2 × (v − 0.5)` times 2205, added to the size's length, with lengths worked out from 44100 and 60 (`8d501264..8d50129e`). So it's bipolar, with no offset at exactly 0.5, and at most 2205 samples, about 50 ms, either way | Firmware |
+| E-piano `punch` | `v < 0.25`: `0.0125 + 0.2v`; otherwise `0.0625 + 0.9375 (v − 0.25)` (`8d516668..8d5166f8`). Its default is exactly on the knee | Firmware |
+| Simple `pw` | `0.5 + 0.49v` (`8d517c40..8d517c5c`) | Firmware |
+
+Names are from the firmware's string table (`0x84047a6c..0x84047f64`). The guide lists E-piano's
+third and fourth controls as punch then tine. That's out of date: a stock update swapped them
+because they were mislabeled, so 1.2.1's order is tine then punch, and the knee is on punch.
+
+Registration (`8d506804..8d5069fe`) gives each name its number, and `8d513d98..8d5155e0` is
+Drumline's voice code, so its curves aren't listed here.
+
+#### Not confirmed
+
+- Axis's `tone` and `shape`, Simple's `shape`, and Wavetable's `position`, `warp` and `drift` have no
+  switch where the parameter is read (`8d516b70`, `8d517c32`, `8d51890c`), but the oscillator code
+  that uses them wasn't fully decoded.
+- The exact size of a turn. On a device one click moves a 00 to 99 control by one number. Stock's step
+  (`8d5ad254`) adds `event[0]` to the current word and keeps its top 16 bits (`8d5ad3c2`, `8d5ad4be`),
+  but where that size is made wasn't found, so whether a quarter's word is hit exactly isn't known.
+- How many clicks Wavetable's `table` takes per table. Its step table's count of 9 and preset `scale`
+  of 2 suggest two, but on a device it takes several, more like Prism's `ratio`.
 
 ### LFO destinations
 
