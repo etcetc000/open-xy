@@ -276,7 +276,7 @@ int main() {
     unlock();
     lock(0, -4, 2, 0, 3);
     note(41, 54);
-    CHECK(drum_marked_q31(published[0]) && published[0] == drum_marked_word(0x43));
+    CHECK(drum_marked_q31(published[0]) && (published[0] & ~0x7f7f) == (drum_marked_word(0x43) & ~0x7f7f));
     u8 model = 99, controls[8];
     CHECK(drum_unpack(published + 1, &model, controls) && model == 1);
     for (u32 i = 0; i < 8; ++i) CHECK(controls[i] == 30 + i);

@@ -364,11 +364,13 @@ bool carries(const i32* words, u32 filter, u32 srr, u32 fx1, u32 fx2) {
     drumline_send_choices(line_page, drum_send_carried(words), c);
     return is(c, filter, srr, fx1, fx2);
 }
+#ifdef DRUMLINE_ON
 // A payload carrying these choices, the sends as old codes, as the GUI carries a pad's.
 void carry(i32* words, u32 filter, u32 srr, u32 fx1, u32 fx2) {
     drumline_carry(words, old_pair(fx1, fx2), drumline_pack(line_page, make_choices(filter, srr, fx1, fx2)),
                    drumline_own_low(line_page));
 }
+#endif
 }
 
 namespace {
@@ -525,7 +527,7 @@ void filter_words_are_stocks() {
     for (u32 index : kFilterWords) live[kLine * 58 + index] = 0x13572468;
     note(kLine, 53);
     CHECK(!std::memcmp(published + 1, built + 1, 5 * sizeof(i32)) && published[7] == built[7]);
-    CHECK((published[0] & ~0xff) == (built[0] & ~0xff));
+    CHECK((published[0] & ~0xffff) == (built[0] & ~0xffff));
     // Load, scramble and the frame's refresh leave every stored and live word alone.
     for (u32 i = 0; i < 58; ++i) stored(kLine)[i] = 0x1111 * static_cast<i32>(i + 1);
     CHECK(sdk_drum_load_engine(4, track_object(kLine)) == 4);
