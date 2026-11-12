@@ -164,7 +164,7 @@ opxy::i32 current_value(u32 track, u32 slot) {
 const u32 kProject = 0x86bd027c;
 const u32 kProjectLoading = 0x840a0528;  // nonzero while stock loads a project
 opxy::i32 stored_value(u32 track, u32 slot) {
-    return *reinterpret_cast<const volatile opxy::i32*>(kProject + 0x4080 + track * 0xe8 + slot * 4);
+    return static_cast<opxy::i32>(word(kProject + 0x4080 + track * 0xe8 + slot * 4));
 }
 
 // A detent the track's machine takes as its own (track control), which then
@@ -304,6 +304,20 @@ void sdk_synth_press(u32 encoder) {
         return;
     }
     if (controller == kInstrumentController && word(kInstrumentPage) == 0 && (m = machine(byte(kSelectedTrack), t))) {
+        if (m->press) {
+            // A saved encoder-press action edits the track's own words; validate
+            // the complete edit before publishing any word through stock.
+            const u32 track = byte(kSelectedTrack);
+            opxy::i32 parameters[opxy::parameter_slots];
+            for (u32 i = 0; i < opxy::parameter_slots; ++i) parameters[i] = stored_value(track, i);
+            m->press(encoder, parameters);
+            for (u32 i = 0; i < opxy::parameter_slots; ++i)
+                if (parameters[i] < 0 || (i >= opxy::page_controls && parameters[i] != stored_value(track, i))) return;
+            for (u32 i = 0; i < opxy::parameter_slots; ++i)
+                if (parameters[i] != stored_value(track, i))
+                    stock<void(u32, u32, u32, opxy::i32)>(0x8d5acf28)(kProject, track, i, parameters[i]);
+            return;
+        }
         // A paged synth's or a drum kit's press moves the whole row; a slot the
         // selected key's model leaves unnamed shows blank. A key whose model has
         // no second row stays on its first.

@@ -170,7 +170,7 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl', 'stereoOutput', 'releaseCallback')}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'noteStart')}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls')),
@@ -211,6 +211,7 @@ def validate_definition(value, kind):
             validate_display(resources['display'])
     if kind in ('synth', 'drum'):
         validate_synth_resources(resources)
+        require(resources.get('noteStart', 0) in (0, 1), 'noteStart must be 0 or 1')
     if kind == 'master':
         validate_display(resources['display'])
     if kind == 'drum':
@@ -265,11 +266,15 @@ def validate_definition(value, kind):
     require('press' in value or not any(p.get('absent') and 'control' in p for p in parameters),
             'Only a paged synth puts an absent slot on a position')
     if 'press' in value:
-        alternates = [p for p in control_positions(value)[SYNTH_POSITIONS:] if p is not None]
-        require(kind in ('synth', 'effect') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
-                alternates and len(set(alternates)) == len(alternates),
-                '"press": "page" needs five to eight synth or effect parameters and at most one alternate per position; '
-                "a drum kit's press always pages its row")
+        if value['press'] == 'action':
+            # A saved encoder-press action: four controls, the synth edits its own words.
+            require(kind == 'synth' and len(parameters) == 4, '"press": "action" needs a synth with exactly four controls')
+        else:
+            alternates = [p for p in control_positions(value)[SYNTH_POSITIONS:] if p is not None]
+            require(kind in ('synth', 'effect') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+                    alternates and len(set(alternates)) == len(alternates),
+                    '"press": "page" needs five to eight synth or effect parameters and at most one alternate per position; '
+                    "a drum kit's press always pages its row")
     if 'shift' in value:
         validate_shift(value['shift'], kind, set(names), value)
     # Stock instrument pages a synth or drum kit hides: M2 (envelope) and M3 (filter).

@@ -351,6 +351,9 @@ def absent_symbols(m):
             absent[m.prefix + '_screen_ready'] = 'kit_absent'
         # The shared track control table names these; unselected, its ready check declines first.
         absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
+        # So does the synth control table a saved press action ("press": "action").
+        if m.definition.get('press') == 'action':
+            absent[m.prefix + '_control_press'] = 'kit_absent'
     if m.kind in ('effect', 'sample', 'drum'):
         absent[m.prefix + '_benchmark'] = 'kit_absent'
     return absent

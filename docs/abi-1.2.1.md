@@ -1840,3 +1840,13 @@ before binding; EQ slot 33 is never overwritten. Path commands remain fixed
 32-byte records (type at +24); the shared retained renderer checks exact command counts
 and types and caches geometry/palette references. Author frames use the normal
 positive-scale hide transform for degenerate geometry. All this runs on the GUI role.
+### Synth onset identity
+
+The common stock onset call at `0x8d51b1ae` calls method-table offset +16
+with the object in R0, byte +0x50 of its parent voice in R1 (note identity),
+and byte +0x54 in R2. The SDK optionally captures R1 in the handle before
+voice allocation; delayed allocation uses that handle's key. The existing
++20 legato method remains unchanged. No new firmware edit is needed.
+The parameter action reuses the authenticated encoder press hook and stock
+setter `0x8d5acf28(project, track, slot, value)`, also used by send-default
+publication, on the GUI role only.
