@@ -89,7 +89,19 @@ stock. These shims are linked in both modes so the browser can select the mode
 without recompilation; enabled builds leave all ten stock hook sites intact.
 
 The diagnostic runner calls stock's nine synth tests, then the selected SDK
-machines in build order. Synths reuse stock's benchmark-one routine. Effects and
+machines in build order. Synths reuse stock's benchmark-one routine,
+`8d57c848(0x84c696fc, test, index, total)`, which sets track 0's M3 from the
+test's third word: below 19 it writes cutoff `0x33333333` and resonance
+`0x26666666` (words 16 and 17; 18 and 19 are 0) and calls
+`8d50ebd2(object, 0, setup, 1)` (`8d57cb10`..`8d57cb7e`); otherwise
+`8d50ebd2(object, 0, 9, 0)` (`8d57c9b8`..`8d57c9c4`). `8d50ebd2(object, track,
+type, on)` stores a type below 19 at `0x84042700 + track * 4` and `on` at byte
+`0x11b01dc8 + track` (`8d50ec20`..`8d50ec3e`), the tables the normal renderer
+reads ([track filter](#the-track-filter-on-kit-voices)). Stock's table at
+`0x8409f3b4` gives prism, simple, hardsync, dissolve and chord a filter type
+(M3 on); axis, organ, epiano and wavetable get 19. The SDK passes 19 for every
+SDK synth, so its runs have M3 off, as a kit's do
+([workloads](profiling.md#what-is-measured)). Effects and
 sample engines use generated wrappers beside their real C++ callbacks, isolated
 state/heap storage and a two-instruction CYCLES reader. Only the explicit command
 publishes those callback statistics into the existing diagnostic records and
