@@ -7,6 +7,7 @@
 #include "screen_header.hpp"
 #include "note_activity.hpp"
 #include "amp_envelope.hpp"
+#include "drum_send.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 // Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
