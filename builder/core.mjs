@@ -1112,6 +1112,52 @@ function defaultPreset(machine) {
   };
 }
 
+// A drum kit's preview (the kit's `preview.kit`): its 24 keys, canonical 53..76, each
+// with its own model and eight controls, which the device stores as 0..127 and plays
+// as Q31 words, 127 as full scale (drum_voice.cpp.in). The preview module reports a
+// key's defaults and each model's name and labels, as the device's adapter reads them.
+export const KIT_KEYS = Array.from({length:24}, (_, i) => 53 + i);
+export const kitWord = value => value === 127 ? 0x7fffffff : value << 24;
+function kitText(api, address) {
+  if (!address) return '';
+  const memory = new Uint8Array(api.memory.buffer);
+  requireThat(Number.isInteger(address) && address > 0 && address < memory.length, 'Invalid kit text');
+  const end = memory.indexOf(0, address);
+  requireThat(end >= 0 && end - address <= 64, 'Unterminated kit text');
+  return new TextDecoder().decode(memory.subarray(address, end));
+}
+// A key as the kit sets it up: its model, its controls, no choke group, centred at 0 dB.
+export function kitKey(api, kit, key) {
+  requireThat(KIT_KEYS.includes(key), 'Invalid kit key');
+  const at = api.opxy_drum_defaults(key) >>> 0, memory = new Uint8Array(api.memory.buffer);
+  requireThat(at > 0 && at + 9 <= memory.length, 'Invalid kit key defaults');
+  const model = memory[at] < kit.models ? memory[at] : 0;
+  return {key, model, controls:Array.from(memory.subarray(at + 1, at + 9), value => Math.min(value, 127)), choke:0};
+}
+// A model's name and each slot's label; a slot is used when below the model's count and named.
+export function kitModel(api, kit, model) {
+  requireThat(Number.isInteger(model) && model >= 0 && model < kit.models, 'Invalid kit model');
+  const count = Math.min(8, api.opxy_drum_count(model) >>> 0);
+  const labels = Array.from({length:8}, (_, slot) => slot < count ? kitText(api, api.opxy_drum_label(model, slot) >>> 0) : '');
+  return {name:kitText(api, api.opxy_drum_model_name(model) >>> 0), labels, used:labels.map(label => label !== '')};
+}
+// The model's group and the model's place in it, or the model without groups, then the choke group.
+export function kitGroup(kit, model) {
+  let group = 0, first = 0;
+  while (group + 1 < (kit.groups?.length ?? 0) && model >= first + kit.groups[group].count) first += kit.groups[group++].count;
+  return {group, place:model - first, label:kit.groups?.[group]?.label ?? ''};
+}
+export function kitChoices(kit, model, choke = 0) {
+  if (!kit.groups?.length) return [model, choke, 0, 0];
+  const {group, place} = kitGroup(kit, model);
+  return [group, place, choke, 0];
+}
+// The display's pan, level and pad fields for a key the kit has not set up: centred, 0 dB, neutral.
+export const kitMix = kit => kit.padMix ? {pan:0, level:0, pad:[0, 0, 0, 0]} : {pan:0, level:0};
+// The stock header of a kit's page: each shown slot's label and its 0..127 value, blank when unused.
+export const kitHeader = (names, controls, shown) =>
+  [shown.map(slot => names.labels[slot]), shown.map(slot => names.used[slot] ? String(controls[slot]) : '')];
+
 export function graphicsForMachine(machine, {graphics = 'colorful', graphicsOverrides = {}} = {}) {
   const mode = machine.artwork && Object.hasOwn(graphicsOverrides, machine.id) ? graphicsOverrides[machine.id] : graphics;
   check(['colorful', 'grayscale'].includes(mode), 'Invalid machine graphics setting');

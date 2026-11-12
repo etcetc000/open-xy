@@ -13,6 +13,8 @@ export class Audition {
     this.volume = 0.5; this.revision = 0; this.disposed = false; this.playing = false;
     // The note a key holds, from its press: a release during audio setup still ends it.
     this.held = null;
+    // A drum kit's model for the next note (engine.mjs setModel); null for other machines.
+    this.model = null;
   }
   async start() {
     const context = this.context = new AudioContext({sampleRate:44100, latencyHint:'interactive'});
@@ -55,6 +57,7 @@ export class Audition {
       if (this.disposed || revision !== this.revision) return;
       this.processor.port.postMessage({type:'panic'});
       this.processor.port.postMessage({type:'parameters', value:this.parameters});
+      if (this.model !== null) this.processor.port.postMessage({type:'model', value:this.model});
       this.gain.gain.value = this.volume;
       this.processor.port.postMessage({type:'on', note, velocity:0.8});
       this.playing = true; this.onState(true);
@@ -82,6 +85,10 @@ export class Audition {
   setParameters(values) {
     this.parameters = [...values];
     this.processor?.port.postMessage({type:'parameters', value:this.parameters});
+  }
+  setModel(model) {
+    this.model = model;
+    this.processor?.port.postMessage({type:'model', value:model});
   }
   setVolume(value) {
     this.volume = value;

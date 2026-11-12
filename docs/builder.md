@@ -66,10 +66,13 @@ directing you to format.
    in one click. The next page links to the official OS 1.2.1 download and explains
    how to power cycle, check that the menu is gone, and reinstall. After reinstalling,
    **Try again** goes straight to enabling the dev menu for the same computer.
-3. Select machines. Synth rows have a playable preview of their C++ sound and
-   display code. Open **Preview controls** to adjust parameters, play the
+3. Select machines. Synth and drum kit rows have a playable preview of their C++
+   sound and display code. Open **Preview controls** to adjust parameters, play the
    keyboard and set its volume. The controls start collapsed; reopening them
-   keeps parameter values, and closing them stops preview notes. Each row shows
+   keeps parameter values, and closing them stops preview notes. A kit's keyboard
+   is its 24 keys, each set up as the kit sets it up: pressing one selects it and
+   plays its machine, and **Machine** and the sliders edit the selected key, as
+   Shift and the encoders do on the device ([kit previews](preview.md#drum-kits)). Each row shows
    its code, data and state size against the memory meter.
    Machines from the [catalog](catalog.md) are marked
    **Community** and start unselected; their details name the maintainer and
@@ -114,7 +117,7 @@ directing you to format.
    session; only selected machines' overrides enter the installation package.
    The same dialog previews every selected machine with its setting applied.
    For machines with a browser module, it renders the default UI once and caches
-   a frozen SVG snapshot. There is no animation loop or audio; changing graphics
+   a frozen SVG snapshot; a drum kit's shows its first key as the kit sets it up. There is no animation loop or audio; changing graphics
    reuses the same frame, and reopening reuses the cached snapshots. Machines
    without a browser module show their static artwork with a fallback label.
    Machines using stock screens are identified when no visual preview is available.

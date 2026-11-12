@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitWord} from '../builder/core.mjs';
 import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
@@ -740,4 +741,36 @@ test('players have stable separate types and share the relocated page pool', () 
   assert.deepEqual(numberLayout(rules, [], layout, machines.slice().reverse()), layout);
   assert.deepEqual([...activeServices(profile, [{kind: 'player'}])].sort(), ['octaves', 'players']);
   assert.throws(() => numberLayout(rules, [], {probeplayer: {player: 4, page: 84}}, machines), /cannot use/);
+});
+
+test("a kit's keys, models and header read as the device's adapter reads them", () => {
+  assert.deepEqual([KIT_KEYS[0], KIT_KEYS.at(-1), KIT_KEYS.length], [53, 76, 24]);
+  // Stored 0..127, played as Q31: 127 is full scale.
+  assert.deepEqual([0, 1, 64, 126, 127].map(kitWord), [0, 0x1000000, 0x40000000, 0x7e000000, 0x7fffffff]);
+  const kit = {models:33, padMix:true, groups:[{label:'TRX', count:13}, {label:'EFM', count:8}, {label:'P-I', count:9}, {label:'GND', count:3}]};
+  assert.deepEqual([0, 12, 13, 20, 21, 32].map(model => kitChoices(kit, model, 2)),
+    [[0, 0, 2, 0], [0, 12, 2, 0], [1, 0, 2, 0], [1, 7, 2, 0], [2, 0, 2, 0], [3, 2, 2, 0]]);
+  assert.deepEqual(kitGroup(kit, 30), {group:3, place:0, label:'GND'});
+  assert.deepEqual(kitChoices({models:12}, 7), [7, 0, 0, 0]);
+  assert.equal(kitGroup({models:12}, 7).label, '');
+  assert.deepEqual(kitMix(kit), {pan:0, level:0, pad:[0, 0, 0, 0]});
+  assert.deepEqual(kitMix({models:12}), {pan:0, level:0});
+  const memory = {buffer:new ArrayBuffer(256)}, bytes = new Uint8Array(memory.buffer);
+  bytes.set(new TextEncoder().encode('BD\0PTCH\0'), 100);
+  const api = {memory, opxy_drum_defaults:key => { bytes.set([key - 53, 200, 127, 0, 1, 2, 3, 4, 5], 8); return 8; },
+    opxy_drum_model_name:() => 100, opxy_drum_label:(model, slot) => slot === 0 ? 103 : slot === 1 ? 0 : 102, opxy_drum_count:() => 9};
+  assert.deepEqual(kitKey(api, kit, 55), {key:55, model:2, controls:[127, 127, 0, 1, 2, 3, 4, 5], choke:0});
+  // A model beyond the kit reads as its first.
+  assert.equal(kitKey(api, kit, 76).model, 23);
+  assert.equal(kitKey(api, {models:20}, 76).model, 0);
+  assert.throws(() => kitKey(api, kit, 52), /Invalid kit key/);
+  // Eight slots at most; a null or empty label is an unused slot.
+  const names = kitModel(api, kit, 0);
+  assert.deepEqual(names, {name:'BD', labels:['PTCH', '', '', '', '', '', '', ''], used:[true, false, false, false, false, false, false, false]});
+  assert.throws(() => kitModel(api, kit, 33), /Invalid kit model/);
+  assert.deepEqual(kitHeader(names, [9, 8, 7, 6, 5, 4, 3, 2], [0, 1, 6, 3]), [['PTCH', '', '', ''], ['9', '', '', '']]);
+  // Unterminated or out-of-range text fails closed.
+  bytes.fill(65, 200);
+  assert.throws(() => kitModel({...api, opxy_drum_model_name:() => 200}, kit, 0), /Unterminated kit text/);
+  assert.throws(() => kitModel({...api, opxy_drum_model_name:() => 4096}, kit, 0), /Invalid kit text/);
 });

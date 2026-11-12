@@ -31,4 +31,4 @@ void opxy_preview_model(opxy::u32 model) { drum_model = model; }
 void opxy_render(Voice* voice, opxy::i32* output, const opxy::i32* parameters, const opxy::u32* pitch) {
     @DRUM_SELECT@@NAMESPACE@::render(*voice, shared, owner(voice), output, parameters, pitch);
 }
-}
+@DRUM_KEYS@}
