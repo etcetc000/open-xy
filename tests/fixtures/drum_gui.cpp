@@ -89,15 +89,15 @@ i32 scrambled(u32 slot, u32 flag) {
 }
 u32 stock_scrambles;
 void stock_scramble() { ++stock_scrambles; }
-// A pad's key-layer doubles: pads are codes 53..76; the track's octave shifts a
-// pad's canonical key by 12 a step; one code may be held; stock's playing bytes;
-// stock Drumline's one-pad scramble.
+// A pad's key-layer doubles: pads are codes 26..49 (stock's 8d5b8814), each the
+// canonical key 53 + code - 26 at octave 0, 12 more an octave; one code may be held
+// (M1, code 6, among others); stock's playing bytes; stock Drumline's one-pad scramble.
 u32 held_code, stock_pad_scrambles, stock_pad_scrambled;
 i32 octave;
 unsigned char playing[2];
-u32 is_pad(u32 code) { return code >= 53 && code < 77; }
+u32 is_pad(u32 code) { return code - 26 < 24; }
 i32 track_octave(u32 selected) { require(selected == track); return octave; }
-u32 canonical_pad(u32 code, i32 shift) { return static_cast<u32>(static_cast<i32>(code) + 12 * shift); }
+u32 canonical_pad(u32 code, i32 shift) { return static_cast<u32>(static_cast<i32>(code) + 27 + 12 * shift); }
 u32 key_held(u32 code) { return held_code && code == held_code; }
 void stock_pad_scramble(u32 pad) { ++stock_pad_scrambles; stock_pad_scrambled = pad; }
 // The 33-model kit narrows its first control to 100 and its third to 40..50.
@@ -1132,17 +1132,18 @@ int main() {
         // is no pad, and never on another engine (stock holds Drumline's itself).
         const u32 saved_engine = engine, saved_latch = edit_latch;
         engine = 41; edit_latch = 60;
-        require(sdk_drum_shift_pad(57) == 1 && edit_latch == 57 && drum_edit_key(0) == 57);
+        require(sdk_drum_shift_pad(30) == 1 && edit_latch == 57 && drum_edit_key(0) == 57);
         octave = 1;
-        require(sdk_drum_shift_pad(54) == 1 && edit_latch == 66);
+        require(sdk_drum_shift_pad(27) == 1 && edit_latch == 66);
         octave = 0;
-        require(sdk_drum_shift_pad(12) == 0 && edit_latch == 66);
+        for (u32 other_key : {12u, 25u, 50u, 53u, 55u, 57u})   // no pad: past 26..49
+            require(sdk_drum_shift_pad(other_key) == 0 && edit_latch == 66);
         playing[1] = 1;
-        require(sdk_drum_shift_pad(58) == 1 && edit_latch == 66);
+        require(sdk_drum_shift_pad(31) == 1 && edit_latch == 66);
         playing[1] = 0;
         for (u32 other : {4u, 3u, 34u + 43u}) {
             engine = other;
-            require(sdk_drum_shift_pad(59) == 1 && edit_latch == 66);
+            require(sdk_drum_shift_pad(32) == 1 && edit_latch == 66);
         }
 
         // A pad held and key code 6 (the key-down handler's held-pad action, 8c0b309c):
@@ -1155,7 +1156,13 @@ int main() {
         engine = 41;
         held_code = 0;
         require(!sdk_drum_pad_action(41));          // no pad held
-        held_code = 58;
+        // Holding M1 (code 6) or another key past the pads is no held pad: M1 keeps its
+        // menu (kit-pads-001 asked codes 53..76 and took such keys for pads).
+        for (u32 other_key : {6u, 13u, 25u, 50u, 53u, 54u, 55u, 76u}) {
+            held_code = other_key;
+            require(!sdk_drum_pad_action(41));
+        }
+        held_code = 31;                             // pad 58
         require(sdk_drum_pad_action(41) && !sdk_drum_pad_action(4) && !sdk_drum_pad_action(3));
         require(!sdk_drum_pad_action(40));          // another kit than the track's
         const u32 before = publications, changes = dirty;
