@@ -37,6 +37,15 @@ class KitPads(unittest.TestCase):
         self.assertFalse(any(p['address'] == '0x8c0b309c' for p in PROFILE['patches']))
         self.assertNotIn('extensions_drum_pad_action', HOOKS)
 
+    def test_a_held_pads_strip_is_drawn_over_the_kit_page(self):
+        # Stock paints in order, so the strip goes after the page, as the track-hold
+        # strip's page follows a track's; drum_hold_strip.cpp runs its frame in CI.
+        source = (ROOT / 'sdk/platform/opxy-1.2.1/screen_drawing.hpp').read_text(encoding='utf-8')
+        frame = source[source.index('static void frame('):]
+        self.assertLess(frame.index('draw(&o->base);'), frame.index('draw_hold_strip(controls.track, elapsed);'))
+        # No hook: the strip is Drumline's own, driven from the kit's frame.
+        self.assertFalse(any('hold_strip' in p.get('symbol', '') for p in PROFILE['patches']))
+
     def test_the_builder_pins_the_reviewed_profile(self):
         import hashlib
         digest = hashlib.sha256((ROOT / 'profiles/opxy-1.2.1.json').read_bytes()).hexdigest()

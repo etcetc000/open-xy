@@ -197,6 +197,12 @@ header shows only the edited row. The
 previews use drawing ABI 6, a 112-byte input: ABI 5 (104 bytes) ends after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
 
+While a pad is held on a drum kit (without Shift), the SDK draws stock's own
+held-pad strip over the kit's screen, as stock Drumline does: after 0.3 s it
+slides up from the bottom edge naming scramble, copy, paste and reset (M1..M4),
+and it goes when the pad is let go. It covers the bottom of the kit's art, which
+keeps drawing beneath it; the display gets no input for it.
+
 ### A synth's Shift row (SDK 1.13)
 
 A synth with a [Shift row](api.md#a-synths-shift-row) reads it on its page
