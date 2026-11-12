@@ -55,7 +55,7 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # and a synth's voice release callback (resources.releaseCallback).
 # 1.13 gives a synth a Shift row: up to eight more controls under its pages ("shift"),
 # kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
-SDK_VERSION = (1, 15)
+SDK_VERSION = (1, 16)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
