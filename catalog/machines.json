@@ -1080,8 +1080,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.2",
-      "commit": "cb47487703c57ef37906063c8dd0225d122bcde7",
+      "tag": "v1.3.3",
+      "commit": "e5577b8e6e8a7806b1f923952bae62d8d72b06f7",
       "path": "machines/mdkit",
       "keywords": [
         "emulation",
@@ -1564,8 +1564,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Trigon",
-      "tag": "v1.1.1",
-      "commit": "cbb383e9695595c3710b3bea9c6b2c6b8ef0aa69",
+      "tag": "v1.1.2",
+      "commit": "364c2cf0816b12d20f3eaea4da5ca6d3e044af25",
       "path": "felt",
       "keywords": [
         "physical",
@@ -1597,8 +1597,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Trigon",
-      "tag": "v1.1.1",
-      "commit": "cbb383e9695595c3710b3bea9c6b2c6b8ef0aa69",
+      "tag": "v1.1.2",
+      "commit": "364c2cf0816b12d20f3eaea4da5ca6d3e044af25",
       "path": "flicker",
       "keywords": [
         "percussion",
@@ -1630,8 +1630,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Trigon",
-      "tag": "v1.1.1",
-      "commit": "cbb383e9695595c3710b3bea9c6b2c6b8ef0aa69",
+      "tag": "v1.1.2",
+      "commit": "364c2cf0816b12d20f3eaea4da5ca6d3e044af25",
       "path": "dust",
       "keywords": [
         "percussion",
