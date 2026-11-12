@@ -289,30 +289,27 @@ void sdk_drum_scramble() {
     stock<void()>(0x8d585ee8)();
 }
 
-// 8c0b309c (drum_hooks.s): the instrument key-down handler's action for key code 6
-// with a pad held (its table 0x8400e36c) runs Drumline's pad scramble only for engine
-// 4 (R7, the track's engine as 8c0b2e68 asks it) with its held-pad overlay on (B[P5 +
-// 0x2c], which 8c0b2068 sets only for stock's drum pages). True for an owned kit on
-// the selected track while one of its pads is held (stock's held-key list, 8d5b7d7c,
-// asked for each pad code, 26..49 as stock's pad test 8d5b8814 takes them: code -
-// 26 below 24): the hook then runs that action's body (8c0b3168), whose scramble
-// call (8c0b3170) is sdk_drum_pad_scramble, and which then auditions the pad.
-// A pad's key code is 26..49 (8d5b8814: code - 26 below 24); the keys past them
-// (53, 54, 55, ...) are others, held with M1 among them.
-static const opxy::u32 kPadCodes = 26;
-opxy::u32 sdk_drum_pad_action(opxy::u32 engine) {
-    using namespace opxy;
+// Held-pad actions. With a pad held, the instrument key-down handler (8c0b2e4c) runs
+// M1..M4 (table 0x8400e36c) as scramble, copy, paste and reset of the held key
+// (0x8400dfc8, which a pad's key-down stores, 8c0b2ff4) for engine 4 with its held-pad
+// overlay on (controller + 0x2c, which 8c0b2068 sets on a pad's key-down and clears on
+// its key-up). An owned kit answers both handlers as 4 (sdk_sample_pad_key_engine) and
+// 8c0b2068's own engine query as 4 (sdk_drum_held_pad_engine), so it gets the same
+// mode; copy and paste move the whole pad entry (its sends included) through stock's
+// clipboard (sdk_sample_pad_copy, sdk_sample_pad_paste), and these two calls are
+// the kit's own.
+//
+// 8c0b20a2: 8c0b2068's query of the track's engine, which picks the page whose
+// held-pad menu it shows: Drumline's for 4, the drum sampler's otherwise. An owned kit
+// answers 4, so the drum sampler's page is never touched for one.
+opxy::u32 sdk_drum_held_pad_engine(opxy::u32 track) {
     using namespace opxy::platform;
-    const u32 track = byte(kSelectedTrack);
-    if (track >= kTracks || !sdk_drum_machine(engine) || track_engine(track) != engine) return 0;
-    for (u32 code = kPadCodes; code < kPadCodes + 24; ++code)
-        if (stock<u32(u32)>(0x8d5b7d7c)(code)) return 1;
-    return 0;
+    const opxy::u32 id = track_engine(track);
+    return track < kTracks && sdk_drum_machine(id) ? 4 : id;
 }
 
-// 8c0b3170: that action's call of Drumline's one-pad scramble 8d4d60f4(key), the held
-// key (0x8400dfc8, which a pad's key-down stores whatever the engine, 8c0b2ff4). On an
-// owned kit's track that key alone is re-rolled as the track menu's scramble rolls
+// 8c0b3170: M1's call of Drumline's one-pad scramble 8d4d60f4(key), the held key. On
+// an owned kit's track that key alone is re-rolled as the track menu's scramble rolls
 // each key; elsewhere stock's.
 void sdk_drum_pad_scramble(opxy::u32 key) {
     using namespace opxy;
@@ -324,6 +321,35 @@ void sdk_drum_pad_scramble(opxy::u32 key) {
     if (key >= 128 || !codec.fits() || !machine->model_count) return;
     u32 seed = scramble_seed();
     if (scramble_key(*machine, codec, track, key, seed)) stock<void()>(0x8d585ee8)();
+}
+
+// 8c0b32d6: M4's call of Drumline's pad reset 8d582048(track, key), which writes stock's
+// default kit entry for the pad (type, choke group, params, word, level) and centres its
+// pan, then publishes it (8d585ee8, the builder 8d5ad660). On an owned kit's track the
+// key goes back to the kit's defaults instead: its default model and controls marked,
+// stock's default choke group for the pad (0x8409fce0 + 4 * slot, as 8d5820a8 reads
+// it), every pad field neutral and its sends TRK (set up, with the amount bytes 0),
+// 0 dB and centred. True as stock's, for the audition that follows (8c0b32de).
+opxy::u32 sdk_drum_pad_reset(opxy::u32 track, opxy::u32 key) {
+    using namespace opxy;
+    using namespace opxy::platform;
+    const DrumMachine* machine = track < kTracks ? sdk_drum_machine(track_engine(track)) : nullptr;
+    if (!machine) return stock<u32(u32, u32)>(0x8d582048)(track, key);
+    unsigned char* record = static_cast<unsigned char*>(pad_region(track, key));
+    if (!record || key < 53 || key >= 53 + kDrumPatternPads) return 0;
+    u8 model, controls[kDrumControlCount];
+    machine->defaults(key, &model, controls);
+    if (!drum_pack(model, controls, reinterpret_cast<i32*>(record) + 1, drum_codec(machine->model_count, machine->count)))
+        return 0;
+    const u32 group = word(0x8409fce0 + 4 * (key - 53)) & 15u;
+    record[24] = drum_mark(static_cast<u8>(group << 4));
+    reinterpret_cast<i32*>(record)[kDrumPadWord / 4] = machine->pad_mix ? static_cast<i32>(kDrumPadReady) : 0;
+    for (u32 send = 0; send < kDrumSends; ++send) record[kDrumSendByte[send]] = 0;
+    record[kDrumLevel] = 0;
+    record[kDrumPan] = 0;
+    stock<void()>(0x8d585ee8)();
+    stock<void(u32)>(0x8d4d5f18)(key);
+    return 1;
 }
 
 // 8c0b2978: the instrument controller's shifted key handler (8c0b28a8) asks whether a
