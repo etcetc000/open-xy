@@ -933,6 +933,10 @@ void scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* hi
 `low` and `high` arrive as 0 and 127; narrow either, inclusive. A kit without
 it draws every control from 0..127.
 
+As on Drumline, holding a pad and pressing scramble re-rolls that key alone, and
+holding Shift and pressing a pad moves the Shift row and the encoders to that
+pad ([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
+
 A kit's engine may also report that a voice's sound has ended, so stock
 retires its note and the voice is free for the next one before stock's
 amplitude envelope ends:

@@ -150,4 +150,12 @@ bool sdk_drum_shift_press(opxy::u32 track, opxy::u32 encoder) __asm__("sdk_drum_
 // reads it, and the drum branch, which re-rolls an owned kit's keys.
 opxy::u32 sdk_scramble_engine(opxy::u32 track) __asm__("sdk_scramble_engine");
 void sdk_drum_scramble() __asm__("sdk_drum_scramble");
+// A held pad's scramble, as stock Drumline's (drum_synthesis_stock.cpp): whether the
+// key-down handler's held-pad action runs for an owned kit (a pad of the selected
+// track held), and that action's one-pad scramble.
+opxy::u32 sdk_drum_pad_action(opxy::u32 engine) __asm__("sdk_drum_pad_action");
+void sdk_drum_pad_scramble(opxy::u32 key) __asm__("sdk_drum_pad_scramble");
+// The shifted key handler's pad check (8c0b2978): on an owned kit's track Shift and a
+// pad hold the pad for per-key editing, as on Drumline.
+opxy::u32 sdk_drum_shift_pad(opxy::u32 code) __asm__("sdk_drum_shift_pad");
 }
