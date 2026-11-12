@@ -155,6 +155,7 @@ struct Controls {
     u32 shift;       // an effect's page: Shift held on its shift row
     u8 choices[4];   // that row's choices, or a drum kit's Shift controls' (draw::Input::choices)
     i32 pan, level;  // a padMix kit's selected key's pan (-100..100) and level (dB, -30..0)
+    i32 level_in, level_out;  // an effect's page: its send's meters; 0 otherwise
     u32 line;        // the row the encoders and Shift edit: 0 the first, 1 the second
     i32 pads[platform::kDrumPadFields];  // a kit's selected key's pad controls (padControls)
 };
@@ -192,6 +193,8 @@ inline bool send_controls(Base* o, Controls& controls) {
     }
     controls.shift = view.shift;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = view.choices[i];
+    controls.level_in = view.level_in;
+    controls.level_out = view.level_out;
     controls.valid = true;
     return true;
 }
@@ -226,6 +229,7 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     controls.choosing = false;
     controls.model = controls.pad = 0;
     controls.pan = controls.level = 0;
+    controls.level_in = controls.level_out = 0;
     controls.line = 0;
     for (u32 i = 0; i < platform::kDrumPadFields; ++i) controls.pads[i] = 0;
     for (u32 i = 0; i < 4; ++i) controls.choices[i] = 0;

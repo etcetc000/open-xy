@@ -21,7 +21,7 @@ function signed(value) {
 const vector = items => [...unsigned(items.length), ...items.flat()];
 const section = (id, bytes) => [id, ...unsigned(bytes.length), ...bytes];
 const name = value => [...unsigned(value.length), ...new TextEncoder().encode(value)];
-function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:84, 4:88, 5:104, 6:112}[abi]) {
+function fixture(abi = 2, inputBytes = {1:68, 2:76, 3:84, 4:88, 5:104, 6:112, 7:120}[abi]) {
   const constants = {opxy_display_abi:abi, opxy_display_state_bytes:16,
     opxy_display_input_bytes:inputBytes, opxy_display_frame_bytes:100,
     opxy_display_state:1024, opxy_display_input:2048, opxy_display_frame:4096, opxy_display_valid:1};
@@ -176,4 +176,25 @@ test('ABI 6 publishes a padMix kit key\'s pan, level, pad fields and the encoder
   const five = new PreviewDisplay(fixture(5));
   five.tick(input(), 17, 1, 0, false, null, 0, 0, [0, 0, 0, 0], null, {pan: 50, level: -3}, 1);
   assert.equal(five.input.length, 26);
+});
+
+test('ABI 7 publishes an effect\'s send levels after the pad fields', () => {
+  const display = new PreviewDisplay(fixture(7));
+  display.tick(input(), 17, 1, 15, false, null, 0, 0, [0, 0, 0, 0], null, {pan: -40, level: -6, pad: [1, 2, 3, 4]}, 1, null,
+               {in: 0x40000000, out: -0x80000000});
+  assert.equal(display.input.length, 30);
+  assert.deepEqual([...new Int8Array(display.memory, 2048 + 104, 8)], [-40, -6, 1, 0, 1, 2, 3, 4], 'The pad fields keep their place');
+  assert.deepEqual([...new Int32Array(display.memory, 2048 + 112, 2)], [0x40000000, -0x80000000]);
+  display.tick(input(), 17, 1, 15, false, null);
+  assert.deepEqual([...new Int32Array(display.memory, 2048 + 112, 2)], [0, 0], 'Omission reads as silence');
+  const before = new Uint8Array(display.memory).slice();
+  for (const levels of [{in: 0x80000000}, {out: -0x80000001}, {in: 0.5}, 7]) {
+    assert.throws(() => display.tick(input(), 17, 1, 15, false, null, 0, 0, [0, 0, 0, 0], null, {pan: 0, level: 0}, 0, null, levels));
+    assert.deepEqual(new Uint8Array(display.memory), before);
+  }
+  assert.throws(() => new PreviewDisplay(fixture(7, 112)), /ABI/);
+  // An ABI 6 preview keeps its 112 bytes and never receives levels.
+  const six = new PreviewDisplay(fixture(6));
+  six.tick(input(), 17, 1, 15, false, null, 0, 0, [0, 0, 0, 0], null, {pan: 0, level: 0}, 0, null, {in: 5, out: 5});
+  assert.equal(six.input.length, 28);
 });

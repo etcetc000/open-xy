@@ -178,6 +178,12 @@ the note activity: `shift`, 1 while Shift is held on an effect with a
 [shift row](api.md#effect-pages-and-shift-rows), and `choices`, each shift
 control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 
+From SDK 1.14 its input also carries the send's meters, as stock's FX page
+moves its two thin lines by them: `level_in`, the signed level going into the
+send, and `level_out`, the effect's return, both Q31 words read from stock's
+meters once a frame. Other kinds read 0. A machine reading them declares
+`"sdk": "1.14"`.
+
 ### Shift and a drum kit's machine (SDK 1.8)
 
 | Field | Meaning |
@@ -191,7 +197,8 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls in its edited row while `shift` is 1, as the stock header does. The
-previews use drawing ABI 6, a 112-byte input: ABI 5 (104 bytes) ends after the
+previews use drawing ABI 7, a 120-byte input: ABI 6 (112 bytes) ends after
+`pad`, ABI 5 (104 bytes) after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
 
 ### A synth's Shift row (SDK 1.13)
