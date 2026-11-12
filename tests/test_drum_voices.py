@@ -652,7 +652,7 @@ extern "C" opxy::u32 sdk_benchmark_cycles() { return clock_value += 100; }
 namespace opxy { namespace benchmark { void* allocate(u32) { return nullptr; } void release(void*) {} }}
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
 int main() {
-    // A run a report: the kit, 12 models at three levels, the choke, the ceiling.
+    // A run a report: the kit, 12 models at three levels, the choke, the ceiling, the filter.
     unsigned heaviest = 0;
     const opxy::benchmark::Stats kit = probe_benchmark(0);
     CHECK(kit.count == 1500 && kit.audible && kit.total_low > 0);
@@ -679,10 +679,17 @@ int main() {
     CHECK(captured_pitch[0] == (25480118u >> 16) << 16);
     // Every voice is back: a real note after the workload takes a free slot.
     for (const auto& slot : voices) CHECK(!slot.owner);
-    // Every voice ran the track filter at its costliest type, the ladder, in a
-    // pool slot of its own from 127 down, with M3's words from the record.
+    // Those runs play the kit as it starts, M3 off: no filter is built or run.
+    CHECK(fake_builds == 0 && fake_runs == 0);
+    // The filter run: the ceiling again, every voice through the track filter at its
+    // costliest type, the ladder, in a pool slot of its own from 127 down, with M3's
+    // words from the record; dearer than the ceiling by the filter's work.
+    const opxy::benchmark::Stats filtered = probe_benchmark(12 * 3 + 3);
+    CHECK(filtered.count == 1500 && captured_model == 7);
     CHECK(fake_runs > 1500 && fake_pool[127].type == 16 && fake_pool[124].type == 16 && fake_pool[124].runs > 0);
     CHECK(fake_pool[127].record && fake_pool[127].record[17] == 0x60000000 && fake_pool[127].envelope == 0x40000000);
+    CHECK(fake_pool[123].runs == 0);
+    for (const auto& slot : voices) CHECK(!slot.owner);
     return 0;
 }
 """
