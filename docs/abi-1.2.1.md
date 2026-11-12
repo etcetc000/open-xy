@@ -1372,7 +1372,8 @@ plays. Words 36 and 38 carry nothing.
   `8c0b3170`, and auditions it. The opening test, `8c0b309c`..`8c0b30a7`, is
   replaced by an absolute call (`extensions_drum_pad_action`): for an owned kit
   on the selected track with one of its pads held (stock's held-key list
-  `8d5b7d7c`, codes 53..76) it returns to `8c0b3168`; otherwise it replays the
+  `8d5b7d7c`, pad codes 26..49 as `8d5b8814` takes them) it returns to
+  `8c0b3168`; otherwise it replays the
   five instructions, stock's jump to `8c0b30aa` as a return there. The call at
   `8c0b3170` is hooked (`sdk_drum_pad_scramble`): on an owned kit's track the held
   key alone is re-rolled as the track menu's scramble rolls each key; elsewhere

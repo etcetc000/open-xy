@@ -294,14 +294,18 @@ void sdk_drum_scramble() {
 // 4 (R7, the track's engine as 8c0b2e68 asks it) with its held-pad overlay on (B[P5 +
 // 0x2c], which 8c0b2068 sets only for stock's drum pages). True for an owned kit on
 // the selected track while one of its pads is held (stock's held-key list, 8d5b7d7c,
-// pad codes 53..76): the hook then runs that action's body (8c0b3168), whose scramble
+// asked for each pad code, 26..49 as stock's pad test 8d5b8814 takes them: code -
+// 26 below 24): the hook then runs that action's body (8c0b3168), whose scramble
 // call (8c0b3170) is sdk_drum_pad_scramble, and which then auditions the pad.
+// A pad's key code is 26..49 (8d5b8814: code - 26 below 24); the keys past them
+// (53, 54, 55, ...) are others, held with M1 among them.
+static const opxy::u32 kPadCodes = 26;
 opxy::u32 sdk_drum_pad_action(opxy::u32 engine) {
     using namespace opxy;
     using namespace opxy::platform;
     const u32 track = byte(kSelectedTrack);
     if (track >= kTracks || !sdk_drum_machine(engine) || track_engine(track) != engine) return 0;
-    for (u32 code = 53; code < 77; ++code)
+    for (u32 code = kPadCodes; code < kPadCodes + 24; ++code)
         if (stock<u32(u32)>(0x8d5b7d7c)(code)) return 1;
     return 0;
 }
