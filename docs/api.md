@@ -936,10 +936,7 @@ it draws every control from 0..127.
 As on Drumline, holding a pad and pressing M1, M2, M3 or M4 scrambles, copies,
 pastes or resets that key: scramble re-rolls it alone as above, copy and paste
 carry all of its settings (its sends included), and reset gives it the kit's
-defaults with every pad field neutral and its sends `TRK`. Stock draws its
-per-pad menu on its own drum pages only; a kit declaring SDK 1.16 learns which pad
-is held from the display's `held_pad` and may name the four actions in its own
-header (MD KIT, Trigon and Tetragon do). Holding Shift and
+defaults with every pad field neutral and its sends `TRK`. Holding Shift and
 pressing a pad moves the Shift row and the encoders to that pad ([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
 
 A kit's engine may also report that a voice's sound has ended, so stock
@@ -1355,7 +1352,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.16 and builds 1.0 to 1.16 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.15 and builds 1.0 to 1.15 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
