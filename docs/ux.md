@@ -62,7 +62,8 @@ is the reference for each of them.
 - **A Shift row for more.** A synth that needs more than eight controls
   declares a [Shift row](api.md#a-synths-shift-row) (SDK 1.13): up to four
   more under each page, which Shift and that page's encoders turn. Holding
-  Shift turns the bright row of the header into the Shift controls, as on a
+  Shift turns both rows of the header into the Shift controls, page 1's on
+  top and page 2's under them, the page the encoders are on bright, as on a
   drum kit; keep what is played on the pages and what is set less often on
   the row. A press switches pages with Shift held too, and the row follows,
   so the player reaches the other page's entries without letting go. Presets
