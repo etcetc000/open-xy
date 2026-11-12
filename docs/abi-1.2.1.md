@@ -316,6 +316,14 @@ side; no audio callback or cross-role publication is added. The two calls are
 authenticated profile edits. Other stock instructions and note routing remain
 unchanged. This reports stock note activity, not audio-envelope state.
 
+A looping drumline voice restarts its hit without a note start. Stock's render
+posts each re-hit to the GUI's slot 30 (`8d4d666a`, word `0803775c`:
+count << 16 | track << 8 | key, at `11a07612`), only for a voice whose track
+word `+0x1b4` is the selected track; stock Drumline's page re-triggers on it
+(`8d530794`). The [stock-voice](#stock-voices) binding sets that word from the
+slot's byte `+0x55` before render, as stock's synth path does (`8d51aefc`), and
+the screen adds each change of slot 30 on its track to the note-start counter.
+
 The amp envelope comes from stock's GUI getter `8d4d7680(track)`, which
 returns a vector of the track's parameter words 8..15, read like words 0..7 by
 the parameter getter at `8d4d72a8`
@@ -796,6 +804,157 @@ mapper and publishes the octave in a per-track word; the octave setter also
 publishes each change. Audio maps notes with that snapshot and the same
 integer mapping, without calling GUI project or pattern getters. Choke uses
 the canonical pad; the raw note minus the canonical pad is `drum_transpose`.
+
+## Stock voices
+
+A collection with a synth declaring `stockVoice` links that engine's binding
+unit once, [`stock_drumline.cpp`](../sdk/platform/opxy-1.2.1/stock_drumline.cpp);
+a collection without one links none. It adds no profile edits.
+
+Stock registers drumline as engine 4 on page 8, a sample-flag record whose
+voices only the alternate voice renderer (`0x8d51b274`) drives. Its factory
+(`0x8d513d1c`) constructs static 560-byte voices with `0x8d513a58`, which
+installs method table `0x8404ce3c`: +12 renders a block into the 64-word mono
+buffer, +16 starts a note, +28 releases it (gated models fade out), +32 reports
+mono and +40 the engine level. The +8 block call asserts. The binding
+constructs the voice in the machine's own storage, checks the method table,
+and calls +16 at note start and +12 per block; it never calls +28. The synth
+renderer calls the machine's own +28 at note-off (`8d51a95e`), which the
+adapter passes to the machine's `release` (the release callback, SDK 1.12).
+Model word modes 0 and 3 are gate and loop: render re-hits a voice in mode 3
+once it has fallen to about -30 dB, and +28 stops that (or, in mode 0, starts a short fade). The binding plays mode
+3 while a looping key is held and mode 0 otherwise. Render zeroes voice word
+`+0x4c` when a hit has died away; while that holds and nothing loops, the
+binding skips render and outputs silence.
+
+The +12 call takes the voice, the output, an eight-word patch and the track
+parameter block. Stock builds the patch per key (`0x8d5ad6c4`): word 0 the
+model as the centre of one 66th of the Q31 range (family × 6 + variant), words
+1–4 the model's controls, 5 pan (0.5 centre), 6 random, 7 gain (`0x08000000` is
+0 dB). Render adds each of the track's first eight words less 0.5 to the
+controls and clamps them to the model's limits. Words 8 to 11 are a synth
+track's amp envelope (attack, decay, sustain, release); on a drumline track
+they are its funk, attack, random and length, of which render reads attack (9),
+random, added squared (10), and length, an offset about 0.5 (11). The binding
+passes 0.5 for words 0 to 7, the second envelope word as drumline's attack, the
+fourth as its length, and 0 for funk and the added random. Note start (+16)
+draws a per-hit random value for each control at voice words `0x50`..`0x5c`,
+which render scales by the random amount and adds; for a patch with
+`keep_pitch` the binding zeroes the first, the pitch control's, before each
+render. Before start, voice word `+0x34` holds the key and `+0x60` a length
+offset (0.5 adds none), which the alternate renderer's note start (+20) copies
+from the note.
+
+Once the key is up, the third word releases the voice's output: one smoothstep
+ramp from full level to silence (`release_level`), shorter as the word rises
+(`fade_step`, 10 ms at the top), after which the note ends. A release once
+begun goes on every block: the word turned to 0 mid-release holds the level the
+ramp reached, and the hit rings out from there. Stock's own gate (+28 sets
+`+0x140`; render then multiplies by a level falling 5% a sample) has no length
+control. The OP-XY's output switches off about 0.2 s after everything it plays
+falls silent, and a hit stopped quickly leaves low end in the analog stage that
+this cut turns into a pop (stock drumline's gate pops the same way). So from the
+release's first block the binding adds a quiet hold to the voice: a tone at the
+Nyquist frequency (+level, -level: 22 kHz, no DC) at -80 dB
+(`release_hold_level`), fading in and out over 64 blocks (93 ms), and keeps the
+note open until 861 blocks (1.25 s) after the release began
+(`release_hold_blocks`). Only the latest gated release, counted across every
+drumline-voice track, holds; one a later release has overtaken fades its tone
+out from the level it reached and ends within 93 ms. A held key, or gate 0,
+never holds.
+
+The first word picks the play mode by thirds of its range: one-shot below a
+third, a held note looping from a third (`looping`), and from two thirds
+(`tempo_synced`) looping at the tempo instead. Then the binding plays mode 0,
+so render never re-hits, and restarts the hit itself (+16, then `+0x30` = 1,
+`+0x13c` = `0x147ae14` and, for the selected track's voice, the slot 30 post
+with `0x8404ce0c`'s count) at the division nearest the time render's own loop
+would: `+0x08` and `+0x40` below `0x040b7803`, and for the shaker (family 3,
+render's `[FP-4]`) `+0x0c` full too, after rising above it, timed on stock's
+clock (from the block start render restarted at). A key's first hit plays to
+that level; later hits restart before it when their length is shorter and carry
+the time on from their fall, so a changed sound never stops to measure. Each
+gap is the tempo division nearest that time or, under 1/64, the played key's
+period (2^40 over the synth path's pitch increment, Q8 samples, so transpose
+and detune move it too) in its longest octave under 1/64, an octave up for each
+octave shorter the time is (the step follows the time alone), at least a block,
+timed from the last hit as render's own loop is; a division whose time has
+passed when the length shortens gives way to the next one up. A restart lands
+on its exact sample, fractions included: the binding delays the voice's output
+by the restart's offset (linear interpolation), and the old hit's tail, faded
+across its last block as stock's loop fades it, plays on under the new hit's
+start. In loop mode render re-hits a voice at the end of a block (after its
+samples: note start, then the attack ramp `+0x13c` set to exactly `0x147ae14`),
+dropping the old tail; when the ramp holds that value after a block, the binding
+fades that block to zero so the new hit starts from silence.
+
+The synth renderer fills the gain buffer from its amp envelope (`8d50e110`,
+reading the same four words) before calling the voice and multiplies the voice
+by it afterward (`11a09a3e`), so after the voice the binding leaves full gain
+there, except in a slot stock is taking (state 6 or later): there it puts back
+the gain stock filled, so the renderer's multiply plays stock's one-block fade,
+as for any synth, rather than a cut at the restart. That envelope also ends the
+note: in release (state 4), a level under about -66 dB moves it to state 0. So
+before each render the adapter passes the binding its own frame, which links to
+the renderer's, whose word +8 is the voice slot (checked against the handle at
+slot `+0x94`; stock allocates slots at run time, so the address check only rules
+out unaligned words outside RAM). After each block the binding sets the
+envelope (slot `+0x24`) to sustain at full level (`+0x18`) while the hit sounds
+or the hold plays, then to release at level 0. It does so only from attack,
+decay or sustain (states 1 to 3): taking a slot for another note (`8d51ad04`,
+when `8d51ca94` picks it at the track's limit) sets state 6, a short fade, and
+stock starts the new note when that ends. Without a matching slot, stock's
+envelope ends the note from those words. Stock's note-off (`8d51a928`) sets the
+envelope's one-shot release flag (slot `+0x29`) before it calls +28; its next
+update enters release at a rate read from word 11, which a long length makes
+fast enough to end the note within a block. The binding's note-off clears that
+flag in the slot the voice last rendered in, while it still names the voice's
+handle. The machine's `destroy` (`end`) moves that slot, while it is still in
+sustain for this voice, to release at level 0.
+
+Render reads its pitch from the per-sample buffer at `0x11902c00`, as the
+alternate renderer fills it: the phase increment shifted right by 16, so that
+`0x800` is the model's own tuning. The synth path holds full increments; for
+the call the binding rescales them so that C4 is `0x800`, then restores the
+buffer. Render also scales each sample by the per-voice gain the alternate
+renderer fills at `0x11903400`, then shifts it left by 7, saturating. The
+renderer selector (`0x8d5b79f0`) sends engines 3 and 4 through the alternate
+renderer; every other engine, synths included, through the synth renderer
+(`0x11a09308`), which applies volume and velocity after the voice and scales it
+by method +40 (a synth's default, `0x8d5051c4`, gives about 1/32). So for the
+call the binding fills the gain buffer at full scale, and the synth's own +40
+(`sdk_drumline_level`) returns drumline's level (`0x8d513a08`, about full
+scale). Measured on the device, a kick so rendered peaks within 0.1 dB of stock
+drumline's at the same track volume, without saturating.
+
+Control names come from drumline's per-model records (116 bytes from
+`0x8404ceec`: the model's name, then at +96 its four controls' names), and
+`selected_word` reads the selected track's word as its pages show it,
+`8d5ac9dc(project, track, index, 1)`: a held step's lock, else the live value
+while playing, else the base.
+
+The loop word (8) is a three-choice parameter: `sdk_param_steps` answers 3 at
+scale 1 for it, so stock's editor stores bucket centres. On M2's first page
+(toggle word `0x8400dfe0` 0; an encoder click sets it), `sdk_synth_turn` sends
+stock's editor one choice for every ten detents, counted per track, and the
+nine between as turns of none: with a step held the editor writes the step's
+lock (`8d5ad42c` → `8d586f40`) on every call, so a nudge locks the step at its
+shown choice, as a wavetable synth's knob 1 does. The gate word's (10)
+continuous step is reversed and scaled by 3/2 before stock's editor applies it
+(`8d5ad254` returns it, and `8d5ad2e8` adds it saturating, then clamps at 0).
+The LFO's envelope destination group names words 8 to 11 loop, attack, gate and
+length for such a synth; `sdk_lfo_label` recognises the group by its third name
+being stock's sustain label (`0x840392c0`).
+
+### Stock artwork
+
+A synth screen naming stock artwork loads that asset instead of its own and
+binds the IDs its definition lists. Besides path and text leaves it accepts SVG
+groups, whose constructor (`0x8d5f1190`) installs method table `0x840c34d0`;
+stock moves groups through the same matrix setter (`0x8d5f06a6`). A group holds
+its children as a pointer vector at `+0x48` (begin) and `+0x4c` (end), as stock
+reads it at `0x8d520242`; an ID of the form `name/i` walks it. Machines with
+their own artwork bind path leaves only, as before.
 
 ## Project companions
 

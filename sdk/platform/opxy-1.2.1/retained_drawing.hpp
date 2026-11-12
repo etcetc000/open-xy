@@ -91,15 +91,40 @@ template <class Frame> struct RetainedDrawing {
         set_text(leaf, shown);
     }
 
-    static void bind(Object *o, const char *const *ids) {
+    // The element an ID names: `name`, or for stock artwork `name/i[/j...]`, child
+    // i of the group found by name, and so on. 0 when any step is missing.
+    static void *element(Object *o, const char *id) {
+        char name[64];
+        u32 n = 0;
+        for (; id[n] && id[n] != '/'; ++n) {
+            if (n + 1 >= sizeof(name))
+                return 0;
+            name[n] = id[n];
+        }
+        name[n] = 0;
+        void *node = find(&o->base, name);
+        while (id[n] == '/') {
+            u32 i = 0;
+            for (++n; id[n] >= '0' && id[n] <= '9'; ++n)
+                i = i * 10 + static_cast<u32>(id[n] - '0');
+            node = child(node, i);
+        }
+        return node;
+    }
+
+    // Stock artwork may bind groups as nodes, which frames only transform.
+    static void bind(Object *o, const char *const *ids, bool stock_artwork = false) {
         for (u32 i = 0; i < node_count; ++i)
-            o->nodes[i] = path_node(find(&o->base, ids[i]));
+            o->nodes[i] = stock_artwork ? transform_node(element(o, ids[i])) : path_node(find(&o->base, ids[i]));
         for (u32 i = 0; i < text_count; ++i) {
-            o->texts[i] = text_node(find(&o->base, ids[node_count + i]));
+            const char *id = ids[node_count + i];
+            o->texts[i] = text_node(stock_artwork ? element(o, id) : find(&o->base, id));
             o->shown[i][0] = 1;
         }
-        for (u32 i = 0; i < palette_count; ++i)
-            o->palette[i] = palette_ids(find(&o->base, ids[node_count + text_count + i]), o->base.svg);
+        for (u32 i = 0; i < palette_count; ++i) {
+            const char *id = ids[node_count + text_count + i];
+            o->palette[i] = palette_ids(stock_artwork ? element(o, id) : find(&o->base, id), o->base.svg);
+        }
         for (u32 i = 0; i < path_count; ++i) {
             o->geometry[i] = geometry(o->nodes[i]);
             o->keys[i] = 0;

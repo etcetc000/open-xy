@@ -55,7 +55,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # and a synth's voice release callback (resources.releaseCallback).
 # 1.13 gives a synth a Shift row: up to eight more controls under its pages ("shift"),
 # kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
-SDK_VERSION = (1, 13)
+# 1.16 lets a synth run stock drumline's voices inside its own (resources.stockVoice)
+# and its screen bind a stock display asset by that asset's IDs (resources.display.artwork).
+SDK_VERSION = (1, 16)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -613,6 +615,10 @@ def machine_at(root, identity=None):
     amp = defaults.get('amp', {})
     require(isinstance(amp, dict) and set(amp) <= {'attack', 'decay', 'release', 'sustain'} and
             all(type(v) is int and 0 <= v <= 32767 for v in amp.values()), 'Invalid preset amp defaults')
+    if 'stockVoice' in definition['resources']:
+        require_sdk(version, (1, 16), 'A stock engine voice (stockVoice)')
+    if 'artwork' in definition['resources'].get('display', {}):
+        require_sdk(version, (1, 16), 'Stock display artwork (display.artwork)')
     samples = None
     if 'samples' in value:
         require_sdk(version, (1, 10), "A sample engine's own samples (samples)")

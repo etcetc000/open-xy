@@ -22,7 +22,13 @@ struct Controls { bool valid; u32 track; u8 shown[4]; i32 values[4], slots[8]; u
 inline PathNode* path_node(void* raw) { return static_cast<PathNode*>(raw); }
 template<class T> void clear(T*) {}
 inline void bind_controls(Base*) {}
-inline void* find(Base*, const char*) { return nullptr; }
+static int group_child[4];  // a group named "group" whose children are these words
+inline void* find(Base*, const char* id) {
+    return id[0] == 'g' && id[1] == 'r' && id[2] == 'o' && id[3] == 'u' && id[4] == 'p' && !id[5]
+        ? static_cast<void*>(group_child) : nullptr;
+}
+inline void* child(void* node, u32 i) { return node == group_child && i < 4 ? &group_child[i] : nullptr; }
+inline PathNode* transform_node(void*) { return nullptr; }
 inline Leaf* text_node(void*) { return nullptr; }
 inline u32 palette_ids(void*, const void*) { return 0; }
 inline void invalidate(PathNode*) {}
@@ -30,6 +36,8 @@ template<unsigned N> void set_words(Leaf*, const u32 (&)[N], const i32 (&)[N]) {
 inline void paint(void*, u32, bool) {}
 inline void set_text(Leaf*, const char*) {}
 inline u32 note_serial(u32) { return 0; }
+static u32 posted_hit;  // slot 30: count << 16 | track << 8 | key
+inline u32 loop_hit() { return posted_hit; }
 inline bool refresh_controls(Base*, Controls&) { return false; }
 inline void draw(Base*) {}
 }}}

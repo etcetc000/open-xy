@@ -3,6 +3,7 @@ import dataclasses
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 from types import SimpleNamespace
 import tempfile
@@ -11,9 +12,10 @@ import unittest
 
 from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, default_preset, generate_display,
                                generate_player_object, generate_screen, generate_synth_controls, preset_files, preset_path, screen_bytes)
-from tooling.definitions import ROOT, control_positions, paged, validate_definition
+from tooling.definitions import ROOT, control_positions, paged, validate_definition, validate_display
 from machine_fixtures import FOLDER, fixture
-from tooling.native import display_ids
+from tooling.machines import machine_at
+from tooling.native import display_ids, plan
 
 
 def layout_compiler():
@@ -161,6 +163,85 @@ class Definitions(unittest.TestCase):
         changed['resources']['display']['points'] = 2
         with self.assertRaisesRegex(ValueError, '0 points'):
             validate_definition(changed, 'synth')
+
+    def test_stock_voices_and_stock_artwork_are_declared_exactly(self):
+        """A synth names the stock engine whose voices it runs, and the stock asset its
+        screen binds by that asset's own IDs; each is linked or bound only then."""
+        ids = ['model_a', 'model_b', 'overlay', 'bg']
+        stocked = copy.deepcopy(self.engine)
+        stocked['resources'].update(stockVoice='drumline', releaseCallback=1)
+        stocked['resources']['display'] = dict(stateBytes=4, stateAlignment=4, paths=0, points=0, nodes=3, texts=0,
+                                               palette=1, artwork=dict(stock='dbox', ids=ids))
+        validate_definition(stocked, 'synth')
+        children = copy.deepcopy(stocked)  # an element without an ID, through its group
+        children['resources']['display']['artwork']['ids'] = ['model_a/0', 'model_a/2/13', 'overlay', 'bg']
+        validate_definition(children, 'synth')
+        bad = [('stockVoice', 'wavetable'), ('stockVoice', 4), ('releaseCallback', 0), ('artwork', dict(stock='other', ids=ids)),
+               ('artwork', dict(stock='dbox', ids=ids[:3])), ('artwork', dict(stock='dbox', ids=ids[:3] + ['bg', 'x'])),
+               ('artwork', dict(stock='dbox', ids=['model_a', 'model_a', 'overlay', 'bg'])),
+               ('artwork', dict(stock='dbox', ids=['model-a', 'model_b', 'overlay', 'bg'])),
+               ('artwork', dict(stock='dbox', ids=['model_a/', 'model_b', 'overlay', 'bg'])),
+               ('artwork', dict(stock='dbox', ids=['model_a/x', 'model_b', 'overlay', 'bg'])),
+               ('artwork', dict(stock='dbox', ids=['/1', 'model_b', 'overlay', 'bg'])),
+               ('artwork', dict(stock='dbox', ids=ids, extra=1)), ('paths', 1)]
+        for key, value in bad:
+            changed = copy.deepcopy(stocked)
+            target = changed['resources'] if key in ('stockVoice', 'releaseCallback') else changed['resources']['display']
+            target[key] = value
+            if key == 'paths':
+                target['points'] = 2
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                validate_definition(changed, 'synth')
+        # Only synths: not effects, and not the screens of other kinds.
+        effect = copy.deepcopy(fixture('probefx').definition)
+        effect['resources']['stockVoice'] = 'drumline'
+        with self.assertRaises(ValueError):
+            validate_definition(effect, 'effect')
+        with self.assertRaises(ValueError):
+            validate_display(stocked['resources']['display'])
+        # The screen loads the stock asset and binds its IDs; groups are accepted only then.
+        m = SimpleNamespace(prefix='shape', native_name='shape', definition=stocked)
+        with tempfile.TemporaryDirectory() as directory:
+            text = generate_screen(directory, m).read_text(encoding='utf-8')
+        self.assertEqual(display_ids('shape', stocked['resources']['display']), ids)
+        self.assertEqual(re.findall(r'^    "([^"]+)",$', text, re.M), ids)
+        self.assertIn('"dbox.svg"', text)
+        self.assertIn('stock_artwork = true', text)
+        with tempfile.TemporaryDirectory() as directory:
+            own = generate_screen(directory, SimpleNamespace(prefix='shape', native_name='shape',
+                                                             definition=self.engine)).read_text(encoding='utf-8')
+        self.assertIn('"shape.svg"', own)
+        self.assertIn('stock_artwork = false', own)
+        # The binding unit links once, after the shared units, only when a machine runs the engine.
+        probe = fixture('probesynth')
+        self.assertNotIn('stock_drumline', [step for _name, _m, step in plan([probe])])
+        units = plan([dataclasses.replace(probe, definition=stocked), fixture('probesources')])
+        self.assertEqual([step for _name, _m, step in units].count('stock_drumline'), 1)
+        self.assertEqual(units[-1][0], 'sdk/stock_drumline.o')
+        # Its envelope words turn as drumline's (synth_controls.cpp), and no other synth's do.
+        with tempfile.TemporaryDirectory() as directory:
+            table = generate_synth_controls(directory, [dataclasses.replace(probe, definition=stocked)]).read_text(encoding='utf-8')
+            plain = generate_synth_controls(directory, [probe]).read_text(encoding='utf-8')
+        self.assertIn(', 0, {0, 0, 0, 0}, nullptr, {0, 0, 0, 0}, nullptr, true},', table)
+        self.assertNotIn('true},', plain.split('sdk_synth_controls[]')[1].split('};')[0])
+
+    def test_stock_voices_and_stock_artwork_need_sdk_1_16(self):
+        stocked = copy.deepcopy(self.engine)
+        stocked['resources'].update(stockVoice='drumline', releaseCallback=1)
+        for sdk, needed in (('1.15', 'stockVoice'), ('1.16', None)):
+            with self.subTest(sdk=sdk), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory) / 'probesynth'
+                shutil.copytree(FOLDER / 'probesynth', folder)
+                record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
+                # From SDK 1.5 the layout numbers a machine: it declares no identity.
+                record = {k: v for k, v in record.items() if k != 'identity'}
+                (folder / 'machine.json').write_text(json.dumps(dict(record, sdk=sdk)), encoding='utf-8')
+                (folder / 'definition.json').write_text(json.dumps(stocked), encoding='utf-8')
+                if needed:
+                    with self.assertRaisesRegex(ValueError, needed):
+                        machine_at(folder)
+                else:
+                    self.assertEqual(machine_at(folder).display, 'drawing')
 
     def test_every_kind_shares_the_controls_schema(self):
         for name in ('probesample', 'probefx'):

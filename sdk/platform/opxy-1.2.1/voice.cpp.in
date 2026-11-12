@@ -264,7 +264,7 @@ const char @PREFIX@_name[] = "@NAME@";
 // The engine screen maps its four positions in sdk_synth_title instead.
 const char* @PREFIX@_parameter_name(opxy::u32 index) {
     static const char* const labels[] = {@LABELS@};
-    return index < sizeof(labels) / sizeof(labels[0]) ? labels[index] : "";
+@PARAMETER_TITLE@    return index < sizeof(labels) / sizeof(labels[0]) ? labels[index] : "";
 }
 const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&@PREFIX@_destroy), reinterpret_cast<const void*>(&@PREFIX@_destroy),
@@ -272,6 +272,6 @@ const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&@PREFIX@_start), reinterpret_cast<const void*>(&noop),
     reinterpret_cast<const void*>(&zero), reinterpret_cast<const void*>(&@RELEASE_METHOD@),
     reinterpret_cast<const void*>(&@STEREO_METHOD@), reinterpret_cast<const void*>(&zero),
-    reinterpret_cast<const void*>(opxy::platform::kVoiceDefaultMethod)
+    @LEVEL_METHOD@
 };
 }

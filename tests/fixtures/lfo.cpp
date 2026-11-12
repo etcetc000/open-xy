@@ -18,6 +18,9 @@ const LfoMachine sdk_lfo_machines[] = {
     {reinterpret_cast<const char*>(44), ready, 8, {0, 1, 2, 3, 0, 1, 2, 3}},
 };
 const u32 sdk_lfo_machine_count = 5;
+// No stock-voice synth here: its envelope names never apply.
+extern "C" const char* sdk_synth_envelope_label(u32, u32) __asm__("sdk_synth_envelope_label");
+const char* sdk_synth_envelope_label(u32, u32) { return nullptr; }
 static u32 engine, kind, group, routed, gui_reads, delegated, expected_track;
 static i32 amount;
 static i32 icon_target;

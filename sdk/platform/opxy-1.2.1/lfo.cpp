@@ -1,5 +1,6 @@
 #include "lfo.hpp"
 
+extern "C" const char* sdk_synth_envelope_label(opxy::u32, opxy::u32) __asm__("sdk_synth_envelope_label");
 namespace {
 using namespace opxy;
 using namespace opxy::platform;
@@ -56,12 +57,21 @@ u32 sdk_lfo_icon_slot(u32 slot, u32 enabled) {
     return m ? m->controls[slot < m->parameters ? slot : m->parameters - 1] : slot;
 }
 
+// Stock's label for a synth's amp envelope sustain: the envelope group names its
+// four words from the block at 0x84039248 (attack, decay, sustain, release) for a
+// synth track, and only that block holds this string.
+const u32 kStockSustain = 0x840392c0;
+
 const char* sdk_lfo_label(u32 group, u32 slot, u32 flag) {
+    const u32 track = lfo::selected_track();
     if (group == 0 && slot < parameter_slots) {
-        const u32 track = lfo::selected_track();
         const u32 count = track < 8 ? extended(lfo::gui_engine(track)) : 0;
         if (count && slot >= count) slot = count - 1;
     }
+    // A stock-voice synth's envelope words play as loop, attack, gate and length.
+    if (group != 0 && slot < 4 && track < 8 &&
+        reinterpret_cast<__UINTPTR_TYPE__>(lfo::name(group, 2, flag)) == kStockSustain)
+        if (const char* own = sdk_synth_envelope_label(lfo::gui_engine(track), slot)) return own;
     return lfo::name(group, slot, flag);
 }
 

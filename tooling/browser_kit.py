@@ -104,7 +104,7 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         entry['icon'] = m.icon
     # An unselected machine's startup and catalog callbacks decline.
     entry['absent'] = native.absent_symbols(m)
-    if m.display != 'stock':
+    if native.own_artwork(m):
         entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
         if m.grayscale:
             entry['grayscaleArtwork'] = read(m.root / m.grayscale).decode('utf-8')
@@ -116,6 +116,7 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         wasm = read(preview_dir / 'engine.wasm')
         entry['preview'] = dict(wasm=base64.b64encode(wasm).decode('ascii'), sha256=sha(wasm),
                                 graphics=preview.graphics_metadata(m),
+                                artwork=preview.panel_fragment(m).decode('utf-8'),
                                 defaults=[round(p['default'] * 0x7fffffff) for p in m.definition['parameters']])
         # A synth's Shift row (SDK 1.13): the eight words its preview renders after the controls.
         if synth_shift(m.definition):

@@ -19,6 +19,18 @@ u32 display_activation;
 draw::Input display_input;
 binding::Frame display_frame;
 
+// A looping drumline voice restarts its hit without a note start, posting each
+// re-hit instead (screen.hpp loop_hit); a re-hit on this track strikes as a note
+// does, as stock Drumline's page re-triggers on it (8d530794).
+struct LoopHits { u32 valid, last, count; };
+LoopHits loop_hits;
+u32 loop_rehits(u32 track) {
+    const u32 hit = loop_hit();
+    if (loop_hits.valid && hit != loop_hits.last && (hit >> 8 & 0xff) == track) ++loop_hits.count;
+    loop_hits.last = hit;
+    loop_hits.valid = 1;
+    return loop_hits.count;
+}
 // A drum kit's display is struck only by its selected pad's notes. Audio and
 // GUI are separate roles, so this reads only GUI state: when stock's note
 // counter moves, the pitches that started since the last frame (newly held,
@@ -28,7 +40,7 @@ struct PadNotes { u32 track, valid, notes, serial; u8 held[128], released[128], 
 PadNotes pad_notes;
 u32 display_note_serial(const Controls& controls) {
     if (controls.track >= 8) return 0;
-    const u32 notes = note_serial(controls.track);
+    const u32 notes = note_serial(controls.track) + loop_rehits(controls.track);
     if (!controls.pad) {
         pad_notes.valid = 0;
         return notes;
@@ -71,7 +83,7 @@ template <class Machine> struct Drawing {
         binding::display_reset(&display_state,&display_frame);
         if(!o->base.svg)return;
         bind_controls(&o->base);
-        Renderer::bind(o,Machine::ids);
+        Renderer::bind(o,Machine::ids,Machine::stock_artwork);
     }
 
     static void animate(Object* o, const Controls& controls) {

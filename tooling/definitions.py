@@ -102,6 +102,15 @@ EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
 DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls')
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
 PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
+# A synth may run a stock engine's voices inside its own (SDK 1.16,
+# opxy/stock_<engine>.hpp); the SDK links that engine's binding.
+SYNTH_OPTIONS = ('trackControl', 'stereoOutput', 'releaseCallback', 'stockVoice')
+STOCK_VOICE_ENGINES = ('drumline',)
+# Stock display assets a synth's screen may bind by their own element IDs instead of
+# artwork of its own (SDK 1.16): the user's device draws them. An ID is an element's
+# own, or `name/i[/j...]`, child i of the group `name` (up to four levels).
+STOCK_ARTWORK = ('dbox',)
+ARTWORK_ID = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,62}(/[0-9]{1,3}){0,4}')
 EFFECT_BUFFER_LIMIT = 524288
 # A synth's optional GUI-side track control (opxy/track_control.hpp): its state.
 CONTROL_FIELDS = ('stateBytes', 'stateAlignment')
@@ -170,10 +179,11 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl', 'stereoOutput', 'releaseCallback')}.get(kind, ())
+               'synth': SYNTH_OPTIONS}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
-    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls')),
+    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
+                                                                'stockVoice')),
             'Numeric resource requirements must be integers')
     if kind == 'synth':
         for flag in ('stereoOutput', 'releaseCallback'):
@@ -210,7 +220,7 @@ def validate_definition(value, kind):
         if 'display' in resources:
             validate_display(resources['display'])
     if kind in ('synth', 'drum'):
-        validate_synth_resources(resources)
+        validate_synth_resources(resources, kind)
     if kind == 'master':
         validate_display(resources['display'])
     if kind == 'drum':
@@ -415,7 +425,7 @@ def shift_parameters(definition):
     return [] if 'voiceBytes' in definition['resources'] else definition.get('shift', [])
 
 
-def validate_synth_resources(resources):
+def validate_synth_resources(resources, kind='synth'):
     # Sizes are bounded by the shared module memory, checked when the collection links.
     require(4 <= resources['voiceBytes'] and resources['voiceBytes'] % 4 == 0,
             'Voice state must occupy at least one whole word')
@@ -424,7 +434,12 @@ def validate_synth_resources(resources):
     require(0 <= resources['sharedBytes'] and resources['sharedBytes'] % 4 == 0,
             'Shared state must occupy whole words')
     require(0 < resources['outputPeakQ31'] <= 0x7fffffff, 'Invalid oscillator output headroom')
-    validate_display(resources['display'])
+    require(resources.get('stockVoice', STOCK_VOICE_ENGINES[0]) in STOCK_VOICE_ENGINES,
+            'stockVoice names a stock engine the SDK binds: ' + ', '.join(STOCK_VOICE_ENGINES))
+    # The key going up reaches a stock voice only through the release callback.
+    require('stockVoice' not in resources or resources.get('releaseCallback') == 1,
+            'A synth running stock voices declares releaseCallback 1 and ends their notes in release')
+    validate_display(resources['display'], stock_artwork=kind == 'synth')
     if 'trackControl' in resources:
         control = resources['trackControl']
         present = tuple(k for k in CONTROL_OPTIONS if isinstance(control, dict) and k in control)
@@ -451,10 +466,13 @@ def validate_synth_resources(resources):
         require(control.get('unique') is True, 'A track control machine that takes over aux tracks must be unique')
 
 
-def validate_display(display):
+def validate_display(display, stock_artwork=False):
+    """A display's frame budget; with stock_artwork (a synth's screen), optionally the
+    stock asset it binds instead of artwork of its own (`artwork`)."""
     require(not (isinstance(display, dict) and 'kind' in display),
             'This display uses a contract from before SDK 1.0: see docs/display.md#migrating-from-before-sdk-10')
-    keys(display, DISPLAY_FIELDS, 'display')
+    artwork = stock_artwork and isinstance(display, dict) and 'artwork' in display
+    keys(display, (*DISPLAY_FIELDS, *(('artwork',) if artwork else ())), 'display')
     for name, (low, high) in DISPLAY_LIMITS.items():
         require(type(display[name]) is int and low <= display[name] <= high,
                 'Display %s must be %d..%d' % (name, low, high))
@@ -465,6 +483,15 @@ def validate_display(display):
             4 <= display['stateBytes'] and display['stateAlignment'] in (4, 8, 16) and
             display['stateBytes'] % display['stateAlignment'] == 0,
             'Display state must occupy aligned whole words')
+    if artwork:
+        keys(display['artwork'], ('stock', 'ids'), 'display artwork')
+        require(display['artwork']['stock'] in STOCK_ARTWORK,
+                'artwork.stock names a stock display asset: ' + ', '.join(STOCK_ARTWORK))
+        ids = display['artwork']['ids']
+        require(isinstance(ids, list) and len(ids) == display['nodes'] + display['texts'] + display['palette'] and
+                all(isinstance(i, str) and ARTWORK_ID.fullmatch(i) for i in ids) and len(set(ids)) == len(ids),
+                'artwork.ids names the stock elements of every node, text slot and palette entry, once each')
+        require(display['paths'] == 0, 'Stock artwork outlines are not reshaped: declare 0 paths')
 
 
 def validate_parameter(parameter, alternate=False, required=True):

@@ -18,6 +18,7 @@ typedef u32 __attribute__((may_alias)) word;
 
 const u32 kPathLeaf = 0x840c4d74;  // vtable of a stock SVG path leaf
 const u32 kTextLeaf = 0x840c5158;  // vtable stored by the stock text constructor 0x8d600e20
+const u32 kGroup = 0x840c34d0;     // vtable of a stock SVG group, set by its constructor 0x8d5f1190
 
 // A stock vector of records.
 struct Vector { u32 begin, end, capacity; };
@@ -72,6 +73,10 @@ inline void update_controls(Base* o, u32 track, const Parameters* p) {
     stock<void(Leaf**, u32, const Parameters*)>(0x8d5466ac)(o->values, track, p);
 }
 inline u32 note_serial(u32 track) { return stock<u32(u32)>(0x8d4d6c08)(track); }
+// The last loop re-hit stock's drumline voice posted to the GUI's slot 30
+// (8d4d666a): its count << 16 | track << 8 | key (render 11a07612). Only a voice
+// whose track is the selected one posts.
+inline u32 loop_hit() { return *reinterpret_cast<const volatile u32*>(0x0803775c); }
 inline void set_matrix(Leaf* node, const i32* matrix) { stock<void(Leaf*, const i32*)>(0x8d5f06a6)(node, matrix); }
 inline void set_text(Leaf* node, const char* text) { platform::set_text(node, text); }
 // Anchors a text leaf at the middle of its x, as text-anchor="middle". Stock keeps the anchor at
@@ -92,6 +97,22 @@ inline PathNode* path_node(void* node) {
 }
 inline Leaf* text_node(void* node) {
     return node && static_cast<Leaf*>(node)->vtable == kTextLeaf ? static_cast<Leaf*>(node) : 0;
+}
+// A node stock artwork binds: a path leaf, or a group, which stock moves through
+// the same matrix setter. A group is held as a path pointer for its leading leaf
+// only: paint and outlines check for a path leaf again before use.
+inline PathNode* transform_node(void* node) {
+    if (PathNode* path = path_node(node)) return path;
+    return node && static_cast<Leaf*>(node)->vtable == kGroup ? static_cast<PathNode*>(node) : 0;
+}
+// Child i of a stock group, or 0: groups hold their children as a pointer vector
+// at +0x48 (begin) and +0x4c (end).
+inline void* child(void* node, u32 i) {
+    if (!node || static_cast<Leaf*>(node)->vtable != kGroup) return 0;
+    const word* group = static_cast<const word*>(node);
+    const u32 begin = group[0x48 / 4], end = group[0x4c / 4];
+    if (!begin || begin & 3 || end < begin || i >= (end - begin) / 4) return 0;
+    return reinterpret_cast<void*>(reinterpret_cast<const word*>(begin)[i]);
 }
 
 // A donor path's positive fill/stroke selectors, packed fill | stroke << 16, or

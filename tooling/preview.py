@@ -75,9 +75,29 @@ def source_hashes(m):
     return dict(sorted(hashes.items()))
 
 
+def panel_fragment(m):
+    """The artwork a preview draws: the machine's own, or for stock artwork, which
+    only the device has, a plain stand-in holding every bound ID."""
+    from .native import display_ids, own_artwork
+    if own_artwork(m):
+        return (m.root / 'panel.svg.fragment').read_bytes()
+    display = m.definition['resources']['display']
+    ids = display_ids(m.prefix, display)
+    count = display['nodes'] + display['texts']
+    square = 'd="M-3 -3 L3 -3 L3 3 L-3 3 Z" fill="#ffffff" stroke="#ffffff" stroke-width="1"'
+    font = 'fill="#ffffff" font-family="UniversNextPro-Light" font-size="16"'
+    lines = [f'<g id="{m.prefix}_panel">',
+             f'  <text transform="matrix(1 0 0 1 24 120)" {font}>'
+             f'{display["artwork"]["stock"]}.svg: stock artwork, drawn on the device</text>',
+             *(f'  <path id="{i}" {square}/>' for i in ids[:display['nodes']]),
+             *(f'  <text id="{i}" {font}></text>' for i in ids[display['nodes']:count]),
+             *(f'  <path id="{i}" {square}/>' for i in ids[count:]), '</g>']
+    return ('\n'.join(lines) + '\n').encode('utf-8')
+
+
 def graphics_metadata(m):
     from .native import display_ids
-    asset = sha((m.root / 'panel.svg.fragment').read_bytes())
+    asset = sha(panel_fragment(m))
     display = m.definition['resources']['display']
     result = dict(drawing_bindings(display_ids(m.prefix, display), display), asset_sha256=asset)
     if m.grayscale:
@@ -94,18 +114,19 @@ def drawing_bindings(ids, display):
 
 def build(compiler, m, out, overwrite=False):
     """The browser audition of a collection synth or drum (a Machine)."""
-    from .native import check_sources, validate_panel
+    from .native import check_sources, own_artwork, validate_panel
     require(m.kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
     require(not m.contains(out), 'Keep preview output outside the machine folder')
     executable = shutil.which(str(compiler))
     require(executable is not None, 'Clang++ with wasm32/wasm-ld is required; run python sdk.py doctor --preview')
     compiler = Path(executable).resolve()
     check_sources([m])
-    validate_panel(m)
+    if own_artwork(m):
+        validate_panel(m)
     before = source_hashes(m)
     out = fresh_output(out, overwrite, [m.root])
     compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes, kind=m.kind)
-    (out / 'panel.svg').write_bytes((m.root / 'panel.svg.fragment').read_bytes())
+    (out / 'panel.svg').write_bytes(panel_fragment(m))
     if m.grayscale:
         (out / 'panel.grayscale.svg').write_bytes((m.root / m.grayscale).read_bytes())
     require(source_hashes(m) == before, 'Source changed during preview build')
