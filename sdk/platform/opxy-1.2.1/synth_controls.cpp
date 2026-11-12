@@ -358,8 +358,9 @@ bool sdk_drum_shift_press(u32 track, u32 encoder) {
 // 8d5ad306: stock's encoder step 8d5ad2e8, which plain and lock edits share,
 // asks 8c0b2468(track, index, &scale) for a parameter's step count, or -1 when
 // it is continuous. It then moves scale * count buckets, one per detent (two
-// when turned fast), and stores the bucket's centre. An owned machine's enum
-// slot answers its choice count with scale 1: one choice per detent.
+// when turned fast), and stores the bucket's centre. An owned enum slot from a
+// machine before SDK 1.15, or a drum kit, answers its choice count with scale 1:
+// one choice per detent. A newer one's enum turns through 00 to 99 like stock's.
 u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
     const SynthControls* m = index < opxy::parameter_slots ? editor(track) : nullptr;
     if (m && m->steps[index]) {

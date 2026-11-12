@@ -8,7 +8,7 @@ const definition = JSON.parse(readFileSync(new URL('./fixtures/machines/probeshi
 const plain = JSON.parse(readFileSync(new URL('./fixtures/machines/probesynth/definition.json', import.meta.url)));
 
 test('the row renders as parameters 8..15, stored as the device stores it', () => {
-  const controls = createControls(definition);
+  const controls = createControls(definition, '1.13');
   const values = controls.defaults();
   assert.deepEqual(Object.keys(values).slice(8), ['noise', 'drift', 'octave', 'lowcut', 'slide', 'ratio', 'balance']);
   const words = controls.q31(values);
@@ -21,7 +21,7 @@ test('the row renders as parameters 8..15, stored as the device stores it', () =
 });
 
 test('a value may leave the row out, and a preset without it plays its defaults', () => {
-  const controls = createControls(definition);
+  const controls = createControls(definition, '1.13');
   const page = Object.fromEntries(definition.parameters.map(p => [p.id, p.default]));
   assert.deepEqual(controls.validateParameters(page), controls.defaults());
   assert.throws(() => controls.validateParameters({...page, gap: 0}), /defined normalized controls/);
@@ -32,14 +32,14 @@ test('a value may leave the row out, and a preset without it plays its defaults'
 });
 
 test('a preset may set the row; the rest of the row plays its defaults', () => {
-  const controls = createControls(definition);
+  const controls = createControls(definition, '1.13');
   assert.equal(controls.presets.Pulse.noise, 0.3);
   assert.equal(controls.presets.Pulse.drift, 0.25);
   assert.equal(controls.q31(controls.presets.Pulse)[10], shiftWord(definition.shift[2], 0.75));
 });
 
 test('a synth without a row keeps eight words and its exact controls', () => {
-  const controls = createControls(plain);
+  const controls = createControls(plain, '1.13');
   assert.equal(controls.shift.length, 0);
   assert.equal(controls.q31(controls.defaults()).length, 8);
   assert.throws(() => controls.validateParameters({...controls.defaults(), noise: 0}), /defined normalized controls/);

@@ -8,6 +8,22 @@ function freeze(value) {
   return value;
 }
 
+// From SDK 1.15 a synth's or drum kit's number counts 00..99 as stock's pages do
+// (tooling.machines.STOCK_COUNT_SDK); earlier machines keep 0.0..100.0.
+export const STOCK_COUNT_SDK = Object.freeze([1, 15]);
+export function countsLikeStock(sdk) {
+  const match = /^(\d+)\.(\d+)$/.exec(sdk ?? '');
+  if (!match) throw new Error('Expected the machine\'s SDK version, as "major.minor".');
+  const [major, minor] = [Number(match[1]), Number(match[2])];
+  return major > STOCK_COUNT_SDK[0] || major === STOCK_COUNT_SDK[0] && minor >= STOCK_COUNT_SDK[1];
+}
+
+// A Q31 word as two digits, 00..99, exactly as header_number (page_header.hpp)
+// captions it on the device: floor(100 * word / 2^31).
+export function stockNumber(word) {
+  return String((Math.max(word, 0) >>> 8) * 100 >>> 23).padStart(2, '0');
+}
+
 export function physicalValue(mapping, value) {
   if (mapping.kind === 'enum') return Math.floor((Math.round(value * 0x7fffffff) >>> 16) * mapping.labels.length / 32768);
   if (mapping.kind === 'linear') return mapping.minimum + (mapping.maximum - mapping.minimum) * value;
@@ -87,7 +103,10 @@ export function shiftWord(parameter, value) {
 // Screen views of the browser preview.
 export const VIEWS = Object.freeze(['routing', 'waveform']);
 
-export function createControls(input) {
+// sdk is the machine.json version the preview's machine declares; it picks the
+// device's captions for numbers. Choices and note lengths show their names either way.
+export function createControls(input, sdk) {
+  const stockCount = countsLikeStock(sdk);
   const descriptor = freeze(input);
   const parameters = descriptor.parameters;
   const definition = freeze({ id: descriptor.id, name: descriptor.name });
@@ -114,12 +133,13 @@ export function createControls(input) {
     if (!parameters.includes(parameter)) value = { [id]: shiftWord(parameter, value[id] ?? parameter.default) / 0x7fffffff };
     const v = physicalValue(parameter.mapping, value[id]);
     if (parameter.display === 'enum') return parameter.mapping.labels[v];
+    // Stock delay's note lengths, by the Q31 word >> 28 as on the device.
+    if (parameter.display === 'division') return DIVISIONS[Math.round(value[id] * 0x7fffffff) >>> 28];
+    if (stockCount) return stockNumber(Math.round(value[id] * 0x7fffffff));
     if (parameter.display === 'ratio') return `${v.toFixed(1)}:1`;
     if (parameter.display === 'bipolar') return `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`;
     if (parameter.display === 'semitones') return `${v > 0 ? '+' : ''}${v.toFixed(1)} st`;
     if (parameter.display === 'duration') return v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toFixed(2)} s`;
-    // Stock delay's note lengths, by the Q31 word >> 28 as on the device.
-    if (parameter.display === 'division') return DIVISIONS[Math.round(value[id] * 0x7fffffff) >>> 28];
     return (value[id] * 100).toFixed(1);
   }
   function q31(value) {
@@ -149,6 +169,6 @@ export function createControls(input) {
   const rowDefaults = Object.fromEntries(shifted.map(p => [p.id, p.default]));
   const presets = descriptor.presets &&
     Object.fromEntries(Object.entries(descriptor.presets).map(([name, values]) => [name, { ...absent, ...rowDefaults, ...values }]));
-  return Object.freeze({ definition, parameters, shift: freeze([...shift]), positions: Object.freeze(controlPositions(parameters)),
+  return Object.freeze({ definition, parameters, stockCount, shift: freeze([...shift]), positions: Object.freeze(controlPositions(parameters)),
     defaults, presets, physical, displayValue, q31, validateParameters, makePatch, readPatch });
 }

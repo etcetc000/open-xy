@@ -26,7 +26,7 @@ class DrumPreviewTests(unittest.TestCase):
 
     def test_a_drum_kits_press_always_pages_its_whole_row(self):
         from tooling.definitions import validate_definition
-        machine = SimpleNamespace(kind='drum', prefix='kit', definition=self.definition('drum'), engine=None,
+        machine = SimpleNamespace(sdk=(1, 15), kind='drum', prefix='kit', definition=self.definition('drum'), engine=None,
                                   native_name='kit', id='kit')
         with tempfile.TemporaryDirectory() as folder:
             table = adapters.generate_synth_controls(folder, [machine]).read_text()
@@ -42,7 +42,7 @@ class DrumPreviewTests(unittest.TestCase):
         definition['resources'].update(modelCount=33, modelGroups=[
             dict(label='TRX', count=13), dict(label='EFM', count=8), dict(label='P-I', count=9), dict(label='GND', count=3)])
         validate_definition(definition, 'drum')
-        machine = SimpleNamespace(kind='drum', prefix='kit', definition=definition)
+        machine = SimpleNamespace(sdk=(1, 15), kind='drum', prefix='kit', definition=definition)
         with tempfile.TemporaryDirectory() as folder:
             table = adapters.generate_drum_callbacks(folder, [machine]).read_text()
         self.assertIn('static const opxy::u8 kit_group_sizes[] = {13, 8, 9, 3};', table)
@@ -55,7 +55,7 @@ class DrumPreviewTests(unittest.TestCase):
             definition['resources']['modelGroups'] = groups
             with self.subTest(groups=groups), self.assertRaises(ValueError):
                 validate_definition(definition, 'drum')
-        plain = SimpleNamespace(kind='drum', prefix='plain', definition=self.definition('drum'))
+        plain = SimpleNamespace(sdk=(1, 15), kind='drum', prefix='plain', definition=self.definition('drum'))
         with tempfile.TemporaryDirectory() as folder:
             self.assertIn('plain_drum_count, 0, nullptr, nullptr, 0, 0, nullptr, 0, nullptr, nullptr, plain_drum_scramble_range},', adapters.generate_drum_callbacks(folder, [plain]).read_text())
 
@@ -65,7 +65,7 @@ class DrumPreviewTests(unittest.TestCase):
             definition = self.definition('drum')
             definition['resources']['chokeSameKey'] = value
             validate_definition(definition, 'drum')
-            machine = SimpleNamespace(kind='drum', prefix='kit', definition=definition, native_name='kit')
+            machine = SimpleNamespace(sdk=(1, 15), kind='drum', prefix='kit', definition=definition, native_name='kit')
             with tempfile.TemporaryDirectory() as folder:
                 source = adapters.generate_voice(folder, machine).read_text()
             self.assertIn('const bool kChoke = %s;' % ('true' if value else 'false'), source)

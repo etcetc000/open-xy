@@ -21,6 +21,7 @@ from .definitions import (ROOT, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_po
 # An effect's shift-row controls follow its eight parameter words (slots 8..11).
 SHIFT_SLOT = 8
 from .formats import require
+from .machines import STOCK_COUNT_SDK
 from .stock_tables import REGISTRATION as RELOCATED
 
 TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
@@ -514,7 +515,11 @@ def generate_synth_controls(directory, machines):
             following = control_cycles(m.definition) or list(range(8))
         continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum' and not p.get('absent'))
         absent = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p.get('absent'))
-        steps = [enum_steps(p) for p in m.definition['parameters']]
+        # From SDK 1.15 a synth's or send effect's enum turns as stock's Prism ratio does, through
+        # 00 to 99 one number per detent, so each choice takes several. Earlier machines, drum kits
+        # and sample engines step by choice.
+        by_choice = m.kind not in ('synth', 'effect') or getattr(m, 'sdk', STOCK_COUNT_SDK) < STOCK_COUNT_SDK
+        steps = [enum_steps(p) if by_choice else 0 for p in m.definition['parameters']]
         steps += [0] * (8 - len(steps))
         declarations.append(f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");')
         # The engine or effect ID is an absolute symbol the linker supplies.
@@ -543,9 +548,14 @@ def generate_synth_controls(directory, machines):
                 continue
             if effect:
                 continue
+            # From SDK 1.15 a number counts 00..99 as stock's pages do. Earlier machines and
+            # sample engines keep their captions.
+            if m.sdk >= STOCK_COUNT_SDK and m.kind != 'sample':
+                body.extend([f'    case {i}:', '        opxy::draw::header_number(text, 16, value);',
+                             '        return true;'])
             # Compact native ratio captions; unusual/signed ranges retain the
             # stock normalized display, with an extra decimal place.
-            if p['display'] == 'ratio' and mapping['kind'] == 'anchors' and 0 <= mapping['values'][0] < mapping['values'][-1] <= 1000:
+            elif p['display'] == 'ratio' and mapping['kind'] == 'anchors' and 0 <= mapping['values'][0] < mapping['values'][-1] <= 1000:
                 anchors = ', '.join(str(math.floor(v * 10 + 0.5)) for v in mapping['values'])
                 body.extend([f'    case {i}: {{', f'        static const opxy::u32 anchors[] = {{{anchors}}};',
                              f'        control_tenths(text, control_ratio(value, anchors, {len(mapping["values"])}), ":1");',
