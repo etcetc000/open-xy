@@ -1376,7 +1376,8 @@ plays. Words 36 and 38 carry nothing.
   sampler's. Copy and paste (`8d581f34`, `8d581f90`, through `sdk_sample_pad_copy` and
   `sdk_sample_pad_paste`) move the whole 128-byte entry, the key's sends included.
   M1's one-pad scramble (`8d4d60f4` at `8c0b3170`, `sdk_drum_pad_scramble`) re-rolls a
-  kit's key as the track menu's scramble rolls each key, and M4's reset (`8d582048(track,
+  kit's key's controls within the kit's scramble range and keeps its model, as stock's
+  re-rolls a pad's four parameter words and keeps its type, and M4's reset (`8d582048(track,
   key)` at `8c0b32d6`, `sdk_drum_pad_reset`), which writes Drumline's default kit entry,
   gives a kit's key its default model and controls, stock's default choke group for the
   pad (`0x8409fce0 + 4 * slot`), every pad field neutral, its sends `TRK`, 0 dB and

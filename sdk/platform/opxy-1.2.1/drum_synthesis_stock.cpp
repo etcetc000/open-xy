@@ -230,14 +230,15 @@ opxy::u32 sdk_scramble_engine(opxy::u32 track) {
     return sdk_drum_alias(opxy::platform::stock<opxy::u32(opxy::u32)>(0x8d58781c)(track));
 }
 
-// A kit's key re-rolled as the track menu's scramble rolls it: a model and a value
-// for every control that model uses, within the kit's scramble range, packed as an
-// edit packs them; its choke group, pan, level and pad fields stay, and a padMix key
+// A kit's key re-rolled as the track menu's scramble rolls it: a model (unless
+// `keep_model`: a held pad's scramble, as stock Drumline's 8d4d60f4 re-rolls only a
+// pad's four parameter words and keeps its type) and a value for every control that
+// model uses, within the kit's scramble range, packed as an edit packs them; its choke group, pan, level and pad fields stay, and a padMix key
 // the kit had not set up is set up as its first edit would be (sdk_drum_edit), so it
 // sounds as before apart from the scramble. `seed` is the xorshift state. False when
 // the key has no record.
 static bool scramble_key(const opxy::platform::DrumMachine& machine, const opxy::platform::DrumCodec& codec,
-                         opxy::u32 track, opxy::u32 key, opxy::u32& seed) {
+                         opxy::u32 track, opxy::u32 key, opxy::u32& seed, bool keep_model = false) {
     using namespace opxy;
     using namespace opxy::platform;
     const auto next = [&seed](u32 span) {
@@ -247,7 +248,7 @@ static bool scramble_key(const opxy::platform::DrumMachine& machine, const opxy:
     void* region = pad_region(track, key);
     u8 model, controls[kDrumControlCount];
     if (!drum_region_values(machine, track, key, region, &model, controls)) return false;
-    model = static_cast<u8>(next(machine.model_count));
+    if (!keep_model) model = static_cast<u8>(next(machine.model_count));
     for (u32 slot = 0; slot < kDrumControlCount; ++slot) {
         if (!machine.used(model, slot)) continue;
         u8 low = 0, high = 127;
@@ -309,8 +310,9 @@ opxy::u32 sdk_drum_held_pad_engine(opxy::u32 track) {
 }
 
 // 8c0b3170: M1's call of Drumline's one-pad scramble 8d4d60f4(key), the held key. On
-// an owned kit's track that key alone is re-rolled as the track menu's scramble rolls
-// each key; elsewhere stock's.
+// an owned kit's track that key alone is re-rolled, its model kept (stock's re-rolls a
+// pad's parameters and keeps its type): every control the model uses, within the
+// kit's scramble range; elsewhere stock's.
 void sdk_drum_pad_scramble(opxy::u32 key) {
     using namespace opxy;
     using namespace opxy::platform;
@@ -320,7 +322,7 @@ void sdk_drum_pad_scramble(opxy::u32 key) {
     const DrumCodec codec = drum_codec(machine->model_count, machine->count);
     if (key >= 128 || !codec.fits() || !machine->model_count) return;
     u32 seed = scramble_seed();
-    if (scramble_key(*machine, codec, track, key, seed)) stock<void()>(0x8d585ee8)();
+    if (scramble_key(*machine, codec, track, key, seed, true)) stock<void()>(0x8d585ee8)();
 }
 
 // 8c0b32d6: M4's call of Drumline's pad reset 8d582048(track, key), which writes stock's

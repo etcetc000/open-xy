@@ -1176,6 +1176,11 @@ int main() {
             std::memcpy(was, regions, sizeof(regions));
             sdk_drum_pad_scramble(58);
             require(publications == before + round + 1 && dirty == changes + round + 1 && last_key == 58);
+            // The key keeps its model: a held pad's scramble re-rolls only its controls, as
+            // stock's does.
+            u8 kept = 99, now = 98, values[8];
+            if (round) require(drum_unpack(was[5] + 1, &kept, values));
+            require(drum_unpack(regions[5] + 1, &now, values) && (!round || now == kept));
             for (u32 pad = 0; pad < 24; ++pad)
                 if (pad != 5) require(!std::memcmp(regions[pad], was[pad], sizeof(was[pad])));
             moved = moved || std::memcmp(regions[5], was[5], sizeof(was[5]));

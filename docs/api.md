@@ -934,7 +934,7 @@ void scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* hi
 it draws every control from 0..127.
 
 As on Drumline, holding a pad and pressing M1, M2, M3 or M4 scrambles, copies,
-pastes or resets that key: scramble re-rolls it alone as above, copy and paste
+pastes or resets that key: scramble re-rolls its controls alone, keeping its model, copy and paste
 carry all of its settings (its sends included), and reset gives it the kit's
 defaults with every pad field neutral and its sends `TRK`. Holding Shift and
 pressing a pad moves the Shift row and the encoders to that pad ([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
