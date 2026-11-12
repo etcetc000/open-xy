@@ -10,6 +10,8 @@
 .extern sdk_synth_shift_export
 .extern sdk_drum_load_engine
 .extern stock_drum_classify_tail
+.extern sdk_drum_export_random
+.extern sdk_drum_import_random
 
 .macro DRUM_ALIAS_R0
     HOOK_SAVE
@@ -96,6 +98,26 @@ extensions_drum_export_parameters:
     CC = R0 == R1;
     RTS;
 .size extensions_drum_export_parameters, .-extensions_drum_export_parameters
+
+/* 8d4e73ac: the preset writer's call of random's converter 8d4e3ece(&word), the
+ * word >>> 16, with P4 the pad record: a padMix kit's key also exports its send
+ * amounts above bit 16 (drum_synthesis_stock.cpp). */
+.global extensions_drum_export_random
+.type extensions_drum_export_random, STT_FUNC
+extensions_drum_export_random:
+    R1 = P4;
+    JUMP.L sdk_drum_export_random;
+.size extensions_drum_export_random, .-extensions_drum_export_random
+
+/* 8d4e3b9a: preset import's call of random's converter 8d4e3558(value), stored
+ * at P5 + 0x10 (the pad word; P5 is the pad record + 4): the send amounts above
+ * bit 16 go into the record's bytes too (drum_synthesis_stock.cpp). */
+.global extensions_drum_import_random
+.type extensions_drum_import_random, STT_FUNC
+extensions_drum_import_random:
+    R1 = P5;
+    JUMP.L sdk_drum_import_random;
+.size extensions_drum_import_random, .-extensions_drum_import_random
 
 /* 8d4e6e08: Drumline's optional gain field, R2 is the constant 4. */
 .global extensions_drum_export_gain

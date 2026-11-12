@@ -78,11 +78,12 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         if (next > last) next = last;
         if (next == model) return 0;
         model = static_cast<u8>(next);
-    } else if (choice >= DrumMachine::kShiftPad + kDrumKitPadFields && choice - DrumMachine::kShiftPad < kDrumPadFields) {
+    } else if (choice >= DrumMachine::kShiftPad + kDrumKitPadFields &&
+               static_cast<u32>(choice - DrumMachine::kShiftPad) < kDrumPadFields) {
         // FX I or FX II: TRK, then 0..100 a percent a step, (speed + 1) steps a
         // detent; a key's old code turns from the percent it shows, so its first
         // edit makes it an amount (drum_send_turn).
-        send = choice - DrumMachine::kShiftPad - kDrumKitPadFields;
+        send = static_cast<u32>(choice - DrumMachine::kShiftPad) - kDrumKitPadFields;
         const u32 now = setup ? 0 : drum_send_index(drum_send_record_pair(record), send);
         send_index = drum_send_turn(now, drum_send_steps(delta, static_cast<i32>(event[2])));
         if (send_index == now) return 0;
@@ -157,6 +158,47 @@ opxy::u32 sdk_drum_preset_load(opxy::u32 preset, opxy::u32 flag) {
     for (opxy::u32 k = 0; k < kDrumPatternPads; ++k)
         drum_setup_loaded(at<unsigned char>(pattern + kDrumPatternPadsAt + k * kDrumPatternPadBytes));
     return result;
+}
+
+// 8d4e73ac: the preset writer's call of random's converter 8d4e3ece, word >>> 16
+// (a positive int below 2^15 on every key the SDK set up), for the record at P4.
+// A padMix key the kit set up whose sends are amounts (drum_send.hpp) also
+// exports them: FX I's index in bits 16..22, FX II's in 23..29, still a positive
+// 32-bit int. Stock's import stores max(random << 16, 0) (8d4e3558), so bits 16
+// and up never reach the pad word on any firmware: older firmware plays the
+// codes the word keeps, each amount's nearest step. Stock writes random only for
+// a nonzero word (8d4e7322), which a set-up key's always is.
+opxy::i32 sdk_drum_export_random(const opxy::i32* word, const unsigned char* record) {
+    using namespace opxy::platform;
+    const opxy::i32 random = *word >> 16;
+    if (!drum_ready(record)) return random;
+    opxy::u32 above = 0;
+    const opxy::u32 pair = drum_send_record_pair(record);
+    for (opxy::u32 send = 0; send < kDrumSends; ++send) {
+        const opxy::u32 index = drum_send_index(pair, send);
+        if (index >= 1 && index <= kDrumSendAmounts) above |= index << (kDrumSendIndexBits * send);
+    }
+    return static_cast<opxy::i32>(static_cast<opxy::u32>(random) | above << 16);
+}
+
+// 8d4e3b9a: preset import's call of random's converter 8d4e3558(value), whose
+// result stock stores as the pad word (P5 + 0x10 at 8d4e3b9e; P5 is the preset
+// object's pad record + 4, which import later copies over the pattern's whole,
+// 8d4e3690). Bits 16..22 and 23..29 of the number (an int, 8c054310, when the
+// value is one, 8c0535a2) go into the record's FX I and FX II bytes; a preset
+// without them (any before SDK 1.15, or stock's) leaves both 0, as the reader
+// cleared them (8d4e47b2). They read as amounts only on a key the kit sets up
+// whose word keeps each one's code (drum_send_stored).
+opxy::i32 sdk_drum_import_random(const void* value, unsigned char* record_4) {
+    using namespace opxy::platform;
+    const opxy::i32 word = stock<opxy::i32(const void*)>(0x8d4e3558)(value);
+    if (!value || !record_4) return word;
+    const opxy::u32 number = stock<opxy::u32(const void*)>(0x8c0535a2)(value)
+        ? static_cast<opxy::u32>(stock<opxy::i32(const void*)>(0x8c054310)(value)) : 0;
+    unsigned char* record = record_4 - 4;
+    for (opxy::u32 send = 0; send < kDrumSends; ++send)
+        record[kDrumSendByte[send]] = static_cast<unsigned char>((number >> (16 + kDrumSendIndexBits * send)) & kDrumSendIndexMask);
+    return word;
 }
 
 // 8c0b14b4 and 8c0b167a: the instrument controller's turn handler (8c0b12e4)
