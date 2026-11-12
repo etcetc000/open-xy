@@ -5,7 +5,7 @@
   "parameters": [
     {
       "id": "blend",
-      "label": "Blend",
+      "label": "blend",
       "default": 0,
       "mapping": {
         "kind": "linear",
@@ -16,7 +16,7 @@
     },
     {
       "id": "width",
-      "label": "Width",
+      "label": "width",
       "default": 0.5,
       "mapping": {
         "kind": "linear",
@@ -27,7 +27,7 @@
     },
     {
       "id": "level",
-      "label": "Level",
+      "label": "level",
       "default": 0.65,
       "mapping": {
         "kind": "linear",
@@ -38,7 +38,7 @@
     },
     {
       "id": "motion",
-      "label": "Motion",
+      "label": "motion",
       "default": 0.5,
       "mapping": {
         "kind": "linear",
@@ -49,7 +49,7 @@
     },
     {
       "id": "drive",
-      "label": "Drive",
+      "label": "drive",
       "control": 0,
       "default": 0,
       "mapping": {
@@ -61,7 +61,7 @@
     },
     {
       "id": "crush",
-      "label": "Crush",
+      "label": "crush",
       "control": 1,
       "default": 0,
       "mapping": {
@@ -73,7 +73,7 @@
     },
     {
       "id": "rectify",
-      "label": "Rectify",
+      "label": "rectify",
       "control": 2,
       "default": 0,
       "mapping": {
@@ -85,7 +85,7 @@
     },
     {
       "id": "smooth",
-      "label": "Smooth",
+      "label": "smooth",
       "control": 3,
       "default": 0,
       "mapping": {

@@ -1,6 +1,7 @@
 // Generated ownership and control metadata for one collection's synths and FX.
 #include "synth_controls.hpp"
 #include "lfo.hpp"
+#include <opxy/page_header.hpp>
 extern "C" {
 @READY_DECLS@
 }

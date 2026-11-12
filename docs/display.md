@@ -245,8 +245,8 @@ contract by authoring text leaves named `<prefix>_header_value_0` through
 paint; they do not consume or alias animated text slots. The shared platform
 header adapter binds them and applies `Frame.header`. A standalone host restores
 the shown parameter's declared label and normalized 0..100 value each frame;
-nonempty `Frame.header[i]` overrides that value. Supply mapped units and enum
-captions in the display callback. Missing leaves are supported and add no visual
+nonempty `Frame.header[i]` overrides that value. Supply enum captions in the
+display callback. Missing leaves are supported and add no visual
 header. Synths retain their stock template and stock mapped-value formatting.
 
 | Field | Bounds |
@@ -294,14 +294,14 @@ const char* const titles[8] = {"wave", "shape", "level", "tone",
 const opxy::u8 pages[2][4] = {{0, 1, 2, 3}, {4, 5, 2, 3}};
 char values[8][opxy::draw::header_capacity] = {};
 for (opxy::u32 i = 0; i < 6; ++i)
-    opxy::draw::header_amount(values[i], sizeof(values[i]), input.slots[i]);
+    opxy::draw::header_number(values[i], sizeof(values[i]), input.slots[i]);
 opxy::draw::page_header(state.header, input, frame, titles, values, first_node, pages);
 ```
 
-Titles and captions are indexed by saved parameter slot. Supply lowercase
-real-unit captions for enums, frequencies, ratios and other mapped controls;
-`header_amount` rounds Q31 amounts to 0..100 without a percent sign. Titles
-are lowercased by the helper. The page map must match each alternate's
+Titles and captions are indexed by saved parameter slot. Caption numbers with
+`header_number`, 00 to 99 as [the stock pages count](ux.md#controls), and a
+choice with its lowercase name.
+`header_amount`, which rounds to 0..100, stays for machines that already use it. Titles are lowercased by the helper. The page map must match each alternate's
 `control` assignment; omit it only for slots 4..7 in column order. Shared
 columns repeat the original slot index, so labels, values and edits agree.
 

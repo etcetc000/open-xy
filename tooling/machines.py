@@ -15,8 +15,8 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, paged, shift_parameters,
-                          stock_name, synth_shift, validate_definition)
+from .definitions import (ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, control_choices,
+                          control_name, paged, shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
 from .pipeline import config
@@ -55,7 +55,11 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # and a synth's voice release callback (resources.releaseCallback).
 # 1.13 gives a synth a Shift row: up to eight more controls under its pages ("shift"),
 # kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
-SDK_VERSION = (1, 13)
+# 1.15 captions a machine's numbers as the stock pages do, 00 to 99 (docs/ux.md#controls).
+SDK_VERSION = (1, 15)
+# The SDK version from which generated captions count 00 to 99. Machines targeting an
+# earlier one keep the captions they were published with.
+STOCK_COUNT_SDK = (1, 15)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -532,6 +536,13 @@ def machine_at(root, identity=None):
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
     if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
+    if kind in ('synth', 'effect') and version >= STOCK_COUNT_SDK:
+        for parameter in definition['parameters'] + shift_parameters(definition):
+            if not parameter.get('absent'):
+                control_name(parameter['label'])
+        # A shift row's choices step one per detent, so only the turned controls are limited.
+        for parameter in definition['parameters']:
+            control_choices(parameter)
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:

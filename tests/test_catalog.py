@@ -1,6 +1,7 @@
 """The catalog: unique IDs, and fetching exactly the pinned commit."""
 import contextlib
 import copy
+from dataclasses import replace
 import io
 import json
 from pathlib import Path
@@ -14,7 +15,7 @@ from unittest import mock
 
 from tooling import catalog, cpu_measurement
 from tooling.machines import FIXED_NUMBERS, ROOT
-from machine_fixtures import FOLDER
+from machine_fixtures import FOLDER, fixture
 
 PUBLISHED = dict(id='probe', kind='synth', maintainer='someone',
                  status='published', repository='https://github.com/someone/opxy-probe', tag='v1.0.0',
@@ -248,6 +249,7 @@ class KeywordOnlyChanges(unittest.TestCase):
     changed, and still take one whose release moved with them."""
     def setUp(self):
         from test_cpu_measurement import measurement
+        self.fetched_sdk = (1, 15)
         # Above the recommended CPU, so check names each entry it reviews with a warning.
         self.before = [dict(PUBLISHED, id='same', cpu=measurement()), dict(PUBLISHED, id='moved', cpu=measurement())]
         self.after = [dict(self.before[0], keywords=['pad']),
@@ -262,7 +264,7 @@ class KeywordOnlyChanges(unittest.TestCase):
                                           lambda base, listed, path: copy.deepcopy(self.before) if listed == 'machines' else []),
                         mock.patch.object(catalog, 'release_controls', lambda *args: []),
                         mock.patch.object(catalog, 'fetch',
-                                          lambda entry, cache: SimpleNamespace(id=entry['id'], root=self.cache / entry['id']))]
+                                          lambda entry, cache: SimpleNamespace(id=entry['id'], root=self.cache / entry['id'], kind='synth', sdk=self.fetched_sdk))]
         for patcher in self.patches:
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -285,6 +287,20 @@ class KeywordOnlyChanges(unittest.TestCase):
         status, out = self.run_main('check', '--base', 'base')
         self.assertEqual(status, 1)
         self.assertIn('moved: new or updated submissions require hardware cpu', out)
+
+    def test_an_updated_machine_on_an_earlier_sdk_is_refused(self):
+        self.fetched_sdk = (1, 10)
+        with mock.patch('tooling.machine_test.main', return_value=0):
+            status, out = self.run_main('test', '--changed-from', 'base', '--cache', str(self.cache))
+        self.assertEqual(status, 1)
+        self.assertIn('moved: a new or updated synth needs "sdk": "1.15"', out)
+
+    def test_new_or_updated_machines_need_the_stock_count(self):
+        catalog.require_stock_count(replace(fixture('probesynth'), sdk=(1, 15)))
+        for sdk in ((1, 1), (1, 10)):
+            with self.assertRaisesRegex(ValueError, r'needs "sdk": "1.15"'):
+                catalog.require_stock_count(replace(fixture('probesynth'), sdk=sdk))
+        catalog.require_stock_count(replace(fixture('probesample'), sdk=(1, 8)))
 
     def test_changed_from_tests_only_the_moved_release(self):
         with mock.patch('tooling.machine_test.main', return_value=0) as machine_test:

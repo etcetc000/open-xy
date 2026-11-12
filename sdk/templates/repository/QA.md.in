@@ -33,8 +33,8 @@ removes or alters something a person would check on the device updates its lines
 ## Its page and controls
 
 - [ ] Each control through its whole range, both directions: the sound follows, with no clicks, jumps or
-      silence at the ends; the value shown reads in its unit (Hz, ms, %, a name)
-- [ ] Choice controls move one choice per detent, both directions, and wrap or stop as the page says
+      silence at the ends; the value shown reads 00 to 99, or a choice's name
+- [ ] Choice controls take several clicks per choice, as Prism's ratio does, both directions, and stop at each end
 - [ ] Fast turns: the value keeps up, no flicker or slowdown
 - [ ] Controls with an alternate (an encoder press, a second page): pressing switches, the page shows
       which is active, and each keeps its own value
