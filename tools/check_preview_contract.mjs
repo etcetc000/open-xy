@@ -7,14 +7,18 @@ import {PreviewDisplay, outlineFaults} from '../sdk/browser/display.mjs';
 import {shownControls} from '../sdk/browser/controls.mjs';
 
 const module = await WebAssembly.compile(readFileSync(process.argv[2]));
-const engine = new PreviewEngine(module, 44100, Array(8).fill(0));
+// Eight words, or sixteen for a synth with a Shift row (SDK 1.13): its controls, then the row.
+const words = new WebAssembly.Instance(module).exports.opxy_parameter_count();
+assert.ok(words === 8 || words === 16, 'Eight parameter words, or sixteen with a Shift row');
+const engine = new PreviewEngine(module, 44100, Array(words).fill(0));
 const display = new PreviewDisplay(module);
 // The declared outlines (definition.json resources.display), checked in every frame.
 const [paths, points] = process.argv.slice(3, 5).map(Number);
 const outlines = new Set();
 const memory = engine.api.memory.buffer, displayMemory = display.api.memory.buffer;
 assert.equal(engine.blockFrames, 64);
-assert.equal(engine.parameterCount, 8);
+assert.equal(engine.parameterCount, words);
+assert.equal(Boolean(display.shiftRow), words === 16, 'A Shift row reaches the display exactly when the voice renders one');
 assert.equal(memory.byteLength, 2 * 1024 * 1024, 'Fixed preview memory allowance');
 assert.equal(displayMemory.byteLength, memory.byteLength, 'Display uses the same allowance');
 assert.throws(() => engine.api.memory.grow(1), RangeError);
@@ -30,7 +34,8 @@ assert.ok(!right || silent(right), 'Inactive right channel is silent');
 const peak = engine.api.opxy_output_peak_q31();
 for (let corner = 0; corner < 16; ++corner) {
   // Every slot at both extremes: the four controls, then their alternates inverted.
-  const controls = Array.from({length:8}, (_, i) => (corner >> (i & 3) & 1) ^ (i >> 2) ? 0x7fffffff : 0);
+  // A Shift row's words follow the same pattern as the alternates.
+  const controls = Array.from({length:words}, (_, i) => (corner >> (i & 3) & 1) ^ (i >> 2 & 1) ? 0x7fffffff : 0);
   engine.setParameters(controls);
   for (let voice = 0; voice < engine.voices.length + 2; ++voice) engine.noteOn(48 + voice * 2);
   const pitches = engine.voices.map(voice => Array.from(voice.pitch));
@@ -44,8 +49,9 @@ for (let corner = 0; corner < 16; ++corner) {
       assert.ok(voice.output.every(value => Math.abs(value) <= peak), 'Declared output peak');
     }
     // Each position shows its own control, then its first alternate slot.
-    const input = shownControls(controls, block & 1 ? [4, 5, 6, 7] : [0, 1, 2, 3]);
-    const frame = display.tick(input, 17, corner * 8 + block, 0, false);
+    const input = shownControls(controls.slice(0, 8), block & 1 ? [4, 5, 6, 7] : [0, 1, 2, 3]);
+    const row = words === 16 ? {held: block >> 1 & 1, line: block & 1, values: controls.slice(8)} : null;
+    const frame = display.tick(input, 17, corner * 8 + block, 0, false, null, 0, 0, [0, 0, 0, 0], null, {pan: 0, level: 0}, 0, row);
     for (const fault of outlineFaults(frame, paths || 0, points || 0)) outlines.add(fault);
     assert.equal(engine.api.memory.buffer, memory);
     assert.equal(display.api.memory.buffer, displayMemory);

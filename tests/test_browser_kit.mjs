@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -361,6 +361,19 @@ test('extension selections preserve collection order, empty choices and exclusiv
   for (const selection of [['missing'], ['capture','capture'], null, 'capture'])
     assert.throws(() => extensionSelection(k, selection), /available extension/);
   assert.deepEqual(extensionSelection({}), []);
+});
+
+test('one selected extension owns stock Drumline\'s second page, as a claim', () => {
+  // tooling.extensions.metadata marks a drumline_page extension; check_collection allows one per build.
+  const k = {extensions:[{id:'filters', claims:[], drumline_page:true}, {id:'observer', claims:[]},
+    {id:'grit', claims:['record_double_tap'], claim_labels:{record_double_tap:'Record double-tap'}, drumline_page:true}]};
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[1]]), null);
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[2]]), 'drumline_page');
+  assert.equal(claimLabel(k.extensions, 'drumline_page'), 'Drumline page 2');
+  assert.equal(claimLabel(k.extensions, 'record_double_tap'), 'Record double-tap');
+  assert.deepEqual(extensionSelection(k, ['observer','filters']), ['filters','observer']);
+  assert.throws(() => extensionSelection(k, ['grit','filters']), /both use Drumline page 2\. Choose only one\./);
+  assert.deepEqual(extensionChoices(k), [[], ['filters'], ['observer'], ['filters','observer'], ['grit'], ['observer','grit']]);
 });
 
 test('declared callbacks of unselected machines resolve to fallbacks only for SDK objects', () => {

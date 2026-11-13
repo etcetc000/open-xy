@@ -30,6 +30,10 @@ inline u32 drum_lock_key(u32 track) { return drum_edit_key(track); }
 inline i32 drum_lock_checked(const DrumMachine& machine, u32 field, i32 value) {
     i32 low, high;
     drum_lock_range(machine, field, low, high);
+    if (field >= kHitSend1 && field < kHitFields) {
+        u32 index;
+        return low != high && drum_send_lock_index(value, index) ? value : 0;
+    }
     return value >= low && value <= high && low != high ? value : 0;
 }
 
@@ -54,7 +58,7 @@ inline void drum_lock_store_note(const DrumMachine& machine, u32 handle, u32 key
         if (mask >> field & 1u) locks.offset[field] = drum_lock_checked(machine, field, values[field]);
 }
 // A turn of `field` with a step held, for the selected key: from what the step
-// plays for it (or, for a send, `start`: 1 + the send code the key plays), into
+// plays for it (or, for a send, `start`: the key's send in lock form), into
 // the pool; a field turned back to 0 is unlocked.
 inline u32 drum_lock_store_edit(u32, u32 track, const DrumMachine& machine, u32 field, u32 event, i32 start) {
     if (field >= kHitFields || !event) return 0;
