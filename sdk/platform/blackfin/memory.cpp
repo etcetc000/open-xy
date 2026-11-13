@@ -1,4 +1,6 @@
-// Freestanding byte operations. Kept out of contributor DSP and browser builds.
+// Freestanding memset and memcpy for machine code: hand-written assembly on the
+// device, C below for host and browser-preview builds. Contributor DSP code does
+// not include this file.
 //
 // Blackfin: hand-written, so the compiler cannot turn the loops into calls of
 // themselves and nothing depends on its scheduling. Every byte written is the
@@ -6,12 +8,20 @@
 // - memset: under 16 bytes, the byte loop; else a byte and a half-word up to a
 //   word boundary, whole words of the replicated byte, then the 0-3 byte tail.
 // - memcpy: under 16 bytes, or when the two ranges overlap at all, the forward
-//   byte loop (an overlapping copy behaves exactly as it always did); else,
+//   byte loop (an overlapping copy behaves exactly as it always did). The two
+//   overlap checks change no result: the wide paths run only when source and
+//   destination agree mod 4 or mod 2, so overlapping ranges are then at least a
+//   unit apart and a forward unit copy writes the bytes the byte loop writes
+//   (tests/test_runtime_helpers.py passes with them removed). They stay so no
+//   wide path ever runs over overlapping ranges, which keeps the code simple to
+//   argue about and is the form compared on the simulator. Else,
 //   when source and destination agree mod 4, a byte and a half-word up to a
 //   word boundary, whole words, then the tail; when they agree mod 2 only,
 //   half-words; otherwise the byte loop.
 // Both return the destination in R0 and use no stack. They clobber R1-R3,
-// P0-P2, LC0/LT0/LB0 and CC, all call-clobbered.
+// P0-P2, LC0/LT0/LB0 and CC, all call-clobbered. (The compiled C versions they
+// replace used LC1; hand assembly that calls them inside an LC0 loop must save
+// it.) tests/test_runtime_helpers.py runs this assembly in an instruction model.
 #include <stddef.h>
 #if defined(__bfin__)
 asm(R"(
@@ -106,7 +116,6 @@ _memcpy:
     R3 = [P1++];
 .Lcopy_word_end:
     [P0++] = R3;
-.Lcopy_tail:
     CC = BITTST (R2, 1);
     IF !CC JUMP .Lcopy_last;
     R3 = W[P1++] (Z);
@@ -148,9 +157,8 @@ _memcpy:
     .popsection
 )");
 #else
-// GCC calls these for struct initialization and copies, which are almost
-// always whole aligned words: those go a word at a time.
-#include <stddef.h>
+// Host and browser preview: GCC and Clang call these for struct initialization
+// and copies, which are almost always whole aligned words: those go a word at a time.
 typedef unsigned int __attribute__((may_alias)) word;
 extern "C" void* memset(void* destination, int value, size_t size) {
     unsigned char* d = static_cast<unsigned char*>(destination);
