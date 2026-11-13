@@ -395,6 +395,9 @@ def main(argv=None):
                     warning = 'cpu' in entry and cpu_measurement.above_recommended(entry['cpu'])
                     if warning:
                         print(f"WARNING: {entry['id']}: {warning}")
+                    labelled = 'cpu' in entry and cpu_measurement.high(entry['cpu'])
+                    if labelled:
+                        print(f"NOTE: {entry['id']}: {labelled}")
                 print(f'PASS: {len(entries)} {listed[:-1]} entr{"y" if len(entries) == 1 else "ies"}; '
                       'IDs are unique.')
             return 0

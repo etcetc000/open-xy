@@ -21,7 +21,8 @@ from tooling.native import service_fallbacks
 from tooling.pipeline import ROOT, TOOLCHAIN_HOME
 
 FIXTURES = ROOT / 'tests/fixtures/machines'
-TOOLS = ROOT / TOOLCHAIN_HOME / 'bin'
+# The compiler native qualification was given (tooling.checks), else the fetched toolchain.
+TOOLS = Path(os.environ.get('OPXY_TEST_COMPILER') or ROOT / TOOLCHAIN_HOME) / 'bin'
 KIT_ENGINE = '''#include "core.h"
 namespace probekit {
 inline void initialize(Voice& voice, Shared&, opxy::u32) { voice.phase = 0; }
@@ -94,12 +95,12 @@ def symbols(obj):
 
 
 @unittest.skipUnless((TOOLS / ('bfin-elf-g++' + ('.exe' if os.name == 'nt' else ''))).is_file(),
-                     'No Blackfin toolchain in local/toolchain (python sdk.py toolchain fetch)')
+                     'No Blackfin toolchain in local/toolchain (python sdk.py toolchain fetch, or set OPXY_TEST_COMPILER)')
 class ServiceLinks(unittest.TestCase):
     def compile(self, folder, *machines):
         out = Path(folder) / 'module'
         result = run([sys.executable, ROOT / 'sdk.py', 'compile', *(a for m in machines for a in ('--machine', m)),
-                      '--out', out])
+                      '--toolchain', TOOLS, '--compiler', TOOLS.parent, '--out', out])
         self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
         return out, json.loads((out / 'compile-report.json').read_text(encoding='utf-8'))
 

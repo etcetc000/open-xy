@@ -15,6 +15,7 @@ from tooling.formats import ldr, mapped_offset
 from tooling.machines import machine_at, assign_numbers, number_layout
 from tooling.pipeline import config
 from test_sample_services import HOST_CXX
+from test_divide import blackfin_compiler
 
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
@@ -25,6 +26,29 @@ def vtable():
     start = source.index('_player_vtable[16] = {')
     body = source[start:source.index('};', start)].split('{', 1)[1]
     return [entry.strip() for entry in body.split(',') if entry.strip()]
+
+
+class PlayerNativeLink(unittest.TestCase):
+    @unittest.skipUnless(blackfin_compiler(), 'No Blackfin compiler in local/toolchain (set OPXY_TEST_COMPILER)')
+    def test_two_player_keyboards_link_together(self):
+        compiler = blackfin_compiler()
+        linker = compiler.with_name('bfin-elf-ld' + compiler.suffix)
+        assembler = compiler.with_name('bfin-elf-as' + compiler.suffix)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            objects = []
+            for name in ('first', 'second'):
+                source, obj = root / (name + '.cpp'), root / (name + '.o')
+                source.write_text('#include <player_activity.hpp>\n'
+                                  'opxy::u32 ' + name + '(opxy::u32 note) {\n'
+                                  '    return opxy::platform::player_white(note);\n}\n')
+                native.compile_cxx(compiler, assembler, source, obj, native.includes())
+                # Match firmware/browser objects: ordinary ELF linking would merge the weak table.
+                obj.write_bytes(native.normalize_object(obj.read_bytes()))
+                objects.append(str(obj))
+            result = subprocess.run([str(linker), '-r', *objects, '-o', str(root / 'players.o')],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 class PlayerContracts(unittest.TestCase):

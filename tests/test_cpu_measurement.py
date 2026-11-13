@@ -24,7 +24,7 @@ def measurement(kind='synth', commit=None):
                      worst_setting=dict(control=1, label='Tone', value=0x7fffffff))
     if kind == 'drum':
         value.update(peak_percent=55.0, midpoint_percent=3.2, kit_percent=21.0, choke_percent=6.1, ceiling_percent=44.0,
-                     worst_model=dict(run='voice', voices=1, model=7, level=127))
+                     filter_percent=60.0, worst_model=dict(run='voice', voices=1, model=7, level=127))
     return value
 
 
@@ -82,7 +82,9 @@ class Measurements(unittest.TestCase):
             mean_index = indices[1] if machine.kind == 'drum' else indices[0]
             for capture in captures:
                 capture['frames'][mean_index] = frame(3000, 4000)
-            spike_index = indices[-1]  # combined synth or whole-kit ceiling for drums
+            # The combined synth run, or a kit's whole-kit ceiling: its filter run, last, has
+            # its own peak (filter_peak_percent), which peak_percent leaves out.
+            spike_index = indices[-2] if machine.kind == 'drum' else indices[-1]
             captures[0]['frames'][spike_index] = frame(1000, 12000)
             result, _, _, runs, _, _ = aggregate(captures, expected, identity, machine.id, 'e'*40, None)
             self.assertAlmostEqual(result['block_percent'], 300000/65535, places=5)
@@ -225,6 +227,35 @@ class Measurements(unittest.TestCase):
         cpu_measurement.validate(measurement('synth'), 'synth', legacy=False)
         self.assertIn('above the recommended', cpu_measurement.above_recommended(legacy_synth()))
 
+    def test_the_cpu_high_label_follows_the_peak_or_else_the_average(self):
+        # The reported peak decides when there is one, even under a heavier average.
+        self.assertEqual(cpu_measurement.worst_case(dict(measurement('synth'), block_percent=4.8, peak_percent=4.4)), (4.4, 'peak'))
+        self.assertIsNone(cpu_measurement.high(dict(measurement('synth'), block_percent=4.8, peak_percent=4.4)))
+        labelled = cpu_measurement.high(dict(measurement('synth'), block_percent=3.0, peak_percent=4.6))
+        self.assertIn('worst observed block peak 4.600%', labelled)
+        # A record without a peak falls back to its average, and says so.
+        self.assertEqual(cpu_measurement.worst_case(legacy_synth()), (legacy_synth()['block_percent'], 'average'))
+        average = cpu_measurement.high(dict(legacy_synth(), block_percent=5.25))
+        self.assertIn('average (no peak reported) 5.250%', average)
+        # A drum kit, by its worst single sound: its whole-kit peak is ignored, and its
+        # heaviest single voice's average decides, with or without a peak.
+        drum = dict(measurement('drum'), block_percent=2.7, peak_percent=48.2)
+        self.assertEqual(cpu_measurement.worst_case(drum), (2.7, 'average'))
+        self.assertIsNone(cpu_measurement.high(drum))
+        for drum in (dict(measurement('drum'), block_percent=5.0),
+                     {k: v for k, v in dict(measurement('drum'), block_percent=5.0).items() if k != 'peak_percent'}):
+            self.assertIn('worst single sound average (no single-sound peak recorded) 5.000%', cpu_measurement.high(drum))
+        # Its single-voice peak, when recorded, decides instead.
+        drum = dict(measurement('drum'), block_percent=2.7, peak_percent=48.2, voice_peak_percent=4.4)
+        self.assertEqual(cpu_measurement.worst_case(drum), (4.4, 'peak'))
+        self.assertIsNone(cpu_measurement.high(drum))
+        drum['voice_peak_percent'] = 7.25
+        self.assertIn('worst single sound peak 7.250%', cpu_measurement.high(drum))
+        # Strictly above the threshold.
+        at = cpu_measurement.HIGH_PERCENT
+        self.assertIsNone(cpu_measurement.high(dict(measurement('synth'), block_percent=at, peak_percent=at)))
+        self.assertIsNone(cpu_measurement.high(dict(legacy_synth(), block_percent=at)))
+
     def test_changed_submissions_require_a_measurement_but_legacy_entries_can_stay(self):
         for kind in cpu_measurement.BENCHMARKS:
             entry = dict(PUBLISHED, kind=kind)
@@ -293,37 +324,105 @@ class Measurements(unittest.TestCase):
         drum = replace(base, kind='drum', id='probedrum', definition=definition)
         expected = cases([drum])
         own = [i for i, c in enumerate(expected) if c['source'] == 'sdk']
-        self.assertEqual(len(own), 1 + 2 * 3 + 2)
+        self.assertEqual(len(own), 1 + 2 * 3 + 3)
         identity = dict(firmware_sha256='a'*64, manifest_sha256='b'*64, compile_report_sha256='c'*64)
         averages = [1000] * len(expected)
         averages[own[0]] = 5000     # the kit's own keys, whole kits are above any one voice
         averages[own[2]] = 1200     # model 0 at 0
         averages[own[6]] = 2000     # model 1 at 127, the heaviest voice
         averages[own[4]] = 1500     # model 1 at 64, the heaviest at the middle
-        averages[own[-2]] = 3000    # the choke
-        averages[own[-1]] = 16000   # the ceiling
+        averages[own[-3]] = 3000    # the choke
+        averages[own[-2]] = 16000   # the ceiling, M3 off
+        averages[own[-1]] = 26000   # the ceiling again, M3 on: the ladder on every voice
         capture = dict(mode='benchmark', package=identity, expected_cases=expected, complete=True, errors=[],
                        collector_sha256='d'*64, frames=[frame(a) for a in averages], utc='0')
         result, values, case, runs, _combinations, silent = aggregate([capture], expected, identity, 'probedrum', 'e'*40, None)
-        self.assertEqual(result['benchmark'], 'opxy-drum-callback-v1')
+        self.assertEqual(result['benchmark'], 'opxy-drum-callback-v2')
         self.assertAlmostEqual(result['block_percent'], 200000/65535, places=5)
         self.assertAlmostEqual(result['midpoint_percent'], 150000/65535, places=5)
         self.assertAlmostEqual(result['kit_percent'], 500000/65535, places=5)
         self.assertAlmostEqual(result['choke_percent'], 300000/65535, places=5)
         self.assertAlmostEqual(result['ceiling_percent'], 1600000/65535, places=5)
+        # The filter run is its own figure, and the kit's peak is the kit as it starts, M3 off.
+        self.assertAlmostEqual(result['filter_percent'], 2600000/65535, places=5)
+        self.assertAlmostEqual(result['filter_peak_percent'], 5200000/65535, places=5)
+        self.assertAlmostEqual(result['peak_percent'], 3200000/65535, places=5)
         self.assertEqual(result['worst_model'], dict(run='voice', voices=1, model=1, level=127))
+        # frame() doubles each average for its peak: the single-voice runs' worst is model 1 at 127.
+        self.assertAlmostEqual(result['voice_peak_percent'], 400000/65535, places=5)
         self.assertEqual((len(values), len(runs), silent), (1, len(own), []))
         cpu_measurement.validate(result, 'drum', 'e'*40)
         # A saturated run names itself, and a heavy voice warns as a synth's does.
-        averages[own[-1]] = 65535
+        averages[own[-2]] = 65535
         with self.assertRaisesRegex(ValueError, 'the heaviest model, 8 voices'):
             aggregate([dict(capture, frames=[frame(a) for a in averages])], expected, identity, 'probedrum', 'e'*40, None)
         self.assertIn('model 7 at 127', cpu_measurement.above_recommended(measurement('drum')))
         for change in ({'worst_model': dict(run='voice', voices=1, model=64, level=127)},
                        {'worst_model': dict(run='voice', voices=1, model=1, level=5)},
-                       {'kit_percent': 0}, {'midpoint_percent': 9.0}):
+                       {'kit_percent': 0}, {'midpoint_percent': 9.0},
+                       # The filter run: required in this workload, a percentage, its peak at least its mean.
+                       {'filter_percent': 0}, {'filter_percent': True}, {'filter_percent': float('inf')},
+                       {'filter_peak_percent': 59.0}, {'filter_peak_percent': 100}, {'filter_peak_percent': '70'},
+                       # The single-voice peak lies between the heaviest voice's average and the peak.
+                       {'voice_peak_percent': 4.0}, {'voice_peak_percent': 56.0}, {'voice_peak_percent': '6'},
+                       {'voice_peak_percent': float('nan')}, {'voice_peak_percent': True}):
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'cpu:'):
                 cpu_measurement.validate(dict(measurement('drum'), **change), 'drum')
+
+    def test_a_kits_earlier_workload_stays_valid_without_a_filter_run(self):
+        # opxy-drum-callback-v1 ran M3's ladder on every voice of every run: its records
+        # overstate rather than hide, so they stay valid, new or not, without filter fields.
+        earlier = {k: v for k, v in dict(measurement('drum'), benchmark='opxy-drum-callback-v1').items()
+                   if k != 'filter_percent'}
+        cpu_measurement.validate(earlier, 'drum', legacy=False)
+        cpu_measurement.validate(dict(earlier, voice_peak_percent=5.0), 'drum', legacy=False)
+        entry = dict(PUBLISHED, kind='drum', cpu=earlier)
+        catalog.changes([], [entry])
+        self.assertEqual(cpu_measurement.worst_case(dict(earlier, voice_peak_percent=5.0)), (5.0, 'peak'))
+        for extra in ({'filter_percent': 60.0}, {'filter_peak_percent': 70.0}):
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, 'cpu:'):
+                cpu_measurement.validate(dict(earlier, **extra), 'drum')
+        # The current workload needs its filter run; neither is a synth's.
+        with self.assertRaisesRegex(ValueError, 'unexpected measurement fields'):
+            cpu_measurement.validate({k: v for k, v in measurement('drum').items() if k != 'filter_percent'}, 'drum')
+        for benchmark in ('opxy-drum-callback-v1', 'opxy-drum-callback-v2'):
+            with self.subTest(benchmark=benchmark), self.assertRaisesRegex(ValueError, 'benchmark must match'):
+                cpu_measurement.validate(dict(measurement('synth'), benchmark=benchmark), 'synth')
+
+    def test_a_kits_single_voice_peak_leaves_out_its_whole_kit_runs(self):
+        # Synthesized in the shape of a real kit's captures: three single-voice runs per
+        # model, then the kit's own keys, the choke and the ceiling; two captures.
+        from dataclasses import replace
+        base = fixture('probesynth')
+        definition = dict(base.definition, resources=dict(base.definition['resources'], modelCount=3, voiceCapacity=8))
+        drum = replace(base, kind='drum', id='probedrum', definition=definition)
+        expected = cases([drum])
+        own = [i for i, c in enumerate(expected) if c['source'] == 'sdk']
+        voices = [i for i in own if expected[i]['drum']['run'] == 'voice']
+        whole = [i for i in own if expected[i]['drum']['run'] != 'voice']
+        self.assertEqual((len(voices), len(whole)), (9, 4))
+        identity = dict(firmware_sha256='a'*64)
+        frames = [[frame(1000, 1500) for _ in expected] for _ in range(2)]
+        for index in whole:              # whole kits: heavier on average and in spikes
+            for capture in frames:
+                capture[index] = frame(6000, 30000)
+        frames[0][voices[4]] = frame(1200, 5200)   # one capture's spike on one sound
+        frames[1][voices[7]] = frame(2500, 3000)   # the heaviest sound on average
+        captures = [dict(mode='benchmark', package=identity, expected_cases=expected, complete=True, errors=[],
+                         collector_sha256='d'*64, frames=f, utc=str(n)) for n, f in enumerate(frames)]
+        result = aggregate(captures, expected, identity, 'probedrum', 'e'*40, None)[0]
+        self.assertAlmostEqual(result['voice_peak_percent'], 520000/65535, places=5)
+        self.assertAlmostEqual(result['peak_percent'], 3000000/65535, places=5)
+        self.assertAlmostEqual(result['block_percent'], 175000/65535, places=5)  # median of 1000 and 2500
+        cpu_measurement.validate(result, 'drum', 'e'*40, legacy=False)
+        self.assertIn('worst single sound peak 7.935%', cpu_measurement.high(result))
+        # Optional: an older kit record without it stays valid, and it is a kit's field only.
+        cpu_measurement.validate({k: v for k, v in result.items() if k != 'voice_peak_percent'}, 'drum')
+        with self.assertRaisesRegex(ValueError, 'unexpected measurement fields'):
+            cpu_measurement.validate(dict(measurement('synth'), voice_peak_percent=6.0), 'synth')
+        with self.assertRaisesRegex(ValueError, 'voice_peak_percent'):
+            cpu_measurement.validate({k: v for k, v in dict(measurement('drum'), voice_peak_percent=5.0).items()
+                                      if k != 'peak_percent'}, 'drum')
 
     def test_a_sweep_publishes_its_heaviest_run_beside_the_midpoint(self):
         expected = cases([fixture('probesynth')], sweep=True)

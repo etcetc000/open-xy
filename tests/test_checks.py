@@ -21,10 +21,11 @@ class Sources(unittest.TestCase):
 
 class CheckRunnerTests(unittest.TestCase):
     def options(self, **values):
-        return argparse.Namespace(**{key: values.get(key) for key in (*FIXTURES, 'toolchain')})
+        return argparse.Namespace(**{key: values.get(key) for key in (*FIXTURES, 'toolchain', 'compiler')})
 
     def test_public_mode_does_not_silently_use_stale_private_fixtures(self):
-        env, native = fixture_environment(self.options(), {'PATH': 'retained', 'OPXY_TEST_NATIVE_ELF': 'stale'})
+        env, native = fixture_environment(self.options(), {'PATH': 'retained', 'OPXY_TEST_NATIVE_ELF': 'stale',
+                                                           'OPXY_TEST_COMPILER': 'stale'})
         self.assertEqual(env, {'PATH': 'retained'})
         self.assertFalse(native)
 
@@ -48,6 +49,10 @@ class CheckRunnerTests(unittest.TestCase):
             # Hosted Windows runners can expose TEMP through an 8.3 alias.
             self.assertEqual(Path(env['OPXY_TEST_NATIVE_ELF']),
                              (values['native_package'] / 'analysis/module.elf').resolve())
+            self.assertNotIn('OPXY_TEST_COMPILER', env)
+            # The compiler qualification was given reaches the tests that compile for the device.
+            env, _native = fixture_environment(self.options(**values, compiler=root / 'compiler'), {})
+            self.assertEqual(Path(env['OPXY_TEST_COMPILER']), (root / 'compiler').resolve())
             values['stock_os'].unlink()
             with self.assertRaises(ValueError):
                 fixture_environment(self.options(**values), {})

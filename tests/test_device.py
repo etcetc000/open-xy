@@ -341,7 +341,7 @@ class DeviceTransferTests(unittest.TestCase):
     def test_only_symlinks_and_junctions_count_as_links(self):
         path = self.source / 'os.ldr'
         for tag, expected in ((0xA0000003, True), (0x9000001A, False), (0, False)):  # junction, OneDrive file, plain
-            stat = type('Stat', (), {'st_reparse_tag': tag})()
+            stat = type('Stat', (), {'st_reparse_tag': tag, 'st_mode': 0o100644})()
             with self.subTest(tag=hex(tag)), mock.patch.object(transfer.os, 'lstat', return_value=stat):
                 self.assertEqual(transfer.link(path), expected)
 

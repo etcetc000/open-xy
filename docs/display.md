@@ -187,12 +187,61 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | `model` | A drum kit's selected key's model. |
 | `pan`, `level` | A `padMix` kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10; 0 dB on a key the kit has not set up); while a step is held, as that step plays them with its locks; 0 for other machines. |
 | `line` | The row the encoders edit, 0 the first and 1 the second; on a drum kit, also the Shift row (SDK 1.10). |
-| `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0..7, 0 following the track's send); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
+| `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0 following the track's send; for a kit declaring SDK 1.15 or later its percent + 1, 1..101; for an older kit its step, 1..7 for 0, 17, 33, 50, 67, 83, 100, an amount as its nearest); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
 
 A screen that draws its own header (the two-page header) shows the Shift
-controls in its edited row while `shift` is 1, as the stock header does. The
+controls while `shift` is 1. With two Shift rows, show both, stacked as the
+pages are: the first on top and the second under it, the one the encoders edit
+(`line`) bright, as a [synth's Shift row](#a-synths-shift-row) shows. The stock
+header shows only the edited row. The
 previews use drawing ABI 6, a 112-byte input: ABI 5 (104 bytes) ends after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
+
+While a pad is held on a drum kit (without Shift), the SDK draws stock's own
+held-pad strip over the kit's screen, as stock Drumline does: after 0.3 s it
+slides up from the bottom edge naming scramble, copy, paste and reset (M1..M4),
+and it goes when the pad is let go. It covers the bottom of the kit's art, which
+keeps drawing beneath it; the display gets no input for it.
+
+### A synth's Shift row (SDK 1.13)
+
+A synth with a [Shift row](api.md#a-synths-shift-row) reads it on its page
+through [`opxy/synth_shift.hpp`](../sdk/include/opxy/synth_shift.hpp), which
+leaves the drawing input unchanged:
+
+| `draw::shift_row(input)` field | Meaning |
+| --- | --- |
+| `held` | 1 while Shift is held on the engine page, when the encoders turn the row |
+| `line` | The page the encoders are on, 0 or 1: Shift turns entries `4 * line` to `4 * line + 3`. A press moves it, with Shift held too |
+| `values` | Each entry's Q31 word, as `render` receives it in `parameters[8 + i]`; 0 beyond the row and for an absent entry |
+
+`input.shift` stays 0 for a synth. The values hold whether or not Shift is
+held, so the drawing can follow them either way. Including the header needs
+`"sdk": "1.13"` and a Shift row. Browser hosts pass the row as the optional
+thirteenth argument to `PreviewDisplay.tick`, `{held, line, values}`, after
+`line`; a preview module of a synth with a Shift row exports
+`opxy_display_shift` for it.
+
+The [two-page header](#two-page-header) shows the row in both its rows while
+Shift is held, as a drum kit's header shows its two Shift rows: page 1's
+entries (0..3) on top and page 2's (4..7) under them, the page the encoders are
+on (`line`) bright on the bar and the other small and grey. A press, with Shift
+held or not, moves the bar as it does without Shift; the rows keep their order.
+On release the header shows the page's titles and values again. Pass the row
+with its titles and captions, by entry; an absent entry, or one beyond the row,
+takes an empty title and caption. Shift's press and release change only the
+sixteen header texts and the four header strings, at most 20 elements, in one
+frame; nothing moves.
+
+```cpp
+const opxy::draw::ShiftRow& row = opxy::draw::shift_row(input);
+const char* const shift_titles[8] = {"noise", "drift", "octave", "lowcut", "slide", "", "ratio", "balance"};
+char shift_values[8][opxy::draw::header_capacity];
+for (opxy::u32 i = 0; i < 8; ++i)
+    opxy::draw::header_amount(shift_values[i], sizeof(shift_values[i]), row.values[i]);
+opxy::draw::page_header(state.header, input, frame, titles, values, first_node, pages,
+                        row, shift_titles, shift_values);
+```
 
 ## Frame
 
