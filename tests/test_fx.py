@@ -9,7 +9,9 @@ import tempfile
 import unittest
 
 from tooling import adapters, definitions
-from tooling.native import extend_catalog
+from tooling.definitions import ROOT
+from tooling.native import CXX_FLAGS, extend_catalog
+from test_divide import blackfin_compiler
 from test_sample_services import HOST_CXX
 from machine_fixtures import fixture
 
@@ -194,16 +196,31 @@ int main() {
                 self.assertEqual(plain, zero)
                 self.assertNotIn('send_bus', plain)
 
-    def test_a_bus_shift_wraps_the_shift_row(self):
+    def test_a_bus_shift_surrounds_process(self):
         enum = dict(id='s0', label='S 0', default=0, display='enum', mapping=dict(kind='enum', labels=['a', 'b']))
         definition = dict(fixture('probefx').definition, shift=[enum], resources={'busShift': 9})
         with tempfile.TemporaryDirectory() as directory:
             text = adapters.generate_fx_object(Path(directory), replace(fixture('probefx'), definition=definition)).read_text()
         self.assertIn('#include "send_bus.hpp"', text)
         body = text[text.index('static void process('):text.index('void* probefx_fx_factory(void* storage)')]
-        order = ['send_bus::raise<9>(left, right);', 'shift_words(object->slot, parameters, words);',
-                 'probefx::process(object->state', 'send_bus::lower<9>(left, right);']
+        # The audio is raised before process and lowered after it; the shift row's words are untouched.
+        order = ['send_bus::raise<9>(left, right);', 'probefx::process(object->state', 'send_bus::lower<9>(left, right);']
         self.assertEqual([body.index(s) for s in order], sorted(body.index(s) for s in order))
+        self.assertEqual((body.count('send_bus::raise'), body.count('send_bus::lower')), (1, 1))
+
+    @unittest.skipUnless(blackfin_compiler(), 'No Blackfin compiler in local/toolchain (set OPXY_TEST_COMPILER)')
+    def test_the_device_raise_is_one_saturating_shift_a_word(self):
+        # q31::shift_left's device form: ASHIFT ... (S) saturates where << would wrap.
+        with tempfile.TemporaryDirectory() as directory:
+            source, listing = Path(directory) / 'bus.cpp', Path(directory) / 'bus.s'
+            source.write_text('#include "send_bus.hpp"\nusing opxy::i32;\n'
+                              'void up(i32* l, i32* r) { opxy::platform::send_bus::raise<9>(l, r); }\n'
+                              'i32 one(i32 x, opxy::u32 n) { return opxy::q31::shift_left(x, n); }\n')
+            subprocess.run([str(blackfin_compiler()), *CXX_FLAGS, '-I', str(ROOT / 'sdk/include'),
+                            '-I', str(ROOT / 'sdk/platform/opxy-1.2.1'), '-S', str(source), '-o', str(listing)], check=True)
+            text = listing.read_text()
+        self.assertEqual(len(re.findall(r'ASHIFT R\d BY R\d\.L \(S\)', text)), 3)  # two channels, and one()
+        self.assertNotIn('call', text)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_a_bus_shift_raises_the_block_and_lowers_the_result(self):

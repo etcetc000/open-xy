@@ -102,7 +102,9 @@ host does fast and the Blackfin does not:
   inline: 17 single-cycle divide steps on the device.
 - **Floating point** has no hardware either. Keep audio in integers;
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
-  saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
+  saturating multiply, (SDK 1.7) a saturating add and (SDK 1.16) a saturating
+  left shift, `shift_left`, one instruction each on the device. Use it rather
+  than `<<`, which wraps.
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
@@ -1354,12 +1356,33 @@ An effect written for audio near Q31 full scale, while the send bus it runs on
 sits lower, declares `"busShift": N` in `resources` (SDK 1.16), an integer
 from 0 to 12 bits; 0, or leaving it out, changes nothing. Its adapter then
 raises both channels' 64 words by N bits, saturating at the Q31 limits, before
-`process` (and before the shift row is read), and lowers `process`'s result by
-N bits, rounded to nearest with halves rounding up, after it. A word below
-2^(31-N) in magnitude comes back unchanged through an effect that passes it
-on; louder input clips at that level, N times 6 dB under full scale.
-[`send_bus.hpp`](../sdk/platform/opxy-1.2.1/send_bus.hpp) holds the shifts; on
-the device they cost roughly 2,000 cycles a block.
+`process`, and lowers `process`'s result by N bits, rounded to nearest with
+halves rounding up, after it. The shift row's words and the effect's
+parameters are not shifted. A word below 2^(31-N) in magnitude comes back
+unchanged through an effect that passes it on; louder input clips at that
+level, N times 6 dB under full scale.
+
+**Choosing N.** The level the send bus runs at depends on the project: how many
+tracks send, at what send amounts and levels. It is not documented by stock and
+the SDK cannot measure it for you. There is one observation, not a
+measurement: on a test build, a temporary on-screen readout of the highest set
+bit was read by eye with one track's send at maximum and a 9-bit raise. It moved
+between bits 23 and 28, counting bits 0 to 31, 6 dB each, with bit 31 full
+scale. At the top of that range N = 9 leaves 2 to 3 bits (12 to 18 dB) before
+clipping, more at the bottom of it. That is one project on one device, not a
+nominal level, and several loud tracks sending at once sum on the bus and need
+more headroom. Pick N from the headroom you want to keep, not from the largest
+value: an effect that adds gain needs a smaller N, one bit less for each 6 dB it
+adds. Nothing checks N at build time, because the bus level is only known
+while a project plays; listen for flat-topped peaks on loud sends.
+
+[`send_bus.hpp`](../sdk/platform/opxy-1.2.1/send_bus.hpp) holds the shifts. On
+the device they compile to about 18 instructions a frame, 6 to raise and 12 to
+lower both channels, so about 1,150 a block plus memory stalls. That count is
+from the compiled code, not a measurement. The SDK's CPU figures for an effect,
+both the host estimate and the device benchmark, time `process` alone. They
+leave out this shift and feed `process` near full-scale input rather than a
+raised bus, so add the shift's cost to them yourself.
 
 ## Registration boundary
 
