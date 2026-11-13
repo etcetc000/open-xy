@@ -39,9 +39,11 @@ class PlayerNativeLink(unittest.TestCase):
             objects = []
             for name in ('first', 'second'):
                 source, obj = root / (name + '.cpp'), root / (name + '.o')
-                source.write_text('#include <player_activity.hpp>\n'
+                source.write_text('#include <player_activity.hpp>\n#include <stock.hpp>\n'
                                   'opxy::u32 ' + name + '(opxy::u32 note) {\n'
-                                  '    return opxy::platform::player_white(note);\n}\n')
+                                  '    return opxy::platform::player_white(note);\n}\n'
+                                  'using Find = void* (*)(void*, const char*);\n'
+                                  'Find ' + name + '_find() { return &opxy::platform::find_node; }\n')
                 native.compile_cxx(compiler, assembler, source, obj, native.includes())
                 # Match firmware/browser objects: ordinary ELF linking would merge the weak table.
                 obj.write_bytes(native.normalize_object(obj.read_bytes()))
