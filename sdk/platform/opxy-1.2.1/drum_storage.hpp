@@ -215,7 +215,7 @@ inline bool drum_pack(u32 model, const u8* controls, i32* words) {
 
 // The caller checks the mark first. Failure leaves the outputs untouched, so
 // the caller keeps its defaults.
-inline bool drum_unpack(const i32* words, u8* model, u8* controls) {
+static inline bool drum_unpack(const i32* words, u8* model, u8* controls) {
     u32 packed[kDrumStorageWords];
     if (!words || !model || !controls || !drum_bits(words, packed)) return false;
     *model = static_cast<u8>(drum_get(packed, 56, 4));
@@ -272,7 +272,7 @@ inline bool drum_pack(u32 model, const u8* controls, i32* words, const DrumCodec
     return drum_words(packed, words);
 }
 
-inline bool drum_unpack(const i32* words, u8* model, u8* controls, const DrumCodec& codec) {
+static inline bool drum_unpack(const i32* words, u8* model, u8* controls, const DrumCodec& codec) {
     if (!codec.wide()) return drum_unpack(words, model, controls);
     u32 packed[kDrumStorageWords];
     if (!words || !model || !controls || !codec.fits() || !drum_bits(words, packed)) return false;
