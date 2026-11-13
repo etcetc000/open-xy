@@ -60,6 +60,10 @@ REPLAY = {
     0x8d5110ca: ('09da901100360000', True),
     0x8d511116: ('30e51200', True),
     0x8d51c7b2: ('0adab01148150000', True),
+    0x8d510ea8: ('0ada901100360000', True),
+    # Drumline page/render hooks replay loads outside hardware loops.
+    0x8d51b554: ('48914130', True),
+    0x8d531192: ('a0e4b400', True),
     # Profiling-off hooks replace loads and cycle-counter instructions.
     0x11a09322: ('08da0308c04f0000', True),
     0x11a0963a: ('09da0308c04f0000', True),
@@ -76,6 +80,7 @@ CONDITIONAL = (0x8c0b1456, '2160baa00a081810', True)
 CONDITIONAL_JUMP = (0x8d5aca48, '000c1b18', False)
 AUX_SHIFT_RETURN = (0x8c08f6ec, '01e8000008601000', True)
 CALL_SUFFIX = (0x8c0b6184, 'ffe3eafd00da0208783c0000', True)
+SHIFT_PRESS_CALL_SUFFIX = (0x8c0b2a5e, 'ffe358fe0160492f', True)
 CALL_PREFIX = (0x8c084d18,'05301930ffe3f0fe',True)
 
 RESIDENT_OBJECTS = ('sdk/divide.o', 'sdk/memory.o', 'sdk/hook.o', 'sdk/voice_clock.o', 'sdk/startup_label.o',
@@ -163,6 +168,18 @@ def stock_path(entry):
         target, original_call = decode_branch(site, raw[:4])
         require(original_call, 'Displaced queue instruction is not a call')
         return dict(kind='call_suffix', target=target, raw=raw[4:])
+    if exact == SHIFT_PRESS_CALL_SUFFIX:
+        target, original_call = decode_branch(site, raw[:4])
+        # The suffix sets R1 to zero, then jumps back into the stock handler.
+        # Relocate that short jump rather than replaying its relative offset.
+        word = struct.unpack_from('<H', raw, 6)[0]
+        offset = word & 0xfff
+        if offset & 0x800:
+            offset -= 0x1000
+        continuation = site + 6 + offset * 2
+        require(original_call and target == 0x8c0b270e and continuation == 0x8c0b28f6,
+                'Changed synth Shift-press stock path')
+        return dict(kind='call_suffix', target=target, raw=raw[4:6], continuation=continuation)
     raise ValueError(f'Unreviewed displaced stock code at {site:#x}')
 
 
@@ -225,7 +242,7 @@ def guarded_dispatch(interface):
                       f'    P0.H = {(site+4) >> 16:#x};',
                       f'    P0.L = {(site+4) & 65535:#x};',
                       '    RETS = P0;', '    P0 = [SP++];', _halfwords(path['raw']),
-                      _absolute(site+entry['length'])]
+                      _absolute(path.get('continuation', site+entry['length']))]
         lines += [f'.size {stock}, .-{stock}']
     return '\n'.join(lines)+'\n'
 
@@ -281,7 +298,8 @@ def check_guarded_dispatch(elf, interface):
         else:
             expected = (absolute_call(path['target'])+bytes.fromhex('4801')+
                         struct.pack('<4H', 0xe148, (site+4) >> 16, 0xe108, (site+4) & 65535)+
-                        bytes.fromhex('78387090')+path['raw']+absolute_jump(site+entry['length']))
+                        bytes.fromhex('78387090')+path['raw']+
+                        absolute_jump(path.get('continuation', site+entry['length'])))
         require(original == expected, 'Displaced stock path differs from its reviewed instructions')
         ranges.extend(((start, start+len(data)), (target, target+len(original))))
     ranges.sort()

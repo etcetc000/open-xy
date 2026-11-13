@@ -154,6 +154,7 @@ static __attribute__((noinline)) void sdk_drum_render(Voice& voice, Shared& stat
                                                      opxy::Output output, opxy::Parameters controls,
                                                      opxy::Pitch pitch) {
     @NAMESPACE@::render(voice, state, id, output, controls, pitch);
+}
 // An engine may narrow the range the track menu's scramble draws a control
 // from with `void scramble_range(u32 model, u32 slot, u8* low, u8* high)` in its
 // namespace (both 0..127); a kit without one scrambles each control over 0..127.

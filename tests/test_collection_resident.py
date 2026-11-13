@@ -52,6 +52,18 @@ class Resident(unittest.TestCase):
         self.assertEqual(path['target'], 0x8d5aca80)
         self.assertEqual(path['opcode'], 0x1800)
 
+    def test_shift_press_relocates_its_trailing_jump(self):
+        site, before, call = resident.SHIFT_PRESS_CALL_SUFFIX
+        entry = dict(site=hex(site), before=before, call=call, length=8)
+        path = resident.stock_path(entry)
+        self.assertEqual(path, dict(kind='call_suffix', target=0x8c0b270e,
+                                    raw=bytes.fromhex('0160'), continuation=0x8c0b28f6))
+        for offset in range(8):
+            changed = bytearray.fromhex(before)
+            changed[offset] ^= 1
+            with self.assertRaises(ValueError):
+                resident.stock_path(dict(entry, before=changed.hex()))
+
     def test_resident_layout_keeps_the_original_pool_tables_and_payload_boundary(self):
         from tooling.pipeline import ROOT
         source=(ROOT/'linker/opxy-1.2.1.ld').read_text()
