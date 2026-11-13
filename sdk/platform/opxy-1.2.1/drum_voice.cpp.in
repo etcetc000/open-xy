@@ -40,9 +40,9 @@ struct Handle {
 };
 // owner: a voice ID, or 0 when free. pad: the note's track and key plus one, or
 // 0 for a note without them. fade: frames left of a same-key choke, or 0.
-// send: with padMix, the playing key's FX I and FX II codes (drum_send.hpp), from
-// its note's first block's payload. latched: whether the note has kept its send
-// codes and, with padMix, its pad's level (gain) and pad controls (pads) from it.
+// send: with padMix, the playing key's FX I and FX II send pair (drum_send.hpp),
+// from its note's first block's payload. latched: whether the note has kept its send
+// pair and, with padMix, its pad's level (gain) and pad controls (pads) from it.
 // faded: the voice ID whose own choke fade ended in the block just rendered and
 // freed the voice, whose sends that block still has; else 0.
 struct Slot { Voice voice; opxy::u32 owner, started, pad, fade, send, latched, faded; opxy::i32 gain, pads[2]; };
@@ -147,6 +147,12 @@ template <class F> bool pad_control_text(opxy::u32, opxy::i32, F*) { return fals
 namespace sdk_drum_transport {
 struct Absent {};
 template <class V, class S> Absent drum_transport(V&, S&, opxy::u32, const opxy::Transport&) { return Absent(); }
+}
+// An engine may narrow the range the track menu's scramble draws a control
+// from with `void scramble_range(u32 model, u32 slot, u8* low, u8* high)` in its
+// namespace (both 0..127); a kit without one scrambles each control over 0..127.
+namespace sdk_drum_scramble_ranges {
+template <class M, class S, class B> void scramble_range(M, S, B*, B*) {}
 }
 extern "C" {
 extern const void* const @PREFIX@_vtable[];
@@ -364,7 +370,7 @@ bool @PREFIX@_drum_pad_text(opxy::u32 field, opxy::i32 value, char* text) {
     using namespace @NAMESPACE@;
     return pad_control_text(field, value, text);
 }
-// padMix (drum_send.cpp): the send codes of the note a handle's voice just
+// padMix (drum_send.cpp): the send pair of the note a handle's voice just
 // rendered a block of, read as stock adds that block into the track. Only the
 // handle still holding the voice has them, or one whose voice its own choke
 // fade freed in that block; a handle whose voice went to another note, or that
@@ -382,6 +388,12 @@ opxy::u32 @PREFIX@_drum_edit_value(opxy::u32 model, opxy::u32 slot, opxy::u32 va
     return @NAMESPACE@::edit_parameter(model, slot, value, delta);
 }
 #endif
+void @PREFIX@_drum_scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high) __asm__("@PREFIX@_drum_scramble_range");
+void @PREFIX@_drum_scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high) {
+    using namespace sdk_drum_scramble_ranges;
+    using namespace @NAMESPACE@;
+    scramble_range(model, slot, low, high);
+}
 const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&@PREFIX@_destroy), reinterpret_cast<const void*>(&@PREFIX@_destroy),
     reinterpret_cast<const void*>(&render_normal), reinterpret_cast<const void*>(&@PREFIX@_render),

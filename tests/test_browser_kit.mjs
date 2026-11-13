@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -21,6 +21,7 @@ function elf() {
   return bytes;
 }
 function machine(id, engine, page, origin='personal') { return {id, prefix:id, kind:'synth', identity:{engine,page}, absent:{}, origin}; }
+const FOUR_MIB = 4 * 1024 ** 2;
 const profileBytes = readFileSync(new URL('../profiles/opxy-1.2.1.json',import.meta.url));
 function fixture() {
   const object = {...readObject(elf()), name:'a.o',owner:'a'};
@@ -67,13 +68,13 @@ test('profiling defaults on; disabling it changes only the reviewed diagnostic h
   }
   const restored = off.slice(); restored.set(on.subarray(32, 48), 32);
   assert.deepEqual(restored, on);
-  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[]});
+  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[], memory:'standard'});
 });
 
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {
   const {kit, linked, stock} = await profilingFixture();
   const on = await patchFirmware(kit, linked, stock), off = await patchFirmware(kit, linked, stock, {profiling:false});
-  const earlier = {stock, selected:null, earlier:true};
+  const earlier = {stock, selected:null, earlier:true, memory:'standard'};
   // Mixed modes, altered edits or altered linked code: stock is rebuilt from the
   // reviewed edits and verified by hash; the uploaded module is never used.
   const mixed = off.slice(); mixed.set(on.subarray(32, 40), 32);
@@ -89,6 +90,23 @@ test('only an exact build restores its selection; others recover verified stock 
   }
 });
 
+test('machines whose code lies within another present machine are tried without', () => {
+  const text = (owner, bytes) => ({owner, relocations:[], sections:[{group:'text', index:1, size:bytes.length, data:Uint8Array.from(bytes)}]});
+  const shared = Array.from({length:32}, (_, i) => i * 7 + 1);
+  const kit = {objects:[text('big', shared), text('inside', shared.slice(8, 24)), text('other', shared.map(b => b ^ 0x55))]};
+  // Only the machine whose largest code lies within another's is a lookalike.
+  assert.deepEqual(presentSelections(kit, ['big', 'inside', 'other']), [['big', 'inside', 'other'], ['big', 'other']]);
+  assert.deepEqual(presentSelections(kit, ['big', 'other']), [['big', 'other']]);
+  // Identical code: each could be the one built, or both; the selection never empties.
+  const twins = {objects:[text('a', shared), text('b', shared)]};
+  assert.deepEqual(presentSelections(twins, ['a', 'b']), [['a', 'b'], ['b'], ['a']]);
+  // Many lookalikes: fewest dropped first, up to the limit.
+  const many = Array.from({length:9}, (_, i) => 'm' + i), tried = presentSelections({objects:many.map(id => text(id, shared))}, many);
+  assert.equal(tried.length, RECOVERABLE_ALTERNATIVES);
+  assert.deepEqual(tried.slice(0, 3), [many, many.slice(1), [many[0], ...many.slice(2)]]);
+  assert.ok(tried.every((selection, i) => i === 0 || selection.length <= tried[i - 1].length));
+});
+
 test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', async () => {
   const {kit, linked, stock} = await profilingFixture();
   const image = await patchFirmware(kit, linked, stock, {profiling:false});
@@ -100,7 +118,140 @@ test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', 
   // A kit too large to search every selection still recovers stock.
   kit.machines = [...kit.machines, ...Array.from({length:10}, (_, i) => machine('m' + i, 35 + i, 83 + i))];
   const exact = await patchFirmware(kit, linked, stock, {profiling:false});
-  assert.deepEqual(await recoverFirmware(kit, exact), {stock, selected:null, earlier:true});
+  assert.deepEqual(await recoverFirmware(kit, exact), {stock, selected:null, earlier:true, memory:'standard'});
+});
+
+test('the experimental 4 MiB layout moves only the module base and the heap immediates', () => {
+  const profile = JSON.parse(profileBytes), expanded = expandedProfile(profile);
+  assert.equal(offersExpandedMemory(profile), true);
+  assert.equal(expanded.reserved_bytes, FOUR_MIB);
+  assert.equal(expanded.module_base, 0x8d0d0380);  // the same end as the reviewed reservation
+  assert.equal(expanded.module_base + expanded.reserved_bytes, profile.module_base + profile.reserved_bytes);
+  assert.equal(moduleBytes(expanded), 4080 * 1024);
+  for (const [i, edit] of expanded.patches.entries()) {
+    const reviewed = profile.patches[i];
+    if (edit.kind !== 'heap') { assert.equal(edit, reviewed); continue; }
+    // 20 MiB -> 16 MiB: the heap ends where the larger module begins.
+    assert.deepEqual({...edit, name:undefined, after:undefined}, {...reviewed, name:undefined, after:undefined});
+    assert.equal(edit.after, '01da000100000000');
+    assert.equal(edit.name, 'IN-MEMORY application heap 0x1400000 -> 0x1000000 (4 MiB module reservation, experimental)');
+    assert.equal(profile.heap_fill_base + 16 * 1024 ** 2, expanded.module_base);
+  }
+  assert.deepEqual(profile, JSON.parse(profileBytes));  // the reviewed profile is untouched
+  assert.equal(Object.hasOwn(expanded, 'experimental_memory'), false);  // the layout offers no further one
+  assert.equal(offersExpandedMemory(expanded), false);
+  const kit = fixture();
+  assert.equal(memoryKit(kit, false), kit);
+  assert.equal(memoryKit(kit, true).profile.module_base, expanded.module_base);
+  for (const value of [1, 'true', null, undefined]) assert.throws(() => memoryKit(kit, value), /must be a boolean/);
+  // Edits that do not describe the reviewed heap cannot be widened.
+  for (const change of [p => { p.patches = p.patches.filter(e => e.kind !== 'heap'); },
+    p => { p.patches.find(e => e.kind === 'heap').after = '01da300100000000'; },
+    p => { p.patches.find(e => e.kind === 'heap').before = 'e1a0400100000000'; },
+    p => { p.heap_fill_bytes += 4; }, p => { p.reserved_bytes = FOUR_MIB; },
+    p => { p.experimental_memory.module_base += 2; }, p => { p.experimental_memory.heap_after = '01dae00100000000'; },
+    p => { p.experimental_memory.extra = 1; }, p => { delete p.experimental_memory; },
+    // The larger heap must be loaded into the same register as the stock edit.
+    p => { p.experimental_memory.heap_after = '02da000100000000'; },
+    // A relative hook that cannot reach the lower module base.
+    p => { p.experimental_memory.module_base -= 0x1000000; p.experimental_memory.reserved_bytes += 0x1000000;
+      p.heap_fill_base -= 0x1000000; p.heap_fill_bytes += 0x1000000;
+      p.patches.filter(e => e.kind === 'heap').forEach(e => Object.assign(e, {before:'01da400200000000', after:'01da200200000000'})); },
+    // Lowercase hex only, as patching decodes it.
+    p => { p.experimental_memory.heap_after = '01DA000100000000'; },
+    // Sizes are whole MiB, as the builder names them.
+    p => { p.experimental_memory.module_base += 0x4000; p.experimental_memory.reserved_bytes -= 0x4000;
+      p.experimental_memory.heap_after = '01da000100400000'; },  // 16 MiB + 16 KiB, consistent otherwise
+    // A reservation larger than the heap fill would leave no heap at all.
+    p => Object.assign(p.experimental_memory, {module_base:p.heap_fill_base - 0x10000,
+      reserved_bytes:p.module_base + p.reserved_bytes - p.heap_fill_base + 0x10000})]) {
+    const altered = JSON.parse(profileBytes); change(altered);
+    assert.throws(() => expandedProfile(altered), /cannot offer more memory|Unexpected heap edit/);
+  }
+});
+
+// An authored loader whose heap fill holds the reservation, with the two heap
+// edits and one hook, so a 4 MiB build is patched and recovered end to end.
+async function heapFixture() {
+  const kit = fixture(), stock = new Uint8Array(112), d = new DataView(stock.buffer);
+  const record = (at, flags, address, size, argument = 0) => {
+    [0xad000000 | flags, address, size, argument].forEach((v, i) => d.setUint32(at + i * 4, v, true));
+    stock[at + 2] = stock.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
+  };
+  const heap = 0x800000, base = 0x100000, reserved = 2 * 1024 ** 2;
+  record(0, 0x5004, 0x1000, 0, stock.length - 16);
+  record(16, 4, 0x1000, 48);
+  stock.set(Array.from({length:8}, (_, i) => i + 1), 32);
+  const load = value => Buffer.from('01da' + Buffer.from(Uint16Array.of(value >>> 16, value & 0xffff).buffer).toString('hex') + '0000', 'hex');
+  stock.set(load(heap), 48); stock.set(load(heap), 64);
+  record(80, 0x104, base, heap);
+  record(96, 0x8004, 0, 0);
+  Object.assign(kit.profile, {stock_bytes:stock.length, stock_sha256:await sha256(stock), stock_records:4,
+    module_base:base + heap - reserved, reserved_bytes:reserved, table_bytes:0, heap_fill_base:base, heap_fill_bytes:heap,
+    experimental_memory:{module_base:base + heap - FOUR_MIB, reserved_bytes:FOUR_MIB, heap_after:load(heap - FOUR_MIB).toString('hex')},
+    patches:[{kind:'hook', call:true, symbol:'entry', length:8, address:0x1000, file_offset:32,
+      before:Buffer.from(stock.subarray(32, 40)).toString('hex')},
+      ...[16, 32].map(offset => ({kind:'heap', name:'heap', length:8, address:0x1000 + offset, file_offset:32 + offset,
+        before:load(heap).toString('hex'), after:load(heap - reserved).toString('hex')}))]});
+  return {kit, stock, load};
+}
+
+test('a 4 MiB build loads its module lower, shrinks the heap and restores its selection', async () => {
+  const {kit, stock, load} = await heapFixture();
+  const standard = await patchFirmware(kit, linkKit(kit, ['a']), stock, {profiling:false});
+  assert.deepEqual(await recoverFirmware(kit, standard), {stock, selected:['a'], extensions:[], memory:'standard'});
+  const expanded = memoryKit(kit, true), linked = linkKit(expanded, ['a']);
+  assert.equal(linked.sizes.available, FOUR_MIB - linked.sizes.allocated);
+  const image = await patchFirmware(expanded, linked, stock, {profiling:false});
+  const module = readLdr(image).at(-2);
+  assert.equal(module.target, kit.profile.module_base + kit.profile.reserved_bytes - FOUR_MIB);
+  const heap = module.target - kit.profile.heap_fill_base;
+  for (const at of [48, 64]) assert.deepEqual(Buffer.from(image.subarray(at, at + 8)), load(heap));
+  assert.notDeepEqual(image, standard);
+  assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[], memory:'expanded'});
+  // A module linked for one layout never passes as the other.
+  const moved = image.slice(), at = module.offset, view = new DataView(moved.buffer);
+  view.setUint32(at + 4, kit.profile.module_base, true);
+  moved[at + 2] = 0; moved[at + 2] = moved.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
+  assert.deepEqual(await recoverFirmware(kit, moved), {stock, selected:null, earlier:true});
+  // A 4 MiB build this kit cannot rebuild still reports its memory choice.
+  const other = image.slice(); other[module.offset + 16] ^= 1;
+  assert.deepEqual(await recoverFirmware(kit, other), {stock, selected:null, earlier:true, memory:'expanded'});
+  // A module at the 4 MiB base whose heap edits still write the standard size is no 4 MiB build.
+  const standardHeap = other.slice();
+  for (const at of [48, 64]) standardHeap.set(load(kit.profile.module_base - kit.profile.heap_fill_base), at);
+  assert.deepEqual(await recoverFirmware(kit, standardHeap), {stock, selected:null, earlier:true});
+  // A module linked for 4 MiB never patches into the standard layout.
+  await assert.rejects(patchFirmware(kit, linked, stock), /Hook destination outside module/);
+  // State that fits only the 4 MiB layout is refused by the standard one.
+  const large = {...kit, objects:[...kit.objects, {...readObject(elf()), name:'b.o', owner:'a', symbols:[],
+    relocations:[], sections:[{index:1, name:'.bss', group:'bss', type:8, alignment:4, size:3 * 1024 ** 2, data:new Uint8Array()}]}]};
+  assert.throws(() => linkKit(large, ['a']), e => e.capacity === true && /need more than the 2048 KiB available/.test(e.message));
+  const big = linkKit(memoryKit(large, true), ['a']);
+  assert.ok(big.sizes.allocated > kit.profile.reserved_bytes);
+  await assert.rejects(patchFirmware(kit, big, stock), /Module exceeds its profile/);
+  assert.equal(readLdr(await patchFirmware(memoryKit(large, true), big, stock)).at(-2).target, module.target);
+  // Recovery's search skips selections that cannot fit, here 'b' tried before 'a'.
+  const order = {...large, machines:[machine('b', 35, 83), ...kit.machines],
+    objects:large.objects.map(o => o.name === 'b.o' ? {...o, owner:'b'} : o)};
+  const small = await patchFirmware(order, linkKit(order, ['a']), stock, {profiling:false});
+  assert.deepEqual(await recoverFirmware(order, small), {stock, selected:['a'], extensions:[], memory:'standard'});
+  // Layouts record the choice; readLayout reports whether this site offers it.
+  const size = FOUR_MIB, layoutOf = extra => ({format:'opxy-layout/1', profile:kit.profile.id, machines:{}, ...extra});
+  assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:size})), {machines:{}, selected:null, expanded:true});
+  // A layout from another experimental size is not taken for this one.
+  assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:2 * 1024 ** 2})), {machines:{}, selected:null, memoryUnavailable:2 * 1024 ** 2});
+  assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:6 * 1024 ** 2})), {machines:{}, selected:null, memoryUnavailable:6 * 1024 ** 2});
+  for (const bad of [{memory:'expanded'}, {reserved_bytes:size}, {memory:'expanded', reserved_bytes:'4'},
+    {memory:'expanded', reserved_bytes:5}, {memory:'expanded', reserved_bytes:0}, {memory:'expanded', reserved_bytes:size + 4}])
+    assert.throws(() => readLayout(kit, layoutOf(bad)), /Invalid memory/);
+  assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}}), {machines:{}, selected:null});
+  assert.throws(() => readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'large'}), /Invalid memory/);
+  // A site without the option keeps the layout's numbers and reports the choice it left out.
+  const plain = fixture(); delete plain.profile.experimental_memory;
+  assert.deepEqual(readLayout(plain, {format:'opxy-layout/1', profile:plain.profile.id, machines:{a:{engine:34,page:82}}, memory:'expanded', reserved_bytes:FOUR_MIB}),
+    {machines:{a:{engine:34,page:82}}, selected:null, memoryUnavailable:FOUR_MIB});
+  assert.throws(() => memoryKit(plain, true), /cannot offer more memory/);
 });
 
 test('profiling option and profile hook condition must be exact booleans', async () => {
@@ -210,6 +361,19 @@ test('extension selections preserve collection order, empty choices and exclusiv
   for (const selection of [['missing'], ['capture','capture'], null, 'capture'])
     assert.throws(() => extensionSelection(k, selection), /available extension/);
   assert.deepEqual(extensionSelection({}), []);
+});
+
+test('one selected extension owns stock Drumline\'s second page, as a claim', () => {
+  // tooling.extensions.metadata marks a drumline_page extension; check_collection allows one per build.
+  const k = {extensions:[{id:'filters', claims:[], drumline_page:true}, {id:'observer', claims:[]},
+    {id:'grit', claims:['record_double_tap'], claim_labels:{record_double_tap:'Record double-tap'}, drumline_page:true}]};
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[1]]), null);
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[2]]), 'drumline_page');
+  assert.equal(claimLabel(k.extensions, 'drumline_page'), 'Drumline page 2');
+  assert.equal(claimLabel(k.extensions, 'record_double_tap'), 'Record double-tap');
+  assert.deepEqual(extensionSelection(k, ['observer','filters']), ['filters','observer']);
+  assert.throws(() => extensionSelection(k, ['grit','filters']), /both use Drumline page 2\. Choose only one\./);
+  assert.deepEqual(extensionChoices(k), [[], ['filters'], ['observer'], ['filters','observer'], ['grit'], ['observer','grit']]);
 });
 
 test('declared callbacks of unselected machines resolve to fallbacks only for SDK objects', () => {
@@ -450,6 +614,49 @@ test('machines are found by name, author, kind, description and keyword, in a ch
   assert.deepEqual(keywordsByUse([...machines, {id:'pads', keywords:['pad', 'bass']}]),
     [{keyword:'pad', count:2}, {keyword:'bass', count:1}, {keyword:'delay', count:1}, {keyword:'fm', count:1}, {keyword:'pluck', count:1}]);
   assert.deepEqual(keywordsByUse([{id:'none'}]), []);
+});
+test('the CPU-high label follows the reported peak, or the average when no peak is reported', () => {
+  assert.equal(CPU_HIGH_PERCENT, 4.5);
+  // The peak decides when there is one, even under a heavier average.
+  assert.deepEqual(cpuWorstCase({cpu:{block_percent:4.8, peak_percent:4.4}}), {percent:4.4, metric:'peak'});
+  assert.equal(cpuHigh({cpu:{block_percent:4.8, peak_percent:4.4}}), null);
+  const peak = cpuHigh({cpu:{block_percent:3.69, peak_percent:6.314183}});
+  assert.equal(peak.metric, 'peak');
+  assert.equal(peak.detail, 'worst observed block peak 6.31% of an audio block, above 4.5%');
+  assert.equal(peak.text, 'CPU-high: ' + peak.detail);
+  // Without a peak, the average, and the text says so.
+  const average = cpuHigh({cpu:{block_percent:8.54963}});
+  assert.equal(average.metric, 'average');
+  assert.equal(average.text, 'CPU-high: average 8.55% of an audio block, above 4.5% (no peak reported)');
+  // A drum kit, by its worst single sound: its peak includes whole-kit runs and is ignored,
+  // so a heavy kit of light sounds is not labelled; its single-voice peak decides, or
+  // without one its heaviest voice's average.
+  const kit = {kind:'drum', cpu:{block_percent:2.7, peak_percent:48.163577, kit_percent:23.7, ceiling_percent:41.9}};
+  assert.deepEqual(cpuWorstCase(kit), {percent:2.7, metric:'average'});
+  assert.equal(cpuHigh(kit), null);
+  assert.equal(cpuHigh({...kit, cpu:{...kit.cpu, voice_peak_percent:4.2}}), null);
+  const sound = cpuHigh({...kit, cpu:{...kit.cpu, voice_peak_percent:7.25}});
+  assert.equal(sound.metric, 'peak');
+  assert.equal(sound.text, 'CPU-high: worst single sound peak 7.25% of an audio block, above 4.5%');
+  // A synth's record has no single-voice peak field; a stray one is not read.
+  assert.equal(cpuHigh({kind:'synth', cpu:{block_percent:2, peak_percent:3, voice_peak_percent:9}}), null);
+  for (const cpu of [{block_percent:5, peak_percent:48}, {block_percent:5}])
+    assert.equal(cpuHigh({kind:'drum', cpu}).text,
+      'CPU-high: worst single sound average 5% of an audio block, above 4.5% (no single-sound peak recorded)');
+  // Strictly above the threshold; no record, or no usable figure, is no label.
+  assert.equal(cpuHigh({cpu:{block_percent:4.5}}), null);
+  assert.equal(cpuHigh({cpu:{block_percent:3, peak_percent:4.5}}), null);
+  for (const m of [{}, {cpu:null}, {cpu:'5'}, {cpu:{block_percent:'9'}}, {cpu:{block_percent:NaN}}]) assert.equal(cpuHigh(m), null, JSON.stringify(m));
+  assert.deepEqual(cpuWorstCase({cpu:{block_percent:5, peak_percent:'x'}}), {percent:5, metric:'average'});
+  // Derived from every catalog entry's record, so it changes only when a report does.
+  const catalog = JSON.parse(readFileSync(new URL('../catalog/machines.json', import.meta.url), 'utf8')).machines;
+  for (const entry of catalog.filter(e => e.cpu)) {
+    // A kit's worst single sound: its single-voice peak, else its heaviest voice's average;
+    // anything else, its peak or else its average.
+    const worst = entry.kind === 'drum' ? entry.cpu.voice_peak_percent ?? entry.cpu.block_percent
+      : entry.cpu.peak_percent ?? entry.cpu.block_percent;
+    assert.equal(Boolean(cpuHigh(entry)), worst > CPU_HIGH_PERCENT, entry.id);
+  }
 });
 test('machine presets save, replace, delete and choose named selections by ID', () => {
   let presets = savePreset([], '  Night   set ', ['moth', 'fm2op']);

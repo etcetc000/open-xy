@@ -375,19 +375,24 @@ int main() {
     CHECK(frame(1, payload) == quiet);
     note(1, 53);
     CHECK(frame(1, payload) == unity);
-    // padMix's sends: the note keeps its first block's send codes too, as the
-    // mixer asks them after each block; a later payload is the next note's.
+    // padMix's sends: the note keeps its first block's send pair too (payload word
+    // 0's low bits), as the mixer asks them after each block; a later payload is
+    // the next note's.
+    namespace pf = opxy::platform;
+    const opxy::u32 first = pf::drum_send_pair(pf::drum_send_index_of_code(5), pf::drum_send_index_of_amount(42));
+    const opxy::u32 second = pf::drum_send_pair(pf::drum_send_index_of_amount(2), 0);
     payload[0] = kMarked;
-    payload[6] = static_cast<opxy::i32>((5u << 25) | (6u << 28) | opxy::platform::kDrumPadReady);
+    pf::drum_send_carry(payload, first);
+    payload[6] = static_cast<opxy::i32>(pf::kDrumPadReady);
     note(1, 53);
     frame(1, payload);
-    CHECK(probe_drum_send(objects[1]) == (5u | 6u << 3));
-    payload[6] = static_cast<opxy::i32>((2u << 25) | opxy::platform::kDrumPadReady);
+    CHECK(probe_drum_send(objects[1]) == first);
+    pf::drum_send_carry(payload, second);
     frame(1, payload);
-    CHECK(probe_drum_send(objects[1]) == (5u | 6u << 3));
+    CHECK(probe_drum_send(objects[1]) == first);
     note(1, 53);
     frame(1, payload);
-    CHECK(probe_drum_send(objects[1]) == 2u);
+    CHECK(probe_drum_send(objects[1]) == second);
     return 0;
 }
 """
@@ -647,7 +652,7 @@ extern "C" opxy::u32 sdk_benchmark_cycles() { return clock_value += 100; }
 namespace opxy { namespace benchmark { void* allocate(u32) { return nullptr; } void release(void*) {} }}
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
 int main() {
-    // A run a report: the kit, 12 models at three levels, the choke, the ceiling.
+    // A run a report: the kit, 12 models at three levels, the choke, the ceiling, the filter.
     unsigned heaviest = 0;
     const opxy::benchmark::Stats kit = probe_benchmark(0);
     CHECK(kit.count == 1500 && kit.audible && kit.total_low > 0);
@@ -674,10 +679,17 @@ int main() {
     CHECK(captured_pitch[0] == (25480118u >> 16) << 16);
     // Every voice is back: a real note after the workload takes a free slot.
     for (const auto& slot : voices) CHECK(!slot.owner);
-    // Every voice ran the track filter at its costliest type, the ladder, in a
-    // pool slot of its own from 127 down, with M3's words from the record.
+    // Those runs play the kit as it starts, M3 off: no filter is built or run.
+    CHECK(fake_builds == 0 && fake_runs == 0);
+    // The filter run: the ceiling again, every voice through the track filter at its
+    // costliest type, the ladder, in a pool slot of its own from 127 down, with M3's
+    // words from the record; dearer than the ceiling by the filter's work.
+    const opxy::benchmark::Stats filtered = probe_benchmark(12 * 3 + 3);
+    CHECK(filtered.count == 1500 && captured_model == 7);
     CHECK(fake_runs > 1500 && fake_pool[127].type == 16 && fake_pool[124].type == 16 && fake_pool[124].runs > 0);
     CHECK(fake_pool[127].record && fake_pool[127].record[17] == 0x60000000 && fake_pool[127].envelope == 0x40000000);
+    CHECK(fake_pool[123].runs == 0);
+    for (const auto& slot : voices) CHECK(!slot.owner);
     return 0;
 }
 """

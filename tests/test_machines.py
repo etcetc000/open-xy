@@ -55,7 +55,7 @@ class DrumPresets(unittest.TestCase):
             shutil.copytree(FOLDER / 'probesynth', root)
             record_path, definition_path = root / 'machine.json', root / 'definition.json'
             record = json.loads(record_path.read_text())
-            record.update(kind='drum', sdk='1.11')
+            record.update(kind='drum', sdk='1.16')
             record.pop('identity', None)
             definition = json.loads(definition_path.read_text())
             definition['presets'] = {}
@@ -81,7 +81,7 @@ class DrumPresets(unittest.TestCase):
                         self.assertEqual(loaded.presets['default']['regions'], value['regions'])
                     current['sdk'] = '1.10'
                     record_path.write_text(json.dumps(current))
-                    with self.assertRaisesRegex(ValueError, '1.11'):
+                    with self.assertRaisesRegex(ValueError, '1.16'):
                         machines.machine_at(root)
 
     def test_drum_region_bounds_and_sample_exclusion(self):
@@ -326,7 +326,7 @@ class OutsideMachines(unittest.TestCase):
         for version in ('1.1', '1.2', '1.3', '1.4'):
             self.rename('fmcopy', self.free, version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-        for version in ('1.5', '1.6', '1.7', '1.8', '1.9', '1.10'):
+        for version in ('1.5', '1.6', '1.7', '1.8', '1.9', '1.10', '1.11', '1.12'):
             self.numberless(self.folder, sdk=version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
         future = '%d.%d' % (machines.SDK_VERSION[0], machines.SDK_VERSION[1] + 1)

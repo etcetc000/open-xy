@@ -29,6 +29,9 @@ struct DrumMachine {
     u32 pad_signs;
     const char* const* pad_labels;
     bool (*pad_text)(u32 field, i32 value, char* text);
+    // The range the track menu's scramble draws a model's control from, 0..127
+    // unless the machine narrows it (its optional scramble_range).
+    void (*scramble_range)(u32 model, u32 slot, u8* low, u8* high);
     // Optional GUI-side value editor. Input and output use stored 7-bit raw
     // values; delta is bounded to -127..127. Not called for Shift or gaps.
     u32 (*edit)(u32 model, u32 slot, u32 value, i32 delta);
@@ -137,8 +140,25 @@ opxy::u32 sdk_drum_latch_key(opxy::u32 track) __asm__("sdk_drum_latch_key");
 // Stock's preset import (8d4e35a8, its three calls hooked), then a padMix kit's
 // loaded keys set up as the preset holds them (drum_synthesis_stock.cpp).
 opxy::u32 sdk_drum_preset_load(opxy::u32 preset, opxy::u32 flag) __asm__("sdk_drum_preset_load");
+// A region's `random` in a preset (drum_hooks.s): its export, the pad word >>> 16
+// with a set-up padMix key's send amounts above bit 16; and its import, stock's
+// converter's word, the amounts into the pad record's bytes (`record` + 4).
+opxy::i32 sdk_drum_export_random(const opxy::i32* word, const unsigned char* record) __asm__("sdk_drum_export_random");
+opxy::i32 sdk_drum_import_random(const void* value, unsigned char* record_4) __asm__("sdk_drum_import_random");
 // A Shift press of encoder 0..3 on a kit with a second Shift row
 // (synth_controls.cpp): moves the encoders, and Shift with them, to the other row.
 // True when it did.
 bool sdk_drum_shift_press(opxy::u32 track, opxy::u32 encoder) __asm__("sdk_drum_shift_press");
+// The track menu's scramble: the selected track's engine as its drum check
+// reads it, and the drum branch, which re-rolls an owned kit's keys.
+opxy::u32 sdk_scramble_engine(opxy::u32 track) __asm__("sdk_scramble_engine");
+void sdk_drum_scramble() __asm__("sdk_drum_scramble");
+// A held pad's actions, as stock Drumline's (drum_synthesis_stock.cpp): the engine
+// 8c0b2068 picks its held-pad page by, and M1's scramble and M4's reset of the held key.
+opxy::u32 sdk_drum_held_pad_engine(opxy::u32 track) __asm__("sdk_drum_held_pad_engine");
+void sdk_drum_pad_scramble(opxy::u32 key) __asm__("sdk_drum_pad_scramble");
+opxy::u32 sdk_drum_pad_reset(opxy::u32 track, opxy::u32 key) __asm__("sdk_drum_pad_reset");
+// The shifted key handler's pad check (8c0b2978): on an owned kit's track Shift and a
+// pad hold the pad for per-key editing, as on Drumline.
+opxy::u32 sdk_drum_shift_pad(opxy::u32 code) __asm__("sdk_drum_shift_pad");
 }

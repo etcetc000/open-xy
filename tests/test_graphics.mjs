@@ -265,7 +265,7 @@ async function fixture() {
   const machine = {id:'probe', kind:'synth', name:'Probe', artwork, asset:'probe.svg',
     catalog:',{"type":"probe","default_params":[0,0,0,0,0,0,0,0]}'};
   const kit = {machines:[machine, {...machine, id:'other', asset:'other.svg', artwork:'<circle fill="unsupported"/>'}],
-    screenTemplate, profile:{stock_catalog_sha256:await sha256(catalog),
+    screenTemplate, profile:{experimental_memory:{}, stock_catalog_sha256:await sha256(catalog),
       screen_template_sha256:await sha256(new TextEncoder().encode(screenTemplate)),
       stock_catalog_inserts:{engine_types:text.indexOf('\n]'), fx_types:text.indexOf('],"seq_types"'), seq_types:text.lastIndexOf(']')}}};
   return {kit, catalog};
@@ -432,6 +432,8 @@ test('Extensions graphics defaults to original designs without firmware extensio
   let wizardOptions, invalidations = 0, finishPatch, blockPatch = false;
   const previewModes = [];
   let currentFixture;
+  const linkedKits = [], patchedKits = [];
+  let linkError = null, recoverResult = null;
   const fakeCore = {...Core,
     // Keep this test firmware-free: exercise the real app, asset writer and ZIP
     // with an authored kit; OS verification/linking have their own contract tests.
@@ -439,10 +441,17 @@ test('Extensions graphics defaults to original designs without firmware extensio
       machines:data.machines.map(machine => ({controls:[], identity:{}, ...machine}))}),
     chosenByDefault:machine => (currentFixture.selected ?? ['probe']).includes(machine.id),
     decode64:value => value ? Core.decode64(value) : currentFixture.catalog,
-    moduleBytes:() => 2048,
-    recoverFirmware:async () => ({stock:Uint8Array.of(1)}),
-    linkKit:() => ({segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}),
-    patchFirmware:async () => blockPatch ? new Promise(resolve => { finishPatch = resolve; }) : Uint8Array.of(1, 2, 3),
+    moduleBytes:profile => profile.reserved_bytes ?? 2048,
+    offersExpandedMemory:profile => profile.experimental_memory !== undefined,
+    // A layout whose memory is 'unoffered' stands for one from a site with experimental memory this one lacks.
+    readLayout:(kit, saved) => ({...Core.readLayout(kit, {...saved, memory:undefined, reserved_bytes:undefined}),
+      ...(saved.memory === 'unoffered' ? {memoryUnavailable:6 * 1024 ** 2} : saved.memory ? {expanded:true} : {})}),
+    memoryKit:(kit, expanded) => expanded ? {...kit, profile:{...kit.profile, reserved_bytes:4 * 1024 ** 2}} : kit,
+    recoverFirmware:async () => recoverResult ?? ({stock:Uint8Array.of(1)}),
+    // A linkError marked standardOnly fits the experimental memory (its profile has reserved_bytes).
+    linkKit:kit => { linkedKits.push(kit); if (linkError && !(linkError.standardOnly && kit.profile.reserved_bytes)) throw linkError; return {segments:[], numbers:{}, sizes:{allocated:0, available:2048, initialized:0, working:0}}; },
+    patchFirmware:async kit => { patchedKits.push(kit);
+      return blockPatch ? new Promise(resolve => { finishPatch = resolve; }) : Uint8Array.of(1, 2, 3); },
   };
   const wizard = {invalidate() { invalidations++; }, navigate() {}, previewLink:() => false,
     clearSourceBackup() {}, setFirmwareState() {}};
@@ -471,6 +480,146 @@ test('Extensions graphics defaults to original designs without firmware extensio
   await $('build').onclick();
   const defaultFiles = wizardOptions.getFiles();
   assert.deepEqual(JSON.parse(new TextDecoder().decode(defaultFiles['build.json'])).settings, {graphics:'colorful'});
+  // Standard memory unless the experimental 4 MiB option is chosen on the machines page.
+  const memoryInput = $('expanded-memory'), buildJson = () => JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['build.json']));
+  assert.equal(memoryInput.checked, false);
+  assert.equal(memoryInput.disabled, false);  // this collection's profile offers it
+  assert.equal($('expanded-memory-option').hidden, false);
+  assert.equal(patchedKits.at(-1).profile.reserved_bytes, undefined);
+  assert.equal(buildJson().reserved_bytes, undefined);
+  memoryInput.checked = true; memoryInput.onchange();
+  assert.equal(linkedKits.at(-1).profile.reserved_bytes, 4 * 1024 ** 2);
+  assert.match($('capacity-foot').textContent, /^4096\.0 KiB for machines \(experimental\)/);
+  assert.deepEqual($('build-selection').children.slice(-4, -2).map(e => e.textContent), ['Memory', '4 MiB (experimental)']);
+  assert.equal($('download').href, undefined);  // choosing it invalidates the previous build
+  await $('build').onclick();
+  assert.equal(patchedKits.at(-1).profile.reserved_bytes, 4 * 1024 ** 2);
+  assert.equal(buildJson().reserved_bytes, 4 * 1024 ** 2);
+  assert.match($('download-summary').textContent, / \+ 4 MiB experimental memory \(may be unstable\)$/);
+  const expandedLayout = JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['layout.json']));
+  assert.equal(expandedLayout.memory, 'expanded');
+  assert.equal(expandedLayout.reserved_bytes, 4 * 1024 ** 2);
+  memoryInput.checked = false; memoryInput.onchange();
+  assert.equal(linkedKits.at(-1).profile.reserved_bytes, undefined);
+  await $('build').onclick();
+  assert.equal(buildJson().reserved_bytes, undefined);
+  assert.deepEqual($('build-selection').children.slice(-4, -2).map(e => e.textContent), ['Memory', 'Standard']);
+  assert.equal(JSON.parse(new TextDecoder().decode(wizardOptions.getFiles()['layout.json'])).memory, undefined);
+  // Restoring the 4 MiB build's layout checks it against 4 MiB and turns the option back on.
+  const restoreLayout = async value => $('restore').onchange({target:{files:[{size:1,
+    arrayBuffer:async () => new TextEncoder().encode(JSON.stringify(value)).buffer}]}});
+  const linksBefore = linkedKits.length;
+  await restoreLayout(expandedLayout);
+  assert.equal(memoryInput.checked, true);
+  assert.equal(linkedKits[linksBefore].profile.reserved_bytes, 4 * 1024 ** 2);
+  await restoreLayout({...expandedLayout, memory:undefined});
+  assert.equal(memoryInput.checked, false);
+  assert.match($('status').textContent, /It uses standard memory, so 4 MiB is turned off\./);
+  // A numbers-only layout keeps the current memory choice.
+  memoryInput.checked = true; memoryInput.onchange();
+  await restoreLayout({...expandedLayout, memory:undefined, selected:undefined});
+  assert.equal(memoryInput.checked, true);
+  // When the current selection then cannot be built, both the layout's message and the reason show.
+  linkError = Object.assign(new Error('These machines need more than the 4080 KiB available'), {capacity:true});
+  await restoreLayout({...expandedLayout, memory:undefined, reserved_bytes:undefined, selected:undefined});
+  linkError = null;
+  assert.match($('status').textContent, /^Layout loaded: your machines keep their numbers\. These machines need more than the 4080 KiB available\.?$/);
+  assert.equal($('status').dataset.error, 'true');
+  memoryInput.onchange();
+  // One that records experimental memory says its choice is not applied.
+  memoryInput.checked = false; memoryInput.onchange();
+  await restoreLayout({...expandedLayout, selected:undefined});
+  assert.equal(memoryInput.checked, false);
+  assert.match($('status').textContent, /It lists no machines, so its experimental memory choice is not applied; the current one stays\.$/);
+  // The meter's capacity error points to the larger option too.
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
+  memoryInput.checked = false; memoryInput.onchange();
+  linkError = null;
+  assert.equal($('extension-memory').textContent,
+    'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) to make room.');
+  // No hint when the selection would not fit the larger memory either.
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true});
+  memoryInput.checked = true; memoryInput.onchange(); memoryInput.checked = false; memoryInput.onchange();
+  linkError = null;
+  assert.equal($('extension-memory').textContent, 'These machines need more than the 2032 KiB available.');
+  memoryInput.checked = true; memoryInput.onchange();
+  await restoreLayout(expandedLayout);
+  assert.doesNotMatch($('status').textContent, /turned/);
+  // A layout whose memory this site lacks applies nothing unless it links, and says why.
+  memoryInput.checked = false; memoryInput.onchange();
+  const before = {checked:memoryInput.checked};
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
+  await restoreLayout({...expandedLayout, memory:'unoffered', machines:{probe:{engine:99, page:99}}});
+  linkError = null;
+  assert.equal($('status').textContent, 'This layout used 6 MiB experimental memory, which this site doesn’t offer. ' +
+    'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) and load the layout again.');
+  assert.equal(memoryInput.checked, before.checked);
+  // With the option on, it is tried at this site's larger memory, and says why when that is not enough either.
+  memoryInput.checked = true; memoryInput.onchange();
+  linkError = Object.assign(new Error('These machines need more than the 4080 KiB available'), {capacity:true});
+  await restoreLayout({...expandedLayout, memory:'unoffered'});
+  linkError = null;
+  assert.equal($('status').textContent, 'This layout used 6 MiB experimental memory, which this site doesn’t offer. ' +
+    'These machines need more than the 4080 KiB available');
+  // When it fits, it keeps the 4 MiB choice and says so, rather than turning it off.
+  await restoreLayout({...expandedLayout, memory:'unoffered'});
+  assert.equal(memoryInput.checked, true);
+  assert.match($('status').textContent, /It used 6 MiB experimental memory, which this site doesn’t offer; it uses this site’s experimental 4 MiB\.$/);
+  memoryInput.checked = false; memoryInput.onchange();
+  // A standard layout that no longer fits points to the larger memory this site offers.
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
+  await restoreLayout({...expandedLayout, memory:undefined, reserved_bytes:undefined});
+  assert.equal($('status').textContent, 'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) and load the layout again.');
+  // With the option turned on, a standard layout that only fits the larger memory restores with it.
+  memoryInput.checked = true; memoryInput.onchange();
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
+  await restoreLayout({...expandedLayout, memory:undefined, reserved_bytes:undefined});
+  linkError = null;
+  assert.equal(memoryInput.checked, true);
+  assert.match($('status').textContent, /Its machines need more than the standard memory it used, so they use the experimental 4 MiB you turned on\.$/);
+  memoryInput.checked = false; memoryInput.onchange();
+  linkError = new Error('Machine numbers overlap');  // not a memory problem: no memory hint
+  await restoreLayout({...expandedLayout, memory:'unoffered'});
+  linkError = null;
+  assert.equal($('status').textContent, 'Machine numbers overlap');
+  await restoreLayout({...expandedLayout, memory:'unoffered'});
+  assert.match($('status').textContent, /It used 6 MiB experimental memory, which this site doesn’t offer; it builds with standard memory\.$/);
+  assert.doesNotMatch($('status').textContent, /turned off/);  // one message, not two
+  assert.equal(memoryInput.checked, false);
+  memoryInput.checked = true; memoryInput.onchange();
+  // Stock OS records no memory choice and keeps the current one; an open-xy OS sets it.
+  const loadOs = () => wizardOptions.onFirmware({name:'os', size:1, arrayBuffer:async () => Uint8Array.of(1).buffer});
+  assert.equal(await loadOs(), true);
+  assert.equal(memoryInput.checked, true);
+  assert.doesNotMatch($('firmware-result').textContent, /turned/);
+  recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true};  // an open-xy OS of unknown layout
+  assert.equal(await loadOs(), true);
+  assert.equal(memoryInput.checked, true);
+  recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true, memory:'standard'};  // a standard build of other machines
+  assert.equal(await loadOs(), true);
+  assert.equal(memoryInput.checked, false);
+  assert.match($('firmware-result').textContent, / · it uses standard memory, so 4 MiB is turned off$/);
+  recoverResult = {stock:Uint8Array.of(1), selected:null, earlier:true, memory:'expanded'};
+  assert.equal(await loadOs(), true);
+  assert.equal(memoryInput.checked, true);
+  assert.match($('firmware-result').textContent, / · it uses 4 MiB experimental memory, now turned on$/);
+  recoverResult = null;
+  memoryInput.checked = false; memoryInput.onchange();
+  // Right after an OS loads, a selection over standard memory points to the option.
+  linkError = Object.assign(new Error('These machines need more than the 2032 KiB available'), {capacity:true, standardOnly:true});
+  assert.equal(await loadOs(), true);
+  linkError = null;
+  assert.equal($('status').textContent, 'These machines need more than the 2032 KiB available. Turn on “Use 4 MiB for machines” (experimental) to make room.');
+  assert.equal(memoryInput.disabled, false);
+  // A collection without the option loads cleanly while it was on, and hides it.
+  memoryInput.checked = true; memoryInput.onchange();
+  const without = await fixture(); delete without.kit.profile.experimental_memory;
+  await api.configure(without);
+  assert.equal(memoryInput.checked, false);
+  assert.equal(memoryInput.disabled, true);
+  assert.equal($('expanded-memory-option').hidden, true);
+  await api.configure(await fixture());
+  assert.equal(memoryInput.disabled, false);
   const originalKit = (await fixture()).kit;
   assert.equal(new TextDecoder().decode(defaultFiles['content/display/probe.svg']),
     originalKit.screenTemplate.replace('</svg>', originalKit.machines[0].artwork + '</svg>'));

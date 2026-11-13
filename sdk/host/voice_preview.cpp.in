@@ -16,14 +16,16 @@ extern "C" {
 opxy::u32 opxy_preview_abi() { return 1; }
 opxy::u32 opxy_state_bytes() { return sizeof(Voice); }
 opxy::u32 opxy_state_alignment() { return alignof(Voice); }
-opxy::u32 opxy_parameter_count() { return opxy::parameter_slots; }
+opxy::u32 opxy_parameter_count() { return @PARAMETER_COUNT@; }
 opxy::u32 opxy_block_frames() { return 64; }
+opxy::u32 opxy_output_channels() { return @CHANNELS@; }
 opxy::u32 opxy_sample_rate() { return 44100; }
 opxy::u32 opxy_output_peak_q31() { return @PEAK@; }
 opxy::u32 opxy_voice_capacity() { return 8; }
 Voice* opxy_voice_state(opxy::u32 index) { return index < 8 ? &voices[index] : nullptr; }
 void opxy_initialize(Voice* voice) { @NAMESPACE@::initialize(*voice, shared, owner(voice)); }
 void opxy_start(Voice* voice) { @NAMESPACE@::start(*voice, shared, owner(voice)); }
+void opxy_release(Voice* voice) { @RELEASE_CALLBACK@ }
 void opxy_destroy(Voice* voice) { @NAMESPACE@::destroy(*voice, shared, owner(voice)); }
 void opxy_preview_model(opxy::u32 model) { drum_model = model; }
 void opxy_render(Voice* voice, opxy::i32* output, const opxy::i32* parameters, const opxy::u32* pitch) {
