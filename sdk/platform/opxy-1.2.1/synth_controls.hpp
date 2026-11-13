@@ -5,6 +5,17 @@
 #include <opxy/types.hpp>
 
 namespace opxy { namespace platform {
+// A synth's Shift row (SDK 1.13, synth_shift.hpp): count entries, entry i under
+// page i / 4 at position i % 4. choices[i] is an enum's choice count (2..128),
+// synth_shift::kContinuous for a 0..100 amount or kAbsent for an empty entry;
+// defaults[i] the field a word without the mark plays; titles name each entry
+// (empty when absent). The machine's format captions entry i as slot 8 + i.
+struct SynthShift {
+    u8 count;
+    u8 choices[8];
+    u8 defaults[8];
+    const char* const* titles;
+};
 // A synth or effect. Pressing a synth encoder moves its
 // position from slot s to next[s]; each position starts on its own slot 0..3,
 // and a slot no position reaches maps to itself. A paged synth's press moves
@@ -32,6 +43,8 @@ struct SynthControls {
     // encoder, 0 keeps Shift's fine turn of the machine's own control, and a
     // stock_shift code below gives the Shift turn to the stock sampler page instead.
     u8 stock_shift[4];
+    // A synth's Shift row, or null (SDK 1.13).
+    const SynthShift* synth_shift;
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
 };
 // The stock sampler page's own turns a stockShift entry names: the page's
@@ -89,6 +102,17 @@ void sdk_synth_pages() __asm__("sdk_synth_pages");
 // selected, once, or 0.
 opxy::u32 sdk_synth_page_key(opxy::u32 track) __asm__("sdk_synth_page_key");
 void sdk_synth_queue_page_key(opxy::u32 track, opxy::u32 key) __asm__("sdk_synth_queue_page_key");
+// A synth's Shift row (SDK 1.13, synth_controls.cpp): whether an engine has one; a
+// preset export's pattern, its row into the first pad record (returns the engine's
+// region class, 4 for such a synth); after a preset import, the row back from it; and
+// after a step's lock pass, the row as the step plays it (mask and values by entry).
+bool sdk_synth_shift_engine(opxy::u32 engine) __asm__("sdk_synth_shift_engine");
+bool sdk_synth_shift_present() __asm__("sdk_synth_shift_present");
+opxy::u32 sdk_preset_alias(opxy::u32 engine) __asm__("sdk_preset_alias");
+opxy::u32 sdk_synth_shift_export(opxy::u32 engine, opxy::u32 pattern) __asm__("sdk_synth_shift_export");
+bool sdk_synth_shift_import(opxy::u32 track) __asm__("sdk_synth_shift_import");
+void sdk_synth_shift_play(opxy::u32 project, opxy::u32 track, opxy::u32 mask, const opxy::i32* values)
+    __asm__("sdk_synth_shift_play");
 // The send page's value text for position `index` of an owned effect, through
 // the hook in screen_hooks.s; every other caption reaches stock unchanged.
 opxy::u32 sdk_fx_value_text(opxy::u32 widget, const char* text, opxy::u32 index, opxy::i32 value)
@@ -107,6 +131,10 @@ void sdk_send_refresh() __asm__("sdk_send_refresh");
 // aux tracks (aux_tracks.cpp) in builds that link them, null in others.
 extern opxy::u32 (*sdk_aux_engine)(opxy::u32) __asm__("sdk_aux_engine");
 extern bool (*sdk_aux_owns_page)(opxy::u32) __asm__("sdk_aux_owns_page");
+// Offers a turn event of a track's owned synth, at the slot its position shows,
+// to the track's control machine; true when it took it. The control service's
+// GUI tick fills it in; null without it.
+extern bool (*sdk_control_turn)(opxy::u32 track, opxy::u32 slot, const opxy::i32* event) __asm__("sdk_control_turn");
 // The send page's title for position `index` of the effect on the selected send
 // track: the name of the slot it shows, which a press may have moved to an alternate.
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");

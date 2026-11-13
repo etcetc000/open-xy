@@ -8,7 +8,7 @@ from .pipeline import ROOT
 from .formats import require
 
 METHODS = {'synth': ('opxy-synth-c8-v1', 5), 'effect': ('opxy-effect-callback-v1', 7),
-           'sample': ('opxy-sample-callback-v1', 3), 'drum': ('opxy-drum-callback-v1', 3)}
+           'sample': ('opxy-sample-callback-v1', 3), 'drum': ('opxy-drum-callback-v2', 3)}
 # A sweep build's extra synth runs: the stock workload, one control at a time.
 SWEEP = 'opxy-synth-c8-sweep-v1'
 
@@ -27,14 +27,16 @@ DRUM_LEVELS = (64, 0, 127)
 def drum_cases(m):
     """A kit's runs in order, each a report: the kit's own keys at full polyphony; one
     voice of every model at each level; retriggers on one key (the same-key choke) with
-    the heaviest of those; and full polyphony of it."""
+    the heaviest of those; and full polyphony of it. Those play the kit as it starts, the
+    track's M3 off; the last repeats full polyphony of the heaviest with M3 on, the
+    ladder on every voice (benchmark_drum.cpp.in)."""
     count = m.definition['resources']['modelCount']
     voices = max(m.definition['resources']['voiceCapacity'], 2)
     runs = [dict(run='kit', voices=voices)]
     for model in range(count):
         for level in DRUM_LEVELS:
             runs.append(dict(run='voice', voices=1, model=model, level=level))
-    return runs + [dict(run='choke', voices=2), dict(run='ceiling', voices=voices)]
+    return runs + [dict(run='choke', voices=2), dict(run='ceiling', voices=voices), dict(run='filter', voices=voices)]
 
 
 def sweep_settings(m):
@@ -89,7 +91,8 @@ def drum_label(run):
     if run['run'] == 'voice':
         return f"model {run['model']} at {run['level']}"
     return {'kit': f"the kit's keys, {run['voices']} voices", 'choke': 'same-key retriggers, the heaviest model',
-            'ceiling': f"the heaviest model, {run['voices']} voices"}[run['run']]
+            'ceiling': f"the heaviest model, {run['voices']} voices",
+            'filter': f"the heaviest model, {run['voices']} voices, M3 on (ladder)"}[run['run']]
 
 
 def case_label(case):

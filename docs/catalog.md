@@ -76,6 +76,21 @@ the field schema, workloads and contributor commands. Unchanged legacy entries
 may remain without a record until their next update; measurements are never
 backfilled with host estimates.
 
+The builder labels a machine **CPU-high** when its reported worst case is above
+4.5% of an audio block (`HIGH_PERCENT` in
+[`tooling/cpu_measurement.py`](../tooling/cpu_measurement.py), which
+`builder/core.mjs` repeats as `CPU_HIGH_PERCENT`). The worst case is the record's
+`peak_percent`, or its `block_percent` average when it reports no peak; the
+label immediately explains on hover or keyboard focus that higher CPU usage may reduce the number of simultaneous voices. A drum kit is judged by its
+worst single sound, never its whole-kit, choke or ceiling runs: its
+`voice_peak_percent`, the worst block of its single-voice runs, or, in a record
+without one, its `block_percent`, the heaviest single voice's average
+([profiling](profiling.md)). Its `peak_percent` includes whole-kit runs at full
+polyphony and is not used. `profile report` writes `voice_peak_percent`; a kit
+measured before it has none until it is measured again. The label is derived from
+the `cpu` record, never written in an entry, and `catalog check` notes it for the
+entries it reviews.
+
 IDs are unique across the catalog. Open-XY's own machines are entries like
 any other, published from the [core machines](https://github.com/etcetc000/open-xy-core-machines).
 

@@ -26,10 +26,14 @@ const platform::Player* linear() {
     static const platform::Player player={reinterpret_cast<const char*>(7),"linear",nullptr,nullptr,nullptr,{0,0,0,0}};
     return &player;
 }
+const platform::Player* absent() {
+    static const platform::Player player={reinterpret_cast<const char*>(8),"absent",nullptr,nullptr,nullptr,{0,4,13,1}};
+    return &player;
+}
 }
 extern "C" {
-const platform::PlayerEntry sdk_players[]={{enums},{linear}};
-const u32 sdk_player_count=2;
+const platform::PlayerEntry sdk_players[]={{enums},{linear},{absent}};
+const u32 sdk_player_count=3;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
 }
 const void* stock_address(u32 address) {
@@ -59,6 +63,12 @@ int main() {
     selected=6; fake_track=8;
     require(sdk_player_turn(2,one)==0);
     fake_track=0;
+    // An absent slot is handled and edits nothing; the other slots still edit.
+    selected=8;
+    const u32 absent_writes=writes;
+    require(sdk_player_turn(3,one)==1 && writes==absent_writes);
+    require(sdk_player_turn(2,one)==1 && writes==absent_writes+1);
+    selected=6;
     require(sdk_player_turn(4,one)==0 && sdk_player_turn(2,nullptr)==0);
     std::puts("owned player controls bypass stock hold mode; enum detents and stock fallback passed");
 }

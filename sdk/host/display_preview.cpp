@@ -1,6 +1,7 @@
 // Main-thread WebAssembly drawing transport. Separate from audio scheduling.
 #include "display_binding.hpp"
 #include <opxy/sample_overview.hpp>
+#include <opxy/synth_shift.hpp>
 namespace {
 opxy::binding::DisplayState state;
 opxy::draw::Input input;
@@ -8,8 +9,11 @@ opxy::binding::Frame frame;
 // The overview a sample engine's screen reads; the host writes it (empty until then).
 // Its gain starts unavailable, as on the device while a track holds no sample.
 opxy::draw::SampleOverview sample = {0, 0, 0, 0, 0, 0, 0, 0, 0, {}, {}, opxy::draw::gain_unavailable};
+// A synth's Shift row (opxy/synth_shift.hpp); the host writes it (zeros until then).
+opxy::draw::ShiftRow shift_row = {0, 0, {}};
 }
 const opxy::draw::SampleOverview* opxy_sample_overview() { return &sample; }
+const opxy::draw::ShiftRow* opxy_synth_shift(opxy::u32) { return &shift_row; }
 extern "C" {
 // A preview shows one machine on one track.
 opxy::u32 sdk_control_copies(opxy::u32) { return 1; }
@@ -25,4 +29,5 @@ void opxy_display_reset() { opxy::binding::display_reset(&state, &frame); }
 void opxy_display_render() { opxy::binding::display_render(&state, &input, &frame); }
 opxy::u32 opxy_display_valid() { return opxy::binding::display_valid(&frame); }
 opxy::draw::SampleOverview* opxy_display_sample() { return &sample; }
+opxy::draw::ShiftRow* opxy_display_shift() { return &shift_row; }
 }

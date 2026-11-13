@@ -7,6 +7,7 @@
 #include "screen_header.hpp"
 #include "note_activity.hpp"
 #include "amp_envelope.hpp"
+#include "drum_send.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 // Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
@@ -95,6 +96,9 @@ template <class Machine> struct Drawing {
         display_input.reserved = 0;
         const u32 pads = sizeof(controls.pads) / sizeof(controls.pads[0]);
         for (u32 i = 0; i < 4; ++i) display_input.pad[i] = static_cast<i8>(i < pads ? controls.pads[i] : 0);
+        // FX I and FX II: a send's index (drum_send.hpp) as the kit's SDK reads it.
+        for (u32 i = platform::kDrumKitPadFields; i < 4 && i < pads; ++i)
+            display_input.pad[i] = static_cast<i8>(platform::drum_send_shown(static_cast<u32>(controls.pads[i]), Machine::percent_sends));
         display_input.shift = controls.choosing ? 1 : controls.shift;
         for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         display_input.elapsed = o->delta;
@@ -119,6 +123,8 @@ template <class Machine> struct Drawing {
         if (!refresh_controls(&o->base, controls)) return;
         animate(o, controls);
         draw(&o->base);
+        // A drum kit's held pad: Drumline's slide-up strip, over the page.
+        draw_hold_strip(controls.track, elapsed);
     }
 };
 }}} // namespace opxy::screen::<unnamed>

@@ -116,6 +116,10 @@ jobs:
           key: toolchain-${{ runner.os }}-${{ hashFiles('profiles/toolchains.json') }}
       - name: Pinned Blackfin tools
         run: python sdk.py toolchain fetch
+      - name: Multiple-player native link regression
+        env:
+          PYTHONPATH: tests
+        run: python -m unittest test_players.PlayerNativeLink
       - name: Restore fetched machines
         uses: actions/cache/restore@v4
         with:
@@ -131,4 +135,4 @@ jobs:
           key: catalog-${{ runner.os }}-${{ hashFiles('catalog/*.json') }}
         continue-on-error: true  # the same catalog already saved by another run
       - name: Firmware compile with every bundled and published machine
-        run: python sdk.py compile --catalog --collection local/catalog/collection.json --out ${{ runner.temp }}/module
+        run: python sdk.py compile --collection local/catalog/collection.json --out ${{ runner.temp }}/module

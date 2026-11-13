@@ -14,7 +14,7 @@ import sys
 
 from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
-from .definitions import control_positions, paged
+from .definitions import control_positions, paged, shift_words, synth_shift
 from .formats import require, sha
 from .machines import FIXED_NUMBERS, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
@@ -117,6 +117,13 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         entry['preview'] = dict(wasm=base64.b64encode(wasm).decode('ascii'), sha256=sha(wasm),
                                 graphics=preview.graphics_metadata(m),
                                 defaults=[round(p['default'] * 0x7fffffff) for p in m.definition['parameters']])
+        # A synth's Shift row (SDK 1.13): the eight words its preview renders after the controls.
+        if synth_shift(m.definition):
+            entry['preview']['shift'] = shift_words(m.definition)
+    # A synth with a Shift row: its own presets keep the row in sample-less regions
+    # (builder/core.mjs presetFiles).
+    if m.kind == 'synth' and synth_shift(m.definition):
+        entry['shiftRow'] = True
     return entry
 
 
@@ -202,7 +209,7 @@ def write_builder(kit, output):
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes heapBytes offersExpandedMemory memoryKit openKit linkKit readLdr '
                'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName '
-               'MACHINE_KEYWORDS keywordsByUse browseMachines machineAuthor PRESET_NAME_LIMIT readPresets savePreset deletePreset presetMatches applyPreset').split()
+               'MACHINE_KEYWORDS keywordsByUse browseMachines machineAuthor CPU_HIGH_PERCENT cpuWorstCase cpuHigh PRESET_NAME_LIMIT readPresets savePreset deletePreset presetMatches applyPreset').split()
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
     bundled += 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
@@ -297,8 +304,7 @@ def main(argv=None):
     try:
         package = out / 'source'
         native.build(package, Path(args.toolchain), Path(args.compiler),
-                     Path(args.stock_os), Path(args.stock_content), native.selected_collection(args),
-                     optional_extensions=True)
+                     Path(args.stock_os), Path(args.stock_content), native.selected_collection(args))
         options = []
         for name in ('toolchain', 'compiler', 'stock_os', 'stock_content'):
             options += ['--' + name.replace('_', '-'), str(Path(getattr(args, name)).resolve())]

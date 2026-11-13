@@ -25,6 +25,34 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('risk-continue').disabled = true;
   const colors = ['var(--machine-1)', 'var(--machine-2)', 'var(--machine-3)', 'var(--machine-4)'];
   const kib = n => (n / 1024).toFixed(1) + ' KiB', mib = n => n / 1024 ** 2 + ' MiB';
+  const cpuWarning = 'Uses more CPU than usual. This may reduce the total number of voices you can play at once.';
+  let cpuTooltip;
+  function cpuBadge(badge, high) {
+    badge.removeAttribute('title');
+    badge.replaceChildren('CPU-high', ...(high ? [node('span', ': ' + cpuWarning, 'sr-only')] : []));
+    const show = () => {
+      if (!high) return;
+      if (!cpuTooltip) {
+        cpuTooltip = document.createElement('div');
+        cpuTooltip.className = 'cpu-high-tooltip';
+        cpuTooltip.setAttribute('role', 'tooltip');
+        cpuTooltip.textContent = cpuWarning; document.body.append(cpuTooltip);
+      }
+      cpuTooltip.hidden = false;
+      const box = badge.getBoundingClientRect(), tip = cpuTooltip.getBoundingClientRect();
+      cpuTooltip.style.left = Math.max(8, Math.min(box.left, window.innerWidth - tip.width - 8)) + 'px';
+      cpuTooltip.style.top = (box.bottom + tip.height + 8 < window.innerHeight
+        ? box.bottom + 6 : Math.max(8, box.top - tip.height - 6)) + 'px';
+    };
+    const hide = () => { if (cpuTooltip) cpuTooltip.hidden = true; };
+    badge.onmouseenter = show; badge.onmouseleave = hide;
+    const focusTarget = badge.closest('button') ?? badge;
+    if (focusTarget === badge) badge.tabIndex = high ? 0 : -1;
+    focusTarget.onfocus = show; focusTarget.onblur = hide;
+    focusTarget.onkeydown = event => { if (event.key === 'Escape') hide(); };
+  }
+  document.addEventListener('scroll', () => { if (cpuTooltip) cpuTooltip.hidden = true; }, true);
+
   const graphicsConfiguration = createGraphicsConfiguration();
   // Experimental 4 MiB module memory (core.memoryKit), chosen on the machines page.
   // Off for every collection until chosen; restoring a 4 MiB build or its layout
@@ -314,6 +342,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       };
       return button;
     }));
+    // Explain the practical voice-count tradeoff immediately on hover or focus.
+    const high = core.cpuHigh(m);
+    field('detail-cpu-high').hidden = !high;
+    cpuBadge(field('detail-cpu-high'), high);
     field('community-notice').hidden = m.origin !== 'catalog';
     // Credit the catalog's maintainer and repository, with the exact release source;
     // Open-XY's own catalog machines (core.ORIGINS) name the project instead.
@@ -376,6 +408,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         canvas.append(header, renderer.root); $('art-preview').replaceChildren(canvas);
         // Eight parameter words; each control position shows the parameter last edited there.
         const parameters = Object.assign(Array(8).fill(0), m.preview.defaults), shown = [0, 1, 2, 3];
+        // A synth's Shift row (SDK 1.13): render's words 8..15, played at their defaults.
+        const shiftWords = m.preview.shift ?? [];
+        const voiceWords = () => [...parameters, ...shiftWords];
         let serial = 0, previous = 0, handle, cancelled = false;
         const noteActivity = new retained.NoteActivity();
         // A small keyboard from middle C: a key plays its note while held. The preview plays
@@ -409,7 +444,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         const volume = node('label', 'Volume', 'audition-volume'), level = node('input');
         level.type = 'range'; level.min = '0'; level.max = '100'; level.value = '50'; level.setAttribute('aria-label', 'Preview volume');
         volume.append(level);
-        const audio = new audition(compiled, parameters, (playing, error) => {
+        const audio = new audition(compiled, voiceWords(), (playing, error) => {
           if (!cancelled) frame(0);
           if (error && ticket === previewRevision) $('art-caption').textContent = 'Audio unavailable: ' + error;
         });
@@ -424,7 +459,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         function frame(dt = 34) {
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
-          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity));
+          const row = shiftWords.length ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
+            {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}] : [];
+          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row));
           // The machine's header text, or the stock percentage of the shown parameter.
           header.innerHTML = retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
             shown.map((slot, i) => renderer.header[i] || String(Math.round(parameters[slot] / 0x7fffffff * 100))));
@@ -438,7 +475,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           input.oninput = () => {
             parameters[i] = Math.round(Number(input.value) / 1000 * 0x7fffffff);
             shown.splice(0, 4, ...editedShown(shown, m.positions, i, m.pages));
-            frame(0); audio.setParameters(parameters);
+            frame(0); audio.setParameters(voiceWords());
           };
           label.append(input); return label;
         });
@@ -571,7 +608,15 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       meta.append(memory);
       const originLabel = {bundled: 'Core', official: 'Core', catalog: 'Community', personal: 'Yours'}[m.origin];
       meta.append(node('span', originLabel, 'machine-origin'));
-      button.append(meta); button.onclick = () => inspect(m.id);
+      const high = core.cpuHigh(m);
+      if (high) {
+        const badge = node('span', 'CPU-high', 'machine-cpu-high');
+        meta.append(badge);
+      }
+      button.append(meta);
+      const cpuMark = meta.querySelector('.machine-cpu-high');
+      if (cpuMark) cpuBadge(cpuMark, high);
+      button.onclick = () => inspect(m.id);
       input.onchange = () => {
         selected = input.checked ? [...selected, m.id] : selected.filter(id => id !== m.id);
         row.classList.toggle('selected', input.checked); invalidate(); recalculate();
