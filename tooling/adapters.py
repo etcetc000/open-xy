@@ -850,6 +850,7 @@ def generate_player_object(directory, m):
     # One choice marks an absent slot: its encoder turns nothing (players.cpp).
     steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
     values['STEPS'] = ', '.join(map(str, steps + [0] * (4 - len(steps))))
+    values.update(player_shift_values(m))
     if m.display == 'player':
         p = m.prefix
         page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
@@ -864,6 +865,27 @@ def generate_player_object(directory, m):
                                                     f'int {p}_screen_register() __asm__("{p}_screen_register");',
                                                     f'int {p}_screen_ready() __asm__("{p}_screen_ready");']))
     return expand('player_object.cpp.in', values, Path(directory) / f'player_object_{m.prefix}.cpp')
+
+
+def player_shift_values(m):
+    """A player's shift row (SDK 1.16) as its Player's table, or nothing, which leaves the
+    generated source of a player without one as it was."""
+    shift = shift_parameters(m.definition)
+    if not shift:
+        return dict(SHIFT_TABLE='', SHIFT='')
+    choices, defaults = [], []
+    for parameter in shift:
+        count = len(parameter['mapping']['labels'])
+        # The stored default (catalog_defaults' Q15) and its choice, as the SDK steps an enum.
+        bucket = min((math.floor(parameter['default'] * 32767 + 0.5) * count) >> 15, count - 1)
+        width = 0x7fffffff // count
+        choices.append(count)
+        defaults.append(bucket * width + width // 2)
+    choices += [0] * (4 - len(shift))
+    defaults += [0] * (4 - len(shift))
+    table = (f'static const opxy::platform::PlayerShift player_shift = {{{len(shift)}, '
+             f'{{{", ".join(map(str, choices))}}}, {{{", ".join(map(str, defaults))}}}}};\n')
+    return dict(SHIFT_TABLE=table, SHIFT=', &player_shift')
 
 
 def generate_player_table(directory, machines):

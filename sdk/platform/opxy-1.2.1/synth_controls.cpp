@@ -26,6 +26,8 @@ const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 }
 opxy::u32 (*sdk_aux_engine)(opxy::u32) = nullptr;
 bool (*sdk_aux_owns_page)(opxy::u32) = nullptr;
+// Counts a note player's encoder clicks (players.cpp), set once a player page is in place.
+extern "C" { void (*sdk_player_press)(opxy::u32) __asm__("sdk_player_press") = nullptr; }
 bool (*sdk_control_turn)(opxy::u32, opxy::u32, const opxy::i32*) = nullptr;
 
 namespace {
@@ -303,6 +305,7 @@ const char* sdk_synth_title(u32 engine, u32 index) {
 // also selects the position's next parameter, or every position's on a paged synth.
 void sdk_synth_press(u32 encoder) {
     stock<void(u32)>(0x8d51f1fc)(encoder);
+    if (sdk_player_press) sdk_player_press(encoder);
     Track* t;
     const SynthControls* m;
     if (encoder >= opxy::page_controls) return;

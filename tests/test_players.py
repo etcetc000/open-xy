@@ -206,6 +206,8 @@ using Address=__UINTPTR_TYPE__;
 template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
 struct Record {}; struct Screen {};
 inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
+inline u32 audio_bpm_x10() { return 1200; }
+inline bool shift_held() { return false; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
 }}
 ''', encoding='utf-8')
@@ -268,6 +270,102 @@ template<class F> F* stock(u32 address) { return reinterpret_cast<F*>(const_cast
                        check=True, capture_output=True, timeout=120, **flags)
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
 
+
+# A player's shift row (SDK 1.16).
+PROBE_SHIFT = [dict(id='size', label='Size', default=0.5, display='enum',
+                    mapping=dict(kind='enum', labels=['S', 'M', 'L']))]
+
+
+class PlayerPages(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'probeplayer'
+        self.root.mkdir()
+
+    def machine(self, sdk='1.16', shift=None):
+        (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk=sdk, kind='player',
+                                                               description='Player page fixture.')))
+        definition = dict(schema=1, id='probeplayer', name='Player', presets={},
+                          resources={},
+                          parameters=[dict(id='p'+str(i), label='P'+str(i), default=0,
+                                           mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')
+                                      for i in range(4)])
+        if shift is not None:
+            definition['shift'] = shift
+        (self.root / 'definition.json').write_text(json.dumps(definition))
+        return assign_numbers([machine_at(self.root)])[0][0]
+
+    def test_versions_and_limits(self):
+        with self.assertRaisesRegex(ValueError, "player's shift row.*1.16"):
+            self.machine(sdk='1.15', shift=PROBE_SHIFT)
+        wide = [dict(PROBE_SHIFT[0], mapping=dict(kind='enum', labels=[str(i) for i in range(256)]))]
+        with self.assertRaisesRegex(ValueError, 'at most 255 choices'):
+            self.machine(shift=wide)
+        with self.assertRaisesRegex(ValueError, 'one to four'):
+            self.machine(shift=[dict(PROBE_SHIFT[0], id='s%d' % i) for i in range(5)])
+        # Four controls of 255 choices each take no packing limit.
+        self.machine(shift=[dict(PROBE_SHIFT[0], id='s%d' % i,
+                                 mapping=dict(kind='enum', labels=[str(n) for n in range(255)]))
+                            for i in range(4)])
+
+    def test_player_without_shift_generates_as_before(self):
+        # The source is the template's expansion with the SDK 1.16 placeholders left out.
+        m = self.machine(sdk='1.8')
+        template = (PLATFORM / 'player_object.cpp.in').read_text(encoding='utf-8')
+        before = template.replace('@SHIFT_TABLE@', '').replace('@SHIFT@', '')
+        with tempfile.TemporaryDirectory() as folder:
+            generated = adapters.generate_player_object(folder, m).read_text(encoding='utf-8')
+            self.assertFalse((Path(folder) / 'display_binding.hpp').exists())
+        values = dict(PREFIX=m.prefix, NAMESPACE='probeplayer', NAME=m.native_name, STEPS='0, 0, 0, 0',
+                      PAGE=f'{m.prefix}_page_id', PAGE_READY=f'{m.prefix}_screen_ready')
+        for key, value in values.items():
+            before = before.replace('@' + key + '@', value)
+        self.assertEqual(generated[:generated.index('extern const char probeplayer_page_id[]')],
+                         before[:before.index('@PAGE_DECLARATIONS@')])
+        tail = before[before.index('@PAGE_DECLARATIONS@') + len('@PAGE_DECLARATIONS@'):before.index('@PAGE_UNIT@')]
+        self.assertIn(tail, generated)
+        self.assertIn('opxy::screen::PlayerPage<Page>', generated)
+        self.assertNotIn('player_shift', generated)
+        self.assertNotIn('PlayerDrawing', generated)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_shift_layer_turns_flag_and_clicks(self):
+        (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
+        (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
+#include <opxy/types.hpp>
+extern opxy::u32 fake_track;
+extern volatile opxy::i32 sdk_track_octaves[8];
+namespace opxy { namespace platform {
+const u32 kLowestKey=53, kTracks=8;
+inline u32 selected_track() { return fake_track; }
+inline void refresh_keyboard_octaves() {}
+}}
+''', encoding='utf-8')
+        (self.root / 'registration.hpp').write_text('''#pragma once
+#include "players.hpp"
+const void* stock_address(opxy::u32);
+extern bool fake_shift;
+namespace opxy { namespace platform {
+using Address=__UINTPTR_TYPE__;
+template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+struct Record {}; struct Screen {};
+inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
+inline u32 audio_bpm_x10() { return 1200; }
+inline bool shift_held() { return fake_shift; }
+namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('shift.exe' if os.name == 'nt' else 'shift')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',
+                        '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_shift.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        result = subprocess.run([str(binary)], capture_output=True, timeout=30, **flags)
+        if result.returncode == 77:
+            self.skipTest(result.stdout.decode(errors='replace').strip())
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
 
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
 class StockPlayer(unittest.TestCase):
