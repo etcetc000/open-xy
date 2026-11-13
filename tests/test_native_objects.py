@@ -3,20 +3,22 @@ import struct
 import unittest
 
 from tooling.formats import elf_sections
-from tooling.native import normalize_object
+from tooling.native import global_definitions, normalize_object, one_definition, readable_symbol
 
 ALLOC, MERGE_STRINGS, GROUP = 0x2, 0x30, 0x200
 
 
 def obj(sections, symbols):
     """A Blackfin ET_REL object: (name, type, flags, data) sections after the null one,
-    then .symtab with (binding, section) symbols, then .shstrtab."""
+    then .symtab with (binding, section[, name[, type]]) symbols, functions unless
+    typed, then .shstrtab, which also names the symbols."""
     names = b'\0'
     def name(text):
         nonlocal names
         at = len(names); names += text.encode() + b'\0'; return at
-    table = b'\0' * 16 + b''.join(struct.pack('<IIIBBH', 0, 0, 0, binding << 4 | 2, 0, section)
-                                  for binding, section in symbols)
+    def symbol(binding, section, symbol_name='', kind=2):
+        return struct.pack('<IIIBBH', name(symbol_name) if symbol_name else 0, 0, 0, binding << 4 | kind, 0, section)
+    table = b'\0' * 16 + b''.join(symbol(*s) for s in symbols)
     entries = [(name(n), kind, flags, data, 0, 0) for n, kind, flags, data in sections]
     symtab = len(entries) + 1
     entries.append((name('.symtab'), 2, 0, table, symtab + 1, 1))
@@ -78,6 +80,50 @@ class Normalize(unittest.TestCase):
         self.assertEqual([struct.unpack_from('<H', out, table + 16 * i + 14)[0]
                           for i in (1, 2)], [3, 4], 'symbol section indices stay fixed')
         self.assertEqual(normalize_object(out), out)
+
+
+
+ROTATION = '__ZN4opxy4draw8rotationEl'
+TEXT = [('.text', 1, ALLOC | 0x4, b'\0\0')]
+
+
+class OneDefinition(unittest.TestCase):
+    """Two machines defining one global symbol can't share a firmware: the build says which."""
+
+    def test_definitions_are_the_named_defined_global_and_weak_symbols(self):
+        data = obj(TEXT, [(1, 1, '_render'), (2, 1, ROTATION), (1, 0, '_imported'), (0, 1, '_local'),
+                          (1, 1, 'display.cpp', 4), (1, 1)])
+        self.assertEqual(global_definitions(data), {'_render', ROTATION})
+
+    def test_readable_names(self):
+        self.assertEqual(readable_symbol(ROTATION), 'opxy::draw::rotation')
+        self.assertEqual(readable_symbol('__ZN4opxy4draw11NoteTracker6updateERKNS0_5InputE'),
+                         'opxy::draw::NoteTracker::update')
+        self.assertEqual(readable_symbol('__Z4sinel'), 'sine')
+        self.assertEqual(readable_symbol('_moth_register'), '_moth_register')
+
+    def test_two_machines_defining_one_symbol_name_both(self):
+        # An inline helper each kept out of line, made global by normalize_object.
+        moth = normalize_object(obj(TEXT, [(2, 1, ROTATION), (1, 1, '_moth_register')]))
+        mdkit = normalize_object(obj(TEXT, [(2, 1, ROTATION), (1, 1, '_mdkit_register')]))
+        with self.assertRaises(ValueError) as caught:
+            one_definition([('moth', moth), ('mdkit', mdkit)], {'moth': 'Moth', 'mdkit': 'MD KIT'})
+        self.assertEqual(str(caught.exception), "Moth and MD KIT can't be in one OS: both define opxy::draw::rotation")
+
+    def test_every_pair_of_machines_is_named(self):
+        objects = [(m, obj(TEXT, [(1, 1, ROTATION)])) for m in ('a', 'b', 'c')]
+        with self.assertRaises(ValueError) as caught:
+            one_definition(objects, {'a': 'A', 'b': 'B', 'c': 'C'})
+        self.assertEqual(str(caught.exception).splitlines(), [
+            f"{x} and {y} can't be in one OS: both define opxy::draw::rotation" for x, y in (('A', 'B'), ('A', 'C'), ('B', 'C'))])
+
+    def test_distinct_names_one_machine_and_the_sdk_pass(self):
+        one_definition([('moth', obj(TEXT, [(1, 1, '_moth_register')])),
+                        ('mdkit', obj(TEXT, [(1, 1, '_mdkit_register'), (0, 1, '_local')])),
+                        # One machine's own objects, and the SDK's beside a machine, are for the linker to judge.
+                        ('mdkit', obj(TEXT, [(1, 1, ROTATION)])), ('mdkit', obj(TEXT, [(1, 1, ROTATION)])),
+                        (None, obj(TEXT, [(1, 1, '_moth_register')]))],
+                       {'moth': 'Moth', 'mdkit': 'MD KIT'})
 
 
 if __name__ == '__main__':

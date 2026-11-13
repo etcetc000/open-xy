@@ -134,8 +134,10 @@ Each of these has failed a build that passed somewhere else first.
   machine's host test inlines them. Make a free helper in your own shared
   headers `static inline`, and move a static out of an inline function to
   one definition at file scope. A class's member functions can't be
-  file-local, so they still need care. Check a set links with
-  `sdk.py compile`, giving every machine that will share the firmware.
+  file-local, so they still need care. A build fails, naming both machines
+  and the symbol, when two machines in its collection define the same one.
+  Check a set links with `sdk.py compile`, giving every machine that will
+  share the firmware.
 - **Define tables once.** A `static` table in a header is copied into every
   file that includes it: one machine's memory fell from 242 to 139 KiB when
   its tables became one `extern` definition in one file.

@@ -582,6 +582,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         # Disable string pooling so the browser linker places sections exactly as GNU ld does.
         obj.write_bytes(normalize_object(read(obj)))
         require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
+    # Before any link: one that leaves some machines out (linked_machines) can't see their clash.
+    one_definition([(owner, read(directory / name)) for name, owner in object_owners(machines, profile).items()],
+                   {m.id: m.name for m in machines})
     stack_usage(directory)
     runtime_members = runtime_objects(directory, gcc, plan(machines, profile), definitions)
     linked = linked_machines(directory, tools, profile, machines, definitions, runtime_members)
@@ -629,6 +632,60 @@ def normalize_object(data):
                 if out[symbol + 12] >> 4 == 2 and struct.unpack_from('<H', out, symbol + 14)[0]:
                     out[symbol + 12] = 0x10 | out[symbol + 12] & 15
     return bytes(out)
+
+
+def global_definitions(data):
+    """The names one object defines for the link, as both linkers read them (builder/core.mjs
+    linkKit): defined, global or weak, named, and not a file symbol."""
+    headers = [h for _at, h in elf_sections(data)]
+    names = set()
+    for _name, kind, _flags, _addr, offset, size, link, *_rest in headers:
+        if kind != 2:
+            continue
+        require(link < len(headers) and offset + size <= len(data), 'Invalid object symbol table')
+        strings = headers[link]
+        text = data[strings[4]:strings[4] + strings[5]]
+        for at in range(offset, offset + size, 16):
+            name, _value, _size, info, _other, section = struct.unpack_from('<IIIBBH', data, at)
+            if name and section and info >> 4 in (1, 2) and info & 15 != 4:
+                end = text.find(b'\0', name)
+                names.add(text[name:end if end >= 0 else len(text)].decode('ascii'))
+    return names
+
+
+def readable_symbol(name):
+    """A C++ symbol by its qualified name (opxy::draw::rotation for __ZN4opxy4draw8rotationEl);
+    any other as it is."""
+    mangled = name[1:] if name.startswith('__Z') else name
+    match = re.match(r'_Z(N?)', mangled)
+    parts, at = [], match.end() if match else 0
+    while match and (length := re.match(r'\d+', mangled[at:])):
+        at += length.end()
+        parts.append(mangled[at:at + int(length.group())])
+        at += int(length.group())
+        if not match.group(1):
+            break
+    return '::'.join(parts) or name
+
+
+def one_definition(objects, names):
+    """Fails when two machines define the same global symbol: no firmware can hold both,
+    and a collection that links only some of them (linked_machines) would not notice.
+    objects: (owner, object bytes) pairs, the owner a machine ID or None for the SDK's;
+    names: machine ID -> its name."""
+    owners = {}
+    for owner, data in objects:
+        if owner is not None:
+            for symbol in global_definitions(data):
+                if owner not in owners.setdefault(symbol, []):
+                    owners[symbol].append(owner)
+    pairs = {}
+    for symbol, machines in owners.items():
+        for i, first in enumerate(machines):
+            for second in machines[i + 1:]:
+                pairs.setdefault((first, second), set()).add(readable_symbol(symbol))
+    require(not pairs, '\n'.join(f"{names[a]} and {names[b]} can't be in one OS: both define {', '.join(sorted(symbols))}"
+                                 for (a, b), symbols in sorted(pairs.items())))
 
 
 def check_native_object(listing, unit, name):
