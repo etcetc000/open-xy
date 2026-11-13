@@ -278,7 +278,14 @@ the waiting stolen note. Release ends at `8d50e226`: a level at or below
 whose amplitude stage is then idle. The `release_floor` capability rewrites that
 immediate (one reviewed encoding per dB value) and the stage written below it,
 `8d50e232`, from 0 to 5, so a raised floor fades over one block rather than
-stopping abruptly. The steal ranking (`8d51ca94`) and the renderers' stage-6
+stopping abruptly. The same register is also stored as the envelope's slope
+(state `+0xc`, with target `0x70000000` at `+0x8`), so in the block that crosses
+the floor the slope is +5, a negligible rise. From the next block the stage-5
+handler (`8d50e262`, the table's sixth entry) sets its own slope, minus the level
+shifted right by 6, and enters idle once the level is at or below stock's -66 dB
+constant. A release therefore ends one block after it crosses the floor, then
+fades over one block. This is read from stock's code and has not been timed on
+a device. The steal ranking (`8d51ca94`) and the renderers' stage-6
 checks (`11a09aaa`, `8d51b880`) stay stock.
 
 ## Synth voices

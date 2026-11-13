@@ -185,7 +185,10 @@ default in the registry). An extension chooses its value with
 `"settings": {"<capability>": <value>}` in `extension.json`; the builder shows a
 slider for it beside the extension's description and writes the chosen value.
 Each value has its own reviewed bytes in the profile edit's `choices`, so the
-builder reads a setting back from an image exactly.
+builder reads a setting back from an image exactly. Two extensions in one build
+may not declare the same capability that has a setting, whether or not they write a
+value (one without a value chooses the default); a capability without a setting, such as
+`long_samples`, may be declared by several.
 
 | Capability | Setting | Effect |
 | --- | --- | --- |
@@ -252,9 +255,12 @@ per-claim branch to the runtime.
 **Add a capability** for a build-time setting the SDK owns: a registry entry
 (`{}`, or `{"setting": {...}}` with a range whose every value has reviewed bytes
 in its edit's `choices`), a profile service of the same name used only by it,
-and that service's reviewed edits. Its edits are fixed bytes, never hooks, so the builder can tell
-from an image whether it is on; the build and builder add nothing per
-capability.
+and that service's reviewed edits. Its edits are fixed bytes, never hooks, and at
+least one has no `choices` and differs from stock: that edit tells the builder and
+`sdk.py settings` from an image whether the capability is on, even when a setting's
+bytes equal stock's. Each capability also brings an audit module (like
+[`tooling/release_floor.py`](../tooling/release_floor.py)) that checks its sites and
+encodings, called from `configuration()` in `tooling/native.py`.
 
 **Add an action** with a registry entry (and its `requires`, if one claim must
 grant it), a bit in

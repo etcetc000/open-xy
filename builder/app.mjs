@@ -695,7 +695,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('extension-settings').replaceChildren();
     for (const [capability, setting] of Object.entries(extension.settings ?? {})) {
       const label = node('label', undefined, 'extension-setting'), input = node('input'), value = node('output');
-      const show = () => { value.textContent = input.value + ' ' + setting.unit + (Number(input.value) === setting.minimum ? ' (stock)' : ''); };
+      const show = () => { value.textContent = input.value + ' ' + setting.unit; };
       input.type = 'range'; input.min = setting.minimum; input.max = setting.maximum; input.step = 1;
       input.value = extensionSettings[capability] ?? setting.value;
       input.disabled = !selectedExtensions.includes(extension.id);

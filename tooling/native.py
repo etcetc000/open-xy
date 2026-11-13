@@ -87,6 +87,16 @@ def build_settings(machines):
     return settings
 
 
+def fixed_after(patch, services, profiling, chosen):
+    """An edit's bytes in a build when no module symbol decides them: stock for an inactive
+    edit, the chosen value's reviewed bytes for a capability setting; else None."""
+    if not patch_active(patch, services, profiling):
+        return patch['before']  # inactive hooks retain stock code
+    if 'setting' in patch:
+        return chosen[patch['address']]  # the reviewed bytes of the chosen value
+    return None
+
+
 def subset(machines, chosen, chosen_extensions=None):
     """Some of a collection's machines, with all of its extensions, or with those in
     chosen_extensions when it is given."""
@@ -849,10 +859,9 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
     services = active_services(profile, service_users(machines))
     chosen = extensions.setting_edits(profile, build_settings(machines))
     for patch in patch_profile['patches']:
-        if not patch_active(patch, services, profiling):
-            patch['after'] = patch['before']  # inactive hooks retain stock code
-        elif 'setting' in patch:
-            patch['after'] = chosen[patch['address']]  # the reviewed bytes of the chosen value
+        fixed = fixed_after(patch, services, profiling, chosen)
+        if fixed is not None:
+            patch['after'] = fixed
         elif patch['kind'] == 'startup':
             patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
         elif patch['kind'] == 'hook':

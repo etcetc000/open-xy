@@ -79,6 +79,29 @@ def hook_target(patch, instruction):
     return decode_branch(int(patch['address'], 16), instruction[:4])
 
 
+def check_edit(patch, original, services, profiling, low, module_bytes):
+    """One built edit against the profile's: an inactive edit keeps stock, a hook or the
+    startup label targets the module, a capability setting holds one of its reviewed
+    choices, and every other edit holds its reviewed `after`."""
+    require(all(patch[k] == original[k] for k in ('kind', 'address', 'before', 'file_offset', 'length')),
+            'Changed patch boundary')
+    after = bytes.fromhex(patch['after'])
+    require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'call')),
+            'Changed patch policy')
+    if not patch_active(original, services, profiling):
+        require(patch['after'] == original['before'], 'An inactive hook changed stock')
+    elif original['kind'] == 'startup':
+        target = startup_label.destination(after)
+        require(low <= target < low + module_bytes, 'Startup hook does not target module')
+    elif original['kind'] == 'hook':
+        target, call = hook_target(original, after)
+        require(call == original['call'] and low <= target < low + module_bytes, 'Hook does not target module')
+    elif 'choices' in original:
+        require(patch['after'] in original['choices'].values(), 'Unreviewed capability setting bytes')
+    else:
+        require(patch['after'] == original['after'], 'Changed heap reservation or table edit')
+
+
 def assemble(stock, module, profile, original_profile, edits, services, profiling=True):
     require(type(profiling) is bool, 'Profiling must be a boolean')
     require(sha(stock) == original_profile['stock_sha256'] and len(stock) == original_profile['stock_bytes'],
@@ -87,23 +110,7 @@ def assemble(stock, module, profile, original_profile, edits, services, profilin
     require(len(profile['patches']) == len(original_profile['patches']) == edits, f'Expected {edits} edit intervals')
     low = original_profile['module_base']
     for patch, original in zip(profile['patches'], original_profile['patches']):
-        require(all(patch[k] == original[k] for k in ('kind', 'address', 'before', 'file_offset', 'length')),
-                'Changed patch boundary')
-        after = bytes.fromhex(patch['after'])
-        require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'call')),
-                'Changed patch policy')
-        if not patch_active(original, services, profiling):
-            require(patch['after'] == original['before'], 'An inactive hook changed stock')
-        elif original['kind'] == 'startup':
-            target = startup_label.destination(after)
-            require(low <= target < low + len(module), 'Startup hook does not target module')
-        elif original['kind'] == 'hook':
-            target, call = hook_target(original, after)
-            require(call == original['call'] and low <= target < low + len(module), 'Hook does not target module')
-        elif 'choices' in original:
-            require(patch['after'] in original['choices'].values(), 'Unreviewed capability setting bytes')
-        else:
-            require(patch['after'] == original['after'], 'Changed heap reservation or table edit')
+        check_edit(patch, original, services, profiling, low, len(module))
     check_patch_boundaries(profile, edits)
     blocks = ldr(stock)
     require(len(blocks) == original_profile['stock_records'], 'Unexpected stock records')

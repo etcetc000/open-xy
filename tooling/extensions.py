@@ -67,7 +67,9 @@ def capabilities():
     """The registry's capabilities: each is the firmware profile service of the same name,
     which only extensions that declare it use. A capability carries no fields, or one
     whole-number `setting` (label, unit, minimum, maximum, default) whose edit lists the
-    reviewed bytes of every value in `choices`."""
+    reviewed bytes of every value in `choices`. Each needs at least one fixed edit (no
+    `choices`) whose bytes differ from stock: that edit says whether the capability is
+    on, since a setting's bytes may equal stock's (release_floor's -66 dB)."""
     data, firmware = document(ROOT / PROFILE)['capabilities'], document(ROOT / FIRMWARE_PROFILE)
     require(isinstance(data, dict) and len(data) <= 32, 'Capabilities are a registry')
     for name, capability in data.items():
@@ -75,6 +77,8 @@ def capabilities():
         # Fixed bytes only, so the builder can tell from an image that a capability is on.
         require(NAME.fullmatch(name) and firmware['services'].get(name) == [name] and edits and
                 all(p['kind'] not in ('hook', 'startup') for p in edits), 'Invalid capability: ' + name)
+        require(any('choices' not in p and p['before'] != p['after'] for p in edits),
+                'A capability needs a fixed edit that marks it on: ' + name)
         require(capability == {} or set(capability) == {'setting'}, 'Invalid capability: ' + name)
         chosen = [p for p in edits if 'setting' in p or 'choices' in p]
         if capability:
@@ -274,7 +278,8 @@ def generate_drumline_page(extension):
 
 
 def check_collection(extensions):
-    """A build's extensions: distinct, within the limit, and no claim held twice."""
+    """A build's extensions: distinct, within the limit, no claim held twice and no
+    capability with a setting declared twice (both would write one site)."""
     require(len(extensions) <= MAX_EXTENSIONS, f'At most {MAX_EXTENSIONS} extensions')
     ids, owners = set(), {}
     claims, _actions = registry()
@@ -284,6 +289,12 @@ def check_collection(extensions):
         for claim in e.claims:
             require(claim not in owners, f'{claims[claim]["label"]} has multiple owners: {owners.get(claim)}, {e.id}')
             owners[claim] = e.id
+        # Each capability with a setting has one owner, whether or not the extension writes a
+        # value (without one it chooses the default), as the builder's exclusiveUses has it.
+        for name in (c for c in e.capabilities if c in capability_settings()):
+            require(('setting', name) not in owners,
+                    f'{name} is declared by two extensions: {owners.get(("setting", name))}, {e.id}')
+            owners[('setting', name)] = e.id
     processors = [e for e in extensions if e.master_processor is not None]
     ids = [e.master_processor.get('state_id', e.id) for e in processors]
     require(len(ids) == len(set(ids)), 'Master processor state IDs must be unique')

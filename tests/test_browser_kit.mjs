@@ -30,17 +30,17 @@ function fixture() {
 
 // An authored loader with two diagnostic hooks and one ordinary hook. No stock
 // instructions or firmware bytes are needed to exercise full reconstruction.
-async function profilingFixture() {
-  const kit = fixture(), stock = new Uint8Array(96), d = new DataView(stock.buffer);
+async function profilingFixture(extra = 0) {
+  const kit = fixture(), stock = new Uint8Array(96 + extra), d = new DataView(stock.buffer);
   const record = (at, flags, address, size, argument = 0) => {
     [0xad000000 | flags, address, size, argument].forEach((v, i) => d.setUint32(at + i * 4, v, true));
     stock[at + 2] = stock.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
   };
   record(0, 0x5004, 0x1000, 0, stock.length - 16);
-  record(16, 4, 0x1000, 32);
-  stock.set(Array.from({length:32}, (_, i) => i + 1), 32);
-  record(64, 0x104, 0x2000, 256);
-  record(80, 0x8004, 0, 0);
+  record(16, 4, 0x1000, 32 + extra);
+  stock.set(Array.from({length:32 + extra}, (_, i) => i + 1), 32);
+  record(64 + extra, 0x104, 0x2000, 256);
+  record(80 + extra, 0x8004, 0, 0);
   Object.assign(kit.profile, {stock_bytes:stock.length, stock_sha256:await sha256(stock), stock_records:4,
     module_base:0x2000, reserved_bytes:256, table_bytes:0, heap_fill_base:0x2000, heap_fill_bytes:256,
     patches:[0, 8, 16].map((offset, i) => ({kind:'hook', call:true, symbol:'entry', length:8,
@@ -91,12 +91,15 @@ test('a settings extension links no code, applies only its capability edits and 
 });
 
 test('a capability setting writes the reviewed bytes of its value and is recovered with it', async () => {
-  const {kit, stock} = await profilingFixture();
-  const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
+  // As release_floor: a setting edit whose minimum is stock's bytes, and a fixed edit
+  // (stage 0 -> 5) that marks the capability on.
+  const {kit, stock} = await profilingFixture(8);
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex'), stage = Buffer.from(stock.subarray(64, 66)).toString('hex');
   const choices = {'-40':'01da470114ae0000', '-48':'01da8200a6730000', '-66':before};
   kit.profile.services = {...kit.profile.services, release_floor:['release_floor']};
   kit.profile.patches.push({kind:'limit', service:'release_floor', setting:'release_floor', address:0x1018, file_offset:56,
-    length:8, before, after:choices['-48'], choices});
+    length:8, before, after:choices['-48'], choices},
+  {kind:'limit', service:'release_floor', address:0x1020, file_offset:64, length:2, before:stage, after:'2860'});
   const setting = {label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48};
   kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false,
     settings:{release_floor:{...setting, value:-40}}}];
@@ -112,6 +115,30 @@ test('a capability setting writes the reviewed bytes of its value and is recover
   assert.deepEqual(imageSettings(kit, built), {release_floor:-40});
   assert.deepEqual(await recoverFirmware(kit, built),
     {stock, selected:['a'], extensions:['idle'], memory:'standard', settings:{release_floor:-40}});
+  // The minimum's bytes equal stock's, but the fixed edit says the capability is on.
+  assert.deepEqual(imageSettings(kit, chosen), {release_floor:-66});
+  assert.deepEqual(await recoverFirmware(kit, chosen),
+    {stock, selected:['a'], extensions:['idle'], memory:'standard', settings:{release_floor:-66}});
+  const plain = await patchFirmware(kit, off, stock);
+  assert.deepEqual(imageSettings(kit, plain), {});
+  assert.deepEqual(await recoverFirmware(kit, plain), {stock, selected:['a'], extensions:[], memory:'standard'});
+});
+
+test('two extensions may not choose the same capability setting', () => {
+  const setting = {label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48};
+  const idle = id => ({id, claims:[], actions:[], capabilities:['release_floor'], linked:false,
+    settings:{release_floor:{...setting, value:-40}}});
+  const kit = {extensions:[idle('quiet'), idle('quieter'), {id:'longer', claims:[], actions:[], capabilities:['long_samples'], linked:false}]};
+  assert.equal(sharedClaim(kit.extensions), 'setting:release_floor');
+  assert.throws(() => extensionSelection(kit, ['quiet', 'quieter']), /both use Idle threshold/);
+  assert.deepEqual(extensionSelection(kit, ['quiet', 'longer']), ['quiet', 'longer']);
+  // An extension that declares the capability without a value carries the default in its
+  // metadata (tooling.extensions.metadata) and counts too, as check_collection has it.
+  const plain = {id:'plainfloor', claims:[], actions:[], capabilities:['release_floor'], linked:false,
+    settings:{release_floor:{...setting, value:setting.default}}};
+  const mixed = {extensions:[idle('quiet'), plain]};
+  assert.equal(sharedClaim(mixed.extensions), 'setting:release_floor');
+  assert.throws(() => extensionSelection(mixed, ['quiet', 'plainfloor']), /both use Idle threshold/);
 });
 
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {

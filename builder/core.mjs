@@ -511,9 +511,11 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
   return selected.map(e => e.id); // Collection order, never checkbox order.
 }
 
-// What an extension holds exclusively: its claims, and stock Drumline's second
-// page when it supplies it (tooling.extensions.check_collection allows one).
-const exclusiveUses = e => [...(e.claims ?? []), ...(e.drumline_page ? ['drumline_page'] : [])];
+// What an extension holds exclusively: its claims, stock Drumline's second page when
+// it supplies it, and each capability setting it chooses (both would write one site;
+// tooling.extensions.check_collection allows one of each).
+const exclusiveUses = e => [...(e.claims ?? []), ...(e.drumline_page ? ['drumline_page'] : []),
+  ...Object.keys(e.settings ?? {}).map(c => 'setting:' + c)];
 
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
 export function sharedClaim(extensions) {
@@ -527,8 +529,8 @@ export function sharedClaim(extensions) {
 
 // The registry's label for a claim, as the kit carries it with each extension.
 export const claimLabel = (extensions, claim) =>
-  extensions.map(e => e.claim_labels?.[claim]).find(Boolean) ??
-  (claim === 'drumline_page' ? 'Drumline page 2' : claim.replaceAll('_', ' '));
+  extensions.map(e => claim.startsWith('setting:') ? e.settings?.[claim.slice(8)]?.label : e.claim_labels?.[claim])
+    .find(Boolean) ?? (claim === 'drumline_page' ? 'Drumline page 2' : claim.replace(/^setting:/, '').replaceAll('_', ' '));
 
 // Every extension choice a build can make, in collection order: each subset
 // in which no two extensions share a claim. Recovery and release checks try each.
@@ -638,7 +640,8 @@ export async function openKit(kit) {
     // capabilities, each the profile service of the same name (tooling.extensions).
     check((e.capabilities === undefined || Array.isArray(e.capabilities) && e.capabilities.length > 0 &&
       new Set(e.capabilities).size === e.capabilities.length &&
-      e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c)) &&
+      e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c &&
+        kit.profile.patches.some(edit => edit.service === c && !edit.choices && edit.before !== edit.after))) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
     // A capability setting: its range and the extension's value; the profile lists every value's bytes.
@@ -1030,18 +1033,25 @@ export function presentSelections(kit, present) {
 const presentExtensions = (kit, payload, input) => (kit.extensions ?? [])
   .filter(e => e.linked === false ? e.capabilities.every(c => capabilityApplied(kit.profile, c, input))
     : holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
-// A capability's edits are fixed bytes (tooling.extensions.capabilities): applied
-// in an image exactly when every one holds its reviewed bytes.
+// A capability's edits are fixed bytes (tooling.extensions.capabilities). It is on in
+// an image exactly when each of its fixed edits (those without choices; there is at
+// least one) holds its reviewed bytes and each setting edit holds one of its choices.
+// A setting's bytes may equal stock's, so only the fixed edits say on or off, as
+// tooling.settings.state reads it.
 const siteBytes = (input, edit) => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
-const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
-  edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
-    : equal(siteBytes(input, edit), unhex(edit.after)));
-// The setting values an image holds, read from its reviewed bytes.
+const capabilityApplied = (p, service, input) => {
+  const edits = p.patches.filter(edit => edit.service === service), fixed = edits.filter(edit => !edit.choices);
+  return fixed.length > 0 && fixed.every(edit => equal(siteBytes(input, edit), unhex(edit.after))) &&
+    edits.every(edit => !edit.choices || Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b))));
+};
+// The setting values an image holds: each applied capability's chosen value, read from
+// its reviewed bytes, including a value whose bytes equal stock's.
 export function imageSettings(kit, input) {
   const found = {};
-  for (const edit of kit.profile.patches.filter(e => e.choices)) {
+  for (const edit of kit.profile.patches.filter(e => e.choices && e.setting)) {
+    if (!capabilityApplied(kit.profile, edit.service, input)) continue;
     const value = Object.entries(edit.choices).find(([, b]) => equal(siteBytes(input, edit), unhex(b)))?.[0];
-    if (value !== undefined && !equal(siteBytes(input, edit), unhex(edit.before))) found[edit.setting] = Number(value);
+    if (value !== undefined) found[edit.setting] = Number(value);
   }
   return found;
 }

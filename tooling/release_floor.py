@@ -26,7 +26,7 @@ SERVICE = 'release_floor'
 STOCK_FLOOR = 1073741  # 2^31 / 2000, stock's -66 dB release floor
 MINIMUM, MAXIMUM, DEFAULT = -66, -20, -48
 FLOOR_SITE = 0x8d50e226  # stage 4: R1 = floor; CC = level <= R1
-STAGE_SITE = 0x8d50e232  # stage 4 below the floor: R0 = 0 (stage 0, slope 0) -> 5
+STAGE_SITE = 0x8d50e232  # stage 4 below the floor: R0 = 0, stored as stage and slope -> 5 (docs/abi-1.2.1.md)
 SPEC = dict(label='Idle threshold', unit='dB', minimum=MINIMUM, maximum=MAXIMUM, default=DEFAULT)
 
 

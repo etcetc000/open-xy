@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import shutil
 
 from .extensions import capabilities, capability_settings, extension_at
 from .formats import ldr, mapped_offset, require
@@ -46,11 +47,14 @@ def state(image, profile=None):
             require(data in encodings(patch), 'Unexpected bytes at a capability site: ' + patch['name'])
             held[patch['address']] = data
         edits = capability_edits(profile, name)
-        if all(held[p['address']] == p['before'] for p in edits if 'choices' not in p):
+        fixed = [p for p in edits if 'choices' not in p]
+        # The fixed edits say whether it is on (capabilities() requires one); off, every
+        # setting site must hold stock too.
+        if all(held[p['address']] == p['before'] for p in fixed):
+            require(all(held[p['address']] == p['before'] for p in edits), 'Capability only partly applied: ' + name)
             result[name] = None
             continue
-        require(all(held[p['address']] == p['after'] for p in edits if 'choices' not in p),
-                'Capability only partly applied: ' + name)
+        require(all(held[p['address']] == p['after'] for p in fixed), 'Capability only partly applied: ' + name)
         chosen = [int(v) for p in edits if 'choices' in p for v, b in p['choices'].items() if b == held[p['address']]]
         require(len(set(chosen)) <= 1, 'Inconsistent capability setting: ' + name)
         result[name] = chosen[0] if chosen else True
@@ -63,6 +67,8 @@ def apply(image, extensions, overrides=None, profile=None):
     profile, overrides = profile or config(), dict(overrides or {})
     specs = capability_settings()
     state(image, profile)  # every site holds stock or reviewed bytes
+    require(all(not e.linked for e in extensions),
+            'Only settings extensions apply to an image; an extension with code needs a build')
     declared = [c for e in extensions for c in e.capabilities]
     require(declared, 'The extensions declare no capabilities')
     require(set(overrides) <= set(declared) & set(specs), 'A setting names a capability the extensions do not declare')
@@ -114,13 +120,17 @@ def main(argv=None):
         require(not out.is_relative_to(ROOT), 'Firmware stays outside the checkout: choose --out elsewhere')
         extensions = [extension_at(folder) for folder in args.extension]
         result, values = apply(image, extensions, dict(parse_setting(s) for s in args.set))
-        out = fresh_output(args.out, args.overwrite, keep=[args.image, *args.extension])
-        (out / 'os.ldr').write_bytes(result)
         report = dict(format='opxy-settings/1', source=str(Path(args.image).resolve()),
                       source_sha256=hashlib.sha256(image).hexdigest(), sha256=hashlib.sha256(result).hexdigest(),
                       extensions=[e.id for e in extensions], capabilities=values,
                       changed_bytes=sum(a != b for a, b in zip(image, result)))
-        (out / 'settings.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+        out = fresh_output(args.out, args.overwrite, keep=[args.image, *args.extension])
+        try:
+            (out / 'os.ldr').write_bytes(result)
+            (out / 'settings.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+        except OSError:
+            shutil.rmtree(out, ignore_errors=True)  # the folder is new: never leave an image without its report
+            raise
         print(json.dumps(report, indent=2))
         return 0
     except (ValueError, OSError) as error:

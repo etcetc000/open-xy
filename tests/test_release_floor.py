@@ -1,15 +1,20 @@
 """The release_floor capability: audited edits, its setting and applying it to an image."""
+import contextlib
 import copy
+import dataclasses
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
-from tooling import native, release_floor as floor, settings as image_settings
-from tooling.extensions import capability_settings, extension_at, metadata, setting_edits
-from tooling.firmware import active_services, patch_active
+from tooling import extensions, native, release_floor as floor, settings as image_settings
+from tooling.extensions import capabilities, capability_settings, check_collection, extension_at, metadata, setting_edits
+from tooling.firmware import active_services, check_edit, patch_active
 from tooling.formats import header, ldr
 from tooling.pipeline import ROOT, check_patch_boundaries, config, document
 from tooling.stock_tables import decode
@@ -71,6 +76,22 @@ class Profile(unittest.TestCase):
                          {'0x8d50e226': floor_edits(config())[0]['choices']['-40']})
         self.assertEqual(setting_edits(config(), {}), {'0x8d50e226': floor_edits(config())[0]['after']})
 
+    def test_a_capability_needs_a_fixed_edit_that_marks_it_on(self):
+        # A setting's bytes may equal stock's (-66 dB), so on/off is read from the fixed
+        # stage edit; a capability with only setting edits could not be read.
+        self.assertEqual(capabilities(), ('long_samples', 'release_floor'))
+        real = extensions.document
+
+        def without_stage(path):
+            data = real(path)
+            if 'patches' in data:
+                data = copy.deepcopy(data)
+                data['patches'] = [p for p in data['patches'] if int(p['address'], 16) != floor.STAGE_SITE]
+            return data
+        with mock.patch.object(extensions, 'document', without_stage):
+            with self.assertRaisesRegex(ValueError, 'fixed edit that marks it on'):
+                capabilities()
+
     def test_an_inactive_build_leaves_the_sites_stock(self):
         profile = copy.deepcopy(config())
         for patch in floor_edits(profile):
@@ -89,6 +110,49 @@ class Extension(unittest.TestCase):
         for settings in ({'release_floor': -10}, {'release_floor': -40.5}, {'long_samples': 1}, {}, []):
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 extension_at(folder(self, settings=settings))
+
+    def test_two_extensions_may_not_choose_one_setting(self):
+        quiet = extension_at(folder(self, id='quiet', settings={'release_floor': -40}))
+        quieter = extension_at(folder(self, id='quieter', settings={'release_floor': -30}))
+        with self.assertRaisesRegex(ValueError, 'release_floor is declared by two extensions'):
+            check_collection([quiet, quieter])
+        check_collection([quiet])
+        # Declaring the capability without a value counts too, as in the builder: one chooses
+        # -40, the other the default, and both would write the floor site.
+        plain = extension_at(folder(self, id='plainfloor'))
+        for pair in ([quiet, plain], [plain, extension_at(folder(self, id='plainer'))]):
+            with self.subTest(pair=[e.id for e in pair]):
+                with self.assertRaisesRegex(ValueError, 'release_floor is declared by two extensions'):
+                    check_collection(pair)
+        # A capability without a setting may be declared by several.
+        longer = [extension_at(folder(self, id=i, capabilities=['long_samples'])) for i in ('long1', 'long2')]
+        check_collection([quiet, *longer])
+
+    def test_a_build_writes_a_non_default_setting_and_assemble_accepts_only_reviewed_bytes(self):
+        # check_module's bytes for each capability edit (native.fixed_after), checked as
+        # firmware.assemble checks every edit (firmware.check_edit).
+        class Machines(list):
+            extensions = (extension_at(folder(self, settings={'release_floor': -40})),)
+        profile = config()
+        services = active_services(profile, native.service_users(Machines()))
+        chosen = setting_edits(profile, native.build_settings(Machines()))
+        floor_edit, stage_edit = floor_edits(profile)
+        built = dict(floor_edit, after=native.fixed_after(floor_edit, services, True, chosen))
+        self.assertEqual(built['after'], floor_edit['choices']['-40'])
+        self.assertNotEqual(built['after'], floor_edit['after'])  # not the default
+        self.assertIsNone(native.fixed_after(stage_edit, services, True, chosen))  # keeps its reviewed after
+        check_edit(built, floor_edit, services, True, 0, 1)
+        check_edit(stage_edit, stage_edit, services, True, 0, 1)
+        with self.assertRaisesRegex(ValueError, 'Unreviewed capability setting bytes'):
+            check_edit(dict(floor_edit, after='01da0000ffff0000'), floor_edit, services, True, 0, 1)
+        with self.assertRaisesRegex(ValueError, 'Changed heap reservation or table edit'):
+            check_edit(dict(stage_edit, after=stage_edit['before']), stage_edit, services, True, 0, 1)
+        # Without the extension both sites stay stock.
+        idle = active_services(profile, native.service_users([]))
+        self.assertEqual([native.fixed_after(p, idle, True, {}) for p in (floor_edit, stage_edit)],
+                         [floor_edit['before'], stage_edit['before']])
+        with self.assertRaisesRegex(ValueError, 'inactive hook changed stock'):
+            check_edit(built, floor_edit, idle, True, 0, 1)
 
     def test_only_a_declaring_extension_activates_the_edits(self):
         class Machines(list):
@@ -140,6 +204,63 @@ class Image(unittest.TestCase):
         corrupt[site] ^= 0xff
         with self.assertRaises(ValueError):
             image_settings.state(bytes(corrupt), profile)
+
+    def test_the_minimum_reads_as_on_and_a_half_applied_image_is_rejected(self):
+        data, profile = self.image()
+        floor_edit, _ = floor_edits(profile)
+        at = int(floor_edit['file_offset'], 16)
+        minimum, _ = image_settings.apply(data, [extension_at(folder(self))], {'release_floor': -66}, profile)
+        self.assertEqual(minimum[at:at + 8], data[at:at + 8])  # stock's bytes at the floor site
+        self.assertEqual(image_settings.state(minimum, profile)['release_floor'], -66)
+        half = bytearray(data)  # the floor raised, the stage edit stock
+        half[at:at + 8] = bytes.fromhex(floor_edit['choices']['-40'])
+        with self.assertRaisesRegex(ValueError, 'partly applied'):
+            image_settings.state(bytes(half), profile)
+
+    def test_apply_takes_only_settings_extensions(self):
+        data, profile = self.image()
+        coded = dataclasses.replace(extension_at(folder(self)), linked=True)
+        with self.assertRaisesRegex(ValueError, 'Only settings extensions'):
+            image_settings.apply(data, [coded], {}, profile)
+
+    def test_settings_command(self):
+        data, profile = self.image()
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, work)
+        (work / 'os.ldr').write_bytes(data)
+        extension = folder(self, settings={'release_floor': -40})
+
+        def run(*argv):
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(image_settings, 'config', lambda: profile), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    code = image_settings.main([str(a) for a in argv])
+                except SystemExit as exit:
+                    code = exit.code
+            return code, out.getvalue(), err.getvalue()
+        code, text, _ = run('show', '--image', work / 'os.ldr')
+        self.assertEqual((code, json.loads(text)), (0, {'long_samples': None, 'release_floor': None}))
+        code, _, _ = run('apply', '--image', work / 'os.ldr', '--extension', extension,
+                         '--set', 'release_floor=-30', '--out', work / 'out')
+        report = json.loads((work / 'out/settings.json').read_text(encoding='utf-8'))
+        self.assertEqual((code, report['capabilities'], report['extensions'], report['changed_bytes']),
+                         (0, {'release_floor': -30}, ['idle'], 5))
+        written = (work / 'out/os.ldr').read_bytes()
+        self.assertEqual(report['sha256'], hashlib.sha256(written).hexdigest())
+        self.assertEqual(image_settings.state(written, profile)['release_floor'], -30)
+        # An existing folder needs --overwrite; a bad setting or a folder in the checkout
+        # fails without writing anything.
+        for argv, message in ((('--out', work / 'out'), 'already exists'),
+                              (('--out', work / 'bad', '--set', 'release_floor'), 'A setting is'),
+                              (('--out', work / 'bad', '--set', 'release_floor=-10'), 'release_floor is -66..-20'),
+                              (('--out', ROOT / 'build-settings-test'), 'outside the checkout')):
+            with self.subTest(argv=argv):
+                code, _, err = run('apply', '--image', work / 'os.ldr', '--extension', extension, *argv)
+                self.assertEqual(code, 1)
+                self.assertIn(message, err)
+        self.assertFalse((work / 'bad').exists())
+        self.assertFalse((ROOT / 'build-settings-test').exists())
 
     @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
     def test_stock_holds_the_audited_preimages(self):
