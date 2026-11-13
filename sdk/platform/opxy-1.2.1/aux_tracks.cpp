@@ -61,11 +61,11 @@
 #include "synth_controls.hpp"
 
 extern "C" {
-void sdk_aux_shift_m1() __asm__("sdk_aux_shift_m1");
+void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");
 opxy::u32 sdk_aux_shift_track(opxy::u32 controller, opxy::u32 track) __asm__("sdk_aux_shift_track");
 opxy::i32 sdk_aux_page() __asm__("sdk_aux_page");
 opxy::u32 sdk_aux_key(opxy::u32, const opxy::u32*) __asm__("sdk_aux_key");
-opxy::u32 sdk_aux_turn(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_aux_turn");
+opxy::u32 sdk_aux_machine_turn(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_aux_machine_turn");
 opxy::u32 sdk_effect_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_effect_turn");
 const char* sdk_aux_lfo_label(opxy::u32 track, opxy::u32 slot) __asm__("sdk_aux_lfo_label");
 void sdk_cv_output(opxy::u32) __asm__("sdk_cv_output");
@@ -522,7 +522,7 @@ void aux_tick() {
 // through stock's Shift + track key (8c08f60c, from 8c091e24 with the aux
 // controller), whose hook passes the sends on to stock.
 const u32 kAuxController = 0x08014db4;
-void sdk_aux_shift_m1() {
+void sdk_aux_machine_menu() {
     const u32 track = byte(kSelectedTrack);
     if (takeable(track)) open_chooser(track);
     else if (track == 14 || track == 15) stock<void(u32, u32)>(0x8c08f60c)(kAuxController, track);
@@ -568,7 +568,7 @@ u32 sdk_aux_key(u32 controller, const u32* event) {
 
 // Before stock translates a tab to CV parameter indices. The SDK editor
 // retains stepping, fine turns and locks, but stock CV's page logic never runs.
-u32 sdk_aux_turn(u32, u32 encoder, u32 event) {
+u32 sdk_aux_machine_turn(u32, u32 encoder, u32 event) {
     const u32 track = byte(kSelectedTrack);
     if (!owns_page(track)) return 0;
     if (encoder < 8) sdk_effect_turn(kProject, track, encoder % 4, event);

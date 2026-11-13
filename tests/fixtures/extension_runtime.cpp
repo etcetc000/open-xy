@@ -6,6 +6,9 @@ namespace {
 RecordingContext stock_context = {1, 2, 0, 7680, 3, 255, true, true};
 bool playing = true;
 u32 writes, notices, observations, order[16], order_count, result, mode, written_track;
+u32 monitor_calls, motion_callbacks;
+bool monitor_result, monitor_request = true, renew = true;
+extensions::Actions saved_motion;
 extensions::Actions saved;
 extensions::Context saved_context;
 const RecordedNote good = {-12, 60, 60, 100};
@@ -16,7 +19,24 @@ void first_note(const extensions::Context&, const extensions::LiveNote& note) {
     extensions_recordable_note_on(0, 60, 100);
 }
 void second_note(const extensions::Context&, const extensions::LiveNote&) { order[order_count++] = 2; }
+void observe_motion(const extensions::Motion&, const extensions::InputMonitor&, const extensions::Actions& actions) {
+    if (actions.monitor_input(true)) __builtin_trap();
+}
+void write_motion(const extensions::Motion& motion, const extensions::InputMonitor&, const extensions::Actions& actions) {
+    ++motion_callbacks;
+    if (motion.x != 100 || motion.time != 500) __builtin_trap();
+    saved_motion = actions;
+    const u32 before = writes;
+    if (actions.insert_notes(saved_context, 0, &good, 1) || writes != before) __builtin_trap();
+    actions.notify("motion cannot notify");
+    if (renew) {
+        monitor_result = actions.monitor_input(monitor_request);
+        if (actions.monitor_input(true)) __builtin_trap();
+    }
+    extensions_motion();  // Reentry must not dispatch again.
+}
 void observe_control(const extensions::Context& context, const extensions::Control&, const extensions::Actions& actions) {
+    if (actions.monitor_input(true)) __builtin_trap();
     result = actions.insert_notes(context, 0, &good, 1);
     actions.notify("unauthorized");
 }
@@ -38,18 +58,21 @@ void edit_control(const extensions::Context& context, const extensions::Control&
     if (mode == 7) result += actions.replace_notes(context, track, &good, 1);  // one write per callback
 }
 const extensions::Hooks first = extensions::Hooks().with_recordable_note_on(first_note)
-                                                   .with_queued_control(observe_control);
+                                                   .with_queued_control(observe_control).with_motion(observe_motion);
 const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(second_note)
                                                     .with_queued_control(edit_control);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0};
-const ExtensionRegistry tables = {claim_keys, 2, action_claims, 2};
+const extensions::Hooks motion_hooks = extensions::Hooks().with_motion(write_motion);
+u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0};
+const ActionScope action_scopes[] = {ActionScope::claimed_control, ActionScope::claimed_control, ActionScope::motion};
+const ExtensionRegistry tables = {claim_keys, 2, action_claims, 3, action_scopes};
 ExtensionEntry collection[] = {{"observer", 0, 0, &first},
-                               {"writer", 1u, action_edit_notes | action_notify, &second}};
+                               {"writer", 1u, action_edit_notes | action_notify, &second},
+                               {"motion_writer", 0, action_monitor_input, &motion_hooks}};
 }
 namespace opxy { namespace platform {
-const ExtensionEntry* extension_collection(u32& count) { count = 2; return collection; }
+const ExtensionEntry* extension_collection(u32& count) { count = 3; return collection; }
 const ExtensionRegistry& extension_registry() { return tables; }
 TrackPattern extension_pattern(u32 track) {
     return {stock_context.pattern, stock_context.length, stock_context.scale, track < 7};
@@ -63,6 +86,9 @@ u32 extension_write(u32 track, const RecordedNote*, u32 count, bool replace) {
     ++writes; replaced = replace; written_track = track; return count;
 }
 void extension_notify(const char*) { ++notices; }
+extensions::Motion extension_motion() { return {100, 200, 300, 500, true}; }
+extensions::InputMonitor extension_input_monitor() { return {false, false, true}; }
+bool extension_monitor_input(bool) { ++monitor_calls; return true; }
 }}
 void control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};
@@ -118,6 +144,15 @@ int main() {
     control(50, true); CHECK(writes == before);
     control(51, true); CHECK(writes == before + 1);
     control(51, false); CHECK(writes == before + 1);
+    const u32 before_notices = notices;
+    extensions_motion();
+    CHECK(motion_callbacks == 1 && monitor_calls == 1 && monitor_result && notices == before_notices);
+    CHECK(!saved_motion.monitor_input(true));
+    renew = false; extensions_motion();
+    CHECK(motion_callbacks == 2 && monitor_calls == 2);  // Missing renewal releases the lease.
+    initialized = false; collection[0].actions = action_monitor_input;
+    extensions_motion(); CHECK(motion_callbacks == 2);  // Exclusive at runtime too.
+    initialized = false; collection[0].actions = 0;
     // An action whose claim its holder lacks disables the collection.
     initialized = false; entries = nullptr; action_claims[0] = 1u;
     control(51, true); CHECK(writes == before + 1);

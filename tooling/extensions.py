@@ -46,7 +46,7 @@ def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
     data (a label and the key it governs); actions are one bit each in RUNTIME."""
     data = document(ROOT / PROFILE)
-    require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
+    require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 4, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
@@ -55,8 +55,10 @@ def registry():
                 isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
                 type(claim['key']) is int and 0 <= claim['key'] < 256, 'Invalid claim: ' + name)
     for name, action in actions.items():
-        require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
-                ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
+        require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires', 'event', 'exclusive'} and
+                ('requires' not in action or action['requires'] in claims) and
+                ('event' not in action or (action['event'] == 'motion' and 'requires' not in action)) and
+                ('exclusive' not in action or type(action['exclusive']) is bool), 'Invalid action: ' + name)
     return claims, actions
 
 
@@ -70,6 +72,9 @@ class Extension:
 
     master_processor: dict = None
     drumline_page: list = None  # the checked parameters (drumline_page_of)
+    live_input: bool = False
+    live_input_controls: bool = False
+    live_input_extra_controls: bool = False
 
     @property
     def master_filter(self):
@@ -88,10 +93,17 @@ def extension_at(folder):
             f'{root}: an extension folder holds extension.json and extension.cpp')
     data = document(root / 'extension.json')
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'drumline_page'},
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'drumline_page', 'live_input'},
             f'{root}: extension.json fields are id, name, description, claims, actions and optional note, '
-            'master_processor and drumline_page')
+            'master_processor, drumline_page and live_input')
     name = data['id']
+    input_spec = data.get('live_input')
+    input_controls = isinstance(input_spec, dict) and input_spec.get('controls') is True and (
+        set(input_spec) == {'controls'} or
+        set(input_spec) == {'controls', 'extra_controls'} and input_spec['extra_controls'] is True)
+    extra_controls = input_controls and 'extra_controls' in input_spec
+    require('live_input' not in data or input_spec is True or input_controls,
+            'live_input must be true or declare controls: true with optional extra_controls: true')
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
         require(key not in data or (isinstance(data[key], str) and 0 < len(data[key]) <= TEXT_LIMITS[key]),
@@ -125,12 +137,19 @@ def extension_at(folder):
     for action in data['actions']:
         needed = actions[action].get('requires')
         require(needed is None or needed in data['claims'], f'{name}: {action} requires the {needed} claim')
-    require(not data['actions'] or data['claims'], f'{name}: actions are granted through a claim it holds')
+    require(data['claims'] or all('event' in actions[a] for a in data['actions']),
+            f'{name}: control actions are granted through a claim it holds')
+    for action in data['actions']:
+        event = actions[action].get('event')
+        if event:
+            require('with_' + event + '(' in (root / 'extension.cpp').read_text(),
+                    f'{name}: {action} needs a {event} callback')
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, drumline_page)
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, drumline_page,
+                     input_spec is True or input_controls, input_controls, extra_controls)
 
 
 def drumline_page_of(name, value):
@@ -207,13 +226,19 @@ def check_collection(extensions):
     """A build's extensions: distinct, within the limit, and no claim held twice."""
     require(len(extensions) <= MAX_EXTENSIONS, f'At most {MAX_EXTENSIONS} extensions')
     ids, owners = set(), {}
-    claims, _actions = registry()
+    claims, actions = registry()
+    action_owners = {}
     for e in extensions:
         require(e.id not in ids, 'Duplicate extension ID: ' + e.id)
         ids.add(e.id)
         for claim in e.claims:
             require(claim not in owners, f'{claims[claim]["label"]} has multiple owners: {owners.get(claim)}, {e.id}')
             owners[claim] = e.id
+        for action in e.actions:
+            if actions[action].get('exclusive'):
+                require(action not in action_owners, f'{action} has multiple owners: {action_owners.get(action)}, {e.id}')
+                action_owners[action] = e.id
+    require(sum(e.live_input for e in extensions) <= 1, 'Only one live input processor can be included')
     processors = [e for e in extensions if e.master_processor is not None]
     ids = [e.master_processor.get('state_id', e.id) for e in processors]
     require(len(ids) == len(set(ids)), 'Master processor state IDs must be unique')
@@ -256,6 +281,14 @@ def generate_collection(folder, extensions):
     mask = lambda table, names: '0x%xu' % sum(table[n] for n in names)
     table = lambda values: ', '.join(values) or '0'
     lines = ['#include "extension_runtime.hpp"']
+    tick = 'sdk_live_input_gui_tick'
+    publish = 'sdk_live_input_publish'
+    lines.append(f'extern "C" void {tick}() __asm__("{tick}");')
+    if any(e.live_input_controls for e in extensions):
+        lines += [f'extern "C" void {publish}() __asm__("{publish}");',
+                  f'void {tick}() {{ {publish}(); }}']
+    else:
+        lines.append(f'void {tick}() {{}}')
     for e in extensions:
         symbol = 'sdk_extension_' + e.id + '_hooks'
         lines.append('extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");')
@@ -266,7 +299,10 @@ def generate_collection(folder, extensions):
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',
-              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d};' % (
+              'const ActionScope action_scopes[] = {' + table(
+                  ['ActionScope::motion' if a.get('event') == 'motion' else 'ActionScope::claimed_control'
+                   for a in actions.values()]) + '};',
+              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d, action_scopes};' % (
                   len(claims), len(actions)),
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
@@ -290,6 +326,28 @@ def generate_extension(folder, extension):
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");\n'
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() {\n'
                       '    return &opxy::extensions::' + extension.id + '::hooks;\n}\n', encoding='utf-8')
+    if extension.live_input:
+        namespace = 'opxy::extensions::' + extension.id
+        with target.open('a', encoding='utf-8') as out:
+            for callback, args, values in (('reset', '', ''), ('process', 'opxy::i32* stereo', 'stereo')):
+                entry = 'sdk_live_input_' + callback
+                out.write(f'extern "C" void {entry}({args}) __asm__("{entry}");\n'
+                          f'void {entry}({args}) {{ {namespace}::{callback}_input({values}); }}\n')
+            controls = f'&{namespace}::input_controls' if extension.live_input_controls else 'nullptr'
+            extra = f'&{namespace}::input_extra_controls' if extension.live_input_extra_controls else 'nullptr'
+            values = ', extra' if extension.live_input_extra_controls else ''
+            prepare = (f'{namespace}::prepare_input(target, retune, amount, brain{values});'
+                       if extension.live_input_controls else '')
+            out.write('#include <opxy/live_input.hpp>\n'
+                      'extern "C" const opxy::live_input::Controls* sdk_live_input_controls() __asm__("sdk_live_input_controls");\n'
+                      'extern "C" const opxy::live_input::ExtraControls* sdk_live_input_extra_controls() __asm__("sdk_live_input_extra_controls");\n'
+                      'extern "C" void sdk_live_input_prepare(opxy::u32, opxy::u32, opxy::u32, opxy::u32,'
+                      ' const opxy::live_input::ExtraValues&) __asm__("sdk_live_input_prepare");\n'
+                      f'const opxy::live_input::Controls* sdk_live_input_controls() {{ return {controls}; }}\n'
+                      f'const opxy::live_input::ExtraControls* sdk_live_input_extra_controls() {{ return {extra}; }}\n'
+                      'void sdk_live_input_prepare(opxy::u32 target, opxy::u32 retune, opxy::u32 amount, opxy::u32 brain,'
+                      ' const opxy::live_input::ExtraValues& extra)'
+                      f' {{ {prepare} }}\n')
     if extension.master_processor is not None:
         legacy = 'master_filter' in document(extension.root/'extension.json')
         symbol = 'sdk_extension_' + extension.id + '_processor'
@@ -313,6 +371,8 @@ def metadata(extensions, origins):
     rows = [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
     for e, row in zip(extensions, rows):
+        if e.live_input:
+            row['live_input'] = True
         if e.drumline_page is not None:
             # Exclusive, as a claim is: the builder lets one selected extension own it
             # (builder/core.mjs exclusiveUses).

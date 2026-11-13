@@ -70,16 +70,17 @@ def expanded_profile(profile):
 
 
 def selection_services(kit, result):
-    """The services a selection links (builder/core.mjs activeServices): its machines' kinds
-    and declared features, its extensions, and a master processor among them."""
+    """The services a selection links (builder/core.mjs activeServices)."""
     selected = [m for m in kit['machines'] if m['id'] in result['selected']]
+    chosen = [e for e in kit.get('extensions', []) if e['id'] in result['extensions']]
     return active_services(kit['profile'], [m['kind'] for m in selected] +
                            [f for m in selected for f in m.get('features', [])] +
-                           (['extension'] if result['extensions'] else []) +
+                           (['extension'] if chosen else []) +
+                           (['inputMonitor'] if any('monitor_input' in e.get('actions', []) for e in chosen) else []) +
                            # kit.json names it master_processor; older kits, master_filter (core.mjs processorOf).
-                           (['master_filter'] if any((e.get('master_processor') or e.get('master_filter')) and
-                                                     e['id'] in result['extensions']
-                                                     for e in kit.get('extensions', [])) else []))
+                           (['master_filter'] if any(e.get('master_processor') or e.get('master_filter') for e in chosen) else []) +
+                           (['live_input'] if any(e.get('live_input') for e in chosen) else []) +
+                           (['drumline_page'] if any(e.get('drumline_page') for e in chosen) else []))
 
 
 def assembled(stock, module, symbols, reviewed, services, profiling):

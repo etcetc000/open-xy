@@ -140,6 +140,9 @@
     "extensions": [
       "extension"
     ],
+    "live_input": [
+      "live_input"
+    ],
     "master_filter": [
       "master_filter"
     ],
@@ -165,6 +168,22 @@
       "padMix",
       "drumline_page",
       "synthShift"
+    ],
+    "input_audio": [
+      "inputMonitor",
+      "live_input"
+    ],
+    "input_monitor": [
+      "inputMonitor"
+    ],
+    "input_overlay": [
+      "inputMonitor",
+      "live_input"
+    ],
+    "aux_menu": [
+      "auxTrack",
+      "inputMonitor",
+      "live_input"
     ],
     "drumline": [
       "drumline_page"
@@ -1726,14 +1745,14 @@
     },
     {
       "kind": "hook",
-      "name": "Shift + M1 on an aux track opens the machine chooser",
+      "name": "Aux Shift + M1: machine chooser or input monitoring preference",
       "address": "0x8c08f6ec",
       "file_offset": "0xc6928",
       "length": 8,
       "before": "01e8000008601000",
       "symbol": "sdk_aux_shift_m1_hook",
       "call": true,
-      "service": "aux"
+      "service": "aux_menu"
     },
     {
       "kind": "hook",
@@ -1800,7 +1819,8 @@
       "call": true,
       "service": "extensions",
       "events": [
-        "context"
+        "context",
+        "motion"
       ]
     },
     {
@@ -1971,7 +1991,7 @@
       "before": "0dda0a8434050000",
       "symbol": "sdk_aux_turn_hook",
       "call": true,
-      "service": "aux"
+      "service": "aux_menu"
     },
     {
       "kind": "hook",
@@ -2339,6 +2359,28 @@
       "symbol": "sdk_lock_step",
       "call": true,
       "service": "drum_locks"
+    },
+    {
+      "kind": "hook",
+      "name": "External audio: process all 64 input frames before mixing",
+      "address": "0x8d50fff4",
+      "file_offset": "0x147250",
+      "length": 8,
+      "before": "03c800180b930099",
+      "symbol": "sdk_input_monitor_audio_hook",
+      "call": true,
+      "service": "input_audio"
+    },
+    {
+      "kind": "hook",
+      "name": "External audio: finish the input block even when stock skips rendering",
+      "address": "0x8d51011e",
+      "file_offset": "0x14737a",
+      "length": 8,
+      "before": "a66ca30501e80000",
+      "symbol": "sdk_live_input_exit",
+      "call": false,
+      "service": "live_input"
     },
     {
       "kind": "hook",

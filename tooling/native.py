@@ -218,7 +218,9 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'track_control',
+             'extension_runtime', 'extension_collection', 'extension_stock', 'input_monitor_stock',
+             'live_input_stock', 'live_input_menu', 'live_input_hooks',
+             'input_monitor_audio', 'input_monitor_hooks', 'input_monitor_ui', 'aux_menu', 'aux_menu_hooks', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
@@ -233,7 +235,12 @@ UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callba
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'sample_overview', 'sample_overview_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
 UNIT_SERVICES['keyboard_octaves'] = 'octaves'
-UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
+UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'input_monitor_stock'), 'extensions'))
+UNIT_SERVICES.update(dict.fromkeys(('live_input_stock', 'live_input_menu', 'live_input_hooks'), 'live_input'))
+UNIT_SERVICES['input_monitor_audio'] = 'input_monitor'
+UNIT_SERVICES['input_monitor_hooks'] = 'input_audio'
+UNIT_SERVICES['input_monitor_ui'] = 'input_overlay'
+UNIT_SERVICES.update(dict.fromkeys(('aux_menu', 'aux_menu_hooks'), 'aux_menu'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 # Per-key sends hook stock's mixer, so only a build with a padMix kit links them.
@@ -270,6 +277,8 @@ def service_users(machines):
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
+            (['inputMonitor'] if any('monitor_input' in e.actions for e in extensions_of(machines)) else []) +
+            (['live_input'] if any(e.live_input for e in extensions_of(machines)) else []) +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []))
@@ -396,7 +405,18 @@ def service_fallbacks(services):
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
     if 'aux' in services:
-        fallbacks['aux'] = {'sdk_aux_startup': 'kit_absent'}
+        fallbacks['aux'] = dict.fromkeys(('sdk_aux_startup', 'sdk_aux_machine_menu', 'sdk_aux_machine_turn'), 'kit_absent')
+    if 'extensions' in services:
+        fallbacks['extensions'] = dict.fromkeys(('sdk_input_monitor_menu', 'sdk_input_monitor_startup', 'sdk_input_monitor_turn'), 'kit_absent')
+    if 'extensions' in services or 'aux_menu' in services:
+        fallbacks['live_input'] = dict.fromkeys(('sdk_live_input_publish', 'sdk_live_input_option_bits',
+                                                'sdk_live_input_rendered', 'sdk_live_input_turn',
+                                                'sdk_live_input_page', 'sdk_live_input_toggle_page',
+                                                'sdk_live_input_caption', 'sdk_live_input_page_hint'), 'kit_absent')
+    if 'input_audio' in services:
+        fallbacks['input_monitor'] = {'sdk_input_monitor_audio': 'kit_absent'}
+    if 'input_overlay' in services:
+        fallbacks['input_overlay'] = {'sdk_input_monitor_frame': 'kit_absent'}
     if 'drum_locks' in services:
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     if 'drumline' in services:
@@ -557,7 +577,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
-                                                locks='drum_locks' in services,
+                                                locks='drum_locks' in services, extensions='extensions' in services,
+                                                monitor='input_monitor' in services, input_overlay='input_overlay' in services,
                                                 drumline='drumline' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
@@ -757,10 +778,13 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
         entries = [word(symbols[table]['value'] + offset) for offset in slots]
         require(all(entry in body for entry in entries), 'Audio entry of ' + m.id + ' is not a function start')
         bounds[m.id] = max(depth(entry) for entry in entries)
-    if 'sdk_master_process' in symbols:
-        entry = symbols['sdk_master_process']['value']
-        require(entry in body, 'Master audio entry is not a function start')
-        bounds['sdk:master_filter'] = depth(entry)
+    for name, label in (('sdk_master_process', 'master_filter'),
+                        ('sdk_input_monitor_audio_hook', 'input_monitor'),
+                        ('sdk_live_input_exit', 'live_input_exit')):
+        if name in symbols:
+            entry = symbols[name]['value']
+            require(entry in body, 'SDK audio entry is not a function start: ' + name)
+            bounds['sdk:' + label] = depth(entry)
     if 'sdk_drum_send_voice_hook' in symbols:
         # Entered from stock's mixer: the voice loop after a voice has rendered
         # (8d51c7b2), after the track gain's in-place loop (8d510ea8), and after

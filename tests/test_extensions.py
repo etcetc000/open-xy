@@ -2,6 +2,7 @@
 and build provenance. Extensions live in their own repositories; the SDK's probe
 extension (tests/fixtures/extension_probe) stands in for one here."""
 import copy
+from dataclasses import replace
 import json
 from pathlib import Path
 import re
@@ -73,11 +74,26 @@ class Extensions(unittest.TestCase):
     def test_the_registry_is_claims_and_actions_only(self):
         for mutate in (lambda d: d['claims'].update(bad={'label': ''}),
                        lambda d: d['actions'].update(other={'requires': 'missing'}),
-                       lambda d: d.update(extensions=[]), lambda d: d.update(schema=2)):
+                       lambda d: d.update(extensions=[]), lambda d: d.update(schema=2),
+                       lambda d: d['actions'].update(bad={'event': 'missing'}),
+                       lambda d: d['actions'].update(bad={'event': 'motion', 'requires': 'record_double_tap'}),
+                       lambda d: d['actions'].update(bad={'exclusive': 1})):
             data = document(ROOT / extensions.PROFILE)
             mutate(data)
             with mock.patch.object(extensions, 'document', return_value=data), self.assertRaises(ValueError):
                 extensions.registry()
+
+    def test_motion_actions_need_their_callback_and_have_one_owner(self):
+        with Folder() as folder:
+            root = folder.declare(claims=[], actions=['monitor_input'])
+            self.assertEqual(extensions.extension_at(root).claims, ())
+            (root / 'extension.cpp').write_text('extern constexpr Hooks hooks = Hooks();\n')
+            with self.assertRaisesRegex(ValueError, 'motion callback'):
+                extensions.extension_at(root)
+        first = extensions.Extension('one', PROBE, (), ('monitor_input',), {})
+        second = extensions.Extension('two', PROBE, (), ('monitor_input',), {})
+        with self.assertRaisesRegex(ValueError, 'multiple owners'):
+            extensions.check_collection([first, second])
 
     def test_actions_match_the_runtime_bits_and_claims_are_data(self):
         # An action is SDK code: one registry entry and one runtime constant, in
@@ -93,7 +109,7 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control', 'motion'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),
@@ -114,6 +130,36 @@ class Extensions(unittest.TestCase):
         self.assertEqual(entry['claim_labels'], {'record_double_tap': 'Record double-tap'})
         self.assertLessEqual(len(entry['description']), extensions.TEXT_LIMITS['description'])
 
+    def test_live_input_is_an_exclusive_optional_service(self):
+        with Folder() as folder:
+            with self.assertRaisesRegex(ValueError, 'live_input must be true'):
+                extensions.extension_at(folder.declare(live_input=1))
+            probe = extensions.extension_at(folder.declare(live_input=True))
+            self.assertTrue(extensions.metadata([probe], {'probe': 'personal'})[0]['live_input'])
+            collection = native.Collection([], [probe])
+            self.assertEqual(set(native.object_services(collection).values()), {'extensions', 'live_input', 'input_audio', 'input_overlay', 'aux_menu'})
+            output = folder.root.parent / 'generated'
+            output.mkdir()
+            adapter = extensions.generate_extension(output, probe).read_text()
+            self.assertIn('opxy::extensions::probe::reset_input()', adapter)
+            self.assertIn('opxy::extensions::probe::process_input(stereo)', adapter)
+            self.assertIn('sdk_live_input_controls() { return nullptr; }', adapter)
+            configured = extensions.extension_at(folder.declare(live_input={'controls': True}))
+            adapter = extensions.generate_extension(output, configured).read_text()
+            self.assertIn('opxy::extensions::probe::input_controls', adapter)
+            self.assertIn('opxy::extensions::probe::prepare_input(target, retune, amount, brain)', adapter)
+            self.assertIn('sdk_live_input_extra_controls() { return nullptr; }', adapter)
+            configured = extensions.extension_at(folder.declare(live_input={'controls': True, 'extra_controls': True}))
+            adapter = extensions.generate_extension(output, configured).read_text()
+            self.assertIn('opxy::extensions::probe::input_extra_controls', adapter)
+            self.assertIn('opxy::extensions::probe::prepare_input(target, retune, amount, brain, extra)', adapter)
+            table = extensions.generate_collection(output, [configured]).read_text()
+            self.assertIn('sdk_live_input_gui_tick() { sdk_live_input_publish(); }', table)
+            with self.assertRaisesRegex(ValueError, 'Only one live input processor'):
+                extensions.check_collection([probe, replace(probe, id='other', claims=(), actions=())])
+        ordinary = native.Collection([], [extensions.extension_at(PROBE)])
+        self.assertNotIn('live_input', native.object_services(ordinary).values())
+
     def test_extensions_reach_a_build_through_its_collection(self):
         with tempfile.TemporaryDirectory() as folder:
             listing = Path(folder) / 'collection.json'
@@ -129,6 +175,21 @@ class Extensions(unittest.TestCase):
         self.assertIn('extensions', native.active_services(config(), native.service_users(machines)))
         # A subset of the machines keeps the collection's extensions.
         self.assertEqual(native.subset(machines, []).extensions, (probe,))
+
+    def test_monitor_owner_selects_audio_and_shared_menu_without_aux_takeover(self):
+        from tooling.extensions import Extension
+        from machine_fixtures import fixture
+        from tooling.pipeline import config
+        monitor = Extension('monitor', PROBE, (), ('monitor_input',), {})
+        machines = native.Collection([fixture('probesynth')], [monitor])
+        services = native.active_services(config(), native.service_users(machines))
+        self.assertEqual(services, {'extensions', 'input_monitor', 'input_audio', 'input_overlay', 'aux_menu'})
+        steps = {step for _, _, step in native.plan(machines)}
+        self.assertIn('input_monitor_audio', steps)
+        self.assertIn('input_monitor_ui', steps)
+        self.assertIn('aux_menu_hooks', steps)
+        self.assertNotIn('aux_tracks', steps)
+        self.assertNotIn('aux_hooks', steps)
 
     def test_no_extensions_means_no_extension_objects_or_service(self):
         self.assertFalse(any(step.startswith('extension:') for _, _, step in native.plan([])))
