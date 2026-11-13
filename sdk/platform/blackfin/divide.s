@@ -2,9 +2,14 @@
  * their libgcc names; no libgcc is linked.
  *
  * libgcc's Blackfin __udivsi3 always runs 32 shift/subtract steps (~166
- * instructions). Audio code often divides small quotients many times per
- * block, so this version aligns the divisor with the dividend's top bit and
- * runs only quotient-width steps. Results are the exact C quotient/remainder.
+ * instructions). Divisors below 32768 (nearly every division in machine code:
+ * digits, sizes, small counts) use the chip's divide steps: DIVS then 16 DIVQ
+ * give a 16-bit quotient in 17 single-cycle steps (opxy/divide.hpp), once when
+ * the quotient fits 16 bits and twice (high half, then the remainder with the
+ * low half) when it does not; the remainder is the dividend less quotient x
+ * divisor. Larger divisors align the divisor with the dividend's top bit and
+ * run only quotient-width shift/subtract steps. Results are the exact C
+ * quotient/remainder, the same as before for every operand.
  *
  * ABI (as libgcc): R0 = dividend, R1 = divisor -> R0 = quotient. __udivsi3
  * also leaves the remainder in R3. Clobbers R1..R3, P0 (and R4 is saved in
@@ -20,6 +25,93 @@ ___udivsi3:
     IF CC JUMP .Lby_zero;
     CC = R1 <= R0 (IU);
     IF !CC JUMP .Lsmall;
+    /* Divisor below 32768: the divide steps. */
+    R2 = 0x7fff (Z);
+    CC = R1 <= R2 (IU);
+    IF !CC JUMP .Lwide;
+    R3 = R0;
+    R2 = R1 << 16;
+    CC = R3 < R2 (IU);
+    IF !CC JUMP .Ltwo_halves;
+    DIVS (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    R0 = R0.L (Z);
+    R2 = R0;
+    R2 *= R1;
+    R3 = R3 - R2;
+    RTS;
+.Ltwo_halves:
+    /* High half: (n >> 16) / d, below 65536 * d. */
+    R2 = R0 >> 16;
+    DIVS (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    DIVQ (R2, R1);
+    R2 = R2.L (Z);
+    P0 = R2;
+    R3 = R2;
+    R3 *= R1;
+    R2 = R0 >> 16;
+    R2 = R2 - R3;
+    R2 <<= 16;
+    R0 = R0.L (Z);
+    R0 = R0 | R2;
+    /* Low half: (remainder << 16 | n & 0xffff) / d, below 65536 * d. */
+    R3 = R0;
+    DIVS (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    DIVQ (R0, R1);
+    R0 = R0.L (Z);
+    R2 = R0;
+    R2 *= R1;
+    R3 = R3 - R2;
+    R2 = P0;
+    R2 <<= 16;
+    R0 = R0 | R2;
+    RTS;
+.Lwide:
     /* steps = clz(divisor) - clz(dividend) + 1, in 1..32. For x != 0,
      * clz(x) = x < 0x80000000 ? SIGNBITS(x) + 1 : 0. */
     R2 = 0;
