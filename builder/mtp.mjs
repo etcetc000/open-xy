@@ -1,4 +1,4 @@
-// MTP over WebUSB for an OP–XY in "mtp file transfer (mac)" mode. Sends files
+// MTP over WebUSB for an OP–XY in dev-menu Mac or regular MTP mode. Sends files
 // to paths below the device's top level, or reads existing files. The only
 // deletion is a same-named file the caller agreed to replace; folders are never
 // replaced or deleted. Windows binds its own MTP driver, so WebUSB cannot open
@@ -91,7 +91,8 @@ function segments(path) {
 export class Device {
   #device; #number; #in; #out; #packet; #transaction = 0; #current; #storage; #running = false; #broken = false; #folders; #listings;
   static async request(usb = navigator.usb) {
-    return new Device(await usb.requestDevice({filters: [{vendorId: VENDOR, classCode: VENDOR_CLASS}]}));
+    return new Device(await usb.requestDevice({filters: [{vendorId: VENDOR, classCode: VENDOR_CLASS},
+      {vendorId: VENDOR, productId: 0x0021, classCode: 6, subclassCode: 1, protocolCode: 1}]}));
   }
   constructor(device) { this.#device = device; }
   async open() {
@@ -101,11 +102,14 @@ export class Device {
     if (!device.configuration) await timed(device.selectConfiguration(1), 5000);
     const found = device.configuration.interfaces.find(i => {
       const a = i.alternate;
-      return a.interfaceClass === VENDOR_CLASS && ['in', 'out'].every(d => a.endpoints.some(e => e.type === 'bulk' && e.direction === d));
+      const regular = device.vendorId === VENDOR && device.productId === 0x0021 &&
+        a.interfaceClass === 6 && a.interfaceSubclass === 1 && a.interfaceProtocol === 1;
+      return (a.interfaceClass === VENDOR_CLASS || regular) &&
+        ['in', 'out'].every(d => a.endpoints.some(e => e.type === 'bulk' && e.direction === d));
     });
     if (!found) {
       await device.close().catch(() => {});
-      throw new Error('Your OP–XY isn’t in Mac file transfer mode. On the factory menu, press track 2.');
+      throw new Error('Open regular COM → M4 MTP, or dev-menu Mac file transfer, on your OP–XY.');
     }
     try { await timed(device.claimInterface(found.interfaceNumber), 5000); }
     catch { await device.close().catch(() => {}); throw new Error(BUSY); }
@@ -140,6 +144,31 @@ export class Device {
     }
     this.#listings.set(parent, files);
     return files;
+  }
+  // CLI access uses the same session and protocol as the browser installer.
+  async list(path = '') {
+    let parent = ROOT;
+    for (const name of path ? segments(path) : []) {
+      const folder = (await this.#children(parent)).get(name);
+      if (!folder?.folder) throw new Error(`Your OP–XY does not have the folder ${path}.`);
+      parent = folder.handle;
+    }
+    this.#listings.delete(parent);
+    return [...await this.#children(parent)].map(([name, entry]) => ({name, ...entry}));
+  }
+  async mkdir(path) { await this.#folder(segments(path), () => {}); }
+  async remove(path) {
+    const names = segments(path), name = names.pop();
+    let parent = ROOT;
+    for (const part of names) {
+      const folder = (await this.#children(parent)).get(part);
+      if (!folder?.folder) throw new Error(`Your OP–XY does not have ${path}.`);
+      parent = folder.handle;
+    }
+    const siblings = await this.#children(parent), file = siblings.get(name);
+    if (!file || file.folder) throw new Error(`Refusing to delete a missing file or folder: ${path}.`);
+    this.#expect(await this.#run(DELETE_OBJECT, [file.handle, 0]), 'delete ' + path);
+    siblings.delete(name);
   }
   // Resolve an existing path without creating folders or changing device files.
   async read(path, {maxBytes = 16 * 1024 ** 2, onProgress = () => {}} = {}) {

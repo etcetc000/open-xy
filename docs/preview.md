@@ -1,9 +1,11 @@
 # Local preview and patch protocol
 
-Browser previews audition synths: their controls, alternates included, their
-sound and their own screen.
-Sample engines and effects use stock pages and stock sample or send processing,
-so they have no browser preview; they are checked by the native build.
+The local preview workbench auditions synths and drums: their controls,
+alternates included, their sound and their own screen. Sample engines need the
+stock sample path and are checked by the native build. The
+[collection manager](builder.md#manage-an-installed-collection) also auditions
+effects with a computer-generated test phrase, wet mix and bypass comparison;
+it does not emulate the stock send mixer.
 
 For a new instrument, follow [Your first machine](first-machine.md). Check the
 preview toolchain with `python sdk.py doctor --preview`; custom schema-1 sources

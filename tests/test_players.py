@@ -39,9 +39,11 @@ class PlayerNativeLink(unittest.TestCase):
             objects = []
             for name in ('first', 'second'):
                 source, obj = root / (name + '.cpp'), root / (name + '.o')
-                source.write_text('#include <player_activity.hpp>\n'
+                source.write_text('#include <player_activity.hpp>\n#include <stock.hpp>\n'
                                   'opxy::u32 ' + name + '(opxy::u32 note) {\n'
-                                  '    return opxy::platform::player_white(note);\n}\n')
+                                  '    return opxy::platform::player_white(note);\n}\n'
+                                  'using Find = void* (*)(void*, const char*);\n'
+                                  'Find ' + name + '_find() { return &opxy::platform::find_node; }\n')
                 native.compile_cxx(compiler, assembler, source, obj, native.includes())
                 # Match firmware/browser objects: ordinary ELF linking would merge the weak table.
                 obj.write_bytes(native.normalize_object(obj.read_bytes()))
@@ -112,6 +114,17 @@ class PlayerContracts(unittest.TestCase):
         self.assertEqual(after['fx_types'], before['fx_types'])
         self.assertEqual(after['seq_types'][-1]['id'], self.machine.identity['player'] + 4)
         self.assertEqual(after['seq_types'][-1]['type'], 'probeplayer')
+
+    def test_page_size_optimization_keeps_machine_and_sequencer_code_outside_its_scope(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = adapters.generate_player_object(folder, self.machine).read_text()
+        begin = source.index('#pragma GCC push_options')
+        end = source.index('#pragma GCC pop_options')
+        self.assertLess(source.index('#include "player.cpp"'), begin)
+        self.assertLess(source.index('static u32 press('), begin)
+        self.assertLess(source.index('static void step_player('), begin)
+        self.assertLess(begin, source.index('struct Page'))
+        self.assertLess(source.index('struct Page'), end)
 
     def test_player_panel_can_omit_the_entire_output_keyboard(self):
         nodes = [f'<circle id="probeplayer_dot_{i}" transform="matrix(1 0 0 1 20 80)" '

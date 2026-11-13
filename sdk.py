@@ -10,12 +10,14 @@ COMMANDS = '''Commands:
   test      Check machine and extension folders anywhere: python sdk.py test --machine ../mymachine | --extension ../myextension [--firmware]
   catalog   Published machines and extensions: python sdk.py catalog check | fetch | test [--tags]
   project   Project companions: python sdk.py project write --layout layout.json song.xy | check song.xy
+  collection Collection files: python sdk.py collection pack | executable --help
   compile   Native module only: python sdk.py compile --help
   build     Native firmware package: python sdk.py build [--machine <folder>] --help
   verify    Rebuild and compare a native package: python sdk.py verify --help
   kit       Browser builder export: python sdk.py kit --help
   release   Catalog kit and site: python sdk.py release --help
   toolchain Install the pinned Blackfin tools: python sdk.py toolchain fetch
+  manager   Web machine manager connector: python sdk.py manager --config <manager-config.json>
   device    Copy a build to a connected OP-XY (Windows, macOS, Linux): python sdk.py device push <build>/candidate | list | pull
   doctor    Check tools: python sdk.py doctor --preview | --toolchain [<dir>]
 Preview server: python tools/serve_harness.py --preview local/preview-001'''
@@ -37,6 +39,9 @@ if __name__ == '__main__':
     if command == 'project':
         from tooling.projects import main
         raise SystemExit(main(argv))
+    if command == 'collection':
+        from tooling.collection_probe import main
+        raise SystemExit(main(argv))
     if command == 'test':
         from tooling.machine_test import main
         raise SystemExit(main(argv))
@@ -51,6 +56,9 @@ if __name__ == '__main__':
         raise SystemExit(main(argv))
     if command == 'toolchain':
         from tooling.toolchain import main
+        raise SystemExit(main(argv))
+    if command == 'manager':
+        from tooling.manager import main
         raise SystemExit(main(argv))
     if command == 'device':
         from tooling.device import main

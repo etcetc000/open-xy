@@ -30,7 +30,8 @@ LOCK_CALLS = (('u32', 'size', ('void*', 'u32'), 'return 0;'),
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False, locks=False, drumline=False):
+           control=False, aux=False, locks=False, drumline=False, probe=False, rpc_probe=False,
+           collection_loader=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -58,6 +59,14 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     for prefix in (*prefixes, *effects, *player_pages):
         require(re.fullmatch(r'[a-z][a-z0-9_]{0,31}', prefix) is not None, 'Invalid engine prefix')
     declarations = [_declare(prefix + '_fx_register') for prefix in effects]
+    if collection_loader:
+        require(not probe and not rpc_probe, 'Resident activation cannot run diagnostic startup I/O')
+        declarations.append('void sdk_collection_startup_ready(unsigned int) __asm__("sdk_collection_startup_ready");')
+    if probe:
+        declarations.append('void sdk_collection_probe() __asm__("sdk_collection_probe");')
+    if rpc_probe:
+        require(probe, 'RPC probe requires collection inspection')
+        declarations.append('void sdk_collection_rpc_probe() __asm__("sdk_collection_rpc_probe");')
     declarations += [_declare(prefix + '_screen_register') for prefix in player_pages]
     require(set(effect_screens) <= set(effects), 'Effects with their own page must be listed effects')
     for prefix in effect_screens:
@@ -82,6 +91,23 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
             screens.append(f'    {prefix}_screen_register();')
         screens.append(f'    {guard}{prefix}_register();')
     screens += [f'    {prefix}_screen_register();' for prefix in player_pages]
+    fx=[f'    {prefix}_fx_register();' for prefix in effects]
+    engines=[f'    {prefix}_register();' for prefix in prefixes]
+    if collection_loader:
+        fx=['    bool ready = true;']+[f'    if ({p}_fx_register() != 1) ready = false;' for p in effects]
+        fx+=['    if (ready) sdk_collection_startup_ready(1);']
+        engines=[f'    if ({p}_register() != 1) ready = false;' for p in prefixes]
+        engines+=['    if (ready) sdk_collection_startup_ready(2);']
+        screens=['    bool ready = true;']
+        screens += [f'    if ({p}_screen_register() != 1) ready = false;' for p in effect_screens]
+        for p in prefixes:
+            if p in stock_page:
+                if p in sample_screens: screens.append(f'    if ({p}_screen_register() != 1) ready = false;')
+                screens.append(f'    if ({p}_register() != 1) ready = false;')
+            else:
+                screens.append(f'    if ({p}_screen_register() == 1) {{ if ({p}_register() != 1) ready = false; }} else ready = false;')
+        screens += [f'    if ({p}_screen_register() != 1) ready = false;' for p in player_pages]
+        screens += ['    if (ready) sdk_collection_startup_ready(4);']
     catalog = [f'    if ({prefix}_name_matches(name))\n'
                f'        return id == value({prefix}_engine_id) && {prefix}_ready() == 1 ? '
                'stock_catalog_insert(catalog, name, id) : 0;' for prefix in prefixes]
@@ -116,8 +142,10 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
     sample = [f'    if (engine == value({prefix}_engine_id)) return {prefix}_ready() == 1 && {prefix}_screen_ready() == 1 ? value({prefix}_screen_page_id) : 0;'
               for prefix in sample_screens]
     values = dict(DECLARATIONS='\n'.join(declarations), OWNED_SCREENS='\n'.join(owned), SAMPLE_SCREENS='\n'.join(sample),
-                  EFFECTS='\n'.join(f'    {prefix}_fx_register();' for prefix in effects),
-                  ENGINES='\n'.join(f'    {prefix}_register();' for prefix in prefixes),
+                  EFFECTS='\n'.join((['    sdk_collection_rpc_probe();'] if rpc_probe else []) +
+                                   (['    sdk_collection_probe();'] if probe else []) +
+                                    fx),
+                  ENGINES='\n'.join(engines),
                   SCREENS='\n'.join(screens), CATALOG='\n'.join(catalog), ENGINE_SENTINEL=str(ENGINE_SENTINEL),
                   PROJECT_KEPT=kept,
                   INSTALLED='\n'.join(f'    if ({prefix}_name_matches(name)) return 1;' for prefix in prefixes))
@@ -130,8 +158,9 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False, locks=False, drumline=False):
+             control=False, aux=False, locks=False, drumline=False, probe=False, rpc_probe=False,
+             collection_loader=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux, locks, drumline), encoding='utf-8', newline='\n')
+                                  control=control, aux=aux, locks=locks, drumline=drumline, probe=probe, rpc_probe=rpc_probe, collection_loader=collection_loader), encoding='utf-8', newline='\n')
     return destination

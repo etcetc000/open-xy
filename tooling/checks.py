@@ -7,7 +7,7 @@ import subprocess
 import sys
 import unittest
 from .formats import require
-from .pipeline import require_release_host, resolve_toolchain
+from .pipeline import host_platform, require_release_host, resolve_toolchain
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = {
@@ -36,6 +36,7 @@ def fixture_environment(options, inherited):
     if not Path(options.toolchain).is_dir():
         raise ValueError(f'Missing toolchain directory: {options.toolchain}')
     env['OPXY_TEST_NATIVE_ELF'] = str(Path(env['OPXY_TEST_NATIVE_PACKAGE']) / 'analysis/module.elf')
+    env['OPXY_TEST_TOOLCHAIN'] = str(Path(options.toolchain).resolve())
     # Tests that compile or link for the device use the compiler qualification was
     # given, not whatever this checkout's local/toolchain holds.
     if getattr(options, 'compiler', None):
@@ -58,13 +59,18 @@ def main(argv=None):
         parser.add_argument('--' + name.replace('_', '-'), type=Path)
     parser.add_argument('--compiler', type=Path)
     parser.add_argument('--host-cxx', default='g++')
+    parser.add_argument('--local', action='store_true',
+                        help='verify a package built on this pinned host and run every fixture; '
+                             'does not qualify a release')
     args = parser.parse_args(argv)
     try:
         if any(getattr(args, key) for key in FIXTURES):  # tools default to the fetched toolchain
             args.toolchain, args.compiler = resolve_toolchain(args.toolchain, args.compiler)
         env, native = fixture_environment(args, os.environ)
+        require(not args.local or native, '--local requires all native qualification inputs')
         if native:
-            require_release_host()
+            if not args.local:
+                require_release_host()
             env['OPXY_TEST_HOST_CXX'] = args.host_cxx
         if args.compiler and not native:
             raise ValueError('Compiler arguments require all native qualification inputs')
@@ -82,12 +88,17 @@ def main(argv=None):
             run('Independent native source rebuild and package verification',
                 [sys.executable, ROOT / 'sdk.py', 'verify', '--stock-os', args.stock_os.resolve(),
                  '--stock-content', args.stock_content.resolve(), '--package', args.native_package.resolve(),
-                 '--toolchain', args.toolchain.resolve(), '--compiler', args.compiler.resolve()])
+                 '--toolchain', args.toolchain.resolve(), '--compiler', args.compiler.resolve(),
+                 *(['--local'] if args.local else [])])
         # One pass: SDK code checks with require(), never assert (test_checks), so
         # python -O would run the same checks again.
         run('Python checks', [sys.executable, '-m', 'tooling.checks', '_suite', *(['--require-all'] if native else [])])
-        print('\nPASS: ' + ('native package verified; all fixture tests required.' if native else
-                           'public source checks; private tests explicitly skipped.'))
+        if native and args.local:
+            print(f'\nPASS: local native package verified on {host_platform()}; all fixture tests required. '
+                  'Release qualification was not performed.')
+        else:
+            print('\nPASS: ' + ('native package verified; all fixture tests required.' if native else
+                               'public source checks; private tests explicitly skipped.'))
         print('Host checks only: device timing, behavior and recovery are not covered.')
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as error:

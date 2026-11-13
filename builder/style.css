@@ -635,5 +635,29 @@ footer details[open] { flex-basis:100%; }
   .presets-panel { left:auto; right:0; transform:none; }
 }
 
+.manager-mode { display:flex; justify-content:flex-end; margin-bottom:16px; }
+#manager-workspace { flex:1; }
+.manager-connection { margin-bottom:20px; }
+.manager-connection input { display:block; width:min(100%,500px); margin-top:8px; }
+.manager-summary { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:20px 0; }
+.manager-columns { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
+.manager-columns .panel { min-width:0; }
+.manager-machine { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+.manager-machine input { flex:none; width:18px; height:18px; }
+.manager-catalog { max-height:420px; overflow:auto; margin-top:16px; }
+.manager-installed { max-height:560px; overflow:auto; }
+.manager-release { padding:8px 0 12px; border-bottom:1px solid var(--line); }
+.manager-release .manager-machine { border-bottom:0; padding-bottom:4px; }
+.manager-release-detail { margin:0 0 8px 30px; color:var(--muted); font-size:13px; }
+.manager-release button { margin-left:30px; }
+.manager-folder { border:1px dashed var(--line); padding:20px; margin-top:24px; }
+.manager-folder[data-drag="true"] { background:var(--soft); border-color:var(--ink); }
+.manager-review { margin-top:20px; }
+[data-manager="status"][data-error="true"] { color:var(--error); white-space:pre-wrap; overflow-wrap:anywhere; }
+@media(max-width:850px) { .manager-columns { grid-template-columns:1fr; } }
+.manager-audition-keys { display:flex; flex-wrap:wrap; gap:4px; }
+.manager-audition-control { display:grid; grid-template-columns:minmax(80px,1fr) minmax(60px,2fr) 3em; gap:8px; align-items:center; margin:12px 0; }
+.manager-audition-control input { min-width:0; width:100%; }
+.manager-audition .flow-actions { flex-wrap:wrap; }
 .cpu-high-tooltip { position:fixed; z-index:1000; width:max-content; max-width:min(320px,calc(100vw - 16px)); padding:10px 12px; border:1px solid #ffd45c; border-radius:6px; background:var(--panel); color:var(--ink); font:12px/1.5 Arial,Helvetica,sans-serif; pointer-events:none; box-shadow:0 4px 16px #0008; }
 .cpu-high-tooltip[hidden] { display:none; }

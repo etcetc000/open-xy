@@ -109,13 +109,15 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         // A Shift encoder with nothing to choose turns nothing.
         return 0;
     } else {
-        // The encoders' discrete steps are already one unit a detent.
+        // A detent edits one raw unit unless the kit maps it to a discrete
+        // choice. Publication and storage remain on this existing route.
         const u32 slot = shown[control % page_controls];
         if (slot >= kDrumControlCount || !machine->used(model, slot)) return 0;
-        i32 next = static_cast<i32>(controls[slot]) + delta;
-        if (next < 0) next = 0;
-        if (next > 127) next = 127;
-        if (next == controls[slot]) return 0;
+        i32 continuous = static_cast<i32>(controls[slot]) + delta;
+        if (continuous < 0) continuous = 0;
+        if (continuous > 127) continuous = 127;
+        const u32 next = machine->edit ? machine->edit(model, slot, controls[slot], delta) : static_cast<u32>(continuous);
+        if (next > 127 || next == controls[slot]) return 0;
         controls[slot] = static_cast<u8>(next);
     }
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, drum_codec(machine->model_count, machine->count))) return 0;

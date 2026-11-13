@@ -24,12 +24,14 @@ constexpr u32 kChunkFrames = 4096;
 struct Entry {
     // The owner is published last and cleared before storage is released.
     const void* volatile owner;
-    u32 engine;
     opxy::SampleAnalysis analysis;
-    bool ready;
-    u32 failure;  // progress state of an unsuccessful preparation, else 0
     u32* storage;
     u32 bytes;
+    // Registration IDs fit the profile's engine table; failure is 0, 3 or 4.
+    // Group bounded metadata together rather than padding each small field.
+    opxy::u16 engine;
+    opxy::u8 failure;
+    bool ready;
 };
 static Entry entries[kEntries];
 struct Progress {
@@ -48,7 +50,8 @@ static Progress progress;
 // next stock refresh, which publishes the final assignments normally.
 constexpr u32 kAssignedKeys = 128u * 24u;
 struct PendingTrack { const unsigned char* track; u32 priority; };
-static u32 assigned_keys[kAssignedKeys], next_assigned_keys[kAssignedKeys];
+static u32 assigned_keys[kAssignedKeys];
+static u32 retained_keys[(kAssignedKeys + 31) / 32];
 static u32 assigned_count, force_send;
 
 // The stock desired cache list is bounded to 200 entries. Leave spare capacity
@@ -96,16 +99,17 @@ u32 sort_unique(u32* keys, u32 count) {
     return unique;
 }
 
-bool assigned(u32 key) {
-    u32 first = 0, last = assigned_count;
+u32 key_index(u32 key, u32 count) {
+    u32 first = 0, last = count;
     while (first < last) {
         const u32 middle = first + (last - first) / 2;
         if (assigned_keys[middle] < key) first = middle + 1;
         else if (assigned_keys[middle] > key) last = middle;
-        else return true;
+        else return middle;
     }
-    return false;
+    return count;
 }
+bool assigned(u32 key) { return key_index(key, assigned_count) != assigned_count; }
 
 void status(u32 state, u32 percent, bool next = false) {
     ++progress.sequence;
@@ -214,30 +218,46 @@ void prepare_for(const void* object, const SampleMachine& m) {
 
 extern "C" u32 sdk_sample_cache_snapshot_keys(u32 new_sum, u32 old_sum,
                                                const void* pending, u32 count) {
-    u32 next_count = 0;
-    if (pending && count <= 128) {
-        const PendingTrack* tracks = static_cast<const PendingTrack*>(pending);
-        for (u32 t = 0; t < count; ++t) {
-            const unsigned char* track = tracks[t].track;
-            if (!track || !opxy::platform::sample_analysis(*reinterpret_cast<const u32*>(track + 24))) continue;
-            for (u32 r = 0; r < 24; ++r) {
-                const char* path = reinterpret_cast<const char*>(track + 0x396c + r * 128);
-                u32 length = 0;
-                while (length < 96 && path[length]) ++length;
-                if (!length || length == 96) continue;
-                next_assigned_keys[next_count++] = sdk_sample_cache_stock_hash(path);
+    const u32 old_count = assigned_count;
+    u32 retained_count = 0, next_count = 0;
+    for (u32 i = 0; i < (kAssignedKeys + 31) / 32; ++i) retained_keys[i] = 0;
+    // Stock keeps the pending list stable for this GUI/file-worker callback.
+    // Mark surviving old keys first, then append new keys in a second pass.
+    // A 384-byte membership bitmap replaces a second 12 KiB key array without
+    // allocating or changing the maximum snapshot or its unsigned key values.
+    for (u32 pass = 0; pass < 2; ++pass) {
+        if (pending && count <= 128) {
+            const PendingTrack* tracks = static_cast<const PendingTrack*>(pending);
+            for (u32 t = 0; t < count; ++t) {
+                const unsigned char* track = tracks[t].track;
+                if (!track || !opxy::platform::sample_analysis(*reinterpret_cast<const u32*>(track + 24))) continue;
+                for (u32 r = 0; r < 24; ++r) {
+                    const char* path = reinterpret_cast<const char*>(track + 0x396c + r * 128);
+                    u32 length = 0;
+                    while (length < 96 && path[length]) ++length;
+                    if (!length || length == 96) continue;
+                    const u32 key = sdk_sample_cache_stock_hash(path);
+                    const u32 prefix = pass ? retained_count : old_count;
+                    const u32 index = key_index(key, prefix);
+                    if (!pass) {
+                        if (index < old_count) retained_keys[index / 32] |= 1u << (index % 32);
+                    } else if (index == retained_count) {
+                        // Each retained key consumes at least one input slot;
+                        // adding the other slots cannot exceed kAssignedKeys.
+                        assigned_keys[next_count++] = key;
+                    }
+                }
             }
         }
+        if (!pass) {
+            for (u32 i = 0; i < old_count; ++i)
+                if (retained_keys[i / 32] & (1u << (i % 32))) assigned_keys[retained_count++] = assigned_keys[i];
+            next_count = retained_count;
+        }
     }
-    next_count = sort_unique(next_assigned_keys, next_count);
-    bool changed = next_count != assigned_count;
-    if (!changed) {
-        for (u32 i = 0; i < next_count; ++i)
-            if (next_assigned_keys[i] != assigned_keys[i]) { changed = true; break; }
-    }
+    const bool changed = retained_count != old_count || next_count != retained_count;
+    assigned_count = sort_unique(assigned_keys, next_count);
     if (!changed) return old_sum;
-    for (u32 i = 0; i < next_count; ++i) assigned_keys[i] = next_assigned_keys[i];
-    assigned_count = next_count;
     force_send = 1;
     // Stock has two path-key-only change detectors. Force its outer refresh
     // when assignment ownership changes, including preview -> assigned hits.

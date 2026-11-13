@@ -337,6 +337,15 @@ amp attack, decay, sustain and release, reading them through `8d4d7458(track, 8)
 as floats; the filter envelope starts at word 32. The screen reads the first
 four words of a bounds-checked vector on instrument tracks only, and adds no hook.
 
+Drum trigger drawing reads the last played pitch at `8d4d6cb0`, which stock's
+counter writer `8d4d6c32` updates from both sequenced-note dispatch
+(`8d592092`) and live-note dispatch (`8d595838`). The live held-key map is
+not a sequencer event map. The GUI resolves that played pitch to its canonical
+pad and decodes its model/control snapshot independently of the selected
+pad used by the header. It adds no hook or cross-role state. Intermediate
+hits can coalesce between display frames; current GUI offsets are not a
+record of past audio-side step locks.
+
 Stock paints the screen slots in ascending page order each frame, so page
 numbers are layers. The compositor's loop advance is hooked: when the selected
 page is an owned synth's, it is painted right after slot 0, beneath stock
@@ -759,7 +768,12 @@ are retained per track/key because stock can construct a pending voice even
 after its note-off. A new ordinary manual note clears only its matching slot.
 
 The factory matches the parent note's identity and manual provenance, then
-copies the snapshot into the voice. Subsequent cuts cannot move that audition's
+copies the snapshot into the voice. The shared track/key table stores only raw
+ranges when no compiled sample machine declares `sliceTiming`; otherwise it
+also retains the processed clock's settings and parameters. The complete
+collection determines this storage, including machines a browser kit may
+select later. Packet format, validation and deferred-note lifetime are the same
+in both cases. Subsequent cuts cannot move that audition's
 playhead; later control and tempo edits apply to the next audition. Scoped
 source note-on/off calls preserve the source pad through stock keyboard
 remapping and project transpose. Ordinary and sequencer notes retain their

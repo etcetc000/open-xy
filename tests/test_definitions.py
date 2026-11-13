@@ -387,7 +387,7 @@ class Definitions(unittest.TestCase):
             definition = copy.deepcopy(fixture('probesynth').definition)
             definition['resources']['display'] = display
             validate_definition(definition, 'synth')
-            m = SimpleNamespace(prefix='shape', native_name='shape', definition=definition)
+            m = SimpleNamespace(prefix='shape', native_name='shape', definition=definition, kind='synth')
             with self.subTest(display=display), tempfile.TemporaryDirectory() as directory:
                 generate_display(directory, machine=SimpleNamespace(definition=definition, native_name='shape',
                                                                     prefix='shape'))
