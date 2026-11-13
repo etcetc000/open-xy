@@ -14,7 +14,7 @@ const customPreview = previewManifest.kind === 'cpp-browser-custom-preview';
 if (customPreview) {
   document.getElementById('preview-mode').textContent = 'Local authoring preview. This audition does not qualify a firmware build.';
 }
-import { createControls, editedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
+import { createControls, editedShown, pressedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
 const controls = createControls(previewManifest.definition);
 const { definition, parameters, positions, defaults, presets, displayValue, makePatch, readPatch, validateParameters, q31 } = controls;
 import { renderScreen as renderBase } from './screen.mjs';
@@ -35,7 +35,8 @@ const controlId = id => {
   return `custom-control-${main >= 0 ? main : 8 + controls.shift.findIndex(p => p.id === id)}`;
 };
 // Whether the preview shows the Shift row, as holding Shift does on the device: from an
-// edit of one of its entries until a control of the page is edited.
+// edit of one of its entries until a control of the page is edited, or while the
+// Shift button is on.
 let shiftHeld = false;
 // Page copy comes from the machine: its definition and machine.json description.
 document.querySelector('.instrument-top h1').textContent = definition.name;
@@ -105,6 +106,22 @@ for (const { p, i } of shiftControls) {
     const next = [0, 1, 2, 3];
     if (i >= 4) positions.forEach((position, slot) => { if (position !== null && slot >= 4) next[position] = slot; });
     shown = next;
+  });
+}
+// Shift and an encoder press, for a synth with a Shift row: Shift holds the row in the
+// header, and a press switches pages with Shift held or not, as on the device, so
+// the row shown follows the page.
+if (shiftControls.length) {
+  const encoders = document.createElement('div');
+  encoders.className = 'segmented';
+  encoders.setAttribute('aria-label', 'Encoders');
+  encoders.innerHTML = '<button id="shift-hold" aria-pressed="false">Shift</button><button id="encoder-press">Press</button>';
+  document.querySelector('.screen-toolbar').insertBefore(encoders, document.querySelector('.zoom-label'));
+  $('shift-hold').addEventListener('click', () => { shiftHeld = !shiftHeld; update(); });
+  $('encoder-press').addEventListener('click', () => {
+    shown = pressedShown(shown, positions, 0, previewManifest.definition.press === 'page');
+    update();
+    status(`Page ${shown.some(s => s >= 4) ? 2 : 1}${shiftHeld ? ' · Shift row' : ''}`);
   });
 }
 // A drum kit's model, chosen on the device with Shift and the first encoder.
@@ -186,6 +203,7 @@ function update() {
     button.setAttribute('aria-pressed', String(parameters.every(p => presets[button.textContent][p.id] === values[p.id])));
   }
   for (const mode of VIEWS) $(mode).setAttribute('aria-pressed', String(mode === view));
+  if (shiftControls.length) $('shift-hold').setAttribute('aria-pressed', String(shiftHeld));
   send({ type: 'parameters', value: parameterWords() });
   if (models) { $('value-drum-model').textContent = String(model + 1); send({ type: 'model', value: model }); }
   draw();

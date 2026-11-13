@@ -15,6 +15,7 @@ from tooling import native
 from tooling.definitions import (shift_choices, shift_field, shift_preset_params, shift_q31, shift_words, synth_shift,
                                  validate_definition)
 from tooling.firmware import active_services
+from tooling.formats import ldr, mapped_offset
 from tooling.machines import check_preset, machine_at
 from tooling.pipeline import config
 from machine_fixtures import FOLDER, fixture
@@ -294,6 +295,59 @@ class Generation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             table = adapters.generate_synth_controls(Path(directory), [effect]).read_text()
         self.assertIn('probefx_format, true, false, 0, 0, 1, {3, 1, 1, 1}, probefx_shift_titles},', table)
+
+
+class ShiftPress(unittest.TestCase):
+    """Holding Shift and pressing an encoder switches a Shift-row synth's pages, as a press
+    without Shift does (synth_controls.cpp sdk_synth_shift_press, reached through
+    synth_shift_hooks.s). test_drum_services runs it on the host (drum_gui.cpp)."""
+
+    def test_the_hook_replaces_the_shifted_handlers_call_of_stocks_action(self):
+        profile = config()
+        hooks = [p for p in profile['patches'] if p.get('symbol') == 'sdk_synth_shift_press_hook']
+        self.assertEqual(len(hooks), 1)
+        hook = hooks[0]
+        # CALL 8c0b270e; R1 = 0; JUMP.S 8c0b28f6, in the instrument controller's shifted key handler.
+        self.assertEqual((hook['kind'], int(hook['address'], 16), hook['length'], hook['before'], hook['call'],
+                          hook['service']), ('hook', 0x8c0b2a5e, 8, 'ffe358fe0160492f', True, 'synth_shift'))
+        self.assertEqual(profile['services']['synth_shift'], ['synthShift'])
+        stub = (ROOT / 'sdk/platform/opxy-1.2.1/synth_shift_hooks.s').read_text()
+        body = stub[stub.index('sdk_synth_shift_press_hook:'):stub.index('.size sdk_synth_shift_press_hook')]
+        for line in ('CALL sdk_synth_shift_press;', 'R1 = 0;', 'P0.H = 0x8c0b;', 'P0.L = 0x28f6;', 'JUMP (P0);'):
+            self.assertIn(line, body)
+        source = (ROOT / 'sdk/platform/opxy-1.2.1/synth_controls.cpp').read_text()
+        press = source[source.index('void sdk_synth_shift_press(u32 track'):]
+        press = press[:press.index('\n}\n')].split('\n')
+        # Stock's action first, as the replaced call made it; then only a synth with a row.
+        self.assertEqual(press[1].strip(), 'stock<void(u32, u32, u32)>(0x8c0b270e)(track, code, last);')
+        self.assertIn('!shift_of(m, track))', '\n'.join(press))
+
+    def test_only_a_build_with_a_shift_row_links_and_patches_it(self):
+        profile = config()
+        shift, plain = fixture('probeshift'), fixture('probesynth')
+        self.assertEqual(native.UNIT_SERVICES['synth_shift_hooks'], 'synth_shift')
+        self.assertIn('synth_shift', active_services(profile, native.service_users([shift])))
+        for users in (native.service_users([plain]), ['drum', 'padMix', 'drumline_page', 'synth', 'effect', 'sample']):
+            self.assertNotIn('synth_shift', active_services(profile, users))
+        units = lambda machines: [step for _name, m, step in native.plan(machines) if m is None]
+        self.assertIn('synth_shift_hooks', units([shift, plain]))
+        self.assertNotIn('synth_shift_hooks', units([plain]))
+        # The last shared object, so a build without it links every other where it did.
+        self.assertEqual(units([shift])[-1], 'synth_shift_hooks')
+
+    @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Set OPXY_TEST_STOCK_OS to the stock os.ldr')
+    def test_the_site_matches_the_stock_os(self):
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        blocks = ldr(data)
+        hook = next(p for p in config()['patches'] if p.get('symbol') == 'sdk_synth_shift_press_hook')
+        offset = int(hook['file_offset'], 16)
+        self.assertEqual(mapped_offset(blocks, int(hook['address'], 16), hook['length']), offset)
+        self.assertEqual(data[offset:offset + hook['length']].hex(), hook['before'])
+        word = lambda address: int.from_bytes(data[mapped_offset(blocks, address, 4):][:4], 'little')
+        # The instrument controller's shifted key handler (its vtable, 8400dff8, + 16), and
+        # its jump table's entries for encoder codes 10..13.
+        self.assertEqual(word(0x8400dff8 + 16), 0x8c0b28a8)
+        self.assertEqual([word(0x8400e324 + 4 * (code - 2)) for code in range(10, 14)], [0x8c0b2a56] * 4)
 
 
 if __name__ == '__main__':

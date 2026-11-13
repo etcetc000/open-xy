@@ -45,11 +45,14 @@ In `extension.json`, beside the usual fields:
   value has about 53 pixels. `default` is a choice index, 0 when omitted. A turn
   moves one choice a detent.
 - A parameter with `"role": "send1"` or `"send2"` has no choices of its own: it
-  is the key's FX I or FX II send, with the SDK's choices `TRK` (follow the
-  track's send, the default) and `0` to `100`. Each send appears once. The SDK
-  mixes it; the processor ignores it.
-- Each parameter needs the bits for its choices (a send 3), and all of them
-  together at most 16.
+  is the key's FX I or FX II send, as a `padMix` key's: `TRK` (follow the
+  track's send, the default), then `0` to `100`, a percent a detent and more
+  when turned fast (SDK 1.15; a pad set before keeps one of seven steps, 0, 17,
+  33, 50, 67, 83 or 100, until its first turn). Each send appears once. The SDK
+  mixes it; the processor ignores it, and its `Choices` holds the send's step
+  (0 `TRK`, 1..7).
+- Each parameter needs the bits for its choices (a send 3, for its step), and
+  all of them together at most 16.
 
 Saved pads carry an owner tag made from the extension's ID. To rename the
 extension and keep saved settings, add `"state_id"` with the old ID beside
@@ -83,9 +86,10 @@ bounded. Stock Drumline plays above half scale, so the processor may too.
 ## Step locks
 
 Hold a step and turn a page-2 encoder: the step locks that parameter for the
-key the encoders edit, one choice a detent from what the step plays. Each hit
-of that key on the step plays it; other keys on the step play their own.
-Turning it back to the key's own choice removes the lock. While the step is held
+key the encoders edit, one choice a detent from what the step plays (a send a
+percent, as without a step). Each hit of that key on the step plays it; other
+keys on the step play their own. Turning it back to the key's own choice
+removes the lock. While the step is held
 the page shows what the step plays. Page 1 and Shift lock as stock does. The
 locks live in the SDK's [step-lock handles](abi-1.2.1.md#step-lock-handles)
 apart from a kit's, so a pattern copied between a kit and Drumline locks nothing
@@ -94,7 +98,8 @@ on the other.
 ## Projects and presets
 
 The settings live in each pad's record, behind an owner tag made from the
-extension's ID (or its `state_id`). A pad without that tag, from before or from another extension,
+extension's ID (or its `state_id`), a send's amount in a byte of the record
+beside its step. A pad without that tag, from before or from another extension,
 plays every default. A project saved with them opens on other firmware as a
 stock Drumline project, the settings ignored. Stock's Drumline presets don't
 keep them.

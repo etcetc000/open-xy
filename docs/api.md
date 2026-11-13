@@ -461,12 +461,16 @@ const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 
 - **Showing it.** While Shift is held, the stock header names and captions the
   entries under the page the encoders are on. A machine drawing its own header
   reads the row from [`opxy/synth_shift.hpp`](display.md#a-synths-shift-row),
-  and the [two-page header](display.md#two-page-header) shows it in the bright
-  row. Holding Shift and pressing an encoder does not switch pages: let go of
-  Shift, press, then hold Shift again.
+  and the [two-page header](display.md#two-page-header) shows all of it in both
+  rows, as a drum kit's header shows its two Shift rows: page 1's entries on
+  top, page 2's under them, the page the encoders are on bright. A press of any encoder switches pages with Shift held too, and the row
+  follows, so Shift and a press reach page 2's entries without letting go, as
+  on a `padMix` kit.
 - **Where it runs.** Instrument tracks 1–8; a synth with track control can't
   have one. Browser previews show each entry as a control of its own: editing
-  one shows the row, and their audition plays it.
+  one shows the row, and their audition plays it. The workbench's **Shift**
+  holds the row in the header and **Press** switches pages, with Shift on or
+  off, as on the device.
 
 ## Audio buffers and ownership
 
@@ -752,10 +756,13 @@ Shift and a press reach the second row without letting go.
 
 Each key of a `padMix` kit has its own FX I and FX II sends, as a Machinedrum
 track has its own delay and reverb sends: a kick can stay dry while the snare
-is wet, even with the track's send knobs at 0. A send at 0 (`TRK`) follows the
-track's send exactly; 1..7 send the key's own amount, shown as 0, 17, 33, 50,
-67, 83 or 100, whatever the track's send knob says: a key at N sends what the
-track's knob at N would, through the same curve stock gives that send's knob.
+is wet, even with the track's send knobs at 0. A send at `TRK` follows the
+track's send exactly; below it, 0..100 send the key's own amount, whatever the
+track's send knob says: a key at N sends what the track's knob at N would,
+through the same curve stock gives that send's knob. A turn moves it a percent
+a detent, more when turned fast (SDK 1.15). A key set before SDK 1.15 keeps one
+of seven steps (0, 17, 33, 50, 67, 83, 100), which plays exactly as it did; its
+first turn continues in percents from the step it shows.
 An amount scales the voice after stock's pan, level and envelope, and the
 track's level and mute still apply to it. The track's own mix is unchanged,
 and so is the source dry reduction of a send effect with a Dry control. The
@@ -770,8 +777,11 @@ before. Projects keep a key's settings, and copying a pad copies them. A
 preset keeps all of a key's settings too: loading one on a `padMix` kit sets
 up every key the preset stores (its regions marked `fm slap`), with the level,
 pad controls and sends the preset holds (a region's `gain`, and its `random`,
-the pad word's top half: pad controls from bit 0, FX I's code at bits 9..11 and
-FX II's at 12..14) ([firmware](abi-1.2.1.md#synthesis-drum-kits)). A region
+the pad word's top half: pad controls from bit 0, FX I's step at bits 9..11 and
+FX II's at 12..14, and from SDK 1.15 FX I's amount + 1 at bits 16..22 and FX II's
+at 23..29, 0 for none) ([firmware](abi-1.2.1.md#synthesis-drum-kits)). The
+OP-XY ignores `random` from bit 16, so older firmware plays each amount's
+nearest step. A region
 without `random` loads every pad field at 0; the OP-XY's own preset writer
 names it on every key the kit has set up, and a kit preset written by other
 tools should name it on every region, `"random": 0` included.
@@ -794,8 +804,11 @@ bool pad_control_text(opxy::u32 field, opxy::i32 value, char* text);        // o
 
 in the machine namespace; `pad_control_text` captions a value for the stock
 header (without it, or when it returns false, the number shows). The display's
-`pad` holds the selected key's pad fields. A kit's own header captions them
-itself.
+`pad` holds the selected key's pad fields: `pad[0]` and `pad[1]` its pad
+controls, `pad[2]` and `pad[3]` its FX I and FX II. For a kit declaring SDK 1.15
+or later a send is 0 for `TRK` and its percent + 1 (1..101); for an older kit
+it is 0 for `TRK` and 1..7 for the seven steps, an amount as its nearest step. A
+kit's own header captions them itself.
 
 Every kit's track runs stock's own track filter on its voices, as a synth
 track does (SDK 1.10). M3 is the filter, with stock's types (svf, ladder, z
@@ -809,9 +822,11 @@ through stock's editor, as on a synth, and act on every voice the track is
 sounding during the step. With M3 switched off, as a kit's init preset has it
 (stock's `fx`, `active: false`), the kit sounds exactly as without the filter
 and costs one test a voice; switched on it costs about 1,300 to 2,600
-instructions a voice a block depending on the type (the ladder and svf most),
-and a kit's profiling workload runs the ladder on every voice so its catalog
-figure includes it ([firmware](abi-1.2.1.md#the-track-filter-on-kit-voices)).
+instructions a voice a block depending on the type (the ladder and svf most).
+A kit's profiling workload plays it with M3 off, as it starts, then once more
+at full polyphony with the ladder on every voice, so its catalog record gives
+both ([profiling](profiling.md),
+[firmware](abi-1.2.1.md#the-track-filter-on-kit-voices)).
 A resonant peak more than 6 dB above a kit's half-scale ceiling clips.
 
 A `padMix` kit's steps lock its keys' PAN, LEVEL, pad controls, FX I and FX II
@@ -822,8 +837,9 @@ Shift, else the selected key), one unit a detent (PAN faster when turned fast,
 as without a step held). PAN (-100..100),
 LEVEL (-30..30 dB) and a pad control (as far as its whole span, at most 127)
 lock an offset to the key's own value, clamped to the field (LEVEL stays a cut,
--30..0); FX I and FX II lock the send itself, TRK or 0..100, starting from what
-the key sends. A field turned back to 0 is unlocked. Each note the step plays
+-30..0); FX I and FX II lock the send itself, TRK or 0..100 a percent a detent
+(more when turned fast), starting from what the key sends. Any other field
+turned back to 0 is unlocked. Each note the step plays
 gets its own key's locks from the moment it starts: it keeps them for as long as
 it sounds, and voices still sounding from earlier hits keep theirs. Other keys
 on the same step play their own locks, or none: select each key to lock it.
@@ -918,6 +934,14 @@ void scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* hi
 
 `low` and `high` arrive as 0 and 127; narrow either, inclusive. A kit without
 it draws every control from 0..127.
+
+As on Drumline, holding a pad and pressing M1, M2, M3 or M4 scrambles, copies,
+pastes or resets that key: scramble re-rolls its controls alone, keeping its model, copy and paste
+carry all of its settings (its sends included), and reset gives it the kit's
+defaults with every pad field neutral and its sends `TRK`. While the pad is
+held, stock's strip naming the four slides up over the bottom of the kit's screen,
+as on Drumline and as on a held track key ([display](display.md#shift-and-a-drum-kits-machine-sdk-18)).
+Holding Shift and pressing a pad moves the Shift row and the encoders to that pad ([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
 
 A kit's engine may also report that a voice's sound has ended, so stock
 retires its note and the voice is free for the next one before stock's
@@ -1332,7 +1356,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.13 and builds 1.0 to 1.13 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.15 and builds 1.0 to 1.15 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

@@ -42,7 +42,7 @@ alignas(8) unsigned char host_records[16 * 0xe8];
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "line %d: %s\n", __LINE__, #condition); std::exit(1); } } while (0)
 
 namespace {
-// A kit's voices as the hook sees them: a method table and both codes per handle.
+// A kit's voices as the hook sees them: a method table and a send pair per handle.
 const void* kit_table[11];
 const void* stock_table[11];
 struct Handle { const void* const* vtable; u32 codes; };
@@ -67,9 +67,14 @@ i32 drum_send_curve(u32 send, i32 position) {
     if (send) return position;
     return q31::add(q31::multiply(q31::multiply(position, position), 1717986918), q31::multiply(position, 429496729));
 }
-// FX I's code in bits 0..2, FX II's in 3..5, as drum_send_codes gives them.
-// 0 follows the track (TRK); 1 is dry; 7 is a full send of the key's own.
-u32 pair(u32 fx1, u32 fx2) { return fx1 | fx2 << kDrumSendCodeBits; }
+// A send pair of two old 3-bit codes (drum_send_index_of_code), as a key nobody
+// has edited since SDK 1.15 plays them: 0 follows the track (TRK); 1 is dry; 7 is
+// a full send of the key's own.
+u32 pair(u32 fx1, u32 fx2) { return drum_send_pair(drum_send_index_of_code(fx1), drum_send_index_of_code(fx2)); }
+// A pair of two amounts, 0..100 percent, as a key edited since keeps them.
+u32 amounts(u32 fx1, u32 fx2) { return drum_send_pair(drum_send_index_of_amount(fx1), drum_send_index_of_amount(fx2)); }
+// An amount's knob position in Q31, round(N 2^31 / 100), 100 at the maximum.
+i32 amount_position(u32 n) { return n >= 100 ? q31::maximum : static_cast<i32>((int64_t(n) * 2147483648LL + 50) / 100); }
 
 // A stock voice record: its machine object at +0x94 (8d51b53e).
 struct StockVoice { unsigned char bytes[0x94 + sizeof(void*)]; Handle handle; i32 audio[kDrumSendWords]; };
@@ -230,9 +235,9 @@ void expected(i32* followers, i32* owned, const i32* start, const StockVoice* vo
     for (u32 i = 0; i < kDrumSendWords; ++i) {
         int64_t f = start[i], o = 0;
         for (u32 v = 0; v < count; ++v) {
-            const u32 code = drum_send_code(voices[v].handle.vtable == kit_table ? voices[v].handle.codes : 0, send);
-            if (!code) f += voices[v].audio[i];
-            else o += times(kDrumSendGains[send][code], voices[v].audio[i]);
+            const u32 index = drum_send_index(voices[v].handle.vtable == kit_table ? voices[v].handle.codes : 0, send);
+            if (!index) f += voices[v].audio[i];
+            else o += times(drum_send_gain(send, index), voices[v].audio[i]);
         }
         CHECK(f > -(int64_t(1) << 31) && f < (int64_t(1) << 31) && o > -(int64_t(1) << 31) && o < (int64_t(1) << 31));
         const int64_t gain = track_gain(g, i / 2);
@@ -290,7 +295,7 @@ void own_amounts_ignore_the_track_knob() {
     mix(buses, 3, voices, 3, start, off, true, false);
     for (u32 i = 0; i < kDrumSendWords; ++i) {
         const i32 gain = track_gain(off, i / 2);
-        CHECK(buses.fx1[i] == q31::multiply(level, q31::multiply(gain, q31::multiply(kDrumSendGains[0][7], voices[0].audio[i]))));
+        CHECK(buses.fx1[i] == q31::multiply(level, q31::multiply(gain, q31::multiply(drum_send_gain(0, drum_send_index_of_code(7)), voices[0].audio[i]))));
         CHECK(buses.fx2[i] == q31::multiply(level, q31::multiply(gain, q31::multiply(q31::maximum, voices[0].audio[i]))));
     }
     // The main mix is stock's: every voice, dry or wet.
@@ -466,7 +471,8 @@ void level_is_each_blocks() {
     std::memset(start, 0, sizeof start);
     for (u32 i = 0; i < kDrumSendWords; ++i) voice.audio[i] = 1 << 28;
     bind(voice, true, pair(7, 7));
-    const i32 own1 = q31::multiply(kDrumSendGains[0][7], 1 << 28), own2 = q31::multiply(kDrumSendGains[1][7], 1 << 28);
+    const i32 own1 = q31::multiply(drum_send_gain(0, drum_send_index_of_code(7)), 1 << 28),
+              own2 = q31::multiply(drum_send_gain(1, drum_send_index_of_code(7)), 1 << 28);
     for (i32 level : {0x10000000, 0x50000000, 0, 0x7fffffff}) {
         const Gains g = {0, 0, 0, 0, level, kTrackHeld, 0};
         std::memset(&buses, 0, sizeof buses);
@@ -503,41 +509,58 @@ void state_ends_with_its_track() {
 }
 
 void codes_and_amounts() {
-    // Payload word 6 carries FX I's code in bits 25..27 and FX II's in 28..30,
-    // only on a key the kit set up; FILTER and SRR below them stay as they are.
+    // Payload word 0 carries the pair in bits 0..6 and 8..14, read only on a key
+    // the kit set up (word 6's mark); the model bin above bit 16 stays, and so do
+    // bits 7 and 15.
     const i32 marked = i32(42u * 32537631u + 16268815u);
     i32 payload[8] = {marked, 0, 0, 0, 0, 0, 0, 0};
-    for (u32 fx1 = 0; fx1 < kDrumSendCodes; ++fx1)
-        for (u32 fx2 = 0; fx2 < kDrumSendCodes; ++fx2) {
-            const i32 fields = drum_send_store(drum_send_store(0x01ab0000, 0, fx1), 1, fx2);
-            payload[6] = fields | i32(kDrumPadReady);
-            CHECK(drum_send_codes(payload) == pair(fx1, fx2));
-            CHECK((payload[6] & 0x01ffffff) == (0x01ab0000 | i32(kDrumPadReady)));
-            CHECK((static_cast<u32>(payload[6]) >> 25 & 7) == fx1 && (static_cast<u32>(payload[6]) >> 28 & 7) == fx2);
+    for (u32 fx1 = 0; fx1 < kDrumSendIndices; fx1 += 3)
+        for (u32 fx2 = 0; fx2 < kDrumSendIndices; fx2 += 5) {
+            payload[0] = marked;
+            drum_send_carry(payload, drum_send_pair(fx1, fx2));
+            CHECK((static_cast<u32>(payload[0]) & ~kDrumSendPairMask) == (static_cast<u32>(marked) & ~kDrumSendPairMask));
+            CHECK(drum_marked_q31(payload[0]) && drum_send_carried(payload) == drum_send_pair(fx1, fx2));
+            payload[6] = 0x01ab0000 | i32(kDrumPadReady);
+            CHECK(drum_send_codes(payload) == drum_send_pair(fx1, fx2));
+            CHECK(drum_send_index(drum_send_codes(payload), 0) == fx1 && drum_send_index(drum_send_codes(payload), 1) == fx2);
             // Without the set-up value (an SDK 1.9 kit's key, or a preset's) it follows the track.
-            payload[6] = fields;
+            payload[6] = 0x01ab0000;
             CHECK(drum_send_codes(payload) == 0);
-            payload[6] = fields | 0x1234;
+            payload[6] = 0x01ab0000 | 0x1234;
             CHECK(drum_send_codes(payload) == 0);
         }
-    payload[6] = 0x7e000000 | i32(kDrumPadReady);
-    CHECK(drum_send_codes(payload) == pair(7, 7));
     payload[0] = 0;
+    payload[6] = i32(kDrumPadReady);
     CHECK(drum_send_codes(payload) == 0);
     CHECK(drum_send_codes(nullptr) == 0);
-    // Amounts: TRK has none of its own, then knob positions 0, 17, 33, 50, 67,
-    // 83, 100, through each send's stock curve.
-    const i32 shown[kDrumSendCodes] = {0, 0, 17, 33, 50, 67, 83, 100};
+    // Indices: TRK has no gain of its own; an amount N goes through each send's
+    // stock curve at round(N 2^31 / 100); an old code c at (c - 1) / 6, as before.
+    CHECK(drum_send_percent(0) == -1 && drum_send_gain(0, 0) == 0 && drum_send_gain(1, 0) == 0);
+    for (u32 n = 0; n <= 100; ++n) {
+        const u32 index = drum_send_index_of_amount(n);
+        CHECK(index == n + 1 && drum_send_percent(index) == i32(n));
+        for (u32 send = 0; send < kDrumSends; ++send)
+            CHECK(drum_send_gain(send, index) == drum_send_curve(send, amount_position(n)));
+    }
+    const i32 shown[kDrumSendCodes] = {-1, 0, 17, 33, 50, 67, 83, 100};
     for (u32 code = 0; code < kDrumSendCodes; ++code) {
-        CHECK(drum_send_percent(code) == shown[code]);
+        const u32 index = drum_send_index_of_code(code);
+        CHECK(drum_send_percent(index) == shown[code] && (code ? index == kDrumSendOld + code : index == 0));
         const double position = double(kDrumSendPositions[code]) / 2147483648.0;
         const double want = code ? (code - 1) / 6.0 : 0.0;
         CHECK(position > want - 1e-9 && position < want + 1e-9);
         for (u32 send = 0; send < kDrumSends; ++send)
-            CHECK(drum_send_gain(send, code) == (code ? drum_send_curve(send, kDrumSendPositions[code]) : 0));
+            CHECK(drum_send_gain(send, index) == (code ? drum_send_curve(send, kDrumSendPositions[code]) : 0));
     }
+    for (u32 index = kDrumSendIndices; index <= kDrumSendIndexMask; ++index)
+        CHECK(drum_send_gain(0, index) == 0 && drum_send_gain(1, index) == 0 && drum_send_percent(index) == -1);
     // FX I's curve is stock's 0.8 k^2 + 0.2 k: 30 percent of the level at 50.
-    CHECK(drum_send_gain(0, 4) > 644245000 && drum_send_gain(0, 4) < 644245200);
+    CHECK(drum_send_gain(0, 51) > 644245000 && drum_send_gain(0, 51) < 644245200);
+    // An old code and the amount it shows send the same at 0, 50 and 100.
+    for (u32 code : {1u, 4u, 7u})
+        for (u32 send = 0; send < kDrumSends; ++send)
+            CHECK(drum_send_gain(send, drum_send_index_of_code(code)) ==
+                  drum_send_gain(send, drum_send_index_of_amount(u32(drum_send_percent(drum_send_index_of_code(code))))));
 }
 }
 
@@ -551,17 +574,17 @@ void drumline_voices_send_their_kept_codes() {
     static Buses a, b;
     fill(start, 1 << 6);
     const Gains g = {0x60000000, 0x10000000, 0x00100000, 0x50000000, 0x40000000, kTrackFrom, kTrackStep};
-    const u32 codes[4] = {pair(7, 1), pair(0, 4), pair(2, 0), 0};
+    const u32 codes[4] = {pair(7, 1), amounts(37, 100), drum_send_pair(0, drum_send_index_of_amount(12)), 0};
     for (u32 v = 0; v < 4; ++v) {
         fill(lines[v].audio, 1 << 4);
         std::memcpy(kits[v].audio, lines[v].audio, sizeof lines[v].audio);
-        sdk_drum_send_dbox[3 + v] = static_cast<opxy::u8>(codes[v]);
+        sdk_drum_send_dbox[3 + v] = static_cast<opxy::u16>(codes[v]);
         bind_dbox(lines[v], 3 + v);
         bind(kits[v], true, codes[v]);
     }
     std::memset(&a, 0, sizeof a);
     std::memset(&b, 0, sizeof b);
-    sdk_drum_send_dbox[0] = static_cast<opxy::u8>(pair(7, 7));
+    sdk_drum_send_dbox[0] = static_cast<opxy::u16>(pair(7, 7));
     mix(a, 1, lines, 4, start, g, true, false);
     mix(b, 1, kits, 4, start, g, true, false);
     CHECK(same(a, b));
@@ -575,7 +598,7 @@ void drumline_voices_send_their_kept_codes() {
     mix(a, 1, lines, 4, start, g, true, false);
     CHECK(same(stock_buses, a) && idle());
     // An index outside the 27 reads as TRK.
-    sdk_drum_send_dbox[0] = static_cast<opxy::u8>(pair(7, 7));
+    sdk_drum_send_dbox[0] = static_cast<opxy::u16>(pair(7, 7));
     bind_dbox(lines[0], kDboxVoices);
     std::memset(&a, 0, sizeof a);
     mix(a, 1, lines, 1, start, g, true, false);
@@ -601,15 +624,20 @@ void own_amounts_take_their_own_dry() {
     const i32 level = 0x5a827999, x = 0x7fffffff;
     const i32 knobs[4][2] = {{0, 0}, {q31::maximum, 0}, {q31::maximum, q31::maximum}, {0x40002e00, 0x2aaaaaab}};
     const i32 drys[3] = {0, 0x40000000, q31::maximum};
-    for (u32 c1 = 0; c1 < kDrumSendCodes; ++c1)
-        for (u32 c2 = 0; c2 < kDrumSendCodes; ++c2)
+    // TRK, old codes 1, 2, 4 and 7, and the amounts 0, 1, 37, 99 and 100.
+    const u32 cases[10] = {0, kDrumSendOld + 1, kDrumSendOld + 2, kDrumSendOld + 4, kDrumSendOld + 7, 1, 2, 38, 100, 101};
+    const auto position = [](u32 index, i32 knob) {
+        return !index ? knob : index <= kDrumSendAmounts ? amount_position(index - 1) : kDrumSendPositions[index - kDrumSendOld];
+    };
+    for (u32 c1 : cases)
+        for (u32 c2 : cases)
             for (u32 k = 0; k < 4; ++k)
                 for (u32 d = 0; d < 3; ++d)
                     for (u32 empty = 0; empty < 4; empty += 3) {
                         if (!c1 && !c2) continue;   // a TRK key: stock's path, tested elsewhere
                         fill(voice.audio, 1 << (1 + (c1 + c2 + k) % 3));
-                        const i32 p1 = c1 ? kDrumSendPositions[c1] : knobs[k][0];
-                        const i32 p2 = c2 ? kDrumSendPositions[c2] : knobs[k][1];
+                        const i32 p1 = position(c1, knobs[k][0]);
+                        const i32 p2 = position(c2, knobs[k][1]);
                         const Gains at_knobs = {0, q31::multiply(level, drum_send_curve(0, knobs[k][0])), 0,
                                                 q31::multiply(level, knobs[k][1]), level, kTrackHeld, 0,
                                                 knobs[k][1], drys[d], drys[(d + 1) % 3], x, empty};
@@ -619,7 +647,7 @@ void own_amounts_take_their_own_dry() {
                         reset_smoothers();
                         std::memset(&own, 0, sizeof own);
                         std::memset(&knob, 0, sizeof knob);
-                        bind(voice, true, pair(c1, c2));
+                        bind(voice, true, drum_send_pair(c1, c2));
                         mix(own, 6, &voice, 1, start, at_knobs, true, false);
                         bind(voice, true, 0);
                         mix(knob, 7, &voice, 1, start, at_amounts, true, false);
