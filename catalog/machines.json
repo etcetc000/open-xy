@@ -1540,25 +1540,145 @@
       "id": "thunder",
       "kind": "drum",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Tetragon",
+      "tag": "v1.1.0",
+      "commit": "8dd9db49a318f9e8ab6d5bacfbbe2fab8e06f540",
+      "path": "thunder",
+      "keywords": [
+        "physical",
+        "percussion",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-drum-callback-v2",
+        "commit": "8dd9db49a318f9e8ab6d5bacfbbe2fab8e06f540",
+        "firmware_sha256": "06fc10c69772ffdd6098576ef6e0cc263d7f55639986a5446d84333ed9314f20",
+        "runs": 3,
+        "block_percent": 2.171359,
+        "peak_percent": 44.609751,
+        "voice_peak_percent": 10.305943,
+        "midpoint_percent": 2.166781,
+        "kit_percent": 33.284504,
+        "choke_percent": 3.566033,
+        "ceiling_percent": 35.333791,
+        "worst_model": {
+          "run": "voice",
+          "voices": 1,
+          "model": 4,
+          "level": 127
+        },
+        "filter_percent": 44.927138,
+        "filter_peak_percent": 54.549477
+      }
     },
     {
       "id": "curio",
       "kind": "drum",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Tetragon",
+      "tag": "v1.1.0",
+      "commit": "8dd9db49a318f9e8ab6d5bacfbbe2fab8e06f540",
+      "path": "curio",
+      "keywords": [
+        "physical",
+        "percussion",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-drum-callback-v2",
+        "commit": "8dd9db49a318f9e8ab6d5bacfbbe2fab8e06f540",
+        "firmware_sha256": "06fc10c69772ffdd6098576ef6e0cc263d7f55639986a5446d84333ed9314f20",
+        "runs": 3,
+        "block_percent": 1.927214,
+        "peak_percent": 39.975586,
+        "voice_peak_percent": 7.699702,
+        "midpoint_percent": 1.895171,
+        "kit_percent": 22.46128,
+        "choke_percent": 5.159075,
+        "ceiling_percent": 31.837949,
+        "worst_model": {
+          "run": "voice",
+          "voices": 1,
+          "model": 8,
+          "level": 127
+        },
+        "filter_percent": 41.823453,
+        "filter_peak_percent": 52.390326
+      }
     },
     {
       "id": "syahi",
       "kind": "drum",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Tetragon",
+      "tag": "v1.1.0",
+      "commit": "8dd9db49a318f9e8ab6d5bacfbbe2fab8e06f540",
+      "path": "syahi",
+      "keywords": [
+        "physical",
+        "percussion",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-drum-callback-v2",
+        "commit": "8dd9db49a318f9e8ab6d5bacfbbe2fab8e06f540",
+        "firmware_sha256": "06fc10c69772ffdd6098576ef6e0cc263d7f55639986a5446d84333ed9314f20",
+        "runs": 3,
+        "block_percent": 2.485695,
+        "peak_percent": 59.768063,
+        "voice_peak_percent": 10.109102,
+        "midpoint_percent": 2.28275,
+        "kit_percent": 39.678035,
+        "choke_percent": 4.336614,
+        "ceiling_percent": 48.538949,
+        "worst_model": {
+          "run": "voice",
+          "voices": 1,
+          "model": 5,
+          "level": 127
+        },
+        "filter_percent": 59.520867,
+        "filter_peak_percent": 71.567864
+      }
     },
     {
       "id": "galileo",
       "kind": "drum",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Tetragon",
+      "tag": "v1.1.0",
+      "commit": "8dd9db49a318f9e8ab6d5bacfbbe2fab8e06f540",
+      "path": "galileo",
+      "keywords": [
+        "physical",
+        "percussion",
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-drum-callback-v2",
+        "commit": "8dd9db49a318f9e8ab6d5bacfbbe2fab8e06f540",
+        "firmware_sha256": "06fc10c69772ffdd6098576ef6e0cc263d7f55639986a5446d84333ed9314f20",
+        "runs": 3,
+        "block_percent": 2.111849,
+        "peak_percent": 44.158083,
+        "voice_peak_percent": 8.039979,
+        "midpoint_percent": 1.886015,
+        "kit_percent": 22.845808,
+        "choke_percent": 3.149462,
+        "ceiling_percent": 37.392233,
+        "worst_model": {
+          "run": "voice",
+          "voices": 1,
+          "model": 1,
+          "level": 127
+        },
+        "filter_percent": 47.23125,
+        "filter_peak_percent": 54.757
+      }
     },
     {
       "id": "felt",
