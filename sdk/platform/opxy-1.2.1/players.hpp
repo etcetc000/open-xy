@@ -43,8 +43,9 @@ void* player_state(void* object);
 volatile PlayerInput* player_input(void* object);
 // The track's player object when it has this method table, else null.
 void* player_object(u32 track, const void* const* vtable);
-// Registers a player's own page (sdk_register_screen) and, once one is in
-// place, lets the compositor paint it for the Maestro page.
+// Registers a player's own page (sdk_register_screen); once it is in place the
+// compositor may paint it for the Maestro page. Installs the per-frame Shift and
+// page publication and the click count either way.
 int register_player_page(const Record* record, const Screen* screen);
 // The track's four page parameters.
 opxy::player::Controls player_controls(void* object);

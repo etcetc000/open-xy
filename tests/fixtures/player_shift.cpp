@@ -3,7 +3,9 @@
 // Shift flag and encoder clicks, all beside State in the player object.
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <initializer_list>
+#include <new>
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -14,6 +16,7 @@
 using namespace opxy;
 u32 fake_track=0;
 bool fake_shift=false;
+int fake_register=0;
 volatile i32 sdk_track_octaves[8]={};
 namespace {
 u32 selected=6, writes=0;
@@ -37,10 +40,27 @@ const platform::Player* plain() {
     static const platform::Player player={reinterpret_cast<const char*>(7),"plain",plain_vtable,nullptr,nullptr,{4,0,0,0}};
     return &player;
 }
+// A player whose second main slot is absent, with a four-control shift row, built
+// over bytes of 1: whatever follows steps[] (padding here, the shift pointer on the
+// device) reads as an absent slot to code that indexes steps[] past its four entries.
+const void* const gapped_vtable[16]={};
+const platform::PlayerShift row4={4,{3,3,3,3},{centre(0,3),centre(0,3),centre(0,3),centre(0,3)}};
+alignas(platform::Player) unsigned char gapped_bytes[sizeof(platform::Player)];
+const platform::Player* gapped() {
+    static platform::Player* player=nullptr;
+    if(!player) {
+        std::memset(gapped_bytes,1,sizeof gapped_bytes);
+        player=new(gapped_bytes) platform::Player;  // members assigned below; the rest stays 1
+        player->type_id=reinterpret_cast<const char*>(8); player->name="gapped"; player->vtable=gapped_vtable;
+        player->page=nullptr; player->page_ready=nullptr; player->shift=&row4;
+        player->steps[0]=4; player->steps[1]=1; player->steps[2]=0; player->steps[3]=0;
+    }
+    return player;
+}
 }
 extern "C" {
-const platform::PlayerEntry sdk_players[]={{shifted},{plain}};
-const u32 sdk_player_count=2;
+const platform::PlayerEntry sdk_players[]={{shifted},{plain},{gapped}};
+const u32 sdk_player_count=3;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
 void (*sdk_player_press)(u32)=nullptr;
 }
@@ -105,6 +125,26 @@ int main() {
     require(sdk_player_substitute(10)==0);
     sdk_player_click(2);
     require(in->clicks[2]==2);
+
+    // Every player's page registration installs the frame and click hooks, whether
+    // or not stock placed the page.
+    platform::Record record; platform::Screen screen;
+    fake_register=0;
+    require(platform::register_player_page(&record,&screen)==0);
+    require(sdk_screen_substitute==&sdk_player_substitute && sdk_player_press==&sdk_player_click);
+
+    // An absent main slot leaves Shift on its encoder working, and nothing reads
+    // past the four steps for Shift's row (4..7).
+    selected=8;
+    require(sdk_player_build(0,8,0)==slot);
+    fake_shift=true;
+    require(sdk_player_turn(1,two)==1 && in->shift_turns[1]==2 && player::choice(in->shift_value[1],3)==2);
+    require(sdk_player_turn(5,back)==1 && in->shift_turns[1]==1 && player::choice(in->shift_value[1],3)==1);
+    require(sdk_player_turn(6,two)==1 && in->shift_turns[2]==2);
+    fake_shift=false;
+    const u32 before=writes;
+    require(sdk_player_turn(1,two)==1 && writes==before);  // absent: the encoder turns nothing
+    require(sdk_player_turn(5,two)==0);
 
     // A player without a shift row keeps today's turns, even with Shift held.
     selected=7;

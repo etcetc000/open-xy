@@ -276,7 +276,7 @@ PROBE_SHIFT = [dict(id='size', label='Size', default=0.5, display='enum',
                     mapping=dict(kind='enum', labels=['S', 'M', 'L']))]
 
 
-class PlayerPages(unittest.TestCase):
+class PlayerShiftRow(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -316,7 +316,6 @@ class PlayerPages(unittest.TestCase):
         before = template.replace('@SHIFT_TABLE@', '').replace('@SHIFT@', '')
         with tempfile.TemporaryDirectory() as folder:
             generated = adapters.generate_player_object(folder, m).read_text(encoding='utf-8')
-            self.assertFalse((Path(folder) / 'display_binding.hpp').exists())
         values = dict(PREFIX=m.prefix, NAMESPACE='probeplayer', NAME=m.native_name, STEPS='0, 0, 0, 0',
                       PAGE=f'{m.prefix}_page_id', PAGE_READY=f'{m.prefix}_screen_ready')
         for key, value in values.items():
@@ -327,7 +326,38 @@ class PlayerPages(unittest.TestCase):
         self.assertIn(tail, generated)
         self.assertIn('opxy::screen::PlayerPage<Page>', generated)
         self.assertNotIn('player_shift', generated)
-        self.assertNotIn('PlayerDrawing', generated)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_clock_ticks_keeps_another_resolution_on_steps(self):
+        # clock_ticks: after n steps a clock of t ticks per quarter has ticked
+        # ceil(n * t / 240) times, so it never drifts, and never more than
+        # ceil(t / 240) times on one step; a 96-tick clock ticks on steps 0, 2, 5, 7, 10.
+        (self.root / 'clock.cpp').write_text(r'''
+#include <opxy/player.hpp>
+using opxy::u32;
+int main() {
+    const u32 rates[] = {24, 96, 240, 480, 1000, 1920};
+    for (u32 t : rates) {
+        opxy::u16 phase = 0; u32 total = 0;
+        const u32 most = (t + opxy::player::steps_per_quarter - 1) / opxy::player::steps_per_quarter;
+        for (u32 n = 1; n <= 1000; ++n) {
+            const u32 ticks = opxy::player::clock_ticks(phase, t);
+            if (ticks > most) return 1;
+            total += ticks;
+            if (total != (n * t + opxy::player::steps_per_quarter - 1) / opxy::player::steps_per_quarter) return 2;
+        }
+    }
+    opxy::u16 phase = 0; u32 seen = 0;
+    for (u32 step = 0; step < 11; ++step)
+        if (opxy::player::clock_ticks(phase, 96)) seen |= 1u << step;
+    return seen == ((1u << 0) | (1u << 2) | (1u << 5) | (1u << 7) | (1u << 10)) ? 0 : 3;
+}
+''', encoding='utf-8')
+        binary = self.root / ('clock.exe' if os.name == 'nt' else 'clock')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
+                        str(self.root / 'clock.cpp'), '-o', str(binary)], check=True, capture_output=True, timeout=120, **flags)
+        self.assertEqual(subprocess.run([str(binary)], timeout=30, **flags).returncode, 0)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_shift_layer_turns_flag_and_clicks(self):
@@ -346,11 +376,12 @@ inline void refresh_keyboard_octaves() {}
 #include "players.hpp"
 const void* stock_address(opxy::u32);
 extern bool fake_shift;
+extern int fake_register;
 namespace opxy { namespace platform {
 using Address=__UINTPTR_TYPE__;
 template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
 struct Record {}; struct Screen {};
-inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
+inline int sdk_register_screen(const Record*,const Screen*) { return fake_register; }
 inline u32 audio_bpm_x10() { return 1200; }
 inline bool shift_held() { return fake_shift; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }

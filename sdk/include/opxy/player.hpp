@@ -69,9 +69,10 @@ struct Update {
 // current octave, so note - lowest_key is a key's position: 0..11 the lower
 // octave, 12..23 the upper. Sequenced notes keep the pitch they were recorded
 // with, so their position follows the octave at playback.
-// bpm_x10 is the tempo of the clock that runs player steps, in tenths of a
-// BPM (1200 = 120 BPM), or 0 when unknown; a step then lasts
-// 600000000 / (bpm_x10 * steps_per_quarter) microseconds.
+// bpm_x10 is the audio clock's tempo word, in tenths of a BPM (1200 = 120
+// BPM), or 0 outside 20..300 BPM; a step then lasts
+// 600000000 / (bpm_x10 * steps_per_quarter) microseconds. Not checked under
+// external MIDI sync or right after a tempo edit.
 //
 // SDK 1.16, from the GUI, which publishes them; a callback reads the latest:
 // shift is 1 while Shift is held, else 0. It is refreshed once per GUI frame

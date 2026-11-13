@@ -96,13 +96,14 @@ void* player_object(u32 track, const void* const* vtable) {
     return object && *static_cast<const void* const* const*>(object) == vtable ? object : nullptr;
 }
 
+// GUI startup registers every player's page (each player has one). The hooks
+// that publish Shift and the selected page each frame and count encoder clicks
+// are installed whether or not the page was placed: every player's Controls
+// carry Shift and clicks, and the substitute offers a page only once it is ready.
 int register_player_page(const Record* record, const Screen* screen) {
-    const int result = sdk_register_screen(record, screen);
-    if (result == 1) {
-        sdk_screen_substitute = sdk_player_substitute;
-        sdk_player_press = sdk_player_click;
-    }
-    return result;
+    sdk_screen_substitute = sdk_player_substitute;
+    sdk_player_press = sdk_player_click;
+    return sdk_register_screen(record, screen);
 }
 
 opxy::player::Controls player_controls(void* object) {
@@ -195,9 +196,9 @@ u32 sdk_player_turn(u32 index, const opxy::i32* event) {
     if (index >= 8 || !event) return 0;
     const Player* p = owned(stock<u32()>(kSelectedType)());
     if (!p) return 0;
-    if (p->steps[index] == 1) return 1;  // an absent slot: the encoder turns nothing
     const u32 track = selected_track();
     if (track >= kTracks) return 0;
+    // The shift row first: an absent main slot does not block Shift on its encoder.
     if (p->shift && shift_held()) {
         void* object = player_object(track, p->vtable);
         if (object) {
@@ -210,7 +211,8 @@ u32 sdk_player_turn(u32 index, const opxy::i32* event) {
             return 1;
         }
     }
-    if (index >= 4) return 0;
+    if (index >= 4) return 0;  // steps[] has four entries
+    if (p->steps[index] == 1) return 1;  // an absent slot: the encoder turns nothing
     const u32 inherited[4] = {128, 8, 0, 4}; // stock's doubled buckets
     const u32 choices = p->steps[index] >= 2 ? p->steps[index] : inherited[index];
     if (!choices) {
