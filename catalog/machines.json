@@ -2239,7 +2239,30 @@
       "id": "conductor",
       "kind": "synth",
       "maintainer": "mmockett",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Conductor",
+      "tag": "v1.0.0",
+      "commit": "ec8631fdfd60144b0e63a60ec88a6172df518547",
+      "path": ".",
+      "keywords": [
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "ec8631fdfd60144b0e63a60ec88a6172df518547",
+        "firmware_sha256": "8de29b2ddd60d36709e3036d0afc62a265f8b095445b17821c13d51a95cd0f7b",
+        "runs": 2,
+        "block_percent": 0.830091,
+        "peak_percent": 0.965896,
+        "midpoint_percent": 0.799573,
+        "combined_percent": 0.814832,
+        "worst_setting": {
+          "control": 0,
+          "label": "Key",
+          "value": 447392426,
+          "option": "D"
+        }
+      }
     },
     {
       "id": "nexus",
