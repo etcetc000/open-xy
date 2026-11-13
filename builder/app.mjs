@@ -443,6 +443,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         canvas.append(header, renderer.root); $('art-preview').replaceChildren(canvas);
         // Eight parameter words; each control position shows the parameter last edited there.
         const parameters = Object.assign(Array(8).fill(0), m.preview.defaults), shown = [0, 1, 2, 3];
+        // A synth's Shift row (SDK 1.13): render's words 8..15, played at their defaults.
+        const shiftWords = m.preview.shift ?? [];
+        const voiceWords = () => [...parameters, ...shiftWords];
         let serial = 0, previous = 0, handle, cancelled = false;
         const noteActivity = new retained.NoteActivity();
         // A small keyboard from middle C: a key plays its note while held. The preview plays
@@ -476,7 +479,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         const volume = node('label', 'Volume', 'audition-volume'), level = node('input');
         level.type = 'range'; level.min = '0'; level.max = '100'; level.value = '50'; level.setAttribute('aria-label', 'Preview volume');
         volume.append(level);
-        const audio = new audition(compiled, parameters, (playing, error) => {
+        const audio = new audition(compiled, voiceWords(), (playing, error) => {
           if (!cancelled) frame(0);
           if (error && ticket === previewRevision) $('art-caption').textContent = 'Audio unavailable: ' + error;
         });
@@ -491,7 +494,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         function frame(dt = 34) {
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
-          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity));
+          const row = shiftWords.length ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
+            {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}] : [];
+          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row));
           // The machine's header text, or the stock percentage of the shown parameter.
           header.innerHTML = retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
             shown.map((slot, i) => renderer.header[i] || String(Math.round(parameters[slot] / 0x7fffffff * 100))));
@@ -505,7 +510,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           input.oninput = () => {
             parameters[i] = Math.round(Number(input.value) / 1000 * 0x7fffffff);
             shown.splice(0, 4, ...editedShown(shown, m.positions, i, m.pages));
-            frame(0); audio.setParameters(parameters);
+            frame(0); audio.setParameters(voiceWords());
           };
           label.append(input); return label;
         });
