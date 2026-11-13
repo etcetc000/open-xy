@@ -801,8 +801,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Hexagon",
-      "tag": "v1.7.2",
-      "commit": "5d3525402459b6c7675bc7cf53bdee1c959b7402",
+      "tag": "v1.7.3",
+      "commit": "ed47d088d3ba8b8ebaf531e1cd03e91db07d7387",
       "path": "moth",
       "keywords": [
         "emulation",
@@ -919,8 +919,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Nonagon",
-      "tag": "v0.9.2",
-      "commit": "b2464a8a3ff1dd1726cd3ccebd620cd71402f5bb",
+      "tag": "v0.9.3",
+      "commit": "16cf7660ec5d67ed724024f85856493e56d7df45",
       "path": "fermi",
       "keywords": [
         "physical",
@@ -1080,8 +1080,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-MNMD",
-      "tag": "v1.3.5",
-      "commit": "2b66fbfbecc6e7ef5c39da8ee2ffd19a60c41022",
+      "tag": "v1.3.6",
+      "commit": "9f9a59ff60f6ba9d33847ae02bc6f664843be323",
       "path": "machines/mdkit",
       "keywords": [
         "emulation",
@@ -1578,8 +1578,8 @@
       "maintainer": "mmockett",
       "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-Tetragon",
-      "tag": "v1.1.1",
-      "commit": "ae0a9c8b06f5c82916cdb1063bde10afcde43344",
+      "tag": "v1.1.2",
+      "commit": "17b2e86e3182bbc3cc4a77d68de11d055c573b47",
       "path": "curio",
       "keywords": [
         "physical",
