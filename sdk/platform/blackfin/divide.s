@@ -9,7 +9,9 @@
  * low half) when it does not; the remainder is the dividend less quotient x
  * divisor. Larger divisors align the divisor with the dividend's top bit and
  * run only quotient-width shift/subtract steps. Results are the exact C
- * quotient/remainder, the same as before for every operand.
+ * quotient/remainder (division by zero aside, as before). The previous helpers
+ * were compared with these on a Blackfin simulator outside this repository;
+ * tests/test_runtime_helpers.py runs this file in an instruction model.
  *
  * ABI (as libgcc): R0 = dividend, R1 = divisor -> R0 = quotient. __udivsi3
  * also leaves the remainder in R3. Clobbers R1..R3, P0 (and R4 is saved in
