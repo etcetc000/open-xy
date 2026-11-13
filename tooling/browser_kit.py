@@ -69,6 +69,15 @@ def kit_presets(m):
     return {name: dict(preset, regions=[]) if name in emptied else preset for name, preset in presets.items()}
 
 
+def kit_preview(definition):
+    """A drum kit's models, their groups and whether its keys hold pan, level and pad fields."""
+    resources = definition['resources']
+    kit = dict(models=resources['modelCount'], padMix=bool(resources.get('padMix', 0)))
+    if resources.get('modelGroups'):
+        kit['groups'] = [dict(label=g['label'], count=g['count']) for g in resources['modelGroups']]
+    return kit
+
+
 def machine_entry(m, profile, sources, output, preview_cxx):
     """A machine as the kit lists it for the builder."""
     # The numbers it asks for, null where it leaves them to the layout; the builder
@@ -109,7 +118,7 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         if m.grayscale:
             entry['grayscaleArtwork'] = read(m.root / m.grayscale).decode('utf-8')
         entry['asset'] = m.native_name + '.svg'
-    if m.display != 'stock' and m.kind == 'synth':
+    if m.display != 'stock' and m.kind in ('synth', 'drum'):
         preview_dir = output / ('preview-' + m.id)
         preview.build(preview_cxx, m, preview_dir)
         preview.preview_bundle(preview_dir, require_reference=True)
@@ -120,6 +129,10 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         # A synth's Shift row (SDK 1.13): the eight words its preview renders after the controls.
         if synth_shift(m.definition):
             entry['preview']['shift'] = shift_words(m.definition)
+        # A drum kit: what its keys choose from, for the builder's audition and default frame
+        # (builder/core.mjs kitKey). Each key's model and controls come from the module.
+        if m.kind == 'drum':
+            entry['preview']['kit'] = kit_preview(m.definition)
     # A synth with a Shift row: its own presets keep the row in sample-less regions
     # (builder/core.mjs presetFiles).
     if m.kind == 'synth' and synth_shift(m.definition):
@@ -209,6 +222,7 @@ def write_builder(kit, output):
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject readLayout assignNumbers chosenByDefault moduleBytes heapBytes offersExpandedMemory memoryKit openKit linkKit readLdr '
                'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName '
+               'KIT_KEYS kitWord kitKey kitModel kitGroup kitChoices kitMix kitHeader '
                'MACHINE_KEYWORDS keywordsByUse browseMachines machineAuthor CPU_HIGH_PERCENT cpuWorstCase cpuHigh PRESET_NAME_LIMIT readPresets savePreset deletePreset presetMatches applyPreset').split()
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
@@ -247,10 +261,10 @@ def write_builder(kit, output):
     modules = [
         ('graphics-configuration.mjs', "import {graphicsForMachine} from './core.mjs';\n",
          'const {graphicsForMachine} = Core;', 'createGraphicsConfiguration'),
-        ('machine-snapshots.mjs', "import {decode64, requireThat, sha256} from './core.mjs';\n"
+        ('machine-snapshots.mjs', "import {decode64, kitChoices, kitHeader, kitKey, kitMix, kitModel, kitWord, requireThat, sha256} from './core.mjs';\n"
          "import * as Retained from '../sdk/browser/display.mjs';\n"
          "import {shownControls} from '../sdk/browser/controls.mjs';\n",
-         'const {decode64, requireThat, sha256} = Core;', 'createSnapshotService'),
+         'const {decode64, kitChoices, kitHeader, kitKey, kitMix, kitModel, kitWord, requireThat, sha256} = Core;', 'createSnapshotService'),
         ('graphics-dialog.mjs', "import {selectArtwork} from '../sdk/browser/graphics.mjs';\n",
          'const {selectArtwork} = Graphics;', 'createGraphicsDialog'),
     ]

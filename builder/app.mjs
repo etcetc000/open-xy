@@ -378,7 +378,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('audition-controls').replaceChildren();
     stopAudio = () => {};
     if (m.preview) {
-      $('art-caption').textContent = 'Audition the sound and screen. The OP–XY’s own envelopes and effects aren’t included.';
+      $('art-caption').textContent = m.preview.kit
+        ? 'Play the kit’s keys: each plays its own machine, one hit at a time, and shows it on the screen. The OP–XY’s own effects aren’t included.'
+        : 'Audition the sound and screen. The OP–XY’s own envelopes and effects aren’t included.';
     } else {
       $('art-preview').append(node('span', 'No browser preview for this machine yet.', 'art-placeholder'));
       $('art-caption').textContent = '';
@@ -411,19 +413,31 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         // A synth's Shift row (SDK 1.13): render's words 8..15, played at their defaults.
         const shiftWords = m.preview.shift ?? [];
         const voiceWords = () => [...parameters, ...shiftWords];
+        // A drum kit (SDK kits): each key keeps its own model and controls, set up as the kit's
+        // drum_defaults sets them; pressing a key selects it, as on the device. Controls are 0..127.
+        const kit = m.preview.kit, keys = new Map();
+        let selected = null, names = null;
+        const selectKey = key => {
+          if (!keys.has(key)) keys.set(key, core.kitKey(display.api, kit, key));
+          selected = keys.get(key); names = core.kitModel(display.api, kit, selected.model);
+          parameters.splice(0, 8, ...selected.controls.map(core.kitWord));
+        };
+        if (kit) selectKey(53);
         let serial = 0, previous = 0, handle, cancelled = false;
         const noteActivity = new retained.NoteActivity();
         // A small keyboard from middle C: a key plays its note while held. The preview plays
         // one note at a time, the newest held key; letting it go returns to the one before.
-        const names = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'], held = [];
+        // A kit's keyboard is its 24 keys, F3 to E5; each hit plays out until the next.
+        const noteNames = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'], held = [];
         const keyboard = node('div', undefined, 'preview-keys');
         keyboard.id = 'preview-keys'; keyboard.setAttribute('role', 'group'); keyboard.setAttribute('aria-label', 'Preview keyboard');
-        for (let note = 60; note <= 77; note++) {
-          const black = [1, 3, 6, 8, 10].includes(note % 12), name = names[note % 12] + (Math.floor(note / 12) - 1);
+        for (const note of kit ? core.KIT_KEYS : Array.from({length:18}, (_, i) => 60 + i)) {
+          const black = [1, 3, 6, 8, 10].includes(note % 12), name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
           const key = node('button', note % 12 === 0 ? name : undefined, 'preview-key' + (black ? ' black' : ''));
           key.type = 'button'; key.setAttribute('aria-label', name);
           const press = () => {
             if (key.dataset.down === 'true') return;
+            if (kit && selected.key !== note) chooseKey(note);
             key.dataset.down = 'true'; held.push(note); noteActivity.noteOn(note); trigger(); audio.play(note);
           };
           const lift = () => {
@@ -432,8 +446,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
             const sounding = held.at(-1) === note;
             held.splice(held.indexOf(note), 1);
             noteActivity.noteOff(note); frame(0);
+            // A kit's hit plays out, as a kit's voices on the device ignore the key's release.
+            if (kit) return;
             if (sounding && held.length) audio.play(held.at(-1)); else audio.release(note);
           };
+          if (kit) { key.dataset.note = String(note); key.dataset.selected = String(note === selected.key); }
           key.onpointerdown = e => { e.preventDefault(); key.setPointerCapture(e.pointerId); key.focus(); press(); };
           key.onpointerup = key.onpointercancel = key.onlostpointercapture = lift;
           key.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (!e.repeat) press(); } };
@@ -448,37 +465,79 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           if (!cancelled) frame(0);
           if (error && ticket === previewRevision) $('art-caption').textContent = 'Audio unavailable: ' + error;
         });
+        // A kit's selected key's model, chosen on the device with Shift and the first encoder.
+        const model = node('label', undefined, 'audition-model'), modelSelect = node('select');
+        if (kit) {
+          audio.setModel(selected.model);
+          model.append(node('span', 'Machine'), modelSelect);
+          modelSelect.setAttribute('aria-label', 'Selected key’s machine');
+          for (let i = 0; i < kit.models; i++) {
+            const label = core.kitGroup(kit, i).label;
+            const option = node('option', (label ? label + ' ' : '') + core.kitModel(display.api, kit, i).name);
+            option.value = String(i); modelSelect.append(option);
+          }
+          modelSelect.value = String(selected.model);
+          // A new model keeps the key's controls, as on the device.
+          modelSelect.onchange = () => {
+            selected.model = Number(modelSelect.value); names = core.kitModel(display.api, kit, selected.model);
+            audio.setModel(selected.model); syncControls(); frame(0);
+          };
+        }
         stopAudio = () => {
           held.length = 0;
           for (const key of keyboard.children) key.dataset.down = 'false';
           noteActivity.panic(); frame(0); audio.stop();
         };
         level.oninput = () => audio.setVolume(Number(level.value) / 100);
-        $('audition-controls').append(keyboard, volume);
+        $('audition-controls').classList.toggle('kit', Boolean(kit));
+        $('audition-controls').append(keyboard, ...(kit ? [model] : []), volume);
         const reduced = matchMedia('(prefers-reduced-motion: reduce)');
         function frame(dt = 34) {
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
           const row = shiftWords.length ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
             {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}] : [];
-          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row));
-          // The machine's header text, or the stock percentage of the shown parameter.
-          header.innerHTML = retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
-            shown.map((slot, i) => renderer.header[i] || String(Math.round(parameters[slot] / 0x7fffffff * 100))));
+          // A kit's selected key: its model, Shift's choices for it, and its pan, level and pad fields.
+          const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
+            shown.some(slot => slot >= 4) ? 1 : 0] : [];
+          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row, ...drum));
+          // The machine's header text, or the stock header: a synth's percentage of the shown
+          // parameter, a kit's model's label and 0..127 value.
+          const [titles, values] = kit ? core.kitHeader(names, selected.controls, shown)
+            : [shown.map(slot => m.controls[slot].toLowerCase()), shown.map(slot => String(Math.round(parameters[slot] / 0x7fffffff * 100)))];
+          header.innerHTML = retained.headerSvg(titles, values.map((value, i) => renderer.header[i] || value));
         }
         const controls = m.controls.map((name, i) => {
           const label = node('label', undefined, 'preview-control'), input = node('input');
           label.title = name;
           label.append(node('span', name));
-          input.type = 'range'; input.min = '0'; input.max = '1000'; input.step = '1';
+          input.type = 'range'; input.min = '0'; input.max = kit ? '127' : '1000'; input.step = '1';
           input.value = String(parameters[i] / 0x7fffffff * 1000); input.setAttribute('aria-label', name + ' preview');
           input.oninput = () => {
-            parameters[i] = Math.round(Number(input.value) / 1000 * 0x7fffffff);
+            if (kit) selected.controls[i] = Number(input.value);
+            parameters[i] = kit ? core.kitWord(selected.controls[i]) : Math.round(Number(input.value) / 1000 * 0x7fffffff);
             shown.splice(0, 4, ...editedShown(shown, m.positions, i, m.pages));
             frame(0); audio.setParameters(voiceWords());
           };
           label.append(input); return label;
         });
+        // A kit's sliders follow the selected key: its model's labels and its values. An unused
+        // slot is blank and ignores turns, as on the device.
+        function syncControls() {
+          controls.forEach((label, i) => {
+            const name = names.labels[i] || m.controls[i], input = label.children[1];
+            label.title = name; label.children[0].textContent = names.used[i] ? name : '–';
+            input.setAttribute('aria-label', name + ' preview');
+            input.value = String(selected.controls[i]); input.disabled = !names.used[i];
+          });
+        }
+        function chooseKey(note) {
+          selectKey(note);
+          for (const key of keyboard.children) key.dataset.selected = String(Number(key.dataset.note) === note);
+          modelSelect.value = String(selected.model); audio.setModel(selected.model);
+          syncControls(); audio.setParameters(voiceWords());
+        }
+        if (kit) syncControls();
         $('controls').replaceChildren(...controls);
         const trigger = () => { serial = serial + 1 >>> 0; frame(0); };
         canvas.setAttribute('role', 'button'); canvas.setAttribute('tabindex', '0'); canvas.setAttribute('aria-label', 'Trigger ' + m.name + ' display preview');

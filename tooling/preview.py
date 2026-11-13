@@ -19,6 +19,8 @@ VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment',
                  '__heap_base')
 DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
                                                             'input', 'frame', 'reset', 'render', 'valid', 'sample'))
+# A drum kit's keys and names (adapters.DRUM_KEYS), which the builder reads.
+DRUM_EXPORTS = ('opxy_drum_defaults', 'opxy_drum_model_name', 'opxy_drum_label', 'opxy_drum_count')
 MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
 SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
@@ -45,6 +47,7 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
     memory = MEMORY
     # A synth with a Shift row (SDK 1.13) also exports the row its display reads.
     exports = VOICE_EXPORTS + DISPLAY_EXPORTS + (('opxy_display_shift',) if kind == 'synth' and synth_shift(definition) else ())
+    exports += DRUM_EXPORTS if kind == 'drum' else ()
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={memory}',
                f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in exports)]
@@ -53,12 +56,15 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
             f'\nCheck the compiler with: python sdk.py doctor --preview --cxx "{compiler}"')
     display = definition.get('resources', {}).get('display', {})
-    check_runtime(out / 'engine.wasm', display.get('paths', 0), display.get('points', 0))
+    # A drum kit's model count, for the contract to read every key and model the builder shows.
+    models = (definition['resources']['modelCount'],) if kind == 'drum' else ()
+    check_runtime(out / 'engine.wasm', display.get('paths', 0), display.get('points', 0), *models)
 
 
-def check_runtime(module, paths=0, points=0):
+def check_runtime(module, paths=0, points=0, models=0):
     """Smoke-test host contracts without requiring a particular sound."""
-    result = subprocess.run(['node', str(ROOT / 'tools/check_preview_contract.mjs'), str(module), str(paths), str(points)],
+    result = subprocess.run(['node', str(ROOT / 'tools/check_preview_contract.mjs'), str(module), str(paths), str(points),
+                             str(models)],
                             capture_output=True, text=True, timeout=120,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview contract check failed:\n' + result.stdout + result.stderr)
