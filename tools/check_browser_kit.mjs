@@ -3,7 +3,7 @@ import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
-import {openKit, linkKit, readLayout, sha256, checkedSelections, extensionChoices, selectionBit, memoryKit, offersExpandedMemory, moduleBytes} from '../builder/core.mjs';
+import {openKit, linkInputs, linkKit, readLayout, sha256, checkedSelections, extensionChoices, selectionBit, memoryKit, offersExpandedMemory, moduleBytes} from '../builder/core.mjs';
 
 const [kitFile, objectDir, ld, objcopy, packageLayout] = process.argv.slice(2);
 const kit = await openKit(JSON.parse(readFileSync(kitFile, 'utf8')));
@@ -25,13 +25,35 @@ if (offersExpandedMemory(kit.profile)) {
   writeFileSync(script, reviewed.replace(memoryLine(kit.profile), memoryLine(expanded.profile)));
   layouts.push({suffix: '-expanded', kit: expanded, script, results: [], file: 'selections-expanded.json'});
 }
-// Links one selection in the browser and with GNU ld and requires identical modules.
+function gnuLink(memory, prefix, definitions, objects) {
+  execFileSync(ld, ['-T', memory.script, '-e', 'extensions_synth_exit', '-o', prefix + '.elf',
+    ...definitions.map(([key, value]) => `--defsym=${key}=${value}`),
+    ...objects.map(o => resolve(objectDir, o.name))], {stdio: 'pipe', windowsHide: true});
+}
+
+const hex = entries => Object.entries(entries).map(([key, value]) => [key, `0x${value.toString(16)}`]);
+
+// Fits must match GNU's bytes. Over-budget optional choices must be rejected by both linkers.
 async function parity(memory, mask, selected, extensions, numbering, name) {
-  const linked = linkKit(memory.kit, selected, numbering, extensions), prefix = resolve(destination, name);
-  const definitions = [...Object.entries(linked.definitions), ...linked.aliases.entries()]
-    .map(([key, value]) => `--defsym=${key}=0x${value.toString(16)}`);
-  execFileSync(ld, ['-T', memory.script, '-e', 'extensions_synth_exit', '-o', prefix + '.elf', ...definitions,
-    ...linked.objects.map(o => resolve(objectDir, o.name))], {stdio: 'pipe', windowsHide: true});
+  const prefix = resolve(destination, name);
+  let linked;
+  try {
+    linked = linkKit(memory.kit, selected, numbering, extensions);
+  } catch (error) {
+    if (error.capacity !== true || !extensions.length ||
+        (numbering && extensions.length === kit.extensions.length)) throw error;
+    const inputs = linkInputs(memory.kit, selected, numbering, extensions);
+    const definitions = [...hex(inputs.definitions), ...inputs.fallbacks.map(([key, target]) => [key, target])];
+    assert.throws(() => gnuLink(memory, prefix, definitions, inputs.objects), failure => {
+      const stderr = failure.stderr?.toString() ?? '';
+      return /region `MODULE' overflowed by \d+ bytes|Module overlaps the relocated tables/.test(stderr) &&
+        !/undefined reference|relocation truncated|multiple definition/.test(stderr);
+    }, `GNU must also reject this over-budget selection: ${selected.join(', ')} with ${extensions.join(', ')}`);
+    console.log('Both linkers rejected an over-budget selection' + memory.suffix + ':',
+      selected.join(' + '), 'extensions:', extensions.join(','));
+    return;
+  }
+  gnuLink(memory, prefix, [...hex(linked.definitions), ...hex(Object.fromEntries(linked.aliases))], linked.objects);
   execFileSync(objcopy, ['-O', 'binary', prefix + '.elf', prefix + '.bin'], {stdio: 'pipe', windowsHide: true});
   const actual = readFileSync(prefix + '.bin');
   assert.deepEqual(Buffer.from(linked.module), actual, 'GNU linker mismatch: ' + selected.join(', '));
@@ -51,10 +73,8 @@ for (const mask of checkedSelections(kit.machines, kit.linked)) {
   for (const memory of layouts) await parity(memory, mask, selected, extensions, numbering,
     `${digest}-${choice}` + (numbering ? '-native' : '') + memory.suffix);
 }
-// The checked selections all fit standard memory. The reason to choose the larger
-// one is a selection that does not: the whole collection, with the largest valid
-// extension choice, is checked at it whenever it needs more than standard memory
-// and fits the larger.
+// Check the whole collection at the larger layout as well when a choice
+// exceeds standard memory and fits the larger layout.
 if (layouts.length > 1) {
   const all = kit.machines.map(m => m.id);
   // The whole collection's allocated bytes with an extension choice, or null when it does

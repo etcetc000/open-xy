@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tooling.formats import elf32, ldr, mapped_offset, require, sha
 from tooling import extensions, screen, startup_label, stock_tables
-from tooling.adapters import catalog_defaults
+from tooling.adapters import aux_preset_files, catalog_defaults
 from tooling.firmware import active_services, assemble, hook_instruction, patch_active
 from tooling.machines import number_layout
-from tooling.native import configuration, number_suffixes, package_collection
+from tooling.native import Collection, configuration, number_suffixes, package_collection, service_users
 
 
 def check_startup_label(module, symbols, base, expected):
@@ -69,17 +69,10 @@ def expanded_profile(profile):
     return expanded
 
 
-def selection_services(kit, result):
-    """The services a selection links (builder/core.mjs activeServices): its machines' kinds
-    and declared features, its extensions, and a master processor among them."""
-    selected = [m for m in kit['machines'] if m['id'] in result['selected']]
-    return active_services(kit['profile'], [m['kind'] for m in selected] +
-                           [f for m in selected for f in m.get('features', [])] +
-                           (['extension'] if result['extensions'] else []) +
-                           # kit.json names it master_processor; older kits, master_filter (core.mjs processorOf).
-                           (['master_filter'] if any((e.get('master_processor') or e.get('master_filter')) and
-                                                     e['id'] in result['extensions']
-                                                     for e in kit.get('extensions', [])) else []))
+def selection_services(profile, result, machines_by_id, extension_sources):
+    selected = Collection((machines_by_id[ident] for ident in result['selected']),
+                          (extension_sources[ident] for ident in result['extensions']))
+    return active_services(profile, service_users(selected))
 
 
 def assembled(stock, module, symbols, reviewed, services, profiling):
@@ -141,7 +134,7 @@ def check_numbers(kit, result, symbols):
     return numbers
 
 
-def check_expanded(directory, kit, stock, boot_label):
+def check_expanded(directory, kit, stock, boot_label, machines_by_id, extension_sources):
     """GNU-linked 4 MiB modules: their symbols and sizes, and Python's LDR equal to the browser's."""
     results = directory / 'reference/selections-expanded.json'
     # A profile with the layout must pass its checks here (named errors) before its results are required.
@@ -154,7 +147,7 @@ def check_expanded(directory, kit, stock, boot_label):
         prefix = directory / 'reference' / result['name']
         module, symbols = check_module(prefix, result, reviewed, boot_label)
         check_numbers(kit, result, symbols)  # every 4 MiB build, the whole collection included
-        services = selection_services(kit, result)
+        services = selection_services(reviewed, result, machines_by_id, extension_sources)
         for profiling, suffix in ((True, '.ldr'), (False, '.profiling-off.ldr')):
             require(assembled(stock, module, symbols, reviewed, services, profiling) == prefix.with_suffix(suffix).read_bytes(),
                     'Python/browser firmware differs (experimental memory): ' + suffix)
@@ -167,7 +160,7 @@ def main():
     kit = json.loads((directory / 'kit.json').read_text(encoding='utf-8'))
     # Definitions of the machines the kit was built from, wherever they live.
     collection = configuration(package_collection(directory / 'source'))[1]
-    definitions = {m.id: m.definition for m in collection}
+    machines_by_id = {m.id: m for m in collection}
     extension_sources = {e.id: e for e in collection.extensions}
     stock = stock_file.read_bytes()
     require(sha(stock) == kit['profile']['stock_sha256'], 'Unexpected stock input')
@@ -202,12 +195,13 @@ def main():
         prefix = directory / 'reference' / result['name']
         module, symbols = check_module(prefix, result, kit['profile'], boot_label)
         numbers = check_numbers(kit, result, symbols)
-        services = selection_services(kit, result)
+        services = selection_services(kit['profile'], result, machines_by_id, extension_sources)
         modes = {}
         for profiling in (True, False):
             expected = assembled(stock, module, symbols, kit['profile'], services, profiling)
             suffix = '.ldr' if profiling else '.profiling-off.ldr'
-            require(expected == prefix.with_suffix(suffix).read_bytes(), 'Python/browser firmware differs: ' + suffix)
+            require(expected == prefix.with_suffix(suffix).read_bytes(),
+                    f'Python/browser firmware differs: {result["name"]}{suffix}')
             modes[profiling] = expected
         # The modes differ only inside the reviewed profiling hook windows.
         restored = bytearray(modes[False])
@@ -223,7 +217,7 @@ def main():
         catalog = json.loads((content / 'op1_factory.json').read_bytes())
         for machine in selected:
             if not machine['catalog']:
-                continue  # an aux machine is no instrument: it has no menu entry (builder/core.mjs presetPath)
+                continue  # Aux machines have no stock instrument menu entry.
             key = {'effect': 'fx_types', 'player': 'seq_types'}.get(machine['kind'], 'engine_types')
             entry = json.loads(machine['catalog'].strip().lstrip(','))
             # An effect's or player's menu entry carries this selection's number, which
@@ -237,13 +231,12 @@ def main():
         require(json.loads(actual_catalog) == catalog, 'Browser catalog differs')
         expected_files = {'os.ldr': expected, 'content/op1_factory.json': actual_catalog}
         for machine in selected:
-            if not machine['catalog']:
-                # An aux machine's presets are the files the kit generated (tooling.adapters.aux_preset_files).
-                for name, text in machine.get('auxPresets', {}).items():
-                    data = (prefix / name).read_bytes()
-                    require(json.loads(data) == json.loads(text), 'Aux preset differs: ' + name)
-                    expected_files[name] = data
-            elif machine['kind'] in ('synth', 'drum', 'sample'):
+            source = machines_by_id[machine['id']]
+            for name, preset in aux_preset_files(source).items():
+                data = (prefix / name).read_bytes()
+                require(json.loads(data) == json.loads(preset), 'Aux preset differs: ' + name)
+                expected_files[name] = data
+            if machine['catalog'] and machine['kind'] in ('synth', 'drum', 'sample'):
                 name = 'content/presets/' + machine['id'] + '/default.json'
                 data = (prefix / name).read_bytes()
                 preset = json.loads(data)
@@ -251,7 +244,7 @@ def main():
                 if 'default' in own:
                     require(preset == own['default'], 'Machine preset differs: default')
                 else:
-                    definition = definitions[machine['id']]
+                    definition = source.definition
                     defaults = [16384] * 8 if machine['kind'] == 'drum' else catalog_defaults(definition)
                     entry = json.loads(machine['catalog'].strip().lstrip(','))
                     require(preset['type'] == entry['type'] and preset['platform'] == 'OP-XY' and
@@ -281,7 +274,7 @@ def main():
             require(set(archive.namelist()) == set(expected_files) and archive.testzip() is None, 'Invalid ZIP file')
             for name, data in expected_files.items():
                 require(archive.read(name) == data, 'ZIP payload differs')
-    expanded = check_expanded(directory, kit, stock, boot_label)
+    expanded = check_expanded(directory, kit, stock, boot_label, machines_by_id, extension_sources)
     print('Independent GNU/Python verification passed for the checked selections (module, symbols, BSS, LDR, assets, ZIP)'
           + (f', and {expanded} at the experimental 4 MiB layout (module, symbols, BSS, LDR).' if expanded else '.'))
 

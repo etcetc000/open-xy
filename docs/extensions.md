@@ -71,7 +71,7 @@ filters to that track for it.
 | Kind | What | Here |
 | --- | --- | --- |
 | Events | Something happened | The `Hooks` callbacks |
-| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify` |
+| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::checkpoint`, `Actions::notify` |
 | Surfaces | Add to the screen | None for extensions yet: menu rows, pages, overlays |
 | Saved state | Data kept with a project | None for extensions yet |
 
@@ -94,7 +94,7 @@ only for the callback. The SDK does not sandbox native code.
 | `selected_note_off` | A live release on the selected track, playing or not; may have no preceding onset | Live release |
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
-| `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
+| `queued_control` | A queued key (not keyboard keys 26–49) after stock handled it or the SDK consumed a registered chord, with a microsecond time. `accepted`: stock took it as input, or the chord was accepted; `unmodified`: no other key or Shift held. `modifier` is the chord's modifier key, otherwise `keys::none`. Key numbers are in `keys` | Key queue |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
 scale 1 has 480 ticks per step. Stock's pickup gives negative positions near
@@ -114,6 +114,14 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   [`DoubleTap`](../sdk/include/opxy/double_tap.hpp) helper handles taps, holds,
   repeats and timeouts on any key without delaying stock controls.
   `record_double_tap` is capture's.
+  A claim may declare `chords`, the queued keys used with its `key` as a
+  modifier. The SDK defers that modifier's press on normal performance screens.
+  A matching chord bypasses stock and reports its modifier in `Control`;
+  repeats are suppressed and releases stay balanced in either order. An unused
+  modifier tap replays on release; another combination replays the modifier
+  before its next key. Shift, extra held controls and modal screens keep stock
+  dispatch. With no owner selected, there is no deferral. The
+  `metronome_checkpoint` claim owns Metronome + plus/minus/Record.
 - **An action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
@@ -127,11 +135,50 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
+  - `checkpoint` (requires `metronome_checkpoint`) unlocks `Actions::checkpoint`:
+    `CheckpointCommand::store`, `restore` or `undo`. It stores one temporary
+    scene checkpoint, recalls it or recovers the state before the last recall.
+    The action returns a `CheckpointResult`; a refusal changes no live pattern.
 
   Calls outside the callback, with a stale context, or a second write or
   popup in one callback are refused.
 
 Observers cannot transform notes or suppress stock input.
+
+### Scene checkpoints
+
+The SDK captures the scene's active instrument/aux patterns, linked sound-source
+patterns, assignments and mute flags, plus SDK control-machine saved data and
+the captured aux patterns' kept stock-role controls. Full pattern records include
+notes, locks, components, length/scale, sound/sample assignments and per-pattern
+mix parameters. Shared patterns and linked sources also affect other scenes
+that use them. Tempo, song arrangement, global mixer/master settings, sample
+files and transient voices/DSP state are outside the checkpoint.
+
+A checkpoint is RAM-only, bound to its project generation and scene. Track and
+page changes preserve it; visiting another scene preserves it but cannot recall
+it there. Project replacement, including reloading the same project, clears it
+and releases retained samples. Changed pattern counts refuse recall. A store
+failure preserves the previous checkpoint. Normal saves/autosaves do not move
+the checkpoint and still save the working project normally.
+
+Restore validates the complete state before changing any pattern, preserves a
+recovery state including displaced original targets, then refreshes all tracks
+through stock's pattern-paste path at the current clock position. It discards
+stock's stale single-track undo identities; `undo` recovers the complete
+pre-recall state once, without redo. A redundant recall preserves that recovery.
+Recording/held recording notes refuse the action. Stock paste can release voices;
+device timing must be tested on the exact image.
+
+Checkpoint users link a 640 KiB pool shared by the checkpoint and the staged
+snapshot. Recovery stores differences from the checkpoint where they are smaller
+than a full compressed pattern. Each snapshot can use up to 384 KiB for patterns
+and 64 KiB for SDK saved data, subject to the free space in the pool. A replacement
+store also has to fit alongside the previous checkpoint until it succeeds. SDK
+saved data uses its actual serialized size, and only builds with control support
+reserve the 8 KiB serialization scratch buffer. Capacity exhaustion refuses the
+operation before live edits. Sample files must already be resident when captured.
+The SDK retains their cache references without copying PCM or reading files.
 
 ## Add an extension
 
@@ -210,7 +257,7 @@ Extensions name their callbacks, so adding one changes none of them. Renaming
 or widening one updates every extension in the same pull request.
 
 **Add a claim** with one registry entry in [`profiles/extensions.json`](../profiles/extensions.json): its
-`label` and `key`. Nothing else changes; the runtime reads claims from the
+`label`, `key` and optional `chords` (queued keys only). Nothing else changes; the runtime reads claims from the
 generated registry. Never add a per-claim field to the collection or a
 per-claim branch to the runtime.
 

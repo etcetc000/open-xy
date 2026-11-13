@@ -204,7 +204,44 @@ Immediate input is restricted by stock to keyboard keys 26–49; Record (50)
 uses the queue. The live-note wrappers also cancel interrupted tap gestures.
 The onset wrapper establishes a scoped live-input identity; only stock-accepted
 notes inside that scope enter history. Direct sequencer calls and step entry do
-not. Stock input arguments and normal recording actions are forwarded unchanged.
+not. Stock input arguments and normal recording actions are forwarded unchanged,
+except an enabled claim's registered chords. The key wrapper routes those before
+stock at the same authenticated site; it defers the modifier, consumes matching
+presses/repeats/releases, and replays ordinary modifier taps/combinations. Normal
+screens are instrument/aux (0/1), project (5), mix (7), bar (13), arrange/song
+(40/41); modal screens retain stock. Metronome is key 1, Record 50, minus 53, plus 54.
+
+The optional `checkpoint` service links only for an extension declaring that
+action. Stock's pattern clipboard copies 0x53f4-byte value records
+(`8d581a2c`, `8d581a74`, memcpy `040201c4`), at project + 0xd7c + track *
+0x53f44 + pattern * 0x53f4. The track count follows sixteen records. Current
+scene is project byte +6, its 33 bytes at +0x98 + scene * 33; sound link uses
+the mask at +0xc and sixteen source indices at +0xe. Project identity includes
+the generation at `840a0538`, which stock's pending-project swap (`8d585cdc`)
+increments, so a reused project buffer cannot revive a checkpoint.
+
+`checkpoint.cpp` captures up to 32 active/source records; recovery includes their
+union with the current scene's records, at most 64. The checkpoint lives at the
+start of a shared pool and staging uses the remaining space. Recovery can encode
+an XOR difference against a matching checkpoint record. Undo reads both saved
+streams to reconstruct the record independently of subsequent live edits.
+Inline sample paths start at pattern +0x396c, 24 rows of
+128 bytes. File-backed engines retain resident path hashes (`8d4e813a`) through
+the stock sample manager (`84048894`), acquire `8d509d70`, release `8d509df8`.
+SDK sample-engine classification follows its selected service. No file I/O or
+PCM copying runs in the action.
+
+After complete validation, restore copies records, follows stock's edited flag
+at +0x14, pastes the scene (`8d585b90`), restores SDK saved/aux-kept data and
+publishes each track (`8d587668`) through stock's post-paste refresh
+(`8d597730(controller, track)`). Stock undo identities are cleared (`8d591948`);
+transport is not stopped or restarted and the clipboard is untouched. The
+`checkpoint_control` service exists only when both checkpoint and control are
+selected. It serializes control data into the shared pool and compares it with
+one reusable machine-sized scratch buffer. Its per-pattern aux restore accepts
+null to clear that pattern's kept controls without discarding another pattern's.
+Browser service fallbacks
+omit checkpoint storage and optional support when their owners are unselected.
 
 History uses the same position getter, pickup convention and scaled Q8 duration
 deltas as stock recording. Pattern quantization remains stock playback behavior.

@@ -118,7 +118,7 @@ A fetched folder that changed is refused; delete it to fetch again. Pass the
 collection to any build command:
 
 ```sh
-python sdk.py compile --collection local/catalog/collection.json --out <folder>
+python sdk.py compile --catalog --collection local/catalog/collection.json --out <folder>
 ```
 
 ## Submit a machine
@@ -185,8 +185,9 @@ request that changes `catalog/` or anything published machines build against
 published machine and checks it as its own repository's CI does, and compiles
 the firmware module with all of them on the pinned Windows tools. People choose
 which machines they install, so the catalog doesn't need to fit the module at
-once: when it doesn't, the module links Open-XY's own machines, and each other
-machine must fit beside them.
+once: when it doesn't, the reference module links Open-XY's own machines and
+the catalog's extensions. Each other machine must fit beside the core machines
+with optional extensions off.
 
 Maintainers merge `main` into `staging` after each catalog merge, so both
 branches carry every entry. Merged catalog changes reach the site with the next

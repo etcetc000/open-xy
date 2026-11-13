@@ -29,7 +29,13 @@ bool ready() {
     u32 count = 0;
     const ExtensionEntry* list = extension_collection(count);
     const ExtensionRegistry& known = extension_registry();
-    if (!list || count > 16 || known.claim_count > 32 || known.action_count > 32) return false;
+    if (!list || count > 16 || known.claim_count > 32 || known.action_count > 32 ||
+        !known.claim_keys || !known.claim_chords || !known.action_claims) return false;
+    for (u32 c = 0; c < known.claim_count; ++c)
+        if (known.claim_keys[c] >= 256 || (known.claim_chords[c] &&
+            (known.claim_keys[c] >= 56 || (known.claim_keys[c] >= 26 && known.claim_keys[c] < 50) ||
+             known.claim_chords[c] >> 56 || (known.claim_chords[c] & (((1ull << 24) - 1) << 26)) ||
+             (known.claim_chords[c] & (1ull << known.claim_keys[c]))))) return false;
     u32 claimed = 0;
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
@@ -56,7 +62,12 @@ u32 granted(const ExtensionEntry& entry, const extensions::Control& control) {
     if (!control.accepted) return 0;
     u32 fired = 0;
     for (u32 c = 0; c < registry->claim_count; ++c)
-        if ((entry.claims & (1u << c)) && registry->claim_keys[c] == control.key) fired |= 1u << c;
+        if (entry.claims & (1u << c)) {
+            const auto chords = registry->claim_chords[c];
+            if ((!chords && control.modifier == extensions::keys::none && registry->claim_keys[c] == control.key) ||
+                (chords && control.key < 56 && control.modifier == registry->claim_keys[c] &&
+                 (chords & (1ull << control.key)))) fired |= 1u << c;
+        }
     u32 result = 0;
     for (u32 a = 0; fired && a < registry->action_count; ++a) {
         const u32 needs = registry->action_claims[a] ? registry->action_claims[a] : entry.claims;
@@ -99,16 +110,44 @@ u32 insert_notes(const extensions::Context& expected, u32 track, const RecordedN
 u32 replace_notes(const extensions::Context& expected, u32 track, const RecordedNote* notes, u32 count) {
     return write_notes(expected, track, notes, count, true);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes};
+extensions::CheckpointResult checkpoint(const extensions::Context& expected, extensions::CheckpointCommand command) {
+    using extensions::CheckpointResult;
+    if (!(transaction.granted & action_checkpoint) || transaction.attempted) return CheckpointResult::unavailable;
+    bool playing = false;
+    const RecordingContext now = extension_context(playing);
+    if (!(now == expected.recording) || playing != expected.playing ||
+        !(now == current.recording) || playing != current.playing) return CheckpointResult::changed;
+    transaction.attempted = true;
+    const auto& backend = extension_checkpoint_backend();
+    return backend.command ? backend.command(command) : CheckpointResult::unavailable;
+}
+const extensions::Actions actions = {insert_notes, notify, replace_notes, checkpoint};
 }
 
 void extensions_sync() {
     if (dispatching || !ready()) return;
+    if (extension_checkpoint_backend().sync) extension_checkpoint_backend().sync();
     current.recording = extension_context(current.playing);
     dispatching = true;
     for (u32 i = 0; i < entry_count; ++i)
         if (entries[i].hooks->context) entries[i].hooks->context(current);
     dispatching = false;
+}
+
+bool extensions_chord(u32 modifier, u32 key) {
+    if (dispatching || key >= 56 || !ready()) return false;
+    for (u32 i = 0; i < entry_count; ++i)
+        for (u32 c = 0; c < registry->claim_count; ++c)
+            if ((entries[i].claims & (1u << c)) && registry->claim_keys[c] == modifier &&
+                (registry->claim_chords[c] & (1ull << key))) return true;
+    return false;
+}
+bool extensions_modifier(u32 key) {
+    if (dispatching || !ready()) return false;
+    for (u32 i = 0; i < entry_count; ++i)
+        for (u32 c = 0; c < registry->claim_count; ++c)
+            if ((entries[i].claims & (1u << c)) && registry->claim_keys[c] == key && registry->claim_chords[c]) return true;
+    return false;
 }
 void extensions_input_activity() {
     if (dispatching || !ready()) return;

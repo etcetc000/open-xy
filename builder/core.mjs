@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '31361875a6edb98e495ab91ce250a6f94bb9e020c864e05c247eddcdf9c7b7ba';
+export const PROFILE_SHA256 = 'bc20622c40c2a9a1307e7e211cf979354a6640132cebb73fccb9802923e074db';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -688,20 +688,53 @@ export function selectRuntime(objects, candidates, definitions = {}) {
 }
 
 // Extensions are linked only when named: omitting them builds none.
-export function linkKit(kit, selection, layout = null, extensionIds = []) {
+export function linkInputs(kit, selection, layout = null, extensionIds = []) {
   const extensions = new Set(extensionSelection(kit, extensionIds));
   check(Array.isArray(selection) && selection.length > 0 && new Set(selection).size === selection.length &&
     selection.every(id => kit.machines.some(m => m.id === id)), 'Choose each machine once.');
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
-  const selected = new Set(selection), limit = moduleBytes(kit.profile);
+  const selected = new Set(selection);
+  const checkpoint = kit.extensions?.some(e => extensions.has(e.id) && e.actions?.includes('checkpoint'));
+  const control = kit.machines.some(m => selected.has(m.id) &&
+    (m.features ?? []).some(f => f === 'trackControl' || f === 'hidePages'));
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(extensions.size ? [{kind: 'extension'}] : []),
+    ...(checkpoint ? [{kind: 'checkpoint'}] : []),
+    ...(checkpoint && control ? [{kind: 'checkpointControl'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : [])]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
+  // SDK objects may import the declared callbacks of unselected machines;
+  // those resolve to the declared fallbacks. Machine objects never do.
+  const fallbacks = [];
+  for (const e of kit.extensions ?? []) if (!extensions.has(e.id)) {
+    for(const suffix of ['hooks', ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
+      kit.objects.some(o => o.extension===e.id && o.symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+e.id+'_'+suffix))) : [])]) {
+      const symbol = 'sdk_extension_' + e.id + '_' + suffix;
+      fallbacks.push([symbol, 'kit_absent', 'Invalid absent-extension accessor']);
+    }
+  }
+  for (const m of kit.machines) if (!selected.has(m.id)) {
+    for (const [symbol, fallback] of Object.entries(m.absent)) {
+      fallbacks.push([symbol, fallback, 'Invalid absent-machine callback']);
+    }
+  }
+  // Shared objects may import a service's entry points, which resolve to their
+  // fallbacks while the selection does not use the service.
+  for (const [service, entries] of Object.entries(kit.serviceFallbacks ?? {})) if (!services.has(service)) {
+    for (const [symbol, fallback] of Object.entries(entries)) {
+      fallbacks.push([symbol, fallback, 'Invalid service fallback']);
+    }
+  }
+  return {definitions, numbers, services, extensions: [...extensions], objects, fallbacks};
+}
+
+export function linkKit(kit, selection, layout = null, extensionIds = []) {
+  const {definitions, numbers, services, extensions, objects, fallbacks} = linkInputs(kit, selection, layout, extensionIds);
+  const limit = moduleBytes(kit.profile);
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];
   let cursor = kit.profile.module_base, initializedEnd;
   for (const group of ['text', 'rodata', 'data', 'bss']) {
@@ -739,30 +772,10 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
     check(!globals.has(s.name), 'Duplicate global symbol: ' + s.name);
     globals.set(s.name, definedValue(o, s));
   }
-  // SDK objects may import the declared callbacks of unselected machines;
-  // those resolve to the declared fallbacks. Machine objects never do.
   const aliases = new Map();
-  for (const e of kit.extensions ?? []) if (!extensions.has(e.id)) {
-    for(const suffix of ['hooks', ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
-      kit.objects.some(o => o.extension===e.id && o.symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+e.id+'_'+suffix))) : [])]) {
-      const symbol = 'sdk_extension_' + e.id + '_' + suffix;
-      check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
-      aliases.set(symbol, globals.get('kit_absent'));
-    }
-  }
-  for (const m of kit.machines) if (!selected.has(m.id)) {
-    for (const [symbol, fallback] of Object.entries(m.absent)) {
-      check(!globals.has(symbol) && globals.has(fallback), 'Invalid absent-machine callback');
-      aliases.set(symbol, globals.get(fallback));
-    }
-  }
-  // Shared objects may import a service's entry points, which resolve to their
-  // fallbacks while the selection does not use the service.
-  for (const [service, fallbacks] of Object.entries(kit.serviceFallbacks ?? {})) if (!services.has(service)) {
-    for (const [symbol, fallback] of Object.entries(fallbacks)) {
-      check(!globals.has(symbol) && globals.has(fallback), 'Invalid service fallback');
-      aliases.set(symbol, globals.get(fallback));
-    }
+  for (const [symbol, fallback, message] of fallbacks) {
+    check(!globals.has(symbol) && globals.has(fallback), message);
+    aliases.set(symbol, globals.get(fallback));
   }
   const module = new Uint8Array(initialized), out = view(module);
   for (const o of objects) {
@@ -789,7 +802,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
       }
     }
   }
-  return {module, globals, aliases, objects, segments, services, extensions: [...extensions], numbers, definitions,
+  return {module, globals, aliases, objects, segments, services, extensions, numbers, definitions,
     sizes: {initialized, bss: cursor - bssStart, allocated, available: limit - allocated}};
 }
 

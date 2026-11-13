@@ -51,9 +51,14 @@ def registry():
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
     for name, claim in claims.items():
-        require(NAME.fullmatch(name) and isinstance(claim, dict) and set(claim) == {'label', 'key'} and
+        require(NAME.fullmatch(name) and isinstance(claim, dict) and {'label', 'key'} <= set(claim) <= {'label', 'key', 'chords'} and
                 isinstance(claim['label'], str) and 0 < len(claim['label']) <= 40 and
                 type(claim['key']) is int and 0 <= claim['key'] < 256, 'Invalid claim: ' + name)
+        if 'chords' in claim:
+            chords = claim['chords']
+            require(claim['key'] < 56 and not 26 <= claim['key'] < 50 and isinstance(chords, list) and chords and
+                    all(type(k) is int and 0 <= k < 56 and not 26 <= k < 50 and k != claim['key'] for k in chords) and
+                    len(set(chords)) == len(chords), 'Invalid chord claim: ' + name)
     for name, action in actions.items():
         require(NAME.fullmatch(name) and isinstance(action, dict) and set(action) <= {'requires'} and
                 ('requires' not in action or action['requires'] in claims), 'Invalid action: ' + name)
@@ -247,7 +252,7 @@ def check_profile(profile):
     require(fed == known, 'Events without a firmware site: ' + ', '.join(sorted(known - fed)))
 
 
-def generate_collection(folder, extensions):
+def generate_collection(folder, extensions, control=False, samples=False):
     """The collection and the registry tables the runtime reads: each claim's
     key, and the claims that grant each action (0: any claim its holder owns)."""
     claims, actions = registry()
@@ -256,6 +261,17 @@ def generate_collection(folder, extensions):
     mask = lambda table, names: '0x%xu' % sum(table[n] for n in names)
     table = lambda values: ', '.join(values) or '0'
     lines = ['#include "extension_runtime.hpp"']
+    checkpoint = any('checkpoint' in e.actions for e in extensions)
+    if checkpoint:
+        lines += ['#include "checkpoint.hpp"']
+        if samples:
+            lines += ['#include "sample_machines.hpp"']
+        lines += ['namespace opxy { namespace platform { namespace checkpoint {',
+                  'bool sample_engine(u32 engine) { ' + ('return sdk_sample_machine(engine) != nullptr;' if samples else '(void)engine; return false;') + ' }',
+                  'const Support& support() {',
+                  '    static const Support absent = {};',
+                  *(['    if (const auto* s = sdk_checkpoint_control_support()) return *s;'] if control else []),
+                  '    return absent;', '}', '}}}']
     for e in extensions:
         symbol = 'sdk_extension_' + e.id + '_hooks'
         lines.append('extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");')
@@ -263,13 +279,19 @@ def generate_collection(folder, extensions):
               'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
               'const u32 claim_keys[] = {' + table([str(c['key']) for c in claims.values()]) + '};',
+              'const __UINT64_TYPE__ claim_chords[] = {' + table([
+                  '0x%xull' % sum(1 << k for k in c.get('chords', [])) for c in claims.values()]) + '};',
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',
-              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d};' % (
+              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d, claim_chords};' % (
                   len(claims), len(actions)),
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
+              'const CheckpointBackend& extension_checkpoint_backend() {',
+              '    static const CheckpointBackend absent = {};',
+              *(['    if (const auto* b = sdk_checkpoint_backend()) return *b;'] if checkpoint else []),
+              '    return absent;', '}',
               'const ExtensionEntry* extension_collection(u32& count) {', '    count = 0;']
     for e in extensions:
         lines += ['    if (const auto* hooks = sdk_extension_' + e.id + '_hooks())',

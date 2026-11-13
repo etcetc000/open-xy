@@ -49,7 +49,8 @@ struct AuxService {
     void (*tick)();                     // once per GUI tick, before the machines run
     // What to save: the stock role's controls kept aside for a pattern a machine holds, or null.
     const i32* (*kept)(u32 track, u32 pattern);
-    void (*restore)(u32 track, u32 pattern, const i32* controls);  // after a load
+    // Restore one pattern's kept controls; null clears only that pattern.
+    void (*restore)(u32 track, u32 pattern, const i32* controls);
     void (*forget)();                   // before a load and for a new project: nothing kept
 };
 }}
