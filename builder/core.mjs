@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '6956ffae0677829c49baac5d7e5d6d2c3db872a9e5adf2697f9f16df769a7326';
+export const PROFILE_SHA256 = 'e9cc0c06ba15b98fd5277a2c4aa5a396ba3f0093810832510e006e21d45fb255';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -634,6 +634,19 @@ export async function openKit(kit) {
         new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))) &&
       (e.drumline_page === undefined || e.drumline_page === true),
       'Invalid extension metadata');
+    // A settings extension (linked: false) links no code: it only turns on its
+    // capabilities, each the profile service of the same name (tooling.extensions).
+    check((e.capabilities === undefined || Array.isArray(e.capabilities) && e.capabilities.length > 0 &&
+      new Set(e.capabilities).size === e.capabilities.length &&
+      e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c)) &&
+      (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
+        !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
+    // A capability setting: its range and the extension's value; the profile lists every value's bytes.
+    check(e.settings === undefined || typeof e.settings === 'object' && Object.entries(e.settings).every(([c, v]) =>
+      e.capabilities?.includes(c) && [v.minimum, v.maximum, v.default, v.value].every(Number.isInteger) &&
+      v.minimum <= v.value && v.value <= v.maximum && typeof v.label === 'string' && typeof v.unit === 'string' &&
+      kit.profile.patches.some(edit => edit.setting === c && Object.hasOwn(edit.choices ?? {}, String(v.value)))),
+      'Invalid extension settings');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
       const f=processorOf(e), stateId=f.state_id ?? e.id;
@@ -671,6 +684,10 @@ export async function openKit(kit) {
   }
   for (const id of extensionIds) {
     const owned = objects.filter(o => o.extension === id);
+    if (extensions.find(e => e.id === id).linked === false) {
+      check(owned.length === 0, 'A settings extension links no code: ' + id);
+      continue;
+    }
     check(owned.length === 1 && owned[0].symbols.some(s => s.section && s.binding === 1 &&
       s.name === 'sdk_extension_' + id + '_hooks'), 'Missing extension accessor: ' + id);
     if(processorOf(extensions.find(e => e.id===id))) {
@@ -733,9 +750,10 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
-    ...(extensions.size ? [{kind: 'extension'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.linked !== false) ? [{kind: 'extension'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
-    ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : [])]);
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : []),
+    ...(kit.extensions ?? []).filter(e => extensions.has(e.id)).flatMap(e => (e.capabilities ?? []).map(kind => ({kind})))]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
@@ -779,7 +797,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   // SDK objects may import the declared callbacks of unselected machines;
   // those resolve to the declared fallbacks. Machine objects never do.
   const aliases = new Map();
-  for (const e of kit.extensions ?? []) if (!extensions.has(e.id)) {
+  for (const e of kit.extensions ?? []) if (!extensions.has(e.id) && e.linked !== false) {
     for(const suffix of ['hooks', ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
       kit.objects.some(o => o.extension===e.id && o.symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+e.id+'_'+suffix))) : [])]) {
       const symbol = 'sdk_extension_' + e.id + '_' + suffix;
@@ -877,8 +895,16 @@ export function redirect(edit, destination) {
   after.set(words((edit.call ? 0xe300 : 0xe200) | value >>> 16, value & 0xffff));
   return after;
 }
-export async function patchFirmware(kit, linked, stock, {profiling = true} = {}) {
+// Capability settings a build writes: chosen values, else each selected extension's own.
+function chosenSettings(kit, linked, settings) {
+  const chosen = {};
+  for (const e of (kit.extensions ?? []).filter(e => (linked.extensions ?? []).includes(e.id)))
+    for (const [c, v] of Object.entries(e.settings ?? {})) chosen[c] ??= v.value;
+  return {...chosen, ...settings};
+}
+export async function patchFirmware(kit, linked, stock, {profiling = true, settings = {}} = {}) {
   check(typeof profiling === 'boolean', 'Profiling must be a boolean');
+  const values = chosenSettings(kit, linked, settings);
   const p = kit.profile;
   check(stock.length === p.stock_bytes && await sha256(stock) === p.stock_sha256,
     'Only OP–XY OS 1.2.1 is supported. Choose the OS file, os.ldr, copied from your OP–XY, not a .tfw update file.');
@@ -901,8 +927,8 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
       covering[0].offset + 16 + site - covering[0].target === offset &&
       equal(stock.subarray(offset, offset + before.length), before), 'Patch preimage/mapping mismatch');
     let after;
-    // A service's hooks, and its text edits (the MTP allowlist), apply only with it.
-    check(edit.service === undefined || (['hook', 'text'].includes(edit.kind) && Object.hasOwn(p.services ?? {}, edit.service)),
+    // A service's hooks, text edits (the MTP allowlist) and limit edits (long samples) apply only with it.
+    check(edit.service === undefined || (['hook', 'text', 'limit'].includes(edit.kind) && Object.hasOwn(p.services ?? {}, edit.service)),
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
@@ -913,8 +939,11 @@ export async function patchFirmware(kit, linked, stock, {profiling = true} = {})
       check(destination >= low && destination < low + linked.module.length, 'Hook destination outside module');
       after = redirect(edit, destination);
     } else {
-      check(['heap', 'table', 'text'].includes(edit.kind), 'Unknown edit kind');
-      after = unhex(edit.after);
+      check(['heap', 'table', 'limit', 'text'].includes(edit.kind), 'Unknown edit kind');
+      // A setting edit writes the reviewed bytes of its chosen value (tooling.extensions.capabilities).
+      check(!edit.choices || values[edit.setting] === undefined || Object.hasOwn(edit.choices, String(values[edit.setting])),
+        'Setting outside its range: ' + edit.setting);
+      after = unhex(edit.choices && values[edit.setting] !== undefined ? edit.choices[String(values[edit.setting])] : edit.after);
     }
     check(before.length === edit.length && after.length === edit.length, 'Patch length mismatch');
     for (let i = 0; i < edit.length; i++) {
@@ -998,8 +1027,24 @@ export function presentSelections(kit, present) {
   for (let count = 1; count <= lookalikes.length; count++) drop(count, 0, []);
   return selections;
 }
-const presentExtensions = (kit, payload) => (kit.extensions ?? [])
-  .filter(e => holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
+const presentExtensions = (kit, payload, input) => (kit.extensions ?? [])
+  .filter(e => e.linked === false ? e.capabilities.every(c => capabilityApplied(kit.profile, c, input))
+    : holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
+// A capability's edits are fixed bytes (tooling.extensions.capabilities): applied
+// in an image exactly when every one holds its reviewed bytes.
+const siteBytes = (input, edit) => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
+const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
+  edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
+    : equal(siteBytes(input, edit), unhex(edit.after)));
+// The setting values an image holds, read from its reviewed bytes.
+export function imageSettings(kit, input) {
+  const found = {};
+  for (const edit of kit.profile.patches.filter(e => e.choices)) {
+    const value = Object.entries(edit.choices).find(([, b]) => equal(siteBytes(input, edit), unhex(b)))?.[0];
+    if (value !== undefined && !equal(siteBytes(input, edit), unhex(edit.before))) found[edit.setting] = Number(value);
+  }
+  return found;
+}
 const UPDATE = 'Update your OP–XY to OS 1.2.1 with teenage engineering’s updater, then copy its OS file (os.ldr) again; a .tfw update file will not work.';
 const UNSUPPORTED = 'Only OP–XY OS 1.2.1 is supported. This file is not OS 1.2.1 or an open-xy OS made from it. ' + UPDATE;
 export async function recoverFirmware(kit, input, layout = null) {
@@ -1034,6 +1079,7 @@ export async function recoverFirmware(kit, input, layout = null) {
     // or infer ownership from its label. SDK builds retain timing; site builds
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
+    const settings = imageSettings(kit, input), withSettings = Object.keys(settings).length ? {settings} : {};
     const rebuilds = async (selected, extensions) => {
       // A selection that does not fit is not this build, so the exhaustive search
       // below goes on; any other link or patch error is a real defect and reported.
@@ -1042,14 +1088,14 @@ export async function recoverFirmware(kit, input, layout = null) {
       catch (error) { if (error.capacity === true) return false; throw error; }
       if (!equal(linked.module, payload)) return false;
       for (const profiling of [true, false]) {
-        if (equal(await patchFirmware(built, linked, stock, {profiling}), input)) return true;
+        if (equal(await patchFirmware(built, linked, stock, {profiling, settings}), input)) return true;
       }
       return false;
     };
     // First the machines and extensions whose code the module holds, one link at
     // any kit size. Then every extension choice for a small collection, or the
     // present ones and none for a larger one, so links never grow exponentially.
-    const present = presentMachines(kit, payload), held = presentExtensions(kit, payload);
+    const present = presentMachines(kit, payload), held = presentExtensions(kit, payload, input);
     const guess = sharedClaim((kit.extensions ?? []).filter(e => held.includes(e.id))) ? [] : held;
     const choices = (kit.extensions ?? []).length <= RECOVERABLE_EXTENSIONS ? extensionChoices(kit)
       : guess.length ? [guess, []] : [[]];
@@ -1058,7 +1104,7 @@ export async function recoverFirmware(kit, input, layout = null) {
     for (const selected of present.length ? presentSelections(kit, present) : []) {
       for (const extensions of tries) {
         try {
-          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found, ...withSettings};
         } catch {}  // a guess that cannot link is not this kit's build
       }
       // Yield between candidates, as the exhaustive search below does.
@@ -1071,7 +1117,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
         for (const extensions of choices) {
-          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found, ...withSettings};
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }

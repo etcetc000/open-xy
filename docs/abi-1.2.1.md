@@ -265,6 +265,22 @@ keep them ([identity](api.md#identity)), and engine and page IDs reach the
 module only as absolute link-time symbols, so one set of objects serves any
 numbering.
 
+## Release floor
+
+The normal voice renderer (`11a09308`) calls the shared envelope routine
+`8d50e110` once per block for each voice's filter envelope (`11a09484`, state at
+voice `+0x2c`) and amplitude envelope (`11a0956e`, state at voice `+0x14`: Q31
+level at `+0x18`, stage at `+0x24`). The routine dispatches on the stage through
+the table at `8404caa8`: 0 idle, 1 attack, 2 decay, 3 sustain, 4 release, 5 forced
+fade (linear to silence over one block, then idle), 6 stolen-voice fade, 7 start
+the waiting stolen note. Release ends at `8d50e226`: a level at or below
+1,073,741 (2^31 / 2000, -66 dB) enters stage 0, and the renderer retires a voice
+whose amplitude stage is then idle. The `release_floor` capability rewrites that
+immediate (one reviewed encoding per dB value) and the stage written below it,
+`8d50e232`, from 0 to 5, so a raised floor fades over one block rather than
+stopping abruptly. The steal ranking (`8d51ca94`) and the renderers' stage-6
+checks (`11a09aaa`, `8d51b880`) stay stock.
+
 ## Synth voices
 
 Stock asks the factory for a voice object per voice index (0–255) and calls
@@ -786,8 +802,11 @@ region over the full loaded sample and restores the replaced pad's pitch,
 reverse and volume before stock publishes it. A completed recording takes the
 same path when the recorder initializes its region, with `recorded` set, the
 recorder's frame count and 44.1 kHz rate, and no file metadata; it never
-consumes the file worker's pending metadata. The stock loader's 882,000
-decoded-frame cap still applies. Assignment looks up the raw note once and
+consumes the file worker's pending metadata. The loader caps a file at
+882,000 decoded frames (20 s at 44.1 kHz). With the `long_samples` capability
+([settings extensions](extensions.md#settings-extensions)) the
+profile's `limit` edits raise that to 1,048,575 (2^20 - 1) in the loader, the
+region setter and the project region parser; the recorder keeps 882,000. Assignment looks up the raw note once and
 stores the canonical key through the owned initializer hook, avoiding a
 second octave conversion.
 
