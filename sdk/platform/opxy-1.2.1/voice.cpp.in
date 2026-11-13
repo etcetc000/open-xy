@@ -41,9 +41,12 @@ const opxy::u32 kVoiceIndices = 256;
 // its wait for a voice.
 struct Handle { const void* const* vtable; opxy::u16 seen, asked; opxy::u8 slot, wants@RELEASE_STATE@; };
 static_assert(sizeof(void*) != 4 || sizeof(Handle) == 12, "Handle layout");
-// owner: a voice ID, or 0 when free. born: the block its note started in,
-// since: the tick. next: the voice ID of a note waiting while this one fades.
-struct Slot { Voice voice; opxy::u32 owner, since, next; opxy::u16 born; };
+// A voice's bookkeeping. owner: a voice ID, or 0 when free. born: the block its
+// note started in, since: the tick. next: the voice ID of a note waiting while
+// this one fades. Every voice's bookkeeping sits together, apart from the voices
+// themselves (voice_of), so the once-a-block sweep and a note's search read a
+// few contiguous lines rather than one past each whole voice.
+struct Slot { opxy::u32 owner, since, next; opxy::u16 born; };
 static Handle handles[kVoiceIndices];
 // Stock sounds at most 27 notes at once, in its 27 voice slots (8d51c994), so
 // a larger pool would never be used. One voice beyond that or the capacity
@@ -51,6 +54,9 @@ static Handle handles[kVoiceIndices];
 const opxy::u32 kStockVoices = 27;
 const opxy::u32 kVoices = (@CAPACITY@ < kStockVoices ? @CAPACITY@ : kStockVoices) + 1;
 static Slot voices[kVoices];
+static Voice voice_storage[kVoices];
+// The voice a bookkeeping entry stands for.
+static Voice& voice_of(Slot& slot) { return voice_storage[&slot - voices]; }
 static Shared shared;
 static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
 static_assert(alignof(Voice) == @VOICE_ALIGNMENT@, "Declared voice alignment differs from the compiled type");
@@ -86,28 +92,33 @@ static bool sounding(const Slot& slot, opxy::u32 now) {
     if (now - counted > kSilent && now - slot.since > kSilent) return false;
     return age(handles[slot.owner - 1].seen) <= 2 || age(slot.born) <= 2;
 }
-// Gives a voice to a note: zeroed, initialized and started.
+// Zeroes a voice's storage. A voice need not be assignable, so it is cleared
+// word by word rather than with memset. A Voice is whole aligned words
+// (voiceAlignment 4, 8 or 16).
+static void clear(Slot& slot) {
+    typedef opxy::u32 __attribute__((may_alias)) Word;
+    Word* words = reinterpret_cast<Word*>(&voice_of(slot));
+    for (unsigned i = 0; i < sizeof(Voice) / sizeof(Word); ++i) words[i] = 0;
+}
+// Gives a voice to a note: initialized and started. Storage is zero for every
+// owner: zero at load, and cleared as each note gives it up (release), so the
+// clearing falls in the block a note ends in, not the one many may start in.
 static void begin(Slot& slot, Handle* handle, opxy::u32 now) {
     const opxy::u32 id = owner(handle);
-    // Storage starts zeroed for every owner; a voice need not be assignable, so
-    // it is cleared word by word rather than with memset. A Voice is whole
-    // aligned words (voiceAlignment 4, 8 or 16).
-    typedef opxy::u32 __attribute__((may_alias)) Word;
-    Word* words = reinterpret_cast<Word*>(&slot.voice);
-    for (unsigned i = 0; i < sizeof(Voice) / sizeof(Word); ++i) words[i] = 0;
     slot.owner = id;
     slot.next = 0;
     slot.born = blocks;
     slot.since = now;
     handle->slot = static_cast<opxy::u8>(&slot - voices + 1);
     handle->wants = 0;
-    @NAMESPACE@::initialize(slot.voice, shared, id);
-    @NAMESPACE@::start(slot.voice, shared, id);
+    @NAMESPACE@::initialize(voice_of(slot), shared, id);
+    @NAMESPACE@::start(voice_of(slot), shared, id);
 @RELEASE_PENDING@
 }
 // Ends a voice's note; a note waiting for the voice starts in it.
 static void release(Slot& slot, opxy::u32 now) {
-    @NAMESPACE@::destroy(slot.voice, shared, slot.owner);
+    @NAMESPACE@::destroy(voice_of(slot), shared, slot.owner);
+    clear(slot);
     slot.owner = 0;
     if (slot.next) begin(slot, &handles[slot.next - 1], now);
 }
@@ -153,6 +164,17 @@ static bool before(const Slot& a, const Slot& b) {
 static void acquire(Handle* handle, opxy::u32 now, bool steal) {
     Slot* open = nullptr;
     Slot* chosen = nullptr;
+    // A free voice, when there is one, is the voice the search below takes: it
+    // stops at the first free voice, and before it only forget() (in ended)
+    // changes anything. So find it with one test a voice, forget the voices before
+    // it as the search would, and search only when none is free. Notes starting
+    // together then each find a voice without ranking every sounding one.
+    for (opxy::u32 i = 0; i < kVoices; ++i) {
+        if (voices[i].owner) continue;
+        for (opxy::u32 j = 0; j < i; ++j) forget(voices[j]);
+        begin(voices[i], handle, now);
+        return;
+    }
     for (opxy::u32 i = 0; i < kVoices; ++i) {
         Slot& voice = voices[i];
         if (!voice.owner) { open = &voice; break; }
@@ -197,7 +219,7 @@ int @PREFIX@_start(void* self) {
         if (!slot->next) {
             slot->born = blocks;
             slot->since = now;
-            @NAMESPACE@::start(slot->voice, shared, owner(handle));
+            @NAMESPACE@::start(voice_of(*slot), shared, owner(handle));
             return 0;
         }
         release(*slot, now);  // its voice is fading for another note: find another
@@ -245,7 +267,7 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* parameters) 
     // A note that lost its wait takes a voice once one is free.
     if (handle->wants && !held(handle) && !pending(handle)) acquire(handle, now, false);
     if (Slot* slot = held(handle)) {
-@SWEEP_CONTROLS@        @NAMESPACE@::render(slot->voice, shared, slot->owner, output, controls, increments);
+@SWEEP_CONTROLS@        @NAMESPACE@::render(voice_of(*slot), shared, slot->owner, output, controls, increments);
         // A taken note's last block fades linearly to silence, as stock fades one.
         if (slot->next) {
             const opxy::i32 frames = static_cast<opxy::i32>(opxy::block_frames), step = 0x7fffffff / (frames - 1);

@@ -22,9 +22,14 @@ struct Shared {};
 }
 '''
 ENGINE = '''#include "core.h"
-extern int destroyed[257];
+extern int destroyed[257], dirty;
 namespace probe {
-inline void initialize(Voice& voice, Shared&, opxy::u32 owner) { voice.owner = owner; ++voice.initialized; }
+// Storage must be zero whenever a note takes a voice; dirty counts each time it is not.
+inline void initialize(Voice& voice, Shared&, opxy::u32 owner) {
+    dirty += voice.owner || voice.notes || voice.initialized;
+    voice.owner = owner;
+    ++voice.initialized;
+}
 inline void start(Voice& voice, Shared&, opxy::u32) { ++voice.notes; }
 inline void destroy(Voice&, Shared&, opxy::u32 owner) { ++destroyed[owner]; }
 inline void render(Voice& voice, Shared&, opxy::u32 owner, opxy::Output output, opxy::Parameters, opxy::Pitch) {
@@ -79,14 +84,14 @@ class SynthVoices(unittest.TestCase):
     def test_the_pool_never_exceeds_stock_voice_slots_and_a_spare(self):
         # Stock sounds at most 27 notes; a capacity of 256 keeps 28 voices.
         self.run_fixture(256, '''#include "voice.cpp"
-int destroyed[257];
+int destroyed[257], dirty;
 opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
 opxy::u32 sdk_voice_ticks() { return 0; }
 int main() { return sizeof(voices) / sizeof(voices[0]) == 28 ? 0 : 1; }
 ''')
         # A capacity of 1 keeps its voice and the spare.
         self.run_fixture(1, '''#include "voice.cpp"
-int destroyed[257];
+int destroyed[257], dirty;
 opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
 opxy::u32 sdk_voice_ticks() { return 0; }
 int main() { return sizeof(voices) / sizeof(voices[0]) == 2 ? 0 : 1; }

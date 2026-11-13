@@ -88,14 +88,14 @@ def generate_voice(directory, m, sweep=False):
                   RELEASE_FUNCTION=f'''int {m.prefix}_release(void* self) {{
     Handle* handle = static_cast<Handle*>(self);
     if (Slot* slot = held(handle))
-        {m.definition['id']}::release(slot->voice, shared, slot->owner);
+        {m.definition['id']}::release(voice_of(*slot), shared, slot->owner);
     else if (pending(handle) || handle->wants) handle->released = 1;
     return 0;
 }}
 ''' if release else '')
     values.update(RELEASE_STATE=', released' if release else '',
                   RELEASE_CLEAR='    handle->released = 0;' if release else '',
-                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release(slot.voice, shared, id);" if release else '')
+                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release(voice_of(slot), shared, id);" if release else '')
     # Expand to the original mono text when omitted, preserving its native code.
     values.update(OUTPUT_FRAMES='opxy::block_frames' if values['CHANNELS'] == 1 else '2 * opxy::block_frames',
                   STEREO_METHOD='zero' if values['CHANNELS'] == 1 else 'stereo',

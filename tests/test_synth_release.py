@@ -44,10 +44,10 @@ int main() {
     auto off=reinterpret_cast<int(*)(void*)>(const_cast<void*>(table[7]));
     off(h); if (shared.releases) return 1;
     probe_start(h); off(h);
-    if (shared.releases!=1 || shared.last_owner!=1 || held(static_cast<Handle*>(h))->voice.releases!=1) return 2;
+    if (shared.releases!=1 || shared.last_owner!=1 || voice_of(*held(static_cast<Handle*>(h))).releases!=1) return 2;
     reinterpret_cast<void(*)()>(const_cast<void*>(table[5]))();
     if (shared.releases!=1) return 3;
-    probe_start(h); if (held(static_cast<Handle*>(h))->voice.starts!=2 || shared.destroys) return 4;
+    probe_start(h); if (voice_of(*held(static_cast<Handle*>(h))).starts!=2 || shared.destroys) return 4;
     off(h); if (shared.releases!=2) return 5;
     probe_start(other);
     opxy::i32 output[64], parameters[8]={};
@@ -58,7 +58,7 @@ int main() {
     off(waiting); if (shared.releases!=2) return 7;
     probe_render(previous,output,parameters);
     Slot* started=held(static_cast<Handle*>(waiting));
-    if (!started || started->voice.starts!=1 || started->voice.releases!=1 || shared.last_owner!=3) return 8;
+    if (!started || voice_of(*started).starts!=1 || voice_of(*started).releases!=1 || shared.last_owner!=3) return 8;
     off(previous); if (shared.releases!=3) return 9;
     probe_destroy(waiting); off(waiting);
     if (shared.releases!=3 || shared.destroys!=2) return 10;

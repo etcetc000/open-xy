@@ -7,7 +7,7 @@
 #include <cstring>
 #include <initializer_list>
 
-int destroyed[257];
+int destroyed[257], dirty;
 // Every encoder shows an alternate. Record names must still identify raw slots.
 opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
 // A 64-sample block at 400 MHz, as stock budgets it.
@@ -59,8 +59,16 @@ void note(unsigned index) {
 }
 unsigned initialized() {
     unsigned total = 0;
-    for (const Slot& slot : voices) total += slot.voice.initialized;
+    for (Slot& slot : voices) total += voice_of(slot).initialized;
     return total;
+}
+// Every voice holds its own owner's note, and a free voice's storage is zero.
+bool consistent() {
+    for (Slot& slot : voices) {
+        const Voice& voice = voice_of(slot);
+        if (slot.owner ? voice.owner != slot.owner : voice.owner || voice.notes || voice.initialized) return false;
+    }
+    return true;
 }
 // A small random number generator for the long runs.
 unsigned seed = 1;
@@ -249,5 +257,39 @@ int main() {
         }
         cycles += kBlockCycles;
     }
+    for (unsigned i = 0; i < 256; ++i) call(i, 0);
+    cycles += 4 * kBlockCycles;
+    // A long run of every event stock sends, in any order: new notes, restarts
+    // without a fresh object, ends, stock no longer rendering a note, renders of
+    // some notes only, and pauses. Every note takes zeroed storage (dirty), and
+    // the voices and their bookkeeping always agree.
+    bool playing[256] = {};
+    for (unsigned n = 0; n < 50000; ++n) {
+        const unsigned index = random(8) * 32 + random(4), event = random(16);
+        if (event < 5) {
+            note(index);
+            playing[index] = true;
+        } else if (event < 7) {
+            call(index, 4);
+            playing[index] = true;
+        } else if (event < 9) {
+            call(index, 0);
+            playing[index] = false;
+        } else if (event < 11) {
+            playing[index] = false;  // stock stops rendering it
+        } else if (event < 12) {
+            cycles += (1 + random(30)) * 400000ull;  // up to 30 ms with nothing rendering
+        } else {
+            for (unsigned i = 0; i < 256; ++i)
+                if (playing[i] && random(4)) {
+                    const opxy::i32 owner = rendered(i);
+                    if (owner > 0 && owner != static_cast<opxy::i32>(i + 1)) return 47;
+                }
+            cycles += kBlockCycles;
+        }
+        if (!consistent()) return 48;
+    }
+    for (unsigned i = 0; i < 256; ++i) call(i, 0);
+    if (dirty || !consistent()) return 49;
     return 0;
 }
