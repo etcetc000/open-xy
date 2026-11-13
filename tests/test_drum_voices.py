@@ -724,6 +724,17 @@ FILTER_STOCK = {
 
 
 class DrumVoices(unittest.TestCase):
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_parameter_editor_exports_the_declared_callback(self):
+        engine = ENGINE + '''namespace probe {
+inline opxy::u32 edit_parameter(opxy::u32 model, opxy::u32 slot, opxy::u32 value, opxy::i32 delta) {
+    return model + slot + value + delta;
+}
+}'''
+        driver = DRIVER.replace('int main() {', '''int main() {
+    CHECK(probe_drum_edit_value(3, 2, 20, -1) == 24);''', 1)
+        self.run_adapter(engine, driver, 2, parameterEdit=1)
+
     def run_adapter(self, engine, driver, capacity, sdk=None, **resources):
         definition = copy.deepcopy(fixture('probesynth').definition)
         definition['id'] = 'probe'

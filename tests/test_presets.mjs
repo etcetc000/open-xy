@@ -96,6 +96,26 @@ test('an aux track-control machine keeps no instrument preset folder', () => {
   assert.deepEqual(presetFiles(aux), {});
 });
 
+test('drum presets retain all 24 sample-free pads and reject sample paths and malformed pad words', async () => {
+  const regions = Array.from({length:24},(_,i) => ({model:'fm slap',params:[0,1,16384,32767],playmode:'oneshot',hikey:53+i}));
+  const preset = own({regions});
+  const drum = {...machines[0],kind:'drum',presets:{default:preset}};
+  const {kit,catalog} = await fixture([drum]);
+  const files = await buildAssets(kit,[drum.id],catalog,numbers);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(files[presetPath(drum)])),preset);
+  for (const kind of ['synth','sample']) assert.throws(() => presetFiles({...drum,kind}),/Invalid machine preset/);
+  for (const change of [{sample:'private.wav'},{path:'/user/samples/kick.wav'},{model:'kick'},
+    {params:[0]},{params:[0,1,2,32768]},{params:[0,1,2,-1]},{params:[true,1,2,3]},
+    {hikey:54},{playmode:'unknown'},{playmode:null}]) {
+    const bad = structuredClone(preset); Object.assign(bad.regions[0],change);
+    assert.throws(() => presetFiles({...drum,presets:{default:bad}}),/Invalid machine preset/);
+  }
+  for (const size of [1,23,25]) {
+    const bad = {...preset,regions:[...regions,...regions].slice(0,size)};
+    assert.throws(() => presetFiles({...drum,presets:{default:bad}}),/Invalid machine preset/);
+  }
+});
+
 test("a machine's own presets are checked again before they reach a device", async () => {
   for (const presets of [{default: own({type: 'x'})}, {'../x': own()}, {'Warm Pad': own()}, {a: own({type: 'fm2op'})},
     {a: own({version: 3})}, {a: own({platform: 'OP-1'})}, {a: own({regions: [{sample: 'kick.wav'}]})},
