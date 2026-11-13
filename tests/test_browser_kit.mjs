@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -740,4 +740,27 @@ test('players have stable separate types and share the relocated page pool', () 
   assert.deepEqual(numberLayout(rules, [], layout, machines.slice().reverse()), layout);
   assert.deepEqual([...activeServices(profile, [{kind: 'player'}])].sort(), ['octaves', 'players']);
   assert.throws(() => numberLayout(rules, [], {probeplayer: {player: 4, page: 84}}, machines), /cannot use/);
+});
+
+
+test('saved selections retain empty choices and available entries after catalog changes', () => {
+  const kit = {profile:{id:'test'}, machines:[{id:'a'}, {id:'b'}, {id:'new'}],
+    extensions:[{id:'observer',claims:[]}, {id:'capture',claims:['record_double_tap']}]};
+  const saved = {format:'opxy-selection/1',profile:'test',selected:['b','missing','a','a'],extensions:['missing','capture']};
+  assert.deepEqual(readSelection(kit,saved), {selected:['a','b'],extensions:['capture']});
+  assert.deepEqual(readSelection(kit,{...saved,selected:[],extensions:[]}), {selected:[],extensions:[]});
+  for (const invalid of [null, {...saved,profile:'other'}, {...saved,selected:'a'}, {...saved,extensions:[null]}])
+    assert.throws(() => readSelection(kit,invalid), /Invalid saved selection/);
+});
+
+test('new extension conflicts preserve saved machines and remain visible until resolved', () => {
+  const kit = {profile:{id:'test'}, machines:[{id:'kept'}], extensions:[
+    {id:'first',claims:['record_double_tap']}, {id:'second',claims:['record_double_tap']},
+    {id:'third',claims:['record_double_tap']}]};
+  const saved = {format:'opxy-selection/1',profile:'test',selected:['kept'],extensions:['third','second','first']};
+  const restored = readSelection(kit,saved);
+  assert.deepEqual(restored, {selected:['kept'],extensions:['first','second','third']});
+  assert.throws(() => extensionSelection(kit,restored.extensions), /record double tap/);
+  assert.deepEqual(readSelection(kit,{...saved,...restored}),restored);
+  assert.deepEqual(extensionSelection(kit,['first']),['first']);
 });
