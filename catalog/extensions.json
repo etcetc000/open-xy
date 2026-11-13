@@ -32,6 +32,16 @@
       "path": "extensions/checkpoint"
     },
     {
+      "id": "drumline_page",
+      "kind": "extension",
+      "maintainer": "mmockett",
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Extensions",
+      "tag": "v1.0.0",
+      "commit": "797fd0ec6a04e6d0acf75ac8623e049597a9ce11",
+      "path": "drumline_page"
+    },
+    {
       "id": "autotune",
       "kind": "extension",
       "maintainer": "kristapskristaps",

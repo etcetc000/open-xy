@@ -70,8 +70,9 @@ inline i32 drum_level(const void* record) {
 // A key's pad fields (SDK 1.10), in bits 16..30 of stock's pad word +0x14:
 // the kit's pad controls (resources.padControls), up to two small fields
 // packed from bit 16 in declaration order, at most 9 bits; then two 3-bit
-// sends, FX I at bits 25..27 and FX II at 28..30, for every padMix kit (0
-// follows the track's send). 0 in every field is neutral. A field may be
+// send steps, FX I at bits 25..27 and FX II at 28..30, for every padMix kit (0
+// follows the track's send; since SDK 1.15 a key's amount is in a byte of the
+// record beside it, drum_send.hpp kDrumSendByte). 0 in every field is neutral. A field may be
 // signed, two's complement in its bits.
 //
 // Stock saves the pad record in projects byte for byte (8d598ce8 writes the
