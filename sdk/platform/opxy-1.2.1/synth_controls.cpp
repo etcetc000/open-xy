@@ -546,7 +546,7 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
         return stand_in;
     }
     if (m) {
-        // A position showing an alternate reads its current value.
+        // A position showing an alternate reads its displayed value.
         const u32 slot = t->slots[index];
         if (slot != index) value = shown_value(track, slot);
         if (m->format(slot, value, caption)) {
