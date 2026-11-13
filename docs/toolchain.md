@@ -130,8 +130,7 @@ Each of these has failed a build that passed somewhere else first.
   firmware sharing a header. `draw.hpp`'s free helpers, such as
   `opxy::draw::sine`, are `static inline`, so each file keeps its own copy.
   The arithmetic headers' helpers (`q15.hpp`, `q31.hpp`, `divide.hpp` and
-  the like) stay plain `inline`: changing their linkage changes how a core
-  machine's host test inlines them. Make a free helper in your own shared
+  the like) are still plain `inline`; none clashes today. Make a free helper in your own shared
   headers `static inline`, and move a static out of an inline function to
   one definition at file scope. A class's member functions can't be
   file-local, so they still need care. A build fails, naming both machines
