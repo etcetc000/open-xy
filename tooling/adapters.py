@@ -748,12 +748,26 @@ def generate_fx_object(directory, m, benchmark=False):
     # The buffer's scratch call, the transport and the shift row use stock addresses.
     if bytes_ is not None or resources.get('transport') or shift:
         values['OBJECT'] = '#include "stock.hpp"\n' + ('#include "shift_row.hpp"\n' if shift else '') + values['OBJECT']
+    values.update(effect_bus_values(m))
+    if resources.get('busShift'):
+        values['OBJECT'] = '#include "send_bus.hpp"\n' + values['OBJECT']
     path = expand('fx_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=m.definition['id'],
                                            NAME=m.native_name, LABELS=stock_labels(m),
                                            DRY_LEVEL=f'parameters[{m.dry_parameter}]' if m.dry_parameter is not None
                                            else f'{m.dry_level:#x}' if m.dry_level is not None else '0x7fffffff'),
                   Path(directory) / f'fx_object_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
+
+
+def effect_bus_values(m):
+    """An effect's bus shift (resources.busShift, send_bus.hpp): the block raised by
+    N bits, saturating, ahead of the shift row, and the result lowered by N, rounded,
+    after process. Empty, leaving the object's source as it was, without one."""
+    n = m.definition['resources'].get('busShift', 0)
+    if not n:
+        return dict(BUS_RAISE='', BUS_LOWER='')
+    return dict(BUS_RAISE=f'    opxy::platform::send_bus::raise<{n}>(left, right);\n',
+                BUS_LOWER=f'\n    opxy::platform::send_bus::lower<{n}>(left, right);')
 
 
 def stock_labels(m):

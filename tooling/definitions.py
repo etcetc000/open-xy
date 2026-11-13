@@ -93,7 +93,11 @@ STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
-EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
+# busShift N (SDK 1.16): its adapter raises the send's audio by N bits, saturating,
+# before process and lowers the result by N, rounded, after it (send_bus.hpp).
+EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display', 'busShift')
+# The largest busShift: 12 bits (72 dB) lifts a bus 2^-12 under Q31 full scale to it.
+EFFECT_BUS_SHIFT = 12
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
 # (with padMix, which takes Shift's first row, they only title the models);
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
@@ -213,6 +217,7 @@ def validate_definition(value, kind):
                 % EFFECT_BUFFER_LIMIT)
     if kind == 'effect':
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
+        require(0 <= resources.get('busShift', 0) <= EFFECT_BUS_SHIFT, 'busShift is 0..%d bits' % EFFECT_BUS_SHIFT)
         if 'display' in resources:
             validate_display(resources['display'])
     if kind in ('synth', 'drum'):

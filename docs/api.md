@@ -1348,6 +1348,19 @@ Instead, an effect may fix its Dry with `dryLevel` in `machine.json` (SDK 1.7),
 a number from 0 to 1. An effect that mixes its own dry, as a box of effects
 inline does, declares 0: at full send a track then goes wholly through it.
 
+### Bus shift
+
+An effect written for audio near Q31 full scale, while the send bus it runs on
+sits lower, declares `"busShift": N` in `resources` (SDK 1.16), an integer
+from 0 to 12 bits; 0, or leaving it out, changes nothing. Its adapter then
+raises both channels' 64 words by N bits, saturating at the Q31 limits, before
+`process` (and before the shift row is read), and lowers `process`'s result by
+N bits, rounded to nearest with halves rounding up, after it. A word below
+2^(31-N) in magnitude comes back unchanged through an effect that passes it
+on; louder input clips at that level, N times 6 dB under full scale.
+[`send_bus.hpp`](../sdk/platform/opxy-1.2.1/send_bus.hpp) holds the shifts; on
+the device they cost roughly 2,000 cycles a block.
+
 ## Registration boundary
 
 A machine's ID (`definition.json`'s `id`) is its stock name: the engine type the device lists, its catalog and
@@ -1378,7 +1391,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.15 and builds 1.0 to 1.15 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.16 and builds 1.0 to 1.16 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

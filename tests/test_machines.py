@@ -345,6 +345,23 @@ class OutsideMachines(unittest.TestCase):
         self.numberless(self.folder, sdk='1.8')
         self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
 
+    def test_an_effect_bus_shift_needs_sdk_1_16(self):
+        effect = self.copy('probefx')
+        path = effect / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['resources']['busShift'] = 9
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(effect, sdk='1.15')
+        with self.assertRaisesRegex(ValueError, 'busShift.*needs "sdk": "1.16"'):
+            machines.machine_at(effect)
+        self.numberless(effect, sdk='1.16')
+        self.assertEqual(machines.machine_at(effect).definition['resources']['busShift'], 9)
+        # 0 is the default, at any version.
+        definition['resources']['busShift'] = 0
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(effect, sdk='1.7')
+        self.assertEqual(machines.machine_at(effect).definition['resources']['busShift'], 0)
+
     def test_sdk_1_5_machines_name_no_numbers(self):
         self.numberless(self.folder)
         m = machines.machine_at(self.folder)
