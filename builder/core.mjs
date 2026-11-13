@@ -1191,7 +1191,9 @@ function defaultPreset(machine) {
     'Invalid preset engine or defaults');
   const defaults = machine.presetDefaults ?? {};
   check(defaults && typeof defaults === 'object' && !Array.isArray(defaults) &&
-    Object.keys(defaults).every(key => key === 'amp'), 'Invalid preset defaults');
+    Object.keys(defaults).every(key => key === 'amp' || key === 'volume'), 'Invalid preset defaults');
+  check(defaults.volume === undefined || (Number.isInteger(defaults.volume) && defaults.volume >= 0 && defaults.volume <= 32767),
+    'Invalid preset volume default');
   const amp = defaults.amp ?? {};
   check(amp && typeof amp === 'object' && !Array.isArray(amp) &&
     Object.entries(amp).every(([key, value]) => ['attack', 'decay', 'release', 'sustain'].includes(key) &&
@@ -1199,7 +1201,8 @@ function defaultPreset(machine) {
   const template = structuredClone(DEFAULT_PRESET_TEMPLATE);
   return {
     ...template,
-    engine: {...template.engine, params: [...entry.default_params]},
+    engine: {...template.engine, params: [...entry.default_params],
+      ...(defaults.volume === undefined ? {} : {volume: defaults.volume})},
     envelope: {...template.envelope, amp: {...template.envelope.amp, ...amp}},
     type: entry.type,
   };

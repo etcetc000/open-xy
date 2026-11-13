@@ -198,8 +198,8 @@ Sample and effect tests allocate their own buffers during setup, outside audio
 callbacks, and free them afterward. They do not borrow a project's assigned sample,
 live voice or send scratch buffer. Failed allocation/preparation or an entirely
 silent fixture yields an invalid measurement. Their stopwatch includes counter-call
-overhead and may include interrupt time; the stock synth runner masks interrupts
-while rendering. Do not compare different scopes as though they include the same work.
+overhead. Interrupts are masked around each timed block, as the stock synth runner
+masks them while rendering, so a block's maximum holds no interrupt time. Do not compare different scopes as though they include the same work.
 
 100% is the stock diagnostic's normalization budget, not total device utilization.
 Neither the mean nor the worst observed block is a proven worst-case bound or

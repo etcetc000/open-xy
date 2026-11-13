@@ -72,6 +72,7 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
     Stats stats{};
     i32 output[block_frames];
     for (u32 block = 0; block < blocks; ++block) {
+        const Masked masked;
         u32 spent = cycles();
         if (choke) {
             // Two voices taking turns on one key, each cutting the last.

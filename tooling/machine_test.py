@@ -163,7 +163,7 @@ def main(argv=None):
                     command += ['--machine', str(m.root)]
                 for e in extensions:
                     command += ['--extension', str(e.root)]
-                subprocess.run(command, check=True, cwd=ROOT, timeout=1800)
+                subprocess.run(command, check=True, cwd=ROOT, timeout=1800, creationflags=NO_WINDOW)
         print('PASS: machine and extension checks; no stock files or device operations.')
         return 0
     except (ValueError, OSError, KeyError, TypeError, ET.ParseError, subprocess.SubprocessError) as error:

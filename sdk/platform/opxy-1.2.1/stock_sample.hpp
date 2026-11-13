@@ -201,7 +201,13 @@ inline i32 sample_track_transpose(i32 value) {
 // Same 24-pad map as stock 8d5b8688, using an already-published octave.
 // This arithmetic helper is safe in audio: it does not access GUI projects.
 inline u32 sample_drum_key(u32 key, i32 octave) {
-    return 53u + static_cast<u32>((i32(key) + 19 + 12 * (octave % 2)) % 24);
+    // Stock's signed (key + 19 + 12 * (octave % 2)) % 24, written unsigned: octave % 2
+    // is -1, 0 or 1, so the sum is key + 7 + 12 * (octave % 2 + 1), never negative.
+    // An unsigned remainder by a constant compiles to a multiply, not a call of
+    // libgcc's signed division, which a drum hit would fetch cold on every start.
+    // The same pad as stock for every key below 2^31 - 31 (tests/fixtures/stock_sample.cpp).
+    const u32 x = key + 7u + 12u * static_cast<u32>(octave % 2 + 1);
+    return 53u + x % 24u;
 }
 inline SampleRegion sample_region(const i32* words, u32 frames, i32 pitch_cents, bool outer_only = false) {
     using namespace audio_region;

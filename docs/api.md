@@ -509,7 +509,11 @@ void render(Voice& voice, Shared& shared, opxy::u32 owner,
 ```
 
 Storage begins zeroed; `owner` is a stable nonzero voice ID, the stock voice
-index plus one. Each of the machine's `voiceCapacity` voices serves one owner at
+index plus one. A large voice may declare `static constexpr unsigned
+zeroed_bytes` (a multiple of 4 for word stores) to have only that leading
+prefix zeroed when it goes to an owner; the rest keeps earlier contents, so
+the machine must write it before reading it. This zeroing runs in the
+note-start path once per voice, so a chord pays it in one block. Each of the machine's `voiceCapacity` voices serves one owner at
 a time: `initialize` runs when a voice goes to an owner and establishes all
 sound state; `start` runs on each note; `destroy` releases anything the voice
 holds in `Shared`, once stock has stopped rendering its note (it ended, or
@@ -1380,7 +1384,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
-| `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
+| `presetDefaults` | Optional `{"amp": {...}, "volume": n}` overriding generated factory preset values: the envelope's `attack`, `decay`, `release` and `sustain`, and the track `volume` (16384 by default; 32767 is full), each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
 | `samples` | Optional folder inside the machine folder holding a sample engine's own [samples](#own-samples), which its presets load; `sdk` 1.10, sample engines forking the sampler |
 | `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
