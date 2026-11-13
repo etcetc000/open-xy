@@ -30,7 +30,8 @@ export class Audition {
     finally { if (!offline) URL.revokeObjectURL(url); }
     if (this.disposed) return;
     const processor = this.processor = new AudioWorkletNode(context, 'opxy-audition', {
-      numberOfInputs:0, numberOfOutputs:1, outputChannelCount:[this.kind === 'effect' ? 2 : 1],
+      numberOfInputs:0, numberOfOutputs:1,
+      outputChannelCount:[this.kind === 'effect' ? 2 : (new WebAssembly.Instance(this.module).exports.opxy_output_channels?.() ?? 1)],
       processorOptions:{module:this.module, parameters:this.parameters, kind:this.kind},
     });
     const gain = this.gain = context.createGain(); gain.gain.value = 0;

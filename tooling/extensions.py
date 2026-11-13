@@ -33,6 +33,14 @@ HEADER = 'sdk/include/opxy/extension.hpp'
 RUNTIME = 'sdk/platform/extension_runtime.hpp'
 SOURCE_SUFFIXES = ('.cpp', '.cc', '.h', '.hpp', '.inc')
 
+# Stock Drumline's second page (docs/drumline-page.md): 1-4 parameters packed into
+# 16 code bits of a pad's word +0x00; a send's choices are the SDK's per-key codes.
+DRUMLINE_PAGE_LABEL = 'Drumline page 2'
+DRUMLINE_SEND_CHOICES = ('TRK', '0', '17', '33', '50', '67', '83', '100')
+DRUMLINE_ROLES = {'send1': 1, 'send2': 2}
+DRUMLINE_TEXT = re.compile(r'[ -~]{1,7}')
+DRUMLINE_CODE_BITS = 16
+
 
 def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
@@ -61,6 +69,7 @@ class Extension:
     text: dict  # name, description and optional note: the site's row and details
 
     master_processor: dict = None
+    drumline_page: list = None  # the checked parameters (drumline_page_of)
 
     @property
     def master_filter(self):
@@ -79,8 +88,9 @@ def extension_at(folder):
             f'{root}: an extension folder holds extension.json and extension.cpp')
     data = document(root / 'extension.json')
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and optional note and master_processor')
+    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'drumline_page'},
+            f'{root}: extension.json fields are id, name, description, claims, actions and optional note, '
+            'master_processor and drumline_page')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -103,6 +113,9 @@ def extension_at(folder):
         require(definition['id']==name, 'Master definition ID differs from extension ID')
         require((root/'display.h').is_file() and (root/'display.cpp').is_file(), 'Master processor needs shared display.h/display.cpp')
         validate_master_artwork(root / artwork, definition)
+    drumline_page = drumline_page_of(name, data['drumline_page']) if 'drumline_page' in data else None
+    require(drumline_page is None or re.search(r'\bdrumline_processor\b', (root / 'extension.cpp').read_text(encoding='utf-8')),
+            f'{name}: a drumline_page extension exports opxy::extensions::{name}::drumline_processor from extension.cpp')
     claims, actions = registry()
     for field, known in (('claims', claims), ('actions', actions)):
         values = data[field]
@@ -117,7 +130,77 @@ def extension_at(folder):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter)
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, drumline_page)
+
+
+def drumline_page_of(name, value):
+    """A drumline_page declaration, checked: its parameters in declaration order, each
+    with its label, choices, default choice, role (0 own, 1 FX I, 2 FX II) and its
+    code's shift and bits. Sends take the SDK's choices and the low bits, so a page
+    whose own parameters are all at their defaults carries nothing past bit 6."""
+    require(isinstance(value, dict) and {'parameters'} <= set(value) <= {'parameters', 'state_id'} and
+            isinstance(value['parameters'], list) and 1 <= len(value['parameters']) <= 4,
+            f'{name}: drumline_page declares 1-4 parameters and optionally a state_id')
+    require(isinstance(value.get('state_id', name), str) and NAME.fullmatch(value.get('state_id', name)),
+            f'{name}: drumline_page state_id is an extension ID')
+    rows = []
+    for p in value['parameters']:
+        require(isinstance(p, dict) and isinstance(p.get('label'), str) and DRUMLINE_TEXT.fullmatch(p['label']),
+                f'{name}: a drumline_page parameter has a label of 1-7 printable ASCII characters')
+        if 'role' in p:
+            require(set(p) == {'label', 'role'} and isinstance(p['role'], str) and p['role'] in DRUMLINE_ROLES,
+                    f'{name}: a send parameter is {{"label", "role": "send1" or "send2"}}; the SDK gives its choices')
+            rows.append(dict(label=p['label'], choices=list(DRUMLINE_SEND_CHOICES), default=0, role=DRUMLINE_ROLES[p['role']]))
+            continue
+        require({'label', 'choices'} <= set(p) <= {'label', 'choices', 'default'},
+                f'{name}: a drumline_page parameter has a label, choices and optionally a default')
+        choices = p['choices']
+        require(isinstance(choices, list) and 2 <= len(choices) <= 32 and
+                all(isinstance(c, str) and DRUMLINE_TEXT.fullmatch(c) for c in choices),
+                f'{name}: a drumline_page parameter has 2-32 choices of 1-7 printable ASCII characters')
+        default = p.get('default', 0)
+        require(type(default) is int and 0 <= default < len(choices), f'{name}: a default is a choice index')
+        rows.append(dict(label=p['label'], choices=list(choices), default=default, role=0))
+    roles = [r['role'] for r in rows if r['role']]
+    require(len(roles) == len(set(roles)), f'{name}: each send appears once')
+    shift = 0
+    for r in sorted(rows, key=lambda r: (r['role'] == 0, r['role'])):
+        r['bits'] = max(1, (len(r['choices']) - 1).bit_length())
+        r['shift'] = shift
+        shift += r['bits']
+    require(shift <= DRUMLINE_CODE_BITS, f'{name}: drumline_page parameters need at most {DRUMLINE_CODE_BITS} bits')
+    # The owner tag's source: the ID unless state_id keeps saved pads across a rename.
+    for r in rows:
+        r['state_id'] = value.get('state_id', name)
+    return rows
+
+
+def drumline_tag(name):
+    """The owner tag a drumline_page extension writes into a pad: FNV-1a of its ID,
+    folded to 16 bits, never 0."""
+    h = 0x811c9dc5
+    for b in name.encode('ascii'):
+        h = ((h ^ b) * 0x01000193) & 0xffffffff
+    return ((h >> 16) ^ h) & 0xffff or 1
+
+
+def generate_drumline_page(extension):
+    """The page table and its accessor, sdk_drumline_page_extension, in the extension's
+    own object (one drumline_page extension per build)."""
+    rows = extension.drumline_page
+    quote = lambda text: '"' + text.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    lines = ['#include "' + (ROOT / 'sdk/platform/opxy-1.2.1/drumline_page.hpp').as_posix() + '"', 'namespace {']
+    for i, r in enumerate(rows):
+        lines.append('const char* const sdk_drumline_choices_%d[] = {%s};' % (i, ', '.join(quote(c) for c in r['choices'])))
+    lines.append('const opxy::platform::DrumlinePageParameter sdk_drumline_parameters[] = {' + ', '.join(
+        '{%s, sdk_drumline_choices_%d, %du, %du, %du, %du, %du}' % (
+            quote(r['label']), i, len(r['choices']), r['default'], r['role'], r['shift'], r['bits'])
+        for i, r in enumerate(rows)) + '};')
+    lines += ['const opxy::platform::DrumlinePage sdk_drumline_page_table = {%du, &opxy::extensions::%s::drumline_processor, '
+              'sdk_drumline_parameters, %du};' % (drumline_tag(rows[0]['state_id']), extension.id, len(rows)), '}',
+              'extern "C" const opxy::platform::DrumlinePage* sdk_drumline_page_extension() __asm__("sdk_drumline_page_extension");',
+              'extern "C" const opxy::platform::DrumlinePage* sdk_drumline_page_extension() { return &sdk_drumline_page_table; }', '']
+    return '\n'.join(lines)
 
 
 def check_collection(extensions):
@@ -136,6 +219,8 @@ def check_collection(extensions):
     require(len(ids) == len(set(ids)), 'Master processor state IDs must be unique')
     assets = [Path(e.master_processor['artwork']).name for e in processors]
     require(len(assets) == len(set(assets)), 'Master processor assets must be unique')
+    pages = [e.id for e in extensions if e.drumline_page is not None]
+    require(len(pages) <= 1, f'{DRUMLINE_PAGE_LABEL} has multiple owners: ' + ', '.join(pages))
     return extensions
 
 
@@ -215,6 +300,9 @@ def generate_extension(folder, extension):
                       '&opxy::extensions::' + extension.id + ('::filter' if legacy else '::processor') + '; }\n')
             source, _ = generate_processor_panel(folder / ('panel_' + extension.id), extension)
             out.write('#include "' + source.as_posix() + '"\n')
+    if extension.drumline_page is not None:
+        with target.open('a', encoding='utf-8') as out:
+            out.write(generate_drumline_page(extension))
     return target
 
 
@@ -225,6 +313,10 @@ def metadata(extensions, origins):
     rows = [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
     for e, row in zip(extensions, rows):
+        if e.drumline_page is not None:
+            # Exclusive, as a claim is: the builder lets one selected extension own it
+            # (builder/core.mjs exclusiveUses).
+            row['drumline_page'] = True
         if e.master_processor is not None:
             data = validate_master_artwork(e.root / e.master_processor['artwork'])
             row['master_processor'] = dict(state_id=e.master_processor.get('state_id',e.id), asset=Path(e.master_processor['artwork']).name,

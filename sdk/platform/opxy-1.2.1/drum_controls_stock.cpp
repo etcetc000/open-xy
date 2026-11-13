@@ -342,8 +342,14 @@ u32 sdk_sample_ui_engine(u32 track) {
 // stock's held-pad actions; the latter must also recognize the engine so
 // releasing the pad clears the overlay. Stock copies the complete pad record
 // for both clipboard and slices, retaining the tagged settings word.
+// An owned drum kit answers as Drumline (4): stock then keeps its held-pad mode
+// (8c0b2068, the overlay flag at controller + 0x2c) for a kit's pads too, so with a
+// pad held M1..M4 scramble, copy, paste and reset it (table 0x8400e36c), each
+// through the SDK's kit versions where stock's would write Drumline's own
+// (drum_synthesis_stock.cpp sdk_drum_pad_scramble, sdk_drum_pad_reset).
 u32 sdk_sample_pad_key_engine(u32 track) {
     const u32 id = track_engine(track);
+    if (track < kTracks && sdk_drum_machine(id)) return 4;
     return track < kTracks ? sdk_sample_drum_alias(id) : id;
 }
 

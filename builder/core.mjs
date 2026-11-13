@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '047a8d83e0958fa9a797f5de87da7fbed370896f6a41bcac92c3754c04e20a4b';
+export const PROFILE_SHA256 = '31361875a6edb98e495ab91ce250a6f94bb9e020c864e05c247eddcdf9c7b7ba';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -350,6 +350,36 @@ export const validKeywords = m => m.keywords === undefined || Array.isArray(m.ke
   m.keywords.length <= MAX_KEYWORDS && new Set(m.keywords).size === m.keywords.length && m.keywords.every(keyword => MACHINE_KEYWORDS.includes(keyword));
 // Who maintains a machine: its catalog maintainer; a personal kit's own machines have none.
 export const machineAuthor = m => m.source?.maintainer ?? '';
+// The share of an audio block above which the builder labels a machine CPU-high
+// (tooling.cpu_measurement.HIGH_PERCENT, which tests compare).
+export const CPU_HIGH_PERCENT = 4.5;
+// A catalog machine's reported CPU worst case: its worst observed block peak, or its
+// average per block when its record reports no peak; null without a cpu record.
+// A drum kit is judged by its worst single sound, never its whole-kit runs: its
+// single-voice peak (voice_peak_percent), else its heaviest single voice's average.
+export function cpuWorstCase(m) {
+  const usable = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
+  const cpu = m.cpu && typeof m.cpu === 'object' ? m.cpu : {};
+  const peak = m.kind === 'drum' ? cpu.voice_peak_percent : cpu.peak_percent;
+  if (usable(peak)) return {percent: peak, metric: 'peak'};
+  if (usable(cpu.block_percent)) return {percent: cpu.block_percent, metric: 'average'};
+  return null;
+}
+// The CPU-high label, derived from the cpu record so it follows the catalog: the worst
+// case with the words that explain it (`detail`, and `text` with the label), or null for
+// a machine at or under the threshold (docs/catalog.md).
+export function cpuHigh(m) {
+  const worst = cpuWorstCase(m);
+  if (!worst || worst.percent <= CPU_HIGH_PERCENT) return null;
+  const figure = Number(worst.percent.toFixed(2)) + '% of an audio block';
+  const detail = m.kind === 'drum'
+    ? (worst.metric === 'peak' ? 'worst single sound peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
+      : 'worst single sound average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no single-sound peak recorded)')
+    : worst.metric === 'peak'
+    ? 'worst observed block peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
+    : 'average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)';
+  return {...worst, detail, text: 'CPU-high: ' + detail};
+}
 // The keywords the machines use, with how many use each, most used first, then by name: the
 // order in which the builder keeps keyword filters when only some fit (builder/app.mjs).
 export function keywordsByUse(machines) {
@@ -448,10 +478,14 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
   return selected.map(e => e.id); // Collection order, never checkbox order.
 }
 
+// What an extension holds exclusively: its claims, and stock Drumline's second
+// page when it supplies it (tooling.extensions.check_collection allows one).
+const exclusiveUses = e => [...(e.claims ?? []), ...(e.drumline_page ? ['drumline_page'] : [])];
+
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
 export function sharedClaim(extensions) {
   const seen = new Set();
-  for (const e of extensions) for (const claim of e.claims ?? []) {
+  for (const e of extensions) for (const claim of exclusiveUses(e)) {
     if (seen.has(claim)) return claim;
     seen.add(claim);
   }
@@ -460,7 +494,8 @@ export function sharedClaim(extensions) {
 
 // The registry's label for a claim, as the kit carries it with each extension.
 export const claimLabel = (extensions, claim) =>
-  extensions.map(e => e.claim_labels?.[claim]).find(Boolean) ?? claim.replaceAll('_', ' ');
+  extensions.map(e => e.claim_labels?.[claim]).find(Boolean) ??
+  (claim === 'drumline_page' ? 'Drumline page 2' : claim.replaceAll('_', ' '));
 
 // Every extension choice a build can make, in collection order: each subset
 // in which no two extensions share a claim. Recovery and release checks try each.
@@ -559,7 +594,8 @@ export async function openKit(kit) {
       Object.keys(e.claim_labels).sort().join() === [...(e.claims ?? [])].sort().join() &&
       Object.values(e.claim_labels).every(l => typeof l === 'string' && l.length > 0 && l.length <= 40) &&
       ['claims', 'actions'].every(key => Array.isArray(e[key]) && e[key].length <= 8 &&
-        new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))),
+        new Set(e[key]).size === e[key].length && e[key].every(n => /^[a-z][a-z0-9_]{0,31}$/.test(n))) &&
+      (e.drumline_page === undefined || e.drumline_page === true),
       'Invalid extension metadata');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
@@ -661,7 +697,8 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(extensions.size ? [{kind: 'extension'}] : []),
-    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : [])]);
+    ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : [])]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
@@ -870,20 +907,26 @@ export const RECOVERABLE_MACHINES = 10;
 // try the extensions whose code the module holds.
 const RECOVERABLE_EXTENSIONS = 4;
 
-// Whether an uploaded module appears to hold the given objects' code: their
-// largest code section, byte for byte outside its relocated fields. Only a
-// guess; recoverFirmware accepts it only by rebuilding it exactly.
-function holdsCode(objects, payload) {
+// The objects' largest code section and which of its bytes the link leaves as
+// they are (outside relocated fields), or null when it is too small to tell.
+function largestCode(objects) {
   let best = null;
   for (const o of objects) for (const s of o.sections)
     if (s.group === 'text' && (!best || s.size > best.s.size)) best = {o, s};
-  if (!best || best.s.size < 16) return false;
+  if (!best || best.s.size < 16) return null;
   const {o, s} = best, fixed = new Uint8Array(s.size).fill(1);
   for (const r of o.relocations) if (r.section === s.index) {
     fixed.fill(0, [10, 13].includes(r.type) ? r.offset - 2 : r.offset, r.offset + (r.type === 18 ? 4 : 2));
   }
-  const anchor = fixed.indexOf(1);
-  if (anchor < 0) return false;
+  return fixed.includes(1) ? {s, fixed} : null;
+}
+// Whether an uploaded module appears to hold the given objects' code: their
+// largest code section, byte for byte outside its relocated fields. Only a
+// guess; recoverFirmware accepts it only by rebuilding it exactly.
+function holdsCode(objects, payload) {
+  const code = largestCode(objects);
+  if (!code) return false;
+  const {s, fixed} = code, anchor = fixed.indexOf(1);
   for (let at = 0; at + s.size <= payload.length; at += 2) {
     if (payload[at + anchor] !== s.data[anchor]) continue;
     let i = anchor;
@@ -894,6 +937,30 @@ function holdsCode(objects, payload) {
 }
 const presentMachines = (kit, payload) =>
   kit.machines.filter(m => holdsCode(kit.objects.filter(o => o.owner === m.id), payload)).map(m => m.id);
+// Machines built from the same source can share code, so one of them in a module
+// makes another look present when its largest code section lies within the
+// first's code. The selections to try for the machines that look present: all of
+// them, then without one lookalike, then without two, and so on, up to
+// RECOVERABLE_ALTERNATIVES selections in all.
+export const RECOVERABLE_ALTERNATIVES = 64;
+export function presentSelections(kit, present) {
+  const code = id => kit.objects.filter(o => o.owner === id);
+  const text = id => join(code(id).flatMap(o => o.sections.filter(s => s.group === 'text').map(s => s.data)));
+  const lookalikes = present.filter(id => present.some(other => other !== id && holdsCode(code(id), text(other))));
+  const selections = [present];
+  // Each set of `count` lookalikes from index `from` on, joined to `dropped`.
+  const drop = (count, from, dropped) => {
+    if (selections.length >= RECOVERABLE_ALTERNATIVES) return;
+    if (!count) {
+      const selection = present.filter(id => !dropped.includes(id));
+      if (selection.length) selections.push(selection);
+      return;
+    }
+    for (let i = from; i <= lookalikes.length - count; i++) drop(count - 1, i + 1, [...dropped, lookalikes[i]]);
+  };
+  for (let count = 1; count <= lookalikes.length; count++) drop(count, 0, []);
+  return selections;
+}
 const presentExtensions = (kit, payload) => (kit.extensions ?? [])
   .filter(e => holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
 const UPDATE = 'Update your OP–XY to OS 1.2.1 with teenage engineering’s updater, then copy its OS file (os.ldr) again; a .tfw update file will not work.';
@@ -949,10 +1016,16 @@ export async function recoverFirmware(kit, input, layout = null) {
     const guess = sharedClaim((kit.extensions ?? []).filter(e => held.includes(e.id))) ? [] : held;
     const choices = (kit.extensions ?? []).length <= RECOVERABLE_EXTENSIONS ? extensionChoices(kit)
       : guess.length ? [guess, []] : [[]];
-    for (const extensions of present.length ? [guess, ...choices] : []) {
-      try {
-        if (await rebuilds(present, extensions)) return {stock, selected: present, extensions, ...found};
-      } catch {}  // a guess that cannot link is not this kit's build
+    // The guess first, then the other extension choices, each once.
+    const tries = [guess, ...choices.filter(choice => choice.join() !== guess.join())];
+    for (const selected of present.length ? presentSelections(kit, present) : []) {
+      for (const extensions of tries) {
+        try {
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found};
+        } catch {}  // a guess that cannot link is not this kit's build
+      }
+      // Yield between candidates, as the exhaustive search below does.
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
     // Small kits also try every selection: at most 1,023 deterministic links per
     // extension choice, each under a millisecond. Yield between candidates so file
@@ -1017,7 +1090,11 @@ export function presetFiles(machine) {
     const params = preset?.engine?.params;
     check(/^[a-z0-9][a-z0-9_-]{0,23}$/.test(name) && preset && typeof preset === 'object' &&
       preset.version === 4 && preset.platform === 'OP-XY' && preset.type === machine.id &&
-      (Array.isArray(preset.regions) && preset.regions.length === 0 || machine.kind === 'drum' && drumPresetRegions(preset.regions)) &&
+      Array.isArray(preset.regions) && (preset.regions.length === 0 ||
+        machine.kind === 'drum' && drumPresetRegions(preset.regions) ||
+        // A synth's Shift row (SDK 1.13) rides in sample-less regions, as Drumline's keys do.
+        machine.shiftRow === true && preset.regions.length <= 24 &&
+        preset.regions.every(r => r && typeof r === 'object' && !Array.isArray(r) && !r.sample)) &&
       Array.isArray(params) && params.length === 8 &&
       params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767), 'Invalid machine preset: ' + name);
     files[`content/presets/${machine.id}/${name}.json`] = preset;

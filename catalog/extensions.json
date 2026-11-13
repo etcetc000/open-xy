@@ -20,6 +20,26 @@
       "tag": "v1.1.5",
       "commit": "79f6375acb80044a52a1179e5dd01c4377736f52",
       "path": "."
+    },
+    {
+      "id": "checkpoint",
+      "kind": "extension",
+      "maintainer": "kristapskristaps",
+      "status": "draft",
+      "repository": "https://github.com/kristapskristaps/xy-machines",
+      "tag": "checkpoint-v0.1.0",
+      "commit": "5fedd9903d7dace1657863b0c0ffcd6d843b1b05",
+      "path": "extensions/checkpoint"
+    },
+    {
+      "id": "drumline_page",
+      "kind": "extension",
+      "maintainer": "mmockett",
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-Extensions",
+      "tag": "v1.0.0",
+      "commit": "797fd0ec6a04e6d0acf75ac8623e049597a9ce11",
+      "path": "drumline_page"
     }
   ]
 }

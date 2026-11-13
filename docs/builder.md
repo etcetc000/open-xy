@@ -203,6 +203,9 @@ directing you to format.
    link to the machine's code at the commit the catalog pins. Open-XY's own
    example machines from the catalog are labelled as Open-XY machines. A
    [personal kit](#export-a-kit)'s own machines are marked **Yours**.
+   A machine whose catalog CPU measurement is above 4.5% of an audio block is
+   marked **CPU-high**, in its row and details; hover or focus the mark for an immediate explanation of its effect on voice count
+   ([catalog](catalog.md)).
    Above the list, search by name, maintainer, repository (such as a collection's
    name), description, kind or keyword, sort by name, maintainer or kind, and
    filter by kind, by the catalog's [keywords](catalog.md#keywords) or by your

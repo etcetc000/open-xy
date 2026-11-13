@@ -156,6 +156,8 @@ class SampleServices(unittest.TestCase):
 
     def test_played_drum_snapshot_is_independent_of_selection(self):
         self.run_fixture('drum_trigger')
+    def test_held_kit_pad_strip_follows_drumlines_frame(self):
+        self.run_fixture('drum_hold_strip')
 
     def test_registration_never_overwrites_and_rechecks_stock_state(self):
         self.run_fixture('registration')

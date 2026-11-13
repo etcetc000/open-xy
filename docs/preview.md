@@ -27,6 +27,9 @@ The first play action enables audio automatically. Escape/Stop all and loss
 of window focus release notes. Drag knobs up or down to adjust their values;
 hold Shift for finer movement. The sliders beneath them edit the same values.
 Focused knobs also accept arrow keys, Page Up/Down and Home/End.
+A synth with a [Shift row](api.md#a-synths-shift-row) adds **Shift**, which
+holds the row in the screen's header, and **Press**, which switches pages as an
+encoder press does, the row following with Shift on.
 Volume controls preview playback separately from engine parameters.
 **Mute** / **Unmute** silences or restores output without changing Volume or
 stopping playback. Muting before the first key or phrase keeps that playback silent.

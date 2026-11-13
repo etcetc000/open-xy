@@ -127,7 +127,8 @@
   "services": {
     "samples": [
       "sample",
-      "drum"
+      "drum",
+      "drumline_page"
     ],
     "control": [
       "trackControl",
@@ -143,7 +144,9 @@
       "master_filter"
     ],
     "drums": [
-      "drum"
+      "drum",
+      "drumline_page",
+      "synthShift"
     ],
     "players": [
       "player"
@@ -151,13 +154,23 @@
     "octaves": [
       "sample",
       "player",
-      "drum"
+      "drum",
+      "drumline_page"
     ],
     "drum_sends": [
-      "padMix"
+      "padMix",
+      "drumline_page"
     ],
     "drum_locks": [
-      "padMix"
+      "padMix",
+      "drumline_page",
+      "synthShift"
+    ],
+    "drumline": [
+      "drumline_page"
+    ],
+    "synth_shift": [
+      "synthShift"
     ]
   },
   "patches": [
@@ -912,6 +925,16 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c0b2a5e",
+      "file_offset": "0xe9c9a",
+      "length": 8,
+      "before": "ffe358fe0160492f",
+      "symbol": "sdk_synth_shift_press_hook",
+      "service": "synth_shift",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8c08fade",
       "file_offset": "0xc6d1a",
       "length": 8,
@@ -1383,7 +1406,7 @@
       "file_offset": "0x11e70c",
       "length": 4,
       "before": "21600808",
-      "symbol": "extensions_drum_compare_r0",
+      "symbol": "extensions_preset_export_regions",
       "service": "drums",
       "call": true
     },
@@ -1414,6 +1437,72 @@
       "length": 4,
       "before": "88a11008",
       "symbol": "extensions_drum_export_gain",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Instrument shifted key handler, its pad check: Shift and a pad hold the pad on an owned kit, as on Drumline",
+      "address": "0x8c0b2978",
+      "file_offset": "0xe9bb4",
+      "length": 8,
+      "before": "00de5b8d14880000",
+      "symbol": "sdk_drum_shift_pad",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Held-pad M1, Drumline's one-pad scramble: an owned kit re-rolls the held key as its track scramble does",
+      "address": "0x8c0b3170",
+      "file_offset": "0xea3ac",
+      "length": 8,
+      "before": "00de4d8df4600000",
+      "symbol": "sdk_drum_pad_scramble",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Held-pad mode, its page's engine: an owned kit answers as Drumline, never the drum sampler",
+      "address": "0x8c0b20a2",
+      "file_offset": "0xe92de",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_drum_held_pad_engine",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Held-pad M4, Drumline's pad reset: an owned kit's key back to the kit's defaults",
+      "address": "0x8c0b32d6",
+      "file_offset": "0xea512",
+      "length": 8,
+      "before": "00de588d48200000",
+      "symbol": "sdk_drum_pad_reset",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset export, random's converter: a padMix kit's key also exports its send amounts above bit 16",
+      "address": "0x8d4e73ac",
+      "file_offset": "0x11e608",
+      "length": 4,
+      "before": "ffe391e5",
+      "symbol": "extensions_drum_export_random",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset import, random's converter: the send amounts above bit 16 into the pad record's bytes",
+      "address": "0x8d4e3b9a",
+      "file_offset": "0x11adf6",
+      "length": 4,
+      "before": "ffe3dffc",
+      "symbol": "extensions_drum_import_random",
       "service": "drums",
       "call": true
     },
@@ -1519,6 +1608,28 @@
       "length": 8,
       "before": "00de4d8db06c0000",
       "symbol": "sdk_drum_latch_key",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Track menu scramble: the selected track's engine, an owned kit's as Drumline's",
+      "address": "0x8c0b5314",
+      "file_offset": "0xec550",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_scramble_engine",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Track menu scramble, its Drumline branch: an owned kit re-rolls each key's model and controls",
+      "address": "0x8c0b5430",
+      "file_offset": "0xec66c",
+      "length": 8,
+      "before": "00de4d8d2c620000",
+      "symbol": "sdk_drum_scramble",
       "service": "drums",
       "call": true
     },
@@ -2154,6 +2265,17 @@
     },
     {
       "kind": "hook",
+      "name": "Mixer: after the track gain's in-place loop, the per-key sums at the same gain",
+      "address": "0x8d510ea8",
+      "file_offset": "0x148104",
+      "length": 8,
+      "before": "0ada901100360000",
+      "symbol": "sdk_drum_send_gain_hook",
+      "call": true,
+      "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
       "name": "Mixer: FX I bus reads the track sum, or the per-key sum of FX I's shares",
       "address": "0x8d511088",
       "file_offset": "0x1482e4",
@@ -2217,6 +2339,28 @@
       "symbol": "sdk_lock_step",
       "call": true,
       "service": "drum_locks"
+    },
+    {
+      "kind": "hook",
+      "name": "Drum renderer: a stock Drumline voice's render through the SDK's wrapper (SRR, its payload from its first block)",
+      "address": "0x8d51b554",
+      "file_offset": "0x1527b0",
+      "length": 4,
+      "before": "48914130",
+      "symbol": "sdk_dbox_render_select",
+      "call": true,
+      "service": "drumline"
+    },
+    {
+      "kind": "hook",
+      "name": "Drumline page: page 2's titles and values after stock sets its own",
+      "address": "0x8d531192",
+      "file_offset": "0x1683ee",
+      "length": 4,
+      "before": "a0e4b400",
+      "symbol": "sdk_drumline_page_hook",
+      "call": true,
+      "service": "drumline"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"

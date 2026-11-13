@@ -85,8 +85,10 @@ struct Input {
     u8 reserved;             // 0
     // A padMix drum kit's selected key's pad fields (SDK 1.10): its pad
     // controls (resources.padControls) in 0 and 1, a signed one negative below
-    // 0, then FX I and FX II, 0..7 (0 follows the track's send); 0 when
-    // neutral, not declared, and for other machines.
+    // 0, then FX I and FX II, 0 when it follows the track's send: for a kit
+    // declaring SDK 1.15 or later its percent + 1 (1..101), for an older one
+    // its step 1..7 (0, 17, 33, 50, 67, 83, 100; an amount as its nearest); 0
+    // when neutral, not declared, and for other machines.
     i8 pad[4];
     // Latest played drum pad; zero when unavailable. Read when note_serial changes.
     // Controls reflect the GUI snapshot and current offsets, not past step locks.

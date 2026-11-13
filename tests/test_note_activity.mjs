@@ -123,14 +123,14 @@ test('ABI 7 keeps the played drum independent of selection and validates before 
   const display = new PreviewDisplay(fixture(7));
   const trigger = {key:54,model:9,controls:[0x70000000,1,2,3,4,5,6,0x7fffffff]};
   const amp = {attack:1,decay:2,sustain:3,release:4};
-  display.tick(input(),17,4,0,false,null,0,0,[0,0,0,0],amp,{},0,trigger);
+  display.tick(input(),17,4,0,false,null,0,0,[0,0,0,0],amp,{},0,null,trigger);
   assert.deepEqual([...display.input.slice(22,26)], [1,2,3,4]);
   assert.equal(display.input[21],0);
   assert.deepEqual([...display.input.slice(28)], [54,9,...trigger.controls]);
   const before = new Uint8Array(display.memory).slice();
   for (const bad of [{...trigger,key:52},{...trigger,key:77},{...trigger,model:128},
     {...trigger,controls:[]},{...trigger,controls:[...trigger.controls.slice(0,7),NaN]}]) {
-    assert.throws(() => display.tick(input(),17,5,0,false,null,0,0,[0,0,0,0],null,{},0,bad));
+    assert.throws(() => display.tick(input(),17,5,0,false,null,0,0,[0,0,0,0],null,{},0,null,bad));
     assert.deepEqual(new Uint8Array(display.memory),before);
   }
   display.tick(input(),17,4);

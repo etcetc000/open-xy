@@ -34,4 +34,5 @@ static u32 fixture_note_starts;
 inline u32 note_serial(u32) { return fixture_note_starts; }
 inline bool refresh_controls(Base*, Controls&) { return false; }
 inline void draw(Base*) {}
+inline void draw_hold_strip(u32, i32) {}
 }}}

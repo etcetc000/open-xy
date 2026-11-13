@@ -119,7 +119,10 @@ def aggregate(captures, expected, identity, name, commit, url):
 
 def aggregate_drum(captures, expected, identity, name, commit, url, own):
     """A kit's record: each run's median across captures; its heaviest single voice is
-    block_percent, whatever a level does to its sound (the workload always reports those)."""
+    block_percent, whatever a level does to its sound (the workload always reports those),
+    and the worst block of the single-voice runs alone is voice_peak_percent. Those runs
+    play the kit with M3 off; the filter run (M3 on, the ladder on every voice) is
+    filter_percent and filter_peak_percent, and peak_percent leaves it out."""
     case = own[0]
     seen, collectors = set(), set()
     values = {index: [] for index in range(len(own))}
@@ -145,13 +148,18 @@ def aggregate_drum(captures, expected, identity, name, commit, url, own):
     medians = {index: round(statistics.median(runs), 6) for index, runs in values.items()}
     maxima = {index: round(max(runs), 6) for index, runs in peaks.items()}
     of = lambda kind: [index for index, c in enumerate(own) if c['drum']['run'] == kind]
-    voices = of('voice')
+    voices, filtered = of('voice'), of('filter')
     worst = max(voices, key=lambda index: (medians[index], -index))
     measurement = dict(benchmark=case['benchmark'], commit=commit, firmware_sha256=identity['firmware_sha256'],
-                       runs=len(captures), block_percent=medians[worst], peak_percent=max(maxima.values()),
+                       runs=len(captures), block_percent=medians[worst],
+                       peak_percent=max(maxima[i] for i in maxima if i not in filtered),
+                       # The worst single sound's spike, for the builder's CPU-high label.
+                       voice_peak_percent=max(maxima[i] for i in voices),
                        midpoint_percent=max(medians[i] for i in voices if own[i]['drum']['level'] == 64),
                        kit_percent=medians[of('kit')[0]], choke_percent=medians[of('choke')[0]],
                        ceiling_percent=medians[of('ceiling')[0]], worst_model=own[worst]['drum'])
+    if filtered:
+        measurement.update(filter_percent=medians[filtered[0]], filter_peak_percent=maxima[filtered[0]])
     if url is not None:
         measurement['report'] = url
     validate(measurement, case['kind'], commit, legacy=False)
@@ -192,7 +200,12 @@ def create(package, paths, name, url, out):
                      f"block budget ({drum_label(measurement['worst_model'])}). Heaviest at the middle: "
                      f"{measurement['midpoint_percent']:.3f}%. Whole kit: its own keys "
                      f"{measurement['kit_percent']:.3f}%, same-key retriggers {measurement['choke_percent']:.3f}%, "
-                     f"full polyphony of the heaviest voice {measurement['ceiling_percent']:.3f}%.")
+                     f"full polyphony of the heaviest voice {measurement['ceiling_percent']:.3f}%. "
+                     f"Worst block of a single voice: {measurement['voice_peak_percent']:.3f}%.")
+        if 'filter_percent' in measurement:
+            published += (f" Those runs play the kit as it starts, the track's M3 off. With M3 on, the ladder on "
+                          f"every voice, full polyphony of the heaviest voice: {measurement['filter_percent']:.3f}%, "
+                          f"worst block {measurement['filter_peak_percent']:.3f}%.")
         table = ['| Run | Mean block budget (median across captures) | Worst observed block |', '| --- | ---: | ---: |']
         table += [f'| {case_label(run)} | {median:.3f}% | {peak:.3f}% |' for run, median, peak in runs]
         published += '\n\n' + '\n'.join(table)

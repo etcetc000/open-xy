@@ -20,9 +20,10 @@ from test_sample_services import HOST_CXX
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 PROFILE = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text(encoding='utf-8'))
-# The five reviewed sites, as drum_send_hooks.s describes them.
+# The six reviewed sites, as drum_send_hooks.s describes them.
 SITES = {'0x8d510bea': ('sdk_drum_send_track', '00e38f5d'),
          '0x8d51c7b2': ('sdk_drum_send_voice_hook', '0adab01148150000'),
+         '0x8d510ea8': ('sdk_drum_send_gain_hook', '0ada901100360000'),
          '0x8d511088': ('sdk_drum_send_source_1', '09da901100360000'),
          '0x8d5110ca': ('sdk_drum_send_source_2', '09da901100360000'),
          '0x8d511116': ('sdk_drum_send_own', '30e51200')}
@@ -84,14 +85,18 @@ int main() {
     for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
     for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
     for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
-    // In word 6, FILTER and SRR bits, FX I's code 5 and FX II's 3, on a key the kit set up.
-    const opxy::i32 word = opxy::platform::drum_send_store(
-        opxy::platform::drum_send_store(0x00120000 | opxy::platform::kDrumPadReady, 0, 5), 1, 3);
+    // In word 6, FILTER and SRR bits on a key the kit set up; in word 0, FX I at 37
+    // and FX II at the old code 3 (33).
+    namespace p = opxy::platform;
+    const opxy::i32 word = 0x00120000 | p::kDrumPadReady;
+    const opxy::u32 pair = p::drum_send_pair(p::drum_send_index_of_amount(37), p::drum_send_index_of_code(3));
     opxy::i32 marked[8] = {kMarked, 0, 0, 0, 0, 0, word, 0};
     opxy::i32 unmarked[8] = {0, 0, 0, 0, 0, 0, word, 0};
+    p::drum_send_carry(marked, pair);
+    p::drum_send_carry(unmarked, pair);
     // A key an SDK 1.9 kit marked keeps whatever stock left in the word: here stock's
-    // default kit's last key (0x26660000, FX I 3 and FX II 2 if it were read) and an
-    // editor value with its low half.
+    // default kit's last key (0x26660000) and an editor value with its low half,
+    // each beside word 0's low bits as stock's builder leaves them (0x1b25).
     opxy::i32 old_default[8] = {kMarked, 0, 0, 0, 0, 0, 0x26660000, 0};
     opxy::i32 old_editor[8] = {kMarked, 0, 0, 0, 0, 0, opxy::i32(199 * 10737418 + 5368709), 0};
     note(1, 53);
@@ -103,7 +108,7 @@ int main() {
     render(2, unmarked);
     render(3, old_default);
     render(4, old_editor);
-    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? 5u + (3u << 3) : 0u));
+    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? pair : 0u));
     CHECK(probe_drum_send(objects[2]) == 0);       // a pad the kit has not marked follows
     CHECK(probe_drum_send(objects[3]) == 0);       // nor one it has not set up
     CHECK(probe_drum_send(objects[4]) == 0);
@@ -112,7 +117,7 @@ int main() {
     // A note keeps the codes of its first block's payload: the payload is the
     // pad's, which a later note on the pad replaces.
     render(1, nullptr);
-    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? 5u + (3u << 3) : 0u));
+    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? pair : 0u));
     note(1, 53);
     render(1, nullptr);
     CHECK(probe_drum_send(objects[1]) == 0);
@@ -127,10 +132,10 @@ int main() {
     // A stolen handle: its voice went to another note, so the block it renders
     // is silence and follows the track, whatever the voice's new key sends.
     end(2);
-    const opxy::i32 other_word = opxy::platform::drum_send_store(
-        opxy::platform::drum_send_store(opxy::platform::kDrumPadReady, 0, 2), 1, 6);
-    opxy::i32 other[8] = {kMarked, 0, 0, 0, 0, 0, other_word, 0};
-    const opxy::u32 codes = PAD_MIX ? 5u + (3u << 3) : 0u, other_codes = PAD_MIX ? 2u + (6u << 3) : 0u;
+    const opxy::u32 other_pair = p::drum_send_pair(p::drum_send_index_of_code(2), p::drum_send_index_of_amount(100));
+    opxy::i32 other[8] = {kMarked, 0, 0, 0, 0, 0, p::kDrumPadReady, 0};
+    p::drum_send_carry(other, other_pair);
+    const opxy::u32 codes = PAD_MIX ? pair : 0u, other_codes = PAD_MIX ? other_pair : 0u;
     note(1, 53);
     render(1, marked);
     note(6, 57); note(7, 58); note(8, 59);         // the other three voices
@@ -184,7 +189,15 @@ class DrumSend(unittest.TestCase):
         for stock, host in (('reinterpret_cast<i32*>(0x11903600)', 'host_sum'),
                             ('reinterpret_cast<const i32*>(0x11b01548)', 'host_voice'),
                             ('reinterpret_cast<i32*>(0x84caa140)', 'host_fx1'),
-                            ('reinterpret_cast<i32*>(0x84caa340)', 'host_fx2')):
+                            ('reinterpret_cast<i32*>(0x84caa340)', 'host_fx2'),
+                            # A stock dbox voice (drumline.hpp): its method table and object index.
+                            ('reinterpret_cast<__UINTPTR_TYPE__>(table) == kDboxMethods', 'table == host_dbox_table'),
+                            ('dbox_index(static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(object)))',
+                             'host_dbox_index(object)'),
+                            # The dry: the send slots' effects, the track records and the dry words.
+                            ('reinterpret_cast<void* const*>(0x11b01dc0)', 'host_effects'),
+                            ('reinterpret_cast<const unsigned char*>(0x84eab39c)', 'host_records'),
+                            ('reinterpret_cast<const i32*>(0x84c69700)', 'host_dry_words')):
             self.assertEqual(source.count(stock), 1, stock)
             source = source.replace(stock, host)
         with tempfile.TemporaryDirectory(prefix='drum-send-') as folder:
@@ -227,7 +240,7 @@ class DrumSend(unittest.TestCase):
 
     def test_only_a_pad_mix_kit_links_the_mixer_hooks(self):
         services = PROFILE['services']
-        self.assertEqual(services['drum_sends'], ['padMix'])
+        self.assertEqual(services['drum_sends'], ['padMix', 'drumline_page'])
         with_sends, without = kit(1), kit()
         self.assertIn('padMix', native.service_users([with_sends]))
         self.assertNotIn('padMix', native.service_users([without]))
@@ -236,7 +249,7 @@ class DrumSend(unittest.TestCase):
         self.assertEqual(native.UNIT_SERVICES['drum_send'], 'drum_sends')
         self.assertEqual(native.UNIT_SERVICES['drum_send_hooks'], 'drum_sends')
 
-    def test_the_profile_reviews_five_call_sites_outside_hardware_loops(self):
+    def test_the_profile_reviews_six_call_sites_outside_hardware_loops(self):
         hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') == 'drum_sends'}
         self.assertEqual(set(hooks), set(SITES))
         for address, (symbol, before) in SITES.items():
@@ -251,6 +264,11 @@ class DrumSend(unittest.TestCase):
         self.assertIn('P0.H = 0x8d51; P0.L = 0xc708;\n    JUMP (P0);', stubs)
         self.assertIn('P2.H = 0x11b0; P2.L = 0x1548;', stubs)
         self.assertIn('P1.H = 0x1190; P1.L = 0x3600;', stubs)
+        # The track gain's hook hands C++ the track, then the gain R0 and the step R2
+        # (sdk_drum_send_gain(track, gain, step)), and replays P2's load of the sum.
+        body = stubs[stubs.index('sdk_drum_send_gain_hook:\n'):]
+        self.assertIn('    HOOK_SAVE\n    R1 = R0;\n    P0 = [FP];\n    R0 = [P0 + 8];\n    CALL sdk_drum_send_gain;\n'
+                      '    HOOK_RESTORE\n    P2.H = 0x1190; P2.L = 0x3600;\n    RTS;', body[:body.index('.size')])
 
     def test_each_stub_replays_the_immediate_its_site_held(self):
         # An early hardware test replayed P1 = 0x11900000 where stock loads 0x11903600 (a decimal
@@ -271,7 +289,8 @@ class DrumSend(unittest.TestCase):
             body = body[:body.index('.size ' + symbol)]
             self.assertIn('%s.H = 0x%04x; %s.L = 0x%04x;' % (register, value >> 16, register, value & 0xffff), body,
                           '%s must replay %s = 0x%08x' % (symbol, register, value))
-        self.assertEqual(loads, {'0x8d51c7b2': 0x11b01548, '0x8d511088': 0x11903600, '0x8d5110ca': 0x11903600})
+        self.assertEqual(loads, {'0x8d51c7b2': 0x11b01548, '0x8d510ea8': 0x11903600, '0x8d511088': 0x11903600,
+                                 '0x8d5110ca': 0x11903600})
         buses = []
         for before in BUS_LOADS.values():
             words = [int.from_bytes(bytes.fromhex(before)[i:i + 2], 'little') for i in range(0, 8, 2)]
@@ -290,6 +309,57 @@ class DrumSend(unittest.TestCase):
         # The C++ side reads the same two stock buffers.
         self.assertIn('reinterpret_cast<i32*>(0x%08x)' % loads['0x8d511088'], source)
         self.assertIn('reinterpret_cast<const i32*>(0x%08x)' % loads['0x8d51c7b2'], source)
+
+    def test_the_own_hook_reads_the_dry_where_the_engine_keeps_it(self):
+        # The own-amount hook hands the C++ side the engine's frame pointer, which
+        # reads FX I's gain [FP-0x8], the dry smoother [FP-0x34] and the main out
+        # [SP+0x58] with SP = FP - 0xe4 (test_stock_lays_out_the_dry_as_the_hook_reads_it).
+        stubs = (PLATFORM / 'drum_send_hooks.s').read_text(encoding='utf-8')
+        body = stubs[stubs.index('sdk_drum_send_own:\n'):]
+        body = body[:body.index('.size')]
+        self.assertIn('    P0 = [FP];\n    R0 = [P0 + 8];\n    R1 = [P0 + -0x68];\n    R2 = P0;\n'
+                      '    CALL sdk_drum_send_own_mix;', body)
+        source = (PLATFORM / 'drum_send.cpp').read_text(encoding='utf-8')
+        for text in ('kFrameFx1 = -0x8', 'kFrameDrySmoother = -0x34', 'kFrameMainOut = -0xe4 + 0x58',
+                     'kRecordBytes = 0xe8, kFx2Knob = 0x5c, kDryMethod = 7', 'kRecords + (14 + s) * kRecordBytes',
+                     'reinterpret_cast<void* const*>(0x11b01dc0)', 'reinterpret_cast<const i32*>(0x84c69700)',
+                     'in.shift = frame_word<short>(smoother, 8);', 'in.reset = smoother[0xa] != 0;'):
+            self.assertEqual(source.count(text), 1, text)
+        # Only a track with an own-amount key asks the effects or writes the main out.
+        mix = source[source.index('void sdk_drum_send_own_mix(u32 track, i32 level, const unsigned char* frame) {'):]
+        self.assertLess(mix.index('drum_send_dry_idle'), mix.index('dry_query'))
+
+    @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
+    def test_stock_lays_out_the_dry_as_the_hook_reads_it(self):
+        from tooling.formats import ldr, mapped_offset, sha
+        stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(stock), PROFILE['stock_sha256'])
+        image = ldr(stock)
+
+        def at(address, length):
+            offset = mapped_offset(image, address, length)
+            return stock[offset:offset + length].hex()
+        expected = {
+            0x8d510760: '00e82d00e305666f',   # LINK 0xb4; [--SP] = (R7:4, P5:3); SP += -0x14: SP = FP - 0xe4
+            0x8d510cfe: '09dab011881d0000',   # P1 = 0x11b01d88, the slots' effect objects
+            0x8d510d06: '31caae218aa30000',   # ... || R2 = [P1 + 0x38]: slot 14's
+            0x8d510d5c: 'c9ad6100',           # P1 = [P1 + 0x1c]; CALL (P1): method word 7, the dry query
+            0x8d510d6e: '03c80018c3a3d4bb',   # R3 = [P0 + 0x3c]: slot 15's
+            0x8d510db6: '31ca8a20c9afe1bb',   # R2 = R1 * R2 (T) || ... || [FP - 0x8] = R1: G1, G1 (1 - d1)
+            0x8d510e14: '31ca3820f0af1191',   # R0 = R7 * R0 (T): G2 (1 - d2)
+            0x8d510e3a: '04c41060',           # R0 = R2 - R0 (S): D
+            0x8d511106: '04cc012039b90000',   # ... || P1 = [FP - 0x34]: the dry smoother
+            0x8d51111a: '3ab9',               # P2 = [FP - 0x34]
+            0x8d511122: '04cc124438b90380',   # ... || R0 = [P3 ++ P0]: the track's dry word
+            0x8d51112a: '31c21820',           # R0 = R3 * R0 (T): D x
+            0x8d51113c: '04cc01640ba90000',   # R2 = R0 - R1 (S) || R3 = W[P1 + 0x8] (X)
+            0x8d511144: '1a40',               # R2 >>>= R3
+            0x8d51114a: '31e51600',           # P1 = [SP + 0x58]: the main out
+            0x8d51114e: '04cc1020019c0000',   # R0 = R2 + R0 (S) || R1 = [I0++]: a step every word
+            0x8d50e6f6: '256c00daff7fffff00002892',   # P5 += 4; R0 = 0x7fffffff; [P5++] = R0: the dry words
+        }
+        for address, hexes in expected.items():
+            self.assertEqual(at(address, len(hexes) // 2), hexes, hex(address))
 
     def test_the_send_table_names_kits_that_declare_pad_mix(self):
         plain = kit()

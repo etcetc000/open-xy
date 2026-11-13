@@ -36,6 +36,8 @@ int main() {
     Renderer::frame(&object, 0);
     require(std::strcmp(titles[0].text, "str") == 0 && std::strcmp(titles[3].text, "spr") == 0);
     require(std::strcmp(values[1].text, "up") == 0 && std::strcmp(line.text, "C minor 9") == 0);
+    Renderer::centre(&line);
+    require(line.anchor == 1 && line.matrix[6] == Renderer::kCentre);
     require(dots[7].leaf.matrix[6] == object.home[7] && dots[0].leaf.matrix[6] >= Renderer::kHidden);
     for (u32 n : pitches) require(notes[n].leaf.matrix[6] >= (18 << 10) && notes[n].leaf.matrix[6] < (462 << 10));
     require(notes[61].leaf.matrix[6] == Renderer::kHidden && keys[52].leaf.matrix[6] == Renderer::kHidden);
@@ -47,4 +49,17 @@ int main() {
     for (u32 i = 0; i < 4; ++i) Page::shown.played[i] = 0;
     Renderer::frame(&object, 0);
     for (u32 i = 0; i < 128; ++i) require(notes[i].leaf.matrix[6] == Renderer::kHidden);
+    // The stock header starts with "0" in each value: an empty first value overwrites it.
+    Renderer::Object fresh = {};
+    screen::Leaf fresh_titles[4] = {}, fresh_values[4] = {};
+    fresh.base.svg = &fresh;
+    Renderer::init(&fresh);
+    for (u32 i = 0; i < 4; ++i) {
+        fresh.base.titles[i] = &fresh_titles[i]; fresh.base.values[i] = &fresh_values[i];
+        std::strcpy(fresh_values[i].text, "0");
+    }
+    Page::shown = {};
+    std::strcpy(Page::shown.values[0], "+0");
+    Renderer::frame(&fresh, 0);
+    require(std::strcmp(fresh_values[0].text, "+0") == 0 && fresh_values[3].text[0] == 0);
 }

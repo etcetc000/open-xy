@@ -123,6 +123,7 @@ firmware-containing packages.
 | `runs` | 1 to 100 independent, complete captures of the same build and collector (one is enough) |
 | `block_percent` | The run's mean cost (the median across captures when there are several), as a percentage of the stock 580,352-cycle block budget. For a synth, the largest median across midpoint, swept and combined runs; for a drum kit, the largest single-voice median. This is an average, not a spike |
 | `peak_percent` | Required for new measurements: the largest single measured block across **all** settings/workloads and **all** supplied captures, in the same budget units. For drums this includes whole-kit, choke and ceiling runs. Never a median of maxima or the mean of the heaviest setting. The generated report identifies the workload and shows each run's peak |
+| `voice_peak_percent` | Drum kits, optional (written by `profile report` since the CPU-high label): the largest single block across the single-voice runs only, every model and level and every capture, leaving out the whole-kit, choke and ceiling runs. At least `block_percent`, at most `peak_percent` |
 | `midpoint_percent` | Synths: the midpoint run's median, stock's own workload |
 | `combined_percent` | Synths: the median of the run with every control at its heaviest position |
 | `worst_setting` | Synths: the heaviest swept setting: `control` (0-7), its `label`, and its Q31 `value` |
@@ -153,6 +154,16 @@ whole kits against the same budget. `peak_percent` covers all those workloads,
 so its warning may refer to a whole-kit run. Use the report's workload labels
 when interpreting it; a whole-kit peak is not a per-voice cost.
 
+Those runs play the kit as it starts: the track's M3 off, as a kit's init preset
+has it and as a synth's runs have it, so the adapter skips the
+[track filter](api.md#synthesis-drum-kits) as it does on the device. One more run repeats the ceiling with M3 on, stock's ladder
+(its costliest type) on every voice: `filter_percent` is its mean and
+`filter_peak_percent` its worst block, which `peak_percent` leaves out. Their
+difference from `ceiling_percent` is what switching M3 on costs the kit at full
+polyphony. Records of the earlier workload, `opxy-drum-callback-v1`, ran the
+ladder on every voice of every run and have no filter run; their figures include
+the filter, so they stay valid.
+
 Synth records from before the sweep (`opxy-synth-c8-v1`) stay valid while their
 release stays at the commit they measured; a new synth, or one whose release
 moves, submits a sweep (unless a maintainer approves carrying the record over).
@@ -178,9 +189,9 @@ the audio core during normal project playback. Every block is 64 samples.
 
 | Machine kind / benchmark | Scope and fixed workload |
 | --- | --- |
-| Synth / `opxy-synth-c8-sweep-v1` | Stock whole-voice timer, including oscillator and filter. Stock diagnostic plays note 60 at velocity 127 for 1,000 blocks and releases for 500, first with controls 0-3 at midpoint (stock's own run, `opxy-synth-c8-v1`), then once per swept setting: one control at a time through nine positions from 0 to full scale (each option of a list), the others at their defaults, as the SDK's host estimate sweeps them, then once with every control at the position that ran heaviest in that capture (the firmware picks them from stock's timing totals; the readout names them from the same capture's reports). The voice adapter renders with the swept controls while a sweep run is active. Other combinations of controls are not run. |
+| Synth / `opxy-synth-c8-sweep-v1` | Stock whole-voice timer, including oscillator and filter, with the track's M3 off ([firmware](abi-1.2.1.md#what-a-build-changes)). Stock diagnostic plays note 60 at velocity 127 for 1,000 blocks and releases for 500, first with controls 0-3 at midpoint (stock's own run, `opxy-synth-c8-v1`), then once per swept setting: one control at a time through nine positions from 0 to full scale (each option of a list), the others at their defaults, as the SDK's host estimate sweeps them, then once with every control at the position that ran heaviest in that capture (the firmware picks them from stock's timing totals; the readout names them from the same capture's reports). The voice adapter renders with the swept controls while a sweep run is active. Other combinations of controls are not run. |
 | Effect / `opxy-effect-callback-v1` | One stereo `process` callback at declared defaults for 1,500 blocks. Deterministic triangle/impulse input, separate initialized state, zeroed private scratch buffer when declared, 120 BPM transport. Includes the wet algorithm, not the stock send/mix path. |
-| Drum kit / `opxy-drum-callback-v1` | The kit's voices through the SDK's drum adapter (+20 start and +12 render), with a stored key's unpacking, offsets, amplitude and same-key choke, on 1,500 blocks each, a note's start timed with its block. One voice of every model with all its controls at 64, 0 and 127; the kit's own keys at `voiceCapacity` voices, saved at their defaults, as a project's are, struck every 100 blocks; two voices retriggering one key every 8 blocks with the heaviest of those; and `voiceCapacity` voices of the heaviest, each on a key of its own. Excludes stock's drum renderer, envelope and mixing, so it isn't a whole-voice figure as a synth's is |
+| Drum kit / `opxy-drum-callback-v2` | The kit's voices through the SDK's drum adapter (+20 start and +12 render), with a stored key's unpacking, offsets, amplitude and same-key choke, on 1,500 blocks each, a note's start timed with its block. One voice of every model with all its controls at 64, 0 and 127; the kit's own keys at `voiceCapacity` voices, saved at their defaults, as a project's are, struck every 100 blocks; two voices retriggering one key every 8 blocks with the heaviest of those; and `voiceCapacity` voices of the heaviest, each on a key of its own. Those runs have the track's M3 off. Then the last again with M3 on: stock's ladder on every voice, cutoff, resonance, envelope and key amounts at a resonant middle. Excludes stock's drum renderer, envelope and mixing, so it isn't a whole-voice figure as a synth's is. `opxy-drum-callback-v1` ran the ladder in every run |
 | Sample / `opxy-sample-callback-v1` | One `render_sample` callback at declared defaults for 1,500 blocks. A generated two-second, mono 44.1 kHz PCM triangle/impulse sample, full region, unity level, forward playback, C4 pitch, 120 BPM, no transpose; note restarts every 500 blocks. Declared sample analysis and assignment run before timing. Output uses the machine's mono/stereo contract. |
 
 Sample and effect tests allocate their own buffers during setup, outside audio
