@@ -2300,6 +2300,28 @@
           "value": 1342177279
         }
       }
+    },
+    {
+      "id": "earthshine",
+      "kind": "effect",
+      "maintainer": "codebrulee",
+      "status": "published",
+      "repository": "https://github.com/codebrulee/xyphemera",
+      "tag": "earthshine-v1.0.2",
+      "commit": "5495aede420fbe9fd7551c8436361ad0a29c983e",
+      "path": "earthshine",
+      "keywords": [
+        "reverb",
+        "ambient"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "5495aede420fbe9fd7551c8436361ad0a29c983e",
+        "firmware_sha256": "2c178f2e4ee43598603a17fe3df3a3e05957c5a3ac6c98566954924939e67c07",
+        "runs": 2,
+        "block_percent": 9.376669,
+        "peak_percent": 16.351568
+      }
     }
   ]
 }
