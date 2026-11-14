@@ -432,7 +432,8 @@ these was found on hardware:
 
 ## Grayscale artwork
 
-A synth targeting SDK 1.5 can offer its own grayscale design:
+A synth targeting SDK 1.5, or an effect targeting SDK 1.7 that draws its own
+[page](api.md#effect-pages), can offer its own grayscale design:
 
 ```json
 "sdk": "1.5",

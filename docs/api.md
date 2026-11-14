@@ -1365,7 +1365,7 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 | `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
 | `samples` | Optional folder inside the machine folder holding a sample engine's own [samples](#own-samples), which its presets load; `sdk` 1.10, sample engines forking the sampler |
-| `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
+| `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for developer-authored [grayscale artwork](display.md#grayscale-artwork): a synth's (`sdk` 1.5), or an effect's that draws its own page (`sdk` 1.7) |
 
 An effect's optional `dryParameter` field names the control used by the stock
 source dry mixer, as described under [effects](#effects).
