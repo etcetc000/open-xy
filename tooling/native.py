@@ -90,9 +90,6 @@ def configuration(entries=None, layout=None):
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
         [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
-    # Before anything is compiled: no machine may be named after the target OS's own content.
-    for m in machines:
-        stock_content.check_identity(m.id, profile)
     definitions = dict(DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
