@@ -273,7 +273,7 @@ Every machine kind keeps its controls in `definition.json` (for example
 | `id` | The machine's name; also its C++ namespace |
 | `name` | Display name |
 | `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), exactly eight for a drum kit, one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
-| `shift` | Optional: an effect's [shift row](#effect-pages-and-shift-rows) (SDK 1.7) or a synth's [Shift row](#a-synths-shift-row) (SDK 1.13) |
+| `shift` | Optional: an effect's [shift row](#effect-pages-and-shift-rows) (SDK 1.7), a synth's [Shift row](#a-synths-shift-row) (SDK 1.13) or a player's [Shift layer](#a-players-shift-layer-sdk-116) (SDK 1.16) |
 | `presets` | Named maps containing exactly the declared controls (a Shift row's aside); may be empty |
 | `resources` | What the kind declares about its storage (below) |
 
@@ -1582,9 +1582,21 @@ void display(const State&, const opxy::player::Controls&, opxy::player::Display&
 eight tones. Each tone has a MIDI pitch and velocity, and a delay in stock
 player steps. Zero sounds on the next step. A plan's tones release together
 with its root; at most eight roots can be held. A ninth plan is dropped.
+
 `release` returns true for a silent control key, false to let stock release
 its chord. Note callbacks do not allocate, block, log, perform I/O or draw.
 State holds no resources. Display reads are advisory while sequencing runs.
+
+A player step is 8 of the sequencer's 1920 ticks per quarter note:
+`opxy::player::steps_per_quarter` is 240 (60 steps per sixteenth), and steps
+follow the project tempo. That is read from stock's code (Maestro's step
+interval of 8 ticks; Arpeggio's rates are its 96-per-quarter table times 20)
+and has not been timed on a device. `clock_ticks(phase, ticks_per_quarter)`
+runs a clock of another resolution on steps, e.g. a 96-per-quarter clock
+ticks twice every five steps. `Controls.bpm_x10` is the audio clock's tempo
+word in tenths of a BPM (0 outside 20..300 BPM), for players with time in
+seconds. Whether it follows external MIDI sync, and how soon it follows a
+tempo edit, has not been checked.
 
 For live changes to held chords, optionally implement
 `bool update(State&, const Controls&, Update&)`. After a taken press or any
@@ -1632,3 +1644,29 @@ Player types remain stable when a subsequent build uses the saved layout.
 Stock firmware replaces an unknown saved player with Arpeggio. Project
 companions currently describe engine/effect identities only: preserve the
 firmware's `layout.json` for player identities.
+
+### A player's Shift layer (SDK 1.16)
+
+A player may declare a shift row: `"shift"` in `definition.json`, one to four
+enum controls of 2..255 choices (declared as an effect's, no packing limit),
+and declare `"sdk": "1.16"`. The row's ids and labels are for the author only:
+the player receives each control's word, not its label, so a page that shows
+the row names its choices itself.
+With Shift held, the player page's encoder k steps shift control k one choice
+per detent, and every Shift + turn of encoder k adds its signed detents to
+`Controls.shift_turns[k]` (wrapping), declared control or not.
+`Controls.shift_value[k]` holds the choice's centre word; read it with
+`opxy::player::choice(value, choices)`. Every player also receives
+`Controls.shift` (1 while Shift is held, published once per GUI frame) and
+`Controls.clicks[k]` (a wrapping count of encoder k's clicks, a press released
+without a turn and without Shift, while the player's page is shown; stock
+still receives the click). Keep the last counts in `State` to see new ones.
+
+Shift values and counters live beside `State` in the player object: they
+start at the row's defaults and zero when the player is built (chosen, or a
+project loads) and are **not saved with the project**, unlike the four
+controls. Not verified on a device: that stock's Maestro controller reaches
+the SDK's turn hook while Shift is held (if it does not, Shift turns do
+nothing), and that stock delivers keyboard notes to the player while Shift is
+held. Key events other than notes (the -/+ keys, Shift + key) and Shift +
+encoder clicks are not available to players; they need a new hook.

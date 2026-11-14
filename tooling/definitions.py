@@ -303,16 +303,21 @@ def validate_shift(shift, kind, names, definition=None):
         return validate_synth_shift(shift, names, definition)
     # An effect's shift row: one to four enum controls that Shift and the send
     # page's encoders choose, packed into one send-track word (synth_controls.cpp).
-    require(kind == 'effect' and isinstance(shift, list) and 1 <= len(shift) <= SYNTH_POSITIONS,
-            'An effect\'s shift row holds one to four controls')
+    # A player's (SDK 1.16): one to four enums of 2..255 choices, each kept in its
+    # own word beside the player's State (players.cpp), so no packing limit.
+    require(kind in ('effect', 'player') and isinstance(shift, list) and 1 <= len(shift) <= SYNTH_POSITIONS,
+            'An effect\'s or player\'s shift row holds one to four controls')
     count = 1
     for parameter in shift:
         validate_parameter(parameter)
         require(parameter['mapping']['kind'] == 'enum', 'A shift-row control is an enum')
+        require(kind != 'player' or len(parameter['mapping']['labels']) <= 255,
+                'A player\'s shift-row control has at most 255 choices')
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
         count *= len(parameter['mapping']['labels'])
-    require(count <= SHIFT_STATES, 'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
+    require(kind == 'player' or count <= SHIFT_STATES,
+            'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
 
 
 def validate_synth_shift(shift, names, definition):

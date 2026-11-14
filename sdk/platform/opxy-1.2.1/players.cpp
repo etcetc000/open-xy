@@ -25,6 +25,9 @@ opxy::u32 sdk_player_id(const void* name) __asm__("sdk_player_id");
 opxy::u32 sdk_player_substitute(opxy::u32 selected) __asm__("sdk_player_substitute");
 opxy::u32 sdk_player_turn(opxy::u32 index, const opxy::i32* event) __asm__("sdk_player_turn");
 extern opxy::u32 (*sdk_screen_substitute)(opxy::u32) __asm__("sdk_screen_substitute");
+// Called by the encoder-click hook (synth_controls.cpp) once a player page is in place.
+extern void (*sdk_player_press)(opxy::u32) __asm__("sdk_player_press");
+void sdk_player_click(opxy::u32 encoder) __asm__("sdk_player_click");
 }
 
 namespace opxy { namespace platform {
@@ -51,6 +54,13 @@ static_assert(kRecords + kMaxHeld * sizeof(ChordRecord) == kHeld, "Stock Maestro
 // 0x480, so the SDK state follows at a fixed offset.
 const u32 kStateOffset = 0x800;
 static_assert(kStateOffset + opxy::player::state_bytes <= 0x10000, "Player state exceeds the stock slot");
+// The GUI-written input (shift row, Shift turns, clicks) follows State.
+const u32 kInputOffset = kStateOffset + opxy::player::state_bytes;
+static_assert(kInputOffset + sizeof(PlayerInput) <= 0x10000, "Player input exceeds the stock slot");
+
+// Published by the GUI once per compositor frame (sdk_player_substitute):
+// whether Shift is held, and the page stock selected.
+volatile u32 shift_published, page_selected;
 
 char* bytes(void* object) { return static_cast<char*>(object); }
 
@@ -76,6 +86,9 @@ bool equal(const StockString* string, const char* name) {
 }
 
 void* player_state(void* object) { return bytes(object) + kStateOffset; }
+volatile PlayerInput* player_input(void* object) {
+    return reinterpret_cast<volatile PlayerInput*>(bytes(object) + kInputOffset);
+}
 
 void* player_object(u32 track, const void* const* vtable) {
     if (track >= kPlayerSlots) return nullptr;
@@ -83,10 +96,14 @@ void* player_object(u32 track, const void* const* vtable) {
     return object && *static_cast<const void* const* const*>(object) == vtable ? object : nullptr;
 }
 
+// GUI startup registers every player's page (each player has one). The hooks
+// that publish Shift and the selected page each frame and count encoder clicks
+// are installed whether or not the page was placed: every player's Controls
+// carry Shift and clicks, and the substitute offers a page only once it is ready.
 int register_player_page(const Record* record, const Screen* screen) {
-    const int result = sdk_register_screen(record, screen);
-    if (result == 1) sdk_screen_substitute = sdk_player_substitute;
-    return result;
+    sdk_screen_substitute = sdk_player_substitute;
+    sdk_player_press = sdk_player_click;
+    return sdk_register_screen(record, screen);
 }
 
 opxy::player::Controls player_controls(void* object) {
@@ -96,6 +113,14 @@ opxy::player::Controls player_controls(void* object) {
     for (u32 i = 0; i < 4; ++i) controls.value[i] = words[i];
     const i32 octave = track < kTracks ? sdk_track_octaves[track] : 0;
     controls.lowest_key = static_cast<u32>(static_cast<i32>(kLowestKey) + 12 * octave);
+    controls.bpm_x10 = audio_bpm_x10();  // the audio clock's tempo word; safe on any role
+    controls.shift = shift_published;
+    const volatile PlayerInput* input = player_input(object);
+    for (u32 i = 0; i < 4; ++i) {
+        controls.shift_value[i] = input->shift_value[i];
+        controls.shift_turns[i] = input->shift_turns[i];
+        controls.clicks[i] = input->clicks[i];
+    }
     return controls;
 }
 
@@ -132,6 +157,12 @@ void* sdk_player_build(u32 track, u32 type, u32) {
     void* object = stock<void*(u32, u32, u32)>(kFactory)(track, kMaestro, 0);
     if (object) {
         __builtin_memset(player_state(object), 0, opxy::player::state_bytes);
+        volatile PlayerInput* input = player_input(object);
+        for (u32 i = 0; i < 4; ++i) {
+            input->shift_value[i] = p->shift && i < p->shift->count ? p->shift->defaults[i] : 0;
+            input->shift_turns[i] = 0;
+            input->clicks[i] = 0;
+        }
         *static_cast<const void* const**>(object) = p->vtable;
     }
     return object;
@@ -154,13 +185,34 @@ u32 sdk_player_ui_type() {
 // a machine control, never stock's hold-mode switch.
 // event[1] is signed detents; event[0] is continuous motion. Stock's setter
 // updates the live parameter and the saved pattern, including dirty state.
+//
+// With Shift held, a player with a shift row takes every turn that reaches
+// here (index 0..3, or 4..7 should stock pass Shift's row so): the turn's
+// encoder edits its shift control and adds its detents to shift_turns, in the
+// input beside State. Whether stock's Maestro controller reaches this hook
+// while Shift is held has not been observed on a device. Without a shift row,
+// or without Shift, turns are handled as before.
 u32 sdk_player_turn(u32 index, const opxy::i32* event) {
-    if (index >= 4 || !event) return 0;
+    if (index >= 8 || !event) return 0;
     const Player* p = owned(stock<u32()>(kSelectedType)());
     if (!p) return 0;
-    if (p->steps[index] == 1) return 1;  // an absent slot: the encoder turns nothing
     const u32 track = selected_track();
     if (track >= kTracks) return 0;
+    // The shift row first: an absent main slot does not block Shift on its encoder.
+    if (p->shift && shift_held()) {
+        void* object = player_object(track, p->vtable);
+        if (object) {
+            const u32 k = index & 3;
+            volatile PlayerInput* input = player_input(object);
+            input->shift_turns[k] = static_cast<opxy::i32>(static_cast<u32>(input->shift_turns[k]) +
+                                                           static_cast<u32>(event[1]));
+            if (k < p->shift->count && event[1])
+                input->shift_value[k] = player_enum_turn(input->shift_value[k], p->shift->choices[k], event[1]);
+            return 1;
+        }
+    }
+    if (index >= 4) return 0;  // steps[] has four entries
+    if (p->steps[index] == 1) return 1;  // an absent slot: the encoder turns nothing
     const u32 inherited[4] = {128, 8, 0, 4}; // stock's doubled buckets
     const u32 choices = p->steps[index] >= 2 ? p->steps[index] : inherited[index];
     if (!choices) {
@@ -190,8 +242,11 @@ u32 sdk_player_id(const void* name) {
 // selected track's player while the stock Maestro page is selected, else 0.
 u32 sdk_player_substitute(u32 selected) {
     // The compositor calls once per GUI frame, even when the player page is
-    // hidden. Sequenced players on unselected tracks need fresh octaves too.
+    // hidden. Sequenced players on unselected tracks need fresh octaves too,
+    // and every player the Shift state (Controls.shift).
     refresh_keyboard_octaves();
+    shift_published = shift_held() ? 1 : 0;
+    page_selected = selected;
     if (selected != kMaestroPage) return 0;
     const u32 track = selected_track();
     for (u32 i = 0; i < sdk_player_count; ++i) {
@@ -200,4 +255,19 @@ u32 sdk_player_substitute(u32 selected) {
             return static_cast<u32>(reinterpret_cast<Address>(p->page));
     }
     return 0;
+}
+
+// The encoder-click hook (synth_controls.cpp): a click of encoder 0..3 (stock
+// records only clicks released without a turn and without Shift), counted for
+// the selected track's player while the last frame selected the Maestro page,
+// which its own page replaces. Stock still receives the click.
+void sdk_player_click(u32 encoder) {
+    if (encoder >= 4 || page_selected != kMaestroPage) return;
+    const Player* p = owned(stock<u32()>(kSelectedType)());
+    const u32 track = selected_track();
+    if (!p || track >= kTracks) return;
+    if (void* object = player_object(track, p->vtable)) {
+        volatile PlayerInput* input = player_input(object);
+        input->clicks[encoder] = static_cast<opxy::u8>(input->clicks[encoder] + 1);
+    }
 }

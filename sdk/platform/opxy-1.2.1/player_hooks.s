@@ -20,7 +20,9 @@
  * moves: R5 = index, R2 = event. Owned players return through the existing
  * epilogue; others replay the moves and tail-call the stock step-count helper.
  * Both GUI destinations are outside relative branch range. P0 is dead across
- * this site and the stock epilogue. No player State is accessed on this role. */
+ * this site and the stock epilogue. On this role sdk_player_turn writes only the
+ * GUI-written input after a player's State (shift row and Shift turn sums), never
+ * State itself. */
 .global extensions_player_turn
 .type extensions_player_turn, STT_FUNC
 extensions_player_turn:

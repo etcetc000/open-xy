@@ -35,6 +35,7 @@ extern "C" {
 const platform::PlayerEntry sdk_players[]={{enums},{linear},{absent}};
 const u32 sdk_player_count=3;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
+void (*sdk_player_press)(u32)=nullptr;
 }
 const void* stock_address(u32 address) {
     if(address==0x8d57efb8) return reinterpret_cast<const void*>(&selected_type);
