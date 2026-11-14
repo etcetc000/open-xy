@@ -22,6 +22,16 @@
       "path": "."
     },
     {
+      "id": "tiltmic",
+      "kind": "extension",
+      "maintainer": "kristapskristaps",
+      "status": "draft",
+      "repository": "https://github.com/kristapskristaps/xy-tilt-microphone",
+      "tag": "v0.1.0",
+      "commit": "c312d7d9c91da3dc0dde93b8ed2f971fb158e181",
+      "path": "."
+    },
+    {
       "id": "checkpoint",
       "kind": "extension",
       "maintainer": "kristapskristaps",
