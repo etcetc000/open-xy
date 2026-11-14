@@ -8,7 +8,7 @@ Adjust that path if the user already has the SDK elsewhere.
 1. Read the [machine API](https://github.com/etcetc000/open-xy/blob/staging/docs/api.md),
    follow the [UX conventions](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md)
    for controls, pages, screens and motion, and read the relevant [core machines](https://github.com/etcetc000/open-xy-core-machines):
-   Macro Osc for two-page synths, Karplus or 2op FM for four-control synths,
+   Macro Osc for two-page controls (its code, not its look), Karplus or 2op FM for four-control synths,
    Ring Mod or Ping Pong for effects, Timestretch
    for sample engines. They are the worked examples; this repository holds the
    user's implementation. Use the actual parameter count: four controls keep
@@ -18,11 +18,38 @@ Adjust that path if the user already has the SDK elsewhere.
    same saved parameter in columns without alternates; never invent filler
    parameters. Format captions in real units and keep artwork below y=38.
    Preserve licences and attribution when reusing code.
-   When the user wants colorful artwork, consider the optional
-   [color design guidance](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md#color-design-guidance).
-   Adapt it to the user's visual intent; palette size, metaphors and contrast
-   targets are suggestions rather than additional validation or catalog rules.
-2. Implement through public `<opxy/...>` headers. Keep code, metadata, artwork
+2. Design the screen with the user before writing display code. Read [synth
+   screens](https://github.com/etcetc000/open-xy/blob/staging/docs/synth-screens.md)
+   and do what it says first: study the stock screens. Look at the official
+   guide's pictures of all eight engines at 1:1 (ask the user to save them to a
+   private folder outside this repository if you can't open a browser) and check
+   them against the guide's measurements of sizes, greys and weights. Look only:
+   never copy their shapes or paths here. Then think picture first: offer at
+   least three ideas that would look good in the stock style and suit the sound,
+   each a name, a sentence or two, and the stock screens it takes its look and
+   behaviour from; a mixed idea keeps each part whole in its own area as the
+   guide describes. Wait for the user's pick. Hold each idea to the guide's
+   "What the picture needs": full size; an object, when the idea is one, drawn
+   whole and from outside (never its hidden workings); a wave, spiral or field
+   needs no object; controls on parts the picture has, no hands or bodies,
+   nothing floating, round objects in line art. Draft it with the [screen
+   kit](https://github.com/etcetc000/open-xy/blob/staging/docs/screen-kit.md)
+   and preview it beside the four stock screens closest to the idea (`--stock`
+   takes the saved PNG screenshots), then check it against the guide's reference
+   sections and the kit's report, fixing what doesn't hold up before showing it.
+   Read those reference sections when checking, not before drawing. Open each
+   preview sheet and look at it yourself before showing it or handing over a
+   screen. Show the user every preview sheet; where they want a change, offer
+   two or three versions of that spot on one comparison sheet. Never hand over a
+   screen they haven't seen. Spend usage on the study, keep the rest lean, and
+   write no display code until the user approves the sketch. Work in the guide's
+   encoder greys. Only when the user asks for colour, follow the optional [color
+   design
+   guidance](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md#color-design-guidance)
+   instead of the greys; don't offer it unasked. Adapt it to the user's visual
+   intent; palette size, metaphors and contrast targets are suggestions rather
+   than additional validation or catalog rules.
+3. Implement through public `<opxy/...>` headers. Keep code, metadata, artwork
    and sound tests here. Do not edit the SDK to make the machine work; explain
    missing interfaces and propose a separate SDK PR against `staging`.
    Contributor code has no assembly, raw firmware addresses, OS headers or
@@ -42,7 +69,7 @@ Adjust that path if the user already has the SDK elsewhere.
    needs no variant.
    The installer uses automatic conversion when no variant is declared; a
    declared invalid variant is an error, never a silent fallback.
-3. Run `python ../open-xy/sdk.py test --machine .` and extend `tests/` for the
+4. Run `python ../open-xy/sdk.py test --machine .` and extend `tests/` for the
    machine's promised sound and behavior. Offer browser audition where supported.
    Use the host CPU estimate to guide iteration; it is not a hardware measurement.
    In the workbench, use Graphics to compare Colorful and Grayscale. Check note
@@ -51,7 +78,7 @@ Adjust that path if the user already has the SDK elsewhere.
    across the full animation palette, including after palette changes.
    `sdk.py test --machine .` validates both declared SVGs and their bindings;
    browser appearance still needs visual review.
-4. After local testing and audition, propose hardware validation. Keep QA.md, the
+5. After local testing and audition, propose hardware validation. Keep QA.md, the
    device checklist, in step with the machine with every change you make, not only
    at the end: name its controls, add sections for its own behavior, remove lines
    that no longer apply, and ask the user to run it as one pass on the device. Follow the SDK's
@@ -68,7 +95,7 @@ Adjust that path if the user already has the SDK elsewhere.
    exceeding the recommendation does not reject the submission.
    Never invent a CPU number from host checks. If hardware is unavailable, report
    that validation remains pending; a maintainer can run the batch.
-5. When the user is getting ready to publish, recommend a full QA.md pass on the
+6. When the user is getting ready to publish, recommend a full QA.md pass on the
    device first, on a build of the exact commit the entry will pin, unless one
    already passed for that commit. If publication is requested, follow
    [catalog submission](https://github.com/etcetc000/open-xy/blob/staging/docs/catalog.md#submit-a-machine).

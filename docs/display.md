@@ -9,11 +9,13 @@ reshapes, recolours and relabels them. It is not executable SVG animation. The
 same C++ computes the browser preview and the device frames; fonts, framing and
 rasterization can differ.
 
-The [UX conventions](ux.md) say how machine screens look and move.
+The [UX conventions](ux.md) say how machine screens behave, and
+[synth screens](synth-screens.md) gives their default look.
 
 There is one display contract. Characters, dials, keyboards, meters and other
 patterns are the machine's own code filling nodes; see
-[Macro Osc's segment characters](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/segments.hpp).
+[Macro Osc's segment characters](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/segments.hpp)
+for the code, not the look.
 
 ## Declaration
 
@@ -394,7 +396,8 @@ Template validation checks structure, not actual device text rendering.
 
 See [2op display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/fm2op/display.cpp) (outlines and pulses) and
 [Macro display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/display.cpp) (segment characters,
-glow, dials and header text) for implementations.
+dials and header text) for how the code uses this contract;
+[synth screens](synth-screens.md) covers the look.
 How screens reach stock is described in the [firmware ABI](abi-1.2.1.md#screens).
 
 ### Drawing on the device
