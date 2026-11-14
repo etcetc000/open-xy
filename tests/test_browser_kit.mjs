@@ -574,6 +574,15 @@ test('a machine says where it comes from: a catalog release or a personal folder
     await assert.rejects(openKit(k), /Invalid machine keywords/, JSON.stringify(keywords));
   }
 });
+test('a kit with a machine named after stock content is refused when it opens', async () => {
+  const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');
+  k.objects=[]; k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
+  k.fixed={}; await openKit(k);
+  for (const [id, stock] of [['monitor', 'content/display/monitor.svg'], ['pad', 'content/presets/pad'], ['snare', 'content/samples/snare']]) {
+    k.machines[0] = machine(id, 34, 82);
+    await assert.rejects(openKit(k), new RegExp(`Machine ${id} would install .* over the OP-XY’s own ${stock}`), id);
+  }
+});
 test('machines are found by name, author, kind, description and keyword, in a chosen order', () => {
   const by = (maintainer, name = 'x') => ({repository:'https://github.com/' + maintainer + '/' + name, tag:'v1', commit:'a'.repeat(40), maintainer});
   const machines = [

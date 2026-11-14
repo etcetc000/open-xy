@@ -151,6 +151,27 @@ const ownsPage = (rules, kind, page) => kind === 'effect' ? page !== rules.effec
 // Whether numbers are what a machine asks for: the same fields, equal where it names one.
 const fits = (requested, numbers) => Object.keys(requested).length === Object.keys(numbers).length &&
   Object.keys(requested).every(k => requested[k] === null || requested[k] === numbers[k]);
+// Stock's own content (tooling/stock_content.py): the profile lists the names stock keeps in
+// each content folder. A machine named after one would overwrite stock's file or write into
+// stock's folder, and stock can then fail at boot, so the name is refused. Case is ignored:
+// how the device's file system treats it is not known.
+export const machineContentPaths = id => [`content/display/${id}.svg`, `content/presets/${id}`,
+  `content/samples/${id}`, `content/aux_presets/${id}`];
+export function stockContentFile(profile, path) {
+  const listed = profile.stock_content;
+  check(listed && typeof listed === 'object' && !Array.isArray(listed) &&
+    Object.values(listed).every(names => Array.isArray(names) && names.every(n => typeof n === 'string' && n)),
+    'The firmware profile lists no stock content names');
+  const parts = path.split('/');
+  if (parts.length < 3 || parts[0] !== 'content' || !Object.hasOwn(listed, parts[1])) return null;
+  const name = listed[parts[1]].find(n => n.toLowerCase() === parts[2].toLowerCase());
+  return name === undefined ? null : `content/${parts[1]}/${name}`;
+}
+export function checkStockContent(profile, path, owner) {
+  const stock = stockContentFile(profile, path);
+  check(stock === null, `${owner} would install ${path} over the OP-XY’s own ${stock}, and stock can fail at boot ` +
+    'when its own content is replaced. Rename it: names stock uses in content/ are refused, in any letter case.');
+}
 // A kit's numbers: each machine asks for valid ones, and fixed numbers (kit.fixed,
 // tooling.machines.FIXED_NUMBERS) belong to their own machines and are never shared.
 function checkNumbers(kit) {
@@ -577,6 +598,8 @@ export async function openKit(kit) {
   // No more machines than the relocated engine table holds (tooling/stock_tables.py).
   check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
+  for (const m of kit.machines)
+    for (const path of machineContentPaths(m.id)) checkStockContent(kit.profile, path, 'Machine ' + m.id);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
   check(kit.machines.every(validKeywords), 'Invalid machine keywords');
   for (const machine of kit.machines) if (Object.hasOwn(machine, 'grayscaleArtwork')) selectArtwork(machine, 'colorful');
@@ -1146,16 +1169,20 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
     expected[key] = [...base[key], ...group.map(m => JSON.parse(catalogEntry(m, numbers).trim().replace(/^,/, '')))];
   check(JSON.stringify(JSON.parse(text)) === JSON.stringify(expected), 'Unexpected catalog modification');
   const files = {'content/op1_factory.json': extended};
+  const owners = {};  // every file a machine or extension adds, by who adds it
   for(const id of extensionSelection(kit,extensionIds)) {
     const filter=processorOf(kit.extensions.find(e => e.id===id));
     if(!filter)continue;
     const data=decode64(filter.artwork);
     check(data.length<=65536 && await sha256(data)===filter.sha256, 'Master filter artwork differs');
     files['content/display/'+filter.asset]=data;
+    owners['content/display/'+filter.asset]='Extension '+id;
   }
   for (const machine of machines)
-    for (const [path, preset] of Object.entries(presetFiles(machine)))
+    for (const [path, preset] of Object.entries(presetFiles(machine))) {
       files[path] = utf8.encode(JSON.stringify(preset, null, 2) + '\n');
+      owners[path] ??= 'Machine ' + machine.id;
+    }
   // The device lists at most 64 aux presets, every aux machine's and the roles' inits together
   // (tooling.adapters.AUX_PRESETS).
   const auxPaths = Object.keys(files).filter(path => path.startsWith('content/aux_presets/'));
@@ -1176,8 +1203,11 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
       } catch (error) {
         throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');
       }
+      owners['content/display/' + m.asset] = 'Machine ' + m.id;
     }
   }
+  // Stock's own content is never replaced; the menu file is stock's, extended.
+  for (const [path, owner] of Object.entries(owners)) checkStockContent(kit.profile, path, owner);
   return files;
 }
 

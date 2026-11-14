@@ -22,7 +22,9 @@ async function fixture(selectedMachines = machines) {
   const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ],"seq_types":[{"type":"maestro"}\n    ]}';
   const catalog = new TextEncoder().encode(text);
   const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.indexOf('\n    ]', text.indexOf('fx_types')), seq_types: text.lastIndexOf('\n    ]')};
-  return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts}}, catalog};
+  // The reviewed profile's stock content names, which every build is checked against.
+  const {stock_content} = JSON.parse(read('profiles/opxy-1.2.1.json'));
+  return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts, stock_content}}, catalog};
 }
 
 test('all selections include only their instrument presets with native names and definition defaults', async () => {
