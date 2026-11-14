@@ -606,7 +606,10 @@ export async function openKit(kit) {
   const profileBytes = decode64(kit.profileSource);
   check(await sha256(profileBytes) === PROFILE_SHA256 &&
     JSON.stringify(JSON.parse(decoder.decode(profileBytes))) === JSON.stringify(kit.profile),
-    'Firmware edit profile is not the reviewed profile');
+    // A kit exported by another SDK revision carries that revision's profile; an exported
+    // builder inlines its own core and kit together, so this meets only a re-served kit.
+    'Firmware edit profile is not the reviewed profile: the kit comes from another SDK version or was changed. ' +
+    'Export the kit again with this SDK.');
   // No more machines than the relocated engine table holds (tooling/stock_tables.py).
   check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
