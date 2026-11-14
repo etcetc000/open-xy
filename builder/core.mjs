@@ -153,8 +153,8 @@ const fits = (requested, numbers) => Object.keys(requested).length === Object.ke
   Object.keys(requested).every(k => requested[k] === null || requested[k] === numbers[k]);
 // Stock's own content (tooling/stock_content.py): the profile lists the names stock keeps in
 // each content folder. A machine named after one would overwrite stock's file or write into
-// stock's folder, and stock can then fail at boot, so the name is refused. Case is ignored:
-// how the device's file system treats it is not known.
+// stock's folder, and stock can then fail at boot, so the name is refused. Case is ignored,
+// as tooling/device.py assumes the device's FAT storage does.
 export const machineContentPaths = id => [`content/display/${id}.svg`, `content/presets/${id}`,
   `content/samples/${id}`, `content/aux_presets/${id}`];
 export function stockContentFile(profile, path) {

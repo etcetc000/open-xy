@@ -8,8 +8,9 @@ an extension's artwork in content/display/. The firmware profile's
 A machine named after one of them would overwrite stock's file or write into
 stock's folder, and stock may then fail at boot (a stock screen replaced by a
 machine's lacks the elements stock looks up). So such a name is refused, before
-anything is built. Names compare case-insensitively: how the device's file
-system treats case is not known. builder/core.mjs applies the same rule.
+anything is built. Names compare case-insensitively, as tooling/device.py assumes
+the device's FAT storage does (an assumption, not measured here); the check holds
+either way. builder/core.mjs applies the same rule.
 """
 from functools import lru_cache
 from pathlib import PurePosixPath

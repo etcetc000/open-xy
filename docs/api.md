@@ -1359,7 +1359,9 @@ sample folder (`kick`, `snare`, ...) is refused, whatever the machine's kind. A 
 named after a stock screen would overwrite that file, and stock then halts at boot
 looking up an element the replacement lacks. The names are the firmware profile's
 `stock_content` (`profiles/opxy-1.2.1.json`), listed per content folder. The comparison
-ignores letter case, because how the device's file system treats case is not known.
+ignores letter case, as `sdk.py device push` assumes the device's FAT storage does
+(`tooling/device.py`); that is the tooling's assumption, not a measurement on the device,
+and the check holds whichever way the device behaves.
 Loading a definition, `sdk.py new`, `sdk.py catalog check` (for a machine that is not
 retired), `build`, `compile`, `verify`, `kit` and `release`, and the browser builder
 (when it opens a kit and when it packages files) all refuse such a name; the message
