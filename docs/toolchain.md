@@ -126,12 +126,17 @@ Each of these has failed a build that passed somewhere else first.
   ([`normalize_object`](../tooling/native.py)), so nothing is merged at link
   time. An inline function the compiler keeps out of line, or a static inside
   one, is then defined once per file that uses it, and two of them fail to
-  link. That includes a non-`static` inline SDK helper, such as
-  `opxy::draw::sine`, used by two machines in one firmware, or by a machine's
-  `engine.cpp` and `display.cpp`. Keep a file-local `static inline` copy of
-  such a helper, and move a static out of an inline function to one
-  definition at file scope. Check a set links with `sdk.py compile`, giving
-  every machine that will share the firmware.
+  link: a machine's `engine.cpp` and `display.cpp`, or two machines in one
+  firmware sharing a header. `draw.hpp`'s free helpers, such as
+  `opxy::draw::sine`, are `static inline`, so each file keeps its own copy.
+  The arithmetic headers' helpers (`q15.hpp`, `q31.hpp`, `divide.hpp` and
+  the like) are still plain `inline`; none clashes today. Make a free helper in your own shared
+  headers `static inline`, and move a static out of an inline function to
+  one definition at file scope. A class's member functions can't be
+  file-local, so they still need care. A build fails, naming both machines
+  and the symbol, when two machines in its collection define the same one.
+  Check a set links with `sdk.py compile`, giving every machine that will
+  share the firmware.
 - **Define tables once.** A `static` table in a header is copied into every
   file that includes it: one machine's memory fell from 242 to 139 KiB when
   its tables became one `extern` definition in one file.

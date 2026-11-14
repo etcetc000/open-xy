@@ -93,7 +93,7 @@ struct Input {
 };
 const u32 notes_unavailable = 0xffffffffu;
 const i32 envelope_unavailable = -1;
-inline bool envelope_known(const Envelope& envelope) {
+static inline bool envelope_known(const Envelope& envelope) {
     return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
 }
 static_assert(sizeof(Input) == 112 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
@@ -110,11 +110,11 @@ static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (d
 // Optional shared GUI lifecycle callback; ADL finds the display owner's overload.
 // Existing displays need not implement it. Never called by an audio callback.
 namespace detail {
-template<class S> auto parameter_reset(S& state,u32 slot,int)
+template<class S> static inline auto parameter_reset(S& state,u32 slot,int)
     -> decltype(display_parameter_reset(state,slot),void()) { display_parameter_reset(state,slot); }
-template<class S> void parameter_reset(S&,u32,...) {}
+template<class S> static inline void parameter_reset(S&,u32,...) {}
 }
-template<class S> void parameter_reset(S& state,u32 slot) { detail::parameter_reset(state,slot,0); }
+template<class S> static inline void parameter_reset(S& state,u32 slot) { detail::parameter_reset(state,slot,0); }
 
 // Store a zero-initialized NoteTracker in DisplayState. Events describe changes
 // between frames, not a queue. Reset/track changes establish a baseline, even
@@ -139,17 +139,19 @@ struct NoteTracker {
     }
 };
 
+// The helpers below are static: each file that uses one keeps its own copy, so two
+// machines in one firmware never define the same symbol (docs/toolchain.md).
 // Defined floor division by 1024 on both compilers, including negative values.
 // Callers keep products inside int32. No floating point or runtime division.
-inline i32 floor_q10(i32 value) {
+static inline i32 floor_q10(i32 value) {
     return value / unit - (value < 0 && value % unit != 0);
 }
-inline i32 clamp(i32 value, i32 low, i32 high) {
+static inline i32 clamp(i32 value, i32 low, i32 high) {
     return value < low ? low : value > high ? high : value;
 }
 // Places a node unturned; turn() rotates it afterwards.
 template <class F>
-inline void place(F& frame, u32 node, i32 x, i32 y, i32 scale, u32 shade, Paint paint) {
+static inline void place(F& frame, u32 node, i32 x, i32 y, i32 scale, u32 shade, Paint paint) {
     if (node >= F::node_count) return;
     Node& destination = frame.nodes[node];
     destination.x = x;
@@ -162,30 +164,30 @@ inline void place(F& frame, u32 node, i32 x, i32 y, i32 scale, u32 shade, Paint 
 }
 // Positive unit scale avoids singular matrices in the stock renderer.
 template <class F>
-inline void hide(F& frame, u32 node) {
+static inline void hide(F& frame, u32 node) {
     place(frame, node, hidden_x * unit, hidden_y * unit, unit, 0, keep);
 }
 // Paints a node without moving it.
 template <class F>
-inline void shade(F& frame, u32 node, u32 shade, Paint paint) {
+static inline void shade(F& frame, u32 node, u32 shade, Paint paint) {
     if (node >= F::node_count) return;
     frame.nodes[node].shade = shade;
     frame.nodes[node].paint = paint;
 }
 template <class F>
-inline void turn(F& frame, u32 node, Turn turn) {
+static inline void turn(F& frame, u32 node, Turn turn) {
     if (node >= F::node_count) return;
     frame.nodes[node].cos = turn.cos;
     frame.nodes[node].sin = turn.sin;
 }
 // Copies terminated text, truncating to the capacity and clearing the rest.
-inline void copy(char* output, u32 capacity, const char* input) {
+static inline void copy(char* output, u32 capacity, const char* input) {
     u32 i = 0;
     for (; i + 1 < capacity && input[i]; ++i) output[i] = input[i];
     for (; i < capacity; ++i) output[i] = 0;
 }
 template <class F>
-inline void text(F& frame, u32 slot, i32 x, i32 y, i32 scale, const char* input) {
+static inline void text(F& frame, u32 slot, i32 x, i32 y, i32 scale, const char* input) {
     if (slot >= F::text_count) return;
     Text& destination = frame.texts[slot];
     destination.x = x;
@@ -194,7 +196,7 @@ inline void text(F& frame, u32 slot, i32 x, i32 y, i32 scale, const char* input)
     copy(destination.chars, text_capacity, input);
 }
 template <class F>
-inline void header(F& frame, u32 position, const char* input) {
+static inline void header(F& frame, u32 position, const char* input) {
     if (position < page_controls) copy(frame.header[position], header_capacity, input);
 }
 
@@ -206,7 +208,7 @@ static const u16 sine_q10[91] = {
     943, 949, 956, 962, 968, 974, 979, 984, 989, 994, 998, 1002, 1005, 1008, 1011, 1014, 1016, 1018, 1020, 1022,
     1023, 1023, 1024, 1024};
 // sin of a tenth-degree angle, Q10, interpolated between whole degrees.
-inline i32 sine(i32 tenths) {
+static inline i32 sine(i32 tenths) {
     tenths %= 3600;
     if (tenths < 0) tenths += 3600;
     const i32 sign = tenths >= 1800 ? -1 : 1;
@@ -217,38 +219,38 @@ inline i32 sine(i32 tenths) {
     return sign * (low + (high - low) * fraction / 10);
 }
 // A clockwise rotation by tenths of a degree.
-inline Turn rotation(i32 tenths) {
+static inline Turn rotation(i32 tenths) {
     const Turn turn = {sine(tenths + 900), sine(tenths)};
     return turn;
 }
 // A control's Q31 value mapped onto a sweep of +/- `half` tenths of a degree
 // either side of upright, at most a full turn (1800). 32-bit arithmetic only:
 // firmware links no 64-bit helpers.
-inline Turn sweep(i32 value, i32 half) {
+static inline Turn sweep(i32 value, i32 half) {
     if (value < 0) value = 0;
     if (half < 0) half = 0;
     if (half > 1800) half = 1800;
     return rotation(-half + (value >> 16) * 2 * half / 32767);
 }
 
-inline bool terminated(const char* text, u32 capacity) {
+static inline bool terminated(const char* text, u32 capacity) {
     for (u32 i = 0; i < capacity; ++i)
         if (!text[i]) return true;
     return false;
 }
-inline bool placement(i32 x, i32 y, i32 scale) {
+static inline bool placement(i32 x, i32 y, i32 scale) {
     return x >= node_left * unit && x <= node_right * unit && y >= node_top * unit && y <= node_bottom * unit &&
            scale > 0 && scale <= 2 * unit;
 }
 // A rotation, never a scale or skew: a unit vector within Q10 rounding.
-inline bool rotation_valid(i32 cos, i32 sin) {
+static inline bool rotation_valid(i32 cos, i32 sin) {
     if (cos < -unit || cos > unit || sin < -unit || sin > unit) return false;
     const i32 length = cos * cos + sin * sin;
     return length >= unit * unit / 16 * 15 && length <= unit * unit / 16 * 17;
 }
 // Both backends check the complete frame before applying it.
 template <class F>
-inline bool valid(const F& frame) {
+static inline bool valid(const F& frame) {
     for (u32 p = 0; p < F::path_count; ++p) {
         if (!frame.paths[p].key) return false;
         for (u32 i = 0; i < F::point_count; ++i) {
