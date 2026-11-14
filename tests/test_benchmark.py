@@ -47,7 +47,7 @@ class Benchmark(unittest.TestCase):
         self.assertEqual(own[-1]['name'], 'probefx')
         self.assertEqual({(c['drum']['model'], c['drum']['level']) for c in own if c.get('drum', {}).get('run') == 'voice'},
                          {(m, l) for m in range(3) for l in (0, 64, 127)})
-        self.assertEqual(all(c['benchmark'] == 'opxy-drum-callback-v2' for c in own[:-1]), True)
+        self.assertEqual(all(c['benchmark'] == 'opxy-drum-callback-v3' for c in own[:-1]), True)
         self.assertEqual(case_label(own[1]), 'model 0 at 64')
         self.assertEqual(case_label(own[-2]), 'the heaviest model, 8 voices, M3 on (ladder)')
         # A synth after a kit keeps its sweep: its settings name its own row.

@@ -1,4 +1,5 @@
-"""opxy::divide::quotient16: the portable quotient, and the device form inline."""
+"""opxy::divide::quotient16: the portable quotient, and the device form inline; and a
+drum pad's remainder by 24 compiled without a library call."""
 import os
 from pathlib import Path
 import subprocess
@@ -63,6 +64,18 @@ class DivideTest(unittest.TestCase):
             self.assertEqual(text.count('DIVS ('), 1)
             self.assertEqual(text.count('DIVQ ('), 16)
             self.assertNotIn('call', text)
+
+    @unittest.skipUnless(blackfin_compiler(), 'No Blackfin compiler in local/toolchain (set OPXY_TEST_COMPILER)')
+    def test_a_drum_hits_pad_takes_no_library_division(self):
+        # sample_drum_key's remainder by 24 is a multiply on the device, not a call of
+        # libgcc's division (its results: tests/fixtures/stock_sample.cpp).
+        with tempfile.TemporaryDirectory() as directory:
+            source, listing = Path(directory) / 'pad.cpp', Path(directory) / 'pad.s'
+            source.write_text('#include "stock_sample.hpp"\n'
+                              'opxy::u32 pad(opxy::u32 k, opxy::i32 o) { return opxy::platform::sample_drum_key(k, o); }\n')
+            subprocess.run([str(blackfin_compiler()), *CXX_FLAGS, '-I', str(ROOT / 'sdk/include'),
+                            '-I', str(ROOT / 'sdk/platform/opxy-1.2.1'), '-S', str(source), '-o', str(listing)], check=True)
+            self.assertNotIn('call', listing.read_text())
 
 
 if __name__ == '__main__':

@@ -7,8 +7,10 @@ from .definitions import shift_parameters
 from .pipeline import ROOT
 from .formats import require
 
-METHODS = {'synth': ('opxy-synth-c8-v1', 5), 'effect': ('opxy-effect-callback-v1', 7),
-           'sample': ('opxy-sample-callback-v1', 3), 'drum': ('opxy-drum-callback-v2', 3)}
+# The effect, sample and drum workloads time each block with interrupts masked (v2, v2
+# and v3); their earlier IDs timed it with interrupts enabled (cpu_measurement.EARLIER).
+METHODS = {'synth': ('opxy-synth-c8-v1', 5), 'effect': ('opxy-effect-callback-v2', 7),
+           'sample': ('opxy-sample-callback-v2', 3), 'drum': ('opxy-drum-callback-v3', 3)}
 # A sweep build's extra synth runs: the stock workload, one control at a time.
 SWEEP = 'opxy-synth-c8-sweep-v1'
 

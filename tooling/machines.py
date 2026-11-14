@@ -609,7 +609,9 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 9), 'Track control (trackControl)')
         require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
-    require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
+    require(isinstance(defaults, dict) and set(defaults) <= {'amp', 'volume'}, 'Invalid preset defaults')
+    require('volume' not in defaults or (type(defaults['volume']) is int and 0 <= defaults['volume'] <= 32767),
+            'Invalid preset volume default')
     amp = defaults.get('amp', {})
     require(isinstance(amp, dict) and set(amp) <= {'attack', 'decay', 'release', 'sustain'} and
             all(type(v) is int and 0 <= v <= 32767 for v in amp.values()), 'Invalid preset amp defaults')

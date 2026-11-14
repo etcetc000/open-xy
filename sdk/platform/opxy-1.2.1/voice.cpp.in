@@ -20,6 +20,7 @@
 #include "engine.cpp"
 #include "stock.hpp"
 #include "synth_controls.hpp"
+#include "voice_zero.hpp"
 #include <opxy/q31.hpp>
 @SHIFT_ROW@// Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
 extern "C" {
@@ -89,12 +90,8 @@ static bool sounding(const Slot& slot, opxy::u32 now) {
 // Gives a voice to a note: zeroed, initialized and started.
 static void begin(Slot& slot, Handle* handle, opxy::u32 now) {
     const opxy::u32 id = owner(handle);
-    // Storage starts zeroed for every owner; a voice need not be assignable, so
-    // it is cleared word by word rather than with memset. A Voice is whole
-    // aligned words (voiceAlignment 4, 8 or 16).
-    typedef opxy::u32 __attribute__((may_alias)) Word;
-    Word* words = reinterpret_cast<Word*>(&slot.voice);
-    for (unsigned i = 0; i < sizeof(Voice) / sizeof(Word); ++i) words[i] = 0;
+    // Storage starts zeroed for every owner (its declared zeroed prefix).
+    opxy::platform::zero_voice(slot.voice);
     slot.owner = id;
     slot.next = 0;
     slot.born = blocks;

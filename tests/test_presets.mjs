@@ -56,6 +56,22 @@ test('all selections include only their instrument presets with native names and
   assert.deepEqual(machines,original);
 });
 
+test('presetDefaults sets the init preset track volume, as the native generator does', async () => {
+  const louder = {...machines[0], presetDefaults: {...machines[0].presetDefaults, volume: 20000}};
+  const {kit, catalog} = await fixture([louder]);
+  const files = await buildAssets(kit, [louder.id], catalog, numbers);
+  const preset = JSON.parse(new TextDecoder().decode(files[presetPath(louder)]));
+  assert.equal(preset.engine.volume, 20000);
+  const plain = JSON.parse(new TextDecoder().decode((await buildAssets((await fixture()).kit, [machines[0].id],
+    (await fixture()).catalog, numbers))[presetPath(machines[0])]));
+  assert.equal(plain.engine.volume, 16384);  // tooling/default_preset.json's
+  for (const volume of [32768, -1, true, 1.5, '20000']) {
+    const bad = {...louder, presetDefaults: {volume}};
+    const {kit: badKit, catalog: badCatalog} = await fixture([bad]);
+    await assert.rejects(buildAssets(badKit, [bad.id], badCatalog, numbers), /Invalid preset volume default/);
+  }
+});
+
 // A machine's own presets as tooling.machines.read_presets passes them on.
 const own = (changes = {}) => ({engine: {params: [1, 2, 3, 4, 5, 6, 7, 8], volume: 9000}, platform: 'OP-XY',
   regions: [], type: 'probesynth', version: 4, ...changes});

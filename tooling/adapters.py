@@ -884,6 +884,8 @@ def default_preset(m):
     preset['engine']['params'] = list(entry['default_params'])
     # Match a device-saved minimum amp release: the stored endpoint is 32767.
     preset['envelope']['amp'].update(amp)
+    if 'volume' in m.preset_defaults:
+        preset['engine']['volume'] = m.preset_defaults['volume']
     preset['type'] = entry['type']
     return preset
 

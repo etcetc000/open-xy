@@ -168,6 +168,15 @@ const u32 kProjectLoading = 0x840a0528;  // nonzero while stock loads a project
 opxy::i32 stored_value(u32 track, u32 slot) {
     return *reinterpret_cast<const volatile opxy::i32*>(kProject + 0x4080 + track * 0xe8 + slot * 4);
 }
+// What stock's pages show for a control: its displayed-value getter 8d5ac9dc,
+// which gives a held step's lock, the live value (locks and slides included)
+// while the sequencer plays, else the base value, plus the selected track's
+// LFO amount, clamped at 0. The send page and an effect's own page show this,
+// as stock's FX page and every synth page do; current_value stays what an edit
+// steps from.
+opxy::i32 shown_value(u32 track, u32 slot) {
+    return stock<opxy::i32(u32, u32, u32, u32)>(0x8d5ac9dc)(kProject, track, slot, 1);
+}
 
 // A detent the track's machine takes as its own (track control), which then
 // edits nothing.
@@ -516,7 +525,7 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
     if (m && index == 0) {
         bool alternate = row;
         for (u32 i = 0; i < opxy::page_controls; ++i) {
-            const opxy::i32 word = !row ? current_value(track, t->slots[i])
+            const opxy::i32 word = !row ? shown_value(track, t->slots[i])
                                  : i < m->shift ? shift_row::midpoint(fields[i], m->shift_choices[i]) : 0;
             shown_words[i] = shown_words[i + opxy::page_controls] = word;
             alternate = alternate || t->slots[i] != i;
@@ -537,9 +546,9 @@ u32 sdk_fx_value_text(u32 widget, const char* text, u32 index, opxy::i32 value) 
         return stand_in;
     }
     if (m) {
-        // A position showing an alternate reads its current value.
+        // A position showing an alternate reads its displayed value.
         const u32 slot = t->slots[index];
-        if (slot != index) value = current_value(track, slot);
+        if (slot != index) value = shown_value(track, slot);
         if (m->format(slot, value, caption)) {
             text = caption;
         } else if (slot != index) {
@@ -571,17 +580,7 @@ bool sdk_send_view(u32 track, SendView* view) {
     Track* t;
     const SynthControls* m = send_effect(track, t);
     if (!m) return false;
-    // Stock's send page (8d53b594) draws a send's four controls from
-    // 8d4d72a8(track), as a synth's page does: each word from
-    // 8d5ac9dc(project, track, i, 0), as an LFO modulates it (tracks up to 7
-    // read 8d4d7a38 instead). The page follows them too; the alternates, which
-    // no LFO reaches, and a missing vector read stock's editor's current values.
-    struct Vector { u32 owner, begin, end; };
-    const Vector* live = stock<const Vector*(u32)>(0x8d4d72a8)(track);
-    const bool whole = live && live->begin && !(live->begin & 3) && live->end >= live->begin + 4 * opxy::page_controls;
-    for (u32 slot = 0; slot < opxy::parameter_slots; ++slot)
-        view->slots[slot] = whole && slot < opxy::page_controls ? reinterpret_cast<const opxy::i32*>(live->begin)[slot]
-                                                                 : current_value(track, slot);
+    for (u32 slot = 0; slot < opxy::parameter_slots; ++slot) view->slots[slot] = shown_value(track, slot);
     u32 fields[shift_row::kControls] = {};
     if (m->shift) shift_row::decode(current_value(track, shift_row::kWord), m->shift_choices, m->shift, fields);
     for (u32 i = 0; i < shift_row::kControls; ++i) view->choices[i] = static_cast<u8>(fields[i]);
