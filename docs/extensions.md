@@ -140,7 +140,8 @@ An extension is a folder in a repository of its own, beside this SDK checkout:
 1. `extension.json`: its `id`, the site's row and details panel (a `name`, a
    one-line `description` saying what it does and how to use it, 140 characters
    at most, and optionally a `note` for its one limit, 100), and the `claims`
-   and `actions` it uses from the registry. People scan this; put the full
+   and `actions` it uses from the registry, and optionally its `capabilities`
+   ([settings extensions](#settings-extensions)). People scan this; put the full
    behavior in your repository's README.
 2. `extension.cpp`, exporting `opxy::extensions::<id>::hooks`, naming only the
    events it takes:
@@ -162,6 +163,43 @@ Machines, starts with none selected, saves choices with the layout and omits
 unselected extensions entirely. The SDK's extension hooks form the profile's
 `extensions` service: a build with no extension selected links none of the
 runtime and leaves every one of its stock call sites unchanged.
+
+## Settings extensions
+
+Some firmware behavior is a setting, not something an extension does: the SDK
+implements it, and a build either includes it or not. A **capability** in
+[`profiles/extensions.json`](../profiles/extensions.json) names such a setting;
+it is the firmware profile's service of the same name. (These registry
+capabilities are fixed firmware edits, unlike the master-processor and
+`drumline_page` capabilities below, which link an extension's code.) An
+extension turns capabilities on with `"capabilities": [...]` in `extension.json`.
+
+A settings extension holds only `extension.json` (and optionally README.md and
+LICENSE): capabilities, no claims or actions, no `extension.cpp` and no tests.
+It appears in the builder's Extensions step and the catalog like any extension,
+but links no code: selecting only settings extensions leaves the extension
+runtime out. An extension with code may declare capabilities too.
+
+A capability may have one whole-number **setting** (a label, unit, range and
+default in the registry). An extension chooses its value with
+`"settings": {"<capability>": <value>}` in `extension.json`; the builder shows a
+slider for it beside the extension's description and writes the chosen value.
+Each value has its own reviewed bytes in the profile edit's `choices`, so the
+builder reads a setting back from an image exactly. Two extensions in one build
+may not declare the same capability that has a setting, whether or not they write a
+value (one without a value chooses the default); a capability without a setting, such as
+`long_samples`, may be declared by several.
+
+| Capability | Setting | Effect |
+| --- | --- | --- |
+| `long_samples` | | A file loads up to 1,048,575 frames (2^20 - 1, 23.78 s at 44.1 kHz), the most a stock sample object holds, instead of stock's 882,000 (20 s). Recording still stops at 20 s. |
+| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block; stock stops at -66 dB. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release stops at the same level. |
+
+`python sdk.py settings show --image os.ldr` lists the capabilities an OS image
+has on; `python sdk.py settings apply --image os.ldr --extension <folder>
+[--set release_floor=-40] --out <dir>` writes a copy with settings extensions
+applied, to stock OS 1.2.1 or any open-xy OS made from it, without rebuilding its
+machines. Every capability site must hold stock or reviewed bytes.
 
 ## Master processor
 
@@ -213,6 +251,16 @@ or widening one updates every extension in the same pull request.
 `label` and `key`. Nothing else changes; the runtime reads claims from the
 generated registry. Never add a per-claim field to the collection or a
 per-claim branch to the runtime.
+
+**Add a capability** for a build-time setting the SDK owns: a registry entry
+(`{}`, or `{"setting": {...}}` with a range whose every value has reviewed bytes
+in its edit's `choices`), a profile service of the same name used only by it,
+and that service's reviewed edits. Its edits are fixed bytes, never hooks, and at
+least one has no `choices` and differs from stock: that edit tells the builder and
+`sdk.py settings` from an image whether the capability is on, even when a setting's
+bytes equal stock's. Each capability also brings an audit module (like
+[`tooling/release_floor.py`](../tooling/release_floor.py)) that checks its sites and
+encodings, called from `configuration()` in `tooling/native.py`.
 
 **Add an action** with a registry entry (and its `requires`, if one claim must
 grant it), a bit in

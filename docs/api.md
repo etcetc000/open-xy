@@ -1157,7 +1157,8 @@ opxy::PadSettings sample_assign(const opxy::SampleAssignment&);
 runs when a file or a completed stock recording (`recorded`) is assigned to a
 pad and returns the pad's new settings. It receives the file path
 (`filename_bytes` long, not NUL-terminated, possibly null; null for a
-recording), the loaded frame count and rate, the project tempo, and in
+recording), the loaded frame count (at most 882,000, or 1,048,575 in a build
+with the `long_samples` capability) and rate, the project tempo, and in
 `previous` the settings of the pad's replaced sample (`replacing`) or the
 defaults. The new sample's trim spans its whole length; a replaced pad keeps
 its pitch, reverse and volume. Settings survive project save exactly.
