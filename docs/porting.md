@@ -93,6 +93,11 @@ identity, hashes and layout. Then:
   of the old OS cannot be recovered, and TE's updater replaces them.
 - Update the builder's version text and its `.tfw` link, and the tests that pin
   stock addresses or bytes.
+- List stock's own content names in the profile's `stock_content`: the file names
+  in the new `content/display/` and the folder names in `content/presets/` and
+  `content/samples/`, from the updater's `content/` collected in step 1. The port
+  report leaves `stock_content` null, and builds refuse a profile without it: the
+  old OS's names would let a machine overwrite a screen the new OS added.
 
 Run `python sdk.py check` and [release verification](build.md#release-verification).
 
