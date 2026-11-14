@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 from .formats import require
+from . import stock_content
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -166,7 +167,12 @@ def validate_definition(value, kind):
     keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *optional), 'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     if kind == 'master': identifier(value['id'])
-    else: stock_name(value['id'])
+    else:
+        stock_name(value['id'])
+        # A machine's ID names files the build installs beside stock's own content. An
+        # extension's master processor installs nothing under its ID; its artwork file is
+        # checked where the build installs it (tooling.native.prepare_assets).
+        stock_content.check_identity(value['id'])
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,

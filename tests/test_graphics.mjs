@@ -264,10 +264,13 @@ async function fixture() {
   const screenTemplate = readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8');
   const machine = {id:'probe', kind:'synth', name:'Probe', artwork, asset:'probe.svg',
     catalog:',{"type":"probe","default_params":[0,0,0,0,0,0,0,0]}'};
+  // The reviewed profile's stock content names, which every build is checked against.
+  const {stock_content} = JSON.parse(readFileSync(new URL('../profiles/opxy-1.2.1.json', import.meta.url), 'utf8'));
   const kit = {machines:[machine, {...machine, id:'other', asset:'other.svg', artwork:'<circle fill="unsupported"/>'}],
     screenTemplate, profile:{experimental_memory:{}, stock_catalog_sha256:await sha256(catalog),
       screen_template_sha256:await sha256(new TextEncoder().encode(screenTemplate)),
-      stock_catalog_inserts:{engine_types:text.indexOf('\n]'), fx_types:text.indexOf('],"seq_types"'), seq_types:text.lastIndexOf(']')}}};
+      stock_catalog_inserts:{engine_types:text.indexOf('\n]'), fx_types:text.indexOf('],"seq_types"'), seq_types:text.lastIndexOf(']')},
+      stock_content}};
   return {kit, catalog};
 }
 

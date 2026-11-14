@@ -153,11 +153,19 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
 | `content/samples/<machine>/`, for a sample engine shipping [its own samples](api.md#own-samples) | `/content/samples/<machine>/` |
 
 1. Open file transfer as in step 2 and copy the files to the paths above,
-   replacing existing files. Keep the device's other content.
+   replacing existing files. Keep the device's other content, and never replace
+   one of stock's own files other than `os.ldr` and `content/op1_factory.json`:
+   stock looks up elements in its own screens and halts at boot when one is
+   missing. The build refuses a machine named after stock content
+   ([Registration boundary](api.md#registration-boundary)), so none of its files
+   lands on one of stock's.
    `python sdk.py device push <out>/candidate` does this instead:
    it backs up each file it replaces, reads
    every copied file back and restores the backups if anything fails, keeping
    them and a record under the private folder. It never writes the boot partition.
+   Push copies what it is given and does not check names, because it is also how
+   a stock file is put back: a package built before the SDK refused stock names
+   can still replace a stock file. Restore it from the backup push keeps.
    On Windows it needs `python -m pip install comtypes==1.4.17`. On macOS and Linux it
    speaks MTP over libusb, which needs only the library (`brew install libusb`, or
    `apt install libusb-1.0-0`), the device in "mtp file transfer (mac)" mode and no

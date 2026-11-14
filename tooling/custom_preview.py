@@ -9,6 +9,7 @@ import sys
 from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
+from . import stock_content
 from .contributors import validate_source_boundary
 from .definitions import ROOT, label, stock_name, validate_definition
 from .formats import require, sha
@@ -51,6 +52,7 @@ def source_files(directory):
 
 def custom_identity(identity):
     stock_name(identity)
+    stock_content.check_identity(identity)
     # Published machines hold their IDs for good (catalog/machines.json), as do those with fixed numbers.
     from .catalog import load
     from .machines import FIXED_NUMBERS

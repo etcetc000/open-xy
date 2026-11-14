@@ -1351,6 +1351,23 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 `opxy` or `std`, or start with a reserved prefix (`extensions`, `sdk`, `kit`,
 `stock`, `local`).
 
+Nor may it name the OP-XY's own content. The ID becomes `content/display/<id>.svg`,
+`content/presets/<id>/`, `content/samples/<id>/` and `content/aux_presets/<id>/` on the
+device, beside stock's files, so an ID that names a stock screen (`mixer`, `monitor`,
+`tape`, `filter`, ...), a stock preset folder (`keys`, `pad`, `pluck`, ...) or a stock
+sample folder (`kick`, `snare`, ...) is refused, whatever the machine's kind. A machine
+named after a stock screen would overwrite that file, and stock then halts at boot
+looking up an element the replacement lacks. The names are the firmware profile's
+`stock_content` (`profiles/opxy-1.2.1.json`), listed per content folder. The comparison
+ignores letter case, as `sdk.py device push` assumes the device's FAT storage does
+(`tooling/device.py`); that is the tooling's assumption, not a measurement on the device,
+and the check holds whichever way the device behaves.
+Loading a definition, `sdk.py new`, `sdk.py catalog check` (for a machine that is not
+retired), `build`, `compile`, `verify`, `kit` and `release`, and the browser builder
+(when it opens a kit and when it packages files) all refuse such a name; the message
+names the stock file and asks for a rename. An extension's artwork file in
+`content/display/` is checked the same way.
+
 `machine.json` declares how the SDK builds the machine:
 
 | Field | Contract |
@@ -1429,10 +1446,11 @@ ships. Catalog review checks it.
   fixed: replacing or removing it under the same name changes or silences every
   project and preset that loads it, and builds never delete files an earlier
   build installed. Give new or changed audio a new name.
-- The files share `content/samples/` with whatever else is on the OP-XY. The SDK
-  doesn't record the names of stock's own sample folders, so it can't refuse a
-  machine ID that matches one: check the device's `/content/samples/` before
-  choosing a sample engine's ID.
+- The files share `content/samples/` with whatever else is on the OP-XY. An ID
+  naming one of stock's own sample folders is refused (see
+  [Registration boundary](#registration-boundary)), but the SDK can't know
+  folders you added to the device yourself: check the device's
+  `/content/samples/` before choosing a sample engine's ID.
 - The browser builder doesn't install samples yet. Its kit still offers the
   machine and its presets, but not the samples: there each preset opens with no
   sample loaded, as a sample engine's presets did before. `sdk.py build`

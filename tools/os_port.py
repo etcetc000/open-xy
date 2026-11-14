@@ -374,12 +374,15 @@ def main(argv=None):
         else:
             candidate.append(dict(edit, port_status='review'))
     # The target image's own facts. What the port also changes (the linker script, stock
-    # content) and the release naming stay null until they are reviewed and set.
+    # content) and the release naming stay null until they are reviewed and set. The names
+    # of stock's own content are the new OS's to list (docs/porting.md): carrying the old
+    # OS's would let a machine overwrite a screen the new one added. Without them every
+    # build and the browser builder refuse the profile.
     candidate_profile = dict(profile, id=None, firmware_version=None, stock_sha256=sha(target.data),
                              stock_bytes=len(target.data), stock_records=len(target.records),
                              module_base=new_end - profile['reserved_bytes'], heap_fill_base=new_fill['target'],
                              heap_fill_bytes=new_fill['count'], linker_sha256=None, stock_catalog_sha256=None,
-                             stock_svg_sha256=None, patches=candidate)
+                             stock_svg_sha256=None, stock_content=None, patches=candidate)
     # The builder's experimental larger memory is reviewed per release: a port starts
     # without it rather than carrying addresses of the old one.
     candidate_profile.pop('experimental_memory', None)
