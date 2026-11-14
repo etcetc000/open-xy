@@ -163,6 +163,9 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
    it backs up each file it replaces, reads
    every copied file back and restores the backups if anything fails, keeping
    them and a record under the private folder. It never writes the boot partition.
+   Push copies what it is given and does not check names, because it is also how
+   a stock file is put back: a package built before the SDK refused stock names
+   can still replace a stock file. Restore it from the backup push keeps.
    On Windows it needs `python -m pip install comtypes==1.4.17`. On macOS and Linux it
    speaks MTP over libusb, which needs only the library (`brew install libusb`, or
    `apt install libusb-1.0-0`), the device in "mtp file transfer (mac)" mode and no
