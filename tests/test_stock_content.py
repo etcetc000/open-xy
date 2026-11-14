@@ -129,6 +129,17 @@ class StockContentNames(unittest.TestCase):
                                                 r"over the OP-XY's own content/display/ProbeSynth.svg\. "):
             native.prepare_assets(menu, profile, [m])
 
+    def test_an_extension_id_is_not_refused_as_it_installs_nothing_under_it(self):
+        # A master processor's ID names no content path (its artwork file is checked where the build
+        # installs it), so a stock screen's name is a valid extension ID, as in the browser builder.
+        value = json.loads((FIXTURE / 'definition.json').read_text(encoding='utf-8'))
+        value['resources'] = {'display': value['resources']['display']}
+        value['id'] = 'tempo'
+        definitions.validate_definition(value, 'master')
+        # The same name for a machine is refused.
+        with self.refused('content/display/tempo.svg'):
+            stock_content.check_identity('tempo')
+
     def test_sdk_new_refuses_it(self):
         with self.refused('content/display/master.svg'):
             custom_preview.custom_identity('master')
