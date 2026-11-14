@@ -82,6 +82,8 @@ def selection_services(kit, result):
                            # kit.json names it master_processor; older kits, master_filter (core.mjs processorOf).
                            (['master_filter'] if any((e.get('master_processor') or e.get('master_filter')) and
                                                      e['id'] in result['extensions']
+                                                     for e in kit.get('extensions', [])) else []) +
+                           (['drumline_page'] if any(e.get('drumline_page') and e['id'] in result['extensions']
                                                      for e in kit.get('extensions', [])) else []))
 
 

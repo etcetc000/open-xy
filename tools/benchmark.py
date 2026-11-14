@@ -1,7 +1,8 @@
 """Run the installed build's synthetic machine benchmarks over USB MIDI. Requires python-rtmidi.
 
 Save the project and stop playback first: stock diagnostic setup changes temporary
-engine/playback state. --package must describe the firmware actually installed.
+engine/playback state. --package must describe the exact installed firmware or
+swept RAM collection (which also requires its trusted SDK snapshot via --sdk).
 No firmware is installed by this command.
 """
 import argparse, datetime, hashlib, json, re, time
@@ -93,10 +94,15 @@ def selftest():
         raise ValueError('frame bounds')
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == 'collection':
+        from tooling.collection_profile import main as collection_main
+        return collection_main(argv[1:])
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('mode', choices=['selftest', 'probe', 'benchmark', 'report'])
+    p.add_argument('mode', choices=['selftest', 'probe', 'benchmark', 'report', 'collection'])
     p.add_argument('--out', type=Path)
     p.add_argument('--package', type=Path)
+    p.add_argument('--sdk', type=Path, help='RAM collection: its exact trusted resident SDK snapshot')
     p.add_argument('--seconds', type=float, help='how long to wait for reports (default: 60, or about 3 per expected run)')
     p.add_argument('--greet', action='store_true')
     p.add_argument('--installed', action='store_true', help='confirm --package is installed and unsaved work is saved')
@@ -112,7 +118,7 @@ def main(argv=None):
     if a.mode == 'report':
         require(a.package and a.out and a.machine, 'report needs --package, --out and --machine')
         from tooling.profile_report import create
-        print(create(a.package, a.capture, a.machine, a.report_url, a.out))
+        print(create(a.package, a.capture, a.machine, a.report_url, a.out, source_sdk=a.sdk))
         return
     if not a.out or a.out.exists():
         raise ValueError('fresh output required')
@@ -121,7 +127,7 @@ def main(argv=None):
     if a.mode == 'benchmark':
         require(a.package is not None, '--package is required for machine attribution')
         from tooling.profile_report import package_data
-        _manifest, report, package_identity = package_data(a.package)
+        _manifest, report, package_identity = package_data(a.package, source_sdk=a.sdk)
         expected = report['benchmark_cases']
         require(a.installed, 'Confirm this exact package is installed and save work first: --installed')
     # Each stock-workload run takes about 2.2 s (1,500 blocks); a sweep sends many.
@@ -301,6 +307,8 @@ def main(argv=None):
         lines += ['', 'Workload: ' + results['workload'] + '.', '', 'Normalization: ' + results['normalization'] + '.',
                   '', *('- ' + item for item in results['limitations']), '',
                   'Firmware SHA-256: `' + package_identity['firmware_sha256'] + '`']
+        if 'collection_sha256' in package_identity:
+            lines += ['', 'Loaded collection SHA-256: `' + package_identity['collection_sha256'] + '`']
         (a.out / 'results.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
         print('\n'.join(lines))
     print(json.dumps({'frames': len(record['frames']), 'identity': bool(record['identity']), 'commands': [x['command'] for x in record['transmissions']], 'errors': record['errors'], 'saved': str(a.out)}))
