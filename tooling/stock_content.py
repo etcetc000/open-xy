@@ -49,19 +49,23 @@ def stock_file(path, profile=None):
     return None if name is None else f'content/{parts[1]}/{name}'
 
 
-def refusal(owner, path, stock):
-    return (f"{owner} would install {path} over the OP-XY's own {stock}, and stock can fail at boot when "
-            f"its own content is replaced. Rename it: names stock uses in content/ are refused, in any letter case.")
+RENAME = ("Stock can fail at boot when its own content is replaced or mixed with another's. "
+          "Rename it: names stock uses in content/ are refused, in any letter case.")
 
 
 def check_identity(identity, profile=None):
-    """Refuse a machine ID that names a stock content file or folder."""
+    """Refuse a machine ID that names a stock content file or folder. The rule is per ID,
+    whatever the kind: a machine installs some of these paths, and its ID is held for good."""
     for path in machine_paths(identity):
         stock = stock_file(path, profile)
-        require(stock is None, refusal('Machine ' + str(identity), path, stock))
+        require(stock is None, f"Machine {identity}: its ID names the OP-XY's own {stock}. " + RENAME)
 
 
 def check_output(path, owner, profile=None):
     """Refuse one file a build would install when it lands on a stock name."""
     stock = stock_file(path, profile)
-    require(stock is None, refusal(owner, path, stock))
+    if stock is not None:
+        replaced = PurePosixPath(path).as_posix().lower() == stock.lower()
+        require(False, f"{owner} would install {path} "
+                       + (f"over the OP-XY's own {stock}. " if replaced else f"into the OP-XY's own folder {stock}. ")
+                       + RENAME)

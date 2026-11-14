@@ -37,7 +37,8 @@ class StockContentNames(unittest.TestCase):
         self.directory = Path(self.temporary.name)
 
     def refused(self, stock):
-        return self.assertRaisesRegex(ValueError, rf"would install .* over the OP-XY's own {stock}.*Rename it")
+        # The rule is per ID, whatever the kind installs, so the message says what the ID names.
+        return self.assertRaisesRegex(ValueError, rf"^Machine [a-z_0-9]+: its ID names the OP-XY's own {stock}\. .*Rename it")
 
     def test_the_profile_lists_stock_content_by_folder(self):
         listed = config()['stock_content']
@@ -96,7 +97,7 @@ class StockContentNames(unittest.TestCase):
                     arguments += ['--stock-os', str(self.directory / 'os.ldr')]
                 with contextlib.redirect_stderr(errors):
                     self.assertEqual(native.main(arguments, command), 1)
-                self.assertIn("over the OP-XY's own content/display/tape.svg", errors.getvalue())
+                self.assertIn("Machine tape: its ID names the OP-XY's own content/display/tape.svg", errors.getvalue())
                 self.assertFalse(out.exists())
 
     def test_kit_refuses_it_before_building(self):
@@ -109,17 +110,23 @@ class StockContentNames(unittest.TestCase):
                               '--toolchain', str(tools), '--compiler', str(tools), '--personal',
                               '--machine', str(root)])
         self.assertEqual(exit.exception.code, 1)
-        self.assertIn("over the OP-XY's own content/display/mixer.svg", errors.getvalue())
+        self.assertIn("Machine mixer: its ID names the OP-XY's own content/display/mixer.svg", errors.getvalue())
         self.assertFalse((self.directory / 'kit').exists())
 
     def test_the_files_a_build_installs_are_checked_against_the_profile_it_targets(self):
         m = machines.machine_at(FIXTURE)
         menu = STOCK_MENU.read_bytes()
         self.assertIn('content/display/probesynth.svg', native.prepare_assets(menu, config(), [m]))
+        # A file lands over a stock file, or into a stock folder; the message says which.
         profile = copy.deepcopy(config())
         profile['stock_content']['presets'].append('ProbeSynth')
-        with self.assertRaisesRegex(ValueError, "Machine probesynth would install content/presets/probesynth/"
-                                                "default.json over the OP-XY's own content/presets/ProbeSynth"):
+        with self.assertRaisesRegex(ValueError, "^Machine probesynth would install content/presets/probesynth/"
+                                                r"default.json into the OP-XY's own folder content/presets/ProbeSynth\. "):
+            native.prepare_assets(menu, profile, [m])
+        profile = copy.deepcopy(config())
+        profile['stock_content']['display'].append('ProbeSynth.svg')
+        with self.assertRaisesRegex(ValueError, "^Machine probesynth would install content/display/probesynth.svg "
+                                                r"over the OP-XY's own content/display/ProbeSynth.svg\. "):
             native.prepare_assets(menu, profile, [m])
 
     def test_sdk_new_refuses_it(self):

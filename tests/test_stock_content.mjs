@@ -1,13 +1,15 @@
 // The browser builder refuses to install a file over the OP-XY's own content
-// (builder/core.mjs checkStockContent, as tooling/stock_content.py does for sdk.py).
+// (builder/core.mjs checkStockId and checkStockContent, as tooling/stock_content.py does for sdk.py).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {buildAssets, checkStockContent, machineContentPaths, sha256, stockContentFile} from '../builder/core.mjs';
+import {buildAssets, checkStockId, sha256, stockContentFile} from '../builder/core.mjs';
 
 const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 const profile = JSON.parse(read('profiles/opxy-1.2.1.json'));
-const refused = stock => new RegExp(`would install .* over the OP-XY’s own ${stock}.*Rename it`);
+// A file replaces a stock file, or goes into a stock folder; the message says which.
+const refused = (stock, folder = false) =>
+  new RegExp(`would install .* ${folder ? 'into' : 'over'} the OP-XY’s own ${folder ? 'folder ' : ''}${stock}\\. .*Rename it`);
 
 // An authored menu and machines; the reviewed profile's stock content names.
 async function fixture(...machines) {
@@ -30,7 +32,7 @@ test('a machine screen named after a stock screen is refused', async () => {
 
 test('a machine preset folder named after a stock preset folder is refused', async () => {
   const {kit, catalog} = await fixture(synth('keys'));
-  await assert.rejects(buildAssets(kit, ['keys'], catalog, {}), refused('content/presets/keys'));
+  await assert.rejects(buildAssets(kit, ['keys'], catalog, {}), refused('content/presets/keys', true));
 });
 
 test('an extension artwork named after a stock screen is refused in any letter case', async () => {
@@ -60,8 +62,6 @@ test('every machine the catalog can build passes, and the only retired collision
   const entries = JSON.parse(read('catalog/machines.json')).machines;
   const colliding = [];
   for (const {id, status} of entries)
-    for (const path of machineContentPaths(id)) {
-      try { checkStockContent(profile, path, 'Machine ' + id); } catch { colliding.push(`${id} ${status}`); }
-    }
+    try { checkStockId(profile, id); } catch { colliding.push(`${id} ${status}`); }
   assert.deepEqual(colliding, ['pluck retired']);
 });

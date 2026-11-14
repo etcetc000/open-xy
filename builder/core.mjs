@@ -167,10 +167,22 @@ export function stockContentFile(profile, path) {
   const name = listed[parts[1]].find(n => n.toLowerCase() === parts[2].toLowerCase());
   return name === undefined ? null : `content/${parts[1]}/${name}`;
 }
+const RENAME = 'Stock can fail at boot when its own content is replaced or mixed with another’s. ' +
+  'Rename it: names stock uses in content/ are refused, in any letter case.';
+// A machine ID, whatever its kind: the rule is per ID (tooling.stock_content.check_identity).
+export function checkStockId(profile, id) {
+  for (const path of machineContentPaths(id)) {
+    const stock = stockContentFile(profile, path);
+    check(stock === null, `Machine ${id}: its ID names the OP-XY’s own ${stock}. ` + RENAME);
+  }
+}
+// One file a package installs.
 export function checkStockContent(profile, path, owner) {
   const stock = stockContentFile(profile, path);
-  check(stock === null, `${owner} would install ${path} over the OP-XY’s own ${stock}, and stock can fail at boot ` +
-    'when its own content is replaced. Rename it: names stock uses in content/ are refused, in any letter case.');
+  if (stock === null) return;
+  const replaced = path.toLowerCase() === stock.toLowerCase();
+  check(false, `${owner} would install ${path} ` +
+    (replaced ? `over the OP-XY’s own ${stock}. ` : `into the OP-XY’s own folder ${stock}. `) + RENAME);
 }
 // A kit's numbers: each machine asks for valid ones, and fixed numbers (kit.fixed,
 // tooling.machines.FIXED_NUMBERS) belong to their own machines and are never shared.
@@ -598,8 +610,7 @@ export async function openKit(kit) {
   // No more machines than the relocated engine table holds (tooling/stock_tables.py).
   check(kit.machines.length > 0 && kit.machines.length <= kit.profile.identities.engines, 'Unsupported curated kit');
   checkNumbers(kit);
-  for (const m of kit.machines)
-    for (const path of machineContentPaths(m.id)) checkStockContent(kit.profile, path, 'Machine ' + m.id);
+  for (const m of kit.machines) checkStockId(kit.profile, m.id);
   check(kit.machines.every(validOrigin), 'Invalid machine origin or source');
   check(kit.machines.every(validKeywords), 'Invalid machine keywords');
   for (const machine of kit.machines) if (Object.hasOwn(machine, 'grayscaleArtwork')) selectArtwork(machine, 'colorful');
