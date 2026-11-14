@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
+from . import benchmark, extensions, runtime, screen, startup_label, stock_content, stock_tables
 from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -90,6 +90,9 @@ def configuration(entries=None, layout=None):
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
         [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
+    # Before anything is compiled: no machine may be named after the target OS's own content.
+    for m in machines:
+        stock_content.check_identity(m.id, profile)
     definitions = dict(DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
@@ -996,6 +999,7 @@ def extend_catalog(catalog, profile, machines):
 def prepare_assets(catalog, profile, machines):
     require(sha(catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     outputs = {'content/op1_factory.json': extend_catalog(catalog, profile, machines)}
+    owners = {}  # every file a machine or extension adds, by who adds it
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
@@ -1004,15 +1008,23 @@ def prepare_assets(catalog, profile, machines):
         # A sample engine's own samples (SDK 1.10), installed as they are.
         for name, sample in (m.samples or {}).items():
             outputs[sample_path(m.id, name)] = sample.path.read_bytes()
+        owners.update({path: 'Machine ' + m.id for path in outputs if path not in owners})
     check_aux_presets(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))
+        owners.update({path: 'Machine ' + m.id for path in outputs if path not in owners})
     for e in extensions_of(machines):
         if e.master_processor is not None:
             path = e.root / e.master_processor['artwork']
             name = 'content/display/' + path.name
             require(name not in outputs, 'Display asset collision: ' + name)
             outputs[name] = extensions.validate_master_artwork(path)
+            owners[name] = 'Extension ' + e.id
+    # Stock's own content is never replaced (tooling.stock_content). The menu file is the
+    # one stock file a build writes: stock's, extended.
+    for path, owner in owners.items():
+        if path != 'content/op1_factory.json':
+            stock_content.check_output(path, owner, profile)
     return outputs
 
 
