@@ -1754,15 +1754,25 @@ factory construction, the project-load type guard, two controller lookups,
 enum editing, and type/name conversion. The authenticated preimages and destinations are
 in the profile. The factory delegates stock types unchanged. An owned type
 uses a stock Maestro object with its type, routing mode, note-on, note-off,
-reset, all-notes-off and step methods replaced; the other nine method pointers are checked against authenticated
+reset, all-notes-off, activity and step methods replaced; the other eight method pointers are checked against authenticated
 stock OS 1.2.1 during release verification.
+Stock's player clock (`8d57e9fc`) asks the activity query (`+0x2c`) first and
+steps (`+0x34`) only while it answers nonzero. Maestro's query (`8d57d464`)
+answers whether it holds chord records; the SDK's also answers nonzero while a
+key the player took is down, so a player that took a key silently or rests
+still steps. Maestro's step returns at once when it holds no records.
 Reset and all-notes-off call their authenticated stock methods before clearing
 machine-held state through its optional reset callback.
 The routing-mode query returns zero, so machine controls cannot enable
 Maestro's special note-routing mode through its fourth encoder.
 
 The stock player object occupies one 64 KiB slot per track. The SDK reserves
-2048 bytes after the stock object for machine state. A plan appends one of
+2048 bytes after the stock object for machine state (`+0x800`), and follows
+it with its own words (`+0x1000`): the count of stock steps and a 128-bit map
+of keys the player took that are still down. Construction zeroes both; the
+step wrapper counts before it drains updates, note-off clears the key whether
+or not the machine kept stock's release, and reset and all-notes-off clear
+every key after their stock methods. A plan appends one of
 eight bounded Maestro chord records, each holding at most eight tones. The
 record array starts at `+0x10c`, with its count at `+0x34c`; release checks
 authenticate both offsets against stock's step and note-off instructions. The
@@ -1771,11 +1781,15 @@ to emit zero-delay tones and decrement their delays;
 note-off removes the root's record. The GUI snapshots negative-delay tones
 from these records for the output keyboard, bounding every observed count.
 It neither calls the audio renderer nor allocates.
-Optional machine updates replace or extend existing root records after input
+Optional machine updates replace or extend root records after input
 events and before stock stepping. Replacements first call the stock root-release method; additions keep
 existing attacks and queued delays. Cleared records can be reused before the
-next stock compaction step. Updates cannot revive a released root and remain
-bounded to eight records of eight tones, with at most eight updates per event or step.
+next stock compaction step. An update may create a record only for a key the
+map holds, so an empty replacement is a rest, not an end. Updates cannot
+revive a released root and remain bounded to eight records of eight tones,
+with at most eight updates per event or step. Controls carry the step count
+and the audio-role transport words (`84c69824` tempo, `86bd0080` ticks,
+`860c9b39` play state) that synths already read.
 
 The Maestro turn hook handles all controls of an owned player, bypassing the
 post-edit hold-mode callback that would interpret its fourth control as stock

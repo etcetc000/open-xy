@@ -1,4 +1,5 @@
 #pragma once
+#include "transport.hpp"
 #include "types.hpp"
 
 namespace opxy { namespace player {
@@ -31,10 +32,11 @@ struct Plan {
 // Optional update(State&, const Controls&, Update&) yields changes to roots
 // already sounding after a press or release, and before every player step.
 // At most eight updates are drained per event/step, on the sequencer role.
-// Replace retriggers the chord; Add preserves existing/queued tones
-// and appends pitches not already present, up to max_tones. Updates never start
-// a released root. Optional reset(State&) clears held inputs on stock reset or
-// all-notes-off; without it the SDK zeroes State.
+// Replace retriggers the chord, and with an empty plan silences it; Add
+// preserves existing/queued tones and appends pitches not already present, up
+// to max_tones. An update may start a root whose key press took is still down,
+// sounding or not, but never a released one. Optional reset(State&) clears
+// held inputs on stock reset or all-notes-off; without it the SDK zeroes State.
 enum UpdateMode { Replace, Add };
 struct Update {
     u32 root;
@@ -49,9 +51,16 @@ struct Update {
 // current octave, so note - lowest_key is a key's position: 0..11 the lower
 // octave, 12..23 the upper. Sequenced notes keep the pitch they were recorded
 // with, so their position follows the octave at playback.
+// steps counts stock player steps since the player was created on its track,
+// wrapping modulo 2^32: it moves only on a step, never on a press or release,
+// so update() can tell a step from an input event, and a generator can count
+// its own time in steps. transport is the sequencer's tempo and song position
+// (ticks96 advances only while playing). Display reads of both are advisory.
 struct Controls {
     i32 value[4];
     u32 lowest_key;
+    u32 steps;
+    Transport transport;
 };
 
 // A player with its own page draws it from State on the GUI side, once per

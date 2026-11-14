@@ -7,6 +7,7 @@
 using namespace opxy;
 u32 fake_track=0;
 volatile i32 sdk_track_octaves[8]={};
+Transport fake_transport={};
 namespace {
 u32 selected=6, writes=0, continuous=0, edited=99;
 i32 values[8]={0,0,0x40000000,0};
