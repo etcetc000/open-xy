@@ -45,6 +45,20 @@ inline i32 add(i32 a, i32 b) {
 #endif
 }
 
+// Saturating left shift (SDK 1.16): value * 2^count, held within the Q31 range;
+// count 0..31.
+inline i32 shift_left(i32 value, u32 count) {
+#if defined(__bfin__)
+    // Blackfin's saturating shift: the same result as the portable path below in one instruction.
+    i32 result;
+    __asm__("%0 = ASHIFT %1 BY %2.L (S);" : "=d"(result) : "d"(value), "d"(count) : "ASTAT", "CC");
+    return result;
+#else
+    const i64 shifted = static_cast<i64>(value) * (static_cast<i64>(1) << count);
+    return shifted > maximum ? maximum : shifted < -maximum - 1 ? -maximum - 1 : static_cast<i32>(shifted);
+#endif
+}
+
 inline i32 half(i32 value) {
 #if defined(__bfin__)
     i32 result;

@@ -55,7 +55,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # and a synth's voice release callback (resources.releaseCallback).
 # 1.13 gives a synth a Shift row: up to eight more controls under its pages ("shift"),
 # kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
-SDK_VERSION = (1, 15)
+# 1.16 gives an effect a bus shift: its send's audio raised by a fixed number of
+# bits around process (resources.busShift).
+SDK_VERSION = (1, 16)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -538,6 +540,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 2), 'An effect buffer (bufferBytes)')
     if definition['resources'].get('transport'):
         require_sdk(version, (1, 2), "An effect's tempo (transport)")
+    if definition['resources'].get('busShift'):
+        require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and 'display' in definition['resources']:

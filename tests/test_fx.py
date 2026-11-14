@@ -8,8 +8,10 @@ import subprocess
 import tempfile
 import unittest
 
-from tooling import adapters
-from tooling.native import extend_catalog
+from tooling import adapters, definitions
+from tooling.definitions import ROOT
+from tooling.native import CXX_FLAGS, extend_catalog
+from test_divide import blackfin_compiler
 from test_sample_services import HOST_CXX
 from machine_fixtures import fixture
 
@@ -173,6 +175,89 @@ int main() {
             self.assertIn('process(object->state, opxy::platform::audio_transport(), left, right, parameters)', text)
             plain = adapters.generate_fx_object(Path(directory), fixture('probefx')).read_text()
             self.assertIn('process(object->state, left, right, parameters)', plain)
+
+    def test_a_bus_shift_is_0_to_12_bits_on_effects_only(self):
+        base = fixture('probefx').definition
+        for n in (0, 1, 9, 12):
+            definitions.validate_definition(dict(base, resources={'busShift': n}), 'effect')
+        for n in (-1, 13, '9', 9.0, True):
+            with self.subTest(n=n), self.assertRaises(ValueError):
+                definitions.validate_definition(dict(base, resources={'busShift': n}), 'effect')
+        with self.assertRaises(ValueError):
+            definitions.validate_definition(dict(base, resources={'busShift': 9}), 'player')
+
+    def test_without_a_bus_shift_the_object_source_is_unchanged(self):
+        effect = lambda **resources: replace(fixture('probefx'), definition=dict(fixture('probefx').definition,
+                                                                                 resources=resources))
+        with tempfile.TemporaryDirectory() as directory:
+            for resources in ({}, {'bufferBytes': 64, 'transport': 1}):
+                plain = adapters.generate_fx_object(Path(directory), effect(**resources), benchmark=True).read_text()
+                zero = adapters.generate_fx_object(Path(directory), effect(busShift=0, **resources), benchmark=True).read_text()
+                self.assertEqual(plain, zero)
+                self.assertNotIn('send_bus', plain)
+
+    def test_a_bus_shift_surrounds_process(self):
+        enum = dict(id='s0', label='S 0', default=0, display='enum', mapping=dict(kind='enum', labels=['a', 'b']))
+        definition = dict(fixture('probefx').definition, shift=[enum], resources={'busShift': 9})
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_fx_object(Path(directory), replace(fixture('probefx'), definition=definition)).read_text()
+        self.assertIn('#include "send_bus.hpp"', text)
+        body = text[text.index('static void process('):text.index('void* probefx_fx_factory(void* storage)')]
+        # The audio is raised before process and lowered after it; the shift row's words are untouched.
+        order = ['send_bus::raise<9>(left, right);', 'probefx::process(object->state', 'send_bus::lower<9>(left, right);']
+        self.assertEqual([body.index(s) for s in order], sorted(body.index(s) for s in order))
+        self.assertEqual((body.count('send_bus::raise'), body.count('send_bus::lower')), (1, 1))
+
+    @unittest.skipUnless(blackfin_compiler(), 'No Blackfin compiler in local/toolchain (set OPXY_TEST_COMPILER)')
+    def test_the_device_raise_is_one_saturating_shift_a_word(self):
+        # q31::shift_left's device form: ASHIFT ... (S) saturates where << would wrap.
+        with tempfile.TemporaryDirectory() as directory:
+            source, listing = Path(directory) / 'bus.cpp', Path(directory) / 'bus.s'
+            source.write_text('#include "send_bus.hpp"\nusing opxy::i32;\n'
+                              'void up(i32* l, i32* r) { opxy::platform::send_bus::raise<9>(l, r); }\n'
+                              'i32 one(i32 x, opxy::u32 n) { return opxy::q31::shift_left(x, n); }\n')
+            subprocess.run([str(blackfin_compiler()), *CXX_FLAGS, '-I', str(ROOT / 'sdk/include'),
+                            '-I', str(ROOT / 'sdk/platform/opxy-1.2.1'), '-S', str(source), '-o', str(listing)], check=True)
+            text = listing.read_text()
+        self.assertEqual(len(re.findall(r'ASHIFT R\d BY R\d\.L \(S\)', text)), 3)  # two channels, and one()
+        self.assertNotIn('call', text)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_bus_shift_raises_the_block_and_lowers_the_result(self):
+        for n in (0, 1, 9, 12):
+            with self.subTest(busShift=n), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                resources = {'busShift': n} if n else {}
+                m = replace(fixture('probefx'), definition=dict(fixture('probefx').definition, resources=resources))
+                generated = adapters.generate_fx_object(folder, m)
+                generated.write_text(generated.read_text().replace('__builtin_offsetof(Object, state) == 4',
+                                                                   '__builtin_offsetof(Object, state) == sizeof(void*)'))
+                (folder / 'fx.cpp').write_text('''#include <opxy/effect.hpp>
+namespace probefx {
+opxy::i32 seen_left[64], seen_right[64], result_left[64], result_right[64];
+bool pass;
+struct State { unsigned blocks; };
+void initialize(State& state) { state.blocks = 0; }
+void process(State& state, opxy::Channel left, opxy::Channel right, opxy::Parameters) {
+    ++state.blocks;
+    for (unsigned i = 0; i < 64; ++i) {
+        seen_left[i] = left[i];
+        seen_right[i] = right[i];
+        if (!pass) { left[i] = result_left[i]; right[i] = result_right[i]; }
+    }
+}
+}
+''')
+                (folder / 'test.cpp').write_text((ROOT / 'tests/fixtures/fx_bus_shift.cpp').read_text())
+                binary = folder / ('test.exe' if os.name == 'nt' else 'test')
+                hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+                command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', f'-DSHIFT={n}',
+                           '-I' + str(ROOT / 'sdk/include'), '-I' + str(ROOT / 'sdk/platform/opxy-1.2.1'),
+                           str(folder / 'test.cpp'), '-o', str(binary)]
+                result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr + 'step %d' % result.returncode)
 
     def test_send_pages_name_only_division_controls(self):
         parameters = [dict(p) for p in fixture('probefx').definition['parameters']]
