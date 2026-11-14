@@ -6,8 +6,9 @@
 #include "screen_player.hpp"
 namespace {
 struct Page {
-    static const char* const ids[opxy::player::display_dots + 257];
-    static const char* const titles[4];
+    static const bool paged = @PAGED@;
+    static const char* const ids[@ID_COUNT@];
+    static const char* const titles[8];
     static bool display(opxy::u32 track, opxy::player::Display& shown) {
         void* object = opxy::platform::player_object(track, @PREFIX@_player_vtable);
         if (!object) return false;
@@ -16,10 +17,10 @@ struct Page {
         return true;
     }
 };
-const char* const Page::ids[opxy::player::display_dots + 257] = {
+const char* const Page::ids[@ID_COUNT@] = {
 @IDS@
 };
-const char* const Page::titles[4] = {@TITLES@};
+const char* const Page::titles[8] = {@TITLES@};
 typedef opxy::screen::PlayerPage<Page> Renderer;
 }
 OPXY_SCREEN(Renderer, "@PREFIX@", "@NAME@.svg", @PAGE_LIMIT@, sizeof(Renderer::Object))

@@ -3,11 +3,13 @@
 // type in a five-entry table. A player of the collection is built by the stock
 // factory as a Maestro (type 4) and then takes its own method table, so the
 // stock step and release play its chords and the Maestro page and controller
-// edit its four parameters. Its routing mode is fixed independently of those
+// edit its parameters. Its routing mode is fixed independently of those
 // parameters. The hooks (player_hooks.s) ask these functions:
 //   factory 8d57ee6c   build an owned type
 //   load    8d588d94   keep an owned type a project stored
 //   UI      8c0af13a, 8c0af43e  index the controller table with Maestro's entry
+//   turn    8c084d18   edit the parameter an encoder shows
+//   click   8c084e14   keep Maestro's encoder 4 click from a paged player
 //   names   8d5bddd8, 8d5bde60  convert between an owned type and its name
 #include "keyboard_octaves.hpp"
 #include "players.hpp"
@@ -24,7 +26,9 @@ const char* sdk_player_name(opxy::u32 type) __asm__("sdk_player_name");
 opxy::u32 sdk_player_id(const void* name) __asm__("sdk_player_id");
 opxy::u32 sdk_player_substitute(opxy::u32 selected) __asm__("sdk_player_substitute");
 opxy::u32 sdk_player_turn(opxy::u32 index, const opxy::i32* event) __asm__("sdk_player_turn");
+opxy::u32 sdk_player_click() __asm__("sdk_player_click");
 extern opxy::u32 (*sdk_screen_substitute)(opxy::u32) __asm__("sdk_screen_substitute");
+extern void (*sdk_player_press)() __asm__("sdk_player_press");
 }
 
 namespace opxy { namespace platform {
@@ -62,6 +66,22 @@ const Player* owned(u32 type) {
     return nullptr;
 }
 
+// The first parameter each track's page shows, 0 or 4. A player starts on its
+// first page whenever it is built.
+u8 rows[kTracks];
+
+// The selected track's player when a press switches its page.
+const Player* paged(u32 track) {
+    const Player* p = track < kTracks ? owned(stock<u32()>(kSelectedType)()) : nullptr;
+    return p && p->paged ? p : nullptr;
+}
+
+// A click of any encoder on the player page (synth_controls.cpp).
+void press() {
+    const u32 track = selected_track();
+    if (paged(track)) rows[track] ^= 4;
+}
+
 bool equal(const StockString* string, const char* name) {
     u32 length = 0;
     while (name[length]) ++length;
@@ -85,15 +105,20 @@ void* player_object(u32 track, const void* const* vtable) {
 
 int register_player_page(const Record* record, const Screen* screen) {
     const int result = sdk_register_screen(record, screen);
-    if (result == 1) sdk_screen_substitute = sdk_player_substitute;
+    if (result == 1) {
+        sdk_screen_substitute = sdk_player_substitute;
+        sdk_player_press = press;
+    }
     return result;
 }
+
+u32 player_row(u32 track) { return track < kTracks ? rows[track] : 0; }
 
 opxy::player::Controls player_controls(void* object) {
     const u32 track = *reinterpret_cast<const u32*>(bytes(object) + 4);
     const i32* words = stock<const i32*(u32)>(kParameters)(track);
     opxy::player::Controls controls;
-    for (u32 i = 0; i < 4; ++i) controls.value[i] = words[i];
+    for (u32 i = 0; i < 8; ++i) controls.value[i] = words[i];
     const i32 octave = track < kTracks ? sdk_track_octaves[track] : 0;
     controls.lowest_key = static_cast<u32>(static_cast<i32>(kLowestKey) + 12 * octave);
     return controls;
@@ -133,6 +158,7 @@ void* sdk_player_build(u32 track, u32 type, u32) {
     if (object) {
         __builtin_memset(player_state(object), 0, opxy::player::state_bytes);
         *static_cast<const void* const**>(object) = p->vtable;
+        if (track < kTracks) rows[track] = 0;
     }
     return object;
 }
@@ -154,24 +180,32 @@ u32 sdk_player_ui_type() {
 // a machine control, never stock's hold-mode switch.
 // event[1] is signed detents; event[0] is continuous motion. Stock's setter
 // updates the live parameter and the saved pattern, including dirty state.
+// On a paged player's second page the encoders edit parameters 4..7, which
+// stock's setter and continuous editor store as they do the first four.
 u32 sdk_player_turn(u32 index, const opxy::i32* event) {
     if (index >= 4 || !event) return 0;
     const Player* p = owned(stock<u32()>(kSelectedType)());
     if (!p) return 0;
-    if (p->steps[index] == 1) return 1;  // an absent slot: the encoder turns nothing
     const u32 track = selected_track();
+    const u32 slot = index + (p->paged ? player_row(track) : 0);
+    if (p->steps[slot] == 1) return 1;  // an absent slot: the encoder turns nothing
     if (track >= kTracks) return 0;
-    const u32 inherited[4] = {128, 8, 0, 4}; // stock's doubled buckets
-    const u32 choices = p->steps[index] >= 2 ? p->steps[index] : inherited[index];
+    const u32 inherited[8] = {128, 8, 0, 4}; // stock's doubled buckets; the second page is continuous
+    const u32 choices = p->steps[slot] >= 2 ? p->steps[slot] : inherited[slot];
     if (!choices) {
-        stock<void(u32, u32, const opxy::i32*)>(0x8d586538)(track, index, event);
+        stock<void(u32, u32, const opxy::i32*)>(0x8d586538)(track, slot, event);
     } else if (event[1]) {
-        const opxy::i32 value = stock<const opxy::i32*(u32)>(kParameters)(track)[index];
-        stock<void(u32, u32, opxy::i32)>(0x8d586474)(track, index,
+        const opxy::i32 value = stock<const opxy::i32*(u32)>(kParameters)(track)[slot];
+        stock<void(u32, u32, opxy::i32)>(0x8d586474)(track, slot,
             player_enum_turn(value, choices, event[1]));
     }
     return 1;
 }
+
+// Maestro's key handler toggles parameter 3 and runs its hold-mode callback on
+// an encoder 4 click. A paged player's click switches the page instead
+// (press); nonzero skips the toggle.
+u32 sdk_player_click() { return paged(selected_track()) != nullptr; }
 
 const char* sdk_player_name(u32 type) {
     const Player* p = owned(type);

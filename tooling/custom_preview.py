@@ -14,6 +14,7 @@ from .contributors import validate_source_boundary
 from .definitions import ROOT, label, stock_name, validate_definition
 from .formats import require, sha
 from .pipeline import add_overwrite_argument, fresh_output
+from . import screen
 
 KIND = 'cpp-browser-custom-preview'
 REQUIRED = {'definition.json', 'core.h', 'engine.cpp', 'display.h', 'display.cpp', 'panel.svg.fragment'}
@@ -236,7 +237,7 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None,
     outline = square_outline(display['points'])
     artwork = [f'<g id="{identity}_panel">']
     if controls > 4:
-        artwork.append(page_header_artwork(identity, display['paths']))
+        artwork.append(screen.page_header(identity, display['paths']))
     artwork += [f'  <path id="{node}" d="{outline}" fill="none" stroke="#ffffff" stroke-width="1"/>'
                 for node in nodes[:display['paths']]]
     if controls == 4:
@@ -255,14 +256,6 @@ def scaffold(out, identity, name, kind='synth', repository=False, controls=None,
           ' (add --cxx <clang++> if doctor --preview needed one)')
     print(f'Each device build gives its numbers: {python} sdk.py build --machine "{out}" '
           '(docs/build.md, step 3).')
-
-
-def page_header_artwork(identity, first_node):
-    """Authored half of opxy/page_header.hpp: eight bar nodes and sixteen texts."""
-    text = (ROOT / 'sdk/templates/shared/page_header.svg.in').read_text(encoding='utf-8')
-    for i in range(8):
-        text = text.replace('@NODE_%d@' % i, str(first_node + i))
-    return text.replace('@ID@', identity)
 
 
 def square_outline(points, half=32):

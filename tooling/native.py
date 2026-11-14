@@ -27,7 +27,7 @@ from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, 
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
-from .definitions import synth_shift
+from .definitions import paged, synth_shift
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
@@ -883,6 +883,11 @@ def player_page_ids(prefix):
             [f'{prefix}_key_{i}' for i in range(128)] + [f'{prefix}_played_{i}' for i in range(128)])
 
 
+def player_header_ids(identity):
+    """The two-row header the SDK adds to a paged player's page: eight bar nodes, then sixteen texts."""
+    return [f'{identity}_node_{i}' for i in range(8)] + [f'{identity}_text_{i}' for i in range(16)]
+
+
 def display_ids(prefix, display):
     """Artwork IDs of a display: its nodes (the first are the mutable paths), its
     text slots, then its palette entries."""
@@ -1005,6 +1010,18 @@ def validate_panel(m, fragment=None):
     return fragment
 
 
+def page_artwork(m):
+    """A machine's validated artwork. A paged player's gains the two-row header,
+    first in its root group so that it paints under the player's own artwork."""
+    fragment = validate_panel(m)
+    if m.display != 'player' or not paged(m.definition):
+        return fragment
+    root = re.match(rb'\s*<g\b[^<>]*(?<!/)>', fragment)
+    require(root, "A paged player's artwork needs a <g> root: " + m.source('panel.svg.fragment'))
+    header = screen.page_header(m.prefix + '_header', 0).rstrip().encode('utf-8')
+    return fragment[:root.end()] + b'\n' + header + fragment[root.end():]
+
+
 def extend_catalog(catalog, profile, machines):
     """Append each machine's entry to its stock list; nothing else changes.
 
@@ -1029,7 +1046,7 @@ def prepare_assets(catalog, profile, machines):
     owners = {}  # every file a machine or extension adds, by who adds it
     for m in machines:
         if m.display != 'stock':
-            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
+            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(page_artwork(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
         # A sample engine's own samples (SDK 1.10), installed as they are.

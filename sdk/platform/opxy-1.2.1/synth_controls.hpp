@@ -135,6 +135,9 @@ extern bool (*sdk_aux_owns_page)(opxy::u32) __asm__("sdk_aux_owns_page");
 // to the track's control machine; true when it took it. The control service's
 // GUI tick fills it in; null without it.
 extern bool (*sdk_control_turn)(opxy::u32 track, opxy::u32 slot, const opxy::i32* event) __asm__("sdk_control_turn");
+// An encoder click on the note-player page: set once a player's own page is in
+// place (players.cpp), null in builds without one.
+extern void (*sdk_player_press)() __asm__("sdk_player_press");
 // The send page's title for position `index` of the effect on the selected send
 // track: the name of the slot it shows, which a press may have moved to an alternate.
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");
