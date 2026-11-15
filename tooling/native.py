@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
+from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables
 from . import collection_activation, collection_kernel, collection_probe, collection_resident, collection_rpc
 from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
@@ -82,6 +82,30 @@ def extensions_of(machines):
     return getattr(machines, 'extensions', ())
 
 
+def linked_extensions(machines):
+    """The extensions whose code a build links; settings extensions link none."""
+    return tuple(e for e in extensions_of(machines) if e.linked)
+
+
+def build_settings(machines):
+    """Capability settings a build's extensions choose: the first extension that sets one wins."""
+    settings = {}
+    for e in extensions_of(machines):
+        for name, value in getattr(e, 'settings', {}).items():
+            settings.setdefault(name, value)
+    return settings
+
+
+def fixed_after(patch, services, profiling, chosen):
+    """An edit's bytes in a build when no module symbol decides them: stock for an inactive
+    edit, the chosen value's reviewed bytes for a capability setting; else None."""
+    if not patch_active(patch, services, profiling):
+        return patch['before']  # inactive hooks retain stock code
+    if 'setting' in patch:
+        return chosen[patch['address']]  # the reviewed bytes of the chosen value
+    return None
+
+
 def subset(machines, chosen, chosen_extensions=None):
     """Some of a collection's machines, with all of its extensions."""
     result=Collection(chosen, extensions_of(machines) if chosen_extensions is None else [e for e in extensions_of(machines) if e in chosen_extensions], probe=getattr(machines, 'collection_probe', False),
@@ -110,6 +134,8 @@ def configuration(entries=None, layout=None, probe=False, rpc_probe=False, loade
     if loader:
         profile=collection_kernel.profile(profile)
     stock_tables.check_profile(profile)
+    stock_limits.check_profile(profile)
+    release_floor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
@@ -230,7 +256,7 @@ def plan(machines, profile=None):
     services = collection_services(profile or config(),machines)
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
-    units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
+    units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked_extensions(machines)]
     if getattr(machines, 'collection_probe', False):
         units += [('sdk/collection_inspector.o', None, 'collection_inspector'),
                   ('sdk/collection_probe.o', None, 'collection_probe')]
@@ -303,16 +329,18 @@ def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
     Shift row, whose presets and step locks use the drums and drum_locks services),
-    'extension' when it links extensions (native builds link all of the collection's),
-    and the capabilities they declare ('master_filter', 'drumline_page')."""
-    users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    'extension' when it links extension code (native builds link all of the collection's;
+    settings extensions link none), the capabilities they declare ('master_filter',
+    'drumline_page') and the registry capabilities its extensions declare."""
+    users = [m.kind for m in machines] + (['extension'] if linked_extensions(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
-            (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []))
+            (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
+            [c for e in extensions_of(machines) for c in e.capabilities])
 
 
 def collection_services(profile,machines):
@@ -620,7 +648,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
             if step == 'extension_collection':
-                return cxx(str(extensions.generate_collection(folder, extensions_of(machines))), obj)
+                return cxx(str(extensions.generate_collection(folder, linked_extensions(machines))), obj)
             if step == 'screen_order':
                 return cxx(str(generate_screen_order(folder)), obj)
             if step == 'sample_callbacks':
@@ -958,9 +986,11 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
     text = allocated['.text']
     services = collection_services(profile,machines)
     guards={int(e['site'],16):f'sdk_collection_resident_{i}' for i,e in enumerate(collection_interface(profile,machines)['entries'])} if loader else {}
+    chosen = extensions.setting_edits(profile, build_settings(machines))
     for patch in patch_profile['patches']:
-        if not patch_active(patch, services, profiling):
-            patch['after'] = patch['before']  # inactive hooks retain stock code
+        fixed = fixed_after(patch, services, profiling, chosen)
+        if fixed is not None:
+            patch['after'] = fixed
         elif patch['kind'] == 'startup':
             patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
         elif patch['kind'] == 'hook':
@@ -1126,6 +1156,7 @@ def extend_catalog(catalog, profile, machines):
 def prepare_assets(catalog, profile, machines):
     require(sha(catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     outputs = {'content/op1_factory.json': extend_catalog(catalog, profile, machines)}
+    owners = {}  # every file a machine or extension adds, by who adds it
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
@@ -1134,15 +1165,23 @@ def prepare_assets(catalog, profile, machines):
         # A sample engine's own samples (SDK 1.10), installed as they are.
         for name, sample in (m.samples or {}).items():
             outputs[sample_path(m.id, name)] = sample.path.read_bytes()
+        owners.update({path: 'Machine ' + m.id for path in outputs if path not in owners})
     check_aux_presets(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))
+        owners.update({path: 'Machine ' + m.id for path in outputs if path not in owners})
     for e in extensions_of(machines):
         if e.master_processor is not None:
             path = e.root / e.master_processor['artwork']
             name = 'content/display/' + path.name
             require(name not in outputs, 'Display asset collision: ' + name)
             outputs[name] = extensions.validate_master_artwork(path)
+            owners[name] = 'Extension ' + e.id
+    # Stock's own content is never replaced (tooling.stock_content). The menu file is the
+    # one stock file a build writes: stock's, extended.
+    for path, owner in owners.items():
+        if path != 'content/op1_factory.json':
+            stock_content.check_output(path, owner, profile)
     return outputs
 
 

@@ -55,8 +55,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # and a synth's voice release callback (resources.releaseCallback).
 # 1.13 gives a synth a Shift row: up to eight more controls under its pages ("shift"),
 # kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
-# 1.16 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
-SDK_VERSION = (1, 16)
+# 1.16 gives an effect a bus shift: its send's audio raised by a fixed number of
+# bits around process (resources.busShift).
+# 1.17 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
+SDK_VERSION = (1, 17)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -545,7 +547,7 @@ def machine_at(root, identity=None):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
     if definition['resources'].get('parameterEdit'):
-        require_sdk(version, (1, 16), 'Per-model drum value editing (parameterEdit)')
+        require_sdk(version, (1, 17), 'Per-model drum value editing (parameterEdit)')
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
     if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
@@ -555,6 +557,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 2), 'An effect buffer (bufferBytes)')
     if definition['resources'].get('transport'):
         require_sdk(version, (1, 2), "An effect's tempo (transport)")
+    if definition['resources'].get('busShift'):
+        require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and 'display' in definition['resources']:
@@ -626,7 +630,9 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 9), 'Track control (trackControl)')
         require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
-    require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
+    require(isinstance(defaults, dict) and set(defaults) <= {'amp', 'volume'}, 'Invalid preset defaults')
+    require('volume' not in defaults or (type(defaults['volume']) is int and 0 <= defaults['volume'] <= 32767),
+            'Invalid preset volume default')
     amp = defaults.get('amp', {})
     require(isinstance(amp, dict) and set(amp) <= {'attack', 'decay', 'release', 'sustain'} and
             all(type(v) is int and 0 <= v <= 32767 for v in amp.values()), 'Invalid preset amp defaults')
@@ -644,7 +650,7 @@ def machine_at(root, identity=None):
         require(kind in ('synth', 'drum', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
         presets = read_presets(root, value['presets'], identity, samples, shift=bool(synth_shift(definition)), kind=kind)
         if kind == 'drum' and any(preset['regions'] for preset in presets.values()):
-            require_sdk(version, (1, 16), 'Sample-free drum-kit preset records')
+            require_sdk(version, (1, 17), 'Sample-free drum-kit preset records')
     if samples:
         # Every sample is there for a preset: one no preset loads only takes up the player's storage.
         loaded = {region['sample'] for preset in (presets or {}).values() for region in preset['regions']}
