@@ -293,7 +293,9 @@ SDK 1.4 supplies `<opxy/page_header.hpp>` for synths using `"press": "page"`.
 `sdk.py new --controls 8` generates it with eight controls; `--controls 5`,
 `6` or `7` shares unchanged controls between the rows. The default four-control
 starter keeps the stock header. This helper uses the existing drawing ABI and
-the [UX layout](ux.md#more-than-four-controls).
+the [UX layout](ux.md#more-than-four-controls). A paged
+[note player](api.md#note-players) gets the same header from the SDK and
+calls nothing.
 
 Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
 `display_reset`. It occupies 20 bytes with four-byte alignment. Reserve eight

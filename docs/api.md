@@ -317,9 +317,8 @@ without one, parameter `i` alternates on position `i - 4`. A press cycles the
 position, its turns edit the parameter shown, and the page shows that
 parameter's title and value. When an effect is put on a send, the SDK stores
 its fifth to eighth defaults as stock stores its first four, so `process`
-receives them before they are first edited. `"press": "page"` is for synths
-only. A send effect's LFOs keep stock's four destinations, its first four
-parameters.
+receives them before they are first edited. A send effect's LFOs keep stock's
+four destinations, its first four parameters.
 
 A synth with five to eight parameters may declare `"press": "page"` at the
 top of `definition.json`: pressing any encoder switches the whole page. Each
@@ -1566,6 +1565,11 @@ identity or base; the layout assigns an unused player type and its own page.
 Use four parameters, `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
 A parameter an encoder doesn't need may be left empty, declared `"absent": true`
 as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
+A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
+its last four are a second page, parameter `i` on encoder `i - 4`, and a press
+of any encoder switches between the two. A slot the second page leaves out
+stays empty. The page is per track, starts on the first four and is not saved.
+Its header shows [both pages in place](ux.md#more-than-four-controls).
 Players have no instrument presets, audio-render CPU estimate or browser audio preview.
 
 Include `<opxy/player.hpp>` and implement, in the machine's namespace:
@@ -1603,15 +1607,19 @@ all-notes-off; it can preserve machine settings. Without it, the SDK zeroes
 State. Keep machine root tracking bounded to eight and clear it on root
 release and reset. These callbacks share the same restrictions as `press`.
 
-`Controls.value` contains the four Q31 parameter words. Declared enums with
+`Controls.value` contains the Q31 parameter words in definition order: four,
+or all eight for a player with a second page. Declared enums with
 2..255 choices move one choice per encoder detent, storing the choice's centre.
 Other mappings retain the Maestro controller's editing: 64 steps, four choices,
-continuous, and off/on, respectively.
+continuous, and off/on, respectively. On the second page they edit continuously.
 `lowest_key` is the track keyboard's lowest F at its current octave. Stock's
 octave setter publishes this independently of sample-engine selection.
 
-The page keeps the stock header and uses the four definition labels.
-`Display.values` supplies their text; `lit` shows the 24 `<id>_dot_0..23`
+The header uses the definition labels and `Display.values`, one entry per
+parameter. A one-page player keeps the stock header. For a paged player the
+SDK adds the [two-page header](display.md#two-page-header) as the first nodes
+of the artwork's root `<g>` and draws it: keep the player's own artwork below
+y=38. `lit` shows the 24 `<id>_dot_0..23`
 circles or filled paths; `text` replaces the centered `<id>_text` text leaf.
 All strings must terminate within their fixed arrays. The SDK then fills
 `played[4]` from emitted, still-held stock chord records, ignoring queued
