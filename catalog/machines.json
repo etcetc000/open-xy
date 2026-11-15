@@ -2250,6 +2250,12 @@
           "value": 1610612735
         }
       }
+    },
+    {
+      "id": "rebound",
+      "kind": "effect",
+      "maintainer": "kristapskristaps",
+      "status": "reserved"
     }
   ]
 }
