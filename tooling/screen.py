@@ -6,6 +6,7 @@ from .formats import require, sha
 from .pipeline import config
 
 TEMPLATE = Path(__file__).resolve().parents[1] / 'sdk/platform/opxy-1.2.1/screen.svg'
+HEADER = Path(__file__).resolve().parents[1] / 'sdk/templates/shared/page_header.svg.in'
 NS = '{http://www.w3.org/2000/svg}'
 
 
@@ -37,6 +38,14 @@ def template():
     data = TEMPLATE.read_bytes()
     require(sha(data) == config()['screen_template_sha256'], 'Platform screen template differs from the profile')
     return validate_template(data)
+
+
+def page_header(identity, first_node):
+    """Authored half of opxy/page_header.hpp: eight bar nodes and sixteen texts."""
+    text = HEADER.read_text(encoding='utf-8')
+    for i in range(8):
+        text = text.replace('@NODE_%d@' % i, str(first_node + i))
+    return text.replace('@ID@', identity)
 
 
 def compose(fragment):

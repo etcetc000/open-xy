@@ -13,7 +13,8 @@ struct Player {
     const void* const* vtable;
     const char* page;        // absolute symbol: its own page ID, or null without one
     int (*page_ready)();     // 1 while that page is in its slot
-    u8 steps[4];            // enum choice counts; one is an absent slot; zero keeps stock editing
+    u8 steps[8];            // enum choice counts; one is an absent slot; zero keeps stock editing
+    bool paged;              // a press switches the page between the first four and the last four
     u32 type() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(type_id)); }
 };
 struct Record;
@@ -27,9 +28,12 @@ void* player_state(void* object);
 // The track's player object when it has this method table, else null.
 void* player_object(u32 track, const void* const* vtable);
 // Registers a player's own page (sdk_register_screen) and, once one is in
-// place, lets the compositor paint it for the Maestro page.
+// place, lets the compositor paint it for the Maestro page and a press switch
+// a paged player's page.
 int register_player_page(const Record* record, const Screen* screen);
-// The track's four page parameters.
+// The first parameter the track's page shows: 4 on a paged player's second page, else 0.
+u32 player_row(u32 track);
+// The track's eight parameters.
 opxy::player::Controls player_controls(void* object);
 // Appends one chord record that stock plays from the next step and releases
 // with the key `root`; drops the plan when the object already holds eight.

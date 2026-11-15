@@ -27,6 +27,7 @@ const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 opxy::u32 (*sdk_aux_engine)(opxy::u32) = nullptr;
 bool (*sdk_aux_owns_page)(opxy::u32) = nullptr;
 bool (*sdk_control_turn)(opxy::u32, opxy::u32, const opxy::i32*) = nullptr;
+void (*sdk_player_press)() = nullptr;
 
 namespace {
 using opxy::u32;
@@ -41,6 +42,8 @@ const u32 kInstrumentPage = 0x080238bc;
 // The auxiliary-track controller, which shows a send track's FX page: its
 // vtable, laid out as the instrument controller's (its turn handler at entry 6).
 const u32 kAuxController = 0x0803fb6c;
+// The player controller, which shows a track's note-player page: its vtable.
+const u32 kPlayerController = 0x8400d320;
 const u32 kSendTracks = 14;  // send tracks 14 and 15
 const u32 kAllTracks = 16;
 u32 aux_engine(u32 track) { return sdk_aux_engine ? sdk_aux_engine(track) : 0; }
@@ -301,6 +304,7 @@ const char* sdk_synth_title(u32 engine, u32 index) {
 // to the top controller; the instrument controller's engine page ignores it
 // for every engine with alternates. On that page of an owned synth the click
 // also selects the position's next parameter, or every position's on a paged synth.
+// On the player page it goes to the players service.
 void sdk_synth_press(u32 encoder) {
     stock<void(u32)>(0x8d51f1fc)(encoder);
     Track* t;
@@ -340,6 +344,8 @@ void sdk_synth_press(u32 encoder) {
             const u32 next = m->next[t->slots[i]];
             if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
         }
+    } else if (controller == kPlayerController && sdk_player_press) {
+        sdk_player_press();
     }
 }
 
