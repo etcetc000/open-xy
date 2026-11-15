@@ -275,8 +275,16 @@ u32 sdk_player_turn(u32 index, const opxy::i32* event) {
 
 // Maestro's key handler toggles parameter 3 and runs its hold-mode callback on
 // an encoder 4 click. A paged player's click switches the page instead
-// (press); nonzero skips the toggle.
-u32 sdk_player_click() { return paged(selected_track()) != nullptr; }
+// (press), and a player whose presses are its own clicks ("press": "click")
+// has only the click (press counted it): stock's toggle would also flip the
+// control under encoder 4 and undo what the player does with the click.
+// Nonzero skips the toggle.
+u32 sdk_player_click() {
+    const u32 track = selected_track();
+    if (paged(track)) return 1;
+    const Player* p = track < kTracks ? owned(stock<u32()>(kSelectedType)()) : nullptr;
+    return p && p->clicks ? 1 : 0;
+}
 
 const char* sdk_player_name(u32 type) {
     const Player* p = owned(type);

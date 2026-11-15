@@ -43,7 +43,7 @@ const void* const shifted_vtable[16]={};
 const void* const plain_vtable[16]={};
 const platform::PlayerShift row={2,{3,7,0,0},{centre(0,3),centre(3,7),0,0}};
 const platform::Player* shifted() {
-    static const platform::Player player={reinterpret_cast<const char*>(6),"shifted",shifted_vtable,nullptr,nullptr,{4,0,0,0},false,&row};
+    static const platform::Player player={reinterpret_cast<const char*>(6),"shifted",shifted_vtable,nullptr,nullptr,{4,0,0,0},false,false,&row};
     return &player;
 }
 const platform::Player* plain() {
@@ -73,16 +73,35 @@ const platform::PlayerShift row8={8,{2,3,4,5,6,7,8,9},
     {centre(0,2),centre(0,3),centre(0,4),centre(0,5),centre(5,6),centre(0,7),centre(0,8),centre(8,9)}};
 const platform::Player* paged8() {
     static const platform::Player player={reinterpret_cast<const char*>(9),"paged8",paged_vtable,nullptr,&page_ready,
-                                          {0,0,0,0,0,0,0,0},true,&row8};
+                                          {0,0,0,0,0,0,0,0},true,false,&row8};
+    return &player;
+}
+// A player of one page whose presses are its own clicks ("press": "click"): four
+// enums, the fourth a two-choice switch it toggles on encoder 4's click, and a shift row.
+const void* const clicker_vtable[16]={};
+const platform::PlayerShift row2={2,{3,7,0,0},{centre(0,3),centre(3,7),0,0}};
+const platform::Player* clicker() {
+    static const platform::Player player={reinterpret_cast<const char*>(10),"clicker",clicker_vtable,nullptr,nullptr,
+                                          {7,14,29,2},false,true,&row2};
     return &player;
 }
 }
 extern "C" {
-const platform::PlayerEntry sdk_players[]={{shifted},{plain},{gapped},{paged8}};
-const u32 sdk_player_count=4;
+const platform::PlayerEntry sdk_players[]={{shifted},{plain},{gapped},{paged8},{clicker}};
+const u32 sdk_player_count=5;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
 void (*sdk_player_press)(u32)=nullptr;
 }
+// Stock's Maestro key handler on an encoder 4 click (OS 1.2.1, 8c084e10..8c084e40):
+// unless the click hook answers nonzero, its hold-mode query (parameter 3's word
+// at or above 2^30) picks the opposite end, which it stores as parameter 3.
+void stock_encoder_4() {
+    if(!sdk_player_click()) set_parameter(fake_track,3,values[3]>=0x40000000?0:0x7fffffff);
+}
+// One click of encoder k on the player page as the GUI delivers it: the press
+// dispatch (sdk_synth_press) first, then the top controller's key handler, which
+// on encoder 4 is Maestro's above.
+void click(u32 k) { sdk_player_press(k); if(k==3) stock_encoder_4(); }
 const void* stock_address(u32 address) {
     if(address==0x8d57efb8) return reinterpret_cast<const void*>(&selected_type);
     if(address==0x8d5863d8) return reinterpret_cast<const void*>(&parameters);
@@ -171,6 +190,31 @@ int main() {
     require(sdk_player_substitute(10)==0);
     sdk_player_press(2);
     require(in->clicks[2]==2);
+    // Without "press": "click", encoder 4's click is counted and stock still
+    // toggles the fourth control, as without the SDK.
+    require(sdk_player_substitute(46)==0);
+    values[3]=0;
+    click(3);
+    require(in->clicks[3]==2 && values[3]==0x7fffffff);
+    click(3);
+    require(in->clicks[3]==3 && values[3]==0);
+
+    // With "press": "click", each click of encoders 1..4 is counted once and
+    // nothing else: stock's toggle no longer flips the switch the player toggles.
+    selected=10;
+    require(sdk_player_build(0,10,0)==slot && in->clicks[3]==0);
+    const u32 clicker_writes=writes;
+    values[3]=centre(0,2);
+    for(u32 k=0;k<4;++k) click(k);
+    require(in->clicks[0]==1 && in->clicks[1]==1 && in->clicks[2]==1 && in->clicks[3]==1);
+    require(values[3]==centre(0,2) && writes==clicker_writes && sdk_player_click()==1);
+    click(3); click(3);
+    require(in->clicks[3]==3 && values[3]==centre(0,2) && platform::player_controls(slot).clicks[3]==3);
+    // Turning encoder 4 still edits the switch.
+    const i32 one[3]={0,1,0};
+    require(sdk_player_turn(3,one)==1 && player::choice(values[3],2)==1);
+    selected=6;
+    require(sdk_player_build(0,6,0)==slot);
 
     // An absent main slot leaves Shift on its encoder working, and nothing reads
     // past the steps for Shift's row (4..7).

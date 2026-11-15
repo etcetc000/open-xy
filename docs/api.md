@@ -1696,9 +1696,14 @@ page is shown). `clicks` counts only the presses the SDK does not take: a
 paged player's press switches its page, so a paged player's `clicks` stay 0
 (unless stock did not place its page: it then has one page and counts them).
 On a player of one page stock still receives the click; on encoder 4 that is
-stock's toggle of the fourth control (its hold switch) and Maestro's hold-mode
-callback, which the SDK's turns otherwise bypass, as without the SDK: a player
-that counts `clicks[3]` gets both with every click.
+stock's toggle of the fourth control (its hold switch: it sets that control to
+its first or last value) and Maestro's hold-mode callback, which the SDK's turns
+otherwise bypass, as without the SDK: a player that counts `clicks[3]` gets both
+with every click. A player that acts on encoder 4's click itself declares
+`"press": "click"` at the top of `definition.json` (SDK 1.16, one page of up to
+four parameters): its presses are then only clicks, and encoder 4's click no
+longer runs the toggle or the callback, which would otherwise flip whatever the
+click did (a latch the click turns on, the toggle turns off).
 Keep the last counts in `State` to see new ones.
 
 The SDK builds `Controls` (112 bytes since SDK 1.16, 36 before) for every

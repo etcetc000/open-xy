@@ -30,6 +30,7 @@ struct Player {
     int (*page_ready)();     // 1 while that page is in its slot
     u8 steps[8];            // enum choice counts; one is an absent slot; zero keeps stock editing
     bool paged;              // a press switches the page between the first four and the last four
+    bool clicks;             // "press": "click": encoder 4's press is only a click, never stock's toggle
     const PlayerShift* shift;  // its shift row, or null
     u32 type() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(type_id)); }
 };

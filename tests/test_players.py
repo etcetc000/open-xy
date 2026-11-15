@@ -93,7 +93,7 @@ class PlayerContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             text = adapters.generate_player_object(directory, paged).read_text(encoding='utf-8')
         # The second page's missing slots are absent: one choice, an empty title.
-        self.assertIn('{0, 0, 0, 0, 3, 0, 1, 1}, true};', text)
+        self.assertIn('{0, 0, 0, 0, 3, 0, 1, 1}, true, false};', text)
         self.assertIn('titles[8] = {"p0", "p1", "p2", "p3", "p4", "p5", "", ""};', text)
         # Its page also binds the two-row header's eight bars and sixteen texts.
         self.assertIn('static const bool paged = true;', text)
@@ -102,10 +102,38 @@ class PlayerContracts(unittest.TestCase):
         self.assertIn('"probeplayer_header_text_15"', text)
         with tempfile.TemporaryDirectory() as directory:
             text = adapters.generate_player_object(directory, self.machine).read_text(encoding='utf-8')
-        self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false};', text)
+        self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false, false};', text)
         self.assertIn('static const bool paged = false;', text)
         self.assertIn('Page::ids[281] = {', text)
         self.assertNotIn('_header_', text)
+
+    def test_press_click_keeps_encoder_4_a_click_of_a_one_page_player(self):
+        # "press": "click": a player of up to four parameters whose presses are only
+        # its own clicks, so encoder 4's click skips stock's toggle of parameter 3
+        # (players.cpp, tests/fixtures/player_shift.cpp).
+        path = self.root / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['press'] = 'click'
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, r'presses are only its clicks.*1.16'):
+            machine_at(self.root)
+        machine = json.loads((self.root / 'machine.json').read_text(encoding='utf-8'))
+        machine['sdk'] = '1.16'
+        (self.root / 'machine.json').write_text(json.dumps(machine), encoding='utf-8')
+        clicking = assign_numbers([machine_at(self.root)])[0][0]
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_player_object(directory, clicking).read_text(encoding='utf-8')
+        self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false, true};', text)
+        self.assertIn('static const bool paged = false;', text)
+        # Not with a second page (other kinds: test_definitions), and no other press value.
+        definition['parameters'].append(dict(id='p4', label='P4', default=0,
+                                             mapping=dict(kind='linear', minimum=0, maximum=1), display='percent'))
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, r'"press": "click" is for a note player of up to four parameters'):
+            machine_at(self.root)
+        from tooling.definitions import validate_definition
+        with self.assertRaisesRegex(ValueError, r'"press": "page" needs'):
+            validate_definition(dict(definition, press='turn'), 'player')
 
     def test_paged_player_artwork_gains_the_two_row_header(self):
         nodes = ''.join(f'<circle id="probeplayer_dot_{i}" transform="matrix(1 0 0 1 20 80)" '
@@ -374,7 +402,7 @@ class PlayerShiftRow(unittest.TestCase):
         centre = 0x7fffffff // 3 // 2
         self.assertIn('static const opxy::platform::PlayerShift player_shift = {6, {3, 3, 3, 3, 3, 3, 0, 0}, '
                       '{%s, 0, 0}};' % ', '.join([str(centre)] * 6), generated)
-        self.assertIn('{0, 0, 0, 0, 0, 1, 1, 1}, true, &player_shift};', generated)
+        self.assertIn('{0, 0, 0, 0, 0, 1, 1, 1}, true, false, &player_shift};', generated)
 
     def test_exactly_one_click_function_the_hook_calls(self):
         # The encoder 4 click hook calls sdk_player_click from assembly and reads R0
@@ -409,7 +437,7 @@ class PlayerShiftRow(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             generated = adapters.generate_player_object(folder, m).read_text(encoding='utf-8')
         values = dict(PREFIX=m.prefix, NAMESPACE='probeplayer', NAME=m.native_name,
-                      STEPS='0, 0, 0, 0, 1, 1, 1, 1', PAGED='false',
+                      STEPS='0, 0, 0, 0, 1, 1, 1, 1', PAGED='false', CLICKS='false',
                       PAGE=f'{m.prefix}_page_id', PAGE_READY=f'{m.prefix}_screen_ready')
         for key, value in values.items():
             before = before.replace('@' + key + '@', value)

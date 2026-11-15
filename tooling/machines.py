@@ -560,6 +560,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
     if kind == 'player' and paged(definition):
         require_sdk(version, (1, 16), 'A note player whose press switches the page ("press": "page")')
+    if kind == 'player' and definition.get('press') == 'click':
+        require_sdk(version, (1, 16), 'A note player whose presses are only its clicks ("press": "click")')
     if shift_parameters(definition) and kind == 'player':
         require_sdk(version, (1, 16), 'A player\'s shift row ("shift")')
     if shift_parameters(definition):

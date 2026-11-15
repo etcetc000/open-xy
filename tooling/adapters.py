@@ -847,7 +847,8 @@ def generate_player_object(directory, m):
     from .native import player_header_ids, player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='',
-                  PAGED='true' if paged(m.definition) else 'false')
+                  PAGED='true' if paged(m.definition) else 'false',
+                  CLICKS='true' if m.definition.get('press') == 'click' else 'false')
     # One choice marks an absent slot: its encoder turns nothing (players.cpp).
     # So do the second page's slots a player leaves out.
     steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
