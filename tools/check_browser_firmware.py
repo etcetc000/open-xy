@@ -175,7 +175,7 @@ def check_expanded(directory, kit, stock, boot_label):
         check_numbers(kit, result, symbols)  # every 4 MiB build, the whole collection included
         services = selection_services(kit, result)
         for profiling, suffix in ((True, '.ldr'), (False, '.profiling-off.ldr')):
-            require(assembled(stock, module, symbols, reviewed, services, profiling) == prefix.with_suffix(suffix).read_bytes(),
+            require(assembled(stock, module, symbols, reviewed, services, profiling, selection_settings(kit, result)) == prefix.with_suffix(suffix).read_bytes(),
                     'Python/browser firmware differs (experimental memory): ' + suffix)
     return len(selections)
 
