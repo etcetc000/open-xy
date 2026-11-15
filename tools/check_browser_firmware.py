@@ -210,6 +210,7 @@ def main():
         module, symbols = check_module(prefix, result, kit['profile'], boot_label)
         numbers = check_numbers(kit, result, symbols)
         services = selection_services(kit['profile'], result, machines_by_id, extension_sources)
+        values = selection_settings(kit, result)
         modes = {}
         for profiling in (True, False):
             expected = assembled(stock, module, symbols, kit['profile'], services, profiling, values)
