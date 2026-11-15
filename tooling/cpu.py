@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import subprocess
 
+from .definitions import shift_field, shift_q31, shift_words, synth_shift
 from .formats import require
 from .pipeline import NO_WINDOW, ROOT
 
@@ -39,24 +40,24 @@ HARNESS = r'''
 #include <cstdio>
 // The defaults, then each control at each of its positions with the others at
 // their defaults.
-static const opxy::i32 defaults[8] = {@DEFAULTS@};
+static const opxy::i32 defaults[@WORDS@] = {@DEFAULTS@};
 static const opxy::i32 positions[] = {@POSITIONS@};
-static const int counts[8] = {@COUNTS@};
+static const int counts[@WORDS@] = {@COUNTS@};
 const int setting_count = 1 + @POSITION_COUNT@;
-static int settings(opxy::i32 (*out)[8]) {
+static int settings(opxy::i32 (*out)[@WORDS@]) {
     int count = 0, at = 0;
-    for (int i = 0; i < 8; ++i) out[count][i] = defaults[i];
+    for (int i = 0; i < @WORDS@; ++i) out[count][i] = defaults[i];
     ++count;
-    for (int control = 0; control < 8; ++control)
+    for (int control = 0; control < @WORDS@; ++control)
         for (int step = 0; step < counts[control]; ++step, ++count) {
-            for (int i = 0; i < 8; ++i) out[count][i] = defaults[i];
+            for (int i = 0; i < @WORDS@; ++i) out[count][i] = defaults[i];
             out[count][control] = positions[at++];
         }
     return count;
 }
 // Nanoseconds per block: the best of five runs per setting, the worst setting.
 template <class Setup, class Block> double worst_block(Setup setup, Block block) {
-    static opxy::i32 all[setting_count][8];
+    static opxy::i32 all[setting_count][@WORDS@];
     const int count = settings(all);
     double worst = 0;
     for (int s = 0; s < count; ++s) {
@@ -200,12 +201,22 @@ def block_cost(m, host_cxx, scratch):
     transport_argument = 'opxy::Transport{1200u, 0u, true}, ' if m.definition['resources'].get('transport') else ''
     positions = [sweep(p) for p in parameters]
     counts = [len(values) for values in positions] + [0] * (8 - len(positions))
+    # A synth's Shift row (SDK 1.13) renders as parameters 8..15, swept as the device
+    # stores it: an amount in whole steps of 0..100, a list's every choice.
+    shift = synth_shift(m.definition) if m.kind == 'synth' else []
+    if shift:
+        defaults = defaults + shift_words(m.definition)
+        rows = [[] if p.get('absent') else sorted({shift_q31(p, shift_field(p, v / 0x7fffffff)) for v in sweep(p)})
+                for p in shift]
+        positions += rows
+        counts += [len(values) for values in rows] + [0] * (8 - len(rows))
     source = (template.replace('@NS@', m.definition['id']).replace('@BLOCKS@', '400')
               .replace('@CHANNELS@', '2' if m.definition['resources'].get('stereoOutput') else '1')
               .replace('@POSITIONS@', ', '.join(str(v) for values in positions for v in values))
               .replace('@COUNTS@', ', '.join(map(str, counts)))
               .replace('@POSITION_COUNT@', str(sum(counts)))
               .replace('@DEFAULTS@', ', '.join(map(str, defaults)))
+              .replace('@WORDS@', '16' if shift else '8')
               .replace('@BUFFER_STORAGE@', buffer_storage).replace('@BUFFER@', buffer_argument)
               .replace('@TRANSPORT@', transport_argument))
     folder = Path(scratch) / ('cpu-' + m.id)

@@ -59,6 +59,15 @@ is the reference for each of them.
   same saved parameter. Do not add filler parameters to reach eight. A drum
   kit's eight controls page the same way, always: a press switches the row
   between the key's first four controls and its last four.
+- **A Shift row for more.** A synth that needs more than eight controls
+  declares a [Shift row](api.md#a-synths-shift-row) (SDK 1.13): up to four
+  more under each page, which Shift and that page's encoders turn. Holding
+  Shift turns both rows of the header into the Shift controls, page 1's on
+  top and page 2's under them, the page the encoders are on bright, as on a
+  drum kit; keep what is played on the pages and what is set less often on
+  the row. A press switches pages with Shift held too, and the row follows,
+  so the player reaches the other page's entries without letting go. Presets
+  and step locks keep the row as they keep the pages.
 - **Use the shared header.** New synths with five to eight controls use
   [`opxy/page_header.hpp`](display.md#two-page-header), already wired up by
   `sdk.py new` when `--controls` is 5, 6, 7 or 8. Choose the actual parameter

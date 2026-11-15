@@ -14,7 +14,7 @@ const customPreview = previewManifest.kind === 'cpp-browser-custom-preview';
 if (customPreview) {
   document.getElementById('preview-mode').textContent = 'Local authoring preview. This audition does not qualify a firmware build.';
 }
-import { createControls, editedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
+import { createControls, editedShown, pressedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
 const controls = createControls(previewManifest.definition);
 const { definition, parameters, positions, defaults, presets, displayValue, makePatch, readPatch, validateParameters, q31 } = controls;
 import { renderScreen as renderBase } from './screen.mjs';
@@ -25,9 +25,19 @@ import { PreviewDisplay, SvgDisplay, NoteActivity } from '../sdk/browser/display
 import { selectArtwork } from '../sdk/browser/graphics.mjs';
 import { createGraphicsSelector } from './graphics.mjs';
 const noteActivity = new NoteActivity();
-const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header);
+const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header, shiftHeld);
 const $ = id => document.getElementById(id);
-const controlId = id => customPreview ? `custom-control-${parameters.findIndex(p => p.id === id)}` : id;
+// A synth's Shift row (SDK 1.13): its present entries, each under page i >> 2, position i & 3.
+const shiftControls = controls.shift.map((p, i) => ({ p, i })).filter(({ p }) => !p.absent);
+const controlId = id => {
+  if (!customPreview) return id;
+  const main = parameters.findIndex(p => p.id === id);
+  return `custom-control-${main >= 0 ? main : 8 + controls.shift.findIndex(p => p.id === id)}`;
+};
+// Whether the preview shows the Shift row, as holding Shift does on the device: from an
+// edit of one of its entries until a control of the page is edited, or while the
+// Shift button is on.
+let shiftHeld = false;
 // Page copy comes from the machine: its definition and machine.json description.
 document.querySelector('.instrument-top h1').textContent = definition.name;
 document.title = definition.name + ' · Open-XY Machine Workbench';
@@ -69,19 +79,50 @@ function playbackStatus() {
     : 'Play a key or phrase to start audio';
 }
 
-for (const [i, param] of parameters.entries()) {
+function addControl(param, position, label, edited) {
   const id = controlId(param.id);
   const item = document.createElement('div');
   item.className = 'control';
-  item.dataset.controlPosition = positions[i] + 1;
-  item.innerHTML = `<label for="${id}">${param.label}</label><svg id="knob-${id}" class="dial" viewBox="0 0 60 60" role="slider" tabindex="0" aria-label="${param.label} knob" aria-valuemin="0" aria-valuemax="1" aria-orientation="vertical"><title>Drag up or down to adjust. Hold Shift for fine control.</title><circle class="dial-ring" cx="30" cy="30" r="27"/><circle class="dial-cap" cx="30" cy="30" r="18"/><line id="dial-${id}" x1="30" y1="16" x2="30" y2="23"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${param.label}">`;
+  item.dataset.controlPosition = position + 1;
+  item.innerHTML = `<label for="${id}">${label}</label><svg id="knob-${id}" class="dial" viewBox="0 0 60 60" role="slider" tabindex="0" aria-label="${label} knob" aria-valuemin="0" aria-valuemax="1" aria-orientation="vertical"><title>Drag up or down to adjust. Hold Shift for fine control.</title><circle class="dial-ring" cx="30" cy="30" r="27"/><circle class="dial-cap" cx="30" cy="30" r="18"/><line id="dial-${id}" x1="30" y1="16" x2="30" y2="23"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${label}">`;
   $('controls').append(item);
   $(id).addEventListener('input', event => {
     values[param.id] = Number(event.target.value);
-    shown = editedShown(shown, positions, i, previewManifest.definition.press === 'page');
+    edited();
     update();
   });
   bindKnob($(`knob-${id}`), $(id));
+}
+for (const [i, param] of parameters.entries()) {
+  addControl(param, positions[i], param.label, () => {
+    shiftHeld = false;
+    shown = editedShown(shown, positions, i, previewManifest.definition.press === 'page');
+  });
+}
+// The Shift row's entries: an edit shows the row on its page, as Shift and that page's encoder do.
+for (const { p, i } of shiftControls) {
+  addControl(p, i & 3, 'Shift + ' + p.label, () => {
+    shiftHeld = true;
+    const next = [0, 1, 2, 3];
+    if (i >= 4) positions.forEach((position, slot) => { if (position !== null && slot >= 4) next[position] = slot; });
+    shown = next;
+  });
+}
+// Shift and an encoder press, for a synth with a Shift row: Shift holds the row in the
+// header, and a press switches pages with Shift held or not, as on the device, so
+// the row shown follows the page.
+if (shiftControls.length) {
+  const encoders = document.createElement('div');
+  encoders.className = 'segmented';
+  encoders.setAttribute('aria-label', 'Encoders');
+  encoders.innerHTML = '<button id="shift-hold" aria-pressed="false">Shift</button><button id="encoder-press">Press</button>';
+  document.querySelector('.screen-toolbar').insertBefore(encoders, document.querySelector('.zoom-label'));
+  $('shift-hold').addEventListener('click', () => { shiftHeld = !shiftHeld; update(); });
+  $('encoder-press').addEventListener('click', () => {
+    shown = pressedShown(shown, positions, 0, previewManifest.definition.press === 'page');
+    update();
+    status(`Page ${shown.some(s => s >= 4) ? 2 : 1}${shiftHeld ? ' · Shift row' : ''}`);
+  });
 }
 // A drum kit's model, chosen on the device with Shift and the first encoder.
 let model = 0;
@@ -101,9 +142,13 @@ for (const [name, preset] of Object.entries(presets)) {
 }
 function draw(elapsed = 0) {
   if (display) {
-    const input = shownControls(parameterWords(), shown);
+    const words = parameterWords();
+    const input = shownControls(words.slice(0, 8), shown);
+    // A synth's Shift row: held while the preview shows it, on the page the encoders are on.
+    const row = shiftControls.length ? { held: shiftHeld ? 1 : 0, line: shown.some(s => s >= 4) ? 1 : 0, values: words.slice(8) } : null;
     try {
-      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity, model));
+      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity, model, 0, [0, 0, 0, 0],
+                               null, { pan: 0, level: 0 }, 0, row));
     }
     catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
   }
@@ -145,7 +190,7 @@ const graphicsSelect = createGraphicsSelector(next => {
 
 let preview;
 function update() {
-  for (const p of parameters) {
+  for (const p of [...parameters, ...shiftControls.map(({ p }) => p)]) {
     const id = controlId(p.id);
     $(id).value = values[p.id];
     $(id).setAttribute('aria-valuetext', displayValue(p.id, values));
@@ -158,6 +203,7 @@ function update() {
     button.setAttribute('aria-pressed', String(parameters.every(p => presets[button.textContent][p.id] === values[p.id])));
   }
   for (const mode of VIEWS) $(mode).setAttribute('aria-pressed', String(mode === view));
+  if (shiftControls.length) $('shift-hold').setAttribute('aria-pressed', String(shiftHeld));
   send({ type: 'parameters', value: parameterWords() });
   if (models) { $('value-drum-model').textContent = String(model + 1); send({ type: 'model', value: model }); }
   draw();
@@ -334,7 +380,7 @@ $('file').addEventListener('change', async () => {
   } catch (error) { status(`Import rejected: ${error.message}`); }
   finally { $('file').value = ''; }
 });
-$('reset').addEventListener('click', () => { panic(); values = defaults(); shown = [0, 1, 2, 3]; update(); status('Controls reset'); });
+$('reset').addEventListener('click', () => { panic(); values = defaults(); shown = [0, 1, 2, 3]; shiftHeld = false; update(); status('Controls reset'); });
 // Stable local automation surface: uses the same validation and note lifecycle as UI.
 window.machineLab = Object.freeze({
   getPatch: () => makePatch(values, view),

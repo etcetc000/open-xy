@@ -36,6 +36,8 @@ int main() {
     Renderer::frame(&object, 0);
     require(std::strcmp(titles[0].text, "str") == 0 && std::strcmp(titles[3].text, "spr") == 0);
     require(std::strcmp(values[1].text, "up") == 0 && std::strcmp(line.text, "C minor 9") == 0);
+    Renderer::centre(&line);
+    require(line.anchor == 1 && line.matrix[6] == Renderer::kCentre);
     require(dots[7].leaf.matrix[6] == object.home[7] && dots[0].leaf.matrix[6] >= Renderer::kHidden);
     for (u32 n : pitches) require(notes[n].leaf.matrix[6] >= (18 << 10) && notes[n].leaf.matrix[6] < (462 << 10));
     require(notes[61].leaf.matrix[6] == Renderer::kHidden && keys[52].leaf.matrix[6] == Renderer::kHidden);

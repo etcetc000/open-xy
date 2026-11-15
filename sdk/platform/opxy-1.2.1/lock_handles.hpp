@@ -37,6 +37,10 @@ const u32 kHandleWord = 37;
 // searched, collected, swept and carried: word 37 on any other track stays stock's.
 bool handle_client(u32 track);
 bool pattern_client(u32 engine);
+// After stock's lock pass for a note's step on a client's track: the handle it applied
+// (0 for none). A client that plays its locks from live words writes them here (a
+// synth's Shift row, drum_locks.cpp); a kit takes the handle at note start instead.
+void step_applied(u32 project, u32 track, u32 handle);
 
 // The handle of the step whose note is now starting on `track`, as the sequencer's
 // step hook noted it, or 0: the note was played live, or its step locks nothing. A

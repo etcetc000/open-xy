@@ -140,6 +140,9 @@ class SampleServices(unittest.TestCase):
     def test_display_activation_resets_state_and_invalidates_geometry_keys(self):
         self.run_fixture('screen_drawing')
 
+    def test_held_kit_pad_strip_follows_drumlines_frame(self):
+        self.run_fixture('drum_hold_strip')
+
     def test_registration_never_overwrites_and_rechecks_stock_state(self):
         self.run_fixture('registration')
 

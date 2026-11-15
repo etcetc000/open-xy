@@ -8,7 +8,7 @@ import sys
 from xml.etree.ElementTree import ParseError
 
 from .formats import require, sha
-from .definitions import ROOT
+from .definitions import ROOT, synth_shift
 from .machines import machine_at
 from .pipeline import NO_WINDOW, add_overwrite_argument, fresh_output
 
@@ -43,9 +43,11 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
     paths = [ROOT, ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', root,
              *(root / extra for extra in includes), out]
     memory = MEMORY
+    # A synth with a Shift row (SDK 1.13) also exports the row its display reads.
+    exports = VOICE_EXPORTS + DISPLAY_EXPORTS + (('opxy_display_shift',) if kind == 'synth' and synth_shift(definition) else ())
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={memory}',
-               f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in VOICE_EXPORTS + DISPLAY_EXPORTS)]
+               f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in exports)]
     result = subprocess.run([str(x) for x in command], capture_output=True, text=True, timeout=120,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +

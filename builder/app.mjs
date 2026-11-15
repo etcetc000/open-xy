@@ -73,7 +73,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   // No hint while an OS is being checked: it sets the option itself.
   const roomHint = (message, then, ...selection) => (/[.!?]$/.test(message) ? message : message + '.') +
     (!checkingOs && fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
-  let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+  let kit, stock, catalog, selected = [], selectedExtensions = [], extensionSettings = {}, inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
@@ -279,8 +279,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const memoryNote = memoryChange && ' · ' + memoryChange;
       if (recovered.selected) {
         osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
-        selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
-        renderMachines(); renderExtensions();
+        selected = recovered.selected; selectedExtensions = recovered.extensions ?? []; extensionSettings = {...recovered.settings};
+        renderMachines(); renderExtensions(); recalculate();
         $('firmware-result').textContent = '✓ open-xy OS with ' +
           selectionNames().join(' + ') + memoryNote;
       } else {
@@ -408,6 +408,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         canvas.append(header, renderer.root); $('art-preview').replaceChildren(canvas);
         // Eight parameter words; each control position shows the parameter last edited there.
         const parameters = Object.assign(Array(8).fill(0), m.preview.defaults), shown = [0, 1, 2, 3];
+        // A synth's Shift row (SDK 1.13): render's words 8..15, played at their defaults.
+        const shiftWords = m.preview.shift ?? [];
+        const voiceWords = () => [...parameters, ...shiftWords];
         let serial = 0, previous = 0, handle, cancelled = false;
         const noteActivity = new retained.NoteActivity();
         // A small keyboard from middle C: a key plays its note while held. The preview plays
@@ -441,7 +444,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         const volume = node('label', 'Volume', 'audition-volume'), level = node('input');
         level.type = 'range'; level.min = '0'; level.max = '100'; level.value = '50'; level.setAttribute('aria-label', 'Preview volume');
         volume.append(level);
-        const audio = new audition(compiled, parameters, (playing, error) => {
+        const audio = new audition(compiled, voiceWords(), (playing, error) => {
           if (!cancelled) frame(0);
           if (error && ticket === previewRevision) $('art-caption').textContent = 'Audio unavailable: ' + error;
         });
@@ -456,7 +459,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         function frame(dt = 34) {
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
-          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity));
+          const row = shiftWords.length ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
+            {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}] : [];
+          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row));
           // The machine's header text, or the stock percentage of the shown parameter.
           header.innerHTML = retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
             shown.map((slot, i) => renderer.header[i] || String(Math.round(parameters[slot] / 0x7fffffff * 100))));
@@ -470,7 +475,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           input.oninput = () => {
             parameters[i] = Math.round(Number(input.value) / 1000 * 0x7fffffff);
             shown.splice(0, 4, ...editedShown(shown, m.positions, i, m.pages));
-            frame(0); audio.setParameters(parameters);
+            frame(0); audio.setParameters(voiceWords());
           };
           label.append(input); return label;
         });
@@ -686,6 +691,21 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('extension-description').textContent = extension.description;
     $('extension-note').textContent = extension.note ?? '';
     $('extension-note').hidden = !extension.note;
+    // Capability settings: one slider each, written into the OS when it is built.
+    $('extension-settings').replaceChildren();
+    for (const [capability, setting] of Object.entries(extension.settings ?? {})) {
+      const label = node('label', undefined, 'extension-setting'), input = node('input'), value = node('output');
+      const show = () => { value.textContent = input.value + ' ' + setting.unit; };
+      input.type = 'range'; input.min = setting.minimum; input.max = setting.maximum; input.step = 1;
+      input.value = extensionSettings[capability] ?? setting.value;
+      input.disabled = !selectedExtensions.includes(extension.id);
+      input.oninput = () => { extensionSettings[capability] = Number(input.value); show(); };
+      input.onchange = () => { invalidate(); recalculate(); };
+      show();
+      label.append(node('span', setting.label), input, value);
+      $('extension-settings').append(label);
+    }
+    $('extension-settings').hidden = !extension.settings;
     document.querySelectorAll('#extensions button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
   }
   function recalculate() {
@@ -729,7 +749,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const expanded = expandedMemory(), memory = kitFor(expanded), result = core.linkKit(memory, selection, numbers, extensions);
       const files = await core.buildAssets(memory, selection, catalog, result.numbers, settings, result.extensions);
-      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false});
+      const capabilitySettings = Object.fromEntries(Object.entries(extensionSettings).filter(([c]) =>
+        (kit.extensions ?? []).some(e => result.extensions.includes(e.id) && e.settings?.[c])));
+      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false, settings: capabilitySettings});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
@@ -738,7 +760,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
-        settings, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
+        settings, capability_settings: capabilitySettings, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
       if (ticket !== revision) return;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));

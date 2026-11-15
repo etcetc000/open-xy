@@ -15,6 +15,7 @@ void probe_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) __asm__("probe_drum_de
 const char* probe_drum_label(opxy::u32, opxy::u32) __asm__("probe_drum_label");
 const char* probe_drum_model_name(opxy::u32) __asm__("probe_drum_model_name");
 opxy::u32 probe_drum_count(opxy::u32) __asm__("probe_drum_count");
+void probe_drum_scramble_range(opxy::u32, opxy::u32, opxy::u8*, opxy::u8*) __asm__("probe_drum_scramble_range");
 extern const char probe_engine_id[] = "probe";
 int probe_record_ready() { return record_state; }
 int probe_ready() { ++screen_reads; return record_state == 1 && screen_state; }
@@ -22,6 +23,7 @@ void probe_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) {}
 const char* probe_drum_label(opxy::u32, opxy::u32) { return ""; }
 const char* probe_drum_model_name(opxy::u32) { return ""; }
 opxy::u32 probe_drum_count(opxy::u32) { return 8; }
+void probe_drum_scramble_range(opxy::u32, opxy::u32, opxy::u8*, opxy::u8*) {}
 }
 
 int main() {

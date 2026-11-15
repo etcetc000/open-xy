@@ -3,7 +3,7 @@
 #include <opxy/types.hpp>
 #include <cstring>
 namespace opxy { namespace screen { namespace {
-struct Leaf { i32 matrix[9]; char text[64]; };
+struct Leaf { i32 matrix[9]; char text[64]; u32 anchor; };
 struct PathNode { Leaf leaf; };
 struct Base { const void* svg; Leaf* titles[4]; Leaf* values[4]; };
 inline PathNode* path_node(void* p) { return static_cast<PathNode*>(p); }
@@ -16,5 +16,6 @@ template<unsigned N> void set_words(Leaf* node, const u32 (&at)[N], const i32 (&
     for (unsigned i = 0; i < N; ++i) node->matrix[at[i]] = values[i];
 }
 inline void set_text(Leaf* node, const char* text) { std::strncpy(node->text, text, 63); }
+inline void anchor_middle(Leaf* node) { node->anchor = 1; }
 inline void draw(Base*) {}
 }}}

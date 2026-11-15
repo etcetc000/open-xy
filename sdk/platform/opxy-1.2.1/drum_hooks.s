@@ -6,12 +6,25 @@
 .section .text
 .align 2
 .extern sdk_drum_alias
+.extern sdk_preset_alias
+.extern sdk_synth_shift_export
 .extern sdk_drum_load_engine
 .extern stock_drum_classify_tail
+.extern sdk_drum_export_random
+.extern sdk_drum_import_random
 
 .macro DRUM_ALIAS_R0
     HOOK_SAVE
     CALL sdk_drum_alias;
+    HOOK_RESULT R0
+    HOOK_RESTORE
+.endm
+
+/* The preset sites' class: an owned kit, or a synth whose Shift row (SDK 1.13) a
+ * preset keeps in its first pad record, as Drumline (drum_machines.cpp). */
+.macro PRESET_ALIAS_R0
+    HOOK_SAVE
+    CALL sdk_preset_alias;
     HOOK_RESULT R0
     HOOK_RESTORE
 .endm
@@ -31,12 +44,13 @@ extensions_drum_classify:
 .type extensions_drum_preset_import, STT_FUNC
 extensions_drum_preset_import:
     R0 = [P1 + 0x128];
-    DRUM_ALIAS_R0
+    PRESET_ALIAS_R0
     CC = R0 == R3;
     RTS;
 .size extensions_drum_preset_import, .-extensions_drum_preset_import
 
-/* 8d4e39c0 and 8d4e74b0: import neutral track offsets and export regions. */
+/* 8d4e39c0: import's neutral track offsets, which a kit alone takes: a synth's
+ * eight controls load as they are. */
 .global extensions_drum_compare_r0
 .type extensions_drum_compare_r0, STT_FUNC
 extensions_drum_compare_r0:
@@ -46,12 +60,30 @@ extensions_drum_compare_r0:
     RTS;
 .size extensions_drum_compare_r0, .-extensions_drum_compare_r0
 
+/* 8d4e74b0: the preset writer's choice of a pattern's regions (R0 its machine, P1
+ * the pattern's track object). A kit's, or a synth's with a Shift row, whose row
+ * sdk_synth_shift_export first packs into its first pad record, export as
+ * Drumline's. */
+.global extensions_preset_export_regions
+.type extensions_preset_export_regions, STT_FUNC
+extensions_preset_export_regions:
+    HOOK_SAVE
+    R1 = P1;
+    CALL sdk_synth_shift_export;
+    CALL sdk_drum_alias;
+    HOOK_RESULT R0
+    HOOK_RESTORE
+    R1 = 4;
+    CC = R0 == R1;
+    RTS;
+.size extensions_preset_export_regions, .-extensions_preset_export_regions
+
 /* 8d4e6aa8: include the region even with an empty sample filename. */
 .global extensions_drum_export_empty
 .type extensions_drum_export_empty, STT_FUNC
 extensions_drum_export_empty:
     R0 = [P1 + 0x18];
-    DRUM_ALIAS_R0
+    PRESET_ALIAS_R0
     R1 = 4;
     CC = R0 == R1;
     RTS;
@@ -62,17 +94,37 @@ extensions_drum_export_empty:
 .type extensions_drum_export_parameters, STT_FUNC
 extensions_drum_export_parameters:
     R0 = [P1 + 0x18];
-    DRUM_ALIAS_R0
+    PRESET_ALIAS_R0
     CC = R0 == R1;
     RTS;
 .size extensions_drum_export_parameters, .-extensions_drum_export_parameters
+
+/* 8d4e73ac: the preset writer's call of random's converter 8d4e3ece(&word), the
+ * word >>> 16, with P4 the pad record: a padMix kit's key also exports its send
+ * amounts above bit 16 (drum_synthesis_stock.cpp). */
+.global extensions_drum_export_random
+.type extensions_drum_export_random, STT_FUNC
+extensions_drum_export_random:
+    R1 = P4;
+    JUMP.L sdk_drum_export_random;
+.size extensions_drum_export_random, .-extensions_drum_export_random
+
+/* 8d4e3b9a: preset import's call of random's converter 8d4e3558(value), stored
+ * at P5 + 0x10 (the pad word; P5 is the pad record + 4): the send amounts above
+ * bit 16 go into the record's bytes too (drum_synthesis_stock.cpp). */
+.global extensions_drum_import_random
+.type extensions_drum_import_random, STT_FUNC
+extensions_drum_import_random:
+    R1 = P5;
+    JUMP.L sdk_drum_import_random;
+.size extensions_drum_import_random, .-extensions_drum_import_random
 
 /* 8d4e6e08: Drumline's optional gain field, R2 is the constant 4. */
 .global extensions_drum_export_gain
 .type extensions_drum_export_gain, STT_FUNC
 extensions_drum_export_gain:
     R0 = [P1 + 0x18];
-    DRUM_ALIAS_R0
+    PRESET_ALIAS_R0
     CC = R0 == R2;
     RTS;
 .size extensions_drum_export_gain, .-extensions_drum_export_gain

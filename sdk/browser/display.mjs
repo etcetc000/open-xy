@@ -108,6 +108,14 @@ export class PreviewDisplay {
     }
     this.input = new Uint32Array(this.memory, ranges[1][0], inputBytes / 4);
     this.frame = new Int32Array(this.memory, ranges[2][0], frameBytes / 4);
+    // A synth's Shift row (opxy/synth_shift.hpp, SDK 1.13): held, line and eight Q31
+    // words, which the module exports only when its synth declares one.
+    this.shiftRow = null;
+    if (e.opxy_display_shift) {
+      const at = integer(e.opxy_display_shift(), 4, this.memory.byteLength - 40, 'shift row storage');
+      if (at % 4 || ranges.some(([start, size]) => at < start + size && start < at + 40)) throw new Error('Invalid shift row storage');
+      this.shiftRow = new Int32Array(this.memory, at, 10);
+    }
     this.reset();
   }
   reset() { this.api.opxy_display_reset(); }
@@ -117,8 +125,10 @@ export class PreviewDisplay {
   // track's amp envelope, {attack, decay, sustain, release} Q31 words; null when unknown.
   // mix: a padMix kit's key, {pan: -100..100, level: -30..0 dB, pad: up to four
   // pad fields, -128..127}, and line, the row the encoders edit (0 or 1).
+  // shiftRow: a synth's Shift row, {held: 0 or 1, line: 0 or 1, values: up to eight Q31
+  // words}; null leaves it as last written (zeros at first).
   tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0],
-       amp = null, mix = {pan: 0, level: 0}, line = 0) {
+       amp = null, mix = {pan: 0, level: 0}, line = 0, shiftRow = null) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -138,6 +148,13 @@ export class PreviewDisplay {
     const pads = mix.pad ?? [];
     if (!Array.isArray(pads) || pads.length > 4) throw new Error('Invalid pad controls');
     const padded = pads.reduce((word, v, i) => (word | (integer(v, -128, 127, 'pad control') & 255) << 8 * i) >>> 0, 0);
+    let row = null;
+    if (shiftRow !== null) {
+      const values = shiftRow?.values ?? [];
+      if (!Array.isArray(values) || values.length > 8) throw new Error('Invalid shift row');
+      row = [integer(shiftRow.held ?? 0, 0, 1, 'shift row held'), integer(shiftRow.line ?? 0, 0, 1, 'shift row line'),
+             ...Array.from({length: 8}, (_, i) => integer(values[i] ?? 0, 0, 0x7fffffff, 'shift row value'))];
+    }
     if (this.api.memory.buffer !== this.memory) throw new Error('Display memory changed');
     this.input.set([p0, p1, p2, p3, elapsed >>> 0, track, serial, Number(reducedMotion), shown, ...slots]);
     if (this.noteActivity) this.input.set([held, released], 17);
@@ -145,6 +162,7 @@ export class PreviewDisplay {
     if (this.hasModel) this.input[21] = model;
     if (this.envelope) this.input.set(envelope, 22);
     if (this.hasMix) this.input.set([mixed, padded], 26);
+    if (row && this.shiftRow) this.shiftRow.set(row);
     this.api.opxy_display_render();
     if (this.api.opxy_display_valid() !== 1) throw new Error('Display emitted an invalid drawing frame');
     return this.frame;

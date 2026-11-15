@@ -3,6 +3,7 @@ import dataclasses
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 from types import SimpleNamespace
 import tempfile
@@ -104,6 +105,28 @@ class Definitions(unittest.TestCase):
                              (m.id, 4, 'OP-XY', []))
             self.assertEqual(preset['engine']['params'], catalog_defaults(m.definition))
             self.assertFalse(preset['fx']['active'] or preset['lfo']['active'])
+
+    def test_preset_defaults_set_the_init_presets_track_volume(self):
+        from tooling.machines import machine_at
+        synth = fixture('probesynth')
+        self.assertEqual(default_preset(synth)['engine']['volume'], 16384)  # the template's
+        louder = dataclasses.replace(synth, preset_defaults=dict(synth.preset_defaults, volume=20000))
+        self.assertEqual(default_preset(louder)['engine']['volume'], 20000)
+        self.assertEqual(default_preset(louder)['envelope'], default_preset(synth)['envelope'])
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'probesynth'
+            shutil.copytree(FOLDER / 'probesynth', root)
+            record = json.loads((root / 'machine.json').read_text(encoding='utf-8'))
+            for volume, valid in ((0, True), (32767, True), (32768, False), (-1, False), (True, False), (1.5, False),
+                                  ('20000', False)):
+                (root / 'machine.json').write_text(json.dumps(dict(record, presetDefaults={'volume': volume})),
+                                                   encoding='utf-8')
+                with self.subTest(volume=volume):
+                    if valid:
+                        self.assertEqual(machine_at(root).preset_defaults, {'volume': volume})
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'Invalid preset volume default'):
+                            machine_at(root)
 
     def test_a_machines_own_default_preset_replaces_the_generated_one(self):
         synth = fixture('probesynth')
@@ -339,7 +362,9 @@ class Definitions(unittest.TestCase):
                       [dict(enum(0, ['a', 'b']), id='drive')],
                       [enum(i, [f'c{n}' for n in range(256)]) for i in range(3)]):
             rejected.append(dict(effect, shift=shift))
-        synth = copy.deepcopy(self.engine); synth['shift'] = [enum(0, ['a', 'b'])]
+        # A synth's Shift row (SDK 1.13) has rules of its own (test_synth_shift): five entries
+        # need a second page, which a four-control synth lacks.
+        synth = copy.deepcopy(self.engine); synth['shift'] = [enum(i, ['a', 'b']) for i in range(5)]
         for bad, kind in [(r, 'effect') for r in rejected] + [(synth, 'synth')]:
             with self.subTest(kind=kind, shift=len(bad['shift'])), self.assertRaises(ValueError):
                 validate_definition(bad, kind)

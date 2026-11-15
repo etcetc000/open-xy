@@ -14,7 +14,7 @@ import sys
 
 from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
-from .definitions import control_positions, paged
+from .definitions import control_positions, paged, shift_words, synth_shift
 from .formats import require, sha
 from .machines import FIXED_NUMBERS, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
@@ -117,6 +117,13 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         entry['preview'] = dict(wasm=base64.b64encode(wasm).decode('ascii'), sha256=sha(wasm),
                                 graphics=preview.graphics_metadata(m),
                                 defaults=[round(p['default'] * 0x7fffffff) for p in m.definition['parameters']])
+        # A synth's Shift row (SDK 1.13): the eight words its preview renders after the controls.
+        if synth_shift(m.definition):
+            entry['preview']['shift'] = shift_words(m.definition)
+    # A synth with a Shift row: its own presets keep the row in sample-less regions
+    # (builder/core.mjs presetFiles).
+    if m.kind == 'synth' and synth_shift(m.definition):
+        entry['shiftRow'] = True
     return entry
 
 

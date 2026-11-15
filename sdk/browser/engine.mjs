@@ -18,7 +18,8 @@ export class PreviewEngine {
     // Older ABI-1 modules are mono. Stereo output is opt-in per module.
     this.outputChannels = bounded(api.opxy_output_channels?.() ?? 1, 1, 2, 'output channels');
     this.stateBytes = bounded(api.opxy_state_bytes(), 4, api.memory.buffer.byteLength, 'voice state size');
-    this.parameterCount = bounded(api.opxy_parameter_count(), 1, 8, 'parameter count');
+    // Eight words, or sixteen for a synth with a Shift row (SDK 1.13): its controls, then the row.
+    this.parameterCount = bounded(api.opxy_parameter_count(), 1, 16, 'parameter count');
     const alignment = bounded(api.opxy_state_alignment(), 4, 64, 'voice alignment');
     if (alignment & (alignment - 1)) throw new Error('Voice alignment must be a power of two');
     const voiceCount = bounded(api.opxy_voice_capacity(), 1, 8, 'audition voice count');

@@ -10,6 +10,7 @@
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
 #include "drum_send.hpp"
+#include "drum_hold_strip.hpp"
 
 namespace opxy { namespace screen { namespace {
 
@@ -67,6 +68,12 @@ inline void bind_controls(Base* o) { stock<void(Leaf**, Base*, u32)>(0x8d521704)
 inline void* find(Base* o, const char* id) { return platform::find_node(o, id); }
 inline void draw(Base* o) { stock<void(Base*, u32)>(0x8d51fe1c)(o, 0); }
 inline u32 selected_track() { return platform::selected_track(); }
+// On an owned drum kit's track, a held pad's strip over the page just drawn
+// (drum_hold_strip.hpp); elapsed is the frame's, in Q10 seconds.
+inline void draw_hold_strip(u32 track, i32 elapsed) {
+    if (track < platform::kTracks && sdk_drum_machine(platform::track_engine(track)))
+        platform::drum_hold_strip(elapsed);
+}
 inline const Parameters* parameters(u32 track) { return stock<const Parameters*(u32)>(0x8d4d72a8)(track); }
 inline void update_controls(Base* o, u32 track, const Parameters* p) {
     stock<void(Leaf**, u32, const Parameters*)>(0x8d5466ac)(o->values, track, p);
@@ -74,6 +81,14 @@ inline void update_controls(Base* o, u32 track, const Parameters* p) {
 inline u32 note_serial(u32 track) { return stock<u32(u32)>(0x8d4d6c08)(track); }
 inline void set_matrix(Leaf* node, const i32* matrix) { stock<void(Leaf*, const i32*)>(0x8d5f06a6)(node, matrix); }
 inline void set_text(Leaf* node, const char* text) { platform::set_text(node, text); }
+// Anchors a text leaf at the middle of its x, as text-anchor="middle". Stock keeps the anchor at
+// +96 (0 start, 1 middle, 2 end) and measures the shown text when it draws. The low half of +88 is
+// the x adjustment of an earlier anchor, cleared as the drum page does.
+inline void anchor_middle(Leaf* node) {
+    unsigned char* bytes = reinterpret_cast<unsigned char*>(node);
+    *reinterpret_cast<word*>(bytes + 88) &= 0xffff0000u;
+    *reinterpret_cast<word*>(bytes + 96) = 1;
+}
 inline void set_fill(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa986)(node, id); }
 inline void set_stroke(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa966)(node, id); }
 inline void invalidate(PathNode* node) { stock<void(PathNode*)>(0x8d5fa9c4)(node); }
@@ -305,15 +320,16 @@ inline bool refresh_controls(Base* o, Controls& controls) {
             case platform::DrumMachine::kShiftNone: break;
             default: {
                 // A pad field: its label, and the kit's caption or the number;
-                // a send at 0 follows the track's (TRK).
+                // a send TRK or its percent.
                 const u32 field = drum->shift(i, controls.line != 0) - platform::DrumMachine::kShiftPad;
                 if (field >= platform::kDrumPadFields) break;
                 titles[i] = drum->pad_label(field);
                 const i32 value = controls.pads[field];
                 if (field >= platform::kDrumKitPadFields) {
-                    // A send's code as the key's own amount (drum_send.hpp):
-                    // 1..7 are 0..100 percent of a full send.
-                    if (value) drum_number(values[i], platform::drum_send_percent(static_cast<u32>(value)), "");
+                    // A send's index (drum_send.hpp): the key's own amount, 0..100
+                    // percent of a full send, or TRK, following the track's.
+                    const i32 percent = platform::drum_send_percent(static_cast<u32>(value));
+                    if (percent >= 0) drum_number(values[i], percent, "");
                     else copy_text(values[i], "TRK");
                 } else if (!drum->pad_text || !drum->pad_text(field, value, values[i])) {
                     drum_number(values[i], value, "");

@@ -91,4 +91,31 @@ static inline void page_header(PageHeader& state, const Input& input, F& frame,
     }
     for (u32 col = 0; col < 4; ++col) header(frame, col, values[slots[page][col]]);
 }
+
+// The same header for a synth with a Shift row (SDK 1.13): pass draw::shift_row(input)
+// (opxy/synth_shift.hpp) as `shift`, with the row's titles and captions indexed by
+// entry, 0..7. While Shift is held, both rows name and show the row instead, as a
+// drum kit's header shows its two Shift rows: page 1's entries (0..3) on top and
+// page 2's (4..7) under them, the page the encoders are on bright on the bar and
+// the other small and grey. A press, with Shift held or not, moves the bar as it
+// does without Shift. Absent entries take an empty title and caption. Shift's press
+// and release change only the sixteen texts and the four header strings.
+template <class F, class Row>
+static inline void page_header(PageHeader& state, const Input& input, F& frame,
+                        const char* const (&titles)[8], const char (&values)[8][header_capacity],
+                        u32 first_node, const u8 (&slots)[2][4], const Row& shift,
+                        const char* const (&shift_titles)[8], const char (&shift_values)[8][header_capacity]) {
+    if (!shift.held) {
+        page_header(state, input, frame, titles, values, first_node, slots);
+        return;
+    }
+    u32 page = 0;
+    for (u32 col = 0; col < 4; ++col)
+        if (slots[1][col] != slots[0][col] && input.shown[col] == slots[1][col]) page = 1;
+    // The entries in column order: the shown slots select the same page, so the bar
+    // keeps its place and the rows their order.
+    Input row_input = input;
+    for (u32 col = 0; col < 4; ++col) row_input.shown[col] = static_cast<u8>(4 * page + col);
+    page_header(state, row_input, frame, shift_titles, shift_values, first_node);
+}
 }} // namespace opxy::draw
