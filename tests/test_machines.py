@@ -49,7 +49,7 @@ class DrumPresets(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'sample regions'):
                 machines.check_preset(value, 'kit', kind=kind)
 
-    def test_drum_features_require_sdk_1_11(self):
+    def test_drum_features_require_sdk_1_17(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve() / 'probesynth'
             shutil.copytree(FOLDER / 'probesynth', root)
