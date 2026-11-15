@@ -56,7 +56,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # 1.13 gives a synth a Shift row: up to eight more controls under its pages ("shift"),
 # kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
 # 1.16 gives an effect a bus shift: its send's audio raised by a fixed number of
-# bits around process (resources.busShift).
+# bits around process (resources.busShift), and lets a note player page eight
+# controls ("press": "page").
 # 1.17 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
 SDK_VERSION = (1, 17)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
@@ -573,6 +574,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 9), 'Hidden stock pages ("hidePages")')
     if kind == 'effect' and paged(definition):
         require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
+    if kind == 'player' and paged(definition):
+        require_sdk(version, (1, 16), 'A note player whose press switches the page ("press": "page")')
     if shift_parameters(definition):
         require_sdk(version, (1, 7), 'An effect\'s shift row ("shift")')
     if synth_shift(definition):
