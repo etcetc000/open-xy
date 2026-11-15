@@ -272,7 +272,7 @@ Every machine kind keeps its controls in `definition.json` (for example
 | `schema` | 1 |
 | `id` | The machine's name; also its C++ namespace |
 | `name` | Display name |
-| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), exactly eight for a drum kit, one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
+| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), exactly eight for a drum kit, one to eight for a sample engine or effect, four for a note player or five to eight for one whose press switches the page (SDK 1.16); an effect's after the fourth are alternates on its send page, a paged player's its second page. Labels are at most eight letters, digits or spaces |
 | `shift` | Optional: an effect's [shift row](#effect-pages-and-shift-rows) (SDK 1.7) or a synth's [Shift row](#a-synths-shift-row) (SDK 1.13) |
 | `presets` | Named maps containing exactly the declared controls (a Shift row's aside); may be empty |
 | `resources` | What the kind declares about its storage (below) |
@@ -1562,13 +1562,17 @@ passed to a build with `--machine`.
 SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
-Use four parameters, `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
 A parameter an encoder doesn't need may be left empty, declared `"absent": true`
 as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
 its last four are a second page, parameter `i` on encoder `i - 4`, and a press
 of any encoder switches between the two. A slot the second page leaves out
 stays empty. The page is per track, starts on the first four and is not saved.
+Stock keeps all eight parameter words in the project and sets them to the
+declared defaults only when the player is chosen, so a project saved while a
+player had four parameters opens a later version with five to eight with the 0
+its words 4..7 held then, not the new parameters' defaults.
 Its header shows [both pages in place](ux.md#more-than-four-controls).
 Players have no instrument presets, audio-render CPU estimate or browser audio preview.
 
@@ -1621,8 +1625,10 @@ SDK adds the [two-page header](display.md#two-page-header) as the first nodes
 of the artwork's root `<g>` and draws it: keep the player's own artwork below
 y=38. `lit` shows the 24 `<id>_dot_0..23`
 circles or filled paths; `text` replaces the centered `<id>_text` text leaf.
-All strings must terminate within their fixed arrays. The SDK then fills
-`played[4]` from emitted, still-held stock chord records, ignoring queued
+`display` receives a zeroed `Display` every frame, so a string it leaves
+alone (a value it does not write, such as `values[4..7]` of a one-page
+player) is empty; every string it writes must terminate within its fixed
+array. The SDK then fills `played[4]` from emitted, still-held stock chord records, ignoring queued
 strum tones, and supplies `lowest_key` for the output keyboard.
 
 The output keyboard is optional: omit all its key and activity nodes for an
