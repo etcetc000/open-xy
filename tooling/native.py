@@ -346,12 +346,22 @@ def service_users(machines):
 def collection_services(profile,machines):
     # A resident kernel retains its complete profile's service ABI even when a
     # replacement collection removes the last user of one of those services.
-    return set(profile.get('services',{})) if getattr(machines,'collection_loader',False) else active_services(profile,service_users(machines))
+    selected = active_services(profile, service_users(machines))
+    if not getattr(machines, 'collection_loader', False):
+        return selected
+    # Fixed firmware capabilities remain opt-in; they cannot be switched by a RAM payload.
+    capabilities = set(extensions.capabilities())
+    return (set(profile.get('services', {})) - capabilities) | (selected & capabilities)
 
 
 def collection_interface(profile,machines):
-    return collection_activation.interface(profile,collection_services(profile,machines),
-        machines.collection_profiling,collection_kernel.RESIDENT_BYTES)
+    services = collection_services(profile, machines)
+    interface = collection_activation.interface(profile, services,
+        machines.collection_profiling, collection_kernel.RESIDENT_BYTES)
+    chosen = build_settings(machines)
+    interface['settings'] = {name: chosen.get(name, spec['default'])
+                             for name, spec in extensions.capability_settings().items() if name in services}
+    return interface
 
 
 def module_bytes(profile):

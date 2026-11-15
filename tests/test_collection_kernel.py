@@ -11,6 +11,23 @@ from tooling.pipeline import ROOT, config
 
 
 class Coordinator(unittest.TestCase):
+    def test_fixed_capabilities_are_opt_in_and_settings_bind_the_resident_identity(self):
+        from dataclasses import replace
+        from tooling import extensions, native
+        profile = config()
+        empty = native.Collection([], [], loader=True)
+        self.assertFalse(set(extensions.capabilities()) & native.collection_services(profile, empty))
+        idle = extensions.Extension('idle', ROOT, (), (), {}, capabilities=('release_floor',),
+                                    linked=False, settings={'release_floor': -36})
+        selected = native.Collection([], [idle], loader=True)
+        interface = native.collection_interface(profile, selected)
+        self.assertIn('release_floor', interface['services'])
+        self.assertNotIn('long_samples', interface['services'])
+        self.assertEqual(interface['settings'], {'release_floor': -36})
+        altered = native.Collection([], [replace(idle, settings={'release_floor': -40})], loader=True)
+        self.assertNotEqual(activation.fingerprint(interface),
+                            activation.fingerprint(native.collection_interface(profile, altered)))
+
     def test_both_initializer_paths_cleanup_commit_verify_and_receipts(self):
         compiler=os.environ.get('OPXY_TEST_HOST_CXX') or shutil.which('g++') or shutil.which('clang++')
         if not compiler: raise unittest.SkipTest('No host C++ compiler (set OPXY_TEST_HOST_CXX)')

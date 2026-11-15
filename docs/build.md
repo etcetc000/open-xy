@@ -267,6 +267,10 @@ which leaves 16 MiB for the stock application heap. The kernel package records
 the choice and every replacement collection inherits it. Switching the memory
 layout requires building and installing a kernel for that layout.
 
+Settings extensions and their capability values are also part of the kernel's
+identity. Changing them requires rebuilding the kernel; a RAM collection cannot
+change those fixed firmware edits.
+
 After native verification, enter dev Mac MTP and copy only its OS and
 protected fallback artwork:
 
