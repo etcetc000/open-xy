@@ -102,7 +102,9 @@ host does fast and the Blackfin does not:
   inline: 17 single-cycle divide steps on the device.
 - **Floating point** has no hardware either. Keep audio in integers;
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
-  saturating multiply, and (SDK 1.7) a saturating add, one instruction each on the device.
+  saturating multiply, (SDK 1.7) a saturating add and (SDK 1.16) a saturating
+  left shift, `shift_left`, one instruction each on the device. Use it rather
+  than `<<`, which wraps.
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
@@ -509,7 +511,11 @@ void render(Voice& voice, Shared& shared, opxy::u32 owner,
 ```
 
 Storage begins zeroed; `owner` is a stable nonzero voice ID, the stock voice
-index plus one. Each of the machine's `voiceCapacity` voices serves one owner at
+index plus one. A large voice may declare `static constexpr unsigned
+zeroed_bytes` (a multiple of 4 for word stores) to have only that leading
+prefix zeroed when it goes to an owner; the rest keeps earlier contents, so
+the machine must write it before reading it. This zeroing runs in the
+note-start path once per voice, so a chord pays it in one block. Each of the machine's `voiceCapacity` voices serves one owner at
 a time: `initialize` runs when a voice goes to an owner and establishes all
 sound state; `start` runs on each note; `destroy` releases anything the voice
 holds in `Shared`, once stock has stopped rendering its note (it ended, or
@@ -1157,7 +1163,8 @@ opxy::PadSettings sample_assign(const opxy::SampleAssignment&);
 runs when a file or a completed stock recording (`recorded`) is assigned to a
 pad and returns the pad's new settings. It receives the file path
 (`filename_bytes` long, not NUL-terminated, possibly null; null for a
-recording), the loaded frame count and rate, the project tempo, and in
+recording), the loaded frame count (at most 882,000, or 1,048,575 in a build
+with the `long_samples` capability) and rate, the project tempo, and in
 `previous` the settings of the pad's replaced sample (`replacing`) or the
 defaults. The new sample's trim spans its whole length; a replaced pad keeps
 its pitch, reverse and volume. Settings survive project save exactly.
@@ -1343,6 +1350,40 @@ Instead, an effect may fix its Dry with `dryLevel` in `machine.json` (SDK 1.7),
 a number from 0 to 1. An effect that mixes its own dry, as a box of effects
 inline does, declares 0: at full send a track then goes wholly through it.
 
+### Bus shift
+
+An effect written for audio near Q31 full scale, while the send bus it runs on
+sits lower, declares `"busShift": N` in `resources` (SDK 1.16), an integer
+from 0 to 12 bits; 0, or leaving it out, changes nothing. Its adapter then
+raises both channels' 64 words by N bits, saturating at the Q31 limits, before
+`process`, and lowers `process`'s result by N bits, rounded to nearest with
+halves rounding up, after it. The shift row's words and the effect's
+parameters are not shifted. A word below 2^(31-N) in magnitude comes back
+unchanged through an effect that passes it on; louder input clips at that
+level, N times 6 dB under full scale.
+
+**Choosing N.** The level the send bus runs at depends on the project: how many
+tracks send, at what send amounts and levels. It is not documented by stock and
+the SDK cannot measure it for you. There is one observation, not a
+measurement: on a test build, a temporary on-screen readout of the highest set
+bit was read by eye with one track's send at maximum and a 9-bit raise. It moved
+between bits 23 and 28, counting bits 0 to 31, 6 dB each, with bit 31 full
+scale. At the top of that range N = 9 leaves 2 to 3 bits (12 to 18 dB) before
+clipping, more at the bottom of it. That is one project on one device, not a
+nominal level, and several loud tracks sending at once sum on the bus and need
+more headroom. Pick N from the headroom you want to keep, not from the largest
+value: an effect that adds gain needs a smaller N, one bit less for each 6 dB it
+adds. Nothing checks N at build time, because the bus level is only known
+while a project plays; listen for flat-topped peaks on loud sends.
+
+[`send_bus.hpp`](../sdk/platform/opxy-1.2.1/send_bus.hpp) holds the shifts. On
+the device they compile to about 18 instructions a frame, 6 to raise and 12 to
+lower both channels, so about 1,150 a block plus memory stalls. That count is
+from the compiled code, not a measurement. The SDK's CPU figures for an effect,
+both the host estimate and the device benchmark, time `process` alone. They
+leave out this shift and feed `process` near full-scale input rather than a
+raised bus, so add the shift's cost to them yourself.
+
 ## Registration boundary
 
 A machine's ID (`definition.json`'s `id`) is its stock name: the engine type the device lists, its catalog and
@@ -1351,18 +1392,35 @@ preset entries, its screen file, its symbol prefix and its C++ namespace. It is 
 `opxy` or `std`, or start with a reserved prefix (`extensions`, `sdk`, `kit`,
 `stock`, `local`).
 
+Nor may it name the OP-XY's own content. The ID becomes `content/display/<id>.svg`,
+`content/presets/<id>/`, `content/samples/<id>/` and `content/aux_presets/<id>/` on the
+device, beside stock's files, so an ID that names a stock screen (`mixer`, `monitor`,
+`tape`, `filter`, ...), a stock preset folder (`keys`, `pad`, `pluck`, ...) or a stock
+sample folder (`kick`, `snare`, ...) is refused, whatever the machine's kind. A machine
+named after a stock screen would overwrite that file, and stock then halts at boot
+looking up an element the replacement lacks. The names are the firmware profile's
+`stock_content` (`profiles/opxy-1.2.1.json`), listed per content folder. The comparison
+ignores letter case, as `sdk.py device push` assumes the device's FAT storage does
+(`tooling/device.py`); that is the tooling's assumption, not a measurement on the device,
+and the check holds whichever way the device behaves.
+Loading a definition, `sdk.py new`, `sdk.py catalog check` (for a machine that is not
+retired), `build`, `compile`, `verify`, `kit` and `release`, and the browser builder
+(when it opens a kit and when it packages files) all refuse such a name; the message
+names the stock file and asks for a rename. An extension's artwork file in
+`content/display/` is checked the same way.
+
 `machine.json` declares how the SDK builds the machine:
 
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.15 and builds 1.0 to 1.15 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.16 and builds 1.0 to 1.16 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
 | `sources`, `includes` | Optional extra translation units and include folders inside the machine folder; synths only, since the native plan compiles one source for the other kinds |
 | `icon` | Optional builder glyph: SVG path data in a 46 × 48 box, drawn as a stroke. The kind's glyph is used otherwise |
-| `presetDefaults` | Optional `{"amp": {...}}` overriding generated factory preset envelope values: `attack`, `decay`, `release` and `sustain`, each 0..32767. It does not rewrite existing projects or presets |
+| `presetDefaults` | Optional `{"amp": {...}, "volume": n}` overriding generated factory preset values: the envelope's `attack`, `decay`, `release` and `sustain`, and the track `volume` (16384 by default; 32767 is full), each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
 | `samples` | Optional folder inside the machine folder holding a sample engine's own [samples](#own-samples), which its presets load; `sdk` 1.10, sample engines forking the sampler |
 | `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
@@ -1429,10 +1487,11 @@ ships. Catalog review checks it.
   fixed: replacing or removing it under the same name changes or silences every
   project and preset that loads it, and builds never delete files an earlier
   build installed. Give new or changed audio a new name.
-- The files share `content/samples/` with whatever else is on the OP-XY. The SDK
-  doesn't record the names of stock's own sample folders, so it can't refuse a
-  machine ID that matches one: check the device's `/content/samples/` before
-  choosing a sample engine's ID.
+- The files share `content/samples/` with whatever else is on the OP-XY. An ID
+  naming one of stock's own sample folders is refused (see
+  [Registration boundary](#registration-boundary)), but the SDK can't know
+  folders you added to the device yourself: check the device's
+  `/content/samples/` before choosing a sample engine's ID.
 - The browser builder doesn't install samples yet. Its kit still offers the
   machine and its presets, but not the samples: there each preset opens with no
   sample loaded, as a sample engine's presets did before. `sdk.py build`

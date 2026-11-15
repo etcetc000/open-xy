@@ -1,10 +1,14 @@
 {
-  "schema": 3,
+  "schema": 4,
   "claims": {
     "record_double_tap": {"label": "Record double-tap", "key": 50}
   },
   "actions": {
     "edit_notes": {"requires": "record_double_tap"},
     "notify": {}
+  },
+  "capabilities": {
+    "long_samples": {},
+    "release_floor": {"setting": {"label": "Idle threshold", "unit": "dB", "minimum": -66, "maximum": -20, "default": -48}}
   }
 }
