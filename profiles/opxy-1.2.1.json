@@ -2271,6 +2271,16 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c084e14",
+      "file_offset": "0xbc050",
+      "length": 8,
+      "before": "00de578d78d40000",
+      "symbol": "extensions_player_click",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "MIX button dispatcher: master processor menu",
       "address": "0x8c093a70",
       "file_offset": "0xcacac",
