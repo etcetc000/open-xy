@@ -55,7 +55,7 @@ class DrumPresets(unittest.TestCase):
             shutil.copytree(FOLDER / 'probesynth', root)
             record_path, definition_path = root / 'machine.json', root / 'definition.json'
             record = json.loads(record_path.read_text())
-            record.update(kind='drum', sdk='1.16')
+            record.update(kind='drum', sdk='1.17')
             record.pop('identity', None)
             definition = json.loads(definition_path.read_text())
             definition['presets'] = {}
@@ -81,7 +81,7 @@ class DrumPresets(unittest.TestCase):
                         self.assertEqual(loaded.presets['default']['regions'], value['regions'])
                     current['sdk'] = '1.10'
                     record_path.write_text(json.dumps(current))
-                    with self.assertRaisesRegex(ValueError, '1.16'):
+                    with self.assertRaisesRegex(ValueError, '1.17'):
                         machines.machine_at(root)
 
     def test_drum_region_bounds_and_sample_exclusion(self):
@@ -411,6 +411,23 @@ class OutsideMachines(unittest.TestCase):
             machines.machine_at(self.folder)
         self.numberless(self.folder, sdk='1.8')
         self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+
+    def test_an_effect_bus_shift_needs_sdk_1_16(self):
+        effect = self.copy('probefx')
+        path = effect / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['resources']['busShift'] = 9
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(effect, sdk='1.15')
+        with self.assertRaisesRegex(ValueError, 'busShift.*needs "sdk": "1.16"'):
+            machines.machine_at(effect)
+        self.numberless(effect, sdk='1.16')
+        self.assertEqual(machines.machine_at(effect).definition['resources']['busShift'], 9)
+        # 0 is the default, at any version.
+        definition['resources']['busShift'] = 0
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(effect, sdk='1.7')
+        self.assertEqual(machines.machine_at(effect).definition['resources']['busShift'], 0)
 
     def test_sdk_1_5_machines_name_no_numbers(self):
         self.numberless(self.folder)

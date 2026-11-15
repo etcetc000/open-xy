@@ -95,6 +95,11 @@ int main() {
         for (int octave = -4; octave <= 4; ++octave)
             check(sample_drum_key(note, octave) >= 53 && sample_drum_key(note, octave) < 77,
                   "drum key escaped the 24-pad range");
+    // Stock 8d5b8688's signed formula, for every key a note can carry and beyond.
+    for (unsigned note = 0; note < 4096; ++note)
+        for (int octave = -9; octave <= 9; ++octave)
+            check(sample_drum_key(note, octave) == 53u + unsigned((int(note) + 19 + 12 * (octave % 2)) % 24),
+                  "drum key differs from stock's signed remainder");
     words[4] = 4; region = sample_region(words, 100, 0);
     check(region.begin == 10 && region.end == 90 && !region.reverse, "outer region lost");
     words[3] = -1; words[7] = -1; region = sample_region(words, 100, 0);

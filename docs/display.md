@@ -188,7 +188,7 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | `line` | The row the encoders edit, 0 the first and 1 the second; on a drum kit, also the Shift row (SDK 1.10). |
 | `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0 following the track's send; for a kit declaring SDK 1.15 or later its percent + 1, 1..101; for an older kit its step, 1..7 for 0, 17, 33, 50, 67, 83, 100, an amount as its nearest); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
 | `trigger_key`, `trigger_model`, `trigger_controls[8]` | The latest played drum pad on this track: canonical key 53..76, its model, and its eight controls with current GUI track offsets. `trigger_key` is 0 when unavailable. Use the snapshot when `note_serial` changes; it is independent of selection. Several hits between frames can coalesce to the last one, and this is not an audio-side step-lock history. |
-Machines reading the played-pad snapshot declare SDK 1.16 or newer. Browser
+Machines reading the played-pad snapshot declare SDK 1.17 or newer. Browser
 hosts pass `{key, model, controls}` as the optional argument to
 `PreviewDisplay.tick`, after `amp`, `mix`, `line` and `shiftRow`; omission clears the snapshot.
 
@@ -198,7 +198,7 @@ controls while `shift` is 1. With two Shift rows, show both, stacked as the
 pages are: the first on top and the second under it, the one the encoders edit
 (`line`) bright, as a [synth's Shift row](#a-synths-shift-row) shows. The stock
 header shows only the edited row. The
-previews use drawing ABI 7, a 152-byte input with the played-pad snapshot after ABI 6's pad fields (112 bytes). ABI 5 (104 bytes) ends after the
+previews use drawing ABI 8, a 152-byte input with the played-pad snapshot after ABI 6's pad fields (112 bytes). ABI 5 (104 bytes) ends after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
 
 While a pad is held on a drum kit (without Shift), the SDK draws stock's own

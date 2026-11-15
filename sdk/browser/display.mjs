@@ -8,8 +8,8 @@ import { inputWords } from './controls.mjs';
 // reserved byte and pad[4 bytes]. ABI 1 ends after slots, ABI 2 after
 // note_off_serial, ABI 3 after choices; ABI 4 adds a drum kit's model, ABI 5 the
 // track's amp envelope, and ABI 6 a padMix kit key's pan, level and pad fields
-// and the row the encoders edit. ABI 7 adds the played drum snapshot.
-const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88, 5: 104, 6: 112, 7: 152};
+// and the row the encoders edit. ABI 8 adds the played drum snapshot; ABI 7 is reserved for tempo input.
+const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88, 5: 104, 6: 112, 8: 152};
 const ENVELOPE = ['attack', 'decay', 'sustain', 'release'];
 const integer = (value, low, high, name) => {
   if (!Number.isInteger(value) || value < low || value > high) throw new Error(`Invalid ${name}`);
@@ -91,7 +91,7 @@ export class PreviewDisplay {
     this.hasModel = abi >= 4;
     this.envelope = abi >= 5;
     this.hasMix = abi >= 6;
-    this.hasTrigger = abi >= 7;
+    this.hasTrigger = abi >= 8;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
     // Largest declared frame: 4 paths of 64 points, 512 nodes, 32 texts and the header.
     const frameBytes = integer(e.opxy_display_frame_bytes(), 32, 4 * 516 + 512 * 28 + 32 * 36 + 32, 'drawing frame size');
