@@ -889,7 +889,7 @@ const char* parameter_name(opxy::u32 model, opxy::u32 slot);
 opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are used
 ```
 
-A kit can declare `resources.parameterEdit: 1` and add this callback in
+From SDK 1.17 a kit can declare `resources.parameterEdit: 1` and add this callback in
 `core.h` and its engine:
 
 ```cpp
@@ -1466,6 +1466,12 @@ firmware that holds it.
   as the device saved them, except that a synth with a
   [Shift row](#a-synths-shift-row) keeps it in up to 24 regions that point at
   no sample.
+
+From SDK 1.17 a synthesis drum kit may store exactly 24 sample-free pad records instead of empty
+`regions`: `model` is `"fm slap"` (the stored-pad marker), `params` holds four packed
+Q15 words, and optional `playmode` selects a stock choke/play mode. Optional `hikey`
+is the canonical key 53..76 in pad order. No other fields or sample paths are
+accepted. Keep track parameters neutral to edit saved pad controls freely.
 
 #### Own samples
 

@@ -409,6 +409,7 @@ def generate_screen(directory, m, artwork=None):
 namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
+    static const bool drum = {'true' if getattr(m, 'kind', 'synth') == 'drum' else 'false'};
     static const bool sample = {'true' if getattr(m, 'kind', 'synth') == 'sample' else 'false'};   // reads its sample's overview
     static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};   // pad[2..3] as percent + 1 (SDK 1.15)
 }};
