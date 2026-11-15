@@ -275,7 +275,7 @@ class Definitions(unittest.TestCase):
             machine = SimpleNamespace(kind='player', prefix='probeplayer', native_name='probeplayer', display='stock',
                                       identity=dict(player=6, page=90), definition=player)
             text = generate_player_object(directory, machine).read_text(encoding='utf-8')
-        self.assertIn('{0, 0, 0, 1}', text)
+        self.assertIn('{0, 0, 0, 1, 1, 1, 1, 1}, false}', text)
         player['parameters'][3]['label'] = 'X'
         with self.assertRaises(ValueError): validate_definition(player, 'player')
         machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]

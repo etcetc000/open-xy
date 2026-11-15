@@ -35,7 +35,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts, or a synth's [Shift row](#a-synths-shift-row) locks to its live words; linked only with a `padMix` kit or a Shift-row synth |
 | Drumline's second page | 2 | Shows stock Drumline's second page and wraps its voices' render for an extension's per-hit processor and settings; linked only with a [`drumline_page` extension](drumline-page.md) |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
-| Note players | 7 | Routes owned player construction, project loading, controllers, enum editing and names |
+| Note players | 8 | Routes owned player construction, project loading, controllers, enum editing, a paged player's encoder 4 click and names |
 | Recorder | 6 | Recognizes owned sample engines when the stock recorder selects, releases and saves a pad, and assigns completed recordings to owned pads |
 | Relocated tables | 21 + 1 hook | Moves the effect records (63), engine records (256) and screen slots (256) into the last 16 KiB of the reservation; the engine validity check's 7-bit bound is a call (`sdk_engine_bound`) that compares against 256 |
 | Screen order | 2 | Paints a selected owned synth page before stock overlays, and a page-2 sample engine's own screen right after the sampler's page it covers |
@@ -1749,9 +1749,9 @@ never a kit's alias (`sdk_drum_alias`); an SDK kit's track never has engine 4.
 
 ## Note players
 
-The `players` service adds seven hooks only when a collection includes a player:
+The `players` service adds eight hooks only when a collection includes a player:
 factory construction, the project-load type guard, two controller lookups,
-enum editing, and type/name conversion. The authenticated preimages and destinations are
+enum editing, the encoder 4 click, and type/name conversion. The authenticated preimages and destinations are
 in the profile. The factory delegates stock types unchanged. An owned type
 uses a stock Maestro object with its type, routing mode, note-on, note-off,
 reset, all-notes-off and step methods replaced; the other nine method pointers are checked against authenticated
@@ -1784,6 +1784,17 @@ continuous-motion acceleration, clamp to the choice range, and publish the
 bucket centre through stock's player-parameter setter. Other mappings retain
 stock's bucket counts or continuous editor. Both preserve pattern storage and
 dirty state. Stock players replay the displaced step-count query and continue stock.
+
+A paged player's press arrives through the synth press handler
+(`sdk_synth_press`) while the player controller (vtable `8400d320`) is on top,
+and switches the selected track's page between parameters 0..3 and 4..7. The
+turn hook edits the shown four; stock's setter and continuous editor store
+words 4..7 as they do the first four, and selecting a type stores all eight
+catalog defaults through that setter. The page is GUI state per track, reset
+when the factory builds the track's player. Maestro's key handler answers an
+encoder 4 click by toggling parameter 3 and running its hold-mode callback;
+the click hook replaces its hold-mode query and returns a paged player through
+the handler's exit instead. Other players continue to the stock query.
 
 Player types use the profile's unused 6..31 range and `seq_types` catalog IDs
 are type + 4. The UI selects Maestro's controller for owned types, keeping

@@ -105,7 +105,7 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     # An unselected machine's startup and catalog callbacks decline.
     entry['absent'] = native.absent_symbols(m)
     if m.display != 'stock':
-        entry['artwork'] = read(m.root / 'panel.svg.fragment').decode('utf-8')
+        entry['artwork'] = native.page_artwork(m).decode('utf-8')
         if m.grayscale:
             entry['grayscaleArtwork'] = read(m.root / m.grayscale).decode('utf-8')
         entry['asset'] = m.native_name + '.svg'
