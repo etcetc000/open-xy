@@ -22,9 +22,14 @@ opxy::benchmark::Stats @PREFIX@_benchmark() {
         }
         const Transport time = transport(block);
         (void)time;
-        const u32 begin = cycles();
-        @NAMESPACE@::process(state, @BUFFER@@TRANSPORT@left, right, parameters);
-        stats.add(cycles() - begin);
+        u32 spent;
+        {
+            const Masked masked;
+            const u32 begin = cycles();
+            @NAMESPACE@::process(state, @BUFFER@@TRANSPORT@left, right, parameters);
+            spent = cycles() - begin;
+        }
+        stats.add(spent);
         stats.observe(left, 64); stats.observe(right, 64);
     }
     return stats;

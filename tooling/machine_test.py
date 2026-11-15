@@ -101,6 +101,8 @@ def check_extension(root, host_cxx, scratch):
     """An extension's host tests, which it must have; its report."""
     from .extensions import extension_at
     e = extension_at(root)
+    if not e.linked:
+        return f'PASS: settings extension {e.id} ({e.root}): capabilities {", ".join(e.capabilities)}; no code to test'
     scratch.mkdir(parents=True)
     count = host_tests(e, host_cxx, scratch)
     require(count, f'{e.id}: an extension carries host tests in tests/*.cpp')
@@ -161,7 +163,7 @@ def main(argv=None):
                     command += ['--machine', str(m.root)]
                 for e in extensions:
                     command += ['--extension', str(e.root)]
-                subprocess.run(command, check=True, cwd=ROOT, timeout=1800)
+                subprocess.run(command, check=True, cwd=ROOT, timeout=1800, creationflags=NO_WINDOW)
         print('PASS: machine and extension checks; no stock files or device operations.')
         return 0
     except (ValueError, OSError, KeyError, TypeError, ET.ParseError, subprocess.SubprocessError) as error:

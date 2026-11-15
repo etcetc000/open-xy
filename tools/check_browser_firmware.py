@@ -73,9 +73,11 @@ def selection_services(kit, result):
     """The services a selection links (builder/core.mjs activeServices)."""
     selected = [m for m in kit['machines'] if m['id'] in result['selected']]
     chosen = [e for e in kit.get('extensions', []) if e['id'] in result['extensions']]
+    # Settings extensions link no runtime; every chosen extension adds its capabilities.
     return active_services(kit['profile'], [m['kind'] for m in selected] +
                            [f for m in selected for f in m.get('features', [])] +
-                           (['extension'] if chosen else []) +
+                           (['extension'] if any(e.get('linked', True) for e in chosen) else []) +
+                           [c for e in chosen for c in e.get('capabilities', [])] +
                            (['inputMonitor'] if any('monitor_input' in e.get('actions', []) for e in chosen) else []) +
                            # kit.json names it master_processor; older kits, master_filter (core.mjs processorOf).
                            (['master_filter'] if any(e.get('master_processor') or e.get('master_filter') for e in chosen) else []) +
@@ -83,12 +85,26 @@ def selection_services(kit, result):
                            (['drumline_page'] if any(e.get('drumline_page') for e in chosen) else []))
 
 
-def assembled(stock, module, symbols, reviewed, services, profiling):
-    """Python's own LDR for a GNU-linked module and the reviewed profile it was linked for."""
+def selection_settings(kit, result):
+    """Each capability setting of a selection: the first chosen extension's value, as the builder does."""
+    values = {}
+    for e in kit.get('extensions', []):
+        if e['id'] in result['extensions']:
+            for capability, setting in e.get('settings', {}).items():
+                values.setdefault(capability, setting['value'])
+    return values
+
+
+def assembled(stock, module, symbols, reviewed, services, profiling, values=None):
+    """Python's own LDR for a GNU-linked module and the reviewed profile it was linked for,
+    with the selection's capability settings (selection_settings)."""
     profile = copy.deepcopy(reviewed)
+    values = values or {}
     for patch in profile['patches']:
         if not patch_active(patch, services, profiling):
             patch['after'] = patch['before']
+        elif 'setting' in patch and patch['setting'] in values:
+            patch['after'] = patch['choices'][str(values[patch['setting']])]
         elif patch['kind'] == 'hook':
             patch['after'] = hook_instruction(patch, symbols[patch['symbol']]['value']).hex()
         elif patch['kind'] == 'startup':
@@ -204,9 +220,10 @@ def main():
         module, symbols = check_module(prefix, result, kit['profile'], boot_label)
         numbers = check_numbers(kit, result, symbols)
         services = selection_services(kit, result)
+        values = selection_settings(kit, result)
         modes = {}
         for profiling in (True, False):
-            expected = assembled(stock, module, symbols, kit['profile'], services, profiling)
+            expected = assembled(stock, module, symbols, kit['profile'], services, profiling, values)
             suffix = '.ldr' if profiling else '.profiling-off.ldr'
             require(expected == prefix.with_suffix(suffix).read_bytes(), 'Python/browser firmware differs: ' + suffix)
             modes[profiling] = expected
