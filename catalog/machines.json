@@ -628,8 +628,8 @@
       "maintainer": "MartinfraDD",
       "status": "published",
       "repository": "https://github.com/MartinfraDD/scales",
-      "tag": "v1.0.0",
-      "commit": "ddba02717fb76d1245518fa6aa72d51e6201fc4e",
+      "tag": "v1.1.0",
+      "commit": "47986121f401f7c95722626f5eae591918002d92",
       "path": ".",
       "keywords": [
         "chord"
