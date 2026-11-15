@@ -18,15 +18,19 @@ from .formats import require
 # Those runs play the kit as it starts, the track's M3 off. filter_percent is full
 # polyphony of the heaviest with M3 on, the ladder on every voice, and the optional
 # filter_peak_percent its worst block; peak_percent leaves that run out.
-BENCHMARKS = {'synth': 'opxy-synth-c8-sweep-v1', 'effect': 'opxy-effect-callback-v1',
-              'sample': 'opxy-sample-callback-v1', 'drum': 'opxy-drum-callback-v2'}
+BENCHMARKS = {'synth': 'opxy-synth-c8-sweep-v1', 'effect': 'opxy-effect-callback-v2',
+              'sample': 'opxy-sample-callback-v2', 'drum': 'opxy-drum-callback-v3'}
 # Records from before the sweep, kept by entries that have not changed since.
 LEGACY = {'synth': 'opxy-synth-c8-v1'}
-# A kit's earlier workload, every run with M3's ladder on every voice and no separate
-# filter run. Its figures include the filter, so they overstate rather than hide a
-# cost: still accepted, new or not.
-EARLIER = {'drum': 'opxy-drum-callback-v1'}
-DRUM_BENCHMARKS = {BENCHMARKS['drum'], EARLIER['drum']}
+# Earlier workloads whose figures overstate rather than hide a cost: still accepted, new
+# or not. Effect v1, sample v1 and drum v2 timed each block with interrupts enabled, so a
+# handler's time could land in it (the current IDs mask them, as stock's synth runner
+# does). Drum v1 also ran M3's ladder on every voice and had no separate filter run.
+EARLIER = {'effect': {'opxy-effect-callback-v1'}, 'sample': {'opxy-sample-callback-v1'},
+           'drum': {'opxy-drum-callback-v1', 'opxy-drum-callback-v2'}}
+DRUM_BENCHMARKS = {BENCHMARKS['drum'], *EARLIER['drum']}
+# Drum workloads with the separate M3-on filter run.
+FILTERED = {BENCHMARKS['drum'], 'opxy-drum-callback-v2'}
 FIELDS = {'benchmark', 'commit', 'firmware_sha256', 'runs', 'block_percent'}
 SWEEP_FIELDS = FIELDS | {'midpoint_percent', 'combined_percent', 'worst_setting'}
 DRUM_FIELDS = FIELDS | {'midpoint_percent', 'kit_percent', 'choke_percent', 'ceiling_percent', 'worst_model'}
@@ -91,14 +95,14 @@ def validate(value, kind, commit=None, legacy=True):
     `legacy`, average-only records and records from before the synth sweep are refused."""
     require(isinstance(value, dict), 'cpu: unexpected measurement fields')
     allowed = ({BENCHMARKS.get(kind)} | ({LEGACY[kind]} if legacy and kind in LEGACY else set()) |
-               ({EARLIER[kind]} if kind in EARLIER else set()))
+               EARLIER.get(kind, set()))
     require(kind in BENCHMARKS and isinstance(value.get('benchmark'), str) and value['benchmark'] in allowed,
             'cpu: benchmark must match the machine kind' +
             ('; synths submit a control sweep (docs/profiling.md)'
              if kind in LEGACY and value.get('benchmark') == LEGACY[kind] else ''))
     sweep = value['benchmark'] == BENCHMARKS['synth']
     drum = kind == 'drum'
-    filtered = drum and value['benchmark'] == BENCHMARKS['drum']
+    filtered = drum and value['benchmark'] in FILTERED
     require(legacy or 'peak_percent' in value,
             'cpu: average and worst observed block peak are required; rerun sdk.py profile report '
             'with the original captures (docs/profiling.md)')
