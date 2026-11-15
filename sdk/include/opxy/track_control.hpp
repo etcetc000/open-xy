@@ -39,6 +39,9 @@ const u32 held_capacity = 32;
 const u32 longest_note_us = 8000000;
 // Turns of the machine's own encoders one tick can deliver.
 const u32 turn_capacity = 16;
+// Live input is bounded per GUI tick; overflow means later events were dropped.
+const u32 input_note_capacity = 32;
+struct InputNote { u8 pitch, velocity; bool pressed; u8 reserved; };
 // A machine that declares resources.trackControl.savedBytes (1..saved_capacity)
 // keeps data with each project, on the GUI side, through two more functions:
 //   u32 control_save(const ControlState&, u8* data, u32 capacity);
@@ -86,6 +89,12 @@ struct Input {
     // track turned keeps its turns between ticks.
     u32 turn_count;
     Turn turns[turn_capacity];
+    // Live note input for this selected aux track, in arrival order, when the
+    // machine declares trackControl.inputNotes. Note IDs are integer stock
+    // input values; pitch wheel values are not included. Velocity is 0 on release.
+    u32 note_count;
+    u32 note_overflow;
+    InputNote notes[input_note_capacity];
 };
 
 // What the machine returns each tick. An overlay entry for the machine's own
@@ -117,6 +126,9 @@ struct Overlay {
     // encoders: while it is in effect they edit nothing and arrive in
     // Input::turns instead.
     u32 own_turns;
+    // Route live input to instrument track 1..8, or 0 to disable.
+    // Releases follow their corresponding press; routing stops when deselected.
+    u32 input_route;
 };
 
 // GUI side, for a display: how many tracks hold the same machine as `track`,

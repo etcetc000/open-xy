@@ -3,6 +3,7 @@
 #include "../extension_runtime.hpp"
 #include "note_container.hpp"
 #include "stock.hpp"
+#include "synth_controls.hpp"
 
 extern "C" {
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
@@ -143,7 +144,8 @@ void sdk_extensions_stop(u32 controller) {
 void sdk_extensions_live_note_on(u32 controller, u32 track, u32 note, u32 a3, u32 a4,
                         u32 velocity, u32 a6, u32 a7, u32 low, u32 high, u32 flags,
                         const void* event) {
-    extensions_input_activity();
+    if (sdk_control_activity) sdk_control_activity(track, note, velocity, true);
+    extensions_input_activity(track, note, velocity, true);
     const LiveInput previous = live_input;
     live_input = {track, note, velocity, flags, true};
     stock<void(u32,u32,u32,u32,u32,u32,u32,u32,u32,u32,u32,const void*)>(0x8d595738)
@@ -160,6 +162,7 @@ void sdk_extensions_note_accepted(u32 track, u32 note) {
 }
 void sdk_extensions_live_note_off(u32 controller, u32 track, u32 note, u32 a3, u32 flags,
                          const void* event) {
+    if (sdk_control_activity) sdk_control_activity(track, note, 0, false);
     extensions_selected_note_off(track, note);
     stock<void(u32,u32,u32,u32,u32,const void*)>(0x8d595420)(controller,track,note,a3,flags,event);
 }

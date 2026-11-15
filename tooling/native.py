@@ -295,6 +295,7 @@ def service_users(machines):
     users = [m.kind for m in machines] + (['extension'] if linked_extensions(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
+            ['controlNotes' for m in machines if track_control(m).get('inputNotes')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +

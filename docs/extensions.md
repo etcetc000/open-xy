@@ -34,7 +34,7 @@ Three layers, kept apart:
 
 | Stage | Happens when | Event |
 | --- | --- | --- |
-| Input | A key or MIDI note arrives, before recording and the sequencer | `recordable_note_on` and `selected_note_off` (selected track only); `input_activity` (any track, but without the note) |
+| Input | A key or MIDI note arrives, before recording and the sequencer | `recordable_note_on` and `selected_note_off` (selected track only); `input_activity` (any track, optionally with note details) |
 | Sequencer | A pattern step plays | Not exposed |
 | Track | Live and sequenced notes reach a track, before its instrument | Not exposed |
 | Voice | The instrument starts a voice | A machine's voice callbacks |
@@ -93,7 +93,7 @@ only for the callback. The SDK does not sandbox native code.
 | `recordable_note_on` | A live onset stock accepted for recording, on the selected recordable instrument track, while playing; with stock's pickup position and collision radius | Live onset, accepted-note bookkeeping |
 | `selected_note_off` | A live release on the selected track, playing or not; may have no preceding onset | Live release |
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
-| `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
+| `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures. A detailed subscriber receives track, integer note number, velocity and press/release, including while stopped | Live onset and release |
 | `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
@@ -101,6 +101,13 @@ scale 1 has 480 ticks per step. Stock's pickup gives negative positions near
 pattern zero. Quantization belongs to stock playback; subscribers must not
 invent a second grid conversion. Sequenced notes and step entry are not live
 onsets.
+
+`with_input_activity` accepts either the existing `void()` callback or
+`void(const InputActivity&)`. The detailed form reports the note identifier
+passed into the stock live-input path; release velocity is zero. It does not
+read a pitch-wheel value or report the sounding frequency, and does not promise
+that an earlier stock input stage has not transformed the note. It observes
+input even when stock later rejects it. It cannot suppress or reroute the note.
 
 ## Claims and actions
 
@@ -161,8 +168,9 @@ A build's collection lists its extensions after its machines; that order is the
 callback order. Native builds include the whole collection. The site's Extensions step follows
 Machines, starts with none selected, saves choices with the layout and omits
 unselected extensions entirely. The SDK's extension hooks form the profile's
-`extensions` service: a build with no extension selected links none of the
-runtime and leaves every one of its stock call sites unchanged.
+`extensions` service: a build with no extension selected and no track-control
+machine subscribing to input notes links none of the runtime and leaves every
+one of its stock call sites unchanged.
 
 ## Settings extensions
 

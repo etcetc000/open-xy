@@ -28,7 +28,7 @@ const ExtensionRegistry& extension_registry();
 
 // These entry points belong only to the version adapter.
 void extensions_sync();
-void extensions_input_activity();
+void extensions_input_activity(u32 track, u32 pitch, u32 velocity, bool pressed);
 void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity);
 void extensions_selected_note_off(u32 track, u32 pitch);
 void extensions_recording_tick(u32 delta);

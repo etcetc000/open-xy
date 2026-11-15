@@ -110,11 +110,14 @@ void extensions_sync() {
         if (entries[i].hooks->context) entries[i].hooks->context(current);
     dispatching = false;
 }
-void extensions_input_activity() {
+void extensions_input_activity(u32 track, u32 pitch, u32 velocity, bool pressed) {
     if (dispatching || !ready()) return;
+    const extensions::InputActivity activity = {track, pitch, velocity, pressed};
     dispatching = true;
-    for (u32 i = 0; i < entry_count; ++i)
+    for (u32 i = 0; i < entry_count; ++i) {
         if (entries[i].hooks->input_activity) entries[i].hooks->input_activity();
+        if (entries[i].hooks->input_activity_details) entries[i].hooks->input_activity_details(activity);
+    }
     dispatching = false;
 }
 void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity) {
@@ -134,7 +137,7 @@ void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity) {
 void extensions_selected_note_off(u32 track, u32 pitch) {
     if (dispatching) return;
     extensions_sync();
-    extensions_input_activity();
+    extensions_input_activity(track, pitch, 0, false);
     if (!entries || track != current.recording.track) return;
     const extensions::NoteOff note = {track, pitch};
     dispatching = true;

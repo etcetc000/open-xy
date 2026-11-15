@@ -129,6 +129,11 @@ bool timed[control::all_tracks];
 // the last tick, for each tick's elapsed time.
 const u32 kCyclesPerMicrosecond = 400;
 u32 last_cycles;
+// The input and GUI callbacks run on the same controller path. Keep each
+// accepted event until the next GUI tick, in arrival order and bounded.
+control::InputNote pending_notes[control::input_note_capacity];
+u32 pending_note_count, pending_note_overflow, pending_note_track = kNoTrack;
+const ControlMachine* pending_note_owner;
 // GUI ticks so far, and the last encoder edit's parameter and tick. For
 // kTurnTicks after it the edited parameter shows its base value.
 const u32 kTurnTicks = 40;
@@ -159,6 +164,7 @@ struct Held { u8 track, pitch, host, reserved; u32 remaining_us; };
 Held held[control::held_capacity];
 u32 held_count;
 bool was_playing;
+u32 input_routes[control::all_tracks];
 // Set when a project loads: the old project's notes end on the next tick.
 bool release_all;
 
@@ -192,6 +198,23 @@ const ControlMachine* owner(u32 track) {
         if (m.engine() == engine) return m.ready() == 1 ? &m : nullptr;
     }
     return nullptr;
+}
+void clear_input_notes() {
+    pending_note_count = pending_note_overflow = 0;
+    pending_note_track = kNoTrack;
+    pending_note_owner = nullptr;
+}
+void receive_input_note(u32 track, u32 pitch, u32 velocity, bool pressed) {
+    if (word(kProjectLoading) || track >= control::all_tracks || pitch > 127 || velocity > 127 || selected_track() != track) return;
+    const ControlMachine* m = owner(track);
+    if (!m || !m->input_notes) return;
+    if (pending_note_track != track || pending_note_owner != m) {
+        clear_input_notes();
+        pending_note_track = track;
+        pending_note_owner = m;
+    }
+    if (pending_note_count == control::input_note_capacity) { pending_note_overflow = 1; return; }
+    pending_notes[pending_note_count++] = {static_cast<u8>(pitch), static_cast<u8>(velocity), pressed, 0};
 }
 Applied* find(u32 track, u32 index) {
     for (u32 i = 0; i < applied_count; ++i)
@@ -249,8 +272,13 @@ void release_host(u32 host) {
     for (u32 i = held_count; i-- > 0;)
         if (held[i].host == host) release(i);
 }
+void release_routed(u32 host) {
+    for (u32 i = held_count; i-- > 0;)
+        if (held[i].host == host && held[i].reserved) release(i);
+}
 void age_notes(u32 us) {
     for (u32 i = held_count; i-- > 0;) {
+        if (held[i].reserved) continue;
         if (held[i].remaining_us <= us) release(i);
         else held[i].remaining_us -= us;
     }
@@ -277,6 +305,30 @@ void play_notes(u32 host) {
         h.host = static_cast<u8>(host);
         h.reserved = 0;
         h.remaining_us = note.length_us < control::longest_note_us ? note.length_us : control::longest_note_us;
+    }
+}
+// Route accepted presses and releases using the same bounded stock note pool.
+void route_input(u32 host, u32 route) {
+    if (route > control::tracks) route = 0;
+    if (selected_track() != host || input.muted || !route || input.note_overflow) {
+        release_routed(host);
+        input_routes[host] = 0;
+        return;
+    }
+    if (input_routes[host] != route) release_routed(host);
+    input_routes[host] = route;
+    for (u32 n = 0; n < input.note_count; ++n) {
+        const control::InputNote& note = input.notes[n];
+        for (u32 i = held_count; i-- > 0;)
+            if (held[i].host == host && held[i].reserved && held[i].pitch == note.pitch) release(i);
+        if (!note.pressed || !note.velocity) continue;
+        const u32 target = route - 1;
+        bool occupied = false;
+        for (u32 i = 0; i < held_count; ++i)
+            if (held[i].track == target && held[i].pitch == note.pitch) occupied = true;
+        if (occupied || held_count >= control::held_capacity || byte(kNoteTableCount) >= kNoteTableLimit) continue;
+        note_on(target, note.pitch, note.velocity);
+        held[held_count++] = {static_cast<u8>(target), note.pitch, static_cast<u8>(host), 1, 0};
     }
 }
 
@@ -384,6 +436,7 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
 // Called by project load/new-project handling before another GUI tick. It
 // must not dereference stock's project while deserialization is in progress.
 extern "C" void sdk_control_forget() {
+    clear_input_notes();
     sdk_synth_queue_page_key(kNoTrack, 0);
     applied_count = wanted_count = 0;
     turned_track = kNoTrack;
@@ -392,6 +445,7 @@ extern "C" void sdk_control_forget() {
         hosts[t] = nullptr;
         timed[t] = false;
         owning[t] = false;
+        input_routes[t] = 0;
         for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = 0;
     }
     // Turns go back to stock while the project loads. Notes end on the first
@@ -402,6 +456,7 @@ extern "C" void sdk_control_forget() {
 }
 
 extern "C" void sdk_gui_tick() {
+    sdk_control_activity = receive_input_note;
     stock<void()>(0x8d580074)();
     ++gui_ticks;
     sdk_synth_pages();
@@ -411,7 +466,7 @@ extern "C" void sdk_gui_tick() {
     sdk_control_turn = sdk_control_turn_offer;
     // The aux service still keeps a held track's mark while a project loads.
     if (sdk_aux.tick) sdk_aux.tick();
-    if (word(kProjectLoading)) return;
+    if (word(kProjectLoading)) { clear_input_notes(); return; }
 
     // A value that differs from the one written is stock's: an edit, a lock or a step.
     // A track now on another pattern drops its overlays; one stock left playing
@@ -450,8 +505,9 @@ extern "C" void sdk_gui_tick() {
     const u32 now = opxy::benchmark::cycles(), us = (now - last_cycles) / kCyclesPerMicrosecond;
     last_cycles = now;
     age_notes(us);
-    if (release_all || (was_playing && !playing))
-        while (held_count) release(held_count - 1);
+    if (release_all) while (held_count) release(held_count - 1);
+    else if (was_playing && !playing)
+        for (u32 i = held_count; i-- > 0;) if (!held[i].reserved) release(i);
     release_all = false;
     was_playing = playing;
     wanted_count = 0;
@@ -472,7 +528,7 @@ extern "C" void sdk_gui_tick() {
         }
         owning[t] = false;
         for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = 0;
-        if (!m) continue;
+        if (!m) { release_routed(t); input_routes[t] = 0; continue; }
         if (!loaded) {
             for (u32 u = 0; u < control::all_tracks; ++u)
                 for (u32 p = 0; p < control::track_parameters; ++p) input.values[u][p] = live(u, p);
@@ -498,11 +554,18 @@ extern "C" void sdk_gui_tick() {
         input.turn_count = turn_track == t ? turn_count : 0;
         for (u32 i = 0; i < input.turn_count; ++i) input.turns[i] = turns[i];
         if (turn_track == t) turn_count = 0;
+        input.note_count = input.note_overflow = 0;
+        if (m->input_notes && t == pending_note_track && m == pending_note_owner && selected_track() == t) {
+            input.note_count = pending_note_count;
+            input.note_overflow = pending_note_overflow;
+            for (u32 n = 0; n < pending_note_count; ++n) input.notes[n] = pending_notes[n];
+        }
         input.elapsed_us = timed[t] ? (us < 1000000 ? us : 1000000) : 0;
         timed[t] = true;
         overlay.count = overlay.stored_count = 0;
         overlay.note_count = 0;
         overlay.own_turns = 0;
+        overlay.input_route = 0;
         for (u32 i = 0; i < control::display_words; ++i) overlay.display[i] = 0;
         m->control(copy, &input, &overlay);
         owning[t] = overlay.own_turns != 0;
@@ -510,6 +573,7 @@ extern "C" void sdk_gui_tick() {
             overlay.note_count = 0;
             release_host(t);
         }
+        route_input(t, m->input_notes ? overlay.input_route : 0);
         play_notes(t);
         for (u32 p = 0; p < kEngineControls; ++p) input.values[t][p] = own[p];
         if (overlay.count > control::overlay_capacity) overlay.count = control::overlay_capacity;
@@ -519,6 +583,7 @@ extern "C" void sdk_gui_tick() {
         for (u32 i = 0; i < control::display_words; ++i) shown_words[t][i] = overlay.display[i];
         merge(t);
     }
+    clear_input_notes();
 
     // A lock plays as written: no overlay over a parameter it holds.
     u32 kept_wanted = 0;

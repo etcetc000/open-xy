@@ -5,6 +5,8 @@
 #include <extension_collection.cpp>
 #include <extension_stock.cpp>
 
+void (*sdk_control_activity)(opxy::u32, opxy::u32, opxy::u32, bool) = nullptr;
+
 #define CHECK(value) do { if (!(value)) return __LINE__; } while (false)
 using namespace opxy;
 using namespace opxy::platform;
@@ -17,6 +19,11 @@ u32 other_held = 0, shift = 0;
 extensions::Time clock_time;
 alignas(4) unsigned char pattern_notes[0x788];
 u32 on_calls, off_calls, tick_calls, loop_calls, stop_calls, event_calls, writes, publishes, popups, resets, undos;
+u32 machine_activity_calls, machine_track, machine_pitch, machine_velocity;
+bool machine_pressed;
+void machine_activity(u32 track, u32 pitch, u32 velocity, bool pressed) {
+    ++machine_activity_calls; machine_track=track; machine_pitch=pitch; machine_velocity=velocity; machine_pressed=pressed;
+}
 u32 args[11]; const void* last_event;
 RecordedNote inserted[120];
 i32 last_radius;
@@ -164,6 +171,7 @@ using extensions::probe::written;
 
 int main() {
     fill_pattern(0);
+    sdk_control_activity = machine_activity;
     // The controller update forwards and refreshes the context.
     sdk_extensions_controller_update(0x860c6adc,17); CHECK(loop_calls==1 && seen.contexts>=1);
     const extensions::RecordingContext& c = seen.context.recording;
@@ -175,7 +183,11 @@ int main() {
     const u32 expected[]={0x860c6adc,0,64,0xffffffffu,0xffffffffu,91,0,1,123,456,33};
     for (u32 i=0;i<11;++i) CHECK(args[i]==expected[i]);
     CHECK(on_calls==1 && seen.activity==1 && seen.notes_on==0);
+    CHECK(seen.activity_details==1 && seen.input.track==0 && seen.input.pitch==64 && seen.input.velocity==91 && seen.input.pressed);
+    CHECK(machine_activity_calls==1 && machine_track==0 && machine_pitch==64 && machine_velocity==91 && machine_pressed);
     release(64); CHECK(off_calls==1 && seen.notes_off==1 && seen.off.pitch==64);
+    CHECK(seen.activity_details==2 && seen.input.track==0 && seen.input.pitch==64 && seen.input.velocity==0 && !seen.input.pressed);
+    CHECK(machine_activity_calls==2 && machine_pitch==64 && machine_velocity==0 && !machine_pressed);
 
     // Playing: an accepted live onset on the selected track is recordable, with
     // stock's position and its scale's collision radius.
@@ -189,6 +201,7 @@ int main() {
     sdk_extensions_note_accepted(selected,60);
     sdk_extensions_live_note_on(0x860c6adc,7,72,1,2,80,3,4,5,6,7,nullptr);
     CHECK(seen.notes_on==1);
+    CHECK(seen.input.track==7 && seen.input.pitch==72 && seen.input.velocity==80 && seen.input.pressed);
     // A step or sample recorder workflow leaves the pattern editable, not recordable.
     recorder_mode=1; sdk_extensions_controller_update(0x860c6adc,17);
     CHECK(c.editable && !c.recordable); note(); CHECK(seen.notes_on==1);

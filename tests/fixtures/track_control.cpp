@@ -21,6 +21,8 @@ u32 engines[16], ticks, writes, resets, runs, sets;
 u32 aux_engines[16], aux_ticks;
 i32 seen;  // the value of track 0, parameter 1 the machine was given
 u32 seen_elapsed, seen_bpm, seen_ticks, seen_playing, seen_key, seen_muted;
+u32 seen_note_count, seen_note_overflow, route_choice;
+control::InputNote seen_notes[control::input_note_capacity];
 // The project's scene records (g_project + 0x98, 33 bytes a scene: patterns, then
 // each track's flags, 0x02 muted) and the current scene (g_project + 6), at a
 // stand-in address the word at 840a0524 names.
@@ -148,6 +150,9 @@ void run(u32 copy, const control::Input* input, control::Overlay* overlay) {
     seen_playing = input->transport.playing;
     seen_key = input->page_key;
     seen_muted = input->muted;
+    seen_note_count = input->note_count;
+    seen_note_overflow = input->note_overflow;
+    for (u32 i = 0; i < seen_note_count; ++i) seen_notes[i] = input->notes[i];
     seen_own = input->values[input->track][1];
     require(overlay->display[0] == 0 && overlay->display[3] == 0, "Display words not cleared");
     require(overlay->stored_count == 0, "Stored writes not cleared");
@@ -160,6 +165,8 @@ void run(u32 copy, const control::Input* input, control::Overlay* overlay) {
     require(overlay->note_count == 0 && overlay->own_turns == 0, "Notes and own turns not cleared");
     for (u32 i = 0; i < note_script_count; ++i) overlay->notes[overlay->note_count++] = note_script[i];
     overlay->own_turns = own_turns;
+    require(overlay->input_route == 0, "Input route not cleared");
+    overlay->input_route = route_choice;
     seen_shift = input->shift;
     seen_turn_count = input->turn_count;
     for (u32 i = 0; i < input->turn_count; ++i) seen_turns[i] = input->turns[i];
@@ -192,6 +199,7 @@ void tick(u32 expected_writes, const char* message) {
 }
 
 // The hidden-pages check (synth_controls.cpp) runs once per GUI tick.
+void (*sdk_control_activity)(opxy::u32, opxy::u32, opxy::u32, bool) = nullptr;
 void sdk_synth_pages() { ++page_checks; }
 u32 page_key;
 void sdk_synth_queue_page_key(u32, u32 key) { page_key = key; }
@@ -212,10 +220,10 @@ extern "C" {
 const opxy::platform::ControlMachine sdk_control_machines[] = {
     // 40 and 41 may run on tracks 1-8 here, as no real machine does; 42 is an
     // aux machine as every real one is.
-    {reinterpret_cast<const char*>(40), ready, reset, run, nullptr, 0, nullptr, nullptr, true, 0, nullptr, {}, true},
-    {reinterpret_cast<const char*>(41), ready, reset_other, run_other, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}},
-    {reinterpret_cast<const char*>(42), ready, reset, run, nullptr, 4, keep_save, keep_load, true, 1u << 11, nullptr, {}},
-    {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}}};
+    {reinterpret_cast<const char*>(40), ready, reset, run, nullptr, 0, nullptr, nullptr, true, 0, nullptr, {}, true, false},
+    {reinterpret_cast<const char*>(41), ready, reset_other, run_other, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}, false, false},
+    {reinterpret_cast<const char*>(42), ready, reset, run, nullptr, 4, keep_save, keep_load, true, 1u << 11, nullptr, {}, false, true},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}, false, false}};
 const opxy::u32 sdk_control_machine_count = 3;
 }
 
@@ -817,5 +825,63 @@ int main() {
     require(!sdk_control_turn_offer(2, 5, up) && seen_shift == 0, "Turn taken after the copy stopped asking");
     engines[2] = 0;
     tick(0, "Nothing to release");
+    // Input events reach only the selected subscribed aux machine, in order;
+    // rapid presses are preserved between GUI ticks and overflow is explicit.
+    plan({});
+    aux_engines[11] = 42;
+    selected = 11;
+    tick(0, "Preparing live input wrote an overlay");
+    require(sdk_control_activity != nullptr, "Input receiver not installed");
+    sdk_control_activity(11, 53, 91, true);
+    sdk_control_activity(11, 53, 0, false);
+    sdk_control_activity(11, 54, 76, true);
+    sdk_control_activity(0, 55, 80, true);
+    sdk_control_activity(11, 128, 80, true);
+    tick(0, "Live input wrote an overlay");
+    require(seen_note_count == 3 && !seen_note_overflow, "Live input count wrong");
+    require(seen_notes[0].pitch == 53 && seen_notes[0].velocity == 91 && seen_notes[0].pressed &&
+            seen_notes[1].pitch == 53 && !seen_notes[1].pressed &&
+            seen_notes[2].pitch == 54 && seen_notes[2].pressed, "Live input order wrong");
+    tick(0, "Empty input wrote an overlay");
+    require(!seen_note_count && !seen_note_overflow, "Events repeated on next tick");
+    for (u32 i = 0; i < control::input_note_capacity + 1; ++i) sdk_control_activity(11, i, 99, true);
+    tick(0, "Full input wrote an overlay");
+    require(seen_note_count == control::input_note_capacity && seen_note_overflow, "Overflow not reported");
+    sdk_control_activity(11, 60, 99, true);
+    sdk_control_forget();
+    tick(0, "Project reset wrote an overlay");
+    require(!seen_note_count, "Project reset kept old input");
+    sdk_control_activity(11, 60, 99, true);
+    selected = 2;
+    tick(0, "Switching selection wrote an overlay");
+    require(!seen_note_count, "Unselected aux machine received input");
+    selected = 11;
+    route_choice = 3;
+    tick(0, "Starting route wrote an overlay");
+    sdk_control_activity(11, 60, 90, true);
+    tick(0, "Routing press wrote an overlay");
+    require(sounding_count == 1 && sounding[0].track == 2 && sounding[0].pitch == 60, "Press not routed");
+    cycles += 400000000;
+    tick(0, "Holding routed note wrote an overlay");
+    require(sounding_count == 1, "Routed note expired");
+    sdk_control_activity(11, 60, 0, false);
+    tick(0, "Routing release wrote an overlay");
+    require(sounding_count == 0, "Release not routed");
+    sdk_control_activity(11, 61, 90, true);
+    tick(0, "Routing second press wrote an overlay");
+    route_choice = 4;
+    tick(0, "Changing route wrote an overlay");
+    require(sounding_count == 0, "Route change left note sounding");
+    sdk_control_activity(11, 62, 90, true);
+    tick(0, "Routing third press wrote an overlay");
+    selected = 2;
+    tick(0, "Changing selection wrote an overlay");
+    require(sounding_count == 0, "Selection change left note sounding");
+    selected = 11;
+    sdk_control_activity(11, 63, 90, true);
+    tick(0, "Routing fourth press wrote an overlay");
+    for (u32 i = 0; i <= control::input_note_capacity; ++i) sdk_control_activity(11, i, 90, true);
+    tick(0, "Overflow wrote an overlay");
+    require(sounding_count == 0, "Overflow left note sounding");
     return 0;
 }

@@ -138,7 +138,8 @@
       "auxTrack"
     ],
     "extensions": [
-      "extension"
+      "extension",
+      "controlNotes"
     ],
     "master_filter": [
       "master_filter"

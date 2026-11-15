@@ -569,6 +569,19 @@ its first call and whenever it arrives on a track.
 | `muted` | 1 while the machine's track is muted in the current scene (aux + track key, or the mixer). As with stock's brain, a muted machine has no effect: none of its overlays apply. It still runs, so its page can say so |
 | `shift` | 1 while Shift is held |
 | `turn_count`, `turns` | While the copy takes its own turns (below): up to 16 turns of its track's encoders since the last tick, oldest first, each the parameter slot its position shows (0..7, after presses) and a direction: the detents it covers, signed, ±1 for a slow detent and up to ±8 when turned fast (SDK 1.11) |
+| `note_count`, `note_overflow`, `notes` | With `"inputNotes": true` in `trackControl` (SDK 1.17), up to 32 live note presses and releases received on this selected aux track since the previous GUI tick, oldest first. Each gives an integer note ID, velocity and `pressed`; release velocity is zero. `note_overflow` is 1 when more arrived. Input is observed before stock handles it, including while stopped; sequencer notes are not included |
+
+The integer note ID comes from stock's live-input call, not a pitch-wheel
+value or measured sounding frequency. Earlier stock input processing may have
+transformed the note. A machine receives no events for other tracks, after it
+is no longer selected, or after a project change; a bounded queue can drop
+events on overflow. The events alone do not sound notes. To forward them, set
+`overlay.input_route` each tick to an instrument track number 1..8; 0 disables
+routing. The SDK forwards presses and releases through stock's live note
+service, without recording them. It releases routed notes when the selection,
+route, machine, project or mute changes, or if input overflows. Routed notes
+share the existing output capacity and may be dropped when it is full. This
+routing is available only to machines that declare `inputNotes`.
 
 `overlay` arrives empty; `opxy::control::add` appends up to 64 entries, each a
 track, parameter index and value for this tick. Entries for the machine's own
