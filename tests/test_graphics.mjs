@@ -264,10 +264,13 @@ async function fixture() {
   const screenTemplate = readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8');
   const machine = {id:'probe', kind:'synth', name:'Probe', artwork, asset:'probe.svg',
     catalog:',{"type":"probe","default_params":[0,0,0,0,0,0,0,0]}'};
+  // The reviewed profile's stock content names, which every build is checked against.
+  const {stock_content} = JSON.parse(readFileSync(new URL('../profiles/opxy-1.2.1.json', import.meta.url), 'utf8'));
   const kit = {machines:[machine, {...machine, id:'other', asset:'other.svg', artwork:'<circle fill="unsupported"/>'}],
     screenTemplate, profile:{experimental_memory:{}, stock_catalog_sha256:await sha256(catalog),
       screen_template_sha256:await sha256(new TextEncoder().encode(screenTemplate)),
-      stock_catalog_inserts:{engine_types:text.indexOf('\n]'), fx_types:text.indexOf('],"seq_types"'), seq_types:text.lastIndexOf(']')}}};
+      stock_catalog_inserts:{engine_types:text.indexOf('\n]'), fx_types:text.indexOf('],"seq_types"'), seq_types:text.lastIndexOf(']')},
+      stock_content}};
   return {kit, catalog};
 }
 
@@ -439,7 +442,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   const fakeCore = {...Core,
     // Keep this test firmware-free: exercise the real app, asset writer and ZIP
     // with an authored kit; OS verification/linking have their own contract tests.
-    openKit:async data => ({...data, objects:[], extensions:[],
+    openKit:async data => ({...data, objects:[], extensions:data.extensions ?? [],
       machines:data.machines.map(machine => ({controls:[], identity:{}, ...machine}))}),
     chosenByDefault:machine => (currentFixture.selected ?? ['probe']).includes(machine.id),
     decode64:value => value ? Core.decode64(value) : currentFixture.catalog,
@@ -796,6 +799,19 @@ test('Extensions graphics defaults to original designs without firmware extensio
   assert.deepEqual(wizardOptions.getSelected(), []);
   assert.equal($('build').disabled, true);
   assert.match($('build-reason').textContent, /Choose at least one machine/);
+  // With no remembered selection, firmware also restores its capability setting.
+  savedBrowserState.delete('open-xy-selection');
+  const settingsKit = {...currentFixture.kit, extensions:[{
+    id:'floor', name:'Release floor', description:'Adjust the idle threshold.', origin:'personal',
+    claims:[], actions:[], linked:false, capabilities:['release_floor'],
+    settings:{release_floor:{label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, value:-48}}
+  }]};
+  await builder.loadCollection(settingsKit);
+  recoverResult = {stock:Uint8Array.of(1), selected:['probe'], extensions:['floor'], settings:{release_floor:-36}};
+  assert.equal(await wizardOptions.onFirmware({name:'Recovered capability setting', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.equal(Number($('extension-settings').children[0].children[1].value), -36);
+  assert.equal(savedBrowserState.has('open-xy-selection'), false);
 });
 
 test('machine graphics settings preserve selected master artwork and reject asset collisions', async () => {

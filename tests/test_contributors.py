@@ -13,7 +13,11 @@ class ContributorBoundary(unittest.TestCase):
     def test_voice_adapter_includes_only_the_machine_and_sdk(self):
         with tempfile.TemporaryDirectory() as directory:
             source = generate_voice(directory, fixture('probesynth')).read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'#include "([^"]+)"', source), ['core.h', 'engine.cpp', 'stock.hpp', 'synth_controls.hpp'])
+        self.assertEqual(re.findall(r'#include "([^"]+)"', source),
+                         ['core.h', 'engine.cpp', 'stock.hpp', 'synth_controls.hpp', 'voice_zero.hpp'])
+        # A new owner's voice is cleared by words, or only its declared prefix.
+        self.assertIn('opxy::platform::zero_voice(slot.voice);', source)
+        self.assertNotIn('bytes[i] = 0', source)
         self.assertIn('probesynth::render(slot->voice, shared, slot->owner, output, controls, increments);', source)
         self.assertIn('const opxy::i32* controls = parameters;', source)
         self.assertNotIn('sdk_benchmark', source)
