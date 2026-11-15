@@ -81,6 +81,6 @@ const void* const @PREFIX@_player_vtable[16] = {
     reinterpret_cast<const void*>(0x8d57d3cc), reinterpret_cast<const void*>(0x8d57d3c0)
 };
 }
-static const opxy::platform::Player player = {@PREFIX@_player_id, "@NAME@", @PREFIX@_player_vtable, @PAGE@, @PAGE_READY@, {@STEPS@}};
+static const opxy::platform::Player player = {@PREFIX@_player_id, "@NAME@", @PREFIX@_player_vtable, @PAGE@, @PAGE_READY@, {@STEPS@}, @PAGED@};
 const opxy::platform::Player* @PREFIX@_player() { return &player; }
 @PAGE_UNIT@

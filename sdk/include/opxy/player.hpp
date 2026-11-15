@@ -45,12 +45,14 @@ struct Update {
 // The player page's four encoders, Q31 0..1. Declared enums with 2..255 choices
 // move one choice per detent. Other mappings retain stock editing: encoder 1
 // in 64 steps, encoder 2 in 4, encoder 3 continuously and encoder 4 off/on.
+// A player whose press switches the page has four more, value[4..7], which
+// edit continuously unless they are enums.
 // lowest_key is the note the keyboard's lowest key (F) plays at the track's
 // current octave, so note - lowest_key is a key's position: 0..11 the lower
 // octave, 12..23 the upper. Sequenced notes keep the pitch they were recorded
 // with, so their position follows the octave at playback.
 struct Controls {
-    i32 value[4];
+    i32 value[8];
     u32 lowest_key;
 };
 
@@ -58,13 +60,14 @@ struct Controls {
 // frame, while the sequencer may be changing State:
 //   void display(const State& state, const Controls& controls, Display& display);
 // lit shows the artwork's dot k (<name>_dot_<k>, 0..23) when bit k is set;
-// text replaces the artwork's <name>_text line; values are the header's four
-// encoder values under the definition's labels. Strings are terminated.
+// text replaces the artwork's <name>_text line; values are the encoder
+// values under the definition's labels, of which the header shows the current
+// page's four. Strings are terminated.
 const u32 display_dots = 24;
 struct Display {
     u32 lit;
     char text[32];
-    char values[4][8];
+    char values[8][8];
     // Filled by the SDK after display(): emitted notes across all held chords,
     // including strum timing, voicing and spread. Four words cover MIDI 0..127.
     u32 played[4];

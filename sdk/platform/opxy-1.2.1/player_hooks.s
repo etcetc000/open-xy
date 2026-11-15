@@ -15,6 +15,7 @@
 .extern stock_player_name_tail
 .extern stock_player_id_tail
 .extern sdk_player_turn
+.extern sdk_player_click
 
 /* Inside Maestro's turn frame, replacing its step-count call and argument
  * moves: R5 = index, R2 = event. Owned players return through the existing
@@ -42,6 +43,27 @@ extensions_player_turn:
     P0.L = 0x4afc;
     JUMP (P0);
 .size extensions_player_turn, .-extensions_player_turn
+
+/* Inside Maestro's key frame on an encoder 4 click, replacing its hold-mode
+ * query: R0 = the track's player. A paged player returns through the existing
+ * epilogue, past the parameter toggle; others tail-call the stock query. */
+.global extensions_player_click
+.type extensions_player_click, STT_FUNC
+extensions_player_click:
+    HOOK_SAVE
+    CALL sdk_player_click;
+    CC = R0 == 0;
+    IF CC JUMP .Lclick_stock;
+    HOOK_RESTORE
+    P0.H = 0x8c08;
+    P0.L = 0x4e44;
+    JUMP (P0);
+.Lclick_stock:
+    HOOK_RESTORE
+    P0.H = 0x8d57;
+    P0.L = 0xd478;
+    JUMP (P0);
+.size extensions_player_click, .-extensions_player_click
 
 /* Entry of stock's player factory (R0 = track, R1 = type, R2 = flag). An
  * owned type returns its object or null; others continue stock. */
