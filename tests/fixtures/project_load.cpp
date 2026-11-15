@@ -89,8 +89,11 @@ int main(int argc, char** argv) {
         opxy::platform::master_filter::test_reverse=std::strcmp(argv[3],"master-two-reverse")==0;}
     tracks = argc - 3 - (master ? 1 : 0);
     specs = argv + 3 + (master ? 1 : 0);
-    project = static_cast<unsigned char*>(std::calloc(kProjectBytes, 1));
-    if (!project) return 2;
+    // Keep the simulated 32-bit project ID nonzero when a host allocation
+    // lands exactly on a 4 GiB boundary; zero is the runtime's absent-project ID.
+    auto* allocation = static_cast<unsigned char*>(std::calloc(kProjectBytes + 16, 1));
+    if (!allocation) return 2;
+    project = allocation + (static_cast<opxy::u32>(reinterpret_cast<Address>(allocation)) ? 0 : 16);
     if (sdk_project_load(project, argv[1]) != deserialize_result) return 1;
     for (int i = 0; i < tracks; ++i) {
         const unsigned track = static_cast<unsigned>(std::strtoul(specs[i], nullptr, 10));
@@ -105,7 +108,7 @@ int main(int argc, char** argv) {
             const auto state=opxy::platform::master_filter::restore_state(id);
             std::printf("parameters:%u",state.type);
             for(unsigned i=0;i<5;++i)std::printf(",%d",state.values[i]);
-            std::printf("\n");std::free(project);return 0;
+            std::printf("\n");std::free(allocation);return 0;
         }
         const auto restored=opxy::platform::master_filter::restore_state(id);
         const auto packet=(restored.type<<30)|(static_cast<opxy::u32>(restored.values[0])>>21);
@@ -113,6 +116,6 @@ int main(int argc, char** argv) {
         const auto consumed=(defaults.type<<30)|(static_cast<opxy::u32>(defaults.values[0])>>21);
         std::printf("master:%u,%u\n",packet,consumed);
     }
-    std::free(project);
+    std::free(allocation);
     return 0;
 }
