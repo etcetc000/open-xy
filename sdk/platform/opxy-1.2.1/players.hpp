@@ -28,8 +28,8 @@ void* player_state(void* object);
 // The track's player object when it has this method table, else null.
 void* player_object(u32 track, const void* const* vtable);
 // Registers a player's own page (sdk_register_screen) and, once one is in
-// place, lets the compositor paint it for the Maestro page and a press switch
-// a paged player's page.
+// place, lets the compositor paint it for the Maestro page. Routes the press
+// either way; it switches a paged player's page only while that page is in place.
 int register_player_page(const Record* record, const Screen* screen);
 // The first parameter the track's page shows: 4 on a paged player's second page, else 0.
 u32 player_row(u32 track);

@@ -252,11 +252,12 @@ inline void refresh_keyboard_octaves() {}
         (self.root / 'registration.hpp').write_text('''#pragma once
 #include "players.hpp"
 const void* stock_address(opxy::u32);
+extern int fake_register;
 namespace opxy { namespace platform {
 using Address=__UINTPTR_TYPE__;
 template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
 struct Record {}; struct Screen {};
-inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
+inline int sdk_register_screen(const Record*,const Screen*) { return fake_register; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
 }}
 ''', encoding='utf-8')

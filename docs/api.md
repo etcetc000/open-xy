@@ -1569,6 +1569,8 @@ A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
 its last four are a second page, parameter `i` on encoder `i - 4`, and a press
 of any encoder switches between the two. A slot the second page leaves out
 stays empty. The page is per track, starts on the first four and is not saved.
+Should stock not place the player's own page, its Maestro page shows the first
+four and the player keeps that one page.
 Stock keeps all eight parameter words in the project and sets them to the
 declared defaults only when the player is chosen, so a project saved while a
 player had four parameters opens a later version with five to eight with the 0

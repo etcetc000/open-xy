@@ -70,10 +70,14 @@ const Player* owned(u32 type) {
 // first page whenever it is built.
 u8 rows[kTracks];
 
-// The selected track's player when a press switches its page.
+// The selected track's player when a press switches its page: a paged player
+// whose own page is in place. Stock places a page at GUI startup when its slot
+// is free; one it did not place leaves stock's Maestro page, which shows only
+// the first four, so such a player keeps one page: its press switches nothing,
+// encoder 4's click stays stock's and its encoders edit the first four.
 const Player* paged(u32 track) {
     const Player* p = track < kTracks ? owned(stock<u32()>(kSelectedType)()) : nullptr;
-    return p && p->paged ? p : nullptr;
+    return p && p->paged && p->page_ready && p->page_ready() == 1 ? p : nullptr;
 }
 
 // A click of any encoder on the player page (synth_controls.cpp).
@@ -105,10 +109,10 @@ void* player_object(u32 track, const void* const* vtable) {
 
 int register_player_page(const Record* record, const Screen* screen) {
     const int result = sdk_register_screen(record, screen);
-    if (result == 1) {
-        sdk_screen_substitute = sdk_player_substitute;
-        sdk_player_press = press;
-    }
+    if (result == 1) sdk_screen_substitute = sdk_player_substitute;
+    // The press is routed whether or not stock placed the page: press() pages
+    // only a page that is in place (paged()).
+    sdk_player_press = press;
     return result;
 }
 
@@ -187,7 +191,7 @@ u32 sdk_player_turn(u32 index, const opxy::i32* event) {
     const Player* p = owned(stock<u32()>(kSelectedType)());
     if (!p) return 0;
     const u32 track = selected_track();
-    const u32 slot = index + (p->paged ? player_row(track) : 0);
+    const u32 slot = index + (paged(track) ? player_row(track) : 0);
     if (p->steps[slot] == 1) return 1;  // an absent slot: the encoder turns nothing
     if (track >= kTracks) return 0;
     const u32 inherited[8] = {128, 8, 0, 4}; // stock's doubled buckets; the second page is continuous

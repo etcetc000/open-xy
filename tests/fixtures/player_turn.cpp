@@ -6,6 +6,7 @@
 #define require(x) do { if (!(x)) { std::fprintf(stderr,"line %d\n",__LINE__); std::abort(); } } while(0)
 using namespace opxy;
 u32 fake_track=0;
+int fake_register=1;
 volatile i32 sdk_track_octaves[8]={};
 namespace {
 u32 selected=6, writes=0, continuous=0, edited=99;
@@ -31,9 +32,12 @@ const platform::Player* absent() {
     static const platform::Player player={reinterpret_cast<const char*>(8),"absent",nullptr,nullptr,nullptr,{0,4,13,1}};
     return &player;
 }
+// Whether stock placed the paged player's own page.
+int placed=1;
+int page_ready() { return placed; }
 // Its second page: an enum of three, a continuous control, an absent slot, a continuous control.
 const platform::Player* pages() {
-    static const platform::Player player={reinterpret_cast<const char*>(9),"pages",nullptr,nullptr,nullptr,
+    static const platform::Player player={reinterpret_cast<const char*>(9),"pages",nullptr,nullptr,&page_ready,
                                           {0,4,13,2,3,0,1,0},true};
     return &player;
 }
@@ -80,9 +84,12 @@ int main() {
     require(sdk_player_turn(2,one)==1 && writes==absent_writes+1);
     selected=6;
     require(sdk_player_turn(4,one)==0 && sdk_player_turn(2,nullptr)==0);
-    // A press reaches the service once a player page is in place, and switches
+    // A press reaches the service whether or not stock placed the page, and switches
     // only a paged player's page. Maestro keeps its encoder 4 click otherwise.
-    require(!sdk_player_press && platform::register_player_page(nullptr,nullptr)==1 && sdk_player_press);
+    fake_register=0;
+    require(!sdk_player_press && platform::register_player_page(nullptr,nullptr)==0 && sdk_player_press);
+    sdk_player_press=nullptr; fake_register=1;
+    require(platform::register_player_page(nullptr,nullptr)==1 && sdk_player_press);
     sdk_player_press();
     require(platform::player_row(0)==0 && sdk_player_click()==0);
     selected=9;
@@ -107,6 +114,22 @@ int main() {
     fake_track=8;
     sdk_player_press();
     require(platform::player_row(8)==0 && sdk_player_click()==0);
+    fake_track=0;
+    // A paged player whose page stock did not place keeps stock's Maestro page,
+    // which shows the first four: a press switches nothing, encoder 4's click
+    // stays stock's and the encoders edit the first four, even on the second row.
+    selected=9; placed=0;
+    sdk_player_press();
+    require(platform::player_row(0)==0 && sdk_player_click()==0);
+    require(sdk_player_turn(0,one)==1 && edited==0);
+    placed=1; sdk_player_press();
+    require(platform::player_row(0)==4 && sdk_player_click()==1);
+    placed=0;
+    require(sdk_player_click()==0 && sdk_player_turn(1,one)==1 && edited==1);
+    placed=1;
+    require(sdk_player_turn(1,one)==1 && edited==5);
+    sdk_player_press();
+    require(platform::player_row(0)==0);
     // Every parameter word reaches the player's callbacks, the second page's too:
     // player_controls hands press, update and display all eight.
     fake_track=0;
