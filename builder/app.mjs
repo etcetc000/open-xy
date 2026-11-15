@@ -78,6 +78,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
+  const editedExtensionSettings = new Set();
   const NUMBERS_KEY = 'open-xy-machine-numbers';
   const SELECTION_KEY = 'open-xy-selection';
   let selectionError = '', selectionRemembered = false;
@@ -316,7 +317,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           renderMachines();
         }
         for (const [capability, value] of Object.entries(recovered.settings ?? {})) {
-          if (!(capability in extensionSettings)) extensionSettings[capability] = value;
+          if (!editedExtensionSettings.has(capability)) extensionSettings[capability] = value;
         }
         renderExtensions();
         $('firmware-result').textContent = (selectionRemembered
@@ -740,7 +741,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       input.type = 'range'; input.min = setting.minimum; input.max = setting.maximum; input.step = 1;
       input.value = extensionSettings[capability] ?? setting.value;
       input.disabled = !selectedExtensions.includes(extension.id);
-      input.oninput = () => { extensionSettings[capability] = Number(input.value); show(); };
+      input.oninput = () => { editedExtensionSettings.add(capability); extensionSettings[capability] = Number(input.value); show(); };
       input.onchange = () => { invalidate(); recalculate(); };
       show();
       label.append(node('span', setting.label), input, value);
@@ -1029,7 +1030,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const next = await core.openKit(data);
     const hadOs = stock != null || checkingOs;
     invalidate(); stock = null; kit = next;
-    selectionRemembered = false; selectedExtensions = [];
+    selectionRemembered = false; selectedExtensions = []; extensionSettings = {}; editedExtensionSettings.clear();
     $('selection-memory').textContent = '';
     // A loaded or still-checking OS was for the previous collection: it is loaded again.
     if (hadOs) {
