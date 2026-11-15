@@ -337,7 +337,7 @@ class Measurements(unittest.TestCase):
         capture = dict(mode='benchmark', package=identity, expected_cases=expected, complete=True, errors=[],
                        collector_sha256='d'*64, frames=[frame(a) for a in averages], utc='0')
         result, values, case, runs, _combinations, silent = aggregate([capture], expected, identity, 'probedrum', 'e'*40, None)
-        self.assertEqual(result['benchmark'], 'opxy-drum-callback-v2')
+        self.assertEqual(result['benchmark'], 'opxy-drum-callback-v3')
         self.assertAlmostEqual(result['block_percent'], 200000/65535, places=5)
         self.assertAlmostEqual(result['midpoint_percent'], 150000/65535, places=5)
         self.assertAlmostEqual(result['kit_percent'], 500000/65535, places=5)
@@ -385,9 +385,25 @@ class Measurements(unittest.TestCase):
         # The current workload needs its filter run; neither is a synth's.
         with self.assertRaisesRegex(ValueError, 'unexpected measurement fields'):
             cpu_measurement.validate({k: v for k, v in measurement('drum').items() if k != 'filter_percent'}, 'drum')
-        for benchmark in ('opxy-drum-callback-v1', 'opxy-drum-callback-v2'):
+        for benchmark in ('opxy-drum-callback-v1', 'opxy-drum-callback-v2', 'opxy-drum-callback-v3'):
             with self.subTest(benchmark=benchmark), self.assertRaisesRegex(ValueError, 'benchmark must match'):
                 cpu_measurement.validate(dict(measurement('synth'), benchmark=benchmark), 'synth')
+
+    def test_records_timed_with_interrupts_enabled_keep_their_own_ids(self):
+        # Masking interrupts changed what effect, sample and drum blocks measure, so the
+        # IDs moved on; records under the earlier IDs stay valid (they can only overstate)
+        # and are never presented as the current workload.
+        self.assertEqual({k: v for k, v in cpu_measurement.BENCHMARKS.items() if k != 'synth'},
+                         {'effect': 'opxy-effect-callback-v2', 'sample': 'opxy-sample-callback-v2',
+                          'drum': 'opxy-drum-callback-v3'})
+        for kind, earlier in (('effect', 'opxy-effect-callback-v1'), ('sample', 'opxy-sample-callback-v1'),
+                              ('drum', 'opxy-drum-callback-v2')):
+            with self.subTest(kind=kind):
+                cpu_measurement.validate(dict(measurement(kind), benchmark=earlier), kind, legacy=False)
+                self.assertNotEqual(earlier, cpu_measurement.BENCHMARKS[kind])
+        from tooling.benchmark import METHODS
+        self.assertEqual({k: METHODS[k][0] for k in ('effect', 'sample', 'drum')},
+                         {k: cpu_measurement.BENCHMARKS[k] for k in ('effect', 'sample', 'drum')})
 
     def test_a_kits_single_voice_peak_leaves_out_its_whole_kit_runs(self):
         # Synthesized in the shape of a real kit's captures: three single-voice runs per

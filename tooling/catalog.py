@@ -24,7 +24,7 @@ import subprocess
 import sys
 
 from .definitions import stock_name
-from . import cpu_measurement
+from . import cpu_measurement, stock_content
 from .formats import require
 from .machines import machine_at, relative_path
 from .pipeline import NO_WINDOW, ROOT
@@ -96,6 +96,9 @@ def validate(value, listed='machines'):
                 + ', '.join(sorted(required)))
         if listed == 'machines':
             stock_name(name)
+            # A retired machine is never built again, so it installs nothing.
+            if status != 'retired':
+                stock_content.check_identity(name)
         else:
             from .extensions import NAME, RESERVED
             require(NAME.fullmatch(name) and name not in RESERVED, f'{name}: invalid extension ID')
