@@ -10,7 +10,9 @@ int fake_register=1;
 volatile i32 sdk_track_octaves[8]={};
 namespace {
 u32 selected=6, writes=0, continuous=0, edited=99;
-alignas(void*) char slot[0x800+player::state_bytes];
+// The stock object, State at 0x800 and the GUI-written input after it: a build
+// writes the input, so a smaller slot would let it run into the variables after.
+alignas(void*) char slot[0x800+player::state_bytes+sizeof(platform::PlayerInput)];
 i32 values[8]={0,0,0x40000000,0};
 u32 selected_type() { return selected; }
 const i32* parameters(u32 track) { require(track==fake_track); return values; }
@@ -47,7 +49,7 @@ extern "C" {
 const platform::PlayerEntry sdk_players[]={{enums},{linear},{absent},{pages}};
 const u32 sdk_player_count=4;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
-void (*sdk_player_press)()=nullptr;
+void (*sdk_player_press)(u32)=nullptr;
 }
 const void* stock_address(u32 address) {
     if(address==0x8d57efb8) return reinterpret_cast<const void*>(&selected_type);
@@ -90,10 +92,10 @@ int main() {
     require(!sdk_player_press && platform::register_player_page(nullptr,nullptr)==0 && sdk_player_press);
     sdk_player_press=nullptr; fake_register=1;
     require(platform::register_player_page(nullptr,nullptr)==1 && sdk_player_press);
-    sdk_player_press();
+    sdk_player_press(0);
     require(platform::player_row(0)==0 && sdk_player_click()==0);
     selected=9;
-    sdk_player_press();
+    sdk_player_press(0);
     require(platform::player_row(0)==4 && sdk_player_click()==1);
     // The second page edits parameters 4..7: enums by detent, the rest continuously.
     require(sdk_player_turn(0,one)==1 && edited==4 && ((static_cast<u32>(values[4])>>16)*3>>15)==1);
@@ -105,30 +107,30 @@ int main() {
     selected=6;
     require(sdk_player_turn(2,one)==1 && edited==2);
     selected=9;
-    sdk_player_press();
+    sdk_player_press(0);
     require(platform::player_row(0)==0 && sdk_player_turn(1,one)==1 && edited==1);
     // A player is built on its first page.
-    sdk_player_press();
+    sdk_player_press(0);
     require(platform::player_row(0)==4 && sdk_player_build(0,9,1)==slot && platform::player_row(0)==0);
     // Only the eight instrument tracks have a page to switch.
     fake_track=8;
-    sdk_player_press();
+    sdk_player_press(0);
     require(platform::player_row(8)==0 && sdk_player_click()==0);
     fake_track=0;
     // A paged player whose page stock did not place keeps stock's Maestro page,
     // which shows the first four: a press switches nothing, encoder 4's click
     // stays stock's and the encoders edit the first four, even on the second row.
     selected=9; placed=0;
-    sdk_player_press();
+    sdk_player_press(0);
     require(platform::player_row(0)==0 && sdk_player_click()==0);
     require(sdk_player_turn(0,one)==1 && edited==0);
-    placed=1; sdk_player_press();
+    placed=1; sdk_player_press(0);
     require(platform::player_row(0)==4 && sdk_player_click()==1);
     placed=0;
     require(sdk_player_click()==0 && sdk_player_turn(1,one)==1 && edited==1);
     placed=1;
     require(sdk_player_turn(1,one)==1 && edited==5);
-    sdk_player_press();
+    sdk_player_press(0);
     require(platform::player_row(0)==0);
     // Every parameter word reaches the player's callbacks, the second page's too:
     // player_controls hands press, update and display all eight.

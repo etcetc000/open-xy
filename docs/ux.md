@@ -70,6 +70,12 @@ is the reference for each of them.
   the row. A press switches pages with Shift held too, and the row follows,
   so the player reaches the other page's entries without letting go. Presets
   and step locks keep the row as they keep the pages.
+- **A note player's Shift row is not a synth's.** A
+  [player's shift row](api.md#a-players-shift-layer-sdk-116) (SDK 1.16) uses
+  the same encoders, but the SDK's header shows no Shift captions for it (the
+  player's own page names the row's choices), a press with Shift held does
+  not switch a paged player's page (let go of Shift, press, hold it again),
+  and the row's values are not saved with the project.
 - **Use the shared header.** New synths with five to eight controls use
   [`opxy/page_header.hpp`](display.md#two-page-header), already wired up by
   `sdk.py new` when `--controls` is 5, 6, 7 or 8. Choose the actual parameter
