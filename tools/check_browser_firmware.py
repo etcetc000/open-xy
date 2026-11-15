@@ -75,12 +75,26 @@ def selection_services(profile, result, machines_by_id, extension_sources):
     return active_services(profile, service_users(selected))
 
 
-def assembled(stock, module, symbols, reviewed, services, profiling):
-    """Python's own LDR for a GNU-linked module and the reviewed profile it was linked for."""
+def selection_settings(kit, result):
+    """Each capability setting of a selection: the first chosen extension's value, as the builder does."""
+    values = {}
+    for e in kit.get('extensions', []):
+        if e['id'] in result['extensions']:
+            for capability, setting in e.get('settings', {}).items():
+                values.setdefault(capability, setting['value'])
+    return values
+
+
+def assembled(stock, module, symbols, reviewed, services, profiling, values=None):
+    """Python's own LDR for a GNU-linked module and the reviewed profile it was linked for,
+    with the selection's capability settings (selection_settings)."""
     profile = copy.deepcopy(reviewed)
+    values = values or {}
     for patch in profile['patches']:
         if not patch_active(patch, services, profiling):
             patch['after'] = patch['before']
+        elif 'setting' in patch and patch['setting'] in values:
+            patch['after'] = patch['choices'][str(values[patch['setting']])]
         elif patch['kind'] == 'hook':
             patch['after'] = hook_instruction(patch, symbols[patch['symbol']]['value']).hex()
         elif patch['kind'] == 'startup':
@@ -198,7 +212,7 @@ def main():
         services = selection_services(kit['profile'], result, machines_by_id, extension_sources)
         modes = {}
         for profiling in (True, False):
-            expected = assembled(stock, module, symbols, kit['profile'], services, profiling)
+            expected = assembled(stock, module, symbols, kit['profile'], services, profiling, values)
             suffix = '.ldr' if profiling else '.profiling-off.ldr'
             require(expected == prefix.with_suffix(suffix).read_bytes(),
                     f'Python/browser firmware differs: {result["name"]}{suffix}')

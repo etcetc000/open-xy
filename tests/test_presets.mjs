@@ -22,7 +22,9 @@ async function fixture(selectedMachines = machines) {
   const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ],"seq_types":[{"type":"maestro"}\n    ]}';
   const catalog = new TextEncoder().encode(text);
   const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.indexOf('\n    ]', text.indexOf('fx_types')), seq_types: text.lastIndexOf('\n    ]')};
-  return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts}}, catalog};
+  // The reviewed profile's stock content names, which every build is checked against.
+  const {stock_content} = JSON.parse(read('profiles/opxy-1.2.1.json'));
+  return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts, stock_content}}, catalog};
 }
 
 test('all selections include only their instrument presets with native names and definition defaults', async () => {
@@ -52,6 +54,22 @@ test('all selections include only their instrument presets with native names and
     assert.deepEqual(Object.keys(files).filter(p=>p.startsWith('user/')),[]);
   }
   assert.deepEqual(machines,original);
+});
+
+test('presetDefaults sets the init preset track volume, as the native generator does', async () => {
+  const louder = {...machines[0], presetDefaults: {...machines[0].presetDefaults, volume: 20000}};
+  const {kit, catalog} = await fixture([louder]);
+  const files = await buildAssets(kit, [louder.id], catalog, numbers);
+  const preset = JSON.parse(new TextDecoder().decode(files[presetPath(louder)]));
+  assert.equal(preset.engine.volume, 20000);
+  const plain = JSON.parse(new TextDecoder().decode((await buildAssets((await fixture()).kit, [machines[0].id],
+    (await fixture()).catalog, numbers))[presetPath(machines[0])]));
+  assert.equal(plain.engine.volume, 16384);  // tooling/default_preset.json's
+  for (const volume of [32768, -1, true, 1.5, '20000']) {
+    const bad = {...louder, presetDefaults: {volume}};
+    const {kit: badKit, catalog: badCatalog} = await fixture([bad]);
+    await assert.rejects(buildAssets(badKit, [bad.id], badCatalog, numbers), /Invalid preset volume default/);
+  }
 });
 
 // A machine's own presets as tooling.machines.read_presets passes them on.
