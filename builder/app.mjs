@@ -298,9 +298,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       if (recovered.selected) {
         if (!selectionRemembered) {
           osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
-          selected = recovered.selected; selectedExtensions = recovered.extensions ?? []; extensionSettings = {...recovered.settings};
-          renderMachines(); renderExtensions();
+          selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
+          renderMachines();
         }
+        for (const [capability, value] of Object.entries(recovered.settings ?? {})) {
+          if (!(capability in extensionSettings)) extensionSettings[capability] = value;
+        }
+        renderExtensions();
         $('firmware-result').textContent = (selectionRemembered
           ? '✓ open-xy OS verified · your saved choices are kept'
           : '✓ open-xy OS with ' + selectionNames().join(' + ')) + memoryNote;

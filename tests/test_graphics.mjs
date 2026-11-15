@@ -812,6 +812,20 @@ test('Extensions graphics defaults to original designs without firmware extensio
     arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
   assert.equal(Number($('extension-settings').children[0].children[1].value), -36);
   assert.equal(savedBrowserState.has('open-xy-selection'), false);
+  const include = $('machines').children[0].children[0].children[0];
+  include.checked = false; include.onchange();
+  await builder.loadCollection(settingsKit);
+  recoverResult.settings = {release_floor:-30};
+  assert.equal(await wizardOptions.onFirmware({name:'Recovered settings with saved selection', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.deepEqual(wizardOptions.getSelected(), []);
+  assert.equal(Number($('extension-settings').children[0].children[1].value), -30);
+  const threshold = $('extension-settings').children[0].children[1];
+  threshold.value = -42; threshold.oninput(); threshold.onchange();
+  recoverResult.settings = {release_floor:-28};
+  await wizardOptions.onFirmware({name:'Keep edited setting', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer});
+  assert.equal(Number($('extension-settings').children[0].children[1].value), -42);
 });
 
 test('machine graphics settings preserve selected master artwork and reject asset collisions', async () => {
