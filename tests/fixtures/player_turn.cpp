@@ -107,5 +107,11 @@ int main() {
     fake_track=8;
     sdk_player_press();
     require(platform::player_row(8)==0 && sdk_player_click()==0);
+    // Every parameter word reaches the player's callbacks, the second page's too:
+    // player_controls hands press, update and display all eight.
+    fake_track=0;
+    for(u32 i=0;i<8;++i) values[i]=static_cast<i32>(0x01010101u*(i+1));
+    const player::Controls delivered=platform::player_controls(slot);
+    for(u32 i=0;i<8;++i) require(delivered.value[i]==values[i]);
     std::puts("owned player controls bypass stock hold mode; enum detents and stock fallback passed");
 }
