@@ -88,12 +88,9 @@ int main() {
     require(binding::last_input.trigger_key == (OPXY_SCREEN_KIT == 1 ? 54u : 0u));
     require(binding::last_input.trigger_model == (OPXY_SCREEN_KIT == 1 ? 9u : 0u));
     require(binding::last_input.trigger_controls[0] == (OPXY_SCREEN_KIT == 1 ? 0x70000000 : 0));
-    // So does the selected key, apart from the played one.
-    require(binding::last_input.selected_key == (OPXY_SCREEN_KIT == 1 ? 53u : 0u));
     // Without a selected pad (a synth's controls) every screen reads the track's serial.
     controls.pad = 0;
     const auto unselected = serial();
-    require(!binding::last_input.selected_key);
     require(unselected == screen::fixture_note_starts);
     pitches[61] = 0; ++releases[61]; pitches[61] = 1; ++screen::fixture_note_starts;
     require(serial() == unselected + 1);

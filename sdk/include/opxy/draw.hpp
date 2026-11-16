@@ -95,15 +95,13 @@ struct Input {
     // Controls reflect the GUI snapshot and current offsets, not past step locks.
     u32 trigger_key, trigger_model;
     i32 trigger_controls[parameter_slots];
-    // The pad the user has selected, as a canonical key 53..76; 0 when none.
-    u32 selected_key;
 };
 const u32 notes_unavailable = 0xffffffffu;
 const i32 envelope_unavailable = -1;
 static inline bool envelope_known(const Envelope& envelope) {
     return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
 }
-static_assert(sizeof(Input) == 156 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
+static_assert(sizeof(Input) == 152 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
               __builtin_offsetof(Input, line) == 106 && __builtin_offsetof(Input, pad) == 108 &&
               __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
@@ -112,7 +110,7 @@ static_assert(sizeof(Input) == 156 && __builtin_offsetof(Input, pan) == 104 && _
               __builtin_offsetof(Input, shift) == 76 && __builtin_offsetof(Input, choices) == 80 &&
               __builtin_offsetof(Input, model) == 84 && __builtin_offsetof(Input, amp) == 88 &&
               __builtin_offsetof(Input, trigger_key) == 112 && __builtin_offsetof(Input, trigger_model) == 116 &&
-              __builtin_offsetof(Input, trigger_controls) == 120 && __builtin_offsetof(Input, selected_key) == 152,
+              __builtin_offsetof(Input, trigger_controls) == 120,
               "Drawing input layout (display.mjs)");
 static_assert(sizeof(Node) == 28 && sizeof(Text) == 36, "Drawing frame layout (display.mjs)");
 
