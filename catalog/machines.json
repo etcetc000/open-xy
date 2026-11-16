@@ -1741,17 +1741,18 @@
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
         "commit": "71045781d5b70cae3cf936a7ba676cd91a80efb8",
-        "firmware_sha256": "3804063e67c6692586f52a56d6ea91a1af0d5907b92e21648f89af50bceb9c81",
+        "firmware_sha256": "8ccbf01d2421a24d505597acffe5e6666f75aa696408668cb07272cc5c65d795",
         "runs": 1,
-        "block_percent": 2.890059,
-        "peak_percent": 10.749981,
-        "midpoint_percent": 2.793927,
-        "combined_percent": 2.217136,
+        "block_percent": 2.891585,
+        "peak_percent": 10.778973,
+        "midpoint_percent": 2.803082,
+        "combined_percent": 2.221714,
         "worst_setting": {
           "control": 2,
           "label": "Drive",
           "value": 805306367
-        }
+        },
+        "report": "https://github.com/etcetc000/open-xy/pull/539"
       }
     },
     {
