@@ -1,6 +1,9 @@
 #include <screen_player.hpp>
 #include <cstdio>
 #include <cstdlib>
+// Players loop k < display_dots to light the required dots (catalog scales does):
+// the optional dots must not change it.
+static_assert(opxy::player::display_dots == 24, "display_dots counts the required dots");
 #define require(x) do { if (!(x)) { std::fprintf(stderr, "line %d\n", __LINE__); std::abort(); } } while (0)
 using namespace opxy;
 static u32 row = 0, rows_read = 0;
@@ -9,22 +12,22 @@ u32 player_row(u32 track) { require(track == 0); ++rows_read; return row; }
 } }
 struct Page {
     static const bool paged = false;
-    static const char* const ids[281];
+    static const char* const ids[player::display_dot_slots + 257];
     static const char* const titles[8];
     static player::Display shown;
     static bool display(u32 track, player::Display& out) { require(track == 0); out = shown; return true; }
 };
-const char* const Page::ids[281] = {};
+const char* const Page::ids[player::display_dot_slots + 257] = {};
 const char* const Page::titles[8] = {"str", "dir", "voi", "spr", "", "", "", ""};
 player::Display Page::shown = {};
 // A player whose press switches between two pages.
 struct Paged {
     static const bool paged = true;
-    static const char* const ids[305];
+    static const char* const ids[player::display_dot_slots + 281];
     static const char* const titles[8];
     static bool display(u32 track, player::Display& out) { require(track == 0); out = Page::shown; return true; }
 };
-const char* const Paged::ids[305] = {};
+const char* const Paged::ids[player::display_dot_slots + 281] = {};
 const char* const Paged::titles[8] = {"str", "dir", "voi", "spr", "key", "scl", "", "lat"};
 
 static bool text_is(const screen::Leaf& node, const char* text) { return std::strcmp(node.text, text) == 0; }
@@ -75,13 +78,14 @@ int main() {
     typedef screen::PlayerPage<Page> Renderer;
     Renderer::Object object = {};
     screen::Leaf titles[4] = {}, values[4] = {}, line = {};
-    screen::PathNode keys[128] = {}, notes[128] = {}, dots[24] = {};
+    screen::PathNode keys[128] = {}, notes[128] = {}, dots[32] = {};
     object.base.svg = &object;
     object.text = &line;
     object.lit = ~0u;
     for (u32 i = 0; i < 4; ++i) { object.base.titles[i] = &titles[i]; object.base.values[i] = &values[i]; }
     for (u32 i = 0; i < 128; ++i) { object.keys[i] = &keys[i]; object.played[i] = &notes[i]; }
-    for (u32 i = 0; i < 24; ++i) {
+    for (u32 i = 0; i < 32; ++i) {
+        if (i >= 24 && i != 30) continue;   // optional dots 24..31: only dot 30 authored
         object.dots[i] = &dots[i]; object.home[i] = i * 1024;
         dots[i].leaf.matrix[6] = object.home[i];
     }
@@ -98,6 +102,31 @@ int main() {
     Renderer::centre(&line);
     require(line.anchor == 1 && line.matrix[6] == Renderer::kCentre);
     require(dots[7].leaf.matrix[6] == object.home[7] && dots[0].leaf.matrix[6] >= Renderer::kHidden);
+    // Display::dx: a lit dot moves right by dx pixels, clamped to 480; a change of
+    // dx alone moves it; a dark dot stays parked whatever its dx.
+    Page::shown.dx[7] = 100;
+    Renderer::frame(&object, 0);
+    require(dots[7].leaf.matrix[6] == object.home[7] + (100 << 10));
+    Page::shown.dx[7] = -9999;
+    Renderer::frame(&object, 0);
+    require(dots[7].leaf.matrix[6] == object.home[7] - (480 << 10));
+    Page::shown.dx[0] = 50;
+    Renderer::frame(&object, 0);
+    require(dots[0].leaf.matrix[6] >= Renderer::kHidden);
+    Page::shown.dx[7] = 0; Page::shown.dx[0] = 0;
+    Renderer::frame(&object, 0);
+    require(dots[7].leaf.matrix[6] == object.home[7]);
+    // Optional dots: an authored dot 30 shows, moves and hides like the required
+    // ones; unauthored 24..31 are skipped whatever their bits say.
+    require(dots[30].leaf.matrix[6] >= Renderer::kHidden);
+    Page::shown.lit |= 1u << 30 | 1u << 31 | 1u << 25;
+    Page::shown.dx[30] = 12;
+    Renderer::frame(&object, 0);
+    require(dots[30].leaf.matrix[6] == object.home[30] + (12 << 10) && dots[25].leaf.matrix[6] == 0);
+    Page::shown.lit &= ~(1u << 30 | 1u << 31 | 1u << 25);
+    Page::shown.dx[30] = 0;
+    Renderer::frame(&object, 0);
+    require(dots[30].leaf.matrix[6] >= Renderer::kHidden);
     for (u32 n : pitches) require(notes[n].leaf.matrix[6] >= (18 << 10) && notes[n].leaf.matrix[6] < (462 << 10));
     require(notes[61].leaf.matrix[6] == Renderer::kHidden && keys[52].leaf.matrix[6] == Renderer::kHidden);
     require(keys[53].leaf.matrix[6] == (18 << 10));

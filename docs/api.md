@@ -2009,8 +2009,13 @@ The header uses the definition labels and `Display.values`, one entry per
 parameter. A one-page player keeps the stock header. For a paged player the
 SDK adds the [two-page header](display.md#two-page-header) as the first nodes
 of the artwork's root `<g>` and draws it: keep the player's own artwork below
-y=38. `lit` shows the 24 `<id>_dot_0..23`
-circles or filled paths; `text` replaces the centered `<id>_text` text leaf.
+y=38. `lit` shows the 24 required `<id>_dot_0..23` circles or filled paths
+and any of the optional `<id>_dot_24..31` the artwork authors, for indicators
+beyond the keys. `dx[k]` draws lit dot `k` that many pixels right of its
+authored place, clamped to -480..480, such as a pointer along a scale; 0 keeps
+it in place. `player::display_dots` stays 24, the required dots a player
+lights; `player::display_dot_slots` (32) counts the optional ones too and
+sizes `dx`. `text` replaces the centered `<id>_text` text leaf.
 `display` receives a zeroed `Display` every frame, so a string it leaves
 alone (a value it does not write, such as `values[4..7]` of a one-page
 player) is empty; every string it writes must terminate within its fixed
