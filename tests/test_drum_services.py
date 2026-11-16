@@ -212,7 +212,56 @@ class DrumHookUnits(unittest.TestCase):
             with self.subTest(machines=[(m.id, m.kind, m.sdk) for m in machines]):
                 selected = units(*machines)
                 self.assertEqual('drum_trigger' in selected, linked)
-                # The browser builder links by the same rule: the kit's features name the service.
+                # Python's service users turn the played_pad service on by the same rule (the
+                # browser kit's own path is the next test).
                 self.assertEqual('played_pad' in active_services(config(), native.service_users(machines)), linked)
                 if any(m.kind == 'drum' or m is shift for m in machines):
                     self.assertIn('drum_synthesis_stock', selected)   # the drums service itself stays
+
+    def test_the_browser_kit_links_the_played_pad_snapshot_only_for_a_kit_declaring_sdk_1_17(self):
+        # The browser builder's path: the kit lists each machine's features
+        # (browser_kit.machine_entry), core.mjs activeServices turns services on from
+        # them, and linkKit keeps a service's SDK object only while it is on.
+        import json
+        from dataclasses import replace
+        from tooling import browser_kit, native
+        from tooling.pipeline import config
+        from machine_fixtures import fixture
+        synth = fixture('probesynth')
+        kits = {name: replace(synth, kind='drum', id=name, sdk=sdk)
+                for name, sdk in (('kit110', (1, 10)), ('kit116', (1, 16)), ('kit117', (1, 17)), ('kit118', (1, 18)))}
+        # Each kit listed on its own, under the fixture's id, whose artwork names its nodes.
+        with tempfile.TemporaryDirectory(prefix='played-pad-kit-') as folder:
+            entries = {name: browser_kit.machine_entry(replace(m, id=synth.id), config(), {}, Path(folder), 'clang++')
+                       for name, m in kits.items()}
+        for name, entry in entries.items():
+            with self.subTest(kit=name):
+                self.assertEqual('playedPad' in entry.get('features', []), kits[name].sdk >= (1, 17))
+        # The kit's objects carry their service as the native build assigns it.
+        services = native.object_services(native.Collection(list(kits.values())))
+        objects = [dict(name=name, owner=None, service=service) for name, service in services.items()]
+        self.assertIn('played_pad', services.values())
+        selections = [['kit110'], ['kit116'], ['kit117'], ['kit118'], ['kit116', 'kit117'], ['kit110', 'kit116']]
+        script = """
+import {activeServices} from %s;
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const {profile, entries, objects, selections} = JSON.parse(input);
+process.stdout.write(JSON.stringify(selections.map(selection => {
+  const services = activeServices(profile, selection.map(id => entries[id]));
+  // linkKit's rule for an SDK object (owner null).
+  return objects.filter(o => !o.service || services.has(o.service)).map(o => o.name);
+})));
+""" % json.dumps((ROOT / 'builder/core.mjs').as_uri())
+        request = dict(profile=config(), entries=entries, objects=objects, selections=selections)
+        result = subprocess.run(['node', '--input-type=module', '-e', script], input=json.dumps(request),
+                                capture_output=True, text=True, encoding='utf-8', cwd=ROOT, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        linked = json.loads(result.stdout)
+        trigger = [name for name, service in services.items() if service == 'played_pad']
+        self.assertEqual(len(trigger), 1)
+        for selection, names in zip(selections, linked):
+            with self.subTest(selection=selection):
+                expected = any(kits[name].sdk >= (1, 17) for name in selection)
+                self.assertEqual(trigger[0] in names, expected)
+                self.assertTrue(any(services.get(name) == 'drums' for name in names))
