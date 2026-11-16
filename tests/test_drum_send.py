@@ -168,7 +168,7 @@ int main() {
 '''
 
 
-def kit(pad_mix=None, sdk='1.10'):
+def kit(pad_mix=None, sdk=(1, 10)):
     definition = copy.deepcopy(fixture('probesynth').definition)
     definition['resources'].update(modelCount=12)
     if pad_mix is not None:

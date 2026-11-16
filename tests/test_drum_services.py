@@ -187,19 +187,32 @@ class DrumHookUnits(unittest.TestCase):
                 self.assertEqual(len(defining), 1, defining)
                 self.assertEqual(native.UNIT_SERVICES.get(defining[0]), 'drums', defining)
 
-    def test_the_played_pad_snapshot_is_linked_only_with_a_drum_kit(self):
-        # Only a 1.17 kit's screen calls sdk_drum_trigger (screen_drawing.hpp
-        # played_pad), so its unit is the drums service's, and a build without a
-        # drum kit neither links nor calls it.
+    def test_the_played_pad_snapshot_is_linked_only_with_a_kit_declaring_sdk_1_17(self):
+        # Only the screen of a kit declaring SDK 1.17 or later calls sdk_drum_trigger
+        # (screen_drawing.hpp played_pad), so the units a build selects hold drum_trigger
+        # only when such a kit is in it: not for a synth, a Shift-row synth (a drums
+        # user) or an older kit, whose screens never call it.
         import re
+        from dataclasses import replace
         from tooling import native
+        from tooling.firmware import active_services
+        from tooling.pipeline import config
+        from machine_fixtures import fixture
         platform = ROOT / 'sdk/platform/opxy-1.2.1'
         defining = [f.stem for f in sorted(platform.iterdir()) if f.suffix == '.cpp' and
                     re.search(r'^void sdk_drum_trigger\(', f.read_text(encoding='utf-8'), re.M)]
         self.assertEqual(defining, ['drum_trigger'])
-        self.assertIn('drum_trigger', native.SDK_UNITS)
-        self.assertEqual(native.UNIT_SERVICES['drum_trigger'], 'drums')
-        screen = (platform / 'screen_drawing.hpp').read_text(encoding='utf-8')
-        calls = [m.start() for m in re.finditer(r'\bsdk_drum_trigger\(controls\.track, &display_input\);', screen)]
-        self.assertEqual(len(calls), 1)
-        self.assertRegex(screen[:calls[0]], r'if \(Machine::played_pad\)\s*\{?\s*$')
+        synth, shift = fixture('probesynth'), fixture('probeshift')
+        kit = lambda sdk, name: replace(synth, kind='drum', id=name, sdk=sdk)
+        units = lambda *machines: [step for _name, m, step in native.plan(native.Collection(machines)) if m is None]
+        for machines, linked in (((synth,), False), ((shift,), False), ((kit((1, 16), 'oldkit'),), False),
+                                 ((kit((1, 8), 'oldkit'), shift), False), ((kit((1, 17), 'newkit'),), True),
+                                 ((kit((1, 18), 'newkit'),), True),
+                                 ((kit((1, 16), 'oldkit'), kit((1, 17), 'newkit'), synth), True)):
+            with self.subTest(machines=[(m.id, m.kind, m.sdk) for m in machines]):
+                selected = units(*machines)
+                self.assertEqual('drum_trigger' in selected, linked)
+                # The browser builder links by the same rule: the kit's features name the service.
+                self.assertEqual('played_pad' in active_services(config(), native.service_users(machines)), linked)
+                if any(m.kind == 'drum' or m is shift for m in machines):
+                    self.assertIn('drum_synthesis_stock', selected)   # the drums service itself stays

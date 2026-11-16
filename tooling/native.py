@@ -19,7 +19,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables
-from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
+from .adapters import (pad_mix, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
@@ -262,8 +262,9 @@ UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
-# A 1.17 kit screen's played-pad snapshot: only a build with a drum kit links it.
-UNIT_SERVICES['drum_trigger'] = 'drums'
+# A 1.17 kit screen's played-pad snapshot: only a build with a kit declaring SDK 1.17
+# or later links it, the one kind of screen that calls it (screen_drawing.hpp played_pad).
+UNIT_SERVICES['drum_trigger'] = 'played_pad'
 # Per-key sends hook stock's mixer, so only a build with a padMix kit links them.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
@@ -290,7 +291,8 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
-    Shift row, whose presets and step locks use the drums and drum_locks services),
+    Shift row, whose presets and step locks use the drums and drum_locks services;
+    'playedPad': a drum kit declaring SDK 1.17 or later, whose screen reads the played pad),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page') and the registry capabilities its extensions declare."""
@@ -300,6 +302,7 @@ def service_users(machines):
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
+            ['playedPad' for m in machines if m.kind == 'drum' and played_pad(m)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
             [c for e in extensions_of(machines) for c in e.capabilities])

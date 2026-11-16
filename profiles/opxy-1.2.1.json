@@ -148,6 +148,9 @@
       "drumline_page",
       "synthShift"
     ],
+    "played_pad": [
+      "playedPad"
+    ],
     "players": [
       "player"
     ],
