@@ -1533,7 +1533,6 @@ ships. Catalog review checks it.
   "loop.crossfade": 0, "loop.onrelease": false}]
 ```
 
-
 ### Identity
 
 A machine is identified by its `definition.json` `id`. Presets save that name,
