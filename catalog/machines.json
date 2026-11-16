@@ -2478,6 +2478,12 @@
           "value": 1610612735
         }
       }
+    },
+    {
+      "id": "neuroform",
+      "kind": "synth",
+      "maintainer": "V714",
+      "status": "reserved"
     }
   ]
 }
