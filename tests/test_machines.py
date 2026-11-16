@@ -107,6 +107,24 @@ class DrumPresets(unittest.TestCase):
                         with self.subTest(sdk=earlier), self.assertRaisesRegex(ValueError, '1.17'):
                             machines.machine_at(root)
 
+    def test_the_fixture_kits_differ_only_in_their_sdk(self):
+        # probekit and probekit17 build the kit rows of an image-size comparison: the
+        # only difference a build sees is the SDK, so only 1.17 links the snapshot.
+        from tooling import native
+        old, new = fixture('probekit'), fixture('probekit17')
+        self.assertEqual((old.kind, old.sdk, new.kind, new.sdk), ('drum', (1, 16), 'drum', (1, 17)))
+        self.assertEqual(old.definition['resources'], new.definition['resources'])
+        self.assertEqual(old.definition['parameters'], new.definition['parameters'])
+        for folder in ('probekit', 'probekit17'):
+            for name in ('core.h', 'display.cpp', 'display.h', 'engine.cpp', 'panel.svg.fragment'):
+                with self.subTest(file=name):
+                    text = (FOLDER / folder / name).read_text(encoding='utf-8')
+                    self.assertEqual(text.replace(folder, 'ID'),
+                                     (FOLDER / 'probekit' / name).read_text(encoding='utf-8').replace('probekit', 'ID'))
+        units = lambda m: {step for _name, owner, step in native.plan(native.Collection([m])) if owner is None}
+        self.assertEqual(units(new) - units(old), {'drum_trigger'})
+        self.assertEqual(units(old) - units(new), set())
+
     def test_any_preset_with_records_needs_sdk_1_17(self):
         # The gate is on the kit, not on each preset: one preset with records among
         # empty ones needs SDK 1.17, whichever order the folder lists them in.

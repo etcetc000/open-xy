@@ -6,6 +6,8 @@ no machines of its own; these are small, valid folders, not copies of published 
   display without paths.
 - probefx: an effect with a Dry control (dryParameter) and controls of each mapping.
 - probesample: a drum-page (page 7) sample engine declaring every optional service.
+- probekit, probekit17: probesynth as a two-model drawn drum kit, declaring SDK 1.16 and
+  1.17; image-size measurements of the played-pad snapshot build them.
 """
 from pathlib import Path
 import os

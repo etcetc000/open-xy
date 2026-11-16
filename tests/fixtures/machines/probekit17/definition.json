@@ -1,0 +1,121 @@
+{
+  "schema": 1,
+  "id": "probekit17",
+  "name": "Probe Kit 17",
+  "parameters": [
+    {
+      "id": "shape",
+      "label": "Shape",
+      "default": 0.3333333333333333,
+      "mapping": {
+        "kind": "anchors",
+        "values": [
+          0,
+          0.25,
+          0.5,
+          1
+        ]
+      },
+      "display": "percent"
+    },
+    {
+      "id": "width",
+      "label": "Width",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "level",
+      "label": "Level",
+      "default": 0.65,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "motion",
+      "label": "Motion",
+      "default": 0.5,
+      "mapping": {
+        "kind": "exponential",
+        "minimum": 20,
+        "maximum": 4000
+      },
+      "display": "duration"
+    },
+    {
+      "id": "extra0",
+      "label": "Extra 0",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent",
+      "control": 0
+    },
+    {
+      "id": "extra1",
+      "label": "Extra 1",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent",
+      "control": 1
+    },
+    {
+      "id": "extra2",
+      "label": "Extra 2",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent",
+      "control": 2
+    },
+    {
+      "id": "extra3",
+      "label": "Extra 3",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent",
+      "control": 3
+    }
+  ],
+  "presets": {},
+  "resources": {
+    "voiceBytes": 4,
+    "voiceAlignment": 4,
+    "voiceCapacity": 8,
+    "sharedBytes": 0,
+    "outputPeakQ31": 1073741824,
+    "display": {
+      "stateBytes": 4,
+      "stateAlignment": 4,
+      "paths": 2,
+      "points": 64,
+      "nodes": 2,
+      "texts": 0,
+      "palette": 16
+    },
+    "modelCount": 2
+  }
+}
