@@ -50,6 +50,11 @@ int main() {
     // No parameter vector means neutral offsets, just as the audio adapter.
     vector_words[1] = 0; sdk_drum_trigger(0,&input);
     require(input.trigger_controls[0] == 0x70000000);
+    // Nor does one shorter than eight words or misaligned.
+    vector_words[1] = 0x1000; vector_words[2] = 0x101c; sdk_drum_trigger(0,&input);
+    require(input.trigger_controls[0] == 0x70000000);
+    vector_words[1] = 0x1002; vector_words[2] = 0x1022; sdk_drum_trigger(0,&input);
+    require(input.trigger_controls[0] == 0x70000000);
     // Played transposed notes retain their stored canonical pad identity.
     pitch = 73; sdk_drum_trigger(0,&input); require(input.trigger_key == 54);
     bytes[24] = 0; sdk_drum_trigger(0,&input);
