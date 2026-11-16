@@ -1,7 +1,7 @@
 // GUI role. The played-pad snapshot of a drum kit's drawn screen (draw::Input
 // trigger_*, SDK 1.17): only a kit declaring 1.17 or later calls it
-// (screen_drawing.hpp), so it is a unit of the drums service and a build
-// without a drum kit does not link it.
+// (screen_drawing.hpp), so it is the unit of the played_pad service, which a
+// build links only with such a kit (tooling/native.py UNIT_SERVICES).
 #include "drum_values.hpp"
 #include <opxy/draw.hpp>
 extern "C" void sdk_drum_trigger(opxy::u32, opxy::draw::Input*) __asm__("sdk_drum_trigger");
