@@ -113,10 +113,20 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         // choice. Publication and storage remain on this existing route.
         const u32 slot = shown[control % page_controls];
         if (slot >= kDrumControlCount || !machine->used(model, slot)) return 0;
-        i32 continuous = static_cast<i32>(controls[slot]) + delta;
-        if (continuous < 0) continuous = 0;
-        if (continuous > 127) continuous = 127;
-        const u32 next = machine->edit ? machine->edit(model, slot, controls[slot], delta) : static_cast<u32>(continuous);
+        u32 next;
+        if (machine->edit) {
+            // Event word two is the turn's speed, as stock's pan editor reads
+            // it (8d4d60b0): 0 for a slow turn, more for a faster one.
+            i32 speed = static_cast<i32>(event[2]);
+            if (speed < 0) speed = 0;
+            if (speed > 127) speed = 127;
+            next = machine->edit(model, slot, controls[slot], delta, static_cast<u32>(speed));
+        } else {
+            i32 continuous = static_cast<i32>(controls[slot]) + delta;
+            if (continuous < 0) continuous = 0;
+            if (continuous > 127) continuous = 127;
+            next = static_cast<u32>(continuous);
+        }
         if (next > 127 || next == controls[slot]) return 0;
         controls[slot] = static_cast<u8>(next);
     }

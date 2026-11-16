@@ -48,9 +48,10 @@ const char* name(u32 model) { return model ? "short" : "full"; }
 u32 count(u32 model) { return model ? 3 : 8; }
 u32 edit_calls;
 i32 edit_delta;
+u32 edit_speed;
 bool invalid_edit;
-u32 custom_edit(u32 model, u32 slot, u32 value, i32 delta) {
-    ++edit_calls; edit_delta = delta;
+u32 custom_edit(u32 model, u32 slot, u32 value, i32 delta, u32 speed) {
+    ++edit_calls; edit_delta = delta; edit_speed = speed;
     if (invalid_edit) return 128;
     if (slot) {
         const i32 next = static_cast<i32>(value) + delta;
@@ -1065,9 +1066,16 @@ int main() {
     require(drum_pack(0, initial, regions[0] + 1));
     reinterpret_cast<u8*>(regions[0])[24] = drum_mark(0);
     sdk_drum_edit(53,0,plus,0);
-    require(sdk_drum_values(0,&model,raw) && raw[0] == 48);
-    sdk_drum_edit(53,0,plus,0);
-    require(sdk_drum_values(0,&model,raw) && raw[0] == 112);
+    require(sdk_drum_values(0,&model,raw) && raw[0] == 48 && edit_speed == 0);
+    // The turn's speed (event word two) reaches the callback, bounded to 0..127.
+    const u32 fast[3] = {0,1,5};
+    sdk_drum_edit(53,0,fast,0);
+    require(sdk_drum_values(0,&model,raw) && raw[0] == 112 && edit_speed == 5);
+    const u32 slower[3] = {0,static_cast<u32>(-1),static_cast<u32>(-3)}, faster[3] = {0,1,1000};
+    sdk_drum_edit(53,0,slower,0);
+    require(edit_speed == 0 && sdk_drum_values(0,&model,raw) && raw[0] == 48);
+    sdk_drum_edit(53,0,faster,0);
+    require(edit_speed == 127 && sdk_drum_values(0,&model,raw) && raw[0] == 112);
     const u32 boundary = publications;
     sdk_drum_edit(53,0,plus,0);
     require(publications == boundary);

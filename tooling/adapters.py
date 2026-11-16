@@ -198,7 +198,8 @@ def generate_drum_callbacks(directory, machines):
                              f'static const char* const {p}_pad_labels[] = {{{", ".join(json.dumps(f["label"]) for f in pads)}}};']
         edit = m.definition['resources'].get('parameterEdit', 0)
         if edit:
-            declarations.append(f'opxy::u32 {p}_drum_edit_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("{p}_drum_edit_value");')
+            declarations.append(f'opxy::u32 {p}_drum_edit_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32, opxy::u32) '
+                                f'__asm__("{p}_drum_edit_value");')
         if groups:
             declarations += [f'static const opxy::u8 {p}_group_sizes[] = {{{", ".join(str(g["count"]) for g in groups)}}};',
                              f'static const char* const {p}_group_names[] = {{{", ".join(json.dumps(g["label"]) for g in groups)}}};']

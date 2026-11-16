@@ -893,12 +893,14 @@ From SDK 1.17 a kit can declare `resources.parameterEdit: 1` and add this callba
 
 ```cpp
 opxy::u32 edit_parameter(opxy::u32 model, opxy::u32 slot,
-                        opxy::u32 value, opxy::i32 delta);
+                        opxy::u32 value, opxy::i32 delta, opxy::u32 speed);
 ```
 
 It edits a used control on the GUI role, before stock's existing pad publication.
 `value` is the stored 0..127 value and `delta` the signed detent count, bounded
-to -127..127. Return a new 0..127 value, or the input value for no change; an
+to -127..127. `speed` is how fast the encoder turns, 0 for a slow turn and more
+for a faster one, bounded to 0..127: stock's own editor moves pan `speed + 1` a
+detent, and a kit may accelerate the same way or ignore it. Return a new 0..127 value, or the input value for no change; an
 out-of-range result is ignored. Shift's type/group/choke controls and unnamed
 slots never call it. Without this flag, controls keep their existing unit
 steps. A kit with a per-model discrete selector can use this callback to jump
