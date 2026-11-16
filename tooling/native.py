@@ -934,9 +934,13 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
     return module, sizes, patch_profile, hooks, stack, usage
 
 
+PLAYER_DOTS, PLAYER_REQUIRED_DOTS = 32, 24   # opxy/player.hpp display_dots, display_required_dots
+
+
 def player_page_ids(prefix):
-    """A player page's artwork IDs: input dots, the chord line, output keys and activity dots."""
-    return ([f'{prefix}_dot_{i}' for i in range(24)] + [f'{prefix}_text'] +
+    """A player page's artwork IDs: input dots (0..23 required, 24..31 optional), the chord
+    line, output keys and activity dots."""
+    return ([f'{prefix}_dot_{i}' for i in range(PLAYER_DOTS)] + [f'{prefix}_text'] +
             [f'{prefix}_key_{i}' for i in range(128)] + [f'{prefix}_played_{i}' for i in range(128)])
 
 
@@ -1046,16 +1050,17 @@ def validate_panel(m, fragment=None):
     if m.display == 'player':
         # A player page: dots that show or hide, and the line its text replaces.
         names = player_page_ids(m.prefix)
-        output = names[25:]
+        dots, line_id, output = names[:PLAYER_DOTS], names[PLAYER_DOTS], names[PLAYER_DOTS + 1:]
         has_output = any(name in by_id for name in output)
         require(not has_output or all(name in by_id for name in output),
                 'Player output keyboard needs all 128 keys and activity dots, or none')
         translate = r'matrix\(1 0 0 1 (%s) (%s)\)' % (NUMBER, NUMBER)
-        for name in names[:24] + (output if has_output else []):
+        extra = [name for name in dots[PLAYER_REQUIRED_DOTS:] if name in by_id]
+        for name in dots[:PLAYER_REQUIRED_DOTS] + extra + (output if has_output else []):
             visible(name)
             require(re.fullmatch(translate, by_id[name].get('transform', '')),
                     'Player page dots need transform="matrix(1 0 0 1 x y)": ' + name)
-        line = by_id.get(names[24])
+        line = by_id.get(line_id)
         require(line is not None and line.tag == 'text' and re.fullmatch(translate, line.get('transform', '')),
                 'Player page line must be a text node with transform="matrix(1 0 0 1 x y)"')
     else:

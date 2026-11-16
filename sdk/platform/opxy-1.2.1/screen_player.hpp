@@ -123,6 +123,7 @@ template <class Machine> struct PlayerPage {
         PathNode* keys[128];
         PathNode* played[128];
         i32 home[kDots];        // each dot's authored x translation
+        i16 dx[kDots];          // each lit dot's offset as last applied (Display::dx)
         Leaf* text;
         u32 lit;               // the dots shown
         char line[sizeof(player::Display::text)];
@@ -166,16 +167,18 @@ template <class Machine> struct PlayerPage {
             PlayerText::copy(o->line, shown.text, sizeof(o->line));
             set_text(o->text, o->line);
         }
-        if (shown.lit != o->lit) {
-            for (u32 i = 0; i < kDots; ++i) {
-                if (!o->dots[i] || ((shown.lit ^ o->lit) >> i & 1) == 0) continue;
-                const u32 at[4] = {0, 4, 6, 7};
-                const i32 value[4] = {1024, 1024, o->home[i] + (shown.lit >> i & 1 ? 0 : kHidden),
-                                      o->dots[i]->leaf.matrix[7]};
-                set_words(&o->dots[i]->leaf, at, value);
-            }
-            o->lit = shown.lit;
+        for (u32 i = 0; i < kDots; ++i) {
+            const bool on = shown.lit >> i & 1;
+            const i32 dx = shown.dx[i] < -480 ? -480 : shown.dx[i] > 480 ? 480 : shown.dx[i];
+            const bool toggled = ((shown.lit ^ o->lit) >> i & 1) != 0;
+            if (!o->dots[i] || (!toggled && (!on || dx == o->dx[i]))) continue;
+            const u32 at[4] = {0, 4, 6, 7};
+            const i32 value[4] = {1024, 1024, on ? o->home[i] + (dx << 10) : o->home[i] + kHidden,
+                                  o->dots[i]->leaf.matrix[7]};
+            set_words(&o->dots[i]->leaf, at, value);
+            o->dx[i] = static_cast<i16>(dx);
         }
+        o->lit = shown.lit;
         // Fit the full emitted range, retaining at least the keyboard's two
         // octaves. Notes at different octaves never fold onto the same key.
         const platform::PlayerRange range = platform::player_range(shown.played, shown.lowest_key);
