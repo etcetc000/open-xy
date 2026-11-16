@@ -367,9 +367,15 @@ not a sequencer event map. The GUI resolves that played pitch to its canonical
 pad and decodes its model/control snapshot independently of the selected
 pad used by the header. It adds no hook or cross-role state. Intermediate
 hits can coalesce between display frames; current GUI offsets are not a
-record of past audio-side step locks. Only the screen of a kit declaring SDK
-1.17 or later calls it, so its unit (`drum_trigger.cpp`) is the `played_pad`
-service's, which a build links only with such a kit.
+record of past audio-side step locks. The screen calls it only once the
+track's note-start counter has moved since the page's activation or a track
+change, and gives a zero snapshot until then, so the byte's value at boot or
+from another kit's hits never shows. Whether a project load re-activates the
+page or moves the counter is not established; if it does neither, the screen
+keeps naming the pad of the last hit before the load, resolved on the loaded
+kit. Only the screen of a kit declaring SDK 1.17 or later calls it, so its unit
+(`drum_trigger.cpp`) is the `played_pad` service's, which a build links only
+with such a kit.
 
 Stock paints the screen slots in ascending page order each frame, so page
 numbers are layers. The compositor's loop advance is hooked: when the selected

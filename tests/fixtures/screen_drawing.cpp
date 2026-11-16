@@ -39,6 +39,8 @@ int main() {
     object.keys[0] = 77;
     Renderer::animate(&object, controls);
     require(binding::resets == 1 && binding::renders == 1 && object.keys[0] == 0);
+    // No pad before the track's first hit, though stock's played key has one.
+    require(binding::last_input.trigger_key == 0 && binding::last_input.trigger_model == 0);
     require(screen::display_state.ticks == 1);
     // The selected track's amp envelope reaches the drawing input.
     require(screen::display_input.amp.attack == 1 && screen::display_input.amp.release == 4);
@@ -94,5 +96,24 @@ int main() {
     require(unselected == screen::fixture_note_starts);
     pitches[61] = 0; ++releases[61]; pitches[61] = 1; ++screen::fixture_note_starts;
     require(serial() == unselected + 1);
+    // A 1.17 kit's snapshot names no pad after an activation or a track change
+    // until the track's serial moves, then the played pad until the next one.
+    const auto none = [&]() {
+        return binding::last_input.trigger_key == 0 && binding::last_input.trigger_model == 0 &&
+               binding::last_input.trigger_controls[0] == 0;
+    };
+    const auto hit = [&]() {
+        return binding::last_input.trigger_key == (OPXY_SCREEN_KIT == 1 ? 54u : 0u) &&
+               binding::last_input.trigger_model == (OPXY_SCREEN_KIT == 1 ? 9u : 0u) &&
+               binding::last_input.trigger_controls[0] == (OPXY_SCREEN_KIT == 1 ? 0x70000000 : 0);
+    };
+    serial(); require(hit());
+    token = 4; serial(); require(none());
+    serial(); require(none());
+    ++screen::fixture_note_starts; serial(); require(hit());
+    serial(); require(hit());
+    controls.track = 1; serial(); require(none());
+    ++screen::fixture_note_starts; serial(); require(hit());
+    controls.track = 0; serial(); require(none());
     std::puts("native display activation resets state and geometry caches only on a new active token");
 }
