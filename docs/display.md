@@ -70,8 +70,9 @@ or an [alternate](api.md#alternate-controls)), `slots`, the Q31 value of
 every declared parameter by index (0 beyond the declared ones), note activity
 and the track's amp envelope. A serial is a
 snapshot, not a queue: several note starts between frames can coalesce.
-Initializing or changing track must not fabricate a note. It counts per track,
-not per key: where keys play different sounds, as a drum kit's do, an
+Initializing or changing track must not fabricate a note. The serial of a
+synth, a sample engine or a drum kit declaring SDK 1.17 or later counts per
+track, not per key: where keys play different sounds, as a drum kit's do, an
 animation started by the serial alone also plays for keys that weren't hit.
 On a drum kit declaring SDK 1.17 or later, read which pad played from the
 [played-pad snapshot](#shift-and-a-drum-kits-machine-sdk-18). A drum kit

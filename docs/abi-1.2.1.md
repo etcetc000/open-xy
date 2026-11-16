@@ -61,8 +61,11 @@ kit. Synthesis drum transport is the `drums` service, used by drum kits and,
 for its preset sites, by a synth with a [Shift row](#a-synths-shift-row), and
 per-key sends the `drum_sends` service, used only by a kit declaring `padMix`.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
-`padMix` kit and by a synth with a Shift row. The [track filter](#the-track-filter-on-kit-voices) on kit
-voices needs no hook: it is in every kit's adapter.
+`padMix` kit and by a synth with a Shift row. The `played_pad` service has no
+edit: it links the [drum trigger](#screens) snapshot (`drum_trigger.cpp`)
+only with a kit declaring SDK 1.17 or later, whose screen reads it. The
+[track filter](#the-track-filter-on-kit-voices) on kit voices needs no hook: it
+is in every kit's adapter.
 A [`drumline_page` extension](drumline-page.md) uses the `drumline` service and
 also those of samples, octaves, drum transport, sends and the note-start hooks,
 whose hooks it extends ([Drumline's second page](#drumlines-second-page)).
