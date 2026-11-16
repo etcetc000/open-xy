@@ -115,7 +115,10 @@ template <class Machine> struct Drawing {
         // kit, struck by its selected pad only. Other screens never write the
         // snapshot, which stays zero.
         display_input.note_serial = Machine::selected_pad ? selected_pad_serial(controls) : track_note_serial(controls);
-        if (Machine::played_pad) sdk_drum_trigger(controls.track, &display_input);
+        if (Machine::played_pad) {
+            sdk_drum_trigger(controls.track, &display_input);
+            display_input.selected_key = controls.pad;
+        }
         sdk_display_note_activity(controls.track, &display_input);
         // A sample engine's own screen reads its sample (opxy_sample_overview).
         if (Machine::sample) sdk_sample_overview_update(controls.track);

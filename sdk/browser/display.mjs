@@ -8,8 +8,9 @@ import { inputWords } from './controls.mjs';
 // reserved byte and pad[4 bytes]. ABI 1 ends after slots, ABI 2 after
 // note_off_serial, ABI 3 after choices; ABI 4 adds a drum kit's model, ABI 5 the
 // track's amp envelope, and ABI 6 a padMix kit key's pan, level and pad fields
-// and the row the encoders edit; ABI 7 adds the played drum snapshot.
-const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88, 5: 104, 6: 112, 7: 152};
+// and the row the encoders edit; ABI 7 adds the played drum snapshot and the
+// selected key.
+const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88, 5: 104, 6: 112, 7: 156};
 const ENVELOPE = ['attack', 'decay', 'sustain', 'release'];
 const integer = (value, low, high, name) => {
   if (!Number.isInteger(value) || value < low || value > high) throw new Error(`Invalid ${name}`);
@@ -128,8 +129,10 @@ export class PreviewDisplay {
   // pad fields, -128..127}, and line, the row the encoders edit (0 or 1).
   // shiftRow: a synth's Shift row, {held: 0 or 1, line: 0 or 1, values: up to eight Q31
   // words}; null leaves it as last written (zeros at first).
+  // trigger: a drum kit's latest played pad, {key: 53..76, model: 0..127, controls: eight
+  // Q31 words}; null clears it. selected: a drum kit's selected key, 53..76, 0 for none.
   tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0],
-       amp = null, mix = {pan: 0, level: 0}, line = 0, shiftRow = null, trigger = null) {
+       amp = null, mix = {pan: 0, level: 0}, line = 0, shiftRow = null, trigger = null, selected = 0) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -156,6 +159,8 @@ export class PreviewDisplay {
       triggerWords[1] = integer(trigger.model, 0, 127, 'trigger model');
       trigger.controls.forEach((value, i) => { triggerWords[2+i] = integer(value, -0x80000000, 0x7fffffff, 'trigger control'); });
     }
+    if (selected !== 0) integer(selected, 53, 76, 'selected key');
+    triggerWords.push(selected);
     let row = null;
     if (shiftRow !== null) {
       const values = shiftRow?.values ?? [];
