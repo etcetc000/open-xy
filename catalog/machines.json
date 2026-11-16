@@ -2250,6 +2250,12 @@
           "value": 1610612735
         }
       }
+    },
+    {
+      "id": "pulsar",
+      "kind": "player",
+      "maintainer": "rastalukee",
+      "status": "reserved"
     }
   ]
 }
