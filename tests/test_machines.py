@@ -100,10 +100,12 @@ class DrumPresets(unittest.TestCase):
                         with self.assertRaisesRegex(ValueError, 'padMix'):
                             machines.machine_at(root)
                         definition_path.write_text(json.dumps(settings))
-                    current['sdk'] = '1.10'
-                    record_path.write_text(json.dumps(current))
-                    with self.assertRaisesRegex(ValueError, '1.17'):
-                        machines.machine_at(root)
+                    # Refused by every earlier SDK, the last one before 1.17 included.
+                    for earlier in ('1.16', '1.10'):
+                        current['sdk'] = earlier
+                        record_path.write_text(json.dumps(current))
+                        with self.subTest(sdk=earlier), self.assertRaisesRegex(ValueError, '1.17'):
+                            machines.machine_at(root)
 
     def test_drum_region_bounds_and_sample_exclusion(self):
         bad_regions = [[], [0]*3, [0, 1, 2, 32768], [0, 1, 2, -1], [True, 1, 2, 3], [1.5, 1, 2, 3]]
