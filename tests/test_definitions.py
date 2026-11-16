@@ -275,7 +275,7 @@ class Definitions(unittest.TestCase):
             machine = SimpleNamespace(kind='player', prefix='probeplayer', native_name='probeplayer', display='stock',
                                       identity=dict(player=6, page=90), definition=player)
             text = generate_player_object(directory, machine).read_text(encoding='utf-8')
-        self.assertIn('{0, 0, 0, 1, 1, 1, 1, 1}, false}', text)
+        self.assertIn('{0, 0, 0, 1, 1, 1, 1, 1}, false, false}', text)
         player['parameters'][3]['label'] = 'X'
         with self.assertRaises(ValueError): validate_definition(player, 'player')
         machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
@@ -317,7 +317,10 @@ class Definitions(unittest.TestCase):
         self.assertEqual(control_cycles(value), [5, 6, 7, 4, 3, 0, 1, 2])
         self.assertFalse(paged(self.engine))
         rejected = []
-        for bad in ('next', True, None):
+        # "click" is a note player's alone (test_players), on four controls or eight.
+        clicking = copy.deepcopy(self.engine); clicking['press'] = 'click'
+        rejected.append(clicking)
+        for bad in ('next', True, None, 'click'):
             changed = copy.deepcopy(value); changed['press'] = bad
             rejected.append(changed)
         short = copy.deepcopy(value); del short['parameters'][-1]

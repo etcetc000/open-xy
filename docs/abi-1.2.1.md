@@ -1794,7 +1794,13 @@ catalog defaults through that setter. The page is GUI state per track, reset
 when the factory builds the track's player. Maestro's key handler answers an
 encoder 4 click by toggling parameter 3 and running its hold-mode callback;
 the click hook replaces its hold-mode query and returns a paged player through
-the handler's exit instead. Other players continue to the stock query.
+the handler's exit instead, as it does a player whose presses are only its
+clicks (`"press": "click"`), whose press the dispatch has already counted.
+Other players continue to the stock query. A
+player counts as paged only while its own page is in place (`page_ready`):
+if stock did not place it, the Maestro page shows the first four, so the
+press switches nothing, the turn hook edits parameters 0..3 and encoder 4's
+click continues to the stock query.
 
 Player types use the profile's unused 6..31 range and `seq_types` catalog IDs
 are type + 4. The UI selects Maestro's controller for owned types, keeping
