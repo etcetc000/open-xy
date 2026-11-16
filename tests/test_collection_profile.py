@@ -13,6 +13,46 @@ from tooling.benchmark import cases
 
 
 class CollectionProfile(unittest.TestCase):
+    def test_replacement_collection_keeps_expanded_kernel_geometry_and_ids(self):
+        from tools import profile_collection as worker
+        from tooling import native
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'manifest.json').write_text(json.dumps(dict(expanded_memory=True)))
+            numbers = {'kept': {'engine': 80, 'page': 90}}
+            def configure(entries, layout, *, loader, expanded_memory=False):
+                return ({'reserved_bytes': 4194304 if expanded_memory else 2080768}, entries, layout)
+            with patch.object(native, 'configuration', side_effect=configure):
+                profile, entries, layout = worker.configuration(root, ['kept', 'new'], numbers)
+            self.assertEqual(profile['reserved_bytes'], 4194304)
+            self.assertEqual(entries, ['kept', 'new'])
+            self.assertEqual(layout, numbers)
+
+    def test_older_standard_kernel_sdk_needs_no_expanded_memory_argument(self):
+        from tools import profile_collection as worker
+        from tooling import native
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'manifest.json').write_text('{}')
+            def configure(entries, layout, *, loader):
+                return ({'reserved_bytes': 2080768}, entries, layout)
+            with patch.object(native, 'package_configuration', None, create=True), \
+                 patch.object(native, 'package_collection', return_value=['kept']), \
+                 patch.object(native, 'package_layout', return_value={'kept': {'engine': 80, 'page': 90}}), \
+                 patch.object(native, 'configuration', side_effect=configure):
+                profile, entries, layout = worker.configuration(root)
+            self.assertEqual(profile['reserved_bytes'], 2080768)
+            self.assertEqual(entries, ['kept'])
+            self.assertEqual(layout['kept']['engine'], 80)
+
+    def test_frozen_sdk_owns_embedded_kernel_configuration(self):
+        from tools import profile_collection as worker
+        from tooling import native
+        expected = ({'reserved_bytes': 4194304}, ['embedded'], {})
+        with patch.object(native, 'package_configuration', return_value=expected, create=True) as configured:
+            self.assertEqual(worker.configuration(Path('/kernel')), expected)
+        configured.assert_called_once_with(Path('/kernel'))
+
     def identity(self):
         return dict(manifest_sha256='a'*64, compile_report_sha256='b'*64, firmware_sha256='c'*64,
                     collection_sha256='d'*64, kernel_record_sha256='e'*64)

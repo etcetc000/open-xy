@@ -9,6 +9,20 @@ PINNED = ('collection.json', 'layout.json', 'kernel.oxc', 'analysis/compile-repo
           'analysis/module.bin', 'analysis/module.elf')
 
 
+def configuration(package, entries=None, layout=None):
+    """Keep the frozen kernel's memory choice when compiling another selection."""
+    from tooling import native
+    from tooling.pipeline import document
+    configured = getattr(native, 'package_configuration', None)
+    if entries is None and layout is None and configured is not None:
+        return configured(package)
+    manifest = document(Path(package) / 'manifest.json')
+    options = {'expanded_memory': True} if manifest.get('expanded_memory', False) else {}
+    return native.configuration(native.package_collection(package) if entries is None else entries,
+                                native.package_layout(package) if layout is None else layout,
+                                loader=True, **options)
+
+
 def build(args):
     from tooling import collection_bundle as bundle, collection_activation as activation, native, collection_kernel as kernel
     from tooling.collection_resident import check_kernel_layout
@@ -20,14 +34,14 @@ def build(args):
     previous, _, _, _ = bundle.read_bundle(args.previous)
     require(previous['kernel'] == sha(read(args.kernel / 'candidate/projects/openxy/kernel.oxc')),
             'Previous collection belongs to a different kernel')
-    _, embedded, _ = native.configuration(native.package_collection(args.kernel), native.package_layout(args.kernel), loader=True)
+    _, embedded, _ = configuration(args.kernel)
     require(native.provenance(embedded) == baseline['sources'], 'Kernel SDK sources changed; use its exact snapshot')
     require(baseline['profiling'] is True, 'The resident kernel must have profiling enabled')
     entries = read_collection(args.collection) if args.collection else previous['collection']
     layout = read_layout(args.previous / 'layout.json')
     require(all(layout.get(k) == v for k, v in read_layout(args.kernel / 'layout.json').items()),
             'An embedded machine ID changed')
-    profile, machines, definitions = native.configuration(entries, layout, loader=True)
+    profile, machines, definitions = configuration(args.kernel, entries, layout)
     machines.collection_external = True
     require(outside_checkouts(args.out), 'Keep executable collections outside every checkout')
     out = fresh_output(args.out); analysis = out / 'analysis'; analysis.mkdir()
@@ -80,11 +94,11 @@ def inspect(package):
     description, info, image, _ = bundle.read_bundle(package)
     require(info == kernel_info and description['kernel'] == sha(read(Path(manifest['kernel_package']) / 'candidate/projects/openxy/kernel.oxc')),
             'Profiling collection/kernel mismatch')
-    _, embedded, _ = native.configuration(native.package_collection(Path(manifest['kernel_package'])),
-                                         native.package_layout(Path(manifest['kernel_package'])), loader=True)
+    _, embedded, _ = configuration(Path(manifest['kernel_package']))
     require(native.provenance(embedded) == baseline['sources'], 'Kernel SDK snapshot changed')
     report = document(package / 'analysis/compile-report.json')
-    _, machines, _ = native.configuration(description['collection'], read_layout(package / 'layout.json'), loader=True)
+    _, machines, _ = configuration(Path(manifest['kernel_package']), description['collection'],
+                                   read_layout(package / 'layout.json'))
     require(report.get('profiling') is True and report.get('benchmark_sweep') is True and
             report.get('benchmark_cases') == benchmark.cases(machines, True) and
             report['sources'] == native.provenance(machines) and report['linked'] == description['linked'],
@@ -111,7 +125,8 @@ def source(package, name):
     from tooling.pipeline import document
     result = inspect(package)
     description = document(package / 'collection.json')
-    _, machines, _ = native.configuration(description['collection'], read_layout(package / 'layout.json'), loader=True)
+    _, machines, _ = configuration(Path(result['manifest']['kernel_package']), description['collection'],
+                                   read_layout(package / 'layout.json'))
     machine = next((m for m in machines if m.id == name), None)
     require(machine is not None, 'Unknown collection machine')
     require(not catalog.git('status', '--porcelain', '--untracked-files=all', '--', '.', cwd=machine.root).strip(),
