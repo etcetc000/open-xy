@@ -2483,7 +2483,31 @@
       "id": "neuroform",
       "kind": "synth",
       "maintainer": "V714",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/V714/opxy-synths",
+      "tag": "neuroform-v1.0.0",
+      "commit": "1011581b7023d88d65a6a4f0bfbd8754847e1510",
+      "path": "neuroform",
+      "keywords": [
+        "bass",
+        "fm",
+        "analog"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "1011581b7023d88d65a6a4f0bfbd8754847e1510",
+        "firmware_sha256": "91cd895fd049a38e1b81017433d849fb750d1b53501b36771b58439796890258",
+        "runs": 1,
+        "block_percent": 2.772564,
+        "peak_percent": 2.879377,
+        "midpoint_percent": 2.755779,
+        "combined_percent": 2.281224,
+        "worst_setting": {
+          "control": 3,
+          "label": "overload",
+          "value": 1610612735
+        }
+      }
     }
   ]
 }
