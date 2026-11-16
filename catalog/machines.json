@@ -2255,7 +2255,23 @@
       "id": "rebound",
       "kind": "effect",
       "maintainer": "kristapskristaps",
-      "status": "reserved"
+      "status": "published",
+      "repository": "https://github.com/kristapskristaps/xy-machines",
+      "tag": "rebound-v1.1.0",
+      "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
+      "path": "machines/rebound",
+      "keywords": [
+        "delay"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
+        "firmware_sha256": "8ccbf01d2421a24d505597acffe5e6666f75aa696408668cb07272cc5c65d795",
+        "runs": 1,
+        "block_percent": 2.357519,
+        "peak_percent": 4.664683,
+        "report": "https://github.com/etcetc000/open-xy/pull/541"
+      }
     }
   ]
 }
