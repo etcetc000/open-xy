@@ -367,7 +367,9 @@ not a sequencer event map. The GUI resolves that played pitch to its canonical
 pad and decodes its model/control snapshot independently of the selected
 pad used by the header. It adds no hook or cross-role state. Intermediate
 hits can coalesce between display frames; current GUI offsets are not a
-record of past audio-side step locks.
+record of past audio-side step locks. Only the screen of a kit declaring SDK
+1.17 or later calls it, so its unit (`drum_trigger.cpp`) is the `played_pad`
+service's, which a build links only with such a kit.
 
 Stock paints the screen slots in ascending page order each frame, so page
 numbers are layers. The compositor's loop advance is hooked: when the selected
