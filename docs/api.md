@@ -789,7 +789,9 @@ OP-XY ignores `random` from bit 16, so older firmware plays each amount's
 nearest step. A region
 without `random` loads every pad field at 0; the OP-XY's own preset writer
 names it on every key the kit has set up, and a kit preset written by other
-tools should name it on every region, `"random": 0` included.
+tools for loading on the OP-XY should name it on every region, `"random": 0`
+included. A `padMix` kit's own [presets](#presets), which the SDK installs,
+keep empty regions.
 
 A `padMix` kit may declare up to two small settings of each key's own in
 `resources.padControls` (SDK 1.10), such as a filter and a sample-rate

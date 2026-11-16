@@ -93,13 +93,14 @@ The SDK version (`tooling/machines.py` `SDK_VERSION`) and the drawing ABI
 (`draw::Input`, `sdk/browser/display.mjs`) are numbered at merge: a pull request
 takes the next free number on `staging` when it lands, never one reserved for
 another open pull request, and every other open pull request that claimed the
-same number renumbers when it rebases. Each drawing ABI appends to `draw::Input`
+same number renumbers when it rebases (its author does, or the maintainers
+when they rebase it), together with its "From SDK 1.x" documentation and
+version gates. Each drawing ABI appends to `draw::Input`
 after the previous one's last field. For example, with the played-pad snapshot
 as drawing ABI 7 (a 152-byte input), the project tempo proposed for ABI 7 in
 #447 becomes ABI 8: `bpm_x10` at offset 152, a 156-byte input, and its
 `PreviewDisplay.tick` argument after the snapshot's; and a pull request that
-claimed SDK 1.17 after another took it moves to 1.18, with its "From SDK 1.17"
-documentation and version gates.
+claimed SDK 1.17 after another took it moves to 1.18.
 
 In a PR, explain the behavior, how to try it, compatibility changes and checks
 run. For a device observation, include the exact image/asset hashes and what you
