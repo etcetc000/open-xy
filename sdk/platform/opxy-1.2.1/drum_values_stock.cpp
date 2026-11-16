@@ -1,6 +1,36 @@
 // Selected-pad values and labels used by shared screen/control services.
 #include "drum_values.hpp"
 #include "drum_lock_store.hpp"
+#include <opxy/draw.hpp>
+extern "C" void sdk_drum_trigger(opxy::u32, opxy::draw::Input*) __asm__("sdk_drum_trigger");
+
+void sdk_drum_trigger(opxy::u32 track, opxy::draw::Input* input) {
+    using namespace opxy;
+    using namespace opxy::platform;
+    input->trigger_key = input->trigger_model = 0;
+    for (u32 i = 0; i < 8; ++i) input->trigger_controls[i] = 0;
+    if (track >= kTracks) return;
+    // Stock's last played pitch accompanies the same start counter for live
+    // notes (8d595838) and sequenced notes (8d592092). The held-key map only
+    // describes live gates and cannot identify sequenced drum strikes.
+    const u32 note = stock<u32(u32)>(0x8d4d6cb0)(track);
+    if (note >= 128) return;
+    const DrumMachine* machine = sdk_drum_machine(track_engine(track));
+    const void* region = machine ? pad_region(track,note) : nullptr;
+    u8 model, controls[8], live[8];
+    if (!region || !drum_region_values(*machine,track,note,region,&model,controls)) return;
+    const u32 key = drum_canonical_key(track,note,region);
+    if (key < 53 || key >= 77) return;
+    const u32* parameters = stock<const u32*(u32)>(0x8d4d72a8)(track);
+    const u32 begin = parameters ? parameters[1] : 0, end = parameters ? parameters[2] : 0;
+    const i32* offsets = begin && !(begin & 3) && end >= begin && end-begin >= 32
+        ? at<const i32>(begin) : nullptr;
+    drum_offset(controls,offsets,live);
+    input->trigger_key = key;
+    input->trigger_model = model;
+    for (u32 i = 0; i < 8; ++i)
+        input->trigger_controls[i] = live[i] == 127 ? 0x7fffffff : static_cast<i32>(u32(live[i]) << 24);
+}
 
 bool sdk_drum_values(opxy::u32 track, opxy::u8* model, opxy::u8* controls) {
     using namespace opxy::platform;
