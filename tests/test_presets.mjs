@@ -131,8 +131,11 @@ test('drum presets retain all 24 sample-free pads and reject sample paths and ma
     const bad = structuredClone(preset); Object.assign(bad.regions[0],change);
     assert.throws(() => presetFiles({...drum,presets:{default:bad}}),/Invalid machine preset/);
   }
+  // Each record valid on its own (no hikey, which a 25th could not match): only the count is wrong.
+  const keyless = regions.map(({hikey,...region}) => region);
+  assert.doesNotThrow(() => presetFiles({...drum,presets:{default:{...preset,regions:keyless}}}));
   for (const size of [1,23,25]) {
-    const bad = {...preset,regions:[...regions,...regions].slice(0,size)};
+    const bad = {...preset,regions:[...keyless,...keyless].slice(0,size)};
     assert.throws(() => presetFiles({...drum,presets:{default:bad}}),/Invalid machine preset/);
   }
 });

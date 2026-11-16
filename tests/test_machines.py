@@ -114,8 +114,12 @@ class DrumPresets(unittest.TestCase):
             value = self.preset(); value['regions'][0].update(change)
             with self.subTest(change=change), self.assertRaises(ValueError):
                 machines.check_preset(value, 'kit', kind='drum')
+        # Each record valid on its own (no hikey, which a 25th could not match): only the count is wrong.
+        keyless = [{k: v for k, v in region.items() if k != 'hikey'} for region in self.preset()['regions']]
+        value = self.preset(); value['regions'] = keyless
+        self.assertIs(machines.check_preset(value, 'kit', kind='drum'), value)
         for size in (1, 23, 25):
-            value = self.preset(); value['regions'] = (value['regions']*2)[:size]
+            value = self.preset(); value['regions'] = (keyless*2)[:size]
             with self.subTest(size=size), self.assertRaises(ValueError):
                 machines.check_preset(value, 'kit', kind='drum')
 
