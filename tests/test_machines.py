@@ -107,6 +107,46 @@ class DrumPresets(unittest.TestCase):
                         with self.subTest(sdk=earlier), self.assertRaisesRegex(ValueError, '1.17'):
                             machines.machine_at(root)
 
+    def test_any_preset_with_records_needs_sdk_1_17(self):
+        # The gate is on the kit, not on each preset: one preset with records among
+        # empty ones needs SDK 1.17, whichever order the folder lists them in.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / 'probesynth'
+            shutil.copytree(FOLDER / 'probesynth', root)
+            record_path, definition_path = root / 'machine.json', root / 'definition.json'
+            record = json.loads(record_path.read_text())
+            record.update(kind='drum', presets='presets')
+            record.pop('identity', None)
+            definition = json.loads(definition_path.read_text())
+            definition['presets'] = {}
+            for control, parameter in enumerate(copy.deepcopy(definition['parameters'])):
+                parameter.update(id=parameter['id'] + '_alt', label='Alt ' + str(control), control=control)
+                definition['parameters'].append(parameter)
+            definition['resources']['modelCount'] = 2
+            definition_path.write_text(json.dumps(definition))
+            records = self.preset(); records['type'] = 'probesynth'
+            empty = dict(copy.deepcopy(records), regions=[])
+            cases = (('records first', [records, empty]), ('records last', [empty, records]),
+                     ('records in the middle', [empty, records, empty]),
+                     ('two of three with records', [records, empty, records]),
+                     ('every preset with records', [records, records]), ('none with records', [empty, empty, empty]))
+            for name, values in cases:
+                shutil.rmtree(root / 'presets', ignore_errors=True)
+                (root / 'presets').mkdir()
+                for index, value in enumerate(values):
+                    (root / 'presets' / ('preset%d.json' % index)).write_text(json.dumps(value))
+                with_records = any(value['regions'] for value in values)
+                for sdk in ('1.10', '1.16', '1.17'):
+                    record_path.write_text(json.dumps(dict(record, sdk=sdk)))
+                    with self.subTest(case=name, sdk=sdk):
+                        if with_records and sdk != '1.17':
+                            with self.assertRaisesRegex(ValueError, 'Sample-free drum-kit preset records.*1.17'):
+                                machines.machine_at(root)
+                        else:
+                            loaded = machines.machine_at(root)
+                            self.assertEqual([loaded.presets['preset%d' % i]['regions'] for i in range(len(values))],
+                                             [value['regions'] for value in values])
+
     def test_drum_region_bounds_and_sample_exclusion(self):
         bad_regions = [[], [0]*3, [0, 1, 2, 32768], [0, 1, 2, -1], [True, 1, 2, 3], [1.5, 1, 2, 3]]
         cases = [{'params': params} for params in bad_regions]
