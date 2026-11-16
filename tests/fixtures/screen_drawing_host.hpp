@@ -32,7 +32,13 @@ template<unsigned N> void set_words(Leaf*, const u32 (&)[N], const i32 (&)[N]) {
 inline void paint(void*, u32, bool) {}
 inline void set_text(Leaf*, const char*) {}
 static u32 fixture_note_starts;
-inline u32 note_serial(u32) { return fixture_note_starts; }
+// Set: the audio side starts a note right after the counter's next read.
+static bool fixture_start_after_read;
+inline u32 note_serial(u32) {
+    const u32 value = fixture_note_starts;
+    if (fixture_start_after_read) { fixture_start_after_read = false; ++fixture_note_starts; }
+    return value;
+}
 inline bool refresh_controls(Base*, Controls&) { return false; }
 inline void draw(Base*) {}
 inline void draw_hold_strip(u32, i32) {}

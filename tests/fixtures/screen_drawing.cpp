@@ -115,5 +115,14 @@ int main() {
     controls.track = 1; serial(); require(none());
     ++screen::fixture_note_starts; serial(); require(hit());
     controls.track = 0; serial(); require(none());
+    // A note start during an activation frame, right after the frame reads the
+    // counter: the machine's serial moves next frame, and so must the snapshot.
+    ++screen::fixture_note_starts; serial(); require(hit());
+    token = 5; screen::fixture_start_after_read = true; serial(); require(none());
+    const auto before = binding::last_input.note_serial;
+    serial(); require(binding::last_input.note_serial != before && hit());
+    // A re-created screen (init) names no pad, even before an activation token.
+    token = 0; Renderer::init(&object); serial(); require(none());
+    ++screen::fixture_note_starts; serial(); require(hit());
     std::puts("native display activation resets state and geometry caches only on a new active token");
 }

@@ -67,11 +67,13 @@ extern "C" void sdk_drum_trigger(u32, draw::Input*) __asm__("sdk_drum_trigger");
 // serial moves after the screen's activation or a track change, so the screen
 // never shows a pad from stock's last-played byte before its first hit there
 // (that byte keeps an earlier track's or kit's key, or whatever it holds at
-// boot). Like the serial's own baseline, it fabricates no note.
+// boot). Like the serial's own baseline, it fabricates no note. serial is the
+// value the frame gives the machine as note_serial, read once: a second read
+// could see a note start the machine's serial does not, and the machine would
+// then see its serial move with the snapshot still zero.
 struct PlayedPad { u32 track, serial, valid, moved; };
 PlayedPad played;
-void played_pad_snapshot(const Controls& controls, draw::Input& input) {
-    const u32 serial = track_note_serial(controls);
+void played_pad_snapshot(const Controls& controls, u32 serial, draw::Input& input) {
     PlayedPad& s = played;
     if (!s.valid || s.track != controls.track) s = {controls.track, serial, 1, 0};
     else if (serial != s.serial) s.moved = 1;
@@ -132,8 +134,12 @@ template <class Machine> struct Drawing {
         // track's serial and, once it has moved since activation, the played
         // pad's snapshot; selected_pad: an older kit, struck by its selected
         // pad only. Other screens never write the snapshot, which stays zero.
-        display_input.note_serial = Machine::selected_pad ? selected_pad_serial(controls) : track_note_serial(controls);
-        if (Machine::played_pad) played_pad_snapshot(controls, display_input);
+        if (Machine::selected_pad) {
+            display_input.note_serial = selected_pad_serial(controls);
+        } else {
+            display_input.note_serial = track_note_serial(controls);
+            if (Machine::played_pad) played_pad_snapshot(controls, display_input.note_serial, display_input);
+        }
         sdk_display_note_activity(controls.track, &display_input);
         // A sample engine's own screen reads its sample (opxy_sample_overview).
         if (Machine::sample) sdk_sample_overview_update(controls.track);
