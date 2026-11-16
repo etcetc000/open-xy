@@ -82,6 +82,7 @@ class CheckRunnerTests(unittest.TestCase):
         with patch('tooling.checks.fixture_environment', return_value=({}, True)), \
              patch('tooling.checks.resolve_toolchain', return_value=(Path('/tools'), Path('/compiler'))), \
              patch('tooling.checks.require_release_host') as release, \
+             patch('tooling.checks.host_platform', return_value='darwin-arm64'), \
              patch('tooling.checks.subprocess.run') as run, contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(args), 0)
             release.assert_not_called()
