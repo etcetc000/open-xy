@@ -49,6 +49,20 @@ class DrumPresets(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'sample regions'):
                 machines.check_preset(value, 'kit', kind=kind)
 
+    def test_a_padmix_kit_keeps_empty_regions(self):
+        # A padMix kit's records would carry each key's level and pad word (gain,
+        # random), which the SDK does not check: refused, however well-formed.
+        value = self.preset()
+        with self.assertRaisesRegex(ValueError, 'padMix'):
+            machines.check_preset(value, 'kit', kind='drum', pad_mix=True)
+        for region in value['regions']:
+            region.update(gain=0, random=0)
+        for pad_mix in (False, True):
+            with self.subTest(pad_mix=pad_mix), self.assertRaises(ValueError):
+                machines.check_preset(value, 'kit', kind='drum', pad_mix=pad_mix)
+        empty = dict(self.preset(), regions=[])
+        self.assertIs(machines.check_preset(empty, 'kit', kind='drum', pad_mix=True), empty)
+
     def test_drum_features_require_sdk_1_17(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve() / 'probesynth'
@@ -79,6 +93,13 @@ class DrumPresets(unittest.TestCase):
                     loaded = machines.machine_at(root)
                     if feature == 'presets':
                         self.assertEqual(loaded.presets['default']['regions'], value['regions'])
+                        # The same preset on a padMix kit (machine_at reads the flag).
+                        mixed = copy.deepcopy(settings)
+                        mixed['resources']['padMix'] = 1
+                        definition_path.write_text(json.dumps(mixed))
+                        with self.assertRaisesRegex(ValueError, 'padMix'):
+                            machines.machine_at(root)
+                        definition_path.write_text(json.dumps(settings))
                     current['sdk'] = '1.10'
                     record_path.write_text(json.dumps(current))
                     with self.assertRaisesRegex(ValueError, '1.17'):

@@ -1466,11 +1466,16 @@ firmware that holds it.
   [Shift row](#a-synths-shift-row) keeps it in up to 24 regions that point at
   no sample.
 
-From SDK 1.17 a synthesis drum kit may store exactly 24 sample-free pad records instead of empty
+From SDK 1.17 a synthesis drum kit without `padMix` may store exactly 24 sample-free pad records instead of empty
 `regions`: `model` is `"fm slap"` (the stored-pad marker), `params` holds four packed
 Q15 words, and optional `playmode` selects a stock choke/play mode. Optional `hikey`
 is the canonical key 53..76 in pad order. No other fields or sample paths are
 accepted. Keep track parameters neutral to edit saved pad controls freely.
+A `padMix` kit's shipped presets keep empty `regions`: its keys' records also
+carry each key's level and pad word (`gain` and `random`, as
+[synthesis drum kits](#synthesis-drum-kits) describes for presets saved on the OP-XY), and the
+SDK does not check those fields in a shipped preset yet. Presets the user saves
+and loads on the OP-XY keep them as before.
 
 #### Own samples
 

@@ -281,11 +281,14 @@ def drum_preset_regions(regions):
         for index, region in enumerate(regions))
 
 
-def check_preset(value, identity, samples=None, shift=False, kind='synth'):
+def check_preset(value, identity, samples=None, shift=False, kind='synth', pad_mix=False):
     """A preset as the device saves it (version 4), for this machine, pointing at no samples
     or, for a sample engine shipping its own (SDK 1.10), at one of them. A synth with a
     Shift row (SDK 1.13) saves it as Drumline saves its keys, in sample-less regions
-    (docs/abi-1.2.1.md#a-synths-shift-row), which it may keep."""
+    (docs/abi-1.2.1.md#a-synths-shift-row), which it may keep. A drum kit without padMix
+    (SDK 1.17) may keep its 24 pad records; a padMix kit's records also carry each key's
+    level and pad word (`gain`, `random`), whose saved form the SDK does not check yet, so
+    its presets keep empty regions."""
     engine = value.get('engine') if isinstance(value, dict) else None
     params = engine.get('params') if isinstance(engine, dict) else None
     found = value.get('regions') if isinstance(value, dict) else None
@@ -294,6 +297,8 @@ def check_preset(value, identity, samples=None, shift=False, kind='synth'):
             len(params) == 8 and all(type(n) is int and 0 <= n <= 32767 for n in params),
             f'A preset is a version 4 OP-XY preset of {identity}, with eight engine params')
     if kind == 'drum' and found:
+        require(not pad_mix, f"A preset of the padMix kit {identity} has no regions: its keys' level, "
+                'pad controls and sends are not checked in shipped presets')
         require(drum_preset_regions(found), f'A drum preset of {identity} holds 24 sample-free packed pad records')
     elif samples:
         require(len(found) <= 1, f'A preset of {identity} has at most 1 sample region')
@@ -312,7 +317,7 @@ def reject_constant(name):
     raise ValueError(f'{name} is not JSON')
 
 
-def read_presets(root, folder, identity, samples=None, shift=False, kind='synth'):
+def read_presets(root, folder, identity, samples=None, shift=False, kind='synth', pad_mix=False):
     """Each <name>.json in the machine's presets folder, by name."""
     path = root / _relative(root, folder)
     require(path.is_dir(), 'presets names a folder: ' + folder)
@@ -330,7 +335,7 @@ def read_presets(root, folder, identity, samples=None, shift=False, kind='synth'
             value = json.loads(data.decode('utf-8'), parse_constant=reject_constant)
         except ValueError as error:
             raise ValueError(f'{file.name}: invalid JSON: {error}') from error
-        presets[file.stem] = check_preset(value, identity, samples, shift, kind=kind)
+        presets[file.stem] = check_preset(value, identity, samples, shift, kind=kind, pad_mix=pad_mix)
     return presets
 
 
@@ -656,7 +661,8 @@ def machine_at(root, identity=None):
     if 'presets' in value:
         require_sdk(version, (1, 3), "A machine's own presets")
         require(kind in ('synth', 'drum', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
-        presets = read_presets(root, value['presets'], identity, samples, shift=bool(synth_shift(definition)), kind=kind)
+        presets = read_presets(root, value['presets'], identity, samples, shift=bool(synth_shift(definition)), kind=kind,
+                               pad_mix=kind == 'drum' and bool(definition['resources'].get('padMix', 0)))
         if kind == 'drum' and any(preset['regions'] for preset in presets.values()):
             require_sdk(version, (1, 17), 'Sample-free drum-kit preset records')
     if samples:

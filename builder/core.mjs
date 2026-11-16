@@ -1184,7 +1184,8 @@ export function presetFiles(machine) {
     check(/^[a-z0-9][a-z0-9_-]{0,23}$/.test(name) && preset && typeof preset === 'object' &&
       preset.version === 4 && preset.platform === 'OP-XY' && preset.type === machine.id &&
       Array.isArray(preset.regions) && (preset.regions.length === 0 ||
-        machine.kind === 'drum' && drumPresetRegions(preset.regions) ||
+        // Not on a padMix kit, whose records would carry each key's level and pad word (gain, random).
+        machine.kind === 'drum' && !(machine.features ?? []).includes('padMix') && drumPresetRegions(preset.regions) ||
         // A synth's Shift row (SDK 1.13) rides in sample-less regions, as Drumline's keys do.
         machine.shiftRow === true && preset.regions.length <= 24 &&
         preset.regions.every(r => r && typeof r === 'object' && !Array.isArray(r) && !r.sample)) &&

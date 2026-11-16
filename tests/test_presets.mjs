@@ -122,6 +122,9 @@ test('drum presets retain all 24 sample-free pads and reject sample paths and ma
   const files = await buildAssets(kit,[drum.id],catalog,numbers);
   assert.deepEqual(JSON.parse(new TextDecoder().decode(files[presetPath(drum)])),preset);
   for (const kind of ['synth','sample']) assert.throws(() => presetFiles({...drum,kind}),/Invalid machine preset/);
+  // A padMix kit keeps empty regions: its records would carry each key's level and pad word.
+  assert.throws(() => presetFiles({...drum,features:['padMix']}),/Invalid machine preset/);
+  assert.deepEqual(Object.keys(presetFiles({...drum,features:['padMix'],presets:{default:own({regions:[]})}})),[presetPath(drum)]);
   for (const change of [{sample:'private.wav'},{path:'/user/samples/kick.wav'},{model:'kick'},
     {params:[0]},{params:[0,1,2,32768]},{params:[0,1,2,-1]},{params:[true,1,2,3]},
     {hikey:54},{playmode:'unknown'},{playmode:null}]) {
