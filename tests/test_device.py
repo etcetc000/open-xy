@@ -335,8 +335,28 @@ class DeviceTransferTests(unittest.TestCase):
 
     def test_source_must_be_laid_out_like_the_device(self):
         candidate(self.source, {'manifest.json': b'{}'})
-        with self.assertRaisesRegex(ValueError, 'only os.ldr and content/ at the top\\): manifest.json'):
+        with self.assertRaisesRegex(ValueError, 'only os.ldr, content/ and projects/openxy/collection.oxc\\): manifest.json'):
             transfer.source_files(self.source)
+
+    def test_collection_probe_uses_existing_backup_and_readback_transfer(self):
+        from tooling import collection_probe
+        data = collection_probe.encode(b'abcd', base=0x8d2d0380, capacity=0x1fc000,
+                                      bss_offset=4, bss_bytes=4, text_bytes=4, platform=bytes(32))
+        source = candidate(self.temp / 'probe', {'projects/openxy/collection.oxc': data})
+        files, _ = transfer.source_files(source)
+        device = FakeDevice({'/projects/openxy/collection.oxc': b'previous'})
+        report = transfer.push(device, files, self.temp / 'record')
+        self.assertTrue(report['complete'])
+        self.assertEqual(device.get('/projects/openxy/collection.oxc'), data)
+        self.assertEqual((self.temp / 'record/before/projects/openxy/collection.oxc').read_bytes(), b'previous')
+        self.assertTrue(report['files'][0]['verified'])
+
+    def test_project_files_and_corrupt_collections_are_refused_before_device_access(self):
+        for path in ('projects/song.xy', 'projects/openxy/other.oxc', 'projects/openxy/collection.oxc'):
+            with self.subTest(path=path):
+                source = candidate(self.temp / path.replace('/', '-'), {path: b'not a collection'})
+                with self.assertRaises(ValueError):
+                    transfer.source_files(source)
 
     def test_only_symlinks_and_junctions_count_as_links(self):
         path = self.source / 'os.ldr'
@@ -444,6 +464,51 @@ class DeviceTransferTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stop:
             transfer.main(['push', str(self.temp / 'missing')], connect=connect)
         self.assertEqual(stop.exception.code, 1)
+
+
+class ProbeStatusCleanup(unittest.TestCase):
+    def test_rpc_reports_use_their_own_format_and_leave_the_collection(self):
+        data=json.dumps(dict(format='openxy-collection-rpc-probe/1',execution=False)).encode()
+        newer=json.dumps(dict(format='openxy-collection-rpc-probe/2',execution=False)).encode()
+        device=FakeDevice({'/projects/openxy/gui-rpc-status.oxc':data,
+                           '/projects/openxy/audio-rpc-status.oxc':newer,
+                           '/projects/openxy/collection.oxc':b'collection'})
+        with tempfile.TemporaryDirectory() as folder:
+            result=transfer.clear_probe_status(device,Path(folder).resolve()/'record')
+        self.assertEqual(len(result['files']),2)
+        self.assertTrue(all(item['removed'] for item in result['files']))
+        self.assertEqual(device.get('/projects/openxy/collection.oxc'),b'collection')
+
+    def test_both_reports_are_backed_up_and_removed_without_touching_other_files(self):
+        data=json.dumps(dict(format='openxy-collection-probe/1',execution=False)).encode()
+        device=FakeDevice({'/projects/openxy/gui-status.oxc':data,'/projects/openxy/audio-status.oxc':data,
+                           '/projects/openxy/collection.oxc':b'collection','/projects/song.xy':b'project'})
+        with tempfile.TemporaryDirectory() as folder:
+            record=Path(folder).resolve()/'record'
+            result=transfer.clear_probe_status(device,record)
+            self.assertTrue(result['complete'])
+            self.assertEqual(len(result['files']),2)
+            for name in ('gui-status.oxc','audio-status.oxc'):
+                self.assertEqual((record/'before'/name).read_bytes(),data)
+                self.assertIsNone(device.get('/projects/openxy/'+name))
+            self.assertEqual(device.get('/projects/openxy/collection.oxc'),b'collection')
+            self.assertEqual(device.get('/projects/song.xy'),b'project')
+
+    def test_a_foreign_report_prevents_either_deletion(self):
+        valid=json.dumps(dict(format='openxy-collection-probe/1',execution=False)).encode()
+        device=FakeDevice({'/projects/openxy/gui-status.oxc':valid,'/projects/openxy/audio-status.oxc':b'private'})
+        with tempfile.TemporaryDirectory() as folder, self.assertRaises(ValueError):
+            transfer.clear_probe_status(device,Path(folder).resolve()/'record')
+        self.assertEqual(device.get('/projects/openxy/gui-status.oxc'),valid)
+        self.assertEqual(device.get('/projects/openxy/audio-status.oxc'),b'private')
+
+    def test_missing_folder_needs_no_device_changes(self):
+        device=FakeDevice()
+        with tempfile.TemporaryDirectory() as folder:
+            result=transfer.clear_probe_status(device,Path(folder).resolve()/'record')
+            self.assertTrue(result['complete'])
+            self.assertEqual(result['files'],[])
+            self.assertEqual(len(device.nodes),1)
 
 
 if __name__ == '__main__':

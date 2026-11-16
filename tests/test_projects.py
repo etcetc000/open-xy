@@ -205,6 +205,22 @@ class FirmwareWriter(unittest.TestCase):
             self.assertEqual(run('1', env=noaux).returncode, 0)
             self.assertEqual(aux_kept(parse((folder / 'song.oxy').read_bytes()), project.read_bytes()), {})
 
+    def test_decimal_writer_matches_uint32_values_and_digit_boundaries(self):
+        values = list(range(1000))
+        for exponent in range(10):
+            place = 10 ** exponent
+            values.extend((place - 1, place, place + 1))
+        random = 0xffffffff
+        values.append(random)
+        for _ in range(1000):
+            random = (random * 1664525 + 1013904223) & 0xffffffff
+            values.append(random)
+        with tempfile.TemporaryDirectory(prefix='companion-numbers-') as directory:
+            folder = Path(directory)
+            writer, output = host_writer(folder), folder / 'numbers.txt'
+            subprocess.run([str(writer), str(output), 'numbers'], check=True, timeout=30)
+            self.assertEqual(output.read_text(), ''.join(f'{v}\n' for v in values))
+
     def test_a_companion_larger_than_the_write_buffer_is_written_whole(self):
         # 220 machines numbered past the stock imm7 bound: the writer streams through its
         # 8 KiB buffer, and a reader takes every machine.

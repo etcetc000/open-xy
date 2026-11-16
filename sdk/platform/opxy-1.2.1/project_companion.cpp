@@ -26,6 +26,12 @@
 // section first, so the control section before it leaves it room; a load decodes the
 // section's pool into a staged pool, and the locks service then clears every handle the
 // loaded project holds that a valid, matching section did not give values for.
+//
+// Project I/O is outside audio processing. Size optimization avoids expanding
+// the streaming parser's visitor paths into a large part of the shared module.
+#if defined(__BFIN__)
+#pragma GCC optimize("Os")
+#endif
 #include "project_companion.hpp"
 #include "stock.hpp"
 #include "master_processor.hpp"
@@ -70,7 +76,7 @@ u32 deserialize(void* project, const char* path) {
 
 const u32 kPathBytes = 256;
 const u32 kTextBytes = 1024;  // the writer streams through it (Writer)
-const u32 kChunkBytes = 4096;
+const u32 kChunkBytes = 1024;
 // The writer's and the reader's buffers stay apart, so a save and a load never share one.
 unsigned char chunk[kChunkBytes];
 char text[kTextBytes];
@@ -139,10 +145,18 @@ public:
         length_ = 0;
     }
     void number(u32 v) {
-        char digits[10];
-        u32 count = 0;
-        do { digits[count++] = static_cast<char>('0' + v % 10); v /= 10; } while (v);
-        while (count) byte(digits[--count]);
+        // Bounded subtraction avoids the high-product libcall this compiler
+        // emits for decimal division when optimizing for size.
+        static const u32 places[] = {1000000000,100000000,10000000,1000000,100000,10000,1000,100,10,1};
+        bool started = false;
+        for (u32 place : places) {
+            u32 digit = 0;
+            while (v >= place) { v -= place; ++digit; }
+            if (started || digit || place == 1) {
+                byte(static_cast<char>('0' + digit));
+                started = true;
+            }
+        }
     }
     void hex(u32 v) {
         for (int shift = 28; shift >= 0; shift -= 4) byte("0123456789abcdef"[(v >> shift) & 15]);
@@ -395,7 +409,9 @@ public:
         if (first != '0') {
             while (digit(source_.peek())) {
                 const u32 d = static_cast<u32>(source_.next() - '0');
-                n.magnitude = n.magnitude > (0xffffffffu - d) / 10 ? 0xffffffffu : n.magnitude * 10 + d;
+                const bool overflow = n.magnitude > 0xffffffffu / 10 ||
+                    (n.magnitude == 0xffffffffu / 10 && d > 0xffffffffu % 10);
+                n.magnitude = overflow ? 0xffffffffu : n.magnitude * 10 + d;
             }
         }
         if (source_.peek() == '.') {

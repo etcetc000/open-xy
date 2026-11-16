@@ -1,14 +1,17 @@
 import { PreviewEngine } from './engine.mjs';
+import { EffectPreviewEngine } from './effect.mjs';
 
 export class PreviewProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    const { module, parameters } = options.processorOptions;
-    this.engine = new PreviewEngine(module, sampleRate, parameters);
+    const { module, parameters, kind } = options.processorOptions;
+    this.engine = kind === 'effect' ? new EffectPreviewEngine(module, sampleRate, parameters) : new PreviewEngine(module, sampleRate, parameters);
     this.port.onmessage = ({ data }) => {
       try {
         if (data.type === 'parameters') this.engine.setParameters(data.value);
         if (data.type === 'model') this.engine.setModel(data.value);
+        if (data.type === 'bypass') this.engine.setBypass(data.value);
+        if (data.type === 'wet') this.engine.setWet(data.value);
         if (data.type === 'on') this.engine.noteOn(data.note, data.velocity);
         if (data.type === 'off') this.engine.noteOff(data.note);
         if (data.type === 'panic') this.engine.panic();

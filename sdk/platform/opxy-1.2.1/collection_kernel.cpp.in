@@ -1,0 +1,365 @@
+// Resident whole-collection startup. FILE operations and synchronous RPC waits
+// belong exclusively to persistent helper tasks, never either initializer.
+#include "stock.hpp"
+#include "collection_gate.hpp"
+#include "collection_handoff.hpp"
+#include "collection_cache.hpp"
+#include "collection_io.hpp"
+#include "collection_resource_stock.hpp"
+using namespace opxy;
+using namespace opxy::platform;
+using namespace opxy::collection;
+namespace a=opxy::collection::activation;
+extern "C" {
+u32 sdk_collection_rpc_dispatch(void*) __asm__("sdk_collection_rpc_dispatch");
+u32 sdk_collection_rpc_stock(void*) __asm__("sdk_collection_rpc_stock");
+void sdk_collection_rpc_entry() __asm__("sdk_collection_rpc_entry");
+extern volatile u32 sdk_collection_dispatch_enabled __asm__("sdk_collection_dispatch_enabled");
+u32 sdk_collection_sync_code(u32,u32) __asm__("sdk_collection_sync_code");
+u32 sdk_collection_cache_scratch() __asm__("sdk_collection_cache_scratch");
+void sdk_collection_fence() __asm__("sdk_collection_fence");
+void sdk_collection_startup_ready(u32) __asm__("sdk_collection_startup_ready");
+}
+namespace {
+const a::Limits limits={@LIMITS@};
+io::Heap heap={@HEAP@};
+const u32 magic=0xcf585950, prepare_bulk=0x43, wait_prepared=0x44, wait_copied=0x45;
+const u32 deadline=60000, live_marker=0xc001;
+enum WorkerState { reading, ineligible, intent_ready, pending_ready, preparing,
+                   prepared_state, commit_wait, copied_state, publish_ready,
+                   health_wait, finished, failed, cleaned };
+enum Permit { none, bulk_permit, commit_permit, copy_permit, published_permit };
+alignas(8) unsigned char request[36],tcb[112];
+alignas(8) u32 helper_stack[2048];
+a::GateMailbox mailbox;
+a::BootBarrier barrier;
+volatile u32 worker_state,permit,abort_worker,nonce,entry_finished,startup_bits,resource_fault,selected;
+u32 last_ticket,last_epoch,last_operation;
+a::Reply last_reply;
+bool entered;
+a::Control selection;
+a::Identity identity;
+a::Image image;
+a::Workspace image_workspace;
+resources::Cache cache;
+resource_stock::View view;
+
+void fence() {
+    __atomic_signal_fence(__ATOMIC_SEQ_CST);sdk_collection_fence();
+    __atomic_signal_fence(__ATOMIC_SEQ_CST);
+}
+bool equal(const unsigned char* x,const unsigned char* y) {
+    unsigned char difference=0;for (u32 i=0;i<32;++i) difference|=x[i]^y[i];return !difference;
+}
+bool cancelled(void*) { return abort_worker!=0; }
+void state(u32 value) { fence();worker_state=value;fence(); }
+void grant(u32 value) { fence();permit=value;fence(); }
+bool wait(u32 wanted) {
+    while (!abort_worker && permit<wanted) io::delay(1);
+    fence();return !abort_worker;
+}
+void idle() { for (;;) io::delay(60000); }
+void cleanup() {
+    const a::Allocator allocator=io::allocator(heap);
+    resource_stock::destroy_catalog(const_cast<void*>(view.catalog),allocator);view.catalog=nullptr;
+    if (view.working) allocator.release(allocator.context,view.working);
+    view.working=nullptr;view.working_bytes=0;view.cache=nullptr;
+    resources::release(cache);
+    if (image.bytes) allocator.release(allocator.context,image.bytes);
+    image.bytes=nullptr;
+    state(cleaned);
+}
+void fail() { state(failed);while (!abort_worker) io::delay(1);cleanup();idle(); }
+bool read_intent() {
+    // Stock fopen has assertion-allocating FAT internals. Keep conservative
+    // headroom before opening even the two fixed-size control records.
+    if (io::contiguous_free(heap)<heap.reserve_bytes+4096) return false;
+    unsigned char bytes[a::control_bytes];bool opened=false;Sha256 hash;
+    if (!io::read_bytes("/fat32/projects/openxy/activate.oxc",bytes,sizeof(bytes),opened,cancelled) || abort_worker ||
+        !a::read_control(bytes,sizeof(bytes),limits,selection,hash) ||
+        (selection.phase!=a::armed && selection.phase!=a::verify_only)) return false;
+    a::Control attempt={};
+    const bool read=io::read_bytes("/fat32/projects/openxy/attempt.oxc",bytes,sizeof(bytes),opened,cancelled);
+    if (abort_worker || !read || !opened || !a::read_control(bytes,sizeof(bytes),limits,attempt,hash)) return false;
+    a::Control check=selection;check.phase=a::armed;
+    if (a::rollback_needed(check,true,true,attempt) ||
+        (selection.phase==a::verify_only && attempt.generation==selection.generation)) return false;
+    for (u32 i=0;i<32;++i) {
+        identity.platform[i]=limits.platform[i];identity.abi[i]=limits.abi[i];identity.digest[i]=selection.digest[i];
+    }
+    identity.generation=selection.generation;identity.slot=selection.slot;identity.request_mode=selection.phase;
+    return true;
+}
+// Abort is observed before each new open/read/allocation, and after every
+// blocking return. In-flight targets are freed only by this owning helper.
+struct File { Reader reader;void* handle; } current_file;
+u32 read(void* context,void* out,u32 count) {
+    File& file=*static_cast<File*>(context);
+    if (abort_worker) return 0;
+    if (count>4096) count=4096;
+    const u32 n=file.reader.read(file.reader.context,out,count);
+    io::delay(1);return abort_worker ? 0 : n;
+}
+bool failed_read(void* context) {
+    File& file=*static_cast<File*>(context);return abort_worker || file.reader.failed(file.reader.context);
+}
+bool ended(void* context) { File& file=*static_cast<File*>(context);return file.reader.ended(file.reader.context); }
+bool open(void*,const char* path,Reader& reader,void*& handle) {
+    if (abort_worker || io::contiguous_free(heap)<heap.reserve_bytes) return false;
+    const resources::Files files=io::files();
+    if (!files.open(files.context,path,current_file.reader,current_file.handle)) return false;
+    if (abort_worker) { files.close(files.context,current_file.handle);return false; }
+    reader=Reader{&current_file,read,failed_read,ended};handle=&current_file;return true;
+}
+void close(void*,void* handle) {
+    File& file=*static_cast<File*>(handle);const resources::Files files=io::files();files.close(files.context,file.handle);
+}
+unsigned char* allocate(void*,u32 bytes) {
+    if (abort_worker) return nullptr;
+    const a::Allocator allocator=io::allocator(heap);
+    return allocator.allocate(allocator.context,bytes);
+}
+void release(void*,unsigned char* value) { const a::Allocator allocator=io::allocator(heap);allocator.release(allocator.context,value); }
+bool synchronize(void*,u32 address,u32 bytes) { return sdk_collection_sync_code(address,bytes)!=0; }
+u32 invoke(void*) { return sdk_collection_cache_scratch(); }
+bool prepare() {
+    Reader reader={};void* handle=nullptr;
+    const char* path=selection.slot ? "/fat32/projects/openxy/slot1.oxc" : "/fat32/projects/openxy/slot0.oxc";
+    if (!open(nullptr,path,reader,handle)) return false;
+    const a::Allocator allocator={nullptr,allocate,release};
+    image=a::stage(reader,limits,allocator,image_workspace);close(nullptr,handle);
+    if (abort_worker || image.status!=a::staged || image.version!=2 || !equal(image.digest,selection.digest)) return false;
+    resources::Workspace workspace;
+    const resources::Files files={nullptr,open,close,nullptr};
+    if (resources::collect(image,files,allocator,cache,workspace)!=resources::ready ||
+        abort_worker || !resources::matches(image,cache)) return false;
+    view.catalog=resource_stock::prepare_catalog(cache,allocator,true);
+    if (abort_worker || !view.catalog) return false;
+    u32 largest=0;
+    for (u32 i=0;i<cache.count;++i) if (cache.entries[i].kind==a::svg_resource && cache.entries[i].bytes>largest)
+        largest=cache.entries[i].bytes;
+    if (largest) {
+        view.working=allocator.allocate(allocator.context,largest+1);
+        if (!view.working) return false;
+        view.working_bytes=largest+1;
+    }
+    view.cache=&cache;
+    const u32 scratch=static_cast<u32>(reinterpret_cast<Address>(&sdk_collection_cache_scratch));
+    const a::CacheOps ops={nullptr,synchronize,invoke};
+    return !abort_worker && a::qualify_cache(ops,reinterpret_cast<volatile u16*>(Address(scratch)),scratch,
+                                             @RESIDENT_BASE@,@RESIDENT_BYTES@);
+}
+bool copy_payload() {
+    if (abort_worker || !resources::matches(image,cache)) return false;
+    const a::HandoffMemory memory={reinterpret_cast<unsigned char*>(Address(limits.base)),nullptr,synchronize};
+    return a::install(image,limits,permit>=commit_permit,memory,image_workspace.hash)==a::synchronized;
+}
+bool command(u32& ticket,u32 operation,u32& value) {
+    if (ticket==127 || abort_worker) return false;
+    ++ticket;const u32 start=io::ticks();
+    do {
+        const u16 marker=u16(0x8000u | ticket<<7 | operation);
+        stock<void(void*,u32,u32,u32,u16)>(0x8c0c3c3c)(request,45,magic,nonce,marker);
+        stock<u32(void*)>(0x8c0c3a88)(request);
+        const u32 status=*reinterpret_cast<const u32*>(request+0x14);
+        value=*reinterpret_cast<const u32*>(request+0x18);
+        if (abort_worker) return false;
+        if (status!=a::busy) return status==a::accepted;
+        io::delay(5);
+    } while (u32(io::ticks()-start)<deadline);
+    return false;
+}
+bool peer_intent(u32& ticket) {
+    u32 value=0;
+    if (!command(ticket,a::claim,value) || value!=a::intent_leased) return false;
+    const u32 groups[]={a::platform_word,a::abi_word,a::digest_word};
+    const unsigned char* fields[]={identity.platform,identity.abi,identity.digest};
+    for (u32 group=0;group<3;++group) for (u32 word=0;word<8;++word) {
+        const unsigned char* p=fields[group]+word*4;
+        const u32 expected=u32(p[0]) | u32(p[1])<<8 | u32(p[2])<<16 | u32(p[3])<<24;
+        if (!command(ticket,groups[group]+word,value) || value!=expected) return false;
+    }
+    return command(ticket,a::generation,value) && value==selection.generation &&
+        command(ticket,a::slot,value) && value==selection.slot &&
+        command(ticket,a::request_mode,value) && value==selection.phase;
+}
+void health() {
+    // Staging is no longer needed; canonical resources and parsed catalog stay
+    // alive for every selected screen/project in this boot.
+    if (image.bytes) { release(nullptr,image.bytes);image.bytes=nullptr; }
+    if (!io::gui()) { state(health_wait);idle(); }
+    const u32 start=io::ticks();
+    while (u32(io::ticks()-start)<20000) io::delay(50);
+    u32 frame=word(0x8400e6f4);const u32 window=io::ticks();bool live_ready=false;
+    while (u32(io::ticks()-window)<10000 && !resource_fault) {
+        const u32 next=word(0x8400e6f4);
+        const bool fresh=next!=frame && !(next&1);frame=next;
+        if (fresh && (startup_bits&5)==5) {
+            if (live_ready) {
+                a::Control confirmed=selection;confirmed.phase=a::confirmed;
+                if (!resource_fault && io::contiguous_free(heap)>=heap.reserve_bytes+4096 &&
+                    io::persist_attempt(confirmed,limits,cancelled)) state(finished);
+                idle();
+            }
+            stock<void(void*,u32,u32,u32,u16)>(0x8c0c3c3c)(request,45,magic,nonce,live_marker);
+            stock<u32(void*)>(0x8c0c3a88)(request);
+            const u32 status=*reinterpret_cast<const u32*>(request+0x14);
+            const u32 bits=*reinterpret_cast<const u32*>(request+0x18);
+            if (status==a::accepted && (bits&0x103)==0x103 && !resource_fault) {
+                // The synchronous RPC can block. Require another completed
+                // frame after its return, within the same bounded window.
+                live_ready=true;frame=word(0x8400e6f4);
+            }
+        }
+        io::delay(50);
+    }
+    // Pending is deliberately retained: next boot selects the embedded set.
+    idle();
+}
+void helper(void*) {
+    if (!read_intent()) { state(ineligible);idle(); }
+    state(intent_ready);
+    if (!io::gui()) {
+        if (!wait(bulk_permit)) { cleanup();idle(); }
+        state(preparing);
+        if (!prepare()) fail();
+        state(prepared_state);
+        if (!wait(copy_permit)) { cleanup();idle(); }
+        if (!copy_payload()) fail();
+        state(copied_state);
+        if (!wait(published_permit)) idle();
+        health();
+    }
+    nonce=io::ticks()^0x184b207du;if (!nonce) nonce=1;
+    u32 ticket=0,value=0;
+    if (!peer_intent(ticket)) fail();
+    a::Control pending=selection;pending.phase=a::pending;
+    if (abort_worker || !io::persist_attempt(pending,limits,cancelled) || abort_worker) fail();
+    state(pending_ready);
+    if (!wait(bulk_permit)) { cleanup();idle(); }
+    state(preparing);
+    if (!prepare()) fail();
+    state(prepared_state);
+    if (!command(ticket,prepare_bulk,value) || value!=a::intent_leased ||
+        !command(ticket,wait_prepared,value) || value!=a::leased ||
+        !command(ticket,a::freeze,value) || value!=a::frozen) fail();
+    if (selection.phase==a::verify_only) {
+        if (!command(ticket,a::cancel,value) || value!=a::baseline) fail();
+        a::Control confirmed=selection;confirmed.phase=a::confirmed;
+        if (abort_worker || !io::persist_attempt(confirmed,limits,cancelled)) fail();
+        state(finished);while (!abort_worker) io::delay(1);cleanup();idle();
+    }
+    // Main owns the irreversible decision BEFORE any COPY request is sent.
+    state(commit_wait);
+    if (!wait(commit_permit)) { cleanup();idle(); }
+    if (!command(ticket,a::copy,value) || value!=a::copy_authorized ||
+        !command(ticket,wait_copied,value) || value!=a::local_copied || !copy_payload()) fail();
+    state(copied_state);
+    if (!command(ticket,a::publish,value) || value!=a::published) fail();
+    state(publish_ready);
+    if (!wait(published_permit)) idle();
+    health();
+}
+void complete(u32 ticket,u32 epoch,u32 operation,a::Reply reply) {
+    last_ticket=ticket;last_epoch=epoch;last_operation=operation;last_reply=reply;
+    fence();mailbox.complete(ticket,reply);
+}
+void publish_embedded() {
+    // The embedded set is the user's 22-machine collection, not raw stock.
+    sdk_collection_dispatch_enabled=1;fence();entry_finished=1;fence();
+}
+}
+
+resource_stock::View* sdk_collection_selected_resources() { return selected ? &view : nullptr; }
+void sdk_collection_resource_fallback(u32 fault) { resource_fault|=fault;fence(); }
+void sdk_collection_startup_ready(u32 bits) { startup_bits|=bits;fence(); }
+u32 sdk_collection_rpc_dispatch(void* value) {
+    unsigned char* message=static_cast<unsigned char*>(value);
+    const u16 marker=*reinterpret_cast<const u16*>(message+32);
+    const u32 epoch=*reinterpret_cast<const u32*>(message+28);
+    if (io::gui() || static_cast<signed char>(message[8])!=45 ||
+        *reinterpret_cast<const u32*>(message+12)!=magic || !epoch ||
+        (marker!=live_marker && ((marker&0xc000u)!=0x8000u || !(marker&0x3f80u))))
+        return sdk_collection_rpc_stock(value);
+    a::Reply result={a::unavailable,0};
+    if (marker==live_marker) {
+        if (selected && epoch==nonce) result=a::Reply{a::accepted,(resource_fault ? 0u : 0x100u)|startup_bits};
+    } else {
+        const u32 ticket=(marker>>7)&127,operation=marker&127;
+        if (!entry_finished) result=mailbox.exchange(ticket,epoch,operation);
+        else if (ticket==last_ticket && epoch==last_epoch && operation==last_operation) result=last_reply;
+    }
+    u32* words=static_cast<u32*>(value);words[5]=result.status;words[6]=result.value;
+    return stock<u32(u32,void*)>(0x8c0c0c80)(word(0x84259220),value);
+}
+void sdk_collection_rpc_entry() {
+    if (entered) return;
+    entered=true;const bool gui=io::gui();const u32 start=io::ticks();
+    const void* task=stock<void*(void(*)(void*),const char*,u32,void*,u32,u32*,void*)>(0x8c03f744)(
+        helper,"openxy-collection",2048,nullptr,1,helper_stack,tcb);
+    if (!task) { abort_worker=1;barrier.cancel();publish_embedded();return; }
+    a::StartupGate gate={};bool gate_entered=false,bulk=false,committed=false,copied=false,cancelling=false;
+    u32 cleanup_start=0;
+    for (;;) {
+        const u32 now=io::ticks(),worker=worker_state;fence();
+        if (!gui && !gate_entered && worker==intent_ready) {
+            gate.enter_intent(identity,true,now,deadline);gate_entered=true;
+        }
+        if (!gui && gate_entered) gate.tick(now);
+        if (worker==ineligible || worker==failed || (gui && worker==finished) ||
+            (!committed && u32(now-start)>=deadline) || (!gui && gate.return_embedded())) {
+            if (!cancelling) {
+                barrier.cancel();abort_worker=1;fence();cancelling=true;cleanup_start=now;
+            }
+        }
+        if (cancelling) {
+            if (worker==cleaned) barrier.worker_cleaned();
+            if (u32(now-cleanup_start)>=10000) barrier.cleanup_timeout();
+            if (barrier.return_embedded()) { publish_embedded();return; }
+            // Bulk worker stalled, or irreversible commit failed. Stay held;
+            // a physical reset uses the persisted pending marker for rollback.
+            io::delay(1);continue;
+        }
+        if (gui && !bulk && worker==pending_ready) {
+            if (!barrier.allow_bulk(true,selection.phase==a::armed)) { abort_worker=1;continue; }
+            bulk=true;grant(bulk_permit);
+        }
+        if (gui && !committed && worker==commit_wait) {
+            if (!barrier.allow_commit(resources::matches(image,cache))) { abort_worker=1;continue; }
+            committed=true;grant(commit_permit);
+        }
+        if (!gui && worker==prepared_state && gate.phase()==a::intent_leased)
+            gate.prepared(resources::matches(image,cache));
+        if (!gui && committed && !copied && worker==copied_state) { gate.copied(true);copied=true; }
+        u32 ticket=0,epoch=0,operation=0;
+        if (!gui && mailbox.take(ticket,epoch,operation)) {
+            a::Reply reply={a::refused,gate.phase()};bool defer=false;
+            if (!gate_entered && worker==reading) defer=true;
+            else if (operation==prepare_bulk) {
+                if (epoch==nonce && gate.phase()==a::intent_leased && !bulk &&
+                    barrier.allow_bulk(true,selection.phase==a::armed)) {
+                    bulk=true;grant(bulk_permit);reply=a::Reply{a::accepted,a::intent_leased};
+                }
+            } else if (operation==wait_prepared || operation==wait_copied) {
+                const u32 wanted=operation==wait_prepared ? a::leased : a::local_copied;
+                if (epoch==nonce && gate.phase()==wanted) reply=a::Reply{a::accepted,wanted};
+                else if (epoch==nonce && !gate.return_embedded() && gate.phase()!=a::failed_hold) defer=true;
+            } else if (operation==a::copy) {
+                if (epoch==nonce && gate.phase()==a::frozen && selection.phase==a::armed &&
+                    barrier.allow_commit(resources::matches(image,cache))) {
+                    committed=true;reply=gate.request(epoch,operation,now);grant(copy_permit);
+                }
+            } else {
+                reply=gate.request(epoch,operation,now);
+                if (operation==a::claim && reply.status==a::accepted) nonce=epoch;
+            }
+            if (!defer) complete(ticket,epoch,operation,reply);
+        }
+        if ((gui && worker==publish_ready) || (!gui && gate.return_selected())) {
+            if (!barrier.adopt(true)) { abort_worker=1;continue; }
+            selected=1;fence();sdk_collection_dispatch_enabled=1;fence();
+            entry_finished=1;fence();grant(published_permit);return;
+        }
+        io::delay(1);
+    }
+}

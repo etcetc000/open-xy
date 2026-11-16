@@ -1,0 +1,15 @@
+{
+  "schema": 2,
+  "base": "opxy-1.2.1",
+  "pattern": "^/projects/openxy/[\\w\\-]+\\.oxc$",
+  "hook": {
+    "kind": "hook",
+    "name": "MTP collection files alongside unchanged stock project rules",
+    "address": "0x8d5c1d9e",
+    "file_offset": "0x1f8ff6",
+    "length": 4,
+    "before": "ffe309ff",
+    "symbol": "sdk_collection_mtp_match",
+    "call": true
+  }
+}

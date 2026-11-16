@@ -53,7 +53,7 @@ class PackageVerification(unittest.TestCase):
         cls.module = read(cls.package / 'analysis/module.bin')
         cls.report = document(cls.package / 'analysis/compile-report.json')
         cls.elf = read(cls.package / 'analysis/module.elf')
-        cls.patch_profile, cls.machines, _definitions = native.configuration(native.package_collection(cls.package))
+        cls.patch_profile, cls.machines, _definitions = native.package_configuration(cls.package)
         # A collection larger than the module links only what fits (native.linked_machines).
         cls.linked = native.linked_in(cls.machines, cls.report)
         cls.patch_profile['patches'] = cls.report['patches']
@@ -116,13 +116,17 @@ class PackageVerification(unittest.TestCase):
         # Only a service's own units and machines of the kinds or features it serves may use its symbols.
         users = self.patch_profile['services']
         for name, (owner, undefined) in needs.items():
+            if name=='sdk/collection_entries.o' and self.report.get('collection_loader'):
+                self.assertEqual(undefined,{e['symbol'] for e in self.report['collection_interface']['entries']})
+                continue # Fixed checked dispatch entries name every enabled service's payload hook.
             for symbol in undefined:
                 service = services.get(owner_of.get(symbol))
                 if service and name not in services:
-                    # The startup, generated per selection, starts a service it links.
-                    user = (set(native.service_users(self.machines)) if name == 'sdk/startup.o' else
-                            uses.get(owner, set()))
-                    self.assertTrue(user & set(users[service]), (name, symbol))
+                    # Startup can reference any service linked for the frozen resident ABI.
+                    if name == 'sdk/startup.o':
+                        self.assertIn(service, native.collection_services(self.patch_profile, self.machines))
+                    else:
+                        self.assertTrue(uses.get(owner, set()) & set(users[service]), (name, symbol))
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
         _, symbols = elf32(self.elf)
@@ -148,8 +152,10 @@ class PackageVerification(unittest.TestCase):
         presets |= {path for m in self.linked for path in aux_preset_files(m)}
         # A sample engine's own samples (SDK 1.10), as its collection folder declares them; nothing else.
         samples = {sample_path(m.id, name) for m in self.linked for name in (m.samples or {})}
-        self.assertEqual(files, {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} |
-                         presets | samples)
+        expected = {'os.ldr', 'content/op1_factory.json'} | {f'content/display/{n}.svg' for n in displays} | presets | samples
+        if self.report.get('collection_loader'):
+            expected |= {'projects/openxy/kernel.oxc', 'content/display/_openxy_loader_1.svg'}
+        self.assertEqual(files, expected)
 
     def test_changed_os_elf_module_and_asset_fail_even_with_new_hash(self):
         names = ['candidate/os.ldr', 'analysis/module.elf', 'analysis/module.bin', 'candidate/content/op1_factory.json',
@@ -157,6 +163,8 @@ class PackageVerification(unittest.TestCase):
         names += ['candidate/content/display/' + Path(e.master_filter['artwork']).name
                   for e in native.extensions_of(self.linked) if e.master_filter]
         names += [f'candidate/{path}' for m in self.linked for path in preset_files(m)]
+        if self.report.get('collection_loader'):
+            names += ['candidate/projects/openxy/kernel.oxc', 'candidate/content/display/_openxy_loader_1.svg']
         for name in names:
             with self.subTest(name=name):
                 path = self.copy / name

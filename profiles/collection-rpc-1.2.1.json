@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "base": "opxy-1.2.1",
+  "hook": {
+    "kind": "hook",
+    "name": "Inspection-only resident identity request through the stock interprocessor router",
+    "address": "0x8c0c236c",
+    "file_offset": "0xf95a8",
+    "length": 8,
+    "before": "00e80000f5053830",
+    "symbol": "sdk_collection_rpc_dispatch",
+    "call": false,
+    "absolute_jump": true
+  },
+  "entry_hook": {
+    "kind": "hook",
+    "name": "Bounded hold-only coordinator before stock engine initialization",
+    "address": "0x8d5067d4",
+    "file_offset": "0x13da30",
+    "length": 8,
+    "before": "00e80000fb05466f",
+    "symbol": "sdk_collection_rpc_entry_hook",
+    "call": false,
+    "absolute_jump": true
+  }
+}

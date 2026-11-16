@@ -22,7 +22,7 @@ test('dev server serves browser sources and rejects private paths and writes', a
     const html = await page.text();
     assert.match(html,/@vite\/client/);
     assert.match(html,/src="\/entry.mjs"/);
-    for (const path of ['/entry.mjs','/style.css','/app.mjs','/graphics-configuration.mjs','/machine-snapshots.mjs','/graphics-dialog.mjs','/browser.mjs','/wizard.mjs','/ferret.mjs','/mtp.mjs','/visuals.mjs','/audition.mjs']) {
+    for (const path of ['/entry.mjs','/style.css','/app.mjs','/graphics-configuration.mjs','/machine-snapshots.mjs','/graphics-dialog.mjs','/browser.mjs','/wizard.mjs','/ferret.mjs','/mtp.mjs','/visuals.mjs','/audition.mjs', '/manager.mjs']) {
       const response = await fetch(url+path); assert.equal(response.status,200,path);
     }
     // Vite's client and the shared renderers load through /@fs/ on every platform.

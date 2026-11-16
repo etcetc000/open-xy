@@ -1,0 +1,69 @@
+// Startup storage bring-up. This never installs or executes external code.
+#include "collection_probe.hpp"
+#include "stock.hpp"
+using namespace opxy;
+using namespace opxy::platform;
+namespace {
+bool attempted;
+collection::Workspace workspace;
+char status_text[320];
+const char mtp_pattern[] = @MTP_PATTERN@;
+const collection::Limits limits = {@BASE@, @BYTES@, {@PLATFORM@}};
+u32 read(void* file, void* data, u32 count) {
+    return stock<u32(void*, u32, u32, void*)>(0x8fed05bc)(data, 1, count, file);
+}
+// Stock's FILE flags are its first halfword: fread's direct-read path sets
+// error bit 9 at 8fed06ae and EOF bit 8 at 8fed06bc, as does its refill path.
+bool failed(void* file) { return (*static_cast<const volatile u16*>(file) & 0x200u) != 0; }
+bool ended(void* file) { return (*static_cast<const volatile u16*>(file) & 0x100u) != 0; }
+void close(void* file) { stock<int(void*)>(0x8fed00ae)(file); }
+void* open(const char* path, const char* mode) {
+    return stock<void*(const char*, const char*)>(0x8fed0348)(path, mode);
+}
+void hex(char* out, const unsigned char* bytes) {
+    const char* digits = "0123456789abcdef";
+    for (u32 i=0; i<32; ++i) { out[2*i]=digits[bytes[i]>>4]; out[2*i+1]=digits[bytes[i]&15]; }
+}
+}
+extern "C" u32 sdk_collection_mtp_match(const char*, const void*) __asm__("sdk_collection_mtp_match");
+u32 sdk_collection_mtp_match(const char* pattern, const void* path) {
+    // The stock matcher has no groups or alternation. Delegate every existing
+    // rule first, then add our restricted path once per file-allowlist scan.
+    const auto match = stock<u32(const char*, const void*)>(0x8d5c1bb0);
+    if (match(pattern, path)) return 1;
+    return pattern == reinterpret_cast<const char*>(0x840ae4b0) ? match(mtp_pattern, path) : 0;
+}
+extern "C" void sdk_collection_probe() __asm__("sdk_collection_probe");
+void sdk_collection_probe() {
+    if (attempted) return;
+    attempted = true;
+    collection::Inspection result = {};
+    result.status = collection::missing;
+    // MTP presents /projects; stock's path adapter (8d5c1e88) prefixes /fat32
+    // before calling this same FILE API. Native calls must use the mount path.
+    if (void* file = open("/fat32/projects/openxy/collection.oxc", "rb")) {
+        result = collection::inspect(collection::Reader{file, read, failed, ended}, limits, workspace);
+        close(file);
+    }
+    // Roles have separate RAM and separate reports. A successful read on one
+    // does not authorize the other role, or authorize executing this package.
+    const bool gui = stock<u32()>(0x8d5c3eac)() != 0;
+    const char* path = gui ? "/fat32/projects/openxy/gui-status.oxc" : "/fat32/projects/openxy/audio-status.oxc";
+    if (void* file = open(path, "wb")) {
+        const char* names[] = {"valid", "truncated", "malformed", "incompatible", "outside-pool", "checksum", "trailing", "missing", "io-error"};
+        const char prefix[] = "{\"format\":\"openxy-collection-probe/1\",\"execution\":false,\"platform\":\"";
+        const char middle[] = "\",\"digest\":\"";
+        const char status[] = "\",\"status\":\"";
+        const char suffix[] = "\"}\n";
+        char* text = status_text; u32 n=0;
+        for (u32 i=0; i<sizeof(prefix)-1; ++i) text[n++]=prefix[i];
+        hex(text+n, limits.platform); n+=64;
+        for (u32 i=0; i<sizeof(middle)-1; ++i) text[n++]=middle[i];
+        hex(text+n, result.digest); n+=64;
+        for (u32 i=0; i<sizeof(status)-1; ++i) text[n++]=status[i];
+        for (const char* p=names[result.status]; *p; ++p) text[n++]=*p;
+        for (u32 i=0; i<sizeof(suffix)-1; ++i) text[n++]=suffix[i];
+        stock<u32(const void*,u32,u32,void*)>(0x8fed0780)(text,1,n,file);
+        close(file);
+    }
+}

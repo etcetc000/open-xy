@@ -74,6 +74,18 @@ class Generation(unittest.TestCase):
             text = adapters.generate_sample_callbacks(directory, []).read_text()
         self.assertNotIn('_ready', text)
 
+    def test_slice_storage_covers_all_compiled_machines(self):
+        plain = fixture('probesample')
+        resources = dict(plain.definition['resources'], sliceTiming=1)
+        timed = replace(plain, id='timed', definition=dict(plain.definition, resources=resources))
+        for machines, expected in [([], 0), ([plain], 0),
+                                   ([fixture('probesynth'), fixture('probefx')], 0),
+                                   ([timed], 1), ([plain, timed], 1), ([timed, plain], 1)]:
+            with self.subTest(machines=[m.id for m in machines]), tempfile.TemporaryDirectory() as directory:
+                text = adapters.generate_sample_slice_bridge(directory, machines).read_text()
+                self.assertIn(f'#define OPXY_SAMPLE_SLICE_TIMING {expected}\n', text)
+                self.assertIn('#include "drum_controls_stock.cpp"', text)
+
     def test_engine_units_expand_every_placeholder(self):
         m = replace(fixture('probesample'), identity=dict(engine=46, page=2))
         with tempfile.TemporaryDirectory() as directory:

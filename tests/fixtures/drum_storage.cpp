@@ -47,7 +47,7 @@ static void roundtrip(u32 model, const u8* source) {
 
 static void read_fields() {
     // Check every valid field location/width against the serialized bit order,
-    // including word crossings and the largest two-word fields.
+    // including empty fields, word crossings, and full-width unsigned values.
     u32 random = 1;
     for (u32 trial = 0; trial < 128; ++trial) {
         u32 packed[4];
@@ -55,9 +55,8 @@ static void read_fields() {
             random ^= random << 13; random ^= random >> 17; random ^= random << 5;
             word = trial == 0 ? 0 : trial == 1 ? 32767 : random & 32767;
         }
-        for (u32 bits = 1; bits <= 30; ++bits)
+        for (u32 bits = 0; bits <= 32; ++bits)
             for (u32 at = 0; at + bits <= 60; ++at) {
-                if (at % 15 + bits > 30) continue;
                 u32 expected = 0;
                 for (u32 bit = 0; bit < bits; ++bit)
                     expected |= ((packed[(at + bit) / 15] >> ((at + bit) % 15)) & 1u) << bit;
