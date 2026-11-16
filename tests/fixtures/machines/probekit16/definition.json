@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "id": "probekit",
-  "name": "Probe Kit",
+  "id": "probekit16",
+  "name": "Probe Kit 16",
   "parameters": [
     {
       "id": "shape",

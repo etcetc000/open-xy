@@ -1,12 +1,12 @@
 #pragma once
 #include <opxy/audio.hpp>
 
-namespace probekit {
+namespace probekit16 {
 struct Voice { opxy::u32 phase; };
 // State shared by every voice; empty when voices share nothing.
 struct Shared {};
 }
-namespace probekit {
+namespace probekit16 {
 void drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* controls);
 void drum_select(Voice&, Shared&, opxy::u32 owner, opxy::u32 model);
 const char* model_name(opxy::u32 model);

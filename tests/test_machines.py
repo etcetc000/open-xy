@@ -108,19 +108,21 @@ class DrumPresets(unittest.TestCase):
                             machines.machine_at(root)
 
     def test_the_fixture_kits_differ_only_in_their_sdk(self):
-        # probekit and probekit17 build the kit rows of an image-size comparison: the
-        # only difference a build sees is the SDK, so only 1.17 links the snapshot.
+        # probekit16 and probekit17 build the kit rows of an image-size comparison. Their
+        # ids and names are the same length and every file is the same but for them and
+        # the declared SDK, so a build differs only by what SDK 1.17 opts into.
         from tooling import native
-        old, new = fixture('probekit'), fixture('probekit17')
+        old, new = fixture('probekit16'), fixture('probekit17')
         self.assertEqual((old.kind, old.sdk, new.kind, new.sdk), ('drum', (1, 16), 'drum', (1, 17)))
-        self.assertEqual(old.definition['resources'], new.definition['resources'])
-        self.assertEqual(old.definition['parameters'], new.definition['parameters'])
-        for folder in ('probekit', 'probekit17'):
-            for name in ('core.h', 'display.cpp', 'display.h', 'engine.cpp', 'panel.svg.fragment'):
-                with self.subTest(file=name):
-                    text = (FOLDER / folder / name).read_text(encoding='utf-8')
-                    self.assertEqual(text.replace(folder, 'ID'),
-                                     (FOLDER / 'probekit' / name).read_text(encoding='utf-8').replace('probekit', 'ID'))
+        self.assertEqual((len(old.id), len(old.name), old.description), (len(new.id), len(new.name), new.description))
+        for name in sorted(path.name for path in (FOLDER / 'probekit16').iterdir()):
+            with self.subTest(file=name):
+                self.assertEqual(sorted(path.name for path in (FOLDER / 'probekit16').iterdir()),
+                                 sorted(path.name for path in (FOLDER / 'probekit17').iterdir()))
+                text = lambda kit, digits: ((FOLDER / kit / name).read_text(encoding='utf-8')
+                                            .replace(kit, 'ID').replace('Probe Kit ' + digits, 'NAME')
+                                            .replace('"sdk": "1.%s"' % digits, '"sdk": SDK'))
+                self.assertEqual(text('probekit16', '16'), text('probekit17', '17'))
         units = lambda m: {step for _name, owner, step in native.plan(native.Collection([m])) if owner is None}
         self.assertEqual(units(new) - units(old), {'drum_trigger'})
         self.assertEqual(units(old) - units(new), set())

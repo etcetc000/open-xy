@@ -2,5 +2,5 @@
   "schema": 1,
   "sdk": "1.17",
   "kind": "drum",
-  "description": "Test fixture: a two-model drawn drum kit declaring SDK 1.17, for linking and image-size checks."
+  "description": "Test fixture: a two-model drawn drum kit, for linking and image-size checks."
 }
