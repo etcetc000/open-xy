@@ -1,35 +1,36 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <drum_values_stock.cpp>
+#include <drum_trigger.cpp>
 
 using namespace opxy;
 using namespace opxy::platform;
 static void require(bool value) { if (!value) std::abort(); }
-static u32 engine = 100, pitch = 61, calls;
+static u32 engine = 100, pitch = 61, calls, expected_key = 54, stock_pad = 0;
 static bool missing;
 static u32 region[8], vector_words[3] = {0,0x1000,0x1020};
 static i32 offsets[8];
 static void defaults(u32 key, u8* model, u8* values) {
-    require(key == 54); *model = 0;
+    require(key == expected_key); *model = 0;
     for (u32 i = 0; i < 8; ++i) values[i] = 64;
 }
 static u32 count(u32) { return 8; }
 static const DrumMachine machine = {reinterpret_cast<const char*>(100),nullptr,2,defaults,
     nullptr,nullptr,count,0,nullptr,nullptr,0,0,nullptr,0,nullptr,nullptr,nullptr};
 const DrumMachine* sdk_drum_machine(u32 id) { return id == 100 ? &machine : nullptr; }
-extern "C" u32 sdk_project_locks_held_value(u32, u32, u32, i32*) { return 0; }
 static u32 last_pitch(u32 track) { require(track == 0); ++calls; return pitch; }
 static u32 track_id(u32 track) { require(track == 0); return engine; }
 static void* pad(u32 track, u32 note, u32*, u32) {
     require(track == 0 && note == pitch); return missing ? nullptr : region;
 }
 static const u32* parameters(u32 track) { require(track == 0); return vector_words; }
+static u32 canonical(u32 track, u32) { require(track == 0); return stock_pad; }
 Address opxy::platform::host_stock_address(Address address) {
     if (address == 0x8d4d6cb0) return reinterpret_cast<Address>(&last_pitch);
     if (address == 0x8d58781c) return reinterpret_cast<Address>(&track_id);
     if (address == 0x8d58926c) return reinterpret_cast<Address>(&pad);
     if (address == 0x8d4d72a8) return reinterpret_cast<Address>(&parameters);
+    if (address == 0x8d589210) return reinterpret_cast<Address>(&canonical);
     if (address == 0x1000) return reinterpret_cast<Address>(offsets);
     std::abort();
 }
@@ -58,5 +59,11 @@ int main() {
     missing = false; engine = 18; sdk_drum_trigger(0,&input); require(!input.trigger_key);
     engine = 100; pitch = 128; sdk_drum_trigger(0,&input); require(!input.trigger_key);
     const u32 before = calls; sdk_drum_trigger(8,&input); require(calls == before && !input.trigger_key);
+    // A record without its canonical key falls back on stock's pad mapping;
+    // a pad outside 53..76 clears the snapshot.
+    pitch = 61; bytes[24] = drum_mark_choke(2); bytes[26] = 0; stock_pad = expected_key = 55;
+    sdk_drum_trigger(0,&input); require(input.trigger_key == 55 && input.trigger_model == 1);
+    stock_pad = expected_key = 52; sdk_drum_trigger(0,&input); require(!input.trigger_key && !input.trigger_model);
+    stock_pad = expected_key = 77; sdk_drum_trigger(0,&input); require(!input.trigger_key && !input.trigger_controls[0]);
     std::puts("played drum snapshot: live/sequenced source, canonical pad, offsets and selected controls remain independent");
 }

@@ -186,3 +186,20 @@ class DrumHookUnits(unittest.TestCase):
             with self.subTest(symbol=symbol):
                 self.assertEqual(len(defining), 1, defining)
                 self.assertEqual(native.UNIT_SERVICES.get(defining[0]), 'drums', defining)
+
+    def test_the_played_pad_snapshot_is_linked_only_with_a_drum_kit(self):
+        # Only a 1.17 kit's screen calls sdk_drum_trigger (screen_drawing.hpp
+        # played_pad), so its unit is the drums service's, and a build without a
+        # drum kit neither links nor calls it.
+        import re
+        from tooling import native
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
+        defining = [f.stem for f in sorted(platform.iterdir()) if f.suffix == '.cpp' and
+                    re.search(r'^void sdk_drum_trigger\(', f.read_text(encoding='utf-8'), re.M)]
+        self.assertEqual(defining, ['drum_trigger'])
+        self.assertIn('drum_trigger', native.SDK_UNITS)
+        self.assertEqual(native.UNIT_SERVICES['drum_trigger'], 'drums')
+        screen = (platform / 'screen_drawing.hpp').read_text(encoding='utf-8')
+        calls = [m.start() for m in re.finditer(r'\bsdk_drum_trigger\(controls\.track, &display_input\);', screen)]
+        self.assertEqual(len(calls), 1)
+        self.assertRegex(screen[:calls[0]], r'if \(Machine::played_pad\)\s*\{?\s*$')
