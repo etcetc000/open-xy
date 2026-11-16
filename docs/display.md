@@ -198,7 +198,7 @@ controls while `shift` is 1. With two Shift rows, show both, stacked as the
 pages are: the first on top and the second under it, the one the encoders edit
 (`line`) bright, as a [synth's Shift row](#a-synths-shift-row) shows. The stock
 header shows only the edited row. The
-previews use drawing ABI 8, a 152-byte input with the played-pad snapshot after ABI 6's pad fields (112 bytes). ABI 5 (104 bytes) ends after the
+previews use drawing ABI 7, a 152-byte input with the played-pad snapshot after ABI 6's pad fields (112 bytes). ABI 5 (104 bytes) ends after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
 
 While a pad is held on a drum kit (without Shift), the SDK draws stock's own
