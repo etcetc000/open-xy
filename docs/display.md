@@ -73,6 +73,11 @@ snapshot, not a queue: several note starts between frames can coalesce.
 Initializing or changing track must not fabricate a note. It counts per track,
 not per key: where keys play different sounds, as a drum kit's do, an
 animation started by the serial alone also plays for keys that weren't hit.
+On a drum kit declaring SDK 1.17 or later, read which pad played from the
+[played-pad snapshot](#shift-and-a-drum-kits-machine-sdk-18). A drum kit
+declaring SDK 1.16 or earlier keeps the serial it was written against: it
+counts only the starts of pitches that map to the selected pad, and a start no
+held or released pitch accounts for (a sequenced note, say) counts as before.
 
 ### Note activity (SDK 1.1)
 
@@ -187,11 +192,11 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | `pan`, `level` | A `padMix` kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10; 0 dB on a key the kit has not set up); while a step is held, as that step plays them with its locks; 0 for other machines. |
 | `line` | The row the encoders edit, 0 the first and 1 the second; on a drum kit, also the Shift row (SDK 1.10). |
 | `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0 following the track's send; for a kit declaring SDK 1.15 or later its percent + 1, 1..101; for an older kit its step, 1..7 for 0, 17, 33, 50, 67, 83, 100, an amount as its nearest); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
-| `trigger_key`, `trigger_model`, `trigger_controls[8]` | The latest played drum pad on this track: canonical key 53..76, its model, and its eight controls with current GUI track offsets. `trigger_key` is 0 when unavailable. Use the snapshot when `note_serial` changes; it is independent of selection. Several hits between frames can coalesce to the last one, and this is not an audio-side step-lock history. |
+| `trigger_key`, `trigger_model`, `trigger_controls[8]` | On a drum kit declaring SDK 1.17 or later, the latest played drum pad on this track: canonical key 53..76, its model, and its eight controls with current GUI track offsets. `trigger_key` is 0 when unavailable. Use the snapshot when `note_serial` changes; it is independent of selection. Several hits between frames can coalesce to the last one, and this is not an audio-side step-lock history. 0 for an older kit and other machines (SDK 1.17). |
+
 Machines reading the played-pad snapshot declare SDK 1.17 or newer. Browser
 hosts pass `{key, model, controls}` as the optional argument to
 `PreviewDisplay.tick`, after `amp`, `mix`, `line` and `shiftRow`; omission clears the snapshot.
-
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls while `shift` is 1. With two Shift rows, show both, stacked as the

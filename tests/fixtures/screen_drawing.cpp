@@ -1,5 +1,7 @@
-#ifndef OPXY_SCREEN_DRUM
-#define OPXY_SCREEN_DRUM 1
+// OPXY_SCREEN_KIT: 0 a synth's screen, 1 a drum kit's declaring SDK 1.17 or
+// later (played_pad), 2 an older drum kit's (selected_pad).
+#ifndef OPXY_SCREEN_KIT
+#define OPXY_SCREEN_KIT 1
 #endif
 // Exercise the actual native renderer's activation/reset/cache boundary.
 #include <screen_drawing.hpp>
@@ -11,12 +13,16 @@ static opxy::u32 token = 1;
 opxy::u32 sdk_screen_activation(opxy::u32 page, opxy::u32) { return page == 84 ? token : 0; }
 void sdk_display_note_activity(opxy::u32, opxy::draw::Input*) {}
 void sdk_sample_overview_update(opxy::u32) {}
-struct Machine { static const bool sample = false, percent_sends = true; static const bool drum = OPXY_SCREEN_DRUM; static const char* const ids[2]; };
+struct Machine {
+    static const bool sample = false, percent_sends = true;
+    static const bool played_pad = OPXY_SCREEN_KIT == 1, selected_pad = OPXY_SCREEN_KIT == 2;
+    static const char* const ids[2];
+};
 static opxy::u8 pitches[128], releases[128];
 void sdk_note_pitches(opxy::u32, opxy::u8* held, opxy::u8* released) {
     for (unsigned i = 0; i < 128; ++i) { held[i] = pitches[i]; released[i] = releases[i]; }
 }
-#if OPXY_SCREEN_DRUM
+#if OPXY_SCREEN_KIT == 1
 extern "C" void sdk_drum_trigger(opxy::u32, opxy::draw::Input* input) {
     input->trigger_key = 54; input->trigger_model = 9;
     input->trigger_controls[0] = 0x70000000;
@@ -53,24 +59,40 @@ int main() {
     token = 0; object.keys[0] = 77;
     Renderer::animate(&object, controls);
     require(binding::resets == 3 && object.keys[0] == 77);
-    controls.pad = 53;
-    const auto baseline = screen::display_note_serial(controls);
+    // Pitch 60 plays the selected pad 53, pitch 61 pad 54.
+    fixture_pads[60] = 53; fixture_pads[61] = 54;
+    controls.pad = 53; controls.model = 3;
+    const bool filtered = OPXY_SCREEN_KIT == 2;
+    auto serial = [&]() { Renderer::animate(&object, controls); return binding::last_input.note_serial; };
+    const auto baseline = serial();
+    // Another pad's live note: an older kit's screen is not struck, any other's is.
     pitches[61] = 1; ++screen::fixture_note_starts;
-    const auto other = screen::display_note_serial(controls);
-    require(other == baseline+1);
+    const auto other = serial();
+    require(other == baseline + (filtered ? 0 : 1));
+    // The selected pad's note strikes every screen.
     pitches[60] = 1; ++screen::fixture_note_starts;
-    require(screen::display_note_serial(controls) == other+1);
+    const auto selected = serial();
+    require(selected == other + 1);
+    // A release alone strikes none.
     pitches[60] = 0; ++releases[60];
-    require(screen::display_note_serial(controls) == other+1);
+    require(serial() == selected);
+    // The selected pad again.
     pitches[60] = 1; ++screen::fixture_note_starts;
-    require(screen::display_note_serial(controls) == other+2);
-    // Sequencer activity has no held-key transitions. It still animates a
-    // non-selected pad while the header retains the selected pad's model.
+    require(serial() == selected + 1);
+    // Sequencer activity has no held-key transitions: a start no pitch accounts
+    // for strikes an older kit as before, and is the track's serial otherwise.
     ++screen::fixture_note_starts;
-    Renderer::animate(&object,controls);
-    require(binding::last_input.note_serial == other+3);
+    require(serial() == selected + 2);
     require(binding::last_input.model == controls.model);
-    require(binding::last_input.trigger_key == (OPXY_SCREEN_DRUM ? 54u : 0u));
-    require(binding::last_input.trigger_model == (OPXY_SCREEN_DRUM ? 9u : 0u));
+    // Only a 1.17 kit's screen reads the played pad's snapshot; the rest stay zero.
+    require(binding::last_input.trigger_key == (OPXY_SCREEN_KIT == 1 ? 54u : 0u));
+    require(binding::last_input.trigger_model == (OPXY_SCREEN_KIT == 1 ? 9u : 0u));
+    require(binding::last_input.trigger_controls[0] == (OPXY_SCREEN_KIT == 1 ? 0x70000000 : 0));
+    // Without a selected pad (a synth's controls) every screen reads the track's serial.
+    controls.pad = 0;
+    const auto unselected = serial();
+    require(unselected == screen::fixture_note_starts);
+    pitches[61] = 0; ++releases[61]; pitches[61] = 1; ++screen::fixture_note_starts;
+    require(serial() == unselected + 1);
     std::puts("native display activation resets state and geometry caches only on a new active token");
 }

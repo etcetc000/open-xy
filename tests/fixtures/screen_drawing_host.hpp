@@ -11,8 +11,9 @@ inline void display_render(DisplayState* state, const draw::Input* input, Frame*
 // Keep this boundary test away from stock object addresses and SVG setters.
 inline bool display_valid(const Frame*) { return false; }
 }}
-// No drum kit here: the selected pad's notes never strike.
-inline opxy::u32 sdk_drum_pad(opxy::u32, opxy::u32) { return 0; }
+// Stock's pitch-to-pad mapping as the fixture sets it: 0 maps a pitch to no pad.
+static opxy::u32 fixture_pads[128];
+inline opxy::u32 sdk_drum_pad(opxy::u32, opxy::u32 note) { return note < 128 ? fixture_pads[note] : 0; }
 namespace opxy { namespace screen { namespace {
 struct Vector { u32 begin, end, capacity; };
 struct Command { i32 x, y; u32 type; };

@@ -20,10 +20,47 @@ u32 display_activation;
 draw::Input display_input;
 binding::Frame display_frame;
 
-// Stock counts both live and sequenced note starts. Selection stays in the
-// control snapshot; the latest played drum is supplied independently below.
-u32 display_note_serial(const Controls& controls) {
+// The track's note-start counter: stock counts live and sequenced note starts
+// alike. A synth's, a sample engine's and, from SDK 1.17, a drum kit's serial,
+// which reads the played pad from its snapshot (sdk_drum_trigger).
+u32 track_note_serial(const Controls& controls) {
     return controls.track < 8 ? note_serial(controls.track) : 0;
+}
+// A drum kit declaring SDK 1.16 or earlier keeps the serial it was written
+// against: its display is struck only by its selected pad's notes. Audio and
+// GUI are separate roles, so this reads only GUI state: when stock's note
+// counter moves, the pitches that started since the last frame (newly held,
+// or released since) are mapped to their pads. A start no pitch accounts for
+// strikes as before, so the screen never misses a hit it cannot place.
+struct PadNotes { u32 track, valid, notes, serial; u8 held[128], released[128], now[128], now_released[128]; };
+PadNotes pad_notes;
+u32 selected_pad_serial(const Controls& controls) {
+    if (controls.track >= 8) return 0;
+    const u32 notes = note_serial(controls.track);
+    if (!controls.pad) {
+        pad_notes.valid = 0;
+        return notes;
+    }
+    PadNotes& s = pad_notes;
+    sdk_note_pitches(controls.track, s.now, s.now_released);
+    if (s.valid && s.track == controls.track && notes != s.notes) {
+        bool placed = false, struck = false;
+        for (u32 p = 0; p < 128 && !struck; ++p) {
+            const bool released = s.now_released[p] != s.released[p];
+            if (!(s.now[p] && !s.held[p]) && !(released && (s.now[p] || !s.held[p]))) continue;
+            placed = true;
+            struck = sdk_drum_pad(controls.track, p) == controls.pad;
+        }
+        if (struck || !placed) ++s.serial;
+    }
+    for (u32 p = 0; p < 128; ++p) {
+        s.held[p] = s.now[p];
+        s.released[p] = s.now_released[p];
+    }
+    s.track = controls.track;
+    s.notes = notes;
+    s.valid = 1;
+    return s.serial;
 }
 extern "C" void sdk_drum_trigger(u32, draw::Input*) __asm__("sdk_drum_trigger");
 
@@ -73,10 +110,12 @@ template <class Machine> struct Drawing {
         for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         display_input.elapsed = o->delta;
         display_input.track = controls.track;
-        display_input.note_serial = display_note_serial(controls);
-        display_input.trigger_key = display_input.trigger_model = 0;
-        for (u32 i = 0; i < parameter_slots; ++i) display_input.trigger_controls[i] = 0;
-        if (Machine::drum) sdk_drum_trigger(controls.track, &display_input);
+        // played_pad: a drum kit declaring SDK 1.17 or later, which reads the
+        // track's serial and the played pad's snapshot; selected_pad: an older
+        // kit, struck by its selected pad only. Other screens never write the
+        // snapshot, which stays zero.
+        display_input.note_serial = Machine::selected_pad ? selected_pad_serial(controls) : track_note_serial(controls);
+        if (Machine::played_pad) sdk_drum_trigger(controls.track, &display_input);
         sdk_display_note_activity(controls.track, &display_input);
         // A sample engine's own screen reads its sample (opxy_sample_overview).
         if (Machine::sample) sdk_sample_overview_update(controls.track);

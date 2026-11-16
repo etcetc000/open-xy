@@ -431,5 +431,18 @@ class Definitions(unittest.TestCase):
                         cwd=directory, capture_output=True, text=True, timeout=120, **hidden)
                     self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_a_kit_screen_reads_the_note_serial_its_sdk_declares(self):
+        """A drum kit declaring SDK 1.17 or later reads the track's serial and the played pad's
+        snapshot; an older kit keeps the selected-pad strike filter; other screens neither."""
+        definition = copy.deepcopy(fixture('probesynth').definition)
+        for kind, sdk, played, selected in (('drum', (1, 17), 'true', 'false'), ('drum', (1, 18), 'true', 'false'),
+                                            ('drum', (1, 16), 'false', 'true'), ('drum', (1, 8), 'false', 'true'),
+                                            ('synth', (1, 17), 'false', 'false'), ('sample', (1, 16), 'false', 'false')):
+            m = SimpleNamespace(prefix='kit', native_name='kit', definition=definition, kind=kind, sdk=sdk)
+            with self.subTest(kind=kind, sdk=sdk), tempfile.TemporaryDirectory() as directory:
+                text = generate_screen(directory, m).read_text(encoding='utf-8')
+                self.assertIn('static const bool played_pad = %s;' % played, text)
+                self.assertIn('static const bool selected_pad = %s;' % selected, text)
+
 if __name__ == '__main__':
     unittest.main()
