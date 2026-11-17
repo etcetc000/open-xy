@@ -188,10 +188,10 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | Field | Meaning |
 | --- | --- |
 | `shift` | 1 while Shift is held on a page with Shift controls (a drum kit's), else 0. |
-| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. A [`padMix`](api.md#synthesis-drum-kits) kit gives the same, by whether it has groups, though its Shift row is the model, the choke group, pan and level: read `model`, `pan` and `level` for those. They hold whether or not Shift is held, so a screen can show them in its header either way. |
+| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. A [`padMix`](api.md#synthesis-drum-kits) kit gives the same, by whether it has groups, though its first Shift row is the model, the choke group, pan and level: read `model`, `pan` and `level` for those. They hold whether or not Shift is held, so a screen can show them in its header either way. |
 | `model` | A drum kit's selected key's model. |
 | `pan`, `level` | A `padMix` kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10; 0 dB on a key the kit has not set up); while a step is held, as that step plays them with its locks; 0 for other machines. |
-| `line` | The row the encoders edit, 0 the first and 1 the second; on a drum kit, also the Shift row (SDK 1.10). |
+| `line` | The row the encoders edit, 0 the first and 1 the second; on a `padMix` kit, also the Shift row (SDK 1.10). |
 | `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0 following the track's send; for a kit declaring SDK 1.15 or later its percent + 1, 1..101; for an older kit its step, 1..7 for 0, 17, 33, 50, 67, 83, 100, an amount as its nearest); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
 | `trigger_key`, `trigger_model`, `trigger_controls[8]` | On a drum kit declaring SDK 1.17 or later, the latest played drum pad on this track: canonical key 53..76, its model, and its eight controls with current GUI track offsets. `trigger_key` is 0 when unavailable, and all of it is 0 from the display's activation (its page selected, its track changed) until `note_serial` next moves; both come from one read of the track's counter, so the snapshot is never set in a frame whose `note_serial` has not moved since activation. After that it names the pad stock last recorded as played on the track, resolved on the current kit. What it shows after a project load is unknown until a device run ([ABI notes](abi-1.2.1.md#screens)). Use the snapshot when `note_serial` changes; it is independent of selection. Several hits between frames can coalesce to the last one, and this is not an audio-side step-lock history. 0 for an older kit and other machines (SDK 1.17). |
 
@@ -233,7 +233,7 @@ thirteenth argument to `PreviewDisplay.tick`, `{held, line, values}`, after
 `opxy_display_shift` for it.
 
 The [two-page header](#two-page-header) shows the row in both its rows while
-Shift is held, as a drum kit's header shows its two Shift rows: page 1's
+Shift is held, as a `padMix` kit's header shows its two Shift rows: page 1's
 entries (0..3) on top and page 2's (4..7) under them, the page the encoders are
 on (`line`) bright on the bar and the other small and grey. A press, with Shift
 held or not, moves the bar as it does without Shift; the rows keep their order.

@@ -58,7 +58,7 @@ class LockHandles(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn('lock handles ok', result.stdout)
 
-    def test_the_step_hook_and_the_handles_link_with_padmix_kits_only(self):
+    def test_the_step_hook_and_the_handles_link_with_a_padmix_kit_not_a_plain_one(self):
         address, symbol, before, target = STEP_HOOK
         patch = next(p for p in PROFILE['patches'] if p.get('symbol') == symbol)
         self.assertEqual((patch['kind'], patch['address'], patch['before'], patch['call'], patch['length'],

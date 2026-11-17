@@ -238,7 +238,7 @@ class DrumSend(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_definition(synth, 'synth')
 
-    def test_only_a_pad_mix_kit_links_the_mixer_hooks(self):
+    def test_a_pad_mix_kit_links_the_mixer_hooks_and_a_plain_kit_does_not(self):
         services = PROFILE['services']
         self.assertEqual(services['drum_sends'], ['padMix', 'drumline_page'])
         with_sends, without = kit(1), kit()

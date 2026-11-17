@@ -70,14 +70,16 @@ struct Input {
     // declared ones (an effect's shift row, SDK 1.7; a drum kit's, SDK 1.8).
     // A drum kit's choices are its selected key's model group, its model in
     // the group and its choke group, or without groups its model and choke
-    // group; they hold at all times, shift only while Shift is held.
+    // group; they hold at all times, shift only while Shift is held. A padMix
+    // kit gives the same, though its first Shift row differs: read model, pan and
+    // level (its second, pad).
     u32 shift;
     u8 choices[4];
     u32 model;               // A drum kit's selected key's model (its machine); 0 for other kinds.
     Envelope amp;            // The track's amp envelope (SDK 1.10); every word envelope_unavailable if unknown.
     // A padMix drum kit's selected key (SDK 1.10): its pan, -100..100 with 0
     // centred, and its level in whole dB, -30..0, as it plays; 0 otherwise.
-    // line: the row the encoders (and on a drum kit Shift) edit, 0 the first
+    // line: the row the encoders (and on a padMix kit Shift) edit, 0 the first
     // and 1 the second. The key's choke group stays in choices.
     i8 pan;
     i8 level;

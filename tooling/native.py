@@ -265,7 +265,8 @@ UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 # A 1.17 kit screen's played-pad snapshot: only a build with a kit declaring SDK 1.17
 # or later links it, the one kind of screen that calls it (screen_drawing.hpp played_pad).
 UNIT_SERVICES['drum_trigger'] = 'played_pad'
-# Per-key sends hook stock's mixer, so only a build with a padMix kit links them.
+# Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
+# extension links them.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
 UNIT_SERVICES['drum_locks'] = 'drum_locks'

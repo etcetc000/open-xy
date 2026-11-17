@@ -187,7 +187,8 @@ void shown_at(u32 a, u32 b, u32 c, u32 d, int line) {
 }
 
 extern "C" {
-// Every drum kit's press pages its whole row, as the generated table marks it.
+// A drum kit's press pages its whole row, as the generated table marks it, on a
+// key that has a second row (synth_controls.cpp second_row).
 // Engine 37 groups its five models as two and three; engine 38 has 33, so it
 // stores its keys in the prefix code.
 static const opxy::u8 group_sizes[] = {2, 3};

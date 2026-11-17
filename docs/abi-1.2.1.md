@@ -31,8 +31,8 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 19 | Classifies owned drum kits for per-key editing, lookup, note start, project load, preset persistence and the track menu's scramble while retaining their registered engine IDs |
-| Per-key sends | 6 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit |
-| Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts, or a synth's [Shift row](#a-synths-shift-row) locks to its live words; linked only with a `padMix` kit or a Shift-row synth |
+| Per-key sends | 6 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit or a `drumline_page` extension |
+| Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts, or a synth's [Shift row](#a-synths-shift-row) locks to its live words; linked only with a `padMix` kit, a Shift-row synth or a `drumline_page` extension |
 | Drumline's second page | 2 | Shows stock Drumline's second page and wraps its voices' render for an extension's per-hit processor and settings; linked only with a [`drumline_page` extension](drumline-page.md) |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 8 | Routes owned player construction, project loading, controllers, enum editing, a paged player's encoder 4 click and names |
@@ -59,13 +59,14 @@ which is shared with players and drum kits): a build applies those edits, and li
 the SDK code behind them, only when it includes a sample engine or synthesis drum
 kit. Synthesis drum transport is the `drums` service, used by drum kits and,
 for its preset sites, by a synth with a [Shift row](#a-synths-shift-row), and
-per-key sends the `drum_sends` service, used only by a kit declaring `padMix`.
+per-key sends the `drum_sends` service, used only by a kit declaring `padMix` and
+by a `drumline_page` extension.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
-`padMix` kit and by a synth with a Shift row. The `played_pad` service has no
-edit: it links the [drum trigger](#screens) snapshot (`drum_trigger.cpp`)
-only with a kit declaring SDK 1.17 or later, whose screen reads it. The
-[track filter](#the-track-filter-on-kit-voices) on kit voices needs no hook: it
-is in every kit's adapter.
+`padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
+The `played_pad` service has no edit: it links the [drum trigger](#screens)
+snapshot (`drum_trigger.cpp`) only with a kit declaring SDK 1.17 or later,
+whose screen reads it. The [track filter](#the-track-filter-on-kit-voices) on
+kit voices needs no hook: it is in every kit's adapter.
 A [`drumline_page` extension](drumline-page.md) uses the `drumline` service and
 also those of samples, octaves, drum transport, sends and the note-start hooks,
 whose hooks it extends ([Drumline's second page](#drumlines-second-page)).
@@ -1045,7 +1046,7 @@ bits 56..59, its model in 49..54 and its first seven controls in 0..48. The pad'
 model byte (record `+0x18`: Drumline's instrument type in the low nibble, its
 choke group in the high one) marks the layout with type 7, which stock's
 editor skips (`8d4d6028`) and its default kit never uses; the choke group is
-kept unless Shift and the second encoder choose one. The high nibble is the
+kept unless Shift's CHOKE chooses one. The high nibble is the
 pad's play mode, which presets name in a region's `playmode`: 0 `gate`,
 1 `oneshot` (the default, omitted), 2 `mute1`, 3 `loop`, 4 `mute2`,
 5 `mute3`. Pads sharing a mute cut each other off. Stock's default kit has BD
@@ -1058,9 +1059,10 @@ that byte, `(6 type + group)` over 66 bins (`8d5ad6ec`), so type 7 is bins
 models needs the prefix code. Unmarked pads, including the earlier tag-10 eight-value layout, use
 the key's defaults. Stock's per-key editor (`8d4d5f60`, jump table at
 `84039070`) gives controls 0..3 the four words and Shift's encoders 4..7 the
-type, `+0x14`, pan (`+0x1e`) and gain (`+0x1d`); the SDK gives Shift's first
-encoder the model (or a group, with the second the model in it), one the choke group,
-and the others nothing. Track modulation is
+type, `+0x14`, pan (`+0x1e`) and gain (`+0x1d`); the SDK gives Shift's encoders
+what `DrumMachine::shift` names: the model (with groups and no `padMix`, the
+group, then the model in it), the choke group, then nothing, or on a `padMix`
+kit pan and level, its second row the key's pad fields. Track modulation is
 applied after decoding. GUI edits repack and use the stock dirty/publication
 calls; no audio callback writes preset state or performs file I/O.
 
@@ -1525,11 +1527,12 @@ fields than the 42 slots a step has
 [`lock_pool.hpp`](../sdk/platform/opxy-1.2.1/lock_pool.hpp)). The step keeps a
 16-bit **handle** as an ordinary stock lock on word 37; the values live in an SDK
 pool under that handle. It is the `drum_locks` service's, so a build links it only
-with a `padMix` kit or a synth with a [Shift row](#a-synths-shift-row), and asks its
+with a `padMix` kit, a synth with a [Shift row](#a-synths-shift-row) or a
+`drumline_page` extension, and asks its
 client three things, `handle_client(track)`, `pattern_client(engine)` and, after
 each step's lock pass, `step_applied(project, track, handle)`, which the glue
-answers for an owned `padMix` kit and such a synth
-(stock Drumline can answer them too later). Units every build links reach it only
+answers for an owned `padMix` kit, such a synth and, with a `drumline_page`
+extension, stock Drumline. Units every build links reach it only
 through startup's calls (`sdk_project_locks_*`), which forward to it or, in a build
 without it, answer 0; a browser selection without it resolves them to
 `kit_absent`, which answers the same.
@@ -1610,7 +1613,8 @@ differs from the stored one, so handle values do not slide.
 
 **Which patterns.** The handles live only in a client's patterns: on instrument
 tracks 0..7, a pattern whose machine (`+0x18`, as `8d58781c` reads it) is a
-`padMix` kit (`pattern_client`). Garbage collection, the load's sweep and the
+`padMix` kit, a synth with a Shift row or, with a `drumline_page` extension,
+Drumline (`pattern_client`). Garbage collection, the load's sweep and the
 carry below search those, and the pattern clipboard only when its machine is one;
 word 37 on every other track and pattern stays stock's. The step clipboard and
 the recorder's snapshot don't record their track, so they are searched whatever
@@ -1627,8 +1631,8 @@ up to 64 KiB less 2 KiB and 128 bytes for each machine listed, and
 `open-xy.control`, written before it, takes what is left
 (`sdk_companion_reserved`), so the locks take room before track control's state.
 Blocks that do not fit, in handle order, are left out; a save of a buffer other
-than the active one writes no section. A build without a `padMix` kit writes no
-section: a project saved there keeps its steps' handles but loses their values.
+than the active one writes no section. A build without a `padMix` kit, a
+Shift-row synth or a `drumline_page` extension writes no section: a project saved there keeps its steps' handles but loses their values.
 
 **Loading.** The section's pool decodes into the staged pool while the
 companion streams. When the companion is valid, matches the project and holds a
@@ -1876,7 +1880,8 @@ of its own, for paging with Shift held (below): the turn, title and caption
 hooks of [alternate controls](#alternate-controls) act on it, its values travel
 in two words of the instrument track, and its presets and step locks use the
 hooks of the `drums` and `drum_locks` services, which a build links for such a
-synth (profile user `synthShift`), as a drum kit's keys and Shift fields do.
+synth (profile user `synthShift`), as a drum kit's keys and a `padMix` kit's
+Shift fields do.
 
 **Storage.** Entries 0..3 live in word 36 of the track's 58, entries 4..7 in
 word 37: four 7-bit fields each, the first entry lowest, and `0x40000000` as a
