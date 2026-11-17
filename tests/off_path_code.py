@@ -261,6 +261,10 @@ COLLECTIONS = {
     'kit+page': ['kit', 'probepage'],
     'ctl': ['probectl', 'probefx'],
     'master': ['probesynth', 'probemaster'],
+    'bus': ['probebus', 'probesynth'],
+    # A synth whose voices live on the heap, and a kit with SDK 1.21's value editing.
+    'heap': ['voiceheap'],
+    'kit21': ['probekit21'],
 }
 
 
@@ -332,6 +336,21 @@ def master_folder(folder):
         (folder / name).write_text(text, encoding='utf-8', newline='\n')
 
 
+def bus_folder(folder):
+    """The effect fixture with a bus shift (resources.busShift, SDK 1.16): idle changes its generated adapter."""
+    shutil.copytree(FIXTURES / 'probefx', folder)
+    for f in folder.iterdir():
+        f.write_text(f.read_text(encoding='utf-8').replace('probefx', 'probebus'), encoding='utf-8', newline='\n')
+    definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+    definition.update(id='probebus', name='Probe Bus')
+    definition['resources']['busShift'] = 9
+    (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+    machine = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
+    machine['sdk'] = '1.16'
+    machine.pop('identity', None)
+    (folder / 'machine.json').write_text(json.dumps(machine), encoding='utf-8')
+
+
 def machine_folders(work):
     """Every machine and extension folder the collections name, under `work`."""
     folders = {}
@@ -343,6 +362,8 @@ def machine_folders(work):
             player_folder(target)
         elif name == 'probectl':
             control_folder(target)
+        elif name == 'probebus':
+            bus_folder(target)
         elif name == 'probemaster':
             master_folder(target)
         elif name in EXTENSIONS:

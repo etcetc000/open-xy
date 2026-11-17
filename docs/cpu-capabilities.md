@@ -29,6 +29,7 @@ without it has byte for byte ([Off means off](#off-means-off)).
 | Capability | Edits | Units linked when on |
 | --- | --- | --- |
 | `boot_log_fix` (an image capability) | limit `8400ea65` (one data byte) | none |
+| `idle` | hooks `sdk_send_fx` at `8d5116a0` and `8d511908`, `sdk_idle_render` at `8d51c7a6` | `send_fx`, `idle_cut` |
 
 ## Budgets
 
@@ -41,6 +42,7 @@ disassembly of the build shows it); anything else is said not to be measured her
 | Capability | Runs in the audio callback | Cycles of a 580,352-cycle block |
 | --- | --- | --- |
 | `boot_log_fix` | nothing | 0 |
+| `idle` | per send per block: `sdk_send_fx` (a scan of 384 words while the send is quiet, then the effect's call is skipped once idle); per sounding voice per block: `sdk_idle_render` (stock's chooser plus a check) | a quiet send: its scans, one hardware loop of two instructions a word over 384 words (about 770 instructions; counted from the built code, not timed); a sounding send: a scan of its 128-word bus before the effect's call, one hardware loop of two instructions a word (about 260 instructions), and about 90 more of checks (counted from the built code, not timed); with `release_floor`, the drum sampler's tables scan up to 1,024 samples a block in all (not counted); with `cpu` alone, an SDK voice whose engine defines `settled()` still takes its block's peak and asks `settled()` every block, though nothing is cut (no catalog engine defines `settled()`, so nothing for the catalog; not counted). Saves an idle send's whole effect call and a cut voice's remaining blocks; not measured in this repository |
 
 ## Off means off
 
@@ -75,3 +77,76 @@ What it risks: GUI board log lines are no longer seen on the audio board's side
 
 Not verified: that it prevents the crash. Host tests show it is its own edit, apart
 from `idle`.
+
+## idle
+
+What it changes in stock:
+- [Idle sends](abi-1.2.1.md#send-idling): both send effects' calls
+  (`8d5116a0`, `8d511908`) go to `sdk_send_fx`, which skips a send whose input,
+  output and bus stayed below its floor for its effect's hold (its tail, as the
+  effect declares it or as its memory can hold it, plus 64 blocks) with nothing
+  it reads changing.
+- [Idle cut](abi-1.2.1.md#idle-cut): the track voice loop's renderer call
+  (`8d51c7a6`) goes to `sdk_idle_render`, which kills (stock's one-block fade) a
+  voice that can no longer get louder and has fallen below the project's idle
+  threshold relative to its own peak. The SDK voice adapters' own idle cut
+  (engines with `settled`, kits' choke fade) reads the same threshold through
+  `sdk_idle_floor`; the adapters are generated with it only in builds with idle.
+
+Off: the three calls are stock's, `idle_cut` and `send_fx` are not linked, and the
+effect and voice adapters are generated without their idle pieces, so nothing
+records for the send hook and no voice is ever judged idle.
+
+**The idle cut needs `release_floor`.** Its threshold is the `release_floor` setting's
+(`idle_cut.cpp` asks stock's envelope routine once where a release ends; stock alone
+gives no threshold). With `idle` on and `release_floor` off, which is what the `cpu`
+extension alone gives, the threshold is 0 and no voice is ever cut: `sdk_idle_render`
+calls stock's chooser and returns, the SDK adapters' cut never fires, and only the idle
+sends act. The 33,472 bytes of sample tables are still reserved: `release_floor` is an
+image setting that `sdk.py settings apply` can write into the image later, and the cut
+reads its threshold from the image at run time, so it is linked whenever `idle` is.
+
+What it saves: an idle send's whole effect call; with `release_floor` set, a voice's
+remaining blocks after it falls below the threshold (stock keeps rendering a sampler
+voice to the end of its sample, and a released SDK voice until its envelope reaches
+-66 dB).
+
+What it costs: about 33 KB of RAM for the idle cut's sample tables (16 samples at
+once, two 512-entry tables of 16-bit maxima each), and the send hook's state
+(about 500 bytes).
+
+What it risks: a send effect with an internal state that changes while its input
+is silent (an LFO, a self-oscillating feedback path) idles anyway once its input,
+output and result stay within the floor (|x| < 64 raw, about -150 dBFS of Q31) for
+its hold, unless it declares an unbounded tail. The reverse: an effect whose output
+or result rests at 64 raw or more with no input (a DC offset, a limit cycle in a
+truncating feedback path) never idles, and costs its whole call every block while it
+is loaded. The floor is chosen, not derived from what the bus can carry: it is well under
+the send levels the author read on one OP-XY, and above the small residue a stock effect
+was seen to leave at rest in a simulator outside this repository (both the author's
+observations, which this repository cannot reproduce). A voice cut early sounds shorter than stock
+(that is the setting).
+
+Catalog effects: none of the fifteen (fourteen published, one draft) declares a tail
+(`tailFrames` is new). Each was run
+on the host from the catalog's pinned commit by `python tools/idle_send_study.py
+<effect folder>...` (its own `process`, compiled for the host, not the Blackfin build;
+the script prints the table these figures come from) with its defaults, all controls at 0, at 0.5 and at 1, and each
+control at 1 alone; a 2 s noise burst at 2^18 or 2^28 raw then silence, or silence
+throughout; transport stopped and playing: 1,008 runs. In 1,004 the send either idles and its
+output, had stock kept calling it, stays below the floor to the end of the run (at least
+three holds later), or never idles. In four it rises again after idling, to 67 raw
+(Chroma, Time at 1) and 88 raw (Diffusion, defaults), about -150 dBFS: what `idle`
+cuts there is residue, not sound. Not idling within the run (the output stays at 64 raw or
+more after the input stops, so the send keeps its full cost and nothing changes) was seen in
+some setting of every effect but Ring Mod (in half the runs or more for Lustre, Vibe,
+Halo, Earthshine, Rebound and Oread), and for Gen Tape with its noise up even with no input at all. Not covered: other control values, control movements
+(which wake a send at once), the Blackfin build's own arithmetic, and community effects
+outside the catalog.
+
+Not judged: voices of SDK sample engines (`sample_voice.cpp.in`). They have their own method
+table, so `sdk_idle_render` passes them by and they end as stock's sampler voices do.
+
+Tests: `test_send_fx.py`, `test_idle_cut.py`, `test_voices.py`,
+`test_drum_voices.py` (host); this file's tests show the sites stock and the unit
+absent with the capability off.

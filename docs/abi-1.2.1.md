@@ -371,6 +371,43 @@ fades over one block. This is read from stock's code and has not been timed on
 a device. The steal ranking (`8d51ca94`) and the renderers' stage-6
 checks (`11a09aaa`, `8d51b880`) stay stock.
 
+### Idle cut
+
+The same threshold, relative to each note's own peak, for the voices stock's
+release floor never sees (`idle_cut.hpp`, `idle_cut.cpp`). The track's voice loop
+`8d51c708` calls the renderer chooser `8d51bbaa` at `8d51c7a6`; that call goes to
+`sdk_idle_render`, which calls the chooser and, for a voice it did not finish
+(amplitude stage not 0, 6 or 7), may call stock's kill `8d51a998` (gate off,
+both envelopes to stage 6: the one-block steal fade, then retirement). The
+threshold in force is found once by running `8d50e110` on a scratch released
+envelope: stock enters stage 0 at level 0, the setting stage 5, and a binary
+search finds the floor. Without `release_floor` stock enters stage 0 even at level 0,
+so the threshold is 0: the hook only calls the chooser and cuts no voice, and the SDK
+adapters' own cut never fires (only the idle sends act). The hook is the
+[`idle` capability](cpu-capabilities.md#idle)'s; without it the call stays stock's.
+
+- **Normal renderer** (synths, sampler, multisampler: the drum predicate
+  `8d5b79f0` is true only for engines 3 and 4): stock's floor, unchanged. An SDK
+  synth whose engine defines `settled` registers its method table; the hook asks
+  it for a voice whose gate (`+0x51`) is off.
+- **Drum renderer, stock drum sampler** (vtable `8404d648`, object state `+0x3c`,
+  position Q11 `+0x18`, level `+0x34`, block count `+0x40`, reverse `+0x45`;
+  sample `+8` PCM, `+0x30` frames, `+0x3c` stereo): a table of 512 chunk maxima
+  and their suffix maxima per sample (16 tables, 1024 samples scanned a block,
+  rebuilt when a sample's address, length or 8-point signature changes). A voice
+  is cut when the loudest the rest of its sample can play, at the larger of its
+  level and the pad's (track words from `8d518d94`, pad level region `+0x1c`),
+  is at most half the threshold times its own peak. Held gate and loop notes
+  (play mode 0 or 3, state 1) and reverse notes are never cut; a released loop
+  plays on to the sample's end (stock wraps to the loop start only while
+  `+0x3c` is 1), so it is judged from its position. A new note is a block count
+  that went back, a moved start, or, for a note that cannot loop, a position
+  that went back. The envelope gain `+0x1c` is not trusted to fall.
+- **Drum renderer, Drumline** (vtable `8404ce3c`): not cut. Its 11 synthesis
+  routines have no quantity that cannot rise.
+- **SDK kits** (drum adapter): `settled` as for synths, ending in the adapter's
+  choke fade.
+
 ## Synth voices
 
 Stock asks the factory for a voice object per voice index and calls
@@ -1062,6 +1099,27 @@ on the device. Until stock's engine name map exists, every name counts as
 installed. User presets stay listed: stock deletes a user folder that lists no
 presets, so hiding them could delete them.
 
+## Stock voice allocation
+
+Stock's note-on (`8d51ddc4`, the DSP board) refreshes the pool (`8d51cc4a`), tries
+the same note (`8d51c8ae`), then a free voice (`8d51c994`, at `8d51de82`), then a
+steal (`8d51ca94`, at `8d51deb0`), which `8d51ad04` fades over one block before the
+note starts on that voice; a steal clears pool `+0xd8`, so the next refresh
+recounts the tracks. The pool: 27 voice pointers, limit words `+0x6c` (0 means 8),
+counts `+0x8c` (category 0) and `+0xac` (category 1, `R2` of the note-on: its
+argument 6 equal to 1; meaning unknown), category 1's active count `+0xd0` and extra
+budget `+0xf0`, active `+0xd4`, budget `+0xec`. A voice: note `+0x50` (0xff free),
+gate `+0x51` (set at a start, `8d51a820`/`8d51ad04`; cleared by the note-off `8d51a928`, which also calls the voice's release, and the one-block kill `8d51a998`), the
+drum classifier byte `+0x4e` (as in [Idle cut](#idle-cut)), the amplitude envelope
+stage `+0x24`, level `+0x18`, age in blocks `+0x8c`, and the track and category it
+plays for, `+0x65` and `+0x66`. Stock's choice (`8d51ca94`): at the note's track's
+limit only its own voices; otherwise its own, any over its track's limit, and any
+auto track's (category 1 ones for a category 0 note only while category 1 is over
+its budget). It prefers voices whose gate is off, then the note's own track, then
+the lowest score, then the oldest. The score is `INT_MAX` under 8 blocks old; for
+a drum voice (`+0x4e` set) 0 with its gate off, else `INT_MAX`; for any other voice
+`INT_MAX` at stage 1, else its level.
+
 ## Send effects
 
 Effects live in a separate registry (19 stock entries, 63 relocated). Stock
@@ -1104,6 +1162,51 @@ supplies only wet audio. The generated adapter exposes the machine's declared
 `dryParameter`, or returns `INT32_MAX` when none is declared, matching stock's
 absent-object fallback. This is a source-mixer control, not a wet/dry crossfade
 inside the effect. See the [effect API](api.md#effects).
+
+### Send idling
+
+The audio loop clears both send buses (`84caa140`, `84caa340`: 64
+interleaved stereo frames each), sums the tracks' sends into them, then runs
+each through `8d50f594(engine, track, bus)`: track 14 from `8d5116a0`, track
+15 from `8d511908` after adding track 14's result by track 14's word 23. With
+an effect object (`11b01d88 + 4 × track`) that call meters the bus (telemetry
+`0x1a`/`0x1b`), copies it into the scratch buffers `84ca9f40`/`84caa040`, runs
+the object's process (`+0x10`) there with the track's words (`84eab39c +
+0xe8 × track`), applies the send's post filter while its flag byte
+(`11b01dc8 + track`) is set, fades the send's gain (`8404caf8`) towards full
+while the requested effect (`84042700`) is the current one (`8404cb38`) and
+towards zero otherwise, writes its level and pan matrix of the result back to
+the bus and meters that (`0x1c`/`0x1d`); the loop adds both buses to the
+master. Without an object it returns at once.
+
+With the [`idle` capability](cpu-capabilities.md#idle) both calls go to `sdk_send_fx` (`send_fx.cpp`, linked only with `idle`). A send idles,
+skipping the call with silence left in its bus, after its hold of blocks in a
+row in which its object existed, was the requested effect at full gain,
+no engine reset was pending (the engine's first byte, which stock's reset
+`8d50f23c` clears at the end of the block while calling every object's init),
+its input, the scratch output and the bus result stayed below the send's
+floor (64 raw, 2^6, in raw bus units for every effect, whatever its
+[bus shift](api.md#bus-shift); chosen well under the send levels the author read on one
+OP-XY and above the small residue a stock effect was seen to leave at rest in a simulator
+outside this repository, both observations this repository cannot reproduce) and nothing
+else the call reads changed: the track's 58 words, both tempo
+words (`84c69824`, the BPM; `84c69828`, which stock delay reads) and the
+playing bytes (`860c9b39`) and the post filter flag. In builds with `idle`
+every SDK effect's init records its vtable and hold in
+`sdk_send_bus` (`send_bus.hpp`); the hook uses them while the send's object
+still has that vtable. The hold is the effect's tail plus 64 blocks: its
+declared `tailFrames`, or its memory read as a 16-bit mono line
+([Idle sends](api.md#idle-sends)); for stock's effects, which record nothing,
+4,096 + 64 blocks, the 262,144 frames of the largest scratchpad request
+(512 KiB) as 16-bit mono. Whether stock's own lines are 16- or 32-bit is not
+established; the hold assumes the longer. So an output below the floor through
+all of it leaves every line below the floor too: idling cuts nothing stock
+would still play, and smoothing has settled. An effect with an unbounded tail
+never idles, and the hook scans nothing for it. Each scan reads its buffer whole as the largest
+magnitude (a saturating `ABS` and a `MAX` a word, one hardware loop of two instructions a word; -2^31
+counts as loud): 384 words a send when every buffer is below the floor. The first block in
+which any condition fails runs the call on that block, on the state as it was.
+On idling the send's two meters are published as zero.
 
 ## Synthesis drum transport
 

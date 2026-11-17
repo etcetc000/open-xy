@@ -99,9 +99,10 @@ test('a kit refuses an extension naming a build capability (hooks into SDK code)
   const meta = {name:'Settings', description:'Turns on a capability.', origin:'official', claim_labels:{}, claims:[], actions:[], linked:false};
   k.extensions = [{...meta, id:'longer', capabilities:['long_samples']}];
   await openKit(k);
-  // master_filter: a service of this profile named after itself whose edits are hooks; it passes every other
-  // capability rule, so only the limit-only rule refuses it.
-  for (const capability of ['master_filter']) {
+  // idle: a build capability of this profile (hooks into SDK code). master_filter: a service of this profile
+  // named after itself whose edits are hooks; it passes every other capability rule, so only the limit-only
+  // rule refuses it.
+  for (const capability of ['idle', 'master_filter']) {
     k.extensions = [{...meta, id:'faster', capabilities:[capability]}];
     await assert.rejects(openKit(k), /Invalid extension capabilities/, capability);
   }

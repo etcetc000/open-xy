@@ -9,7 +9,7 @@
 #include "core.h"
 #include "engine.cpp"
 #include <opxy/q31.hpp>
-#include "stock.hpp"
+@IDLE_INCLUDE@#include "stock.hpp"
 #include "voice_zero.hpp"
 #include "synth_controls.hpp"
 #include "drum_machines.hpp"
@@ -21,7 +21,7 @@
 #include "sample_machines.hpp"
 // Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
 extern "C" {
-void* @PREFIX@_factory(opxy::u32, opxy::u32) __asm__("@PREFIX@_factory");
+@IDLE_DECLARATIONS@void* @PREFIX@_factory(opxy::u32, opxy::u32) __asm__("@PREFIX@_factory");
 const char* @PREFIX@_parameter_name(opxy::u32) __asm__("@PREFIX@_parameter_name");
 extern const char @PREFIX@_name[] __asm__("@PREFIX@_name");
 // The engine ID: an absolute symbol the linker supplies.
@@ -46,8 +46,8 @@ struct Handle {
 // pair and, with padMix, its pad's level (gain) and pad controls (pads) from it.
 // faded: the voice ID whose own choke fade ended in the block just rendered and
 // freed the voice, whose sends that block still has; else 0.
-struct Slot { Voice voice; opxy::u32 owner, started, pad, fade, send, latched, faded; opxy::i32 gain, pads[2]; };
-static Handle handles[kVoiceIndices];
+struct Slot { Voice voice; opxy::u32 owner, started, pad, fade, send, latched, faded; opxy::i32 gain, pads[2];@IDLE_SLOT@ };
+@IDLE_DEFINITIONS@static Handle handles[kVoiceIndices];
 static Slot voices[@CAPACITY@];
 static opxy::u32 notes;  // counts note starts, to find the oldest
 static Shared shared;
@@ -189,7 +189,7 @@ int @PREFIX@_start(void* self, opxy::u32 key) {
     slot->send = 0;
     slot->latched = 0;
     slot->faded = 0;
-    // A note on a pad cuts every other voice still sounding it on the track.
+@IDLE_START@    // A note on a pad cuts every other voice still sounding it on the track.
     if (kChoke && slot->pad)
         for (opxy::u32 i = 0; i < @CAPACITY@; ++i)
             if (voices[i].owner && &voices[i] != slot && voices[i].pad == slot->pad && !voices[i].fade)
@@ -278,7 +278,7 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
             drum_transport(slot->voice, shared, slot->owner, transport);
         }
         @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
-        // The track filter, where stock's normal renderer runs a synth voice's:
+@IDLE_FOLLOW@        // The track filter, where stock's normal renderer runs a synth voice's:
         // after the render, before the amplitude envelope and pan.
         if (filter != opxy::platform::kDrumFilterNone && handle->pool < opxy::platform::kDrumFilterPool)
             if (void* object = opxy::platform::drum_filter_object(stock_filter_factory, handle->filter, handle->filter_type,
@@ -296,7 +296,7 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
         }
         // A choked voice fades to silence, then is freed: +24 then reports it
         // inactive and stock retires its note after mixing this block.
-        if (kChoke && slot->fade) {
+        if (kChoke@IDLE_FADE@ && slot->fade) {
             // Gain (left - 1) / 128 in Q31, the native multiply: no 64-bit
             // arithmetic, which needs the libgcc the firmware does not link.
             opxy::u32 left = slot->fade;

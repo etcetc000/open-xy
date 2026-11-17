@@ -13,12 +13,15 @@ from tooling.extensions import extension_at
 from tooling.firmware import active_services, patch_active
 from tooling.formats import header
 from tooling.pipeline import ROOT, check_patch_boundaries, config, document
+import off_path_code
 
 REGISTRY = document(ROOT / 'profiles/extensions.json')['capabilities']
 
 
 # Each CPU capability's edits (address -> kind) and the SDK units it links.
 CPU = {
+    'idle': ({'0x8d5116a0': 'hook', '0x8d511908': 'hook', '0x8d51c7a6': 'hook'},
+             ('send_fx', 'idle_cut')),
 }
 FIXTURES = ROOT / 'tests/fixtures/machines'
 
@@ -114,6 +117,29 @@ class Switches(unittest.TestCase):
             planned = {step for _n, _m, step in native.plan(machines)}
             self.assertEqual(planned & {u for _s, us in CPU.values() for u in us}, set(units))
 
+    def test_an_image_cannot_take_a_build_capability(self):
+        e = extension_at(folder(self, ['idle']))
+        with self.assertRaisesRegex(ValueError, 'Chosen when the firmware is built'):
+            image_settings.apply(b'', [e])
+
+    def test_a_browser_kit_cannot_carry_a_build_capability(self):
+        from tooling import browser_kit
+        browser_kit.refuse_build_capabilities([extension_at(folder(self, ['long_samples']))])
+        for name in ('idle',):
+            with self.assertRaisesRegex(ValueError, 'a browser kit cannot carry them: ' + name):
+                browser_kit.refuse_build_capabilities([extension_at(folder(self, [name]))])
+
+    def test_exporting_a_browser_kit_refuses_a_build_capability_before_writing(self):
+        # browser_kit.export itself refuses, before reading the catalog or writing anything.
+        from tooling import browser_kit
+        output = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, output)
+        machines = Machines(extension_at(folder(self, ['idle'])))
+        with mock.patch.object(native, 'package_collection'),                 mock.patch.object(native, 'configuration', return_value=(config(), machines, {})),                 mock.patch.object(browser_kit, 'catalog_sources', side_effect=AssertionError('read the catalog first')):
+            with self.assertRaisesRegex(ValueError, 'a browser kit cannot carry them: idle'):
+                browser_kit.export(output, output, None, stock_catalog=b'')
+        self.assertEqual(list(output.iterdir()), [])
+
     def test_an_image_capability_is_fixed_limit_edits(self):
         # A hook in an image capability would let an image setting reach SDK code the build did
         # not choose; the registry refuses it.
@@ -125,6 +151,31 @@ class Switches(unittest.TestCase):
         with mock.patch.object(extensions, 'document', lambda path: profile if 'opxy-' in str(path) else document(path)):
             with self.assertRaisesRegex(ValueError, 'Invalid capability: long_samples'):
                 extensions.capabilities()
+
+
+@unittest.skipUnless(off_path_code.toolchain(), 'No Blackfin toolchain')
+class IdleSwitch(unittest.TestCase):
+    """compile_collection generates the voice and effect adapters with their idle pieces exactly when the build
+    has the idle capability (a dropped `idle=` argument would silently lose the voice idle cut)."""
+    def test_the_adapters_take_their_idle_pieces_only_with_idle(self):
+        import subprocess, sys
+        out = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, out)
+        compiler = off_path_code.toolchain()
+        for idle in (False, True):
+            with self.subTest(idle=idle):
+                command = [sys.executable, str(ROOT / 'sdk.py'), 'compile', '--toolchain', str(compiler / 'bin'),
+                           '--compiler', str(compiler), '--out', str(out / str(idle)), '--overwrite',
+                           '--machine', str(ROOT / 'tests/fixtures/machines/probesynth'),
+                           '--machine', str(ROOT / 'tests/fixtures/machines/probefx')]
+                if idle:
+                    command += ['--extension', str(folder(self, ['idle']))]
+                run = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stdout[-2000:] + run.stderr[-2000:])
+                voice = next((out / str(idle)).rglob('voice.cpp')).read_text(encoding='utf-8')
+                self.assertEqual('sdk_idle_floor' in voice, idle)
+        effects = [next((out / str(idle)).rglob('fx_object_*.cpp')).read_text(encoding='utf-8') for idle in (False, True)]
+        self.assertNotEqual(effects[0], effects[1])
 
 
 def loader(payload):
@@ -156,8 +207,12 @@ class Built(unittest.TestCase):
 
 class Extensions(unittest.TestCase):
     def test_the_boot_log_fix_is_its_own_image_capability(self):
-        # One data byte, fixed bytes: an image setting, not a build capability (owner's decision).
+        # One data byte, fixed bytes: an image setting, separate from idle.
         profile = config()
         self.assertEqual(edits_of(profile, 'boot_log_fix'), {'0x8400ea65': 'limit'})
         self.assertNotIn('boot_log_fix', extensions.build_capabilities())
         self.assertIn('boot_log_fix', extensions.capabilities())
+        self.assertNotIn('0x8400ea65', edits_of(profile, 'idle'))
+        idle_only = active_services(profile, native.service_users(Machines(extension_at(folder(self, ['idle'])))))
+        self.assertFalse(any(patch_active(p, idle_only, True) for p in profile['patches']
+                             if p.get('service') == 'boot_log_fix'))

@@ -4,6 +4,7 @@ The CLI's real independent compile is exercised by build/verify. These tests
 cache that known-good compiler output and isolate the package comparison logic,
 so each corruption need not launch the compiler again.
 """
+import ast
 import copy
 import json
 import os
@@ -11,6 +12,7 @@ from pathlib import Path
 import shutil
 import struct
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 from tooling.adapters import aux_preset_files, catalog_entry
@@ -21,6 +23,18 @@ from tooling.adapters import preset_files
 from tooling.formats import elf32, elf_sections, sha
 from tooling.machines import sample_path
 from tooling.pipeline import document, read, save_json
+
+
+# The build capabilities whose units a machine's own objects reach in a build that selects them: idle only.
+# Every effect's init records itself in the send hook's table (send_bus.hpp), and the adapters write that only
+# in a build that selected idle, the only builds that link it. Any other selected capability stays outside every
+# machine's uses, so a machine object that reached its units fails test_service_hooks.
+MACHINE_CAPABILITIES = frozenset({'idle'})
+
+
+def machine_capability_uses(extensions):
+    """The capabilities the build's settings extensions select that count as each machine's use."""
+    return {c for e in extensions for c in e.capabilities} & MACHINE_CAPABILITIES
 
 
 def object_symbols(data):
@@ -103,7 +117,10 @@ class PackageVerification(unittest.TestCase):
 
     def test_service_hooks_live_in_their_units_and_only_their_users_reach_them(self):
         services = native.object_services(self.machines)
-        uses = {m.id: set(native.service_users([m])) for m in self.machines}
+        # A build capability a settings extension selects counts as each machine's use only if it is one of
+        # MACHINE_CAPABILITIES (idle); no other service is added to a machine's uses.
+        chosen = machine_capability_uses(native.extensions_of(self.machines))
+        uses = {m.id: set(native.service_users([m])) | chosen for m in self.machines}
         owner_of, needs = {}, {}
         for name, owner in self.report['objects'].items():
             defined, undefined = object_symbols(read(self.package / 'analysis' / name))
@@ -115,10 +132,16 @@ class PackageVerification(unittest.TestCase):
                 self.assertEqual(services.get(owner_of[patch['symbol']]), patch['service'], patch['symbol'])
         # Only a service's own units and machines of the kinds or features it serves may use its symbols.
         users = self.patch_profile['services']
+        # The entry points the SDK resolves to a fallback when their service is not linked
+        # (native.service_fallbacks): the build-wide shared SDK units may name them.
+        fallbacks = {(service, symbol) for service, table in native.service_fallbacks(set(users)).items()
+                     for symbol in table}
         for name, (owner, undefined) in needs.items():
             for symbol in undefined:
                 service = services.get(owner_of.get(symbol))
                 if service and name not in services:
+                    if owner is None and (service, symbol) in fallbacks:
+                        continue
                     # The startup, generated per selection, starts a service it links.
                     user = (set(native.service_users(self.machines)) if name == 'sdk/startup.o' else
                             uses.get(owner, set()))
@@ -189,6 +212,39 @@ class PackageVerification(unittest.TestCase):
         save_json(self.copy / 'manifest.json', manifest)
         with self.assertRaises(ValueError): self.verify()
 
+
+
+class CapabilityUses(unittest.TestCase):
+    """The service-reach rule's capability uses (no package needed)."""
+
+    def test_only_idle_counts_as_a_machines_use(self):
+        every = SimpleNamespace(capabilities=('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor'))
+        self.assertEqual(machine_capability_uses([every]), {'idle'})
+        # A capability outside the list is refused as a machine's use, selected or not.
+        for capability in ('boot_log_fix', 'block_trims', 'output_slack', 'load_governor', 'anything'):
+            with self.subTest(capability=capability):
+                self.assertEqual(machine_capability_uses([SimpleNamespace(capabilities=(capability,))]), set())
+        self.assertEqual(machine_capability_uses([]), set())
+        self.assertEqual(MACHINE_CAPABILITIES, {'idle'})
+
+    def test_the_rule_takes_its_capability_uses_from_the_helper(self):
+        """The call site, not only the helper: the service-reach rule adds exactly
+        machine_capability_uses(...) to each machine's uses and reads no extension's capabilities itself, so a
+        wider filter written back into the rule (every selected capability) fails here, without a package."""
+        tree = ast.parse(Path(__file__).read_text(encoding='utf-8'))
+        rule, = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and
+                 node.name == 'test_service_hooks_live_in_their_units_and_only_their_users_reach_them']
+        calls = [node for node in ast.walk(rule) if isinstance(node, ast.Call) and
+                 isinstance(node.func, ast.Name) and node.func.id == 'machine_capability_uses']
+        self.assertEqual(len(calls), 1, 'the rule asks machine_capability_uses once')
+        assigned = [node for node in ast.walk(rule) if isinstance(node, ast.Assign) and node.value is calls[0]]
+        self.assertEqual([t.id for node in assigned for t in node.targets], ['chosen'])
+        self.assertFalse([node for node in ast.walk(rule) if isinstance(node, ast.Attribute) and
+                          node.attr == 'capabilities'], 'the rule reads capabilities only through the helper')
+        uses = [node for node in ast.walk(rule) if isinstance(node, ast.Assign) and
+                [t.id for t in node.targets if isinstance(t, ast.Name)] == ['uses']]
+        self.assertEqual(len(uses), 1)
+        self.assertIn('chosen', {n.id for n in ast.walk(uses[0].value) if isinstance(n, ast.Name)})
 
 if __name__ == '__main__':
     unittest.main()

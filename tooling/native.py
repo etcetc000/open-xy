@@ -258,7 +258,7 @@ def plan(machines, profile=None):
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
 # or .s, except the generated units and the Blackfin runtime.
 SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
-             'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
+             'hook', 'send_fx', 'idle_cut', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
@@ -311,6 +311,11 @@ UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'tra
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+# CPU capabilities (docs/cpu-capabilities.md). The idle cut's render hook and its
+# registry, and the send hook with the record its effects' inits write (send_bus.hpp:
+# their adapters write it only in builds with idle).
+UNIT_SERVICES['send_fx'] = 'idle'
+UNIT_SERVICES['idle_cut'] = 'idle'
 
 
 def service_users(machines):
@@ -542,6 +547,28 @@ def linked_machines(directory, tools, profile, machines, definitions, runtime_me
     return subset(machines, core)
 
 
+def selected_services(profile, machines):
+    """The build capabilities and services the whole collection selects (idle's adapters follow it)."""
+    return active_services(profile, service_users(machines))
+
+
+def adapter_source(folder, m, step, sweep, services):
+    """Write machine `m`'s generated source for plan step `step` (voice, display, screen, fx_object, registration,
+    control, sample_voice, player_object) into `folder`; `services` as selected_services gives them. Host only:
+    a test compares these sources for a build that selects nothing against the checkout without the CPU
+    capabilities (tests/test_off_unless_asked.py)."""
+    def display_unit():
+        generate_display(folder, machine=m)
+        return folder / 'display_binding.cpp'
+    return {'voice': lambda: generate_voice(folder, m, sweep, idle='idle' in services), 'display': display_unit,
+            'screen': lambda: generate_screen(folder, m),
+            'fx_object': lambda: generate_fx_object(folder, m, benchmark=True, idle='idle' in services),
+            'registration': lambda: generate_registration(folder, m),
+            'control': lambda: generate_control(folder, m),
+            'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
+            'player_object': lambda: generate_player_object(folder, m)}[step]()
+
+
 def compile_collection(directory, toolchain, compiler, profile, machines, definitions, version, profiling=True,
                        sweep=False):
     """Compile every machine and link those that fit (linked_machines), labelled with the
@@ -559,15 +586,13 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     before = provenance(machines)
     effects, sample_engines = by_kind(machines, 'effect'), by_kind(machines, 'sample')
 
+    data_services = selected_services(profile, machines)
+
     def assemble_unit(source, obj):
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
     def cxx(source, obj, m=None):
         compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m))
-
-    def display_unit(folder, m):
-        generate_display(folder, machine=m)
-        return folder / 'display_binding.cpp'
 
     def build_unit(obj, m, step):
         folder = obj.parent
@@ -632,13 +657,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             unit = next(u for u in m.native if u.name == step.removeprefix('native:'))
             assemble_unit(unit.path, obj)
             return check_native_object(execute([tools['objdump'], '-h', '-t', obj]), unit, f'{m.id}/native/{unit.name}.s')
-        source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
-                  'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
-                  'registration': lambda: generate_registration(folder, m),
-                  'control': lambda: generate_control(folder, m),
-                  'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
-                  'player_object': lambda: generate_player_object(folder, m)}[step]
-        return cxx(str(source()), obj, m)
+        return cxx(str(adapter_source(folder, m, step, sweep, data_services)), obj, m)
 
     for name, m, step in plan(machines, profile):
         obj = directory / name

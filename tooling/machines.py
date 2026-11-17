@@ -73,7 +73,12 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # paths and larger path budgets; the encoders' activity, and a synth's last control
 # touched (opxy/control_interaction.hpp).
 # 1.21 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
-SDK_VERSION = (1, 21)
+# 1.22 adds the idle capability's machine API: an effect's declared tail
+# (resources.tailFrames) for its send hold, and an engine's settled() for the idle cut
+# (asked only of machines declaring 1.22 or later). IDLE_SDK is the one place to
+# renumber it, with the "SDK 1.22" text of docs/api.md.
+IDLE_SDK = (1, 22)
+SDK_VERSION = (1, 22)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -581,6 +586,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 2), "An effect's tempo (transport)")
     if definition['resources'].get('busShift'):
         require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
+    if 'tailFrames' in definition['resources']:
+        require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:

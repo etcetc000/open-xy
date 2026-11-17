@@ -181,6 +181,9 @@
     "synth_shift": [
       "synthShift"
     ],
+    "idle": [
+      "idle"
+    ],
     "boot_log_fix": [
       "boot_log_fix"
     ]
@@ -1892,6 +1895,28 @@
     },
     {
       "kind": "hook",
+      "name": "Send FX I: skipped while it has nothing to play",
+      "address": "0x8d5116a0",
+      "file_offset": "0x1488fc",
+      "length": 4,
+      "before": "ffe37aef",
+      "symbol": "sdk_send_fx",
+      "call": true,
+      "service": "idle"
+    },
+    {
+      "kind": "hook",
+      "name": "Send FX II: skipped while it has nothing to play",
+      "address": "0x8d511908",
+      "file_offset": "0x148b64",
+      "length": 4,
+      "before": "ffe346ee",
+      "symbol": "sdk_send_fx",
+      "call": true,
+      "service": "idle"
+    },
+    {
+      "kind": "hook",
       "name": "CV gate stays low while a machine holds the CV track",
       "address": "0x8d50e95c",
       "file_offset": "0x145bb8",
@@ -2506,6 +2531,17 @@
       "symbol": "sdk_drumline_page_hook",
       "call": true,
       "service": "drumline"
+    },
+    {
+      "kind": "hook",
+      "name": "The track's voice loop asks the idle cut about each voice it renders and has not finished",
+      "address": "0x8d51c7a6",
+      "file_offset": "0x153a02",
+      "length": 4,
+      "before": "ffe302fa",
+      "symbol": "sdk_idle_render",
+      "call": true,
+      "service": "idle"
     },
     {
       "kind": "limit",
