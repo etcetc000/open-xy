@@ -2487,6 +2487,28 @@
       "symbol": "sdk_drumline_page_hook",
       "call": true,
       "service": "drumline"
+    },
+    {
+      "kind": "hook",
+      "name": "Morph MIDI movement: intercept CC12-47 parameter dispatch; unmatched traffic delegates unchanged",
+      "address": "0x8d58e818",
+      "file_offset": "0x1c5a74",
+      "length": 4,
+      "before": "ffe3dbfe",
+      "symbol": "sdk_morph_midi_cc",
+      "call": true,
+      "service": "control"
+    },
+    {
+      "kind": "hook",
+      "name": "Morph physical pitch pad: preserve stock or consume for rate movement; MIDI callers unchanged",
+      "address": "0x8d5b27f6",
+      "file_offset": "0x1e9a4e",
+      "length": 4,
+      "before": "ffe37526",
+      "symbol": "sdk_morph_pad_event",
+      "call": true,
+      "service": "control"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches",

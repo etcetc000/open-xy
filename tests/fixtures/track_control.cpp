@@ -4,7 +4,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
+#include "synth_controls.hpp"
+const opxy::platform::SynthControls sdk_synth_controls[1]={};
+const opxy::u32 sdk_synth_control_count=0;
 #include <track_control.cpp>
+extern "C" void sdk_morph_gui_sample_turns() {}
 
 namespace {
 using opxy::i32;
