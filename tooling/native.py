@@ -60,7 +60,6 @@ CXX_FLAGS = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-excep
 from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes, validate_xml
 
 
-
 class Collection(list):
     """A build's machines, in firmware order, and the extensions it links, in
     callback order (`extensions`). A subset of its machines keeps its extensions."""
@@ -262,7 +261,7 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
-             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
+             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
@@ -318,6 +317,8 @@ UNIT_SERVICES['send_fx'] = 'idle'
 UNIT_SERVICES['idle_cut'] = 'idle'
 # Track mixing, the LFO pass check and the idle tape.
 UNIT_SERVICES.update(dict.fromkeys(('track_hooks', 'floor_hooks'), 'block_trims'))
+# The DSP board's per-block hook and the output slack it arms.
+UNIT_SERVICES.update(dict.fromkeys(('dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks'), 'output_slack'))
 
 
 def service_users(machines):

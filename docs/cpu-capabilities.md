@@ -31,6 +31,7 @@ without it has byte for byte ([Off means off](#off-means-off)).
 | `boot_log_fix` (an image capability) | limit `8400ea65` (one data byte) | none |
 | `idle` | hooks `sdk_send_fx` at `8d5116a0` and `8d511908`, `sdk_idle_render` at `8d51c7a6` | `send_fx`, `idle_cut` |
 | `block_trims` | hooks `sdk_track_mix` at `8d511014` and (without profiling) `8d510f04`, `sdk_lfo_pass` at `11a044e6`, `sdk_tape_play` at `8d503878`, `sdk_tape_tail` at `8d50fac4` | `track_hooks`, `floor_hooks` |
+| `output_slack` | hook `sdk_dsp_block_audio` at `8c0c6ffe` (and, once armed, a run-time swap of the audio task's block pointer `11b008cc`) | `dsp_block`, `dsp_block_hooks`, `output_slack`, `output_slack_hooks` |
 
 ## Budgets
 
@@ -45,6 +46,7 @@ disassembly of the build shows it); anything else is said not to be measured her
 | `boot_log_fix` | nothing | 0 |
 | `idle` | per send per block: `sdk_send_fx` (a scan of 384 words while the send is quiet, then the effect's call is skipped once idle); per sounding voice per block: `sdk_idle_render` (stock's chooser plus a check) | a quiet send: its scans, one hardware loop of two instructions a word over 384 words (about 770 instructions; counted from the built code, not timed); a sounding send: a scan of its 128-word bus before the effect's call, one hardware loop of two instructions a word (about 260 instructions), and about 90 more of checks (counted from the built code, not timed); with `release_floor`, the drum sampler's tables scan up to 1,024 samples a block in all (not counted); with `cpu` alone, an SDK voice whose engine defines `settled()` still takes its block's peak and asks `settled()` every block, though nothing is cut (no catalog engine defines `settled()`, so nothing for the catalog; not counted). Saves an idle send's whole effect call and a cut voice's remaining blocks; not measured in this repository |
 | `block_trims` | per sounding track per block: `sdk_track_mix`; per LFO pass: `sdk_lfo_pass`; per block: `sdk_tape_play`, `sdk_tape_tail` | Functional-Sim, from this repository's tests ([block_trims](#block_trims)): a silent sounding track's mixes 402 against stock's 1,704; an LFO pass check 45 against 58 (up to 72 calls a block); an idle tape about 2,610 a block |
+| `output_slack` | per block: `sdk_dsp_block_audio`; until armed, a quiet check of the newest block (256 words, more with USB multichannel); once armed, each period a copy of one block (1,024 words) out of a 4 KB queue | the copy about 2,050 instructions a period (counted from the built code: a hardware loop of two instructions a word over 1,024 words; not timed) |
 
 ## Off means off
 
@@ -184,3 +186,51 @@ not in this repository, and the simulator, so CI skips them); host tests pin eac
 stock addresses and its scan's length against the stock bytes it replaces
 (`test_cpu_capabilities.py`, `test_track_hooks.py`). Never measured in a whole loop
 with voices sounding on a device.
+
+## output_slack
+
+What it changes in stock: the DSP callback's call at `8c0c6ffe` goes to
+`sdk_dsp_block_audio`, the per-block hook, which after about 4 s installs a wrapper
+through the audio task's block-function pointer (`11b008cc`, a run-time write, not a
+profile edit; `output_slack.hpp`). The wrapper runs stock unchanged until a block whose
+main and USB-record planes (and, in USB multichannel mode, the USB monitor taps) are
+quiet, below 2^17 in magnitude; arming waits for that block, however long. Then the
+DMA plays that block once more (the one inserted block) and from then on each period
+the wrapper delivers the previous block to the transmit half and has stock render the
+new block into a 4 KB queue: every output is one block (64 samples, 1.45 ms) later, and
+a block that finishes up to about two periods late, or two of 1.3 in a row, no longer
+tears the output.
+
+Off: `8c0c6ffe` keeps stock's call, none of its four units is linked, and the
+pointer is never written.
+
+What it saves: no CPU; it hides single late blocks.
+
+What it costs: the copy, about 2,050 instructions a period (counted from the built code,
+not timed), and while it waits to arm, the quiet check of each block.
+
+What it risks: 1.45 ms more output latency on every output, the USB planes included;
+real DMA timing and the copy's cost are not modelled by the simulator, and the queue
+sits in cached memory, so stock now renders into cacheable memory that the copy reads
+back each block (its cache cost, and whether anything but the core reads the queue,
+were never checked). The copy writes the transmit halves with core stores just before
+the DMA reads them; stock's own block function writes the same halves the same way, but
+their cache attributes were not read from stock's memory protection setup: if they were
+write-back cached, the DMA could read a stale half. Nothing disarms it once armed: stock rewrites
+the task's pointer only in its audio init, which runs only during boot, and in its
+fault handler, which silences the audio as before. That is a reading of the call
+sites, not a measurement: if the audio init ever re-ran, the slack would be silently
+off and the audio stock again. It hides one late block, not a run of them: sustained
+overload still clicks.
+
+A block later than the slack: if a block ends after the second boundary, the DMA
+plays the last delivered half again (a clean repeat). If the task's semaphore then
+runs the missed iteration at once, that iteration copies into the half the DMA is
+playing (a tear), and the block delivered before it is not played. Stock tears in
+the same case, one block sooner.
+
+Tests: host test `test_output_slack.py` (quiet check, half index, arming and its
+about-4 s wait, delivery); a host test pins the hook's call to the stock address the
+replaced instruction called (`test_cpu_capabilities.py`). That its output equals the
+build without it one block later, and that it hides late blocks on a device, are not
+measured in this repository.

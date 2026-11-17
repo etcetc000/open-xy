@@ -1,7 +1,9 @@
 """Build capabilities (docs/cpu-capabilities.md): the registry, coverage, and that each CPU
 capability is exactly its own edits and units, with every site stock while it is off."""
 import copy
+import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -10,7 +12,7 @@ from unittest import mock
 
 from tooling import extensions, native, settings as image_settings
 from tooling.extensions import extension_at
-from tooling.firmware import active_services, patch_active
+from tooling.firmware import active_services, decode_branch, patch_active
 from tooling.formats import header
 from tooling.pipeline import ROOT, check_patch_boundaries, config, document
 import off_path_code
@@ -24,6 +26,7 @@ CPU = {
              ('send_fx', 'idle_cut')),
     'block_trims': ({'0x8d511014': 'hook', '0x8d510f04': 'hook', '0x11a044e6': 'hook', '0x8d503878': 'hook',
                      '0x8d50fac4': 'hook'}, ('track_hooks', 'floor_hooks')),
+    'output_slack': ({'0x8c0c6ffe': 'hook'}, ('dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks')),
 }
 FIXTURES = ROOT / 'tests/fixtures/machines'
 
@@ -218,3 +221,85 @@ class Extensions(unittest.TestCase):
         idle_only = active_services(profile, native.service_users(Machines(extension_at(folder(self, ['idle'])))))
         self.assertFalse(any(patch_active(p, idle_only, True) for p in profile['patches']
                              if p.get('service') == 'boot_log_fix'))
+
+
+class StockAddresses(unittest.TestCase):
+    """Each hook reaches stock where stock's own replaced instruction did: the address that instruction calls or
+    loads, decoded from its bytes (the profile's `before`), is the one the hook's unit names, in the form it uses;
+    a hook that resumes stock right after the replaced bytes names that address. With a stock OS image, every CPU
+    edit's `before` is checked against the image's bytes, not only the profile's own copy."""
+    # address -> (unit source, the text that must name the decoded stock address there)
+    TARGETS = {
+        '0x8d5116a0': ('send_fx.cpp', 'const u32 kProcessSend = {:#x};'),
+        '0x8d511908': ('send_fx.cpp', 'const u32 kProcessSend = {:#x};'),
+        '0x8d51c7a6': ('idle_cut.cpp', 'stock<int(unsigned char*, i32*)>({:#x})(voice, output);'),
+        '0x8d503878': ('floor_hooks.s', 'P2.L = 0x{0:04x}; P2.H = 0x{1:04x};\n    CALL (P2);'),
+        '0x8d50fac4': ('floor_hooks.s', 'P1.L = 0x{0:04x}; P1.H = 0x{1:04x};'),
+        '0x8c0c6ffe': ('dsp_block_hooks.s', 'P1 = {:#x};\n    CALL (P1);'),
+    }
+    # address -> (unit source, the text that resumes stock at the address right after the replaced bytes)
+    RESUMES = {
+        '0x8d503878': ('floor_hooks.s', 'P1.L = 0x{0:04x}; P1.H = 0x{1:04x};\n    JUMP (P1);'),
+        '0x8d50fac4': ('floor_hooks.s', 'P2.L = 0x{0:04x}; P2.H = 0x{1:04x};'),
+    }
+
+    @staticmethod
+    def stock_target(patch):
+        """What the replaced instruction calls (a 32-bit CALL) or loads (a 64-bit immediate load)."""
+        data = bytes.fromhex(patch['before'])
+        first = int.from_bytes(data[:2], 'little')
+        if first & 0xfe00 == 0xe200:
+            return decode_branch(int(patch['address'], 16), data[:4])[0]
+        if first & 0xff00 in (0xde00, 0xda00) and len(data) == 8:
+            return int.from_bytes(data[2:4], 'little') << 16 | int.from_bytes(data[4:6], 'little')
+        raise AssertionError('not a call or an immediate load: ' + patch['address'])
+
+    @staticmethod
+    def text(form, address):
+        return form.format(address) if '{:' in form else form.format(address & 0xffff, address >> 16)
+
+    def test_each_hook_names_the_stock_address_it_replaces(self):
+        hooks = {p['address']: p for p in config()['patches'] if p.get('service') in CPU and p['kind'] == 'hook'}
+        checked = set()
+        for address, (unit, form) in self.TARGETS.items():
+            source = (ROOT / 'sdk/platform/opxy-1.2.1' / unit).read_text(encoding='utf-8')
+            want = self.text(form, self.stock_target(hooks[address]))
+            with self.subTest(address=address):
+                self.assertIn(want, source)
+            checked.add(address)
+        for address, (unit, form) in self.RESUMES.items():
+            source = (ROOT / 'sdk/platform/opxy-1.2.1' / unit).read_text(encoding='utf-8')
+            after = int(address, 16) + hooks[address]['length']
+            with self.subTest(resume=address):
+                self.assertIn(self.text(form, after), source)
+        # The others: the two jump hooks of the track mixes (tests/test_track_hooks.py: back to 8d511182) and the
+        # LFO pass check, which replaces its helper call with the helper's own work (tests/test_floor_hooks.py).
+        self.assertEqual(set(hooks) - checked, {'0x8d511014', '0x8d510f04', '0x11a044e6'})
+
+    @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS image not supplied')
+    def test_every_edit_replaces_the_stock_image_bytes(self):
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        names = set(CPU) | {'boot_log_fix', 'load_governor'}
+        edits = [p for p in config()['patches'] if p.get('service') in names]
+        self.assertGreaterEqual(len(edits), 10)
+        for p in edits:
+            offset = int(p['file_offset'], 16)
+            with self.subTest(address=p['address']):
+                self.assertEqual(data[offset:offset + p['length']].hex(), p['before'])
+
+
+class LinkOrder(unittest.TestCase):
+    def test_no_capability_changes_the_pinned_layout(self):
+        # The module links in the base's order and layout: the linker script is the one the firmware profile
+        # pins (its linker_sha256, which the build checks), and no capability names it among its edits,
+        # units or unit sources.
+        profile = document(ROOT / 'profiles/opxy-1.2.1.json')
+        self.assertEqual(hashlib.sha256((ROOT / native.LINKER).read_bytes()).hexdigest(), profile['linker_sha256'])
+        names = set(off_path_code.cpu_capabilities(ROOT))
+        self.assertFalse([p for p in profile['patches'] if p.get('service') in names and 'linker' in json.dumps(p)])
+        owned = [u for u, service in native.UNIT_SERVICES.items() if service in names]
+        self.assertFalse([o for o in owned if Path(o).suffix == '.ld' or Path(o).name == Path(native.LINKER).name])
+
+
+if __name__ == '__main__':
+    unittest.main()

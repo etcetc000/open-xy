@@ -187,6 +187,9 @@
     "block_trims": [
       "block_trims"
     ],
+    "output_slack": [
+      "output_slack"
+    ],
     "boot_log_fix": [
       "boot_log_fix"
     ]
@@ -2436,6 +2439,17 @@
       "symbol": "sdk_master_receive",
       "call": true,
       "service": "master_filter"
+    },
+    {
+      "kind": "hook",
+      "name": "The DSP callback's per-block hook: output slack's arming",
+      "address": "0x8c0c6ffe",
+      "file_offset": "0xfe23a",
+      "length": 8,
+      "before": "00dea01164280000",
+      "symbol": "sdk_dsp_block_audio",
+      "call": true,
+      "service": "output_slack"
     },
     {
       "kind": "hook",
