@@ -657,7 +657,10 @@ export async function openKit(kit) {
     check((e.capabilities === undefined || Array.isArray(e.capabilities) && e.capabilities.length > 0 &&
       new Set(e.capabilities).size === e.capabilities.length &&
       e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c &&
-        kit.profile.patches.some(edit => edit.service === c && !edit.choices && edit.before !== edit.after))) &&
+        kit.profile.patches.some(edit => edit.service === c && !edit.choices && edit.before !== edit.after) &&
+        // Image capabilities only: fixed-byte limit edits. A build capability (hooks into SDK
+        // code) is chosen by sdk.py build; a kit cannot carry it.
+        kit.profile.patches.every(edit => edit.service !== c || edit.kind === 'limit'))) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
     // A capability setting: its range and the extension's value; the profile lists every value's bytes.

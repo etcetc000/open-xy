@@ -79,7 +79,8 @@ class Profile(unittest.TestCase):
     def test_a_capability_needs_a_fixed_edit_that_marks_it_on(self):
         # A setting's bytes may equal stock's (-66 dB), so on/off is read from the fixed
         # stage edit; a capability with only setting edits could not be read.
-        self.assertEqual(capabilities(), ('long_samples', 'release_floor'))
+        # The image capabilities; this SDK's CPU build capabilities follow (test_cpu_capabilities).
+        self.assertEqual(capabilities()[:2], ('long_samples', 'release_floor'))
         real = extensions.document
 
         def without_stage(path):
@@ -232,7 +233,10 @@ class Image(unittest.TestCase):
 
         def run(*argv):
             out, err = io.StringIO(), io.StringIO()
+            # This image holds only the image capabilities' sites; `show` also reads the CPU
+            # build capabilities' (settings.built, tested in test_cpu_capabilities).
             with mock.patch.object(image_settings, 'config', lambda: profile), \
+                    mock.patch.object(image_settings, 'built', lambda image, profile=None: {}), \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 try:
                     code = image_settings.main([str(a) for a in argv])

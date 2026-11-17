@@ -224,6 +224,17 @@ has on; `python sdk.py settings apply --image os.ldr --extension <folder>
 applied, to stock OS 1.2.1 or any open-xy OS made from it, without rebuilding its
 machines. Every capability site must hold stock or reviewed bytes.
 
+A **build capability** (`"build": true` in the registry) is switched the same way,
+by a settings extension naming it, but only when the firmware is built
+(`sdk.py build`): its edits are hooks into SDK code its service links, so it
+cannot be written into an existing image (`settings apply` refuses it; `settings
+show` reports whether an image was built with it), and browser kits do not offer
+it. Off, every one of its sites stays stock and its SDK units are not linked. Each
+is listed, with what it changes, saves and risks and the firmware versions it has
+addresses for, in
+[CPU capabilities](cpu-capabilities.md). Selecting a capability that has no sites
+in the build's firmware profile fails the build with a message naming it.
+
 ## Master processor
 
 A [master-processor extension](master-filter.md) supplies a stereo audio transform

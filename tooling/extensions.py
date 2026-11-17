@@ -67,16 +67,26 @@ def capabilities():
     """The registry's capabilities: each is the firmware profile service of the same name,
     which only extensions that declare it use. A capability carries no fields, or one
     whole-number `setting` (label, unit, minimum, maximum, default) whose edit lists the
-    reviewed bytes of every value in `choices`. Each needs at least one fixed edit (no
-    `choices`) whose bytes differ from stock: that edit says whether the capability is
-    on, since a setting's bytes may equal stock's (release_floor's -66 dB)."""
+    reviewed bytes of every value in `choices`, or `"build": true`. Each other capability
+    needs at least one fixed edit (no `choices`) whose bytes differ from stock: that edit
+    says whether the capability is on, since a setting's bytes may equal stock's
+    (release_floor's -66 dB).
+
+    A build capability (docs/cpu-capabilities.md) is chosen when the firmware is built
+    (`sdk.py build`), never written into an existing image: its edits may be hooks into SDK
+    code its service links."""
     data, firmware = document(ROOT / PROFILE)['capabilities'], document(ROOT / FIRMWARE_PROFILE)
     require(isinstance(data, dict) and len(data) <= 32, 'Capabilities are a registry')
     for name, capability in data.items():
         edits = [p for p in firmware['patches'] if p.get('service') == name]
+        require(NAME.fullmatch(name) and firmware['services'].get(name) == [name], 'Invalid capability: ' + name)
+        if capability.get('build') is not None:
+            require(capability == {'build': True} and edits and
+                    all(p['kind'] in ('hook', 'limit') and 'choices' not in p for p in edits),
+                    'Invalid build capability: ' + name)
+            continue
         # Fixed bytes only, so the builder can tell from an image that a capability is on.
-        require(NAME.fullmatch(name) and firmware['services'].get(name) == [name] and edits and
-                all(p['kind'] not in ('hook', 'startup') for p in edits), 'Invalid capability: ' + name)
+        require(edits and all(p['kind'] == 'limit' for p in edits), 'Invalid capability: ' + name)
         require(any('choices' not in p and p['before'] != p['after'] for p in edits),
                 'A capability needs a fixed edit that marks it on: ' + name)
         require(capability == {} or set(capability) == {'setting'}, 'Invalid capability: ' + name)
@@ -99,7 +109,22 @@ def capabilities():
 
 def capability_settings():
     """Capability name -> its setting (label, unit, minimum, maximum, default), for those with one."""
-    return {name: c['setting'] for name, c in document(ROOT / PROFILE)['capabilities'].items() if c}
+    return {name: c['setting'] for name, c in document(ROOT / PROFILE)['capabilities'].items() if 'setting' in c}
+
+
+def build_capabilities():
+    """The registry's build capabilities (capabilities): chosen at build time only."""
+    return tuple(name for name, c in document(ROOT / PROFILE)['capabilities'].items() if c.get('build'))
+
+
+def check_coverage(profile, extensions_):
+    """Every capability the extensions declare has its sites in this firmware profile: a
+    capability without addresses for the profile's OS version fails the build, never skips."""
+    for e in extensions_:
+        for name in e.capabilities:
+            require(profile.get('services', {}).get(name) == [name],
+                    f'{e.id}: the {name} capability has no firmware sites for OP-XY OS '
+                    f'{profile.get("firmware_version", "?")} (docs/cpu-capabilities.md lists each one\'s versions)')
 
 
 def setting_edits(profile, settings):
