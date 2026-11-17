@@ -78,8 +78,8 @@ Track* state(u32 track, u32 engine) {
     return &t;
 }
 
-// Whether the track's drum kit, if it is one, names a slot in 4..7 for the
-// selected key's model. Any other machine has its second row, and so has every
+// Whether the track's drum kit, if it is one, uses a slot in 4..7 for the
+// selected key's model (DrumMachine::used: below its count and named). Any other machine has its second row, and so has every
 // key of a padMix kit: its second Shift row holds the key's pad fields.
 bool second_row(u32 engine, u32 track) {
     const DrumMachine* drum = sdk_drum_machine(engine);
@@ -98,8 +98,9 @@ const SynthControls* machine(u32 track, Track*& t) {
     if (track >= kTracks && !engine) return nullptr;
     const SynthControls* m = owned(engine);
     t = state(track, m ? engine : 0);
-    // A drum key whose model names nothing in slots 4..7 has one row: its
-    // encoders stay on (or return to) slots 0..3.
+    // A key without a second row (second_row: on a kit without padMix, a model
+    // using nothing in slots 4..7) has one row: its encoders stay on (or return
+    // to) slots 0..3.
     if (m && t->slots[0] >= opxy::page_controls && !second_row(engine, track))
         for (u32 i = 0; i < opxy::page_controls; ++i) t->slots[i] = static_cast<u8>(i);
     return m;
@@ -229,7 +230,7 @@ u32 shift_entry(const SynthShift& s, const Track& t, u32 position) {
 }
 // A Shift turn of a position: its entry moves by the turn's detents (event[1]),
 // an amount (speed + 1) a detent up to four (event[2]), a choice one. With a step
-// held, the turn locks the entry at that step, as the kit's Shift fields lock
+// held, the turn locks the entry at that step, as a padMix kit's Shift fields lock
 // (lock_handles.hpp): a step-wide entry of the step's handle, field = the entry,
 // unlocked when it is turned back to the track's own value. Otherwise the word
 // goes to the track's stored words, which projects save, and live through

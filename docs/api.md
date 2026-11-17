@@ -403,7 +403,7 @@ Exceptions and allocation are not supported.
 
 A synth may declare a **Shift row** (SDK 1.13): up to eight more controls,
 which Shift and an encoder turn on its engine page, as Shift reaches the second
-row of a drum kit's or an effect's controls. With two pages
+row of a `padMix` kit's or an effect's controls. With two pages
 (`"press": "page"`), that makes sixteen controls: two pages of four, and a
 Shift row under each. List them in `"shift"` in `definition.json`, declared as
 parameters are; entry `i` sits under page `i / 4`, encoder `i % 4`, so a synth
@@ -447,7 +447,7 @@ const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 
   region, `{"model": "fm slap", "params": [...]}`, its four `params` from
   `tooling.definitions.shift_preset_params`; one saved on the device is the
   surest form ([firmware](abi-1.2.1.md#a-synths-shift-row)).
-- **Locks per step**, as a drum kit's Shift fields lock: hold a step, hold
+- **Locks per step**, as a `padMix` kit's Shift fields lock: hold a step, hold
   Shift and turn; the step plays that entry at the value turned to, and turning
   it back to the track's value unlocks it. A lock acts from the step's note
   start on every voice the track is sounding, as a stock lock does, and copies,
@@ -457,13 +457,13 @@ const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 
   stock's, unchanged; the LFOs don't reach the row, and the track menu's
   scramble leaves it alone.
 - **What it costs.** Presets and locks use the drum kits' preset hooks and
-  step-lock service, so a build with a Shift-row synth links them: about 86 KiB
+  the `padMix` kits' step-lock service, so a build with a Shift-row synth links them: about 86 KiB
   of module memory, most of it the lock pool, once for the whole build.
 - **Showing it.** While Shift is held, the stock header names and captions the
   entries under the page the encoders are on. A machine drawing its own header
   reads the row from [`opxy/synth_shift.hpp`](display.md#a-synths-shift-row),
   and the [two-page header](display.md#two-page-header) shows all of it in both
-  rows, as a drum kit's header shows its two Shift rows: page 1's entries on
+  rows, as a `padMix` kit's header shows its two Shift rows: page 1's entries on
   top, page 2's under them, the page the encoders are on bright. A press of any encoder switches pages with Shift held too, and the row
   follows, so Shift and a press reach page 2's entries without letting go, as
   on a `padMix` kit.
@@ -722,20 +722,23 @@ all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
 and fails a kit with more; on the device such a kit's keys play their defaults
 and turn nothing. The definition declares
 the eight controls: slots 0..3 on the four encoders and slots 4..7 their
-second row, one per encoder. As a synth's two pages (`"press": "page"`), any
-press switches the whole row between slots 0..3 and 4..7, and a slot the key's
-model leaves unnamed shows blank; a drum kit declares no `press`. As on stock Drumline,
-Shift and the first encoder choose the selected key's model, and Shift and
+second row, one per encoder. As a synth's two pages (`"press": "page"`), a
+press switches the whole row between slots 0..3 and 4..7 when the selected
+key's model uses any of slots 4..7 (one below its count and named), and a
+slot the model leaves unnamed shows blank; otherwise the row stays on, or
+returns to, 0..3. On a `padMix` kit (below) a press always pages. A drum kit
+declares no `press`. On a kit without groups or `padMix` (below), as on stock Drumline,
+with no step held, Shift and the first encoder choose the selected key's model, and Shift and
 the second encoder its choke group, NONE or 1..3; keys sharing a group cut
 each other off. While Shift is held the first encoder's cell shows MACHINE and
 the model, the second's CHOKE and the group, and the third and fourth are
-blank and turn nothing.
+blank and turn nothing. For a held step, see the step locks below.
 
 A kit may name groups of consecutive models in `resources.modelGroups`, such
 as `[{"label": "TRX", "count": 13}, {"label": "EFM", "count": 8}]`: 2..16
 groups, each with a label of at most eight letters, digits, spaces or hyphens
 and at least one model, whose counts add up
-to `modelCount`. Shift's first encoder then chooses the group (KIT), keeping
+to `modelCount`. With no step held, Shift's first encoder then chooses the group (KIT), keeping
 the model's place in it, so a kit's first model stays first; the second the
 model within the group (MACHINE); the third the choke group (CHOKE); and the
 fourth turns nothing. A kit with `padMix` (below) may name groups too, but its
@@ -875,7 +878,12 @@ leaves the original. Limits and what is not kept:
 - Synths have no such locks.
 
 The engine's eight controls lock as before
-([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
+([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)). On a kit without
+`padMix`, with a step held, Shift and each encoder turn the control the encoder
+shows without Shift (slots 0..3, or 4..7 on the second row), so they lock it as
+that encoder does, but with the fine turn of a synth's page; enum choices keep
+their one-choice stepping. The cells keep their Shift titles. On a `padMix` kit
+they lock its Shift fields, as above.
 
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
@@ -899,7 +907,7 @@ unused slots. The screen shows the selected key's controls and labels with
 the track's offsets applied, so a held step shows the values its locks play;
 the display's `Input::model` is the selected key's model. A slot is available
 when it is below the count and named: an unnamed slot shows blank and ignores
-turns. Integer edits already have one-unit precision, including Shift turns.
+turns. Integer edits already have one-unit precision.
 
 The adapter stores the model and the eight controls losslessly in four
 existing per-key preset words (eight 7 bits, the model 4), and marks the pad

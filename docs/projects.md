@@ -151,7 +151,8 @@ handle order, each a run of little-endian 16-bit words: the handle (1..2457,
 ascending), the entry count (1..25), then each entry's field mask (non-zero),
 its key (a note 0..127, ascending, or 65535 for every key the step plays, last)
 and one value per mask bit, lowest field first, as a signed 16-bit number. The
-fields' meaning is the client's (a `padMix` kit's Shift row). The pool takes at
+fields' meaning is the client's (a `padMix` kit's Shift row, a Shift-row synth's
+entries or Drumline's second page). The pool takes at
 most 24 KiB before base64.
 
 The project itself holds which step carries which handle, in lock word 37. When
