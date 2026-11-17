@@ -54,16 +54,20 @@ A block is 64 frames, 580,352 cycles at the OP-XY's clock (1.45 ms). No figure h
 measured on a device. Each cycle figure comes from the BF707 Functional-Sim (no cache, no
 DDR model) run by a test in this repository, with the command that prints it; an
 instruction count is read from the built code (the loop and its count are named, so a
-disassembly of the build shows it); anything else is said not to be measured here.
+disassembly of the build shows it); anything else is said not to be measured here. Code
+and data are the bytes the capability adds to the linked module, measured on a build of Open-XY's own catalog
+machines (fm2op, macroosc, karplus, timestretch, ringmod, pingpong, chords) with
+only that capability on, against the same build with none; RAM is the zeroed memory
+(`.bss`) and initialised data (`.data`, already among the module bytes) it adds.
 
-| Capability | Runs in the audio callback | Cycles of a 580,352-cycle block |
-| --- | --- | --- |
-| `boot_log_fix` | nothing | 0 |
-| `idle` | per send per block: `sdk_send_fx` (a scan of 384 words while the send is quiet, then the effect's call is skipped once idle); per sounding voice per block: `sdk_idle_render` (stock's chooser plus a check) | a quiet send: its scans, one hardware loop of two instructions a word over 384 words (about 770 instructions; counted from the built code, not timed); a sounding send: a scan of its 128-word bus before the effect's call, one hardware loop of two instructions a word (about 260 instructions), and about 90 more of checks (counted from the built code, not timed); with `release_floor`, the drum sampler's tables scan up to 1,024 samples a block in all (not counted); with `cpu` alone, an SDK voice whose engine defines `settled()` still takes its block's peak and asks `settled()` every block, though nothing is cut (no catalog engine defines `settled()`, so nothing for the catalog; not counted). Saves an idle send's whole effect call and a cut voice's remaining blocks; not measured in this repository |
-| `block_trims` | per sounding track per block: `sdk_track_mix`; per LFO pass: `sdk_lfo_pass`; per block: `sdk_tape_play`, `sdk_tape_tail` | Functional-Sim, from this repository's tests ([block_trims](#block_trims)): a silent sounding track's mixes 402 against stock's 1,704; an LFO pass check 45 against 58 (up to 72 calls a block); an idle tape about 2,610 a block |
-| `output_slack` | per block: `sdk_dsp_block_audio`; until armed, a quiet check of the newest block (256 words, more with USB multichannel); once armed, each period a copy of one block (1,024 words) out of a 4 KB queue | the copy about 2,050 instructions a period (counted from the built code: a hardware loop of two instructions a word over 1,024 words; not timed) |
-| `load_governor` | stock's governor, as before, on its edited bytes | 0 (it changes when voices are cut, not the work) |
-| `fast_helpers` | whenever machine code calls `memset`, `memcpy` or an integer divide | less per call; never measured as a share of a block |
+| Capability | Runs in the audio callback | Cycles of a 580,352-cycle block | Module bytes |
+| --- | --- | --- | --- |
+| `boot_log_fix` | nothing | 0 | 0 |
+| `idle` | per send per block: `sdk_send_fx` (a scan of 384 words while the send is quiet, then the effect's call is skipped once idle); per sounding voice per block: `sdk_idle_render` (stock's chooser plus a check) | a quiet send: its scans, one hardware loop of two instructions a word over 384 words (about 770 instructions; counted from the built code, not timed); a sounding send: a scan of its 128-word bus before the effect's call, one hardware loop of two instructions a word (about 260 instructions), and about 90 more of checks (counted from the built code, not timed); with `release_floor`, the drum sampler's tables scan up to 1,024 samples a block in all (not counted); with `cpu` alone, an SDK voice whose engine defines `settled()` still takes its block's peak and asks `settled()` every block, though nothing is cut (no catalog engine defines `settled()`, so nothing for the catalog; not counted). Saves an idle send's whole effect call and a cut voice's remaining blocks; not measured in this repository | 3,476; RAM 36,704 zeroed and 8 initialised (33,472 of sample tables, 504 of send state) |
+| `block_trims` | per sounding track per block: `sdk_track_mix`; per LFO pass: `sdk_lfo_pass`; per block: `sdk_tape_play`, `sdk_tape_tail` | Functional-Sim, from this repository's tests ([block_trims](#block_trims)): a silent sounding track's mixes 402 against stock's 1,704; an LFO pass check 45 against 58 (up to 72 calls a block); an idle tape about 2,610 a block | 1,268; RAM 4 zeroed |
+| `output_slack` | per block: `sdk_dsp_block_audio`; until armed, a quiet check of the newest block (256 words, more with USB multichannel); once armed, each period a copy of one block (1,024 words) out of a 4 KB queue | the copy about 2,050 instructions a period (counted from the built code: a hardware loop of two instructions a word over 1,024 words; not timed) | 436; RAM 4,144 zeroed (the 4 KB queue) |
+| `load_governor` | stock's governor, as before, on its edited bytes | 0 (it changes when voices are cut, not the work) | 0 |
+| `fast_helpers` | whenever machine code calls `memset`, `memcpy` or an integer divide | less per call; never measured as a share of a block | 248 |
 
 ## Off means off
 
