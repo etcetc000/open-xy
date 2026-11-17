@@ -3,20 +3,51 @@
 // collection's startup glue.
 #include "screen_order.hpp"
 #include "stock.hpp"
+#include <opxy/morph_hud_raw_turn.hpp>
 
 extern "C" {
 opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 opxy::u32 (*sdk_screen_substitute)(opxy::u32) __asm__("sdk_screen_substitute");
+// Morph GUI-only read-only overlay. This pointer is zero in other kits.
+// The callback never grants HUD input authorization.
+opxy::u32 (*sdk_morph_hud_substitute)(opxy::u32) __asm__("sdk_morph_hud_substitute");
+bool (*sdk_morph_hud_hide_menu)() __asm__("sdk_morph_hud_hide_menu");
+// A selected track's stock held-key state; read-only. The mapping 14..21 is
+// inherited from V1, with Tracks 3..8 requiring eventual hardware qualification.
+opxy::u32 sdk_morph_track_held(opxy::u32 track) __asm__("sdk_morph_track_held");
+opxy::u32 sdk_morph_gui_track() __asm__("sdk_morph_gui_track");
+opxy::u32 sdk_morph_gui_module() __asm__("sdk_morph_gui_module");
+// A machine may observe which *registered screen the compositor actually chose*.
+// This is not an input event, not the permission to write, and it is never
+// invoked unless the machine installed its pointer during its own GUI tick.
+void (*sdk_morph_hud_frame_witness)(opxy::u32,opxy::u32)
+    __asm__("sdk_morph_hud_frame_witness");
+opxy::u32 sdk_morph_gui_key_down(opxy::u32 key) __asm__("sdk_morph_gui_key_down");
+opxy::u32 sdk_morph_gui_ready() __asm__("sdk_morph_gui_ready");
+opxy::u32 sdk_morph_gui_shift_held() __asm__("sdk_morph_gui_shift_held");
+// Literal Blackfin ELF linker name: do not infer it from Mach-O nm.
+opxy::u32 sdk_morph_gui_encoder_down(opxy::u32) __asm__("sdk_morph_gui_encoder_down");
+// A GUI-only, owner-gated raw pulse sink. Null if no Morph machine is present.
+bool (*sdk_morph_hud_raw_turn_route)(opxy::u32,opxy::u32,opxy::i32,opxy::u32)
+    __asm__("sdk_morph_hud_raw_turn_route");
+opxy::u32 sdk_morph_other_track_held(opxy::u32 track) __asm__("sdk_morph_other_track_held");
 int sdk_screen_owned(opxy::u32) __asm__("sdk_screen_owned");
 opxy::u32 sdk_sample_screen(opxy::u32) __asm__("sdk_sample_screen");
 opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor*, opxy::u32) __asm__("sdk_screen_next");
 opxy::u32 sdk_screen_sample_page() __asm__("sdk_screen_sample_page");
+void sdk_morph_gui_sample_turns() __asm__("sdk_morph_gui_sample_turns");
+opxy::u32 sdk_morph_gui_route_trace(opxy::u32) __asm__("sdk_morph_gui_route_trace");
+void sdk_morph_gui_turns_reset() __asm__("sdk_morph_gui_turns_reset");
 void sdk_send_refresh() __asm__("sdk_send_refresh");
 }
 
 namespace {
 opxy::platform::ScreenOrder<@PAGE_LIMIT@> order;
 opxy::platform::ScreenActivation activation;
+opxy::u32 raw_track=8u,raw_module=4u,raw_witness_track=8u;
+opxy::u32 route_trace[3]={};
+bool hide_morph_menu=false;
+morph_raw_turn::Sampler raw_sampler={}; // plain zero-initialized POD
 }
 
 // selected is the page stock selected for this frame.
@@ -24,10 +55,60 @@ opxy::u32 sdk_screen_next(opxy::platform::ScreenCursor* cursor, opxy::u32 select
     const bool first = cursor->page == 0;
     // Once a frame, at its first slot: the sends' effect controls 5..8.
     if (first) sdk_send_refresh();
-    const opxy::u32 substitute = first && sdk_screen_substitute ? sdk_screen_substitute(selected) : 0;
-    const opxy::u32 more = order.advance(*cursor, selected, substitute, sdk_screen_owned, sdk_sample_screen);
-    if (first) activation.select(order.to ? order.to : order.promoted);
+    const opxy::u32 morph_page = first && sdk_morph_hud_substitute ? sdk_morph_hud_substitute(selected) : 0;
+    // No overlay if the requested screen is not a registered own screen. This
+    // preserves other machines and the existing player-page substitute.
+    const opxy::u32 verified_morph_page = morph_page && sdk_screen_owned(morph_page) == 1 ? morph_page : 0;
+    const opxy::u32 substitute = verified_morph_page ? verified_morph_page :
+        (first && sdk_screen_substitute ? sdk_screen_substitute(selected) : 0);
+    opxy::u32 more = order.advance(*cursor, selected, substitute, sdk_screen_owned, sdk_sample_screen,
+        verified_morph_page != 0u && selected == 1u);
+    if (first) {
+        activation.select(order.to ? order.to : order.promoted);
+        // Gate 10: the actual ScreenOrder decision, not a request by Morph.
+        // Page 1 can be a real instrument screen (WaveTbl). Only the verified
+        // Morph route opts it in; SHIFT-first menus still fail that route.
+        const bool morph_owned=order.to==219u && verified_morph_page==219u;
+        hide_morph_menu=morph_owned && sdk_morph_hud_hide_menu && sdk_morph_hud_hide_menu();
+        const opxy::u32 trace_track=sdk_morph_hud_substitute?sdk_morph_gui_track():8u;
+        if(trace_track<8u && sdk_morph_track_held(trace_track)) {
+            route_trace[0]=selected;route_trace[1]=sdk_morph_gui_module();
+            route_trace[2]=(morph_page?1u:0u)|(verified_morph_page?2u:0u)|(morph_owned?4u:0u);
+        }
+        raw_witness_track=morph_owned?sdk_morph_gui_track():8u;
+        if (sdk_morph_hud_frame_witness)
+            sdk_morph_hud_frame_witness(morph_owned ? 219u : 0u, sdk_morph_gui_track());
+        // Losing actual screen ownership drops partial motion immediately.
+        // Sampling itself is on the V1 GUI-tick boundary, not render cadence.
+        if(!morph_owned)sdk_morph_gui_turns_reset();
+    }
+    // Skip only the held-track menu's paint slot. Its controls, held-key state,
+    // callbacks and selected page remain untouched. Other overlays keep order.
+    if (more && hide_morph_menu && cursor->page==74u && order.from!=74u)
+        more=order.advance(*cursor,selected,0,sdk_screen_owned,sdk_sample_screen);
     return more;
+}
+
+opxy::u32 sdk_morph_gui_route_trace(opxy::u32 index) {return index<3u?route_trace[index]:0u;}
+void sdk_morph_gui_turns_reset() {
+    raw_sampler.reset();raw_track=8u;raw_module=4u;
+}
+void sdk_morph_gui_sample_turns() {
+    const opxy::u32 track=sdk_morph_gui_track(),module=sdk_morph_gui_module();
+    if(!sdk_morph_hud_raw_turn_route || track>=8u || raw_witness_track!=track) {
+        sdk_morph_gui_turns_reset();return;
+    }
+    if(track!=raw_track || module!=raw_module) {
+        raw_sampler.reset();raw_track=track;raw_module=module;
+    }
+    const volatile opxy::u32* raw=reinterpret_cast<const volatile opxy::u32*>(0x08024c8cu);
+    const opxy::u32 words[4]={raw[0],raw[1],raw[2],raw[3]};
+    opxy::i32 steps[4]={};
+    const bool shifted=sdk_morph_gui_shift_held()!=0u;
+    const bool k4=sdk_morph_gui_encoder_down(3u)!=0u;
+    raw_sampler.sample(words,shifted,k4,steps);
+    for(opxy::u32 i=0;i<4u;++i)
+        if(steps[i])(void)sdk_morph_hud_raw_turn_route(track,i,steps[i],k4?1u:0u);
 }
 
 // This frame's sample engine's own screen, or 0.
@@ -35,4 +116,33 @@ opxy::u32 sdk_screen_sample_page() { return order.sample_screen(); }
 
 opxy::u32 sdk_screen_activation(opxy::u32 page, opxy::u32 track) {
     return activation.token(page, track);
+}
+
+// No stale track-key state is synthesized. Stock's held-key reader is a
+// read-only UI path, never an event consumer and never a recorder write.
+opxy::u32 sdk_morph_track_held(opxy::u32 track) {
+    if (track >= 8u) return 0;
+    return opxy::platform::stock<opxy::u32(opxy::u32)>(0x8d5b7d7cu)(14u + track);
+}
+
+opxy::u32 sdk_morph_gui_track() { return opxy::platform::selected_track(); }
+opxy::u32 sdk_morph_gui_module() { return opxy::platform::word(0x080238bcu); }
+
+// SDK-owned physical queries. Do not duplicate stock pointers in machine code.
+opxy::u32 sdk_morph_gui_key_down(opxy::u32 key) {
+    return key <= 21u ? opxy::platform::stock<opxy::u32(opxy::u32)>(0x8d5b7d7cu)(key) : 0u;
+}
+opxy::u32 sdk_morph_gui_shift_held() { return opxy::platform::shift_held() ? 1u : 0u; }
+// SDK-side, read-only physical encoder hold query; no stock click synthesis.
+opxy::u32 sdk_morph_gui_encoder_down(opxy::u32 index) { return opxy::platform::encoder_held(index) ? 1u : 0u; }
+opxy::u32 sdk_morph_gui_ready() {
+    const opxy::u32 module=opxy::platform::word(0x080238bcu);
+    return opxy::platform::word(0x840a0528u)==0u &&
+           opxy::platform::byte(opxy::platform::kSelectedTrack)<8u && module<3u ? 1u : 0u;
+}
+opxy::u32 sdk_morph_other_track_held(opxy::u32 track) {
+    if (track>=8u) return 1u;
+    for (opxy::u32 t=0;t<8u;++t)
+        if (t!=track && sdk_morph_track_held(t)) return 1u;
+    return 0u;
 }

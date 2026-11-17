@@ -68,9 +68,13 @@
 // Own turns: the turn hooks (synth_controls.cpp) offer each detent of a
 // track's encoders to sdk_control_turn before stock's editor sees it.
 #include "track_control.hpp"
+#include <opxy/morph_midi_input.hpp>
+#include <opxy/morph_pad_input.hpp>
 #include "stock.hpp"
 #include "synth_controls.hpp"
 #include "benchmark.hpp"
+#include "synth_shift.hpp"
+#include <opxy/morph_store_bridge.hpp>
 
 namespace {
 using opxy::i32;
@@ -193,6 +197,94 @@ const ControlMachine* owner(u32 track) {
     }
     return nullptr;
 }
+// Morph-only stored-CURRENT bridge. This is private to the pinned v0.0.6 build.
+// Its state is all zero-initialized POD; the stock loader runs no C++ ctors.
+const u32 kMorphHost=11u; // AUX 4 / CV, zero based
+bool morph_callback;
+control::Overlay* morph_overlay;
+opxy::morphport::Session morph_session={};
+opxy::morphport::Session morph_setbase={};
+opxy::morphport::Pending morph_pending[control::store_capacity]={};
+opxy::morphmidi::Latest morph_midi={};
+opxy::morphpad::Input morph_pad={};
+u32 morph_midi_epoch=0u;
+u32 morph_skips;
+u32 morph_setbase_skips;
+
+bool morph_identity(const char* name) {
+    const char wanted[]="morphcapture";
+    if(!name)return false;
+    for(u32 i=0;i<sizeof wanted;++i)if(name[i]!=wanted[i])return false;
+    return true;
+}
+bool morph_unique_owner() {
+    const ControlMachine* m=owner(kMorphHost);
+    return m && m->unique && (m->aux & (1u<<kMorphHost)) &&
+           morph_identity(m->name) && sdk_control_copies(kMorphHost)==1u;
+}
+bool morph_live_context() {
+    return morph_callback && morph_overlay && !word(kProjectLoading) &&
+           word(0x840a0524) && morph_unique_owner();
+}
+void morph_blocks(u32* into) {
+    for(u32 t=0;t<control::tracks;++t)into[t]=stock<u32(u32)>(0x8d587708)(t);
+}
+// Metadata is resolved for every track, independently of the visible page.
+// Cache only immutable catalog membership, never context or schema values.
+// Readiness, engine identity and every schema field are still read per check.
+static u32 morph_catalog_engine[8]={},morph_catalog_first[8]={};
+opxy::morphport::ShiftSchema morph_schema(u32 track) {
+    opxy::morphport::ShiftSchema out={};
+    out.engine=track_engine(track);
+    u32 first=0;
+    if(track<8 && morph_catalog_first[track] && morph_catalog_engine[track]==out.engine)
+        first=morph_catalog_first[track]-1;
+    else {
+        while(first<sdk_synth_control_count && sdk_synth_controls[first].engine()!=out.engine)++first;
+        if(track<8){morph_catalog_engine[track]=out.engine;morph_catalog_first[track]=first+1;}
+    }
+    // Catalog engine IDs are unique; preserve the original loop's semantics
+    // even if an invalid catalog contains duplicate engine IDs.
+    for(u32 n=first;n<sdk_synth_control_count;++n) {
+        const SynthControls& m=sdk_synth_controls[n];
+        if(m.engine()!=out.engine || m.effect || m.ready()!=1 || !m.synth_shift)continue;
+        const SynthShift& r=*m.synth_shift;
+        out.count=r.count>8?8:r.count;
+        for(u32 i=0;i<8;++i) {
+            out.choices[i]=i<out.count?r.choices[i]:1;
+            out.defaults[i]=i<out.count?r.defaults[i]:0;
+        }
+    }
+    return out;
+}
+bool morph_schema_same(const opxy::morphport::ShiftSchema& a,const opxy::morphport::ShiftSchema& b) {
+    if(a.engine!=b.engine || a.count!=b.count)return false;
+    for(u32 i=0;i<8;++i)if(a.choices[i]!=b.choices[i] || a.defaults[i]!=b.defaults[i])return false;
+    return true;
+}
+void morph_schema_capture(opxy::morphport::Session& s) {
+    for(u32 t=0;t<8;++t)s.shift[t]=morph_schema(t);
+}
+bool morph_check(const opxy::morphport::Session& session) {
+    if(!session.active || word(kProjectLoading) || !morph_unique_owner())return false;
+    const u32 p=word(0x840a0524);
+    if(!p || stock<u32(u32)>(0x8d587708)(kMorphHost)!=session.aux_block)return false;
+    u32 blocks[control::tracks];morph_blocks(blocks);
+    for(u32 t=0;t<8;++t)if(!morph_schema_same(session.shift[t],morph_schema(t)))return false;
+    return session.matches(p,byte(p+6u),blocks);
+}
+void morph_reset_bridge() {
+    morph_midi.clear();
+    morph_callback=false;morph_overlay=nullptr;
+    morph_session.clear();morph_setbase.clear();
+    for(u32 i=0;i<control::store_capacity;++i)morph_pending[i].accepted=false;
+    morph_skips=0;morph_setbase_skips=0;
+}
+// A failed SDK store is diagnostic, never a license to silently retry an old BASE.
+void morph_reject() {
+    if(morph_skips<255u)++morph_skips;
+    if(morph_setbase.active && morph_setbase_skips<255u)++morph_setbase_skips;
+}
 Applied* find(u32 track, u32 index) {
     for (u32 i = 0; i < applied_count; ++i)
         if (applied[i].track == track && applied[i].index == index) return &applied[i];
@@ -206,9 +298,30 @@ void store(u32 host) {
         const control::Entry& e = overlay.stored[i];
         if (e.track >= control::tracks || e.index >= control::track_parameters || e.track == host) continue;
         const i32 value = e.value < 0 ? 0 : e.value;
+        // Each pending Morph word was authorized during this very callback.
+        // Recheck session, lock and stored CURRENT just before stock mutation.
+        if(host==kMorphHost && morph_unique_owner()) {
+            if(i>=control::store_capacity || !morph_pending[i].accepted ||
+               !morph_check(morph_session) || muted(kMorphHost) ||
+               stock<u32(u32)>(0x8d587708)(e.track)!=morph_pending[i].block ||
+               base(e.track,e.index)!=morph_pending[i].current) {
+                morph_reject();
+                continue;
+            }
+            morph_pending[i].accepted=false;
+        }
+        const bool shift_word=host==kMorphHost && (e.index==36u || e.index==37u);
+        const bool shift_live_unchanged=shift_word && live(e.track,e.index)==morph_pending[i].current;
         *at<i32>(stock<u32(u32)>(0x8d587708)(e.track) + 0x3864 + e.index * 4) = value;
+        if(shift_word) {
+            // Preserve a currently playing lock; the SDK's next lock pass
+            // combines its fields with the updated stored word.
+            if(shift_live_unchanged)live_set(e.track,e.index,value);
+            continue;
+        }
         if (lock_holds(e.track, e.index)) continue;
-        param_set(kProject, e.track, e.index, value);
+        if(host==kMorphHost && morph_unique_owner())live_set(e.track,e.index,value);
+        else param_set(kProject,e.track,e.index,value);
         opxy::platform::control_stock_set(e.track, e.index, value);
     }
 }
@@ -305,6 +418,269 @@ extern "C" bool sdk_control_turn_offer(u32 track, u32 slot, const i32* event) {
     return true;
 }
 
+#include "morph_preset_files.hpp"
+
+// Private Morph stored-current bridge: not general SDK APIs.
+extern "C" bool sdk_morph_persist_identity(opxy::morphport::ShiftSchema* schemas,u32* patterns) {
+    if(!schemas || !patterns || word(kProjectLoading) || !morph_unique_owner())return false;
+    const u32 project=word(0x840a0524);if(!project)return false;
+    patterns[0]=byte(project+6u);
+    for(u32 t=0;t<9u;++t) {
+        const u32 track=t<8u?t:kMorphHost;
+        const u32 block=stock<u32(u32)>(0x8d587708)(track);
+        if(!block)return false;
+        // Pattern index relative to the project's own track; no addresses saved.
+        patterns[t+1]=(block-(project+0xd7cu+track*0x53f44u))/0x53f4u;
+        if(t<8u)schemas[t]=morph_schema(t);
+    }
+    return project==word(0x840a0524) && !word(kProjectLoading);
+}
+// Only the physical input receiver's call is patched. The shared stock
+// function and its MIDI/reset callers remain intact. Four arguments, C ABI.
+extern "C" void sdk_morph_pad_event(u32 controller,u32 track,i32 pressure,u32 source) {
+    const u32 project=word(0x840a0524);
+    if(!morph_unique_owner() || word(kProjectLoading) || !morph_session.active ||
+       !project || project!=morph_session.project || byte(project+6u)!=morph_session.scene)
+        morph_pad.requested=false;
+    if(!morph_pad.event(pressure))
+        stock<void(u32,u32,i32,u32)>(0x8d5974e0)(controller,track,pressure,source);
+}
+extern "C" void sdk_morph_pad_request(bool requested) {
+    morph_pad.request(requested && morph_live_context(),
+        static_cast<i32>(word(0x840ab680)));
+}
+extern "C" bool sdk_morph_pad_waiting(){return morph_pad.owned!=morph_pad.requested;}
+extern "C" bool sdk_morph_pad_read(i32* pressure) {
+    if(!pressure || !morph_pad.requested || !morph_pad.owned || !morph_live_context())return false;
+    *pressure=morph_pad.pressure;return true;
+}
+// Stock CC dispatch is in the GUI message path. No synth/store work here.
+extern "C" void sdk_morph_midi_cc(u32 track,u32 cc,u32 value) {
+    if(!opxy::morphmidi::matches(track,cc,value)) {
+        stock<void(u32,u32,u32)>(0x8d58e5ce)(track,cc,value);return;
+    }
+    const ControlMachine* m=owner(kMorphHost);
+    if(!m || !m->unique || !morph_identity(m->name)) {
+        stock<void(u32,u32,u32)>(0x8d58e5ce)(track,cc,value);return;
+    }
+    // Consume matching Morph traffic even when not ready, to avoid stock's
+    // ordinary setter recording unintended AUX locks. Full checks are deferred
+    // to the consumer; no all-track schema scan for each incoming packet.
+    const u32 project=word(0x840a0524);
+    if(!morph_session.active || word(kProjectLoading) || !project ||
+       project!=morph_session.project || byte(project+6u)!=morph_session.scene ||
+       stock<u32(u32)>(0x8d587708)(kMorphHost)!=morph_session.aux_block)return;
+    morph_midi.offer(value,morph_midi_epoch);
+}
+extern "C" void sdk_morph_midi_clear(){morph_midi.clear();}
+extern "C" bool sdk_morph_midi_take(u32* value) {
+    if(!morph_midi.pending)return false;
+    const opxy::morphmidi::Latest event=morph_midi;morph_midi.clear();
+    if(!value || event.epoch!=morph_midi_epoch || !morph_live_context() ||
+       muted(kMorphHost) || !morph_check(morph_session))return false;
+    *value=event.value;return true;
+}
+extern "C" bool sdk_morph_movement_has_locks() {
+    if(!morph_live_context() || !morph_check(morph_session))return false;
+    const u32 block=stock<u32(u32)>(0x8d587708)(kMorphHost);
+    if(!block)return false;
+    // Same per-step mask layout as aux_tracks.cpp first_step_value.
+    for(u32 step=0;step<128u;++step)
+        if(word(block+0x2c58u+step*8u)&(1u<<3u))return true;
+    return false;
+}
+extern "C" bool sdk_morph_movement_lfo_active() {
+    if(!morph_live_context() || !morph_check(morph_session) ||
+       !hosts[kMorphHost] || !hosts[kMorphHost]->shared_lfo)return false;
+    const u32 block=stock<u32(u32)>(0x8d587708)(kMorphHost);
+    const u32 held=word(0x080376e4u+25u*4u);
+    // Same enable byte and tagged slot as sdk_lfo_held_amount below.
+    return block && byte(block+0x24u) && (held&0xffff0000u)==0xab030000u;
+}
+extern "C" bool sdk_morph_movement_record(i32 value) {
+    if(!morph_live_context() || muted(kMorphHost) || value<0 ||
+       byte(kSelectedTrack)!=kMorphHost || !morph_check(morph_session))return false;
+    const u32 block=stock<u32(u32)>(0x8d587708)(kMorphHost);
+    if(!block)return false;
+    *at<i32>(block+0x3864u+12u)=value;
+    param_set(kProject,kMorphHost,3u,value);
+    return true;
+}
+extern "C" bool sdk_morph_stored_current_read(u32 track,u32 index,i32* out) {
+    if(!morph_live_context() || muted(kMorphHost) || !out ||
+       track>=control::tracks || !opxy::morphport::supported(index))return false;
+    // If a pickup already owns a project/scene/pattern session, never sample
+    // values from a different context.
+    if(morph_session.active && !morph_check(morph_session))return false;
+    const u32 block=stock<u32(u32)>(0x8d587708)(track);
+    if(!block)return false;
+    if(index>=64u) {
+        namespace row=opxy::platform::synth_shift;
+        const opxy::morphport::ShiftSchema r=morph_schema(track);
+        const u32 entry=index-64u;
+        *out=entry>=r.count || r.choices[entry]==row::kAbsent ? 0 :
+            static_cast<i32>(row::bounded(row::field(base(track,row::word_of(entry)),entry,r.defaults),r.choices[entry]));
+        return true;
+    }
+    const i32 v=base(track,index);
+    if(v<0)return false;
+    *out=v;return true;
+}
+// Bounded, all-or-nothing stored reads under paired full session checks.
+// No cached context authorization crosses a batch or a GUI tick.
+extern "C" bool sdk_morph_stored_batch_read(u32 track,const u32* indices,u32 count,i32* out) {
+    if(!indices || !out || track>=8u || !count || count>34u ||
+       !morph_live_context() || muted(kMorphHost) || !morph_check(morph_session))return false;
+    const u32 block=stock<u32(u32)>(0x8d587708)(track);
+    if(!block)return false;
+    const opxy::morphport::ShiftSchema schema=morph_schema(track);
+    i32 pending[34];
+    for(u32 i=0;i<count;++i){
+        const u32 index=indices[i];
+        if(!opxy::morphport::supported(index))return false;
+        if(index>=64u){
+            namespace row=opxy::platform::synth_shift;
+            const u32 entry=index-64u;
+            pending[i]=entry>=schema.count || schema.choices[entry]==row::kAbsent?0:
+                static_cast<i32>(row::bounded(row::field(base(track,row::word_of(entry)),entry,schema.defaults),schema.choices[entry]));
+        } else {
+            pending[i]=static_cast<i32>(word(block+0x3864u+index*4u));
+            if(pending[i]<0)return false;
+        }
+    }
+    if(!morph_check(morph_session) || stock<u32(u32)>(0x8d587708)(track)!=block)return false;
+    for(u32 i=0;i<count;++i)out[i]=pending[i];
+    return true;
+}
+extern "C" bool sdk_morph_stored_once_submit(u32 track,u32 index,i32 value) {
+    if(!morph_live_context() || muted(kMorphHost) || !morph_check(morph_session) ||
+       track>=control::tracks || !opxy::morphport::supported(index) ||
+       value<0 ||
+       !morph_overlay || morph_overlay->stored_count>=control::store_capacity)return false;
+    if(index>=64u) {
+        namespace row=opxy::platform::synth_shift;
+        const opxy::morphport::ShiftSchema r=morph_schema(track);
+        const u32 entry=index-64u;
+        if(entry>=r.count || r.choices[entry]==row::kAbsent ||
+           static_cast<u32>(value)>row::top(r.choices[entry]))return false;
+        const u32 packed=row::word_of(entry);
+        for(u32 i=0;i<morph_overlay->stored_count;++i) {
+            control::Entry& e=morph_overlay->stored[i];
+            if(e.track==track && e.index==packed) {
+                e.value=row::with(e.value,entry,static_cast<u32>(value),r.defaults);
+                return true;
+            }
+        }
+        value=row::with(base(track,packed),entry,static_cast<u32>(value),r.defaults);
+        index=packed;
+    }
+    const u32 block=stock<u32(u32)>(0x8d587708)(track);
+    if(!block)return false;
+    // Do not silently coalesce two writes to one parameter in a single tick.
+    for(u32 i=0;i<morph_overlay->stored_count;++i)
+        if(morph_overlay->stored[i].track==track && morph_overlay->stored[i].index==index)return false;
+    const u32 pos=morph_overlay->stored_count;
+    const i32 before=base(track,index);
+    if(before<0 || !control::store(*morph_overlay,track,index,value))return false;
+    morph_pending[pos].block=block;
+    morph_pending[pos].current=before;
+    morph_pending[pos].accepted=true;
+    return true; // queued, not yet applied; caller MUST verify via readback.
+}
+extern "C" u32 sdk_morph_stored_once_take_feedback() {
+    if(!morph_live_context())return 0u;
+    const u32 prior=morph_skips;
+    morph_skips=0u;
+    return prior;
+}
+extern "C" bool sdk_morph_session_context_begin() {
+    if(!morph_live_context() || muted(kMorphHost))return false;
+    const u32 project=word(0x840a0524);
+    u32 blocks[control::tracks];morph_blocks(blocks);
+    for(u32 t=0;t<control::tracks;++t)if(!blocks[t])return false;
+    morph_schema_capture(morph_session);
+    morph_session.aux_block=stock<u32(u32)>(0x8d587708)(kMorphHost);
+    morph_session.begin(project,byte(project+6u),blocks);
+    morph_midi.clear();if(++morph_midi_epoch==0u)++morph_midi_epoch;
+    return morph_check(morph_session);
+}
+extern "C" bool sdk_morph_session_context_ok() {
+    return morph_live_context() && morph_check(morph_session);
+}
+// GUI-thread read-only view: the session outlives the control callback.
+// Revalidate owner, project, scene and all instrument blocks on every read.
+// This grants no queue, write permission, or controller-callback lifetime.
+extern "C" bool sdk_morph_view_context_ok() {
+    return morph_check(morph_session);
+}
+extern "C" bool sdk_morph_view_current_read(u32 track,u32 index,i32* out) {
+    if(!out || track>=control::tracks || !opxy::morphport::supported(index) ||
+       !sdk_morph_view_context_ok())return false;
+    const i32 value=base(track,index);
+    if(value<0 || !sdk_morph_view_context_ok())return false;
+    *out=value;return true;
+}
+// One GUI snapshot reads one block under a pair of whole-session checks.
+// Validate everything before publishing, without N repeated owner/block scans.
+extern "C" bool sdk_morph_view_current_batch(u32 track,const u32* indices,u32 count,i32* out) {
+    if(!indices || !out || track>=control::tracks || count==0u || count>26u ||
+       !sdk_morph_view_context_ok())return false;
+    for(u32 i=0;i<count;++i)if((!opxy::morphport::supported(indices[i]) || indices[i]>=64u))return false;
+    const u32 block=stock<u32(u32)>(0x8d587708)(track);
+    if(!block)return false;
+    i32 pending[26];
+    for(u32 i=0;i<count;++i) {
+        pending[i]=static_cast<i32>(word(block+0x3864u+indices[i]*4u));
+        if(pending[i]<0)return false;
+    }
+    if(!sdk_morph_view_context_ok())return false;
+    for(u32 i=0;i<count;++i)out[i]=pending[i];
+    return true;
+}
+// Same guarded snapshot pass; three extra scalar values for stock HUD artwork.
+extern "C" bool sdk_morph_view_visual_batch(u32 track,const u32* indices,i32* out,u32* filter,i32* play,i32* bend) {
+    if(!indices || !out || !filter || !play || !bend || track>=8u || !sdk_morph_view_context_ok())return false;
+    for(u32 i=0;i<26u;++i)if(!opxy::morphport::supported(indices[i]) || indices[i]>=64u)return false;
+    const u32 block=stock<u32(u32)>(0x8d587708)(track);
+    if(!block)return false;
+    i32 pending[26];
+    for(u32 i=0;i<26u;++i){pending[i]=static_cast<i32>(word(block+0x3864u+indices[i]*4u));if(pending[i]<0)return false;}
+    // Stock filter frame 0x8d539660 calls 0x8d5878d4(track), which
+    // reads this stored block +0x28. Do not substitute the audio-side table.
+    const u32 type=word(block+0x28u);
+    const i32 pm=static_cast<i32>(word(block+0x3864u+12u*4u));
+    const i32 br=static_cast<i32>(word(block+0x3864u+14u*4u));
+    if(!sdk_morph_view_context_ok())return false;
+    for(u32 i=0;i<26u;++i)out[i]=pending[i];
+    *filter=type;*play=pm;*bend=br;return true;
+}
+extern "C" void sdk_morph_session_context_end() {
+    morph_midi.clear();morph_session.clear();}
+extern "C" bool sdk_morph_setbase_context_begin() {
+    if(!morph_live_context() || muted(kMorphHost))return false;
+    const u32 project=word(0x840a0524);
+    u32 blocks[control::tracks];morph_blocks(blocks);
+    for(u32 t=0;t<control::tracks;++t)if(!blocks[t])return false;
+    morph_schema_capture(morph_setbase);
+    morph_setbase.aux_block=stock<u32(u32)>(0x8d587708)(kMorphHost);
+    morph_setbase.begin(project,byte(project+6u),blocks);
+    morph_setbase_skips=0u;
+    return morph_check(morph_setbase);
+}
+extern "C" bool sdk_morph_setbase_context_ok() {
+    return morph_live_context() && morph_check(morph_setbase);
+}
+extern "C" bool sdk_morph_setbase_current_read(u32 track,u32 index,i32* out) {
+    return sdk_morph_setbase_context_ok() && sdk_morph_stored_current_read(track,index,out);
+}
+extern "C" void sdk_morph_setbase_context_end() {morph_setbase.clear();}
+extern "C" u32 sdk_morph_setbase_take_feedback() {
+    if(!morph_live_context())return 0u;
+    const u32 prior=morph_setbase_skips;
+    morph_setbase_skips=0u;
+    return prior;
+}
+
 extern "C" i32 sdk_control_display(u32 index) {
     const u32 track = selected_track();
     return track < control::all_tracks && index < control::display_words ? shown_words[track][index] : 0;
@@ -384,6 +760,7 @@ extern "C" void sdk_param_edit_set(u32 project, u32 track, u32 index, i32 value)
 // Called by project load/new-project handling before another GUI tick. It
 // must not dereference stock's project while deserialization is in progress.
 extern "C" void sdk_control_forget() {
+    morph_reset_bridge();
     sdk_synth_queue_page_key(kNoTrack, 0);
     applied_count = wanted_count = 0;
     turned_track = kNoTrack;
@@ -401,10 +778,12 @@ extern "C" void sdk_control_forget() {
     release_all = held_count != 0;
 }
 
+extern "C" void sdk_morph_gui_sample_turns() __asm__("sdk_morph_gui_sample_turns");
 extern "C" void sdk_gui_tick() {
     stock<void()>(0x8d580074)();
     ++gui_ticks;
     sdk_synth_pages();
+    sdk_morph_gui_sample_turns(); // V1 sampling point, before machine callbacks.
     if (!sdk_control_machine_count && !applied_count) return;
     // The turn hooks (synth_controls.cpp) reach this service through a pointer,
     // set here so it is set only where the service is linked.
@@ -459,6 +838,8 @@ extern "C" void sdk_gui_tick() {
     for (u32 t = 0; t < control::all_tracks; ++t) {
         const ControlMachine* m = owner(t);
         if (m && m->unique && sdk_control_copies(t) > 1) m = nullptr;
+        if(t==kMorphHost && (!m || !m->unique || !morph_identity(m->name)))
+            morph_reset_bridge();
         const u32 copy = m && !m->unique ? t : 0;
         if (m != hosts[t]) {
             release_host(t);
@@ -504,7 +885,14 @@ extern "C" void sdk_gui_tick() {
         overlay.note_count = 0;
         overlay.own_turns = 0;
         for (u32 i = 0; i < control::display_words; ++i) overlay.display[i] = 0;
+        // Private Morph calls are valid ONLY inside the unique AUX/CV callback.
+        // All other SDK machines retain stock v0.0.6 behavior.
+        morph_callback=t==kMorphHost && morph_unique_owner();
+        morph_overlay=morph_callback ? &overlay : nullptr;
+        if(morph_callback)
+            for(u32 i=0;i<control::store_capacity;++i)morph_pending[i].accepted=false;
         m->control(copy, &input, &overlay);
+        morph_callback=false;morph_overlay=nullptr;
         owning[t] = overlay.own_turns != 0;
         if (input.muted) {
             overlay.note_count = 0;

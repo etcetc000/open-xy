@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <aux_tracks.cpp>
+extern "C" opxy::u32 sdk_control_copies(opxy::u32) { return 1; }
 
 namespace {
 const u32 host_project = 0x90000000;

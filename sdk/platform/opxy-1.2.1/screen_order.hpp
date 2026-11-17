@@ -51,14 +51,18 @@ template <u32 Slots> struct ScreenOrder {
     template <class Owned> bool advance(ScreenCursor& cursor, u32 selected, u32 substitute, Owned owned) {
         return advance(cursor, selected, substitute, owned, no_sample);
     }
-    template <class Owned, class Sample> bool advance(ScreenCursor& cursor, u32 selected, u32 substitute, Owned owned, Sample sample) {
+    template <class Owned, class Sample> bool advance(ScreenCursor& cursor, u32 selected, u32 substitute, Owned owned, Sample sample, bool allow_page_one = false) {
         const u32 painted = cursor.page;
         if (painted == 0) {
             base = cursor.slot - 4;
             const bool valid = selected > 1 && selected < Slots;
-            from = valid && substitute > 1 && substitute < Slots && substitute != selected ? selected : 0;
+            from = (valid || (allow_page_one && selected == 1)) && substitute > 1 && substitute < Slots && substitute != selected ? selected : 0;
             to = from ? substitute : 0;
             promoted = after = 0;
+            // An owned source already belongs below stock overlays. Replacing
+            // its contents must preserve that promoted layer: keep `from` as
+            // the cursor page, while its slot points at `to`.
+            if (valid && from && owned(selected) == 1) promoted = selected;
             if (valid && !from) {
                 if (owned(selected) == 1) {
                     promoted = selected;
@@ -74,7 +78,12 @@ template <u32 Slots> struct ScreenOrder {
             else if (painted == promoted) next = after + 1;
             else if (next == promoted) next = promoted + 1;
         }
-        if (to && next == to) ++next;
+        // Skipping the replacement's old slot can land on the promoted
+        // source slot when the two are adjacent. Skip that source too.
+        if (to && next == to) {
+            ++next;
+            if (promoted && next == promoted && painted != after) ++next;
+        }
         cursor.page = next;
         cursor.slot = base + 4 * (from && next == from ? to : next);
         return next < Slots;

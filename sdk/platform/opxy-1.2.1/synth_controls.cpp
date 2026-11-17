@@ -4,6 +4,7 @@
 // parameter; a turn edits the selected one, an enum one choice per detent; the
 // track menu's scramble also randomizes the alternates. Everything else reaches stock as before.
 #include "synth_controls.hpp"
+#include <opxy/morph_hud_slot_map.hpp>
 #include <opxy/effect.hpp>
 #include "shift_row.hpp"
 #include "synth_shift.hpp"
@@ -277,6 +278,58 @@ const char* shift_title(u32 engine, u32 position) {
 }
 }
 
+// Gate14: SDK-owned M1 current-slot witness. This is NOT a stock-synth
+// fallback and must never invent a displayed slot when metadata is absent.
+extern "C" bool sdk_morph_hud_m1_map(opxy::u32 track,morph_m1::Map* out)
+    __asm__("sdk_morph_hud_m1_map");
+extern "C" bool sdk_morph_hud_m1_map(opxy::u32 track,morph_m1::Map* out) {
+ if(!out)return false;
+ morph_m1::Map map={};morph_m1::clear(map);
+ if(track>=8u || track!=byte(kSelectedTrack) || word(kInstrumentPage)!=0u ||
+    word(0x840a0528u)!=0u) { *out=map;return false; }
+ Track* t=nullptr;
+ const SynthControls* m=machine(track,t);
+ // V1 uses sdk_synth_shown's stock fallback: the four basic slots.
+ // Alternate selection remains driven solely by installed SDK metadata.
+ if(!m || !t) {
+  for(u32 i=0u;i<4u;++i)map.primary[i]=map.shown[i]=i;
+  *out=map;return true;
+ }
+ for(u32 i=0u;i<4u;++i) {
+  const u32 shown=t->slots[i];
+  if(shown<8u && !(m->absent & (1u<<shown)))map.shown[i]=shown;
+  const u32 first=i,second=m->next[first];
+  if(!(m->absent & (1u<<first)))map.primary[i]=first;
+  map.alternate[i]=map.primary[i];
+  if(second>=4u && second<8u && !(m->absent & (1u<<second))) {
+   map.alternate[i]=second;map.dual=1u;
+  }
+  if(shown>=4u && shown<8u)map.secondary=1u;
+ }
+ *out=map;return true;
+}
+extern "C" bool sdk_morph_hud_m1_toggle(opxy::u32 track)
+    __asm__("sdk_morph_hud_m1_toggle");
+extern "C" bool sdk_morph_hud_m1_toggle(opxy::u32 track) {
+ if(track>=8u || track!=byte(kSelectedTrack) || word(kInstrumentPage)!=0u ||
+    shift_held() || word(0x840a0528u)!=0u)return false;
+ Track* t=nullptr;
+ const SynthControls* m=machine(track,t);
+ if(!m || !t)return false;
+ bool any=false,secondary=false;
+ for(u32 i=0u;i<4u;++i) {
+  if(m->next[i]>=4u && m->next[i]<8u && !(m->absent&(1u<<m->next[i])))any=true;
+  if(t->slots[i]>=4u && t->slots[i]<8u)secondary=true;
+ }
+ if(!any)return false;
+ for(u32 i=0u;i<4u;++i) {
+  const u32 next=m->next[i];
+  t->slots[i]=static_cast<u8>(!secondary && next>=4u && next<8u &&
+      !(m->absent&(1u<<next)) ? next : i);
+ }
+ return true;
+}
+
 void sdk_synth_shown(u32 track, u8* slots) {
     Track* t;
     const SynthControls* m = machine(track, t);
@@ -306,7 +359,20 @@ const char* sdk_synth_title(u32 engine, u32 index) {
 // for every engine with alternates. On that page of an owned synth the click
 // also selects the position's next parameter, or every position's on a paged synth.
 // On the player page it goes to the players service.
+// Only a visibly authorized Morph HUD may consume these stock clicks.
+// The machine revokes this pointer whenever its unique AUX owner disappears.
+extern "C" {
+bool (*sdk_morph_hud_press_route)(opxy::u32)
+    __asm__("sdk_morph_hud_press_route") = nullptr;
+// When Morph's actual compositor owns a track HUD, suppress stock edits.
+// Physical movement is decoded separately from the proven raw A-bank sampler.
+bool (*sdk_morph_hud_turn_suppress)(opxy::u32)
+    __asm__("sdk_morph_hud_turn_suppress") = nullptr;
+}
+
 void sdk_synth_press(u32 encoder) {
+    if (encoder < opxy::page_controls && sdk_morph_hud_press_route &&
+        sdk_morph_hud_press_route(encoder)) return;
     stock<void(u32)>(0x8d51f1fc)(encoder);
     Track* t;
     const SynthControls* m;
@@ -422,6 +488,11 @@ u32 sdk_param_steps(u32 track, u32 index, u32* scale) {
 // and publication. Indices 0..3 come only from the engine page's unshifted
 // encoders, so an owned synth's position edits the parameter it shows.
 u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
+    if (event && sdk_morph_hud_turn_suppress && sdk_morph_hud_turn_suppress(track)) {
+        const opxy::i32 still[3]={0,0,0};
+        return stock<u32(u32,u32,u32,const opxy::i32*)>(0x8d5ad5bc)(project,track,index,still);
+    }
+
     Track* t;
     // The instrument controller maps Shift's engine-page row to slots 4..7.
     // Reinterpret it as fine editing of the same visible position, including
@@ -622,6 +693,9 @@ bool sdk_send_view(u32 track, SendView* view) {
 // stock's set. After it, give every alternate (a slot 4..7 that
 // a press reaches, so next[s] != s) except an empty placeholder a value from
 // stock's own generator (8c0b5230), as stock does for slots 0..3.
+extern "C" {
+void (*sdk_morph_scramble_done)(opxy::u32) __asm__("sdk_morph_scramble_done") = nullptr;
+}
 u32 sdk_synth_scramble(u32 project, u32 track, u32 index, opxy::i32 value) {
     const u32 result = set_parameter(project, track, index, value);
     // A padMix kit's per-hit lock words keep a base with no lock (stock's
@@ -632,6 +706,9 @@ u32 sdk_synth_scramble(u32 project, u32 track, u32 index, opxy::i32 value) {
     for (u32 s = opxy::page_controls; s < opxy::parameter_slots; ++s)
         if (m->next[s] != s && !(m->absent & (1u << s)))
             set_parameter(project, track, s, stock<opxy::i32(u32, u32)>(0x8c0b5230)(s, 0));
+    // Notify after stock and SDK alternate writes; the observer does not edit here.
+    if(track<8u && sdk_morph_scramble_done && word(0x840a0528u)==0u)
+        sdk_morph_scramble_done(track);
     return result;
 }
 

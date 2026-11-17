@@ -239,7 +239,7 @@ class TrackControl(unittest.TestCase):
         aux.definition['resources']['trackControl'].update(unique=True, aux=[12])
         hooks = [p for p in config()['patches'] if p.get('service') == 'control' and p['kind'] == 'hook']
         self.assertEqual(sorted(p['symbol'] for p in hooks),
-                         ['sdk_gui_tick', 'sdk_param_edit_set', 'sdk_param_shown_hook'] + ['sdk_param_step_set'] * 3 +
+                         ['sdk_gui_tick', 'sdk_morph_midi_cc', 'sdk_morph_pad_event', 'sdk_param_edit_set', 'sdk_param_shown_hook'] + ['sdk_param_step_set'] * 3 +
                          ['sdk_project_clear',
                           'sdk_project_clear_random'])
         # Aux tracks are a service of their own: its hooks and MTP allowlist edits.

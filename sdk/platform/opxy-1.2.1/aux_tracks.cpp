@@ -56,6 +56,7 @@
 //   held. When the track is taken, the audio side clears stock's held CV notes
 //   (8d5b59a0) and lowers the gate (8d5b5f78(0)) once.
 #include "track_control.hpp"
+#include <opxy/morph_aux_events.hpp>
 #include "stock.hpp"
 #include "stock_browser.hpp"
 #include "synth_controls.hpp"
@@ -148,6 +149,23 @@ const ControlMachine* holder(u32 track) {
     return takeable(track) ? machine_for(track, word(current_block(track) + 0x18)) : nullptr;
 }
 
+// Morph-only event queue. The name is generated from the machine ID and
+// stays stable if v0.0.6 chooses a different numeric engine number.
+MorphAuxEvents morph_events = {};
+bool morph_name(const char* found) {
+    const char wanted[] = "morphcapture";
+    if (!found) return false;
+    for (u32 i=0; i<sizeof wanted; ++i)
+        if (found[i] != wanted[i]) return false;
+    return true;
+}
+bool morph_owns_m1(const ControlMachine* owner, u32 track) {
+    return track == 11u && byte(kSelectedTrack)==11u && owner && owner->unique &&
+           morph_name(owner->name) && opxy::control::copies(11u)==1u &&
+           word(kAuxTab)==0u;
+}
+// Delivery is restricted to the live owner, not merely the last owner.
+// No caller may consume stale events after a project/machine switch.
 i32 base(u32 track, u32 index) {
     return static_cast<i32>(word(stock<u32(u32)>(0x8d587708)(track) + 0x3864 + index * 4));
 }
@@ -483,6 +501,7 @@ u32 aux_engine(u32 track) {
 }
 
 void aux_tick() {
+    if (word(kProjectLoading) || !morph_owns_m1(holder(11u),11u)) morph_events.clear();
     // While stock loads a project, only the marks: the old project still plays.
     const bool loading = word(kProjectLoading);
     for (u32 t = kFirstAux; t < control::all_tracks; ++t) {
@@ -558,12 +577,26 @@ u32 sdk_aux_key(u32 controller, const u32* event) {
     if (!m || !event) return 0;
     const u32 key = event[0];
     if (key >= 6 && key <= 9) {
+        // Keys outside modules/encoders/tracks (e.g. BAR) retain stock chords.
+        // Do not steal BAR+M2 (clear params) or BAR+M4 (clear all).
+        for(u32 other=22u;morph_name(m->name) && other<50u;++other)
+            if(stock<u32(u32)>(0x8d5b7d7cu)(other))return 0;
+
         if (key == 9 && m->shared_lfo) return 0;
-        if (key == 6) stock<void(u32, u32)>(0x8c08f74c)(controller, 0);
+        if (key == 6 || ((key == 7 || key == 8) && morph_name(m->name))) {
+            morph_events.clear();
+            stock<void(u32, u32)>(0x8c08f74c)(controller, 0);
+        }
         sdk_synth_queue_page_key(track, key - 5);
         return 1;
     }
-    return key >= 10 && key <= 13 && owns_page(track) ? 2 : 0;
+    if (key >= 10 && key <= 13 && owns_page(track)) {
+        // Only Morph on CV/M1 captures clicks. Other aux machines are unchanged.
+        const ControlMachine* owner = holder(track);
+        if (morph_owns_m1(owner, track)) morph_events.click(key - 10);
+        return 2;
+    }
+    return 0;
 }
 
 // Before stock translates a tab to CV parameter indices. The SDK editor
@@ -571,8 +604,26 @@ u32 sdk_aux_key(u32 controller, const u32* event) {
 u32 sdk_aux_turn(u32, u32 encoder, u32 event) {
     const u32 track = byte(kSelectedTrack);
     if (!owns_page(track)) return 0;
-    if (encoder < 8) sdk_effect_turn(kProject, track, encoder % 4, event);
+    if (encoder < 8) {
+        const ControlMachine* owner = holder(track);
+        if (morph_owns_m1(owner, track)) {
+            // Raw signed detents, independent from stock's clamped parameter.
+            if (event) morph_events.turn(encoder % 4, reinterpret_cast<const i32*>(event)[0]);
+            // Preserve Morph V1's exact no-stock-editor guard on AUX M1.
+            return 1;
+        }
+        sdk_effect_turn(kProject, track, encoder % 4, event);
+    }
     return 1;
+}
+
+// PRIVATE BRIDGE: read and clear one GUI frame's Morph-only gestures.
+extern "C" void sdk_morph_aux_events_take(opxy::u32 track, opxy::u32* clicks, opxy::i32* turns) {
+    if (clicks) *clicks = 0u;
+    if (turns) for (u32 i=0;i<4u;++i) turns[i]=0;
+    const ControlMachine* owner = holder(track);
+    if (!morph_owns_m1(owner,track)) { morph_events.clear(); return; }
+    morph_events.take(clicks,turns);
 }
 
 // 8d53d2a0: the name of the aux LFO's engine destination `slot` (0..3, the
@@ -652,6 +703,7 @@ void aux_forget() {
 // companion and synth_controls.cpp, a shared unit, reach this service through
 // these pointers only.
 void sdk_aux_startup() {
+    morph_events.clear();
     sdk_aux = AuxService{aux_engine, aux_tick, aux_kept, aux_restore, aux_forget};
     sdk_aux_engine = aux_engine;
     sdk_aux_owns_page = owns_page;

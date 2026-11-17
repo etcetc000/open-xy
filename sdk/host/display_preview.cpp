@@ -31,3 +31,9 @@ opxy::u32 opxy_display_valid() { return opxy::binding::display_valid(&frame); }
 opxy::draw::SampleOverview* opxy_display_sample() { return &sample; }
 opxy::draw::ShiftRow* opxy_display_shift() { return &shift_row; }
 }
+
+// The standalone display preview has no captured controller scene.
+#include <opxy/morph_hud_snapshot.hpp>
+extern "C" bool sdk_morph_hud_snapshot_read(opxy::u32, morphcapture::hud::Snapshot*) {
+    return false;
+}
