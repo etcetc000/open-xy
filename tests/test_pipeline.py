@@ -100,14 +100,14 @@ class Services(unittest.TestCase):
                                    if m is None and not step.startswith('extension:')]
         # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
         # sends, a padMix kit's step locks or a synth's Shift row, and no extension a
-        # Drumline page: those services stay off.
+        # Drumline page or Sample Studio: those services stay off.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
                                           ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks',
-                                           'drumline', 'synth_shift')])
+                                           'drumline', 'synth_shift', 'sample_studio')])
         self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks'})
         self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
-        self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
+        self.assertEqual(active_services(profile, ['master_filter']), {'master_filter', 'master_bus'})   # the sites it shares with Sample Studio
         # A drumline_page extension uses the drum hooks it extends and its own.
         self.assertEqual(active_services(profile, ['synth', 'drumline_page']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'drumline'})
@@ -116,7 +116,8 @@ class Services(unittest.TestCase):
         self.assertNotIn('drumline_page', native.service_users(machines))
         self.assertIn('drumline_page', native.service_users(paged))
         self.assertEqual(steps(paged), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
-                                        ('control', 'aux', 'players', 'master_filter', 'synth_shift')])
+                                        ('control', 'aux', 'players', 'master_filter', 'synth_shift',
+                                         'sample_studio')])
         self.assertEqual(native.subset(paged, paged[:1]).extensions, (page,))
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])

@@ -9,6 +9,7 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -1350,3 +1351,40 @@ def main(argv=None, command=None):
         if created and args.out.exists():
             shutil.rmtree(args.out)
         return 1
+
+
+# --- Sample Studio (docs/sample-studio.md) --------------------------------------
+# An extension's editor in stock's library and its player on the audio board, linked when
+# an extension declares "sample_studio" (tooling/extensions.py). The SDK's units take the
+# library controller's methods and the browser screen's frame by entry branches (profile
+# service sample_studio), the master bus and the per-key send mixer (services master_bus,
+# drum_sends), and serve the editor and player (opxy/sample_studio.hpp); the extension's
+# artwork is installed as content/display/sample_studio.svg.
+def sample_studio_asked(machines):
+    return any(e.sample_studio for e in extensions_of(machines))
+
+
+SAMPLE_STUDIO_UNITS = ('sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
+SDK_UNITS = SDK_UNITS + SAMPLE_STUDIO_UNITS
+UNIT_SERVICES.update(dict.fromkeys(SAMPLE_STUDIO_UNITS, 'sample_studio'))
+SAMPLE_STUDIO_ASSET = 'content/display/sample_studio.svg'
+_service_users_without_sample_studio = service_users
+_prepare_assets_without_sample_studio = prepare_assets
+
+
+def service_users(machines):
+    users = _service_users_without_sample_studio(machines)
+    if not sample_studio_asked(machines):
+        return users
+    require('sample' in users or 'drum' in users or 'drumline_page' in users,
+            'Sample Studio needs a sample-family machine in the build (the samples service)')
+    return users + ['sampleStudio']
+
+
+def prepare_assets(catalog, profile, machines):
+    outputs = _prepare_assets_without_sample_studio(catalog, profile, machines)
+    if sample_studio_asked(machines):
+        require(SAMPLE_STUDIO_ASSET not in outputs, 'Display asset collision: ' + SAMPLE_STUDIO_ASSET)
+        studio = next(e for e in extensions_of(machines) if e.sample_studio)
+        outputs[SAMPLE_STUDIO_ASSET] = read(studio.root / extensions.SAMPLE_STUDIO_ARTWORK)
+    return outputs

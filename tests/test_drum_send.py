@@ -240,7 +240,8 @@ class DrumSend(unittest.TestCase):
 
     def test_a_pad_mix_kit_links_the_mixer_hooks_and_a_plain_kit_does_not(self):
         services = PROFILE['services']
-        self.assertEqual(services['drum_sends'], ['padMix', 'drumline_page'])
+        # sampleStudio: Sample Studio silences its track's voices at the voice hook (a sample_studio extension)
+        self.assertEqual(services['drum_sends'], ['padMix', 'drumline_page', 'sampleStudio'])
         with_sends, without = kit(1), kit()
         self.assertIn('padMix', native.service_users([with_sends]))
         self.assertNotIn('padMix', native.service_users([without]))
